@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -e
+echo "→ pre-commit: running lint-staged"
+command -v npx >/dev/null 2>&1 || { echo "npx not found" >&2; exit 0; }
+npx lint-staged
