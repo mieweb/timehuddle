@@ -41,6 +41,24 @@ Features **Clock In/Out**, **Ticket Tracking**, **Timesheets**, **Team Managemen
 - **Security defaults** — rate limiting, Mongo indexes, scoped publications, input validation
 - **Strict tooling** — ESLint, Prettier, simple-import-sort, TypeScript strict mode
 
+## Screenshots
+
+<div align="center">
+
+| Login (Light)                                                                                         | Login (Dark)                                                                                        | Dashboard (Light)                                                                                           |
+| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| <img src="./public/screenshots/login-light.png" alt="Login page — light mode" width="300" />          | <img src="./public/screenshots/login-dark.png" alt="Login page — dark mode" width="300" />          | <img src="./public/screenshots/dashboard-light.png" alt="Dashboard — light mode" width="300" />             |
+
+| Dashboard (Dark)                                                                                        | Clock (Light)                                                                                         | Clock (Dark)                                                                                        |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| <img src="./public/screenshots/dashboard-dark.png" alt="Dashboard — dark mode" width="300" />           | <img src="./public/screenshots/clock-light.png" alt="Clock In/Out — light mode" width="300" />        | <img src="./public/screenshots/clock-dark.png" alt="Clock In/Out — dark mode" width="300" />        |
+
+| Tickets (Light)                                                                                         | Tickets (Dark)                                                                                        | Teams (Light)                                                                                       |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| <img src="./public/screenshots/tickets-light.png" alt="Tickets — light mode" width="300" />             | <img src="./public/screenshots/tickets-dark.png" alt="Tickets — dark mode" width="300" />             | <img src="./public/screenshots/teams-light.png" alt="Teams — light mode" width="300" />             |
+
+</div>
+
 ## Quick Start
 
 ```bash
