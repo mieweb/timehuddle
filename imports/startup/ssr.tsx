@@ -24,12 +24,12 @@ import { LoginForm } from '../ui/LoginForm';
 
 // ─── Static SEO content ───────────────────────────────────────────────────────
 
-const PAGE_TITLE = 'Meteor + React 19 + Tailwind CSS 4 Starter';
+const PAGE_TITLE = 'TimeHuddle — Team Time Tracking & Collaboration';
 
 const META_DESCRIPTION =
-  'Production-ready full-stack React starter with Meteor 3.4, React 19, ' +
-  'Tailwind CSS 4, TypeScript 5, passwordless magic link auth, real-time DDP, ' +
-  'and server-side rendering with client hydration. Clone and ship.';
+  'TimeHuddle is a real-time team time tracking and collaboration platform ' +
+  'built with Meteor 3.5, React 19, TypeScript, and Tailwind CSS 4. ' +
+  'Track clock in/out, manage tickets, and collaborate with your team.';
 
 /** Schema.org structured data — helps search engines understand the software. */
 const LD_JSON = JSON.stringify({
@@ -148,20 +148,7 @@ onPageLoad((sink) => {
   const req = (sink as unknown as { request?: { url?: unknown } }).request;
   const { pathname, query } = extractUrl(req?.url);
 
-  if (pathname === '/') {
-    // ── Landing page: full SSR ──────────────────────────────────────────────
-    try {
-      const html = renderToString(<LandingPage />);
-      sink.appendToHead(buildHeadTags());
-      sink.appendToBody(`<div id="root">${html}</div>`);
-    } catch (err) {
-      console.error('[SSR] Landing page renderToString failed:', err);
-      sink.appendToHead(
-        [`<title>${esc(PAGE_TITLE)}</title>`, `<script>${THEME_INIT_SCRIPT}</script>`].join('\n'),
-      );
-      sink.appendToBody('<div id="root"></div>');
-    }
-  } else if (pathname.startsWith('/app')) {
+  if (pathname === '/' || pathname.startsWith('/app')) {
     // ── App routes: SSR the login form ─────────────────────────────────────
     // Unauthenticated visitors see the LoginForm. Authenticated users
     // will be swapped to AppLayout after hydration on the client.

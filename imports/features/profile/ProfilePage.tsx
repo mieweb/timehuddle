@@ -9,6 +9,7 @@
  */
 import { faGlobe, faPen } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { Avatar, Button, Card, Input, Spinner, Text } from '@mieweb/ui';
 import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
 import React, { useState } from 'react';
@@ -20,7 +21,6 @@ import {
 } from '../../lib/constants';
 import { useMethod } from '../../lib/useMethod';
 import { UserProfiles } from './api';
-import { Avatar } from './Avatar';
 import { type ProfileUpdateInput } from './schema';
 
 interface ProfilePageProps {
@@ -70,31 +70,28 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
   if (!isReady) {
     return (
       <div className="flex flex-1 items-center justify-center p-10">
-        <p className="text-sm text-neutral-400 dark:text-neutral-500">Loading…</p>
+        <Spinner size="lg" label="Loading…" />
       </div>
     );
   }
 
   // Determine what to display: prefer saved displayName, then email, then fallback
   const nameText = profile?.displayName || email || 'Unknown user';
-  // Seed the avatar colour from email (stable) or userId
-  const avatarSeed = email ?? userId;
-
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
       {/* Profile header card */}
-      <div className="flex items-start gap-5 rounded-xl border border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-neutral-900">
-        <Avatar seed={avatarSeed} label={nameText} size="lg" />
+      <Card padding="lg" className="flex items-start gap-5">
+        <Avatar name={nameText} size="xl" />
 
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{nameText}</h1>
+          <Text as="h1" size="xl" weight="bold">{nameText}</Text>
 
           {isOwn && email && (
-            <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">{email}</p>
+            <Text variant="muted" size="sm" className="mt-0.5">{email}</Text>
           )}
 
           {profile?.bio && (
-            <p className="mt-2 text-sm text-neutral-700 dark:text-neutral-300">{profile.bio}</p>
+            <Text size="sm" className="mt-2">{profile.bio}</Text>
           )}
 
           {profile?.website && (
@@ -110,94 +107,75 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
           )}
 
           {isOwn && !profile?.displayName && !profile?.bio && !editing && (
-            <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
+            <Text variant="muted" size="xs" className="mt-2">
               Your profile is empty. Click edit to add a display name and bio.
-            </p>
+            </Text>
           )}
         </div>
 
         {isOwn && !editing && (
-          <button
-            type="button"
-            onClick={startEdit}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-neutral-200 text-neutral-500 transition-colors hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
-            aria-label="Edit profile"
-          >
+          <Button variant="outline" size="icon" onClick={startEdit} aria-label="Edit profile">
             <FontAwesomeIcon icon={faPen} className="text-xs" />
-          </button>
+          </Button>
         )}
-      </div>
+      </Card>
 
       {/* Edit form — own profile only */}
       {isOwn && editing && (
-        <form
-          onSubmit={save}
-          className="space-y-4 rounded-xl border border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-neutral-900"
-        >
-          <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-            Edit Profile
-          </h2>
+        <Card padding="lg">
+          <form onSubmit={save} className="space-y-4">
+            <Text as="h2" size="sm" weight="semibold">
+              Edit Profile
+            </Text>
 
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400">
-              Display name
-            </label>
-            <input
+            <Input
+              label="Display name"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               maxLength={PROFILE_DISPLAY_NAME_MAX}
               placeholder="Your name"
-              className="w-full rounded-lg border border-neutral-200 bg-transparent px-3 py-2 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-neutral-700 dark:text-neutral-100"
             />
-          </div>
 
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400">
-              Bio
-            </label>
-            <textarea
-              value={bio}
-              onChange={(e) => setBio(e.target.value)}
-              maxLength={PROFILE_BIO_MAX}
-              rows={3}
-              placeholder="A short bio…"
-              className="w-full resize-none rounded-lg border border-neutral-200 bg-transparent px-3 py-2 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-neutral-700 dark:text-neutral-100"
-            />
-          </div>
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400">
+                Bio
+              </label>
+              <textarea
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                maxLength={PROFILE_BIO_MAX}
+                rows={3}
+                placeholder="A short bio…"
+                className="w-full resize-none rounded-lg border border-neutral-200 bg-transparent px-3 py-2 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-neutral-700 dark:text-neutral-100"
+              />
+            </div>
 
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400">
-              Website
-            </label>
-            <input
+            <Input
+              label="Website"
               value={website}
               onChange={(e) => setWebsite(e.target.value)}
               maxLength={PROFILE_WEBSITE_MAX}
               placeholder="https://yoursite.com"
               type="url"
-              className="w-full rounded-lg border border-neutral-200 bg-transparent px-3 py-2 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-neutral-700 dark:text-neutral-100"
             />
-          </div>
 
-          {updateProfile.error && <p className="text-xs text-red-500">{updateProfile.error}</p>}
+            {updateProfile.error && <Text variant="destructive" size="xs">{updateProfile.error}</Text>}
 
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => setEditing(false)}
-              className="rounded-lg px-3 py-1.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={updateProfile.loading}
-              className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-blue-500 disabled:opacity-50"
-            >
-              {updateProfile.loading ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </form>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                type="submit"
+                isLoading={updateProfile.loading}
+                loadingText="Saving…"
+              >
+                Save
+              </Button>
+            </div>
+          </form>
+        </Card>
       )}
     </div>
   );

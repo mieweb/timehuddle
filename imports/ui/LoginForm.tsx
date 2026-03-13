@@ -1,11 +1,10 @@
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import {
   faBolt,
-  faChartBar,
-  faComments,
-  faInbox,
-  faList,
+  faClock,
   faShieldHalved,
+  faUsers,
+  faListCheck,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Accounts } from 'meteor/accounts-base';
@@ -13,13 +12,13 @@ import { Meteor } from 'meteor/meteor';
 import React, { useState } from 'react';
 
 import { REPO_URL } from '../lib/constants';
-import { Button } from './Button';
-import { Input } from './Input';
+import { useMethod } from '../lib/useMethod';
+import { Button, Input, Text } from '@mieweb/ui';
 import { ThemeToggle } from './ThemeToggle';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type AuthMode = 'login' | 'signup';
+type AuthMode = 'login' | 'signup' | 'reset';
 
 interface LoginFormProps {
   initialMode?: AuthMode;
@@ -30,7 +29,10 @@ interface LoginFormProps {
 function getMode(): AuthMode {
   if (typeof window === 'undefined') return 'login';
   const params = new URLSearchParams(window.location.search);
-  return params.get('mode') === 'signup' ? 'signup' : 'login';
+  const m = params.get('mode');
+  if (m === 'signup') return 'signup';
+  if (m === 'reset') return 'reset';
+  return 'login';
 }
 
 function setModeParam(mode: AuthMode) {
@@ -42,101 +44,142 @@ function setModeParam(mode: AuthMode) {
 // ─── Marketing panel bullets ──────────────────────────────────────────────────
 
 const FEATURES = [
-  { icon: faComments, text: 'Real-time chat with multi-room support' },
-  { icon: faChartBar, text: 'Live polls with instant vote updates' },
-  { icon: faList, text: 'Reactive todos with drag-to-reorder' },
-  { icon: faBolt, text: 'Instant DDP sync — no polling, no REST' },
-  { icon: faShieldHalved, text: 'Passwordless magic link authentication' },
+  { icon: faClock, text: 'Real-time clock in/out with team visibility' },
+  { icon: faListCheck, text: 'Ticket tracking with individual timers' },
+  { icon: faUsers, text: 'Team dashboards with member activity' },
+  { icon: faBolt, text: 'Instant real-time sync — no polling, no REST' },
+  { icon: faShieldHalved, text: 'Role-based access with admin controls' },
 ] as const;
 
 export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   const [mode, setMode] = useState<AuthMode>(initialMode ?? getMode());
   const [email, setEmail] = useState('');
-  const [sendingLink, setSendingLink] = useState(false);
-  const [magicLinkSent, setMagicLinkSent] = useState(false);
-  const [linkError, setLinkError] = useState<string | null>(null);
-  const [tokenValue, setTokenValue] = useState('');
-  const [tokenError, setTokenError] = useState<string | null>(null);
-  const [loggingInToken, setLoggingInToken] = useState(false);
-  const [justResent, setJustResent] = useState(false);
-  const [devInbox, setDevInbox] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [teamCode, setTeamCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+
+  const createUser = useMethod<
+    [{ email: string; password: string; firstName: string; lastName: string }],
+    string
+  >('createUserAccount');
+
+  const resetPassword = useMethod<
+    [{ email: string; teamCode: string; newPassword: string }],
+    boolean
+  >('resetPasswordWithTeamCode');
 
   const isSignup = mode === 'signup';
+  const isReset = mode === 'reset';
 
-  const toggleMode = () => {
-    const next: AuthMode = isSignup ? 'login' : 'signup';
+  const switchMode = (next: AuthMode) => {
     setMode(next);
     setModeParam(next);
+    setError(null);
+    setResetSuccess(false);
   };
 
-  const normalizedEmail = () => email.trim().toLowerCase();
-
-  const sendMagicLink = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || sendingLink) return;
-    setSendingLink(true);
-    setLinkError(null);
-    const normalized = normalizedEmail();
-    // @ts-expect-error provided by accounts-passwordless
-    Accounts.requestLoginTokenForUser(
-      { selector: normalized, userData: { email: normalized } },
-      (err: { reason?: string; message?: string } | null) => {
-        if (err) {
-          setLinkError(err.reason || err.message || 'Error sending link');
-          setSendingLink(false);
-          return;
-        }
-        setMagicLinkSent(true);
-        setSendingLink(false);
-        setJustResent(false);
-        Meteor.call(
-          'inbox.isDevMode',
-          (_e: unknown, result: boolean) => result && setDevInbox(true),
+    if (!email || !password || loading) return;
+    setLoading(true);
+    setError(null);
+    Meteor.loginWithPassword(email.trim().toLowerCase(), password, (err) => {
+      setLoading(false);
+      if (err) {
+        setError(
+          (err as Meteor.Error).reason || (err as Error).message || 'Login failed',
         );
-      },
-    );
-  };
-  const loginWithToken = () => {
-    if (!tokenValue || loggingInToken) return;
-    setLoggingInToken(true);
-    setTokenError(null);
-    const selector = email.trim().toLowerCase();
-    const token = tokenValue.trim();
-    type PwdlessFn = (
-      selector: string,
-      token: string,
-      cb: (err: { reason?: string; message?: string } | null) => void,
-    ) => void;
-    const pwdlessFn = (Meteor as unknown as { passwordlessLoginWithToken?: PwdlessFn })
-      .passwordlessLoginWithToken;
-    if (typeof pwdlessFn !== 'function') {
-      setTokenError('passwordlessLoginWithToken not available');
-      setLoggingInToken(false);
-      return;
-    }
-    pwdlessFn(selector, token, (err: { reason?: string; message?: string } | null) => {
-      if (err) setTokenError(err.reason || err.message || 'Login failed');
-      setLoggingInToken(false);
+      }
     });
   };
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loading) return;
+    setError(null);
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+    setLoading(true);
+    try {
+      await createUser.call({
+        email: email.trim().toLowerCase(),
+        password,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+      });
+      // Auto-login after signup
+      Meteor.loginWithPassword(email.trim().toLowerCase(), password, (err) => {
+        setLoading(false);
+        if (err) {
+          setError(
+            (err as Meteor.Error).reason || (err as Error).message || 'Login failed after signup',
+          );
+        }
+      });
+    } catch (err: unknown) {
+      setLoading(false);
+      setError(
+        (err as Meteor.Error)?.reason || (err as Error)?.message || 'Signup failed',
+      );
+    }
+  };
+
+  const handleReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loading) return;
+    setError(null);
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+    setLoading(true);
+    try {
+      await resetPassword.call({
+        email: email.trim().toLowerCase(),
+        teamCode: teamCode.trim(),
+        newPassword: password,
+      });
+      setResetSuccess(true);
+      setLoading(false);
+    } catch (err: unknown) {
+      setLoading(false);
+      setError(
+        (err as Meteor.Error)?.reason || (err as Error)?.message || 'Password reset failed',
+      );
+    }
+  };
+
+  const onSubmit = isReset ? handleReset : isSignup ? handleSignup : handleLogin;
 
   // ── Marketing panel (left) ──────────────────────────────────────────────────
 
   const MarketingPanel = () => (
     <div className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-700 p-10 text-white md:flex md:w-1/2 lg:p-14">
-      {/* Decorative circles */}
       <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10" />
       <div className="pointer-events-none absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-white/10" />
 
       <div className="relative z-10 space-y-8">
         <div>
           <h1 className="text-3xl font-bold tracking-tight lg:text-4xl">
-            {isSignup ? 'Start building in minutes' : 'Welcome back'}
+            {isSignup
+              ? 'Start tracking in minutes'
+              : isReset
+                ? 'Reset your password'
+                : 'Welcome back'}
           </h1>
           <p className="mt-3 max-w-sm text-base leading-relaxed text-blue-100 lg:text-lg">
             {isSignup
-              ? 'Create your free account and explore real-time chat, live polls, and reactive todos — all powered by Meteor DDP.'
-              : 'Sign in to pick up right where you left off. Your data syncs in real-time across every device.'}
+              ? 'Create your account and start tracking time with your team — real-time collaboration built in.'
+              : isReset
+                ? 'Use your team code to securely reset your password.'
+                : 'Sign in to pick up where you left off. Your data syncs in real-time.'}
           </p>
         </div>
 
@@ -154,11 +197,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
 
       <div className="relative z-10 mt-8 flex items-center gap-3 border-t border-white/20 pt-6">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/20 text-sm font-bold">
-          M
+          TH
         </div>
         <div>
-          <p className="text-sm font-semibold">Meteor 3.5 + React 19</p>
-          <p className="text-xs text-blue-200">Tailwind CSS 4 · TypeScript 5 · Node 22</p>
+          <p className="text-sm font-semibold">TimeHuddle</p>
+          <p className="text-xs text-blue-200">Real-time Team Collaboration</p>
         </div>
       </div>
     </div>
@@ -171,7 +214,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       <MarketingPanel />
 
       <div className="relative flex w-full flex-col items-center justify-center px-6 py-12 md:w-1/2 md:px-12 lg:px-20">
-        {/* Top bar — GitHub + theme toggle */}
+        {/* Top bar */}
         <div className="absolute right-4 top-4 flex items-center gap-2">
           <a
             href={REPO_URL}
@@ -189,156 +232,163 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
           {/* Mobile-only branding */}
           <div className="mb-8 md:hidden">
             <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50">
-              Todo Sample App
+              TimeHuddle
             </h1>
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-              Real-time Meteor + React demo
+              Team Time Tracking & Collaboration
             </p>
           </div>
 
           {/* Heading */}
           <div className="mb-6 space-y-1">
             <h2 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50">
-              {isSignup ? 'Create your account' : 'Sign in to your account'}
+              {isSignup
+                ? 'Create your account'
+                : isReset
+                  ? 'Reset your password'
+                  : 'Sign in to your account'}
             </h2>
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
               {isSignup
-                ? 'Enter your email to get started — no password needed'
-                : 'Enter your email to receive a magic sign-in link'}
+                ? 'Enter your details to get started'
+                : isReset
+                  ? 'Use your team code to verify your identity'
+                  : 'Enter your email and password'}
             </p>
           </div>
 
           {/* Form */}
-          <form onSubmit={sendMagicLink} noValidate className="space-y-5" aria-live="polite">
-            {magicLinkSent ? (
+          <form onSubmit={onSubmit} noValidate className="space-y-4" aria-live="polite">
+            {resetSuccess ? (
               <div className="space-y-4" role="status">
-                <div className="rounded-md border border-neutral-200 bg-neutral-50/60 p-3 text-sm dark:border-neutral-600 dark:bg-neutral-800/60">
-                  <p className="leading-relaxed">
-                    We sent a {isSignup ? 'sign-up' : 'sign-in'} link to{' '}
-                    <strong>{normalizedEmail()}</strong>. Open it on this device or enter the
-                    one-time code below.
+                <div className="rounded-md border border-green-200 bg-green-50/60 p-3 text-sm dark:border-green-700 dark:bg-green-900/30">
+                  <p className="leading-relaxed text-green-800 dark:text-green-200">
+                    Password reset successfully! You can now sign in with your new password.
                   </p>
                 </div>
-                {devInbox && (
-                  <a
-                    href={`/inbox?email=${encodeURIComponent(normalizedEmail())}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-3 rounded-lg border border-blue-300 bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-3 text-sm shadow-sm transition-all hover:shadow-md hover:from-blue-100 hover:to-indigo-100 dark:border-blue-700 dark:from-blue-900/40 dark:to-indigo-900/40 dark:hover:from-blue-900/60 dark:hover:to-indigo-900/60"
-                  >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white shadow-sm">
-                      <FontAwesomeIcon icon={faInbox} />
-                    </span>
-                    <span className="flex-1">
-                      <strong className="block text-blue-900 dark:text-blue-100">
-                        Open Dev Inbox
-                      </strong>
-                      <span className="text-xs text-blue-600 dark:text-blue-400">
-                        No SMTP configured — view email for {normalizedEmail()}
-                      </span>
-                    </span>
-                    <span className="text-blue-400 dark:text-blue-500">&rarr;</span>
-                  </a>
-                )}
-                <div className="space-y-3 text-sm">
-                  <label className="block space-y-1">
-                    <span className="block text-xs font-medium text-neutral-600 dark:text-neutral-300">
-                      One-time code
-                    </span>
-                    <Input
-                      value={tokenValue}
-                      onChange={(e) => setTokenValue(e.target.value)}
-                      placeholder="123456"
-                      disabled={loggingInToken}
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      className="w-full"
-                    />
-                  </label>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      onClick={loginWithToken}
-                      disabled={!tokenValue || loggingInToken}
-                      className="flex-1 bg-blue-600 py-3 text-sm text-white hover:bg-blue-500 disabled:opacity-40 md:text-base"
-                    >
-                      {loggingInToken ? 'Signing in…' : isSignup ? 'Create account' : 'Sign in'}
-                    </Button>
-                    <Button
-                      type="button"
-                      disabled={sendingLink}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        if (sendingLink) return;
-                        setJustResent(true);
-                        sendMagicLink(e);
-                      }}
-                      className="flex-1 bg-neutral-200 py-3 text-sm text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600 md:text-base"
-                    >
-                      {sendingLink ? 'Resending…' : justResent ? 'Sent!' : 'Resend'}
-                    </Button>
-                  </div>
-                  {tokenError && (
-                    <div
-                      role="alert"
-                      className="text-xs font-medium text-red-600 dark:text-red-400"
-                    >
-                      {tokenError}
-                    </div>
-                  )}
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      setMagicLinkSent(false);
-                      setSendingLink(false);
-                      setTokenValue('');
-                      setTokenError(null);
-                    }}
-                    className="w-full bg-transparent p-0 text-xs font-medium text-blue-600 underline-offset-2 hover:underline dark:text-blue-400"
-                  >
-                    Use a different email
-                  </Button>
-                </div>
+                <Button
+                  variant="primary"
+                  fullWidth
+                  type="button"
+                  onClick={() => switchMode('login')}
+                >
+                  Go to Sign In
+                </Button>
               </div>
             ) : (
               <>
-                <label className="block space-y-1 text-sm">
-                  <span className="block text-xs font-medium text-neutral-600 dark:text-neutral-300">
-                    Email address
-                  </span>
-                  <Input
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    type="email"
-                    required
-                    autoComplete="email"
-                    inputMode="email"
-                    spellCheck={false}
-                    placeholder="you@example.com"
-                    disabled={sendingLink}
-                    className="w-full"
-                  />
-                </label>
-                {linkError && (
-                  <div role="alert" className="text-xs font-medium text-red-600 dark:text-red-400">
-                    {linkError}
+                {/* Name fields (signup only) */}
+                {isSignup && (
+                  <div className="flex gap-3">
+                    <Input
+                      label="First name"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      required
+                      autoComplete="given-name"
+                      placeholder="Jane"
+                      disabled={loading}
+                    />
+                    <Input
+                      label="Last name"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      required
+                      autoComplete="family-name"
+                      placeholder="Doe"
+                      disabled={loading}
+                    />
                   </div>
                 )}
+
+                {/* Email */}
+                <Input
+                  label="Email address"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  type="email"
+                  required
+                  autoComplete="email"
+                  inputMode="email"
+                  spellCheck={false}
+                  placeholder="you@example.com"
+                  disabled={loading}
+                />
+
+                {/* Team code (reset only) */}
+                {isReset && (
+                  <Input
+                    label="Team code"
+                    value={teamCode}
+                    onChange={(e) => setTeamCode(e.target.value)}
+                    required
+                    placeholder="ABCD1234"
+                    disabled={loading}
+                  />
+                )}
+
+                {/* Password */}
+                <Input
+                  label={isReset ? 'New password' : 'Password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  type="password"
+                  required
+                  autoComplete={isSignup || isReset ? 'new-password' : 'current-password'}
+                  placeholder="••••••••"
+                  disabled={loading}
+                />
+
+                {/* Confirm password (signup + reset) */}
+                {(isSignup || isReset) && (
+                  <Input
+                    label="Confirm password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    type="password"
+                    required
+                    autoComplete="new-password"
+                    placeholder="••••••••"
+                    disabled={loading}
+                  />
+                )}
+
+                {error && (
+                  <Text variant="destructive" size="xs" weight="medium" as="div" role="alert">
+                    {error}
+                  </Text>
+                )}
+
                 <Button
+                  variant="primary"
+                  fullWidth
                   type="submit"
-                  disabled={!email || sendingLink}
-                  className="w-full bg-blue-600 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-500 disabled:opacity-40"
+                  disabled={loading}
+                  isLoading={loading}
+                  loadingText="Please wait…"
                 >
-                  {sendingLink ? 'Sending…' : isSignup ? 'Get started' : 'Send magic link'}
-                </Button>
-                <p className="text-center text-xs text-neutral-500 dark:text-neutral-400">
                   {isSignup
-                    ? "We'll email you a secure link to create your account. No password needed."
-                    : "We'll email you a secure one-time sign-in link. No password to remember."}
-                </p>
+                    ? 'Create account'
+                    : isReset
+                      ? 'Reset password'
+                      : 'Sign in'}
+                </Button>
               </>
             )}
           </form>
+
+          {/* Forgot password (login mode) */}
+          {mode === 'login' && (
+            <div className="mt-3 text-center">
+              <button
+                type="button"
+                onClick={() => switchMode('reset')}
+                className="text-xs text-neutral-500 hover:underline dark:text-neutral-400"
+              >
+                Forgot your password?
+              </button>
+            </div>
+          )}
 
           {/* Divider */}
           <div className="my-6 flex items-center gap-3">
@@ -347,14 +397,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
             <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
           </div>
 
-          {/* Mode toggle CTA */}
+          {/* Mode toggle */}
           <p className="text-center text-sm text-neutral-600 dark:text-neutral-400">
             {isSignup ? (
               <>
                 Already have an account?{' '}
                 <button
                   type="button"
-                  onClick={toggleMode}
+                  onClick={() => switchMode('login')}
                   className="font-semibold text-blue-600 hover:underline dark:text-blue-400"
                 >
                   Sign in
@@ -365,7 +415,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                 Don&apos;t have an account?{' '}
                 <button
                   type="button"
-                  onClick={toggleMode}
+                  onClick={() => switchMode('signup')}
                   className="font-semibold text-blue-600 hover:underline dark:text-blue-400"
                 >
                   Sign up

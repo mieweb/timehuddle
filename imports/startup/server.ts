@@ -4,10 +4,11 @@ import { Meteor } from 'meteor/meteor';
 
 import { DevMails, extractEmailAddress } from '../features/inbox/api';
 
-// Configure passwordless login (magic link) via email
-// Basic sample configuration – in production set MAIL_URL env.
+// Configure email/password accounts
 Accounts.config({
-  loginExpirationInDays: 30,
+  forbidClientAccountCreation: false,
+  sendVerificationEmail: false,
+  loginExpirationInDays: 90,
 });
 
 // ── Dev inbox: capture emails when MAIL_URL is not configured ─────────────────
@@ -46,5 +47,8 @@ if (!process.env.MAIL_URL) {
 // Publish minimal user fields for currently logged in user
 Meteor.publish(null, function () {
   if (!this.userId) return this.ready();
-  return Meteor.users.find({ _id: this.userId }, { fields: { emails: 1, createdAt: 1 } });
+  return Meteor.users.find(
+    { _id: this.userId },
+    { fields: { emails: 1, createdAt: 1, profile: 1 } },
+  );
 });

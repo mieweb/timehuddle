@@ -14,11 +14,15 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
-import { ChatApp } from '../features/chat/ChatApp';
-import { PollsApp } from '../features/polls/PollsApp';
+import { ClockPage } from '../features/clock/ClockPage';
+import { TimesheetPage } from '../features/clock/TimesheetPage';
+import { DashboardPage } from '../features/dashboard/DashboardPage';
+import { MessagesPage } from '../features/messages/MessagesPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
-import { TodosApp } from '../features/todos/TodosApp';
+import { TeamsPage } from '../features/teams/TeamsPage';
+import { TicketsPage } from '../features/tickets/TicketsPage';
 import { SIDEBAR_KEY } from '../lib/constants';
+import { TeamProvider } from '../lib/TeamContext';
 import { AppHeader } from './AppHeader';
 import { RouterContext } from './router';
 import { SettingsPage } from './SettingsPage';
@@ -38,16 +42,18 @@ interface RouteConfig {
 }
 
 const ROUTES: Record<string, RouteConfig> = {
-  // Feature routes — to remove a feature, delete its folder and remove its entry here
-  '/app/todos': { title: 'Todos', component: TodosApp },
-  '/app/chat': { title: 'Chat', component: ChatApp },
-  '/app/polls': { title: 'Polls', component: PollsApp },
+  '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
+  '/app/clock': { title: 'Clock In/Out', component: ClockPage },
+  '/app/tickets': { title: 'Tickets', component: TicketsPage },
+  '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
+  '/app/teams': { title: 'Teams', component: TeamsPage },
+  '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
 };
 
 function match(pathname: string): RouteConfig | null {
   if (pathname.startsWith('/app/profile/')) return null; // handled separately
-  return ROUTES[pathname] ?? ROUTES['/app/todos'];
+  return ROUTES[pathname] ?? ROUTES['/app/dashboard'];
 }
 
 // ─── Context ─────────────────────────────────────────────────────────────────
@@ -75,12 +81,12 @@ export const useSidebar = () => useContext(SidebarContext);
 export const AppLayout: React.FC = () => {
   // ── Routing ──
   // Normalize legacy /app root to /app/todos so the sidebar item is always active
-  const normalizePath = (p: string) => (p === '/app' ? '/app/todos' : p);
+  const normalizePath = (p: string) => (p === '/app' ? '/app/dashboard' : p);
 
   const [pathname, setPathname] = useState(() => {
-    if (typeof window === 'undefined') return '/app/todos';
+    if (typeof window === 'undefined') return '/app/dashboard';
     const p = window.location.pathname;
-    if (p === '/app') window.history.replaceState(null, '', '/app/todos');
+    if (p === '/app') window.history.replaceState(null, '', '/app/dashboard');
     return normalizePath(p);
   });
 
@@ -132,34 +138,36 @@ export const AppLayout: React.FC = () => {
 
   return (
     <RouterContext.Provider value={{ pathname, navigate }}>
-      <SidebarContext.Provider
-        value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
-      >
-        <div className="flex h-screen overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-          {/* Mobile backdrop — tap to close drawer */}
-          {isMobileOpen && (
-            <div
-              className="fixed inset-0 z-20 bg-black/50 backdrop-blur-sm md:hidden"
-              onClick={closeMobile}
-              aria-hidden
-            />
-          )}
+      <TeamProvider>
+        <SidebarContext.Provider
+          value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+        >
+          <div className="flex h-screen overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+            {/* Mobile backdrop — tap to close drawer */}
+            {isMobileOpen && (
+              <div
+                className="fixed inset-0 z-20 bg-black/50 backdrop-blur-sm md:hidden"
+                onClick={closeMobile}
+                aria-hidden
+              />
+            )}
 
-          <Sidebar />
+            <Sidebar />
 
-          {/* Content column */}
-          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <AppHeader title={pageTitle} />
-            <main className="flex-1 overflow-auto">
-              {profileUserId ? (
-                <ProfilePage userId={profileUserId} />
-              ) : (
-                route && React.createElement(route.component)
-              )}
-            </main>
+            {/* Content column */}
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+              <AppHeader title={pageTitle} />
+              <main className="flex-1 overflow-auto">
+                {profileUserId ? (
+                  <ProfilePage userId={profileUserId} />
+                ) : (
+                  route && React.createElement(route.component)
+                )}
+              </main>
+            </div>
           </div>
-        </div>
-      </SidebarContext.Provider>
+        </SidebarContext.Provider>
+      </TeamProvider>
     </RouterContext.Provider>
   );
 };

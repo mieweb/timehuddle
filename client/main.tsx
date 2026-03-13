@@ -64,10 +64,9 @@ Meteor.startup(() => {
   if (!el) return;
 
   if (window.location.pathname === '/') {
-    // Hydrate the server-rendered landing page.
-    // React attaches listeners without discarding the server HTML,
-    // giving instant first contentful paint and zero layout shift.
-    hydrateRoot(el, <LandingPageWithRedirect />);
+    // Root redirects to /app (login or dashboard depending on auth state).
+    window.location.replace('/app');
+    return;
   } else if (window.location.pathname === '/inbox') {
     // Dev inbox — no auth required, no SSR to hydrate.
     createRoot(el).render(<InboxPage />);

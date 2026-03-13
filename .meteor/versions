@@ -1,5 +1,5 @@
 accounts-base@3.2.1-beta350.4
-accounts-passwordless@3.1.0
+accounts-password@3.2.3-beta350.4
 allow-deny@2.1.0
 autoupdate@2.0.1
 babel-compiler@7.13.0

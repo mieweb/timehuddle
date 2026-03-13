@@ -2,10 +2,10 @@
  * SettingsPage — User & application settings.
  *
  * Sections:
- *   • Profile       — email (read-only for passwordless accounts)
- *   • Appearance    — theme toggle + colour scheme preference
- *   • Account       — danger zone: sign out
- *   • About         — stack versions, repo link
+ *   • Profile       — name (editable) + email (read-only)
+ *   • Appearance    — theme toggle
+ *   • Account       — sign out
+ *   • About         — stack versions
  */
 import {
   faCircleUser,
@@ -17,11 +17,24 @@ import {
   faSun,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Input,
+  Select,
+  Text,
+} from '@mieweb/ui';
 import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 
 import { REPO_URL } from '../lib/constants';
+import { useBrand, BRANDS } from '../lib/useBrand';
+import { useMethod } from '../lib/useMethod';
 import { useTheme } from '../lib/useTheme';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
@@ -32,20 +45,22 @@ const Section: React.FC<{
   description?: string;
   children: React.ReactNode;
 }> = ({ icon, title, description, children }) => (
-  <section className="rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-    <div className="flex items-start gap-3 border-b border-neutral-100 px-5 py-4 dark:border-neutral-800">
+  <Card padding="none">
+    <CardHeader className="flex items-start gap-3 px-5 py-4">
       <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
         <FontAwesomeIcon icon={icon} className="text-sm" />
       </div>
       <div>
-        <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{title}</h2>
+        <CardTitle className="text-sm">{title}</CardTitle>
         {description && (
-          <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{description}</p>
+          <Text variant="muted" size="xs" className="mt-0.5">{description}</Text>
         )}
       </div>
-    </div>
-    <div className="divide-y divide-neutral-100 dark:divide-neutral-800">{children}</div>
-  </section>
+    </CardHeader>
+    <CardContent className="divide-y divide-neutral-100 p-0 dark:divide-neutral-800">
+      {children}
+    </CardContent>
+  </Card>
 );
 
 const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({
@@ -55,17 +70,11 @@ const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode }>
 }) => (
   <div className="flex items-center justify-between gap-4 px-5 py-3.5">
     <div className="min-w-0">
-      <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{label}</p>
-      {hint && <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">{hint}</p>}
+      <Text size="sm" weight="medium">{label}</Text>
+      {hint && <Text variant="muted" size="xs" className="mt-0.5">{hint}</Text>}
     </div>
     <div className="shrink-0">{children}</div>
   </div>
-);
-
-const Badge: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <span className="rounded-md bg-neutral-100 px-2 py-0.5 font-mono text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-    {children}
-  </span>
 );
 
 // ─── Theme selector ───────────────────────────────────────────────────────────
@@ -81,25 +90,41 @@ const ThemeSelector: React.FC = () => {
   return (
     <div role="radiogroup" aria-label="Colour theme" className="flex gap-2">
       {options.map(({ value, icon, label }) => (
-        <button
+        <Button
           key={value}
-          type="button"
-          role="radio"
-          aria-checked={theme === value}
+          variant={theme === value ? 'primary' : 'outline'}
+          size="sm"
+          leftIcon={<FontAwesomeIcon icon={icon} className="text-xs" />}
           onClick={() => setTheme(value)}
-          className={[
-            'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors',
-            'focus:outline-none focus:ring-2 focus:ring-blue-500/40',
-            theme === value
-              ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-400'
-              : 'border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800',
-          ].join(' ')}
+          aria-checked={theme === value}
         >
-          <FontAwesomeIcon icon={icon} className="text-xs" />
           {label}
-        </button>
+        </Button>
       ))}
     </div>
+  );
+};
+
+// ─── Brand selector ──────────────────────────────────────────────────────────
+
+const brandOptions = BRANDS.map((b) => ({
+  value: b.id,
+  label: `${b.emoji} ${b.label}`,
+}));
+
+const BrandSelector: React.FC = () => {
+  const { brand, setBrand } = useBrand();
+
+  return (
+    <Select
+      label="Brand theme"
+      hideLabel
+      size="sm"
+      value={brand}
+      options={brandOptions}
+      onValueChange={(v) => setBrand(v as typeof brand)}
+      aria-label="Switch between brand themes"
+    />
   );
 };
 
@@ -107,8 +132,19 @@ const ThemeSelector: React.FC = () => {
 
 export const SettingsPage: React.FC = () => {
   const user = useTracker(() => Meteor.user());
-  const email: string | undefined =
-    user?.emails?.[0]?.address ?? (user?.profile as { email?: string } | undefined)?.email;
+  const profile = user?.profile as { firstName?: string; lastName?: string; email?: string } | undefined;
+  const email: string | undefined = user?.emails?.[0]?.address ?? profile?.email;
+
+  const [firstName, setFirstName] = useState(profile?.firstName ?? '');
+  const [lastName, setLastName] = useState(profile?.lastName ?? '');
+  const [saved, setSaved] = useState(false);
+  const updateProfile = useMethod<[{ firstName: string; lastName: string }]>('updateUserProfile');
+
+  const handleSaveProfile = useCallback(async () => {
+    await updateProfile.call({ firstName: firstName.trim(), lastName: lastName.trim() });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }, [firstName, lastName, updateProfile]);
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 px-4 py-8">
@@ -116,16 +152,41 @@ export const SettingsPage: React.FC = () => {
       <Section
         icon={faCircleUser}
         title="Profile"
-        description="Your account information. Email is managed by the passwordless auth system."
+        description="Your account information."
       >
-        <Row label="Email address" hint="Used for magic-link sign-in">
-          <span className="rounded-md bg-neutral-100 px-3 py-1.5 text-sm text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
-            {email ?? '—'}
-          </span>
+        <Row label="First name">
+          <Input
+            label="First name"
+            hideLabel
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+            size="sm"
+          />
         </Row>
-        <Row label="User ID" hint="Internal Meteor user identifier">
-          <Badge>{user?._id ?? '—'}</Badge>
+        <Row label="Last name">
+          <Input
+            label="Last name"
+            hideLabel
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+            size="sm"
+          />
         </Row>
+        <Row label="Email address" hint="Read-only">
+          <Badge variant="secondary">{email ?? '—'}</Badge>
+        </Row>
+        <div className="flex items-center gap-3 px-5 py-3">
+          <Button
+            variant="primary"
+            onClick={handleSaveProfile}
+            isLoading={updateProfile.loading}
+            loadingText="Saving…"
+          >
+            Save Profile
+          </Button>
+          {saved && <Text variant="success" size="xs">Saved!</Text>}
+          {updateProfile.error && <Text variant="destructive" size="xs">{updateProfile.error}</Text>}
+        </div>
       </Section>
 
       {/* Appearance */}
@@ -134,6 +195,9 @@ export const SettingsPage: React.FC = () => {
         title="Appearance"
         description="Control how the application looks on this device."
       >
+        <Row label="Brand theme" hint="Switch between brand themes">
+          <BrandSelector />
+        </Row>
         <Row label="Colour theme" hint="Persisted in localStorage for this browser">
           <ThemeSelector />
         </Row>
@@ -142,14 +206,14 @@ export const SettingsPage: React.FC = () => {
       {/* Account */}
       <Section icon={faGear} title="Account">
         <Row label="Sign out" hint="You will be returned to the login screen">
-          <button
-            type="button"
+          <Button
+            variant="danger"
+            size="sm"
+            leftIcon={<FontAwesomeIcon icon={faRightFromBracket} className="text-xs" />}
             onClick={() => Meteor.logout()}
-            className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-500/40 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-400 dark:hover:bg-red-950/50"
           >
-            <FontAwesomeIcon icon={faRightFromBracket} className="text-xs" />
             Sign out
-          </button>
+          </Button>
         </Row>
       </Section>
 
@@ -157,15 +221,15 @@ export const SettingsPage: React.FC = () => {
       <Section icon={faInfo} title="About" description="Stack versions for this application.">
         {(
           [
-            ['Meteor', '3.4'],
+            ['Meteor', '3.5'],
             ['React', '19'],
             ['Tailwind CSS', '4'],
-            ['TypeScript', '5'],
+            ['TypeScript', '5.9'],
             ['Node.js', '22'],
           ] as const
         ).map(([name, version]) => (
           <Row key={name} label={name}>
-            <Badge>{version}</Badge>
+            <Badge variant="outline">{version}</Badge>
           </Row>
         ))}
         <Row label="Source code">

@@ -6,6 +6,7 @@
  */
 import { faBars } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { Button, Text } from '@mieweb/ui';
 import React from 'react';
 
 import { useSidebar } from './AppLayout';
@@ -24,19 +25,20 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ title }) => {
       {/* ── Left ── */}
       <div className="flex items-center gap-3">
         {/* Mobile hamburger */}
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={openMobile}
           aria-label="Open navigation"
-          className="flex h-9 w-9 items-center justify-center rounded-lg text-neutral-500 transition-colors hover:bg-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 md:hidden dark:hover:bg-neutral-800"
+          className="md:hidden"
         >
           <FontAwesomeIcon icon={faBars} />
-        </button>
+        </Button>
 
         {/* Page title */}
-        <h1 className="text-base font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+        <Text as="h1" size="base" weight="semibold" className="tracking-tight">
           {title}
-        </h1>
+        </Text>
       </div>
 
       {/* ── Right ── */}

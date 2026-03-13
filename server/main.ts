@@ -4,10 +4,12 @@ import '../imports/startup/ssr'; // SSR: onPageLoad renders landing page & injec
 // ─── Features ─────────────────────────────────────────────────────────────────
 // Each feature is self-contained: remove an import + its AppLayout route entry
 // to fully disable that feature.
-import '../imports/features/todos/api';
-import '../imports/features/chat/api';
-import '../imports/features/polls/api';
+import '../imports/features/auth/api';
 import '../imports/features/profile/api';
 import '../imports/features/inbox/api';
+import '../imports/features/teams/api';
+import '../imports/features/tickets/api';
+import '../imports/features/clock/api';
+import '../imports/features/messages/api';
 
-console.log('Server startup - Meteor Starter');
+console.log('Server startup - TimeHuddle');

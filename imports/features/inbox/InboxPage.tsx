@@ -13,8 +13,7 @@ import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
 import React, { useState } from 'react';
 
-import { Button } from '../../ui/Button';
-import { Input } from '../../ui/Input';
+import { Button, Input, Spinner, Text } from '@mieweb/ui';
 import { ThemeToggle } from '../../ui/ThemeToggle';
 import { type DevMailDoc, DevMails } from './api';
 
@@ -178,16 +177,17 @@ export const InboxPage: React.FC<InboxPageProps> = ({ initialEmail }) => {
         {/* Email lookup form */}
         <form onSubmit={handleLookup} className="mb-6 flex gap-2">
           <Input
+            label="Email"
+            hideLabel
             type="email"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="Enter email to check inbox…"
-            className="flex-1"
           />
           <Button
+            variant="primary"
             type="submit"
             disabled={!inputValue.trim()}
-            className="shrink-0 bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500 disabled:opacity-40"
           >
             Check
           </Button>
@@ -202,11 +202,12 @@ export const InboxPage: React.FC<InboxPageProps> = ({ initialEmail }) => {
               </p>
               {messages.length > 0 && (
                 <Button
-                  type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={clearInbox}
-                  className="text-xs text-red-600 hover:text-red-500 dark:text-red-400"
+                  className="text-red-600 dark:text-red-400"
+                  leftIcon={<FontAwesomeIcon icon={faTrash} />}
                 >
-                  <FontAwesomeIcon icon={faTrash} className="mr-1" />
                   Clear inbox
                 </Button>
               )}

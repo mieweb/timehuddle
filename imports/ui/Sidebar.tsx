@@ -11,14 +11,18 @@
  */
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import {
-  faChartBar,
   faChevronLeft,
   faChevronRight,
-  faComments,
+  faClock,
+  faEnvelope,
+  faGauge,
   faGear,
-  faList,
+  faListCheck,
+  faTable,
+  faUsers,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { Button } from '@mieweb/ui';
 import { AnimatePresence, motion } from 'motion/react';
 import React from 'react';
 
@@ -29,7 +33,7 @@ import { useRouter } from './router';
 // ─── Nav data ─────────────────────────────────────────────────────────────────
 
 interface NavItem {
-  icon: typeof faList;
+  icon: typeof faGear;
   label: string;
   href: string;
 }
@@ -41,11 +45,19 @@ interface NavSection {
 
 const NAV: NavSection[] = [
   {
-    heading: 'Apps',
+    heading: 'Workspace',
     items: [
-      { icon: faList, label: 'Todos', href: '/app/todos' },
-      { icon: faComments, label: 'Chat', href: '/app/chat' },
-      { icon: faChartBar, label: 'Polls', href: '/app/polls' },
+      { icon: faGauge, label: 'Dashboard', href: '/app/dashboard' },
+      { icon: faClock, label: 'Clock In/Out', href: '/app/clock' },
+      { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
+      { icon: faTable, label: 'Timesheet', href: '/app/timesheet' },
+    ],
+  },
+  {
+    heading: 'Manage',
+    items: [
+      { icon: faUsers, label: 'Teams', href: '/app/teams' },
+      { icon: faEnvelope, label: 'Messages', href: '/app/messages' },
     ],
   },
   {
@@ -127,7 +139,7 @@ const SidebarContent: React.FC = () => {
         >
           {/* Icon mark */}
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 text-sm font-bold text-white shadow-sm">
-            M
+            TH
           </div>
           {/* Wordmark */}
           <AnimatePresence initial={false}>
@@ -141,10 +153,10 @@ const SidebarContent: React.FC = () => {
                 className="overflow-hidden"
               >
                 <p className="whitespace-nowrap text-sm font-semibold leading-none tracking-tight text-neutral-900 dark:text-neutral-100">
-                  Meteor App
+                  TimeHuddle
                 </p>
                 <p className="mt-0.5 whitespace-nowrap text-[10px] text-neutral-400 dark:text-neutral-500">
-                  v3.4 · React 19
+                  Team Collaboration
                 </p>
               </motion.div>
             )}
@@ -277,14 +289,15 @@ export const Sidebar: React.FC = () => {
             aria-label="Navigation"
           >
             {/* Close button for a11y */}
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={closeMobile}
-              className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              className="absolute right-3 top-3"
               aria-label="Close navigation"
             >
               ✕
-            </button>
+            </Button>
             <SidebarContent />
           </motion.aside>
         )}

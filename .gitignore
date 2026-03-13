@@ -25,3 +25,4 @@ _build
 # Playwright
 /test-results/
 /playwright-report/
+.playwright-mcp/
