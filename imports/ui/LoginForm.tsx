@@ -5,11 +5,12 @@ import {
   faShieldHalved,
   faUsers,
   faListCheck,
+  faFlask,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Accounts } from 'meteor/accounts-base';
 import { Meteor } from 'meteor/meteor';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { REPO_URL } from '../lib/constants';
 import { useMethod } from '../lib/useMethod';
@@ -423,7 +424,111 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
               </>
             )}
           </p>
+
+          {/* Dev persona picker — only in development */}
+          {Meteor.isDevelopment && <DevPersonaPicker />}
         </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Dev Persona Picker ───────────────────────────────────────────────────────
+
+interface PersonaInfo {
+  key: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+  description: string;
+  email: string;
+}
+
+const DevPersonaPicker: React.FC = () => {
+  const [personas, setPersonas] = useState<PersonaInfo[]>([]);
+  const [loading, setLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    Meteor.call('dev.personas', (err: Meteor.Error | null, result: PersonaInfo[]) => {
+      if (!err && result) setPersonas(result);
+    });
+  }, []);
+
+  const loginAs = (personaKey: string) => {
+    setLoading(personaKey);
+    setError(null);
+    Meteor.call(
+      'dev.loginAs',
+      personaKey,
+      (err: Meteor.Error | null, result: { userId: string; token: string }) => {
+        if (err) {
+          setLoading(null);
+          setError(err.reason || 'Login failed');
+          return;
+        }
+        Meteor.loginWithToken(result.token, (loginErr) => {
+          setLoading(null);
+          if (loginErr) {
+            setError((loginErr as Error).message || 'Token login failed');
+          }
+        });
+      },
+    );
+  };
+
+  if (personas.length === 0) return null;
+
+  return (
+    <div className="mt-6 rounded-lg border border-amber-300/50 bg-amber-50/50 p-4 dark:border-amber-700/50 dark:bg-amber-950/30">
+      <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
+        <FontAwesomeIcon icon={faFlask} />
+        Dev Quick Login
+      </div>
+
+      {error && (
+        <p className="mb-2 text-xs text-red-600 dark:text-red-400" role="alert">
+          {error}
+        </p>
+      )}
+
+      <div className="space-y-2">
+        {personas.map((p) => (
+          <button
+            key={p.key}
+            type="button"
+            disabled={loading !== null}
+            onClick={() => loginAs(p.key)}
+            className="flex w-full items-center gap-3 rounded-md border border-neutral-200 bg-white px-3 py-2.5 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/50 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:hover:border-blue-600 dark:hover:bg-blue-950/30"
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
+              {p.firstName[0]}{p.lastName[0]}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                  {p.firstName} {p.lastName}
+                </span>
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                  p.role === 'manager'
+                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'
+                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                }`}>
+                  {p.role}
+                </span>
+              </div>
+              <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+                {p.description}
+              </p>
+            </div>
+            {loading === p.key && (
+              <svg className="h-4 w-4 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
+                <path d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor" className="opacity-75" />
+              </svg>
+            )}
+          </button>
+        ))}
       </div>
     </div>
   );
