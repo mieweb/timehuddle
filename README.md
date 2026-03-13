@@ -1,24 +1,22 @@
 <div align="center">
 
-# Meteor 3.5 + React 19 + Tailwind CSS 4 + TypeScript Starter
+# TimeHuddle — Team Time Tracking & Collaboration
 
-Modern, minimal boilerplate for building real‑time Meteor apps with React 19, Tailwind 4, and TypeScript.
+Real-time team time tracking and collaboration platform built with Meteor 3.5, React 19, Tailwind CSS 4, and TypeScript.
 
-Includes **real-time Chat**, **Live Polls**, **Reactive Todos**, and **User Profiles** as ready-to-run examples showcasing Meteor's DDP.
+Features **Clock In/Out**, **Ticket Tracking**, **Timesheets**, **Team Management**, and **Direct Messaging** — all powered by Meteor's real-time DDP protocol.
 
-▶️ Live demo: https://todo-sample.meteorapp.com
-
-| Stack       | Version              | Notes                                |
-| ----------- | -------------------- | ------------------------------------ |
-| Meteor      | 3.5-beta.4 (Node 22) | ESM, modern rspack build toolchain   |
-| React       | 19                   | Suspense / concurrent features ready |
-| TailwindCSS | 4.x                  | Oxide (Lightning CSS) engine         |
-| TypeScript  | 5.x                  | Strict mode                          |
+| Stack       | Version               | Notes                                |
+| ----------- | --------------------- | ------------------------------------ |
+| Meteor      | 3.5-beta.4 (Node 22)  | ESM, modern rspack build toolchain   |
+| React       | 19                    | Suspense / concurrent features ready |
+| TailwindCSS | 4.x                   | Oxide (Lightning CSS) engine         |
+| TypeScript  | 5.x                   | Strict mode                          |
 
 ![Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4?logo=prettier&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)
 ![Node](https://img.shields.io/badge/Node-22.x-339933?logo=node.js&logoColor=white)
-![Meteor](https://img.shields.io/badge/Meteor-3.5--beta.3-DE4F4F?logo=meteor&logoColor=white)
+![Meteor](https://img.shields.io/badge/Meteor-3.5--beta.4-DE4F4F?logo=meteor&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-4.x-38B2AC?logo=tailwind-css&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
@@ -29,35 +27,19 @@ Includes **real-time Chat**, **Live Polls**, **Reactive Todos**, and **User Prof
 
 ## Highlights
 
-- **Passwordless auth** — magic link email login (logs to console in dev)
-- **4 real-time features** — Todos, Chat, Polls, User Profiles — all using Meteor DDP
+- **Email/password auth** — account creation, login, and password reset with team code verification
+- **Clock in/out** — real-time time tracking with per-ticket timers and YouTube link attachments
+- **Ticket tracking** — create, assign, and track tickets with accumulated time
+- **Timesheets** — view and manage time entries by date range
+- **Team management** — create/join teams, invite members, role-based admin controls
+- **Direct messaging** — send messages to team members with ticket context
+- **Dashboard** — overview of today's time, weekly totals, active sessions, and team count
 - **Shared validation** — [Zod](https://zod.dev) schemas shared between server methods and client forms
 - **Typed data hooks** — `useMethod` wrapper eliminates raw `Meteor.call` from components
 - **Dark / light theme** — persisted via `localStorage`, flash-free with SSR inline script
-- **SSR + hydration** — landing page rendered server-side, hydrated on client
+- **SSR + hydration** — login page rendered server-side, hydrated on client
 - **Security defaults** — rate limiting, Mongo indexes, scoped publications, input validation
 - **Strict tooling** — ESLint, Prettier, simple-import-sort, TypeScript strict mode
-- **Testing** — Vitest with schema validation tests; CI runs lint + typecheck + tests + build
-
-## Screenshots
-
-<div align="center">
-
-| Landing (Light)                                                                                       | Landing (Dark)                                                                                      | Login                                                                                        |
-| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| <img src="./public/screenshots/landing-hero-light.png" alt="Landing page — light mode" width="300" /> | <img src="./public/screenshots/landing-hero-dark.png" alt="Landing page — dark mode" width="300" /> | <img src="./public/screenshots/login-light.png" alt="Login page — light mode" width="300" /> |
-
-| Todos                                                                                       | Chat                                                                                            | Polls                                                                                        |
-| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| <img src="./public/screenshots/todos-light.png" alt="Todos app — light mode" width="300" /> | <img src="./public/screenshots/chat-light.png" alt="Real-time chat — light mode" width="300" /> | <img src="./public/screenshots/polls-light.png" alt="Live polls — light mode" width="300" /> |
-
-| Todos (Dark)                                                                              | Chat (Dark)                                                                                   | Polls (Dark)                                                                               |
-| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| <img src="./public/screenshots/todos-dark.png" alt="Todos app — dark mode" width="300" /> | <img src="./public/screenshots/chat-dark.png" alt="Real-time chat — dark mode" width="300" /> | <img src="./public/screenshots/polls-dark.png" alt="Live polls — dark mode" width="300" /> |
-
-> **Regenerate screenshots**: `npm run screenshots` (requires the dev server running on `localhost:3000`)
-
-</div>
 
 ## Quick Start
 
@@ -66,13 +48,13 @@ Includes **real-time Chat**, **Live Polls**, **Reactive Todos**, and **User Prof
 curl https://install.meteor.com/ | sh
 
 # Clone and run
-git clone https://github.com/wreiske/meteor-react-tailwind-prettier-starter
-cd meteor-react-tailwind-prettier-starter
+git clone https://github.com/mieweb/timehuddle.git
+cd timehuddle
 npm ci --no-audit --no-fund
 meteor run
 ```
 
-Open http://localhost:3000. Magic link tokens are logged to the server console in development.
+Open http://localhost:3000 — you'll see the login page. Create an account to get started.
 
 ## Project Structure
 
@@ -83,32 +65,57 @@ client/
   styles.css                # Tailwind imports + minimal global styles
 imports/
   features/                 # Feature modules — self-contained API + UI
-    todos/
-      api.ts                # Collection, methods, publication, rate limiting
-      schema.ts             # Zod schemas + TypeScript types (isomorphic)
-      schema.test.ts        # Vitest tests for schema validation
-      TodosApp.tsx          # Feature UI
-      TodoItem.tsx
-    chat/                   # Same pattern: api.ts, schema.ts, ChatApp.tsx
-    polls/                  # Same pattern: api.ts, schema.ts, PollsApp.tsx
-    profile/                # api.ts, schema.ts, ProfilePage.tsx, Avatar.tsx
-    inbox/                  # Dev email viewer (auto-disabled in production)
+    auth/
+      api.ts                # Account creation, profile update, password reset
+      schema.ts             # Zod schemas for auth validation
+    clock/
+      api.ts                # Clock events collection, start/stop, ticket timers
+      schema.ts             # Clock event schemas
+      ClockPage.tsx          # Clock in/out UI
+      TimesheetPage.tsx      # Timesheet view
+    dashboard/
+      DashboardPage.tsx      # Main dashboard with stats overview
+    messages/
+      api.ts                # Direct messages collection and methods
+      schema.ts             # Message schemas
+      MessagesPage.tsx       # Messaging UI
+    profile/
+      api.ts                # User profile methods and publication
+      schema.ts             # Profile schemas
+      ProfilePage.tsx        # User profile page
+      UsernameBadge.tsx      # Display name component
+    teams/
+      api.ts                # Teams collection, CRUD, invites, roles
+      schema.ts             # Team schemas
+      TeamsPage.tsx          # Team management UI
+    tickets/
+      api.ts                # Tickets collection, CRUD, time tracking
+      schema.ts             # Ticket schemas
+      TicketsPage.tsx        # Ticket tracking UI
+    inbox/                   # Dev email viewer (auto-disabled in production)
   lib/
-    constants.ts            # Shared validation limits, storage keys, app URLs
-    useMethod.ts            # Typed Meteor.call wrapper hook
-    useTheme.ts             # Shared theme hook (read/apply/toggle)
+    constants.ts             # Shared validation limits, storage keys
+    TeamContext.tsx           # React context for active team selection
+    timeUtils.ts             # Time formatting utilities
+    useBrand.ts              # Branding hook
+    useMethod.ts             # Typed Meteor.call wrapper hook
+    useTheme.ts              # Shared theme hook (read/apply/toggle)
   startup/
-    client.ts               # Client startup (feature API imports)
-    server.ts               # Accounts config, dev email capture, user pub
-    ssr.tsx                  # SSR for landing page + SEO meta tags
-  ui/                       # Shared UI components
+    client.ts                # Client startup (feature API imports)
+    server.ts                # Accounts config, dev email capture, user pub
+    seed.ts                  # E2E seed data (dev only)
+    ssr.tsx                  # SSR for login page + SEO meta tags
+  ui/                        # Shared UI components
     AppLayout.tsx            # Root shell — routing, sidebar, header
-    LandingPage.tsx          # Marketing page (SSR-safe, Motion animations)
-    LoginForm.tsx            # Passwordless auth form
-    Button.tsx, Input.tsx, Card.tsx, Tooltip.tsx  # Primitives
-    ThemeToggle.tsx, Sidebar.tsx, AppHeader.tsx   # Layout components
+    LoginForm.tsx            # Email/password auth form
+    Sidebar.tsx              # Collapsible sidebar navigation
+    AppHeader.tsx            # Top bar with title, theme toggle, user menu
+    ThemeToggle.tsx           # Dark/light mode toggle
+    UserDropdown.tsx          # User menu dropdown
+    SettingsPage.tsx          # App settings
+    LandingPage.tsx           # Marketing page (not used as default route)
 server/
-  main.ts                   # Server entry — imports features + startup
+  main.ts                    # Server entry — imports features + startup
 ```
 
 ### How to Add a Feature
@@ -116,7 +123,7 @@ server/
 1. Create `imports/features/myfeature/`
 2. Add `schema.ts` — Zod schemas + TypeScript types
 3. Add `api.ts` — collection, methods, publication (import schemas)
-4. Add `MyFeatureApp.tsx` — UI component (import `useMethod` + constants)
+4. Add `MyFeaturePage.tsx` — UI component (import `useMethod` + constants)
 5. Add route in `imports/ui/AppLayout.tsx` → `ROUTES` map
 6. Add nav item in `imports/ui/Sidebar.tsx` → `NAV_SECTIONS`
 7. Import `api.ts` in `server/main.ts` and `imports/startup/client.ts`
@@ -128,18 +135,14 @@ server/
 - **Methods**: Components use `useMethod('method.name')` — never call `Meteor.call` directly
 - **Theme**: Use `useTheme()` from `imports/lib/useTheme.ts` — never access `localStorage` directly for theme
 - **Types**: Export TypeScript interfaces from `schema.ts`, re-export from `api.ts`
+- **UI Components**: Use `@mieweb/ui` for all UI primitives (Button, Input, Modal, etc.)
 
 ## Auth Flow
 
-1. User enters email → server sends magic link
-2. In development (no `MAIL_URL`), the email is captured in the **Dev Inbox** (`/inbox`)
-3. Click the link or paste the token manually
-4. User is authenticated — app redirects to `/app/todos`
-
-```bash
-# Configure SMTP for production
-MAIL_URL="smtp://user:pass@smtp.example.com:587" meteor run
-```
+1. User creates an account with email, password, first name, and last name
+2. User signs in with email and password
+3. Password reset is available via team code verification
+4. Authenticated users are redirected to `/app/dashboard`
 
 ## Commands
 
@@ -151,7 +154,6 @@ npm run typecheck             # Check TypeScript
 npm run format                # Check Prettier formatting
 npm test                      # Run Vitest tests
 npm run test:watch            # Run tests in watch mode
-npm run screenshots           # Capture screenshots with Playwright
 
 # Fixes
 npm run lint:fix              # Auto-fix lint issues
@@ -163,31 +165,64 @@ meteor build ../build --directory   # Build (5-15 min)
 
 ## Feature API Reference
 
-### Todos
+### Auth
 
-| Method                 | Args            | Description          |
-| ---------------------- | --------------- | -------------------- |
-| `todos.insert`         | `text: string`  | Create a todo        |
-| `todos.toggle`         | `id: string`    | Toggle completion    |
-| `todos.remove`         | `id: string`    | Delete one           |
-| `todos.clearCompleted` | —               | Delete all completed |
-| `todos.reorder`        | `ids: string[]` | Reorder by position  |
+| Method                    | Args                                                    | Description                        |
+| ------------------------- | ------------------------------------------------------- | ---------------------------------- |
+| `createUserAccount`       | `{ email, password, firstName, lastName }`              | Create a new user account          |
+| `updateUserProfile`       | `{ firstName, lastName }`                               | Update user profile name           |
+| `resetPasswordWithTeamCode` | `{ email, teamCode, newPassword }`                    | Reset password with team code      |
 
-### Chat
+### Clock
 
-| Method             | Args                   | Description        |
-| ------------------ | ---------------------- | ------------------ |
-| `chat.createRoom`  | `name: string`         | Create a chat room |
-| `chat.sendMessage` | `roomId, text: string` | Send a message     |
+| Method                | Args                                              | Description                      |
+| --------------------- | ------------------------------------------------- | -------------------------------- |
+| `clock.start`         | `{ teamId }`                                      | Clock in for a team              |
+| `clock.stop`          | `{ teamId, youtubeShortLink? }`                   | Clock out with optional link     |
+| `clock.addTicket`     | `{ clockEventId, ticketId, now }`                 | Start tracking a ticket          |
+| `clock.stopTicket`    | `{ clockEventId, ticketId, now }`                 | Stop tracking a ticket           |
+| `clock.updateYoutubeLink` | `{ clockEventId, youtubeShortLink }`          | Update YouTube link on entry     |
+| `clock.updateTimes`   | `{ clockEventId, startTimestamp?, endTimestamp? }` | Edit clock event times           |
+| `clock.getTimesheetData` | `{ userId, startDate, endDate }`               | Fetch timesheet data             |
 
-### Polls
+### Teams
 
-| Method         | Args                          | Description   |
-| -------------- | ----------------------------- | ------------- |
-| `polls.create` | `question, options: string[]` | Create a poll |
-| `polls.vote`   | `pollId, optionId: string`    | Cast a vote   |
-| `polls.close`  | `pollId: string`              | Close voting  |
-| `polls.remove` | `pollId: string`              | Delete a poll |
+| Method                | Args                              | Description                  |
+| --------------------- | --------------------------------- | ---------------------------- |
+| `teams.ensurePersonalWorkspace` | —                       | Create personal workspace    |
+| `teams.create`        | `{ name }`                        | Create a new team            |
+| `teams.join`          | `{ teamCode }`                    | Join a team via invite code  |
+| `teams.updateName`    | `{ teamId, newName }`             | Rename a team                |
+| `teams.delete`        | `teamId`                          | Delete a team                |
+| `teams.addAdmin`      | `{ teamId, userId }`              | Promote member to admin      |
+| `teams.removeAdmin`   | `{ teamId, userId }`              | Demote admin to member       |
+| `teams.removeMember`  | `{ teamId, userId }`              | Remove a team member         |
+| `teams.invite`        | `{ teamId, email }`               | Invite user by email         |
+| `teams.setMemberPassword` | `{ teamId, userId, newPassword }` | Set member password      |
+
+### Tickets
+
+| Method                  | Args                                                 | Description                  |
+| ----------------------- | ---------------------------------------------------- | ---------------------------- |
+| `tickets.create`        | `{ teamId, title, github?, accumulatedTime? }`       | Create a ticket              |
+| `tickets.update`        | `{ ticketId, updates }`                              | Update ticket fields         |
+| `tickets.delete`        | `ticketId`                                           | Delete a ticket              |
+| `tickets.start`         | `{ ticketId, now }`                                  | Start ticket timer           |
+| `tickets.stop`          | `{ ticketId, now }`                                  | Stop ticket timer            |
+| `tickets.batchUpdateStatus` | `{ ticketIds, status, teamId }`                  | Batch update ticket status   |
+| `tickets.assign`        | `{ ticketId, assignedToUserId }`                     | Assign ticket to user        |
+
+### Messages
+
+| Method          | Args                                           | Description          |
+| --------------- | ---------------------------------------------- | -------------------- |
+| `messages.send` | `{ teamId, toUserId, text, adminId, ticketId? }` | Send a direct message |
+
+### Profile
+
+| Method           | Args                                    | Description         |
+| ---------------- | --------------------------------------- | ------------------- |
+| `profile.update` | `{ displayName?, bio?, website? }`      | Update user profile |
 
 ## Styling & Theming
 
@@ -207,10 +242,6 @@ PORT=3000 MONGO_URL="mongodb://..." ROOT_URL="https://..." MAIL_URL="smtp://..."
 ```
 
 Add a reverse proxy (Nginx / Caddy) for TLS and compression.
-
-## Contributing
-
-PRs welcome. Keep scope tight — this is a _teachable_ baseline, not a kitchen sink.
 
 ## License
 
