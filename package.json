@@ -22,7 +22,7 @@
     "@fortawesome/free-regular-svg-icons": "^7.0.1",
     "@fortawesome/free-solid-svg-icons": "^7.0.1",
     "@fortawesome/react-fontawesome": "^3.0.2",
-    "@mieweb/ui": "file:../mie-ui",
+    "@mieweb/ui": "^0.2.4",
     "@swc/helpers": "^0.5.17",
     "meteor-node-stubs": "^1.2.24",
     "motion": "^12.34.3",
