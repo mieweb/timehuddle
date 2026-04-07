@@ -16,7 +16,13 @@ import { LoginForm } from '../imports/ui/LoginForm';
 const App: React.FC = () => {
   const user = useTracker(() => Meteor.user());
   const loggingIn = useTracker(() => Meteor.loggingIn());
-  if (loggingIn) {
+  // userId is read from localStorage synchronously — available immediately on
+  // refresh before DDP has reconnected and fetched the full user document.
+  // If userId exists but user is null, we're in the reconnect window: show a
+  // loading state instead of the login form to prevent the flash of login screen.
+  const userId = useTracker(() => Meteor.userId());
+
+  if (loggingIn || (userId && !user)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-neutral-100 dark:bg-neutral-900">
         <p className="text-sm text-neutral-600 dark:text-neutral-300">Loading…</p>
