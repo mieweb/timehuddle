@@ -32,7 +32,6 @@ import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
 import React, { useState, useCallback } from 'react';
 
-import { REPO_URL } from '../lib/constants';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useMethod } from '../lib/useMethod';
 import { useTheme } from '../lib/useTheme';
@@ -232,16 +231,7 @@ export const SettingsPage: React.FC = () => {
             <Badge variant="outline">{version}</Badge>
           </Row>
         ))}
-        <Row label="Source code">
-          <a
-            href={REPO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-blue-600 underline underline-offset-2 hover:text-blue-500 dark:text-blue-400"
-          >
-            GitHub ↗
-          </a>
-        </Row>
+
       </Section>
     </div>
   );

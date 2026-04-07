@@ -1,4 +1,3 @@
-import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import {
   faBolt,
   faClock,
@@ -12,7 +11,6 @@ import { Accounts } from 'meteor/accounts-base';
 import { Meteor } from 'meteor/meteor';
 import React, { useEffect, useState } from 'react';
 
-import { REPO_URL } from '../lib/constants';
 import { useMethod } from '../lib/useMethod';
 import { Button, Input, Text } from '@mieweb/ui';
 import { ThemeToggle } from './ThemeToggle';
@@ -217,15 +215,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       <div className="relative flex w-full flex-col items-center justify-center px-6 py-12 md:w-1/2 md:px-12 lg:px-20">
         {/* Top bar */}
         <div className="absolute right-4 top-4 flex items-center gap-2">
-          <a
-            href={REPO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="View source on GitHub"
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-neutral-300 bg-white text-neutral-600 shadow-sm transition-colors hover:bg-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
-          >
-            <FontAwesomeIcon icon={faGithub} className="text-base" />
-          </a>
           <ThemeToggle />
         </div>
 
