@@ -12,6 +12,7 @@ dist
 /.idea
 /.vscode/*
 !.vscode/extensions.json
+my-submodule/*
 
 # Build output directory
 build/
