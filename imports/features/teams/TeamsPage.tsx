@@ -52,6 +52,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useTeam } from '../../lib/TeamContext';
 import { useMethod } from '../../lib/useMethod';
 import { Teams } from './api';
+import { TeamChart } from './TeamChart';
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
 
@@ -372,6 +373,29 @@ export const TeamsPage: React.FC = () => {
                 );
               })}
             </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Chart */}
+      {selectedTeam && !selectedTeam.isPersonal && (
+        <Card padding="none">
+          <CardHeader className="w-full">
+            <CardTitle>Chart</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <TeamChart
+              teamName={selectedTeam.name}
+              members={selectedTeam.members.map((memberId) => {
+                const user = members.find((u) => u._id === memberId);
+                return {
+                  id: memberId,
+                  name: user ? getName(user) : memberId,
+                  email: user?.emails?.[0]?.address,
+                  isAdmin: selectedTeam.admins.includes(memberId),
+                };
+              })}
+            />
           </CardContent>
         </Card>
       )}
