@@ -23,6 +23,7 @@ import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
 import { SIDEBAR_KEY } from '../lib/constants';
 import { TeamProvider } from '../lib/TeamContext';
+import { useBrand } from '../lib/useBrand';
 import { AppHeader } from './AppHeader';
 import { RouterContext } from './router';
 import { SettingsPage } from './SettingsPage';
@@ -79,6 +80,8 @@ export const useSidebar = () => useContext(SidebarContext);
 // ─── AppLayout ────────────────────────────────────────────────────────────────
 
 export const AppLayout: React.FC = () => {
+  // Apply the saved brand/color theme on every mount, not just on SettingsPage
+  useBrand();
   // ── Routing ──
   // Normalize legacy /app root to /app/todos so the sidebar item is always active
   const normalizePath = (p: string) => (p === '/app' ? '/app/dashboard' : p);
