@@ -380,7 +380,7 @@ export const TeamsPage: React.FC = () => {
       {/* Chart */}
       {selectedTeam && !selectedTeam.isPersonal && (
         <Card padding="none">
-          <CardHeader className="w-full">
+          <CardHeader className="px-5 py-4">
             <CardTitle>Chart</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
