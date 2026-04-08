@@ -133,7 +133,7 @@ export const MessagesPage: React.FC = () => {
       for (const u of users) names[u.id] = u.name;
       setMemberNames(names);
     }).catch(() => {});
-  }, [selectedTeam]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedTeam]);
 
   // Send message
   const sendMessage = useMethod<

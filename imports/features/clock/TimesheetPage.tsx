@@ -135,7 +135,7 @@ export const TimesheetPage: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, [preset]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [preset]);
 
   const presets: { key: Preset; label: string }[] = [
     { key: 'today', label: 'Today' },

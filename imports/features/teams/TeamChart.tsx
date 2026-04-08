@@ -139,13 +139,12 @@ const TeamChartMount: React.FC<{ yaml: string; wrapperRef: React.RefObject<HTMLD
         instanceRef.current = null;
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 };
 
 export const TeamChart: React.FC<TeamChartProps> = ({ teamName, members }) => {
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const yaml = useMemo(() => buildYaml(teamName, members), [teamName, JSON.stringify(members)]);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
