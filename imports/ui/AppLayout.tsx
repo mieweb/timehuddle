@@ -18,6 +18,7 @@ import { ClockPage } from '../features/clock/ClockPage';
 import { TimesheetPage } from '../features/clock/TimesheetPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { MessagesPage } from '../features/messages/MessagesPage';
+import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
@@ -49,6 +50,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
   '/app/teams': { title: 'Teams', component: TeamsPage },
   '/app/messages': { title: 'Messages', component: MessagesPage },
+  '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
 };
 

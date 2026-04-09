@@ -11,5 +11,6 @@ import '../imports/features/teams/api';
 import '../imports/features/tickets/api';
 import '../imports/features/clock/api';
 import '../imports/features/messages/api';
+import '../imports/server/push';
 
 console.log('Server startup - TimeHuddle');

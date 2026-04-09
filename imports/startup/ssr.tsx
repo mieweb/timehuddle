@@ -17,7 +17,7 @@
 import { onPageLoad } from 'meteor/server-render';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
-
+import { LoginForm } from '../ui/LoginForm';
 import { REPO_URL } from '../lib/constants';
 
 // ─── Static SEO content ───────────────────────────────────────────────────────
@@ -147,24 +147,24 @@ onPageLoad((sink) => {
   const { pathname, query } = extractUrl(req?.url);
 
   if (pathname === '/' || pathname.startsWith('/app')) {
-    // ── App routes: SSR a loading state ────────────────────────────────────
-    // The server cannot know if the visitor is authenticated, so we no longer
-    // pre-render the LoginForm here. Sending LoginForm HTML caused a visible
-    // flash for authenticated users on refresh: the browser painted the form
-    // before JavaScript loaded and could swap to AppLayout.
-    //
-    // Instead we render the same loading placeholder that the client shows
-    // while Meteor's DDP connection re-establishes. Authenticated users see a
-    // seamless loading → app transition; unauthenticated users see a brief
-    // loading spinner before the LoginForm appears.
-    const loadingHtml =
-      '<div class="flex min-h-screen items-center justify-center bg-neutral-100 dark:bg-neutral-900">' +
-      '<p class="text-sm text-neutral-600 dark:text-neutral-300">Loading\u2026</p>' +
-      '</div>';
-    sink.appendToHead(
-      [`<title>${esc(PAGE_TITLE)}</title>`, `<script>${THEME_INIT_SCRIPT}</script>`].join('\n'),
-    );
-    sink.appendToBody(`<div id="root">${loadingHtml}</div>`);
+    // ── App routes: SSR the login form ─────────────────────────────────────
+    // Unauthenticated visitors see the LoginForm. Authenticated users
+    // will be swapped to AppLayout after hydration on the client.
+    const mode =
+      query.mode === 'signup' ? 'signup' : query.mode === 'reset' ? 'reset' : 'login';
+    try {
+      const html = renderToString(<LoginForm initialMode={mode} />);
+      sink.appendToHead(
+        buildHeadTags(mode === 'signup' ? '<meta name="robots" content="index,follow" />' : ''),
+      );
+      sink.appendToBody(`<div id="root">${html}</div>`);
+    } catch (err) {
+      console.error('[SSR] LoginForm renderToString failed:', err);
+      sink.appendToHead(
+        [`<title>${esc(PAGE_TITLE)}</title>`, `<script>${THEME_INIT_SCRIPT}</script>`].join('\n'),
+      );
+      sink.appendToBody('<div id="root"></div>');
+    }
   } else {
     // ── Unknown routes: plain shell ────────────────────────────────────────
     sink.appendToHead(
