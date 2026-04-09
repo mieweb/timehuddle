@@ -2,6 +2,7 @@ import { DDPRateLimiter } from 'meteor/ddp-rate-limiter';
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 
+import { getUserDisplayName } from '../../lib/userDisplayName';
 import { Teams } from '../teams/api';
 import {
   clockEventStartSchema,
@@ -88,36 +89,109 @@ if (Meteor.isServer) {
     ];
     DDPRateLimiter.addRule({ name: (n) => methodNames.includes(n), userId: () => true }, 30, 60_000);
 
-    // Auto-clock-out: end events running 8+ hours
+    // Auto-clock-out: end events running 8+ hours (push + inbox parity with timeharbor-old)
     const EIGHT_HOURS_MS = 8 * 60 * 60 * 1000;
     Meteor.setInterval(async () => {
-      const cutoff = Date.now() - EIGHT_HOURS_MS;
-      const stale = await ClockEvents.find({ endTime: null, startTimestamp: { $lt: cutoff } }).fetchAsync();
-      const TicketsColl = await getTickets();
-      for (const event of stale) {
+      try {
         const now = Date.now();
-        // Stop all ticket timers
-        if (event.tickets) {
-          for (const t of event.tickets.filter((t) => t.startTimestamp)) {
-            await stopTicketInClockEvent(event._id!, t.ticketId, now);
+        const cutoff = now - EIGHT_HOURS_MS;
+        const stale = await ClockEvents.find({ endTime: null, startTimestamp: { $lt: cutoff } }).fetchAsync();
+        if (stale.length === 0) return;
+
+        const TicketsColl = await getTickets();
+        const { notifyUser, notifyTeamAdmins, APP_NAME_PUSH, PUSH_ICON } = await import('../../server/push');
+
+        for (const event of stale) {
+          try {
+            const startTs = event.startTimestamp;
+            const prevAcc = event.accumulatedTime || 0;
+            const elapsed = Math.floor((now - startTs) / 1000);
+            const totalSeconds = prevAcc + elapsed;
+            const durationText = formatDurationText(totalSeconds);
+
+            if (event.tickets) {
+              for (const t of event.tickets.filter((t) => t.startTimestamp)) {
+                await stopTicketInClockEvent(event._id!, t.ticketId, now);
+              }
+            }
+
+            const running = await TicketsColl.find({
+              teamId: event.teamId,
+              createdBy: event.userId,
+              startTimestamp: { $exists: true },
+            }).fetchAsync();
+            for (const ticket of running) {
+              const telapsed = Math.floor((now - (ticket as any).startTimestamp) / 1000);
+              const tprev = (ticket as any).accumulatedTime || 0;
+              await TicketsColl.updateAsync(ticket._id!, {
+                $set: { accumulatedTime: tprev + telapsed },
+                $unset: { startTimestamp: '' },
+              });
+            }
+
+            await ClockEvents.updateAsync(event._id!, {
+              $set: { endTime: new Date(), accumulatedTime: totalSeconds },
+            });
+
+            const user = await Meteor.users.findOneAsync(event.userId);
+            const userName = getUserDisplayName(user, 'A user');
+            const team = await Teams.findOneAsync(event.teamId);
+            const teamName = team?.name || 'a team';
+
+            try {
+              await notifyUser(event.userId, {
+                title: `${APP_NAME_PUSH} - Auto Clock Out`,
+                body: `You were automatically clocked out after 8 hours of continuous work to prevent burnout. Total time: ${durationText}`,
+                icon: PUSH_ICON,
+                badge: PUSH_ICON,
+                tag: `auto-clockout-user-${event.userId}-${Date.now()}`,
+                data: {
+                  type: 'auto-clock-out',
+                  userId: event.userId,
+                  userName,
+                  teamName,
+                  teamId: event.teamId,
+                  clockEventId: event._id,
+                  duration: durationText,
+                  autoClockOut: true,
+                  url: '/app/tickets',
+                },
+              });
+            } catch (e) {
+              console.error('[Push] auto clock-out user notify:', e);
+            }
+
+            try {
+              const peer = encodeURIComponent(event.userId);
+              const tid = encodeURIComponent(event.teamId);
+              await notifyTeamAdmins(event.teamId, {
+                title: `${APP_NAME_PUSH} - Auto Clock Out`,
+                body: `${userName} was automatically clocked out of ${teamName} after ${durationText} (8-hour burnout prevention)`,
+                icon: PUSH_ICON,
+                badge: PUSH_ICON,
+                tag: `auto-clockout-admin-${event.userId}-${Date.now()}`,
+                data: {
+                  type: 'clock-out',
+                  userId: event.userId,
+                  userName,
+                  teamName,
+                  teamId: event.teamId,
+                  clockEventId: event._id,
+                  duration: durationText,
+                  autoClockOut: true,
+                  url: `/app/messages?openTeam=${tid}&openPeer=${peer}`,
+                },
+              });
+            } catch (e) {
+              console.error('[Push] auto clock-out admin notify:', e);
+            }
+          } catch (err) {
+            console.error(`[Clock] auto clock-out failed for ${event._id}:`, err);
           }
         }
-        // Stop ticket collection timers
-        const running = await TicketsColl.find({
-          teamId: event.teamId,
-          createdBy: event.userId,
-          startTimestamp: { $exists: true },
-        }).fetchAsync();
-        for (const ticket of running) {
-          const elapsed = Math.floor((now - (ticket as any).startTimestamp) / 1000);
-          const prev = (ticket as any).accumulatedTime || 0;
-          await TicketsColl.updateAsync(ticket._id!, {
-            $set: { accumulatedTime: prev + elapsed },
-            $unset: { startTimestamp: '' },
-          });
-        }
-        // End the clock event
-        await ClockEvents.updateAsync(event._id!, { $set: { endTime: new Date() } });
+      } catch (err) {
+        // Mongo monitor hiccups can happen in dev; don't crash process.
+        console.error('[Clock] auto clock-out interval failed:', err);
       }
     }, 60_000);
   });
@@ -149,7 +223,7 @@ if (Meteor.isServer) {
         { $set: { endTime: new Date() } },
         { multi: true } as any,
       );
-      return await ClockEvents.insertAsync({
+      const clockEventId = await ClockEvents.insertAsync({
         userId: this.userId,
         teamId,
         startTimestamp: Date.now(),
@@ -157,6 +231,36 @@ if (Meteor.isServer) {
         tickets: [],
         endTime: null,
       });
+
+      try {
+        const { notifyTeamAdmins, APP_NAME_PUSH, PUSH_ICON } = await import('../../server/push');
+        const user = await Meteor.users.findOneAsync(this.userId);
+        const userName = getUserDisplayName(user, 'A user');
+        const team = await Teams.findOneAsync(teamId);
+        const teamName = team?.name || 'a team';
+        const peer = encodeURIComponent(this.userId);
+        const tid = encodeURIComponent(teamId);
+        await notifyTeamAdmins(teamId, {
+          title: APP_NAME_PUSH,
+          body: `${userName} clocked in to ${teamName}`,
+          icon: PUSH_ICON,
+          badge: PUSH_ICON,
+          tag: `clockin-${this.userId}-${Date.now()}`,
+          data: {
+            type: 'clock-in',
+            userId: this.userId,
+            userName,
+            teamName,
+            teamId,
+            clockEventId,
+            url: `/app/messages?openTeam=${tid}&openPeer=${peer}`,
+          },
+        });
+      } catch (e) {
+        console.error('[Push] clock-in notify:', e);
+      }
+
+      return clockEventId;
     },
 
     async 'clock.stop'(fields: { teamId: string; youtubeShortLink?: string }) {
@@ -200,6 +304,42 @@ if (Meteor.isServer) {
       const link = typeof youtubeShortLink === 'string' ? youtubeShortLink.trim() : '';
       if (link) setFields.youtubeShortLink = link;
       await ClockEvents.updateAsync(clockEvent._id!, { $set: setFields });
+
+      let durationText = '';
+      if (clockEvent.startTimestamp) {
+        const elapsed = Math.floor((now - clockEvent.startTimestamp) / 1000);
+        const prev = clockEvent.accumulatedTime || 0;
+        durationText = formatDurationText(prev + elapsed);
+      }
+
+      try {
+        const { notifyTeamAdmins, APP_NAME_PUSH, PUSH_ICON } = await import('../../server/push');
+        const user = await Meteor.users.findOneAsync(this.userId);
+        const userName = getUserDisplayName(user, 'A user');
+        const team = await Teams.findOneAsync(teamId);
+        const teamName = team?.name || 'a team';
+        const peer = encodeURIComponent(this.userId);
+        const tid = encodeURIComponent(teamId);
+        await notifyTeamAdmins(teamId, {
+          title: APP_NAME_PUSH,
+          body: `${userName} clocked out of ${teamName} (${durationText})`,
+          icon: PUSH_ICON,
+          badge: PUSH_ICON,
+          tag: `clockout-${this.userId}-${Date.now()}`,
+          data: {
+            type: 'clock-out',
+            userId: this.userId,
+            userName,
+            teamName,
+            teamId,
+            clockEventId: clockEvent._id,
+            duration: durationText,
+            url: `/app/messages?openTeam=${tid}&openPeer=${peer}`,
+          },
+        });
+      } catch (e) {
+        console.error('[Push] clock-out notify:', e);
+      }
     },
 
     async 'clock.addTicket'(fields: { clockEventId: string; ticketId: string; now: number }) {

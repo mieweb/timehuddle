@@ -24,11 +24,13 @@
     "@fortawesome/react-fontawesome": "^3.0.2",
     "@mieweb/ui": "^0.2.4",
     "@swc/helpers": "^0.5.17",
+    "firebase-admin": "^13.7.0",
     "meteor-node-stubs": "^1.2.24",
     "motion": "^12.34.3",
     "postcss-load-config": "^6.0.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "web-push": "^3.6.7",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -44,6 +46,7 @@
     "@types/meteor": "2.9.9",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@types/web-push": "^3.6.4",
     "@typescript-eslint/eslint-plugin": "^8.42.0",
     "@typescript-eslint/parser": "^8.42.0",
     "autoprefixer": "^10.4.19",

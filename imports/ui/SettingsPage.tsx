@@ -8,6 +8,7 @@
  *   • About         — stack versions
  */
 import {
+  faBell,
   faCircleUser,
   faGear,
   faInfo,
@@ -30,9 +31,15 @@ import {
 } from '@mieweb/ui';
 import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { REPO_URL } from '../lib/constants';
+import {
+  checkPushNotificationStatus,
+  isPushNotificationSupported,
+  subscribeToWebPush,
+  unsubscribeFromWebPush,
+} from '../lib/pushNotificationsClient';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useMethod } from '../lib/useMethod';
 import { useTheme } from '../lib/useTheme';
@@ -128,6 +135,114 @@ const BrandSelector: React.FC = () => {
   );
 };
 
+// ─── Push notifications (Web Push — timeharbor-old parity) ────────────────────
+
+const PushNotificationsSettings: React.FC = () => {
+  const [supported, setSupported] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [serverHasVapid, setServerHasVapid] = useState<boolean | null>(null);
+
+  const refreshStatus = useCallback(async () => {
+    if (!isPushNotificationSupported()) {
+      setEnabled(false);
+      return;
+    }
+    const st = await checkPushNotificationStatus();
+    setEnabled(st.permission === 'granted' && st.subscribed && st.serverEnabled);
+  }, []);
+
+  useEffect(() => {
+    setSupported(isPushNotificationSupported());
+    Meteor.call('getVapidPublicKey', (err: unknown) => {
+      setServerHasVapid(!err);
+    });
+    void refreshStatus();
+  }, [refreshStatus]);
+
+  const handleEnable = async () => {
+    setLoading(true);
+    try {
+      await subscribeToWebPush();
+      await refreshStatus();
+      // eslint-disable-next-line no-alert -- parity with legacy app UX
+      window.alert('Notifications enabled! You will receive alerts when team members clock in or out.');
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      let detail = 'Failed to enable notifications. ';
+      if (msg.includes('permission') || msg.includes('denied')) {
+        detail += 'Please allow notifications in your browser settings.';
+      } else if (msg.includes('not-configured')) {
+        detail += 'The server is missing VAPID keys in settings.';
+      } else {
+        detail += msg;
+      }
+      // eslint-disable-next-line no-alert
+      window.alert(detail);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDisable = async () => {
+    // eslint-disable-next-line no-alert
+    if (!window.confirm('Are you sure you want to disable push notifications?')) return;
+    setLoading(true);
+    try {
+      await unsubscribeFromWebPush();
+      await refreshStatus();
+      // eslint-disable-next-line no-alert
+      window.alert('Notifications disabled.');
+    } catch {
+      // eslint-disable-next-line no-alert
+      window.alert('Failed to disable notifications. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3 px-5 py-4">
+      {serverHasVapid === false && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          Web Push is not configured on this server. Add VAPID keys to <code className="text-xs">settings.json</code>{' '}
+          (see <code className="text-xs">settings.push.example.json</code>).
+        </div>
+      )}
+      {!supported ? (
+        <Text variant="muted" size="sm">
+          Push notifications are not supported in this browser. Try Chrome, Firefox, or Edge.
+        </Text>
+      ) : enabled ? (
+        <>
+          <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200">
+            Notifications are enabled. You will receive alerts when team members clock in or out.
+          </div>
+          <Button variant="outline" size="sm" onClick={handleDisable} disabled={loading} isLoading={loading}>
+            Disable notifications
+          </Button>
+        </>
+      ) : (
+        <>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+            Enable push notifications to get notified when your team members clock in or clock out.
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleEnable}
+            disabled={loading || serverHasVapid === false}
+            isLoading={loading}
+            leftIcon={<FontAwesomeIcon icon={faBell} className="text-xs" />}
+          >
+            Enable notifications
+          </Button>
+        </>
+      )}
+    </div>
+  );
+};
+
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 export const SettingsPage: React.FC = () => {
@@ -201,6 +316,15 @@ export const SettingsPage: React.FC = () => {
         <Row label="Colour theme" hint="Persisted in localStorage for this browser">
           <ThemeSelector />
         </Row>
+      </Section>
+
+      {/* Push notifications */}
+      <Section
+        icon={faBell}
+        title="Push notifications"
+        description="Browser alerts for team clock in/out (same as Time Harbor)."
+      >
+        <PushNotificationsSettings />
       </Section>
 
       {/* Account */}

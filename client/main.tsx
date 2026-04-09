@@ -3,19 +3,39 @@ import '../imports/startup/client';
 
 import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot, hydrateRoot } from 'react-dom/client';
 
 import { InboxPage } from '../imports/features/inbox/InboxPage';
 import { AppLayout } from '../imports/ui/AppLayout';
-import { LandingPage } from '../imports/ui/LandingPage';
 import { LoginForm } from '../imports/ui/LoginForm';
+
+/** Must match `imports/startup/ssr.tsx` query → initialMode mapping for /app hydration. */
+function getSsrMatchedAuthMode(): 'login' | 'signup' | 'reset' {
+  if (typeof window === 'undefined') return 'login';
+  const m = new URLSearchParams(window.location.search).get('mode');
+  if (m === 'signup') return 'signup';
+  if (m === 'reset') return 'reset';
+  return 'login';
+}
 
 // ─── App (client-side rendered, /app and all non-root routes) ─────────────────
 
 const App: React.FC = () => {
   const user = useTracker(() => Meteor.user());
   const loggingIn = useTracker(() => Meteor.loggingIn());
+  // SSR always sends <LoginForm> for /app. Meteor.loggingIn() is often true on the
+  // first client tick while the session restores — that produced a different tree
+  // and broke hydration. Until after mount, render the same shell as the server.
+  const [authUiReady, setAuthUiReady] = useState(false);
+  useEffect(() => {
+    setAuthUiReady(true);
+  }, []);
+
+  if (!authUiReady) {
+    return <LoginForm initialMode={getSsrMatchedAuthMode()} />;
+  }
+
   if (loggingIn) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-neutral-100 dark:bg-neutral-900">
@@ -25,36 +45,6 @@ const App: React.FC = () => {
   }
   if (!user) return <LoginForm />;
   return <AppLayout />;
-};
-
-// ─── LandingPageWithRedirect (hydrates SSR content) ───────────────────────────
-//
-// Keeps `LandingPage` isomorphic by placing all Meteor/client logic here.
-// Responsibilities:
-//   • Provides the same React tree the server rendered so React can
-//     attach event listeners without re-rendering (true hydration).
-//   • Redirects to /app when a user is already logged in or logs in via
-//     the magic link token that accounts-passwordless reads from the URL hash.
-//   • Displays a translucent overlay while the token exchange is in flight.
-
-const LandingPageWithRedirect: React.FC = () => {
-  const user = useTracker(() => Meteor.user());
-  const loggingIn = useTracker(() => Meteor.loggingIn());
-
-  useEffect(() => {
-    if (user) window.location.replace('/app');
-  }, [user]);
-
-  return (
-    <>
-      <LandingPage />
-      {loggingIn && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-white/80 backdrop-blur-sm dark:bg-neutral-950/80">
-          <p className="text-sm text-neutral-600 dark:text-neutral-300">Signing in…</p>
-        </div>
-      )}
-    </>
-  );
 };
 
 // ─── Entry point ──────────────────────────────────────────────────────────────

@@ -152,7 +152,8 @@ onPageLoad((sink) => {
     // ── App routes: SSR the login form ─────────────────────────────────────
     // Unauthenticated visitors see the LoginForm. Authenticated users
     // will be swapped to AppLayout after hydration on the client.
-    const mode = query.mode === 'signup' ? 'signup' : 'login';
+    const mode =
+      query.mode === 'signup' ? 'signup' : query.mode === 'reset' ? 'reset' : 'login';
     try {
       const html = renderToString(<LoginForm initialMode={mode} />);
       sink.appendToHead(

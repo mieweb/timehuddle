@@ -25,6 +25,13 @@ function generateTeamCode(): string {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
 }
 
+function idStr(id: unknown): string {
+  if (id == null) return '';
+  if (typeof id === 'string') return id;
+  const o = id as { _str?: string; toHexString?: () => string };
+  return o._str ?? o.toHexString?.() ?? String(id);
+}
+
 function getUserDisplayName(user: Meteor.User, fallback = 'Unknown'): string {
   const p = user.profile as { firstName?: string; lastName?: string } | undefined;
   if (p?.firstName || p?.lastName) return [p.firstName, p.lastName].filter(Boolean).join(' ');
@@ -72,6 +79,9 @@ if (Meteor.isServer) {
       'teams.invite',
       'teams.setMemberPassword',
       'teams.getUsers',
+      'notifications.markAsRead',
+      'notifications.markAllAsRead',
+      'notifications.delete',
     ];
     DDPRateLimiter.addRule({ name: (n) => methodNames.includes(n), userId: () => true }, 20, 60_000);
   });
@@ -233,6 +243,44 @@ if (Meteor.isServer) {
         name: getUserDisplayName(u),
         email: u.emails?.[0]?.address ?? '',
       }));
+    },
+
+    async 'notifications.markAsRead'(notificationId: unknown) {
+      if (!this.userId) throw new Meteor.Error('not-authorized');
+      if (notificationId === undefined || notificationId === null) {
+        throw new Meteor.Error('invalid-argument', 'notificationId is required');
+      }
+      const targetId = idStr(notificationId);
+      const notifications = await Notifications.find({ userId: this.userId }, { fields: { _id: 1 } }).fetchAsync();
+      const match = notifications.find((n) => idStr(n._id) === targetId);
+      if (!match?._id) return;
+      await Notifications.updateAsync(match._id, { $set: { read: true } });
+    },
+
+    async 'notifications.markAllAsRead'() {
+      if (!this.userId) throw new Meteor.Error('not-authorized');
+      await Notifications.updateAsync(
+        { userId: this.userId, read: false },
+        { $set: { read: true } },
+        { multi: true },
+      );
+    },
+
+    async 'notifications.delete'(notificationIds: unknown) {
+      if (!this.userId) throw new Meteor.Error('not-authorized');
+      const idsInput = Array.isArray(notificationIds) ? notificationIds : [notificationIds];
+      if (!idsInput.length) {
+        throw new Meteor.Error('invalid-argument', 'No notification IDs provided');
+      }
+      const requestedIds = new Set(idsInput.map((id) => idStr(id)).filter(Boolean));
+      const userNotifications = await Notifications.find({ userId: this.userId }, { fields: { _id: 1 } }).fetchAsync();
+      const removableIds = userNotifications
+        .filter((n) => requestedIds.has(idStr(n._id)))
+        .map((n) => n._id!)
+        .filter(Boolean);
+      if (removableIds.length === 0) return { success: true as const, deletedCount: 0 };
+      const result = await Notifications.removeAsync({ _id: { $in: removableIds }, userId: this.userId });
+      return { success: true as const, deletedCount: result };
     },
   });
 }

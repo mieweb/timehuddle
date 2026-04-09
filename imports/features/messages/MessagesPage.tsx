@@ -27,6 +27,7 @@ import { Meteor } from 'meteor/meteor';
 import { useFind, useSubscribe } from 'meteor/react-meteor-data';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { useTeam } from '../../lib/TeamContext';
 import { useMethod } from '../../lib/useMethod';
 import { Messages } from './api';
@@ -50,6 +51,57 @@ export const MessagesPage: React.FC = () => {
   const [selectedAdminId, setSelectedAdminId] = useState<string | null>(null);
   const effectiveAdminId = isAdmin ? userId : selectedAdminId;
   const effectiveMemberId = isAdmin ? selectedMemberId : userId;
+
+  /** From push notification URL: /app/messages?openTeam=&openPeer= */
+  const pendingOpenPeerRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const q = new URLSearchParams(window.location.search);
+    const openTeam = q.get('openTeam');
+    const openPeer = q.get('openPeer');
+    if (!openTeam && !openPeer) return;
+    if (openTeam) setSelectedTeamId(openTeam);
+    if (openPeer) pendingOpenPeerRef.current = openPeer;
+    window.history.replaceState(null, '', '/app/messages');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot URL parse
+  }, []);
+
+  useEffect(() => {
+    const peer = pendingOpenPeerRef.current;
+    if (!peer || !selectedTeam || !userId) return;
+    pendingOpenPeerRef.current = null;
+    if (selectedTeam.admins.includes(userId) && selectedTeam.members.includes(peer)) {
+      setSelectedMemberId(peer);
+    } else if (selectedTeam.members.includes(userId) && selectedTeam.admins.includes(peer)) {
+      setSelectedAdminId(peer);
+    }
+  }, [selectedTeam, userId]);
+
+  // Deep-link from notification inbox (threadId team:admin:member) — one-shot on mount
+  useEffect(() => {
+    const uid = Meteor.userId();
+    if (!uid || typeof window === 'undefined') return;
+    let raw: string | null = null;
+    try {
+      raw = sessionStorage.getItem(MESSAGES_PENDING_THREAD_KEY);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as { teamId?: string; adminId?: string; memberId?: string };
+      sessionStorage.removeItem(MESSAGES_PENDING_THREAD_KEY);
+      const { teamId, adminId, memberId } = parsed;
+      if (teamId) setSelectedTeamId(teamId);
+      if (adminId && memberId) {
+        if (uid === adminId) setSelectedMemberId(memberId);
+        else if (uid === memberId) setSelectedAdminId(adminId);
+      }
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional one-shot hydration from sessionStorage
+  }, []);
 
   // Subscribe to thread
   useSubscribe(
