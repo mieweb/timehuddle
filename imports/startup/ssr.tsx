@@ -17,10 +17,8 @@
 import { onPageLoad } from 'meteor/server-render';
 import React from 'react';
 import { renderToString } from 'react-dom/server';
-
-import { REPO_URL } from '../lib/constants';
-import { LandingPage } from '../ui/LandingPage';
 import { LoginForm } from '../ui/LoginForm';
+import { REPO_URL } from '../lib/constants';
 
 // ─── Static SEO content ───────────────────────────────────────────────────────
 

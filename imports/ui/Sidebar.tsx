@@ -9,7 +9,6 @@
  *
  * Labels fade in/out with AnimatePresence so they never clip during resize.
  */
-import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import {
   faChevronLeft,
   faChevronRight,
@@ -27,7 +26,6 @@ import { Button } from '@mieweb/ui';
 import { AnimatePresence, motion } from 'motion/react';
 import React from 'react';
 
-import { REPO_URL } from '../lib/constants';
 import { useSidebar } from './AppLayout';
 import { useRouter } from './router';
 
@@ -198,34 +196,6 @@ const SidebarContent: React.FC = () => {
 
       {/* Footer */}
       <div className="shrink-0 space-y-0.5 border-t border-neutral-200 px-2 py-3 dark:border-neutral-800">
-        {/* GitHub link */}
-        <a
-          href={REPO_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={!isExpanded ? 'View on GitHub' : undefined}
-          className={[
-            'flex h-9 items-center rounded-lg text-sm text-neutral-500 transition-colors hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800',
-            isExpanded ? 'gap-3 px-2.5' : 'w-full justify-center px-0',
-          ].join(' ')}
-        >
-          <FontAwesomeIcon icon={faGithub} className="w-4 shrink-0 text-sm" />
-          <AnimatePresence initial={false}>
-            {isExpanded && (
-              <motion.span
-                key="github-label"
-                initial={{ opacity: 0, width: 0 }}
-                animate={{ opacity: 1, width: 'auto' }}
-                exit={{ opacity: 0, width: 0 }}
-                transition={{ duration: 0.15, ease: 'easeInOut' }}
-                className="overflow-hidden whitespace-nowrap"
-              >
-                GitHub
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </a>
-
         {/* Collapse toggle */}
         <button
           type="button"

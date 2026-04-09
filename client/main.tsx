@@ -23,10 +23,9 @@ function getSsrMatchedAuthMode(): 'login' | 'signup' | 'reset' {
 
 const App: React.FC = () => {
   const user = useTracker(() => Meteor.user());
+  const userId = useTracker(() => Meteor.userId());
   const loggingIn = useTracker(() => Meteor.loggingIn());
-  // SSR always sends <LoginForm> for /app. Meteor.loggingIn() is often true on the
-  // first client tick while the session restores — that produced a different tree
-  // and broke hydration. Until after mount, render the same shell as the server.
+
   const [authUiReady, setAuthUiReady] = useState(false);
   useEffect(() => {
     setAuthUiReady(true);
@@ -36,17 +35,17 @@ const App: React.FC = () => {
     return <LoginForm initialMode={getSsrMatchedAuthMode()} />;
   }
 
-  if (loggingIn) {
+  if (loggingIn || (userId && !user)) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-neutral-100 dark:bg-neutral-900">
         <p className="text-sm text-neutral-600 dark:text-neutral-300">Loading…</p>
       </div>
     );
   }
+
   if (!user) return <LoginForm />;
   return <AppLayout />;
 };
-
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 Meteor.startup(() => {
