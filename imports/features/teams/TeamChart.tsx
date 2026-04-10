@@ -133,7 +133,8 @@ const TeamChartMount: React.FC<{ yaml: string; wrapperRef: React.RefObject<HTMLD
 };
 
 export const TeamChart: React.FC<TeamChartProps> = ({ teamName, members }) => {
-  const yaml = useMemo(() => buildYaml(teamName, members), [teamName, JSON.stringify(members)]);
+  const memberKey = members.map((m) => `${m.id}:${m.name}:${m.email ?? ''}:${m.isAdmin ? '1' : '0'}`).join(',');
+  const yaml = useMemo(() => buildYaml(teamName, members), [teamName, memberKey]);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   if (members.length === 0) {
