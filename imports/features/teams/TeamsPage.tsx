@@ -70,7 +70,7 @@ export const TeamsPage: React.FC = () => {
   const selectedTeam = teams.find((t) => t._id === selectedTeamId) ?? null;
 
   // Methods
-  const createTeam = useMethod<[{ name: string }], { teamId: string; code: string }>('teams.create');
+  const createTeam = useMethod<[{ name: string; description?: string }], { teamId: string; code: string }>('teams.create');
   const joinTeam = useMethod<[{ teamCode: string }], string>('teams.join');
   const updateName = useMethod<[{ teamId: string; newName: string }]>('teams.updateName');
   const deleteTeam = useMethod<[string]>('teams.delete');
@@ -94,9 +94,15 @@ export const TeamsPage: React.FC = () => {
   >(null);
 
   const [formValue, setFormValue] = useState('');
+  const [createDescription, setCreateDescription] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
-  const closeModal = () => { setModal(null); setFormValue(''); setFormError(null); };
+  const closeModal = () => {
+    setModal(null);
+    setFormValue('');
+    setCreateDescription('');
+    setFormError(null);
+  };
 
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
 
@@ -114,14 +120,18 @@ export const TeamsPage: React.FC = () => {
   const handleCreate = useCallback(async () => {
     if (!formValue.trim()) return;
     try {
-      const result = await createTeam.call({ name: formValue.trim() });
+      const result = await createTeam.call({
+        name: formValue.trim(),
+        description: createDescription.trim() || undefined,
+      });
       setSelectedTeamId(result.teamId);
       setModal({ type: 'created', code: result.code });
       setFormValue('');
+      setCreateDescription('');
     } catch (e: any) {
       setFormError(e.reason || 'Failed to create team');
     }
-  }, [formValue, createTeam, setSelectedTeamId]);
+  }, [formValue, createDescription, createTeam, setSelectedTeamId]);
 
   const handleJoin = useCallback(async () => {
     if (!formValue.trim()) return;
@@ -246,6 +256,11 @@ export const TeamsPage: React.FC = () => {
               <CardTitle>
                 {selectedTeam.isPersonal ? 'Personal Workspace' : selectedTeam.name}
               </CardTitle>
+              {selectedTeam.description && (
+                <Text variant="muted" size="sm" className="mt-1 max-w-xl">
+                  {selectedTeam.description}
+                </Text>
+              )}
               {!selectedTeam.isPersonal && (
                 <div className="mt-1 flex items-center gap-2">
                   <Badge variant="secondary" size="sm">{selectedTeam.code}</Badge>
@@ -369,16 +384,27 @@ export const TeamsPage: React.FC = () => {
           <ModalClose />
         </ModalHeader>
         <ModalBody>
-          <Input
-            label="Team name"
-            hideLabel
-            placeholder="Team name"
-            value={formValue}
-            onChange={(e) => setFormValue(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-            error={formError ?? undefined}
-            autoFocus
-          />
+          <div className="space-y-3">
+            <Input
+              label="Team name"
+              hideLabel
+              placeholder="Team name"
+              value={formValue}
+              onChange={(e) => setFormValue(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+              error={formError ?? undefined}
+              autoFocus
+            />
+            <textarea
+              aria-label="Team description"
+              placeholder="Team description (optional)"
+              value={createDescription}
+              onChange={(e) => setCreateDescription(e.target.value)}
+              rows={4}
+              maxLength={500}
+              className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/30 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
+            />
+          </div>
         </ModalBody>
         <ModalFooter>
           <Button
