@@ -27,3 +27,9 @@ _build
 /test-results/
 /playwright-report/
 .playwright-mcp/
+
+# Local runtime secrets (never commit)
+settings.json
+
+# Local migration/reference repos (not part of app deploy)
+.gitmodules
