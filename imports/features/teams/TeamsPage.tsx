@@ -118,6 +118,11 @@ export const TeamsPage: React.FC = () => {
     [teams],
   );
 
+  const usersById = useMemo(
+    () => new Map(members.map((u) => [u._id!, u])),
+    [members],
+  );
+
   // ── Handlers ──
 
   const handleCreate = useCallback(async () => {
@@ -311,7 +316,7 @@ export const TeamsPage: React.FC = () => {
             </div>
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {selectedTeam.members.map((memberId) => {
-                const user = members.find((u) => u._id === memberId);
+                const user = usersById.get(memberId);
                 const name = user ? getName(user) : memberId;
                 const email = user?.emails?.[0]?.address ?? '';
                 const isMemberAdmin = selectedTeam.admins.includes(memberId);
@@ -390,14 +395,14 @@ export const TeamsPage: React.FC = () => {
               <TeamChart
                 teamName={selectedTeam.name}
                 members={selectedTeam.members.map((memberId) => {
-                const user = members.find((u) => u._id === memberId);
-                return {
-                  id: memberId,
-                  name: user ? getName(user) : memberId,
-                  email: user?.emails?.[0]?.address,
-                  isAdmin: selectedTeam.admins.includes(memberId),
-                };
-              })}
+                  const user = usersById.get(memberId);
+                  return {
+                    id: memberId,
+                    name: user ? getName(user) : memberId,
+                    email: user?.emails?.[0]?.address,
+                    isAdmin: selectedTeam.admins.includes(memberId),
+                  };
+                })}
               />
             </React.Suspense>
           </CardContent>
