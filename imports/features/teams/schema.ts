@@ -8,6 +8,11 @@ export const teamNameSchema = z
   .min(1, 'Team name is required')
   .max(100, 'Team name must be 100 characters or less');
 
+export const teamDescriptionSchema = z
+  .string()
+  .trim()
+  .max(500, 'Team description must be 500 characters or less');
+
 export const teamCodeSchema = z
   .string()
   .trim()
@@ -16,6 +21,7 @@ export const teamCodeSchema = z
 
 export const createTeamSchema = z.object({
   name: teamNameSchema,
+  description: teamDescriptionSchema.optional(),
 });
 
 export const joinTeamSchema = z.object({
@@ -55,6 +61,7 @@ export type SetTeamMemberPasswordInput = z.infer<typeof setTeamMemberPasswordSch
 export interface TeamDoc {
   _id?: string;
   name: string;
+  description?: string;
   members: string[];
   admins: string[];
   code: string;

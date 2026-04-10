@@ -208,7 +208,7 @@ meteor build ../build --directory   # Build (5-15 min)
 | Method                | Args                              | Description                  |
 | --------------------- | --------------------------------- | ---------------------------- |
 | `teams.ensurePersonalWorkspace` | —                       | Create personal workspace    |
-| `teams.create`        | `{ name }`                        | Create a new team            |
+| `teams.create`        | `{ name, description? }`          | Create a new team            |
 | `teams.join`          | `{ teamCode }`                    | Join a team via invite code  |
 | `teams.updateName`    | `{ teamId, newName }`             | Rename a team                |
 | `teams.delete`        | `teamId`                          | Delete a team                |

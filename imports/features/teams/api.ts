@@ -122,13 +122,14 @@ if (Meteor.isServer) {
       return await ensurePersonalWorkspace(this.userId);
     },
 
-    async 'teams.create'(fields: { name: string }) {
+    async 'teams.create'(fields: { name: string; description?: string }) {
       if (!this.userId) throw new Meteor.Error('not-authorized');
       const result = createTeamSchema.safeParse(fields);
       if (!result.success) throw new Meteor.Error('validation', result.error.issues[0]?.message ?? 'Invalid input');
       const code = generateTeamCode();
       const teamId = await Teams.insertAsync({
         name: result.data.name,
+        description: result.data.description,
         members: [this.userId],
         admins: [this.userId],
         code,
