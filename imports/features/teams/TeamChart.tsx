@@ -45,14 +45,14 @@ interface TeamChartProps {
 function buildYaml(teamName: string, members: Member[]): string {
   const lines: string[] = [];
   lines.push(`- id: 0`);
-  lines.push(`  name: "${teamName}"`);
+  lines.push(`  name: ${JSON.stringify(teamName)}`);
   lines.push(`  title: Team`);
   members.forEach((m, i) => {
     lines.push(`- id: ${i + 1}`);
     lines.push(`  parentId: 0`);
-    lines.push(`  name: "${m.name}"`);
+    lines.push(`  name: ${JSON.stringify(m.name)}`);
     if (m.isAdmin) lines.push(`  title: Admin`);
-    if (m.email) lines.push(`  email: "${m.email}"`);
+    if (m.email) lines.push(`  email: ${JSON.stringify(m.email)}`);
   });
   return lines.join('\n');
 }
@@ -98,8 +98,9 @@ const TeamChartMount: React.FC<{ yaml: string; wrapperRef: React.RefObject<HTMLD
           }
           oc.fit?.({ animate: false });
         }, 450);
-      } catch {
-        // Unmounted before RAF fired — nothing to clean up
+      } catch (err) {
+        // Unmounted before RAF fired is expected; anything else is a real error
+        if (el.isConnected) console.error('[TeamChart] initView failed:', err);
       }
     });
 
