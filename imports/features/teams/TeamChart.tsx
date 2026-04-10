@@ -59,7 +59,7 @@ function buildYaml(teamName: string, members: Member[]): string {
 
 // Inner component: one mount = one initView, one unmount = one clean teardown.
 // Remounted via key= in the outer component when data changes.
-const TeamChartMount: React.FC<{ yaml: string; wrapperRef: React.RefObject<HTMLDivElement | null> }> = ({ yaml, wrapperRef }) => {
+const TeamChartMount: React.FC<{ yaml: string }> = ({ yaml }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<YChartInstance | null>(null);
   const chartId = useRef(
@@ -75,21 +75,10 @@ const TeamChartMount: React.FC<{ yaml: string; wrapperRef: React.RefObject<HTMLD
     const rafId = requestAnimationFrame(() => {
       if (!el.isConnected) return;
       try {
-        // Hide the outer wrapper while ychart does its animated initial layout
-        // so the user never sees nodes flying in.
-        const wrapper = wrapperRef.current;
-        if (wrapper) wrapper.style.display = 'none';
         instanceRef.current = new window.YChartEditor().initView(chartId, yaml);
-        // d3-org-chart's initial render runs a 400ms animated transition.
-        // Wait until it completes, then show the wrapper (so
-        // getBoundingClientRect returns real dimensions), snap-fit, done.
         fitTimerId = window.setTimeout(() => {
           const oc = instanceRef.current?.orgChart;
           if (!oc || !el.isConnected) return;
-          if (wrapper) wrapper.style.display = '';
-          // ychart defaults svgHeight to window.innerHeight-100, not the
-          // container height. Correct both dimensions before calling fit so
-          // the zoom calculation uses the actual visible area.
           const rect = el.getBoundingClientRect();
           const state = oc.getChartState?.();
           if (state && rect.width > 0 && rect.height > 0) {
@@ -135,7 +124,6 @@ const TeamChartMount: React.FC<{ yaml: string; wrapperRef: React.RefObject<HTMLD
 export const TeamChart: React.FC<TeamChartProps> = ({ teamName, members }) => {
   const memberKey = members.map((m) => `${m.id}:${m.name}:${m.email ?? ''}:${m.isAdmin ? '1' : '0'}`).join(',');
   const yaml = useMemo(() => buildYaml(teamName, members), [teamName, memberKey]);
-  const wrapperRef = useRef<HTMLDivElement>(null);
 
   if (members.length === 0) {
     return (
@@ -145,11 +133,10 @@ export const TeamChart: React.FC<TeamChartProps> = ({ teamName, members }) => {
 
   return (
     <div
-      ref={wrapperRef}
       style={{ width: '100%', height: '500px' }}
       aria-label={`Org chart for ${teamName}`}
     >
-      <TeamChartMount key={yaml} yaml={yaml} wrapperRef={wrapperRef} />
+      <TeamChartMount key={yaml} yaml={yaml} />
     </div>
   );
 };
