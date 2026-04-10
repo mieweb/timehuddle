@@ -60,10 +60,9 @@ Meteor.startup(() => {
     // Dev inbox — no auth required, no SSR to hydrate.
     createRoot(el).render(<InboxPage />);
   } else if (window.location.pathname.startsWith('/app')) {
-    // Hydrate the server-rendered LoginForm.
-    // The SSR handler renders <LoginForm> for /app routes; after hydration
-    // React can swap to <AppLayout> once the user logs in.
-    hydrateRoot(el, <App />);
+    // SSR sends a loading placeholder (not a full React tree), so use
+    // createRoot — hydrateRoot would throw a hydration mismatch.
+    createRoot(el).render(<App />);
   } else {
     // Unknown routes — no SSR content to hydrate, mount fresh.
     createRoot(el).render(<App />);
