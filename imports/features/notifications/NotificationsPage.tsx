@@ -6,7 +6,7 @@
  */
 import { faCheckDouble, faCircleInfo, faTrash, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Text } from '@mieweb/ui';
+import { Button, Modal, ModalBody, ModalClose, ModalFooter, ModalHeader, ModalTitle, Text } from '@mieweb/ui';
 import { useFind, useSubscribe } from 'meteor/react-meteor-data';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -15,6 +15,23 @@ import { useMethod } from '../../lib/useMethod';
 import { useRouter } from '../../ui/router';
 import { Notifications } from '../teams/api';
 import type { NotificationDoc } from '../teams/schema';
+
+type UserSummary = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+type TeamInvitePreview = {
+  notificationId: string;
+  teamId: string;
+  teamName: string;
+  teamDescription: string;
+  inviter: UserSummary | null;
+  members: UserSummary[];
+  admins: UserSummary[];
+  alreadyMember: boolean;
+};
 
 function idStr(id: unknown): string {
   if (id == null) return '';
@@ -116,6 +133,14 @@ export const NotificationsPage: React.FC = () => {
   const markAsRead = useMethod<[unknown], void>('notifications.markAsRead');
   const markAllAsRead = useMethod<[], void>('notifications.markAllAsRead');
   const deleteNotifications = useMethod<[string[]], { deletedCount: number }>('notifications.delete');
+  const getInvitePreview = useMethod<[unknown], TeamInvitePreview>('notifications.getTeamInvitePreview');
+  const respondToInvite = useMethod<
+  [{ notificationId: unknown; action: 'join' | 'ignore' }],
+  { success: true }
+  >('notifications.respondToTeamInvite');
+
+  const [invitePreview, setInvitePreview] = useState<TeamInvitePreview | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
 
   const hasUnread = useMemo(() => notifications.some((n) => !n.read), [notifications]);
   const allIds = useMemo(() => notifications.map((n) => idStr(n._id)), [notifications]);
@@ -138,13 +163,21 @@ export const NotificationsPage: React.FC = () => {
         return;
       }
       try {
+        const data = (doc.data ?? {}) as Record<string, unknown>;
+        if (data.type === 'team-invite') {
+          await markAsRead.call(doc._id ?? nid);
+          const preview = await getInvitePreview.call(doc._id ?? nid);
+          setInvitePreview(preview);
+          setInviteError(null);
+          return;
+        }
         await markAsRead.call(doc._id ?? nid);
         resolveNotificationTarget(doc, navigate);
       } catch {
         /* useMethod surfaces error */
       }
     },
-    [selectMode, toggleSelect, markAsRead, navigate],
+    [selectMode, toggleSelect, markAsRead, getInvitePreview, navigate],
   );
 
   const handleMarkAllRead = useCallback(() => {
@@ -164,6 +197,22 @@ export const NotificationsPage: React.FC = () => {
   useEffect(() => {
     if (selectMode && notifications.length === 0) exitSelectMode();
   }, [selectMode, notifications.length, exitSelectMode]);
+
+  const closeInviteModal = useCallback(() => {
+    setInvitePreview(null);
+    setInviteError(null);
+  }, []);
+
+  const handleInviteAction = useCallback(async (action: 'join' | 'ignore') => {
+    if (!invitePreview) return;
+    try {
+      await respondToInvite.call({ notificationId: invitePreview.notificationId, action });
+      closeInviteModal();
+      if (action === 'join') navigate('/app/teams');
+    } catch (e: any) {
+      setInviteError(e?.reason || 'Failed to process invite');
+    }
+  }, [invitePreview, respondToInvite, closeInviteModal, navigate]);
 
   if (loading()) {
     return (
@@ -305,6 +354,65 @@ export const NotificationsPage: React.FC = () => {
           </Text>
         </div>
       )}
+
+      <Modal open={!!invitePreview} onOpenChange={(open) => !open && closeInviteModal()} size="lg">
+        <ModalHeader>
+          <ModalTitle>Team Invite</ModalTitle>
+          <ModalClose />
+        </ModalHeader>
+        <ModalBody>
+          {invitePreview && (
+            <div className="space-y-4">
+              <div>
+                <Text size="sm" variant="muted">Team name</Text>
+                <Text size="lg" weight="semibold">{invitePreview.teamName}</Text>
+              </div>
+              <div>
+                <Text size="sm" variant="muted">Team description</Text>
+                <Text size="sm">
+                  {invitePreview.teamDescription || 'No team description provided.'}
+                </Text>
+              </div>
+              <div>
+                <Text size="sm" variant="muted">Invited by</Text>
+                <Text size="sm">
+                  {invitePreview.inviter
+                    ? `${invitePreview.inviter.name}${invitePreview.inviter.email ? ` (${invitePreview.inviter.email})` : ''}`
+                    : 'Unknown'}
+                </Text>
+              </div>
+              <div>
+                <Text size="sm" variant="muted">Admins ({invitePreview.admins.length})</Text>
+                <Text size="sm">
+                  {invitePreview.admins.map((a) => a.name).join(', ') || 'None'}
+                </Text>
+              </div>
+              <div>
+                <Text size="sm" variant="muted">Team members ({invitePreview.members.length})</Text>
+                <Text size="sm">
+                  {invitePreview.members.map((m) => m.name).join(', ') || 'None'}
+                </Text>
+              </div>
+              {inviteError && (
+                <Text size="sm" variant="destructive">{inviteError}</Text>
+              )}
+            </div>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="outline" onClick={() => handleInviteAction('ignore')} isLoading={respondToInvite.loading}>
+            Ignore
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => handleInviteAction('join')}
+            isLoading={respondToInvite.loading}
+            disabled={invitePreview?.alreadyMember}
+          >
+            {invitePreview?.alreadyMember ? 'Already in team' : 'Join'}
+          </Button>
+        </ModalFooter>
+      </Modal>
     </div>
   );
 };
