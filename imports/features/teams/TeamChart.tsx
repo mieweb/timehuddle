@@ -1,18 +1,5 @@
 /**
  * TeamChart — Renders an interactive org chart using @mieweb/ychart (YChartEditor).
- *
- * Root cause of the getBoundingClientRect crash:
- *   d3-org-chart (which ychart wraps) attaches a window "resize" listener in
- *   OrgChart.render() that calls:
- *     d3.select(attrs.container).node().getBoundingClientRect()
- *   YChartEditor.destroy() clears the DOM but NEVER calls orgChart.clear(),
- *   so that resize listener stays attached to window permanently. Any window
- *   resize event after unmount crashes with null.getBoundingClientRect().
- *
- * Fix:
- *   Call orgChart.clear() before destroy(). This removes both the resize and
- *   keydown listeners d3-org-chart attached to window. Then patch orgChart.render
- *   to a no-op as a safety net for any already-queued RAF callbacks.
  */
 import '@mieweb/ychart';
 import React, { useEffect, useRef, useMemo } from 'react';
