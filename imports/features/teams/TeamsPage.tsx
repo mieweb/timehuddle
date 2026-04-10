@@ -52,6 +52,9 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useTeam } from '../../lib/TeamContext';
 import { useMethod } from '../../lib/useMethod';
 import { Teams } from './api';
+const TeamChart = React.lazy(() =>
+  import('./TeamChart').then((m) => ({ default: m.TeamChart }))
+);
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
 
@@ -113,6 +116,11 @@ export const TeamsPage: React.FC = () => {
         label: t.isPersonal ? 'Personal Workspace' : t.name,
       })),
     [teams],
+  );
+
+  const usersById = useMemo(
+    () => new Map(members.map((u) => [u._id!, u])),
+    [members],
   );
 
   // ── Handlers ──
@@ -308,7 +316,7 @@ export const TeamsPage: React.FC = () => {
             </div>
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {selectedTeam.members.map((memberId) => {
-                const user = members.find((u) => u._id === memberId);
+                const user = usersById.get(memberId);
                 const name = user ? getName(user) : memberId;
                 const email = user?.emails?.[0]?.address ?? '';
                 const isMemberAdmin = selectedTeam.admins.includes(memberId);
@@ -372,6 +380,31 @@ export const TeamsPage: React.FC = () => {
                 );
               })}
             </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Chart */}
+      {selectedTeam && !selectedTeam.isPersonal && (
+        <Card padding="none">
+          <CardHeader className="px-5 py-4">
+            <CardTitle>Chart</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Spinner size="lg" label="Loading chart…" /></div>}>
+              <TeamChart
+                teamName={selectedTeam.name}
+                members={selectedTeam.members.map((memberId) => {
+                  const user = usersById.get(memberId);
+                  return {
+                    id: memberId,
+                    name: user ? getName(user) : memberId,
+                    email: user?.emails?.[0]?.address,
+                    isAdmin: selectedTeam.admins.includes(memberId),
+                  };
+                })}
+              />
+            </React.Suspense>
           </CardContent>
         </Card>
       )}
