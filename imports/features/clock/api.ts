@@ -66,7 +66,6 @@ if (Meteor.isServer) {
   let Tickets: Mongo.Collection<Record<string, unknown>>;
   const getTickets = async () => {
     if (!Tickets) {
-      // @ts-expect-error dynamic import for circular dependency avoidance
       const mod = await import('../tickets/api');
       Tickets = mod.Tickets as unknown as Mongo.Collection<Record<string, unknown>>;
     }
