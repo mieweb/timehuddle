@@ -136,7 +136,7 @@ if (Meteor.isServer && Meteor.isDevelopment) {
       if (!user) throw new Meteor.Error('not-found', 'Persona user not yet seeded');
 
       const stampedToken = Accounts._generateStampedLoginToken();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       await (Accounts as any)._insertLoginToken(user._id, stampedToken);
       return { userId: user._id, token: stampedToken.token };
     },
@@ -169,7 +169,7 @@ if (Meteor.isServer && Meteor.isDevelopment) {
       }
       if (!user) throw new Meteor.Error('user-creation-failed');
       const stampedToken = Accounts._generateStampedLoginToken();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       await (Accounts as any)._insertLoginToken(user._id, stampedToken);
       return { userId: user._id, token: stampedToken.token };
     },

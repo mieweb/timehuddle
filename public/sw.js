@@ -1,5 +1,5 @@
 // Service worker — Web Push (parity with timeharbor-old public/sw.js; URLs target /app/*)
-/* global self, clients */
+/* global clients */
 
 self.addEventListener('push', function (event) {
   if (!event.data) return;

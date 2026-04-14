@@ -63,7 +63,7 @@ export const MessagesPage: React.FC = () => {
     if (openTeam) setSelectedTeamId(openTeam);
     if (openPeer) pendingOpenPeerRef.current = openPeer;
     window.history.replaceState(null, '', '/app/messages');
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot URL parse
+     
   }, []);
 
   useEffect(() => {
@@ -100,7 +100,7 @@ export const MessagesPage: React.FC = () => {
     } catch {
       /* ignore */
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional one-shot hydration from sessionStorage
+     
   }, []);
 
   // Subscribe to thread

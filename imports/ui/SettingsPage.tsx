@@ -163,7 +163,7 @@ const PushNotificationsSettings: React.FC = () => {
     try {
       await subscribeToWebPush();
       await refreshStatus();
-      // eslint-disable-next-line no-alert -- parity with legacy app UX
+       
       window.alert('Notifications enabled! You will receive alerts when team members clock in or out.');
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -175,7 +175,7 @@ const PushNotificationsSettings: React.FC = () => {
       } else {
         detail += msg;
       }
-      // eslint-disable-next-line no-alert
+       
       window.alert(detail);
     } finally {
       setLoading(false);
@@ -183,16 +183,16 @@ const PushNotificationsSettings: React.FC = () => {
   };
 
   const handleDisable = async () => {
-    // eslint-disable-next-line no-alert
+     
     if (!window.confirm('Are you sure you want to disable push notifications?')) return;
     setLoading(true);
     try {
       await unsubscribeFromWebPush();
       await refreshStatus();
-      // eslint-disable-next-line no-alert
+       
       window.alert('Notifications disabled.');
     } catch {
-      // eslint-disable-next-line no-alert
+       
       window.alert('Failed to disable notifications. Please try again.');
     } finally {
       setLoading(false);

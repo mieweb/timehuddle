@@ -63,7 +63,12 @@ export async function subscribeToWebPush(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     Meteor.call(
       'subscribeToPushNotifications',
-      { type: 'webpush', endpoint: json.endpoint, keys: json.keys, expirationTime: json.expirationTime },
+      {
+        type: 'webpush',
+        endpoint: json.endpoint,
+        keys: json.keys,
+        expirationTime: json.expirationTime,
+      },
       (err: Meteor.Error | undefined) => {
         if (err) reject(err);
         else resolve();
