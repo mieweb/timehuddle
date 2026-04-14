@@ -50,7 +50,7 @@ import type { TicketDoc } from './schema';
 
 export const TicketsPage: React.FC = () => {
   const userId = Meteor.userId();
-  const { teams, selectedTeamId, setSelectedTeamId, teamsReady, currentTime, activeClockEvent } = useTeam();
+  const { teams, selectedTeamId, setSelectedTeamId, teamsReady, currentTime } = useTeam();
 
   const teamIds = useMemo(() => (selectedTeamId ? [selectedTeamId] : []), [selectedTeamId]);
   useSubscribe('teamTickets', teamIds);

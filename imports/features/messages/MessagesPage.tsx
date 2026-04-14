@@ -31,7 +31,6 @@ import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { useTeam } from '../../lib/TeamContext';
 import { useMethod } from '../../lib/useMethod';
 import { Messages } from './api';
-import type { MessageDoc } from './schema';
 
 // ─── MessagesPage ─────────────────────────────────────────────────────────────
 
@@ -42,10 +41,6 @@ export const MessagesPage: React.FC = () => {
   // Thread selection
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [memberNames, setMemberNames] = useState<Record<string, string>>({});
-
-  // Determine adminId and memberId for the thread
-  const adminId = isAdmin ? userId : null;
-  const memberId = isAdmin ? selectedMemberId : userId;
 
   // For non-admins, they need to pick an admin to message
   const [selectedAdminId, setSelectedAdminId] = useState<string | null>(null);

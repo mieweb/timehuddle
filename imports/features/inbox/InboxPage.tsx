@@ -13,7 +13,7 @@ import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
 import React, { useState } from 'react';
 
-import { Button, Input, Spinner, Text } from '@mieweb/ui';
+import { Button, Input } from '@mieweb/ui';
 import { ThemeToggle } from '../../ui/ThemeToggle';
 import { type DevMailDoc, DevMails } from './api';
 

@@ -66,7 +66,7 @@ self.addEventListener('notificationclick', function (event) {
   );
 });
 
-self.addEventListener('install', function (event) {
+self.addEventListener('install', function () {
   self.skipWaiting();
 });
 

@@ -7,8 +7,7 @@
  *   • Summary stats (total hours, sessions, avg, working days)
  */
 import {
-  faCalendar,
-  faClock,
+  faCalendar
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -31,7 +30,7 @@ import {
   Text,
 } from '@mieweb/ui';
 import { Meteor } from 'meteor/meteor';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration, formatTime, formatDate, toDateString } from '../../lib/timeUtils';

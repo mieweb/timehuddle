@@ -44,8 +44,6 @@ import { useTeam } from '../../lib/TeamContext';
 import { formatTimer, formatDuration } from '../../lib/timeUtils';
 import { useMethod } from '../../lib/useMethod';
 import { Tickets } from '../tickets/api';
-import type { TicketDoc } from '../tickets/schema';
-import { ClockEvents } from './api';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 

@@ -433,7 +433,6 @@ if (Meteor.isServer) {
         startTimestamp: { $gte: start.getTime(), $lte: end.getTime() },
       }).fetchAsync();
 
-      const TicketsColl = await getTickets();
       const sessions = await Promise.all(
         events.map(async (event) => {
           const startTime = new Date(event.startTimestamp);
