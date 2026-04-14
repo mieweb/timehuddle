@@ -64,7 +64,7 @@ export default [
       'no-undef': 'off',
       '@typescript-eslint/no-unused-vars': ['error', { varsIgnorePattern: '^_', argsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'off',
-      '@typescript-eslint/ban-ts-comment': 'off',
+      '@typescript-eslint/ban-ts-comment': 'error',
     },
   },
 ];

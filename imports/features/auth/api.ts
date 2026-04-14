@@ -62,7 +62,7 @@ Meteor.methods({
     const { email, teamCode, newPassword } = result.data;
 
     // Dynamic import to avoid circular dependency — Teams may not exist yet during startup
-    // @ts-ignore dynamic import for circular dependency avoidance
+    // @ts-expect-error dynamic import for circular dependency avoidance
     const { Teams } = await import('../teams/api');
 
     const user = await Accounts.findUserByEmail(email);
