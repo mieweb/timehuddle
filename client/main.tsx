@@ -4,7 +4,7 @@ import '../imports/startup/client';
 import { Meteor } from 'meteor/meteor';
 import { useTracker } from 'meteor/react-meteor-data';
 import React, { useEffect, useState } from 'react';
-import { createRoot, hydrateRoot } from 'react-dom/client';
+import { createRoot } from 'react-dom/client';
 
 import { InboxPage } from '../imports/features/inbox/InboxPage';
 import { AppLayout } from '../imports/ui/AppLayout';

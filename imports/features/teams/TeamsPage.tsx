@@ -25,7 +25,6 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Meteor } from 'meteor/meteor';
 import { useFind, useSubscribe } from 'meteor/react-meteor-data';
 import {
-  Alert,
   Avatar,
   Badge,
   Button,
@@ -51,7 +50,6 @@ import React, { useCallback, useMemo, useState } from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
 import { useMethod } from '../../lib/useMethod';
-import { Teams } from './api';
 const TeamChart = React.lazy(() =>
   import('./TeamChart').then((m) => ({ default: m.TeamChart }))
 );
@@ -106,8 +104,6 @@ export const TeamsPage: React.FC = () => {
     setCreateDescription('');
     setFormError(null);
   };
-
-  const [menuOpen, setMenuOpen] = useState<string | null>(null);
 
   const teamOptions = useMemo(
     () =>
