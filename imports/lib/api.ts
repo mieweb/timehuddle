@@ -23,6 +23,14 @@ export interface TimecoreUser {
   image?: string | null;
 }
 
+export interface PublicUser {
+  id: string;
+  name: string;
+  image: string | null;
+  bio: string;
+  website: string;
+}
+
 // ─── Base request ─────────────────────────────────────────────────────────────
 
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
@@ -98,4 +106,25 @@ export const authApi = {
       throw err;
     }
   },
+};
+
+// ─── User API ─────────────────────────────────────────────────────────────────
+
+export const userApi = {
+  /** Get a single user's public profile by ID. */
+  getUser: (id: string) =>
+    request<{ user: PublicUser }>(`/v1/users/${encodeURIComponent(id)}`).then((r) => r.user),
+
+  /** Batch-fetch public profiles by ID list (server caps at 200). */
+  getUsers: (ids: string[]) =>
+    request<{ users: PublicUser[] }>(`/v1/users?ids=${ids.map(encodeURIComponent).join(',')}`).then(
+      (r) => r.users,
+    ),
+
+  /** Update the current user's profile fields. */
+  updateProfile: (data: { name?: string; image?: string | null; bio?: string; website?: string }) =>
+    request<{ user: PublicUser }>('/v1/me/profile', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }).then((r) => r.user),
 };

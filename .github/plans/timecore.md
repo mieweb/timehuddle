@@ -6,7 +6,7 @@ React app that shares a universal codebase with future mobile (Capacitor / Expo 
 
 ## Background
 
-**timecore** (`localhost:3001` in dev) is a Fastify + MongoDB service using better-auth for
+**timecore** (`localhost:4000` in dev) is a Fastify + MongoDB service using better-auth for
 email/password authentication. It already has `/v1/me` and `/v1/me/profile`
 stubbed. Everything else needs to be added there as part of this migration.
 
@@ -45,17 +45,17 @@ React Native, and Expo.
 for data — auth is fully owned by timecore.
 
 ### timehuddle changes
-- [ ] Replace `LoginForm.tsx` to call `POST /api/auth/sign-in` and `POST /api/auth/sign-up`
-- [ ] Add "Forgot password?" flow: submits email to `POST /api/auth/request-password-reset`
-- [ ] Add reset-password landing: reads `?token=` from URL, submits new password to `POST /api/auth/reset-password`
-- [ ] Replace `Meteor.user()` + `useTracker` with a `useSession()` hook (`GET /v1/me`)
-- [ ] Replace `Meteor.logout()` with `POST /api/auth/sign-out`
-- [ ] Remove `imports/features/auth/api.ts`
-- [ ] Remove `imports/startup/server.ts` (Accounts.config, email hook)
-- [ ] Update `client/main.tsx` — gate on `useSession()` instead of `Meteor.user()`
+- [x] Replace `LoginForm.tsx` to call `POST /api/auth/sign-in` and `POST /api/auth/sign-up`
+- [x] Add "Forgot password?" flow: submits email to `POST /api/auth/request-password-reset`
+- [x] Add reset-password landing: reads `?token=` from URL, submits new password to `POST /api/auth/reset-password`
+- [x] Replace `Meteor.user()` + `useTracker` with a `useSession()` hook (`GET /v1/me`)
+- [x] Replace `Meteor.logout()` with `POST /api/auth/sign-out`
+- [x] Remove `imports/features/auth/api.ts`
+- [x] Remove `imports/startup/server.ts` (Accounts.config, email hook)
+- [x] Update `client/main.tsx` — gate on `useSession()` instead of `Meteor.user()`
 
 ### timecore changes
-- [ ] Configure `sendResetPassword` email callback in `emailAndPassword` auth config — better-auth handles `POST /api/auth/request-password-reset` and `POST /api/auth/reset-password` automatically
+- [x] Configure `sendResetPassword` email callback in `emailAndPassword` auth config — better-auth handles `POST /api/auth/request-password-reset` and `POST /api/auth/reset-password` automatically
 ---
 
 ## Phase 2 — Profile & User Lookups
@@ -65,15 +65,15 @@ for data — auth is fully owned by timecore.
 timecore's `users` collection managed by better-auth.
 
 ### timehuddle changes
-- [ ] Replace `profile.update` Meteor method call → `PUT /v1/me/profile`
-- [ ] Replace `Meteor.users` lookups (display names, avatars) → REST calls
-- [ ] Remove `imports/features/profile/api.ts` server half
-- [ ] Remove `imports/lib/userDisplayName.ts` Meteor dependency
+- [x] Replace `profile.update` Meteor method call → `PUT /v1/me/profile`
+- [x] Replace `Meteor.users` lookups (display names, avatars) → REST calls
+- [x] Remove `imports/features/profile/api.ts` server half
+- [x] Remove `imports/lib/userDisplayName.ts` Meteor dependency
 
 ### timecore changes
-- [ ] `GET /v1/users/:id` — single user lookup
-- [ ] `GET /v1/users?ids=id1,id2,...` — batch lookup (capped at 200)
-- [ ] `PUT /v1/me/profile` — already stubbed, implement write
+- [x] `GET /v1/users/:id` — single user lookup
+- [x] `GET /v1/users?ids=id1,id2,...` — batch lookup (capped at 200)
+- [x] `PUT /v1/me/profile` — already stubbed, implement write
 
 ---
 

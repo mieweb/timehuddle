@@ -37,9 +37,9 @@ import {
   unsubscribeFromWebPush,
 } from '../lib/pushNotificationsClient';
 import { useBrand, BRANDS } from '../lib/useBrand';
-import { useMethod } from '../lib/useMethod';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
+import { userApi } from '../lib/api';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
@@ -258,13 +258,30 @@ export const SettingsPage: React.FC = () => {
   }, [user?.name]);
 
   const [saved, setSaved] = useState(false);
-  const updateProfile = useMethod<[{ firstName: string; lastName: string }]>('updateUserProfile');
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const { refetch } = useSession();
 
   const handleSaveProfile = useCallback(async () => {
-    await updateProfile.call({ firstName: firstName.trim(), lastName: lastName.trim() });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }, [firstName, lastName, updateProfile]);
+    setProfileLoading(true);
+    setProfileError(null);
+    try {
+      const name = [firstName, lastName].filter(Boolean).join(' ').trim();
+      if (!name) {
+        setProfileError('Name cannot be empty');
+        setProfileLoading(false);
+        return;
+      }
+      await userApi.updateProfile({ name });
+      await refetch();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setProfileLoading(false);
+    }
+  }, [firstName, lastName, refetch]);
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 px-4 py-8">
@@ -299,13 +316,13 @@ export const SettingsPage: React.FC = () => {
           <Button
             variant="primary"
             onClick={handleSaveProfile}
-            isLoading={updateProfile.loading}
+            isLoading={profileLoading}
             loadingText="Saving…"
           >
             Save Profile
           </Button>
           {saved && <Text variant="success" size="xs">Saved!</Text>}
-          {updateProfile.error && <Text variant="destructive" size="xs">{updateProfile.error}</Text>}
+          {profileError && <Text variant="destructive" size="xs">{profileError}</Text>}
         </div>
       </Section>
 
