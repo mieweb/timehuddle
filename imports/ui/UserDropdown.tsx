@@ -12,29 +12,26 @@ import {
   DropdownSeparator,
   Text,
 } from '@mieweb/ui';
-import { Meteor } from 'meteor/meteor';
-import { useTracker } from 'meteor/react-meteor-data';
 import React, { useCallback } from 'react';
 
+import { useSession } from '../lib/useSession';
 import { useRouter } from './router';
 
 // ─── UserDropdown ─────────────────────────────────────────────────────────────
 
 export const UserDropdown: React.FC = () => {
-  const user = useTracker(() => Meteor.user());
-  const email: string | undefined =
-    user?.emails?.[0]?.address ?? (user?.profile as { email?: string } | undefined)?.email;
+  const { user, signOut } = useSession();
+  const email = user?.email;
 
   const { navigate } = useRouter();
 
   const handleLogout = useCallback(() => {
-    Meteor.logout();
-  }, []);
+    void signOut();
+  }, [signOut]);
 
   const handleProfile = useCallback(() => {
-    const uid = Meteor.userId();
-    if (uid) navigate(`/app/profile/${uid}`);
-  }, [navigate]);
+    if (user?.id) navigate(`/app/profile/${user.id}`);
+  }, [navigate, user?.id]);
 
   const displayName = email ?? 'Account';
   const truncated = displayName.length > 22 ? `${displayName.slice(0, 20)}…` : displayName;

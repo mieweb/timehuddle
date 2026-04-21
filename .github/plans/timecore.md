@@ -56,7 +56,6 @@ for data — auth is fully owned by timecore.
 
 ### timecore changes
 - [ ] Configure `sendResetPassword` email callback in `emailAndPassword` auth config — better-auth handles `POST /api/auth/request-password-reset` and `POST /api/auth/reset-password` automatically
-- [ ] Setup Trusted Origins
 ---
 
 ## Phase 2 — Profile & User Lookups

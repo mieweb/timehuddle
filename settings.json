@@ -1,4 +1,7 @@
 {
+  "public": {
+    "timecoreUrl": "http://localhost:4000"
+  },
   "packages": {
     "mongo": {
       "reactivity": ["changeStreams", "oplog", "polling"]

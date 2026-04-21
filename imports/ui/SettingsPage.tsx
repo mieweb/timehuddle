@@ -28,8 +28,6 @@ import {
   Select,
   Text,
 } from '@mieweb/ui';
-import { Meteor } from 'meteor/meteor';
-import { useTracker } from 'meteor/react-meteor-data';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import {
@@ -40,6 +38,7 @@ import {
 } from '../lib/pushNotificationsClient';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useMethod } from '../lib/useMethod';
+import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
@@ -244,12 +243,20 @@ const PushNotificationsSettings: React.FC = () => {
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 export const SettingsPage: React.FC = () => {
-  const user = useTracker(() => Meteor.user());
-  const profile = user?.profile as { firstName?: string; lastName?: string; email?: string } | undefined;
-  const email: string | undefined = user?.emails?.[0]?.address ?? profile?.email;
+  const { user, signOut } = useSession();
+  const email = user?.email;
 
-  const [firstName, setFirstName] = useState(profile?.firstName ?? '');
-  const [lastName, setLastName] = useState(profile?.lastName ?? '');
+  // Split display name into first/last for the edit fields
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  useEffect(() => {
+    if (user?.name) {
+      const [first = '', ...rest] = user.name.split(' ');
+      setFirstName(first);
+      setLastName(rest.join(' '));
+    }
+  }, [user?.name]);
+
   const [saved, setSaved] = useState(false);
   const updateProfile = useMethod<[{ firstName: string; lastName: string }]>('updateUserProfile');
 
@@ -332,7 +339,7 @@ export const SettingsPage: React.FC = () => {
             variant="danger"
             size="sm"
             leftIcon={<FontAwesomeIcon icon={faRightFromBracket} className="text-xs" />}
-            onClick={() => Meteor.logout()}
+            onClick={() => void signOut()}
           >
             Sign out
           </Button>
