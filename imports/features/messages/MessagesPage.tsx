@@ -176,7 +176,7 @@ export const MessagesPage: React.FC = () => {
     () =>
       teams
         .filter((t) => !t.isPersonal)
-        .map((t) => ({ value: t._id!, label: t.name })),
+        .map((t) => ({ value: t.id, label: t.name })),
     [teams],
   );
 

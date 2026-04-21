@@ -22,8 +22,6 @@ import {
   faUserPlus,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Meteor } from 'meteor/meteor';
-import { useFind, useSubscribe } from 'meteor/react-meteor-data';
 import {
   Avatar,
   Badge,
@@ -46,10 +44,11 @@ import {
   Spinner,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { teamApi, type TeamMember } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
-import { useMethod } from '../../lib/useMethod';
+import { useSession } from '../../lib/useSession';
 const TeamChart = React.lazy(() =>
   import('./TeamChart').then((m) => ({ default: m.TeamChart }))
 );
@@ -57,29 +56,36 @@ const TeamChart = React.lazy(() =>
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
 
 export const TeamsPage: React.FC = () => {
-  const userId = Meteor.userId();
-  const { teams, teamsReady, selectedTeamId, setSelectedTeamId, isAdmin } = useTeam();
+  const { user } = useSession();
+  const userId = user?.id ?? null;
+  const { teams, teamsReady, selectedTeamId, setSelectedTeamId, isAdmin, refetchTeams } = useTeam();
 
-  // Subscribe to team members
-  useSubscribe('teamMembers', selectedTeamId ?? '');
+  // Fetch members for selected team
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const fetchMembers = useCallback(async (teamId: string | null) => {
+    if (!teamId) { setMembers([]); return; }
+    try {
+      const data = await teamApi.getMembers(teamId);
+      setMembers(data);
+    } catch {
+      setMembers([]);
+    }
+  }, []);
 
-  const members = useFind(
-    () => Meteor.users.find({}, { fields: { 'emails.address': 1, profile: 1 } }),
-    [selectedTeamId],
-  );
+  useEffect(() => {
+    void fetchMembers(selectedTeamId);
+  }, [selectedTeamId, fetchMembers]);
 
-  const selectedTeam = teams.find((t) => t._id === selectedTeamId) ?? null;
+  const selectedTeam = teams.find((t) => t.id === selectedTeamId) ?? null;
 
-  // Methods
-  const createTeam = useMethod<[{ name: string; description?: string }], { teamId: string; code: string }>('teams.create');
-  const joinTeam = useMethod<[{ teamCode: string }], string>('teams.join');
-  const updateName = useMethod<[{ teamId: string; newName: string }]>('teams.updateName');
-  const deleteTeam = useMethod<[string]>('teams.delete');
-  const addAdmin = useMethod<[{ teamId: string; userId: string }]>('teams.addAdmin');
-  const removeAdmin = useMethod<[{ teamId: string; userId: string }]>('teams.removeAdmin');
-  const removeMember = useMethod<[{ teamId: string; userId: string }]>('teams.removeMember');
-  const inviteMember = useMethod<[{ teamId: string; email: string }], string>('teams.invite');
-  const setPassword = useMethod<[{ teamId: string; userId: string; newPassword: string }]>('teams.setMemberPassword');
+  // Loading states for mutations
+  const [createLoading, setCreateLoading] = useState(false);
+  const [joinLoading, setJoinLoading] = useState(false);
+  const [renameLoading, setRenameLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [removeLoading, setRemoveLoading] = useState(false);
 
   // Modal state
   const [modal, setModal] = useState<
@@ -108,14 +114,14 @@ export const TeamsPage: React.FC = () => {
   const teamOptions = useMemo(
     () =>
       teams.map((t) => ({
-        value: t._id!,
+        value: t.id,
         label: t.isPersonal ? 'Personal Workspace' : t.name,
       })),
     [teams],
   );
 
-  const usersById = useMemo(
-    () => new Map(members.map((u) => [u._id!, u])),
+  const membersById = useMemo(
+    () => new Map(members.map((m) => [m.id, m])),
     [members],
   );
 
@@ -123,92 +129,114 @@ export const TeamsPage: React.FC = () => {
 
   const handleCreate = useCallback(async () => {
     if (!formValue.trim()) return;
+    setCreateLoading(true);
     try {
-      const result = await createTeam.call({
+      const team = await teamApi.createTeam({
         name: formValue.trim(),
         description: createDescription.trim() || undefined,
       });
-      setSelectedTeamId(result.teamId);
-      setModal({ type: 'created', code: result.code });
+      setSelectedTeamId(team.id);
+      setModal({ type: 'created', code: team.code });
       setFormValue('');
       setCreateDescription('');
+      refetchTeams();
     } catch (e: any) {
-      setFormError(e.reason || 'Failed to create team');
+      setFormError(e.message || 'Failed to create team');
+    } finally {
+      setCreateLoading(false);
     }
-  }, [formValue, createDescription, createTeam, setSelectedTeamId]);
+  }, [formValue, createDescription, setSelectedTeamId, refetchTeams]);
 
   const handleJoin = useCallback(async () => {
     if (!formValue.trim()) return;
+    setJoinLoading(true);
     try {
-      const teamId = await joinTeam.call({ teamCode: formValue.trim() });
-      setSelectedTeamId(teamId);
+      const team = await teamApi.joinTeam(formValue.trim());
+      setSelectedTeamId(team.id);
       closeModal();
+      refetchTeams();
     } catch (e: any) {
-      setFormError(e.reason || 'Failed to join team');
+      setFormError(e.message || 'Failed to join team');
+    } finally {
+      setJoinLoading(false);
     }
-  }, [formValue, joinTeam, setSelectedTeamId]);
+  }, [formValue, setSelectedTeamId, refetchTeams]);
 
   const handleRename = useCallback(async () => {
     if (!formValue.trim() || !selectedTeamId) return;
+    setRenameLoading(true);
     try {
-      await updateName.call({ teamId: selectedTeamId, newName: formValue.trim() });
+      await teamApi.renameTeam(selectedTeamId, formValue.trim());
       closeModal();
+      refetchTeams();
     } catch (e: any) {
-      setFormError(e.reason || 'Failed to rename');
+      setFormError(e.message || 'Failed to rename');
+    } finally {
+      setRenameLoading(false);
     }
-  }, [formValue, selectedTeamId, updateName]);
+  }, [formValue, selectedTeamId, refetchTeams]);
 
   const handleDelete = useCallback(async () => {
     if (!selectedTeamId) return;
+    setDeleteLoading(true);
     try {
-      await deleteTeam.call(selectedTeamId);
+      await teamApi.deleteTeam(selectedTeamId);
       closeModal();
+      refetchTeams();
     } catch (e: any) {
-      setFormError(e.reason || 'Failed to delete');
+      setFormError(e.message || 'Failed to delete');
+    } finally {
+      setDeleteLoading(false);
     }
-  }, [selectedTeamId, deleteTeam]);
+  }, [selectedTeamId, refetchTeams]);
 
   const handleInvite = useCallback(async () => {
     if (!formValue.trim() || !selectedTeamId) return;
+    setInviteLoading(true);
     try {
-      await inviteMember.call({ teamId: selectedTeamId, email: formValue.trim() });
+      await teamApi.inviteMember(selectedTeamId, formValue.trim());
       closeModal();
+      await fetchMembers(selectedTeamId);
     } catch (e: any) {
-      setFormError(e.reason || 'Failed to invite');
+      setFormError(e.message || 'Failed to invite');
+    } finally {
+      setInviteLoading(false);
     }
-  }, [formValue, selectedTeamId, inviteMember]);
+  }, [formValue, selectedTeamId, fetchMembers]);
 
   const handleSetPassword = useCallback(async (memberId: string) => {
     if (!formValue.trim() || !selectedTeamId) return;
+    setPasswordLoading(true);
     try {
-      await setPassword.call({ teamId: selectedTeamId, userId: memberId, newPassword: formValue.trim() });
+      await teamApi.setMemberPassword(selectedTeamId, memberId, formValue.trim());
       closeModal();
     } catch (e: any) {
-      setFormError(e.reason || 'Failed to set password');
+      setFormError(e.message || 'Failed to set password');
+    } finally {
+      setPasswordLoading(false);
     }
-  }, [formValue, selectedTeamId, setPassword]);
+  }, [formValue, selectedTeamId]);
 
   const handleRemoveMember = useCallback(async (memberId: string) => {
     if (!selectedTeamId) return;
+    setRemoveLoading(true);
     try {
-      await removeMember.call({ teamId: selectedTeamId, userId: memberId });
+      await teamApi.removeMember(selectedTeamId, memberId);
       closeModal();
+      refetchTeams();
+      await fetchMembers(selectedTeamId);
     } catch (e: any) {
-      setFormError(e.reason || 'Failed to remove member');
+      setFormError(e.message || 'Failed to remove member');
+    } finally {
+      setRemoveLoading(false);
     }
-  }, [selectedTeamId, removeMember]);
+  }, [selectedTeamId, refetchTeams, fetchMembers]);
 
   const copyCode = useCallback(() => {
     if (selectedTeam?.code) {
       navigator.clipboard.writeText(selectedTeam.code);
     }
   }, [selectedTeam]);
-
-  const getName = (u: Meteor.User) => {
-    const p = u.profile as { firstName?: string; lastName?: string } | undefined;
-    if (p?.firstName || p?.lastName) return [p.firstName, p.lastName].filter(Boolean).join(' ');
-    return u.emails?.[0]?.address?.split('@')[0] ?? 'Unknown';
-  };
 
   if (!teamsReady) {
     return (
@@ -312,9 +340,9 @@ export const TeamsPage: React.FC = () => {
             </div>
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {selectedTeam.members.map((memberId) => {
-                const user = usersById.get(memberId);
-                const name = user ? getName(user) : memberId;
-                const email = user?.emails?.[0]?.address ?? '';
+                const m = membersById.get(memberId);
+                const name = m?.name ?? memberId;
+                const email = m?.email ?? '';
                 const isMemberAdmin = selectedTeam.admins.includes(memberId);
                 const isMe = memberId === userId;
 
@@ -323,7 +351,7 @@ export const TeamsPage: React.FC = () => {
                     <Avatar name={name} size="sm" />
                     <div className="min-w-0 flex-1">
                       <Text size="sm" weight="medium">
-                        {name} {isMe && <Text as="span" variant="muted" size="xs">(you)</Text>}
+                        {name}{isMe && <Text as="span" variant="muted" size="xs"> (you)</Text>}
                       </Text>
                       {email && <Text variant="muted" size="xs">{email}</Text>}
                     </div>
@@ -344,14 +372,14 @@ export const TeamsPage: React.FC = () => {
                         {!isMemberAdmin ? (
                           <DropdownItem
                             icon={<FontAwesomeIcon icon={faShield} />}
-                            onClick={() => addAdmin.call({ teamId: selectedTeamId!, userId: memberId })}
+                            onClick={() => { void teamApi.setMemberRole(selectedTeamId!, memberId, 'admin').then(() => { refetchTeams(); void fetchMembers(selectedTeamId); }); }}
                           >
                             Make Admin
                           </DropdownItem>
                         ) : (
                           <DropdownItem
                             icon={<FontAwesomeIcon icon={faShield} />}
-                            onClick={() => removeAdmin.call({ teamId: selectedTeamId!, userId: memberId })}
+                            onClick={() => { void teamApi.setMemberRole(selectedTeamId!, memberId, 'member').then(() => { refetchTeams(); void fetchMembers(selectedTeamId); }); }}
                           >
                             Remove Admin
                           </DropdownItem>
@@ -391,11 +419,11 @@ export const TeamsPage: React.FC = () => {
               <TeamChart
                 teamName={selectedTeam.name}
                 members={selectedTeam.members.map((memberId) => {
-                  const user = usersById.get(memberId);
+                  const m = membersById.get(memberId);
                   return {
                     id: memberId,
-                    name: user ? getName(user) : memberId,
-                    email: user?.emails?.[0]?.address,
+                    name: m?.name ?? memberId,
+                    email: m?.email,
                     isAdmin: selectedTeam.admins.includes(memberId),
                   };
                 })}
@@ -440,7 +468,7 @@ export const TeamsPage: React.FC = () => {
             variant="primary"
             fullWidth
             onClick={handleCreate}
-            isLoading={createTeam.loading}
+            isLoading={createLoading}
             loadingText="Creating…"
           >
             Create
@@ -471,7 +499,7 @@ export const TeamsPage: React.FC = () => {
             variant="primary"
             fullWidth
             onClick={handleJoin}
-            isLoading={joinTeam.loading}
+            isLoading={joinLoading}
             loadingText="Joining…"
           >
             Join
@@ -500,7 +528,7 @@ export const TeamsPage: React.FC = () => {
             variant="primary"
             fullWidth
             onClick={handleRename}
-            isLoading={updateName.loading}
+            isLoading={renameLoading}
           >
             Save
           </Button>
@@ -523,7 +551,7 @@ export const TeamsPage: React.FC = () => {
           <Button
             variant="danger"
             onClick={handleDelete}
-            isLoading={deleteTeam.loading}
+            isLoading={deleteLoading}
           >
             Delete
           </Button>
@@ -553,7 +581,7 @@ export const TeamsPage: React.FC = () => {
             variant="primary"
             fullWidth
             onClick={handleInvite}
-            isLoading={inviteMember.loading}
+            isLoading={inviteLoading}
           >
             Send Invite
           </Button>
@@ -598,7 +626,7 @@ export const TeamsPage: React.FC = () => {
               modal.type === 'password' &&
               handleSetPassword(modal.memberId)
             }
-            isLoading={setPassword.loading}
+            isLoading={passwordLoading}
           >
             Set Password
           </Button>
@@ -630,7 +658,7 @@ export const TeamsPage: React.FC = () => {
               modal.type === 'remove' &&
               handleRemoveMember(modal.memberId)
             }
-            isLoading={removeMember.loading}
+            isLoading={removeLoading}
           >
             Remove
           </Button>

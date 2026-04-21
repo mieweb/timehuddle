@@ -142,7 +142,7 @@ export const ClockPage: React.FC = () => {
   const teamOptions = useMemo(
     () =>
       teams.map((t) => ({
-        value: t._id!,
+        value: t.id,
         label: t.isPersonal ? 'Personal' : t.name,
       })),
     [teams],

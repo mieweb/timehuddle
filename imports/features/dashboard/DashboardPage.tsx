@@ -108,7 +108,7 @@ export const DashboardPage: React.FC = () => {
   const teamOptions = useMemo(
     () =>
       teams.map((t) => ({
-        value: t._id!,
+        value: t.id,
         label: t.isPersonal ? 'Personal Workspace' : t.name,
       })),
     [teams],
@@ -254,7 +254,7 @@ export const DashboardPage: React.FC = () => {
                 const start = new Date(event.startTimestamp);
                 const end = event.endTime ? new Date(event.endTime) : null;
                 const durSec = end ? (end.getTime() - event.startTimestamp) / 1000 : 0;
-                const team = teams.find((t) => t._id === event.teamId);
+                const team = teams.find((t) => t.id === event.teamId);
                 return (
                   <li key={event._id} className="flex items-center justify-between px-5 py-3">
                     <div className="min-w-0">

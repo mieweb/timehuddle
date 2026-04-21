@@ -34,9 +34,13 @@ export interface PublicUser {
 // ─── Base request ─────────────────────────────────────────────────────────────
 
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+  const hasBody = options.body != null;
   const res = await fetch(`${TIMECORE_BASE_URL}${path}`, {
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: {
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+      ...options.headers,
+    },
     ...options,
   });
 
@@ -191,4 +195,82 @@ export const ticketApi = {
       method: 'PUT',
       body: JSON.stringify({ assignedToUserId }),
     }).then((r) => r.ticket),
+};
+
+// ─── Team API ─────────────────────────────────────────────────────────────────
+
+export interface Team {
+  id: string;
+  name: string;
+  description: string | null;
+  members: string[];
+  admins: string[];
+  code: string;
+  isPersonal: boolean;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export const teamApi = {
+  getTeams: () =>
+    request<{ teams: Team[] }>('/v1/teams').then((r) => r.teams),
+
+  ensurePersonal: () =>
+    request<{ team: Team }>('/v1/teams/ensure-personal', { method: 'POST' }).then((r) => r.team),
+
+  createTeam: (data: { name: string; description?: string }) =>
+    request<{ team: Team }>('/v1/teams', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.team),
+
+  joinTeam: (teamCode: string) =>
+    request<{ team: Team }>('/v1/teams/join', {
+      method: 'POST',
+      body: JSON.stringify({ teamCode }),
+    }).then((r) => r.team),
+
+  renameTeam: (id: string, newName: string) =>
+    request<{ team: Team }>(`/v1/teams/${encodeURIComponent(id)}/name`, {
+      method: 'PUT',
+      body: JSON.stringify({ newName }),
+    }).then((r) => r.team),
+
+  deleteTeam: (id: string) =>
+    request<{ ok: boolean }>(`/v1/teams/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  getMembers: (id: string) =>
+    request<{ members: TeamMember[] }>(`/v1/teams/${encodeURIComponent(id)}/members`).then(
+      (r) => r.members,
+    ),
+
+  inviteMember: (id: string, email: string) =>
+    request<{ ok: boolean }>(`/v1/teams/${encodeURIComponent(id)}/invite`, {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  removeMember: (id: string, userId: string) =>
+    request<{ ok: boolean }>(
+      `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' },
+    ),
+
+  setMemberRole: (id: string, userId: string, role: 'admin' | 'member') =>
+    request<{ ok: boolean }>(
+      `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
+      { method: 'PUT', body: JSON.stringify({ role }) },
+    ),
+
+  setMemberPassword: (id: string, userId: string, newPassword: string) =>
+    request<{ ok: boolean }>(
+      `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/password`,
+      { method: 'PUT', body: JSON.stringify({ newPassword }) },
+    ),
 };
