@@ -128,3 +128,67 @@ export const userApi = {
       body: JSON.stringify(data),
     }).then((r) => r.user),
 };
+
+// ─── Ticket API ───────────────────────────────────────────────────────────────
+
+export interface Ticket {
+  id: string;
+  teamId: string;
+  title: string;
+  github: string;
+  accumulatedTime: number;
+  startTimestamp: number | null;
+  status: string;
+  createdBy: string;
+  assignedTo: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export const ticketApi = {
+  getTickets: (teamId: string) =>
+    request<{ tickets: Ticket[] }>(`/v1/tickets?teamId=${encodeURIComponent(teamId)}`).then(
+      (r) => r.tickets,
+    ),
+
+  createTicket: (data: { teamId: string; title: string; github?: string; accumulatedTime?: number }) =>
+    request<{ ticket: Ticket }>('/v1/tickets', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.ticket),
+
+  updateTicket: (id: string, updates: { title?: string; github?: string; accumulatedTime?: number; status?: string }) =>
+    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    }).then((r) => r.ticket),
+
+  deleteTicket: (id: string) =>
+    request<{ ok: boolean }>(`/v1/tickets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  startTimer: (id: string, now: number) =>
+    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/start`, {
+      method: 'POST',
+      body: JSON.stringify({ now }),
+    }).then((r) => r.ticket),
+
+  stopTimer: (id: string, now: number) =>
+    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/stop`, {
+      method: 'POST',
+      body: JSON.stringify({ now }),
+    }).then((r) => r.ticket),
+
+  batchUpdateStatus: (data: { ticketIds: string[]; status: string; teamId: string }) =>
+    request<{ modified: number }>('/v1/tickets/batch-status', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  assignTicket: (id: string, assignedToUserId: string | null) =>
+    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/assign`, {
+      method: 'PUT',
+      body: JSON.stringify({ assignedToUserId }),
+    }).then((r) => r.ticket),
+};

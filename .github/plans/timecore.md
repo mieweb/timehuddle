@@ -1,5 +1,11 @@
 # Migration Plan: Meteor → Timecore
 
+## Rationale
+
+Meteor's tightly-coupled DDP protocol and proprietary accounts system lock timehuddle to a single Node.js monolith that cannot be shared with mobile clients or scaled independently. Replacing it with timecore (a standard REST/SSE API) makes the auth and data layer portable across web, iOS, and Android while removing a framework dependency that adds ~40 MB to the bundle and limits hiring to Meteor specialists.
+
+## Summary
+
 Migrate timehuddle off Meteor entirely. Replace Meteor DDP, accounts, and collections with
 the shared timecore backend (Fastify + better-auth + MongoDB). The result is a Meteor-free
 React app that shares a universal codebase with future mobile (Capacitor / Expo / React Native).
@@ -77,15 +83,14 @@ timecore's `users` collection managed by better-auth.
 
 ---
 
-## Phase 3 — Teams & Notifications
+## Phase 3 — Teams
 
 **Effort:** 2–3 days  
-**Goal:** Move all team management and notifications to timecore REST + SSE.
+**Goal:** Move all team management to timecore REST.
 
 ### timehuddle changes
 - [ ] Replace all 10 team Meteor methods with REST calls
 - [ ] Replace `userTeams` / `teamMembers` publications with REST + stale-while-revalidate
-- [ ] Replace `notifications.inbox` publication with SSE stream + REST for mark-read/delete
 - [ ] Remove `imports/features/teams/api.ts` server half
 
 ### timecore changes
@@ -99,11 +104,6 @@ timecore's `users` collection managed by better-auth.
 - [ ] `DELETE /v1/teams/:id/members/:userId` — remove member
 - [ ] `PUT /v1/teams/:id/members/:userId/role` — promote/demote admin
 - [ ] `PUT /v1/teams/:id/members/:userId/password` — admin set member password
-- [ ] `GET /v1/notifications` — paginated inbox
-- [ ] `POST /v1/notifications/read` — mark all read
-- [ ] `PATCH /v1/notifications/:id/read` — mark one read
-- [ ] `DELETE /v1/notifications/:id` — delete one
-- [ ] `GET /v1/notifications/stream` — SSE stream for new notifications
 
 ---
 
@@ -191,7 +191,25 @@ Meteor-independent and stays as-is.
 
 ---
 
-## Phase 8 — GitHub Integration
+## Phase 8 — Notifications
+
+**Effort:** 1 day  
+**Goal:** Move the notifications inbox to timecore with SSE for real-time delivery.
+
+### timehuddle changes
+- [ ] Replace `notifications.inbox` publication with SSE stream + REST for mark-read/delete
+- [ ] Remove notifications server code from `imports/features/notifications/`
+
+### timecore changes
+- [ ] `GET /v1/notifications` — paginated inbox
+- [ ] `POST /v1/notifications/read` — mark all read
+- [ ] `PATCH /v1/notifications/:id/read` — mark one read
+- [ ] `DELETE /v1/notifications/:id` — delete one
+- [ ] `GET /v1/notifications/stream` — SSE stream for new notifications
+
+---
+
+## Phase 9 — GitHub Integration
 
 **Effort:** 1–2 days  
 **Goal:** Allow users to connect their GitHub account via OAuth, browse repos/issues, and link GitHub issues to tickets — parity with timeharbor-legacy.
@@ -211,7 +229,7 @@ Meteor-independent and stays as-is.
 
 ---
 
-## Phase 9 — PulseVault Integration
+## Phase 10 — PulseVault Integration
 
 **Effort:** 1 day  
 **Goal:** Allow users to attach media to tickets via PulseCam app using a QR code/deeplink — parity with timeharbor-legacy.
@@ -227,7 +245,7 @@ Meteor-independent and stays as-is.
 
 ---
 
-## Phase 10 — Rip Out Meteor
+## Phase 11 — Rip Out Meteor
 
 **Effort:** 1 day  
 **Goal:** Remove the Meteor build system and all remaining Meteor packages. Replace the dev

@@ -1,20 +1,15 @@
-import { DDPRateLimiter } from 'meteor/ddp-rate-limiter';
-import { Meteor } from 'meteor/meteor';
-import { Mongo } from 'meteor/mongo';
-
-import { Teams } from '../teams/api';
-import {
-  assignTicketSchema,
-  batchUpdateStatusSchema,
-  createTicketSchema,
-  ticketTimerSchema,
-  updateTicketSchema,
-  type TicketDoc,
+/**
+ * Tickets feature — server-side Meteor API removed in Phase 4.
+ * Data is now served by timecore (/v1/tickets).
+ */
+export type {
+  TicketDoc,
+  CreateTicketInput,
+  UpdateTicketInput,
+  TicketTimerInput,
+  BatchUpdateStatusInput,
+  AssignTicketInput,
 } from './schema';
-
-// ─── Collections ──────────────────────────────────────────────────────────────
-
-export const Tickets = new Mongo.Collection<TicketDoc>('tickets');
 
 // ─── Server ───────────────────────────────────────────────────────────────────
 
