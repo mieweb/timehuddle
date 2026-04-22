@@ -178,15 +178,15 @@ requirement — the team dashboard shows live clock state for all members.
 **Goal:** Move the notifications inbox to timecore with SSE for real-time delivery.
 
 ### timehuddle changes
-- [ ] Replace `notifications.inbox` publication with SSE stream + REST for mark-read/delete
-- [ ] Remove notifications server code from `imports/features/notifications/`
+- [x] Replace `notifications.inbox` publication with SSE stream + REST for mark-read/delete
+- [x] Remove notifications server code from `imports/features/notifications/`
 
 ### timecore changes
-- [ ] `GET /v1/notifications` — paginated inbox
-- [ ] `POST /v1/notifications/read` — mark all read
-- [ ] `PATCH /v1/notifications/:id/read` — mark one read
-- [ ] `DELETE /v1/notifications/:id` — delete one
-- [ ] `GET /v1/notifications/stream` — SSE stream for new notifications
+- [x] `GET /v1/notifications` — paginated inbox
+- [x] `POST /v1/notifications/read` — mark all read
+- [x] `PATCH /v1/notifications/:id/read` — mark one read
+- [x] `DELETE /v1/notifications` — bulk delete
+- [x] `GET /v1/notifications/stream` — SSE stream for new notifications
 
 ---
 

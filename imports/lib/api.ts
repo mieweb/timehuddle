@@ -396,3 +396,69 @@ export const messageApi = {
     ),
 };
 
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+export interface Notification {
+  id: string;
+  userId: string;
+  title: string;
+  body: string;
+  data?: Record<string, unknown>;
+  read: boolean;
+  createdAt: string; // ISO
+}
+
+export type TeamInvitePreview = {
+  notificationId: string;
+  teamId: string;
+  teamName: string;
+  teamDescription: string;
+  inviter: { id: string; name: string; email: string } | null;
+  members: { id: string; name: string; email: string }[];
+  admins: { id: string; name: string; email: string }[];
+  alreadyMember: boolean;
+};
+
+export const notificationApi = {
+  /** Fetch the user's notification inbox. */
+  getInbox: () =>
+    request<{ notifications: Notification[] }>('/v1/notifications').then(
+      (r) => r.notifications,
+    ),
+
+  /** Mark a single notification as read. */
+  markOneRead: (id: string) =>
+    request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/read`, {
+      method: 'PATCH',
+    }),
+
+  /** Mark all notifications as read. */
+  markAllRead: () =>
+    request<{ ok: boolean }>('/v1/notifications/read', { method: 'POST' }),
+
+  /** Bulk-delete notifications by ID. */
+  deleteMany: (ids: string[]) =>
+    request<{ deletedCount: number }>('/v1/notifications', {
+      method: 'DELETE',
+      body: JSON.stringify({ ids }),
+    }),
+
+  /** Fetch team-invite preview for a notification. */
+  getInvitePreview: (id: string) =>
+    request<TeamInvitePreview>(
+      `/v1/notifications/${encodeURIComponent(id)}/invite-preview`,
+    ),
+
+  /** Accept or ignore a team invite. */
+  respondToInvite: (id: string, action: 'join' | 'ignore') =>
+    request<{ ok: boolean }>(
+      `/v1/notifications/${encodeURIComponent(id)}/invite-respond`,
+      { method: 'POST', body: JSON.stringify({ action }) },
+    ),
+
+  /** Open an SSE stream for new notifications. */
+  openStream: (): EventSource =>
+    new EventSource(`${TIMECORE_BASE_URL}/v1/notifications/stream`, {
+      withCredentials: true,
+    }),
+};
