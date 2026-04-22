@@ -1,8 +1,12 @@
 /**
- * Browser Web Push client — parity with timeharbor-old NotificationUtils (web path).
- * Cordova / FCM native is not wired in this app; use the same Meteor methods if you add a shell later.
+ * Browser Web Push client.
+ *
+ * VAPID public key is read from the VITE_VAPID_PUBLIC_KEY env var.
+ * Server-side subscription management will route through timecore
+ * (/v1/notifications/push-subscribe and /v1/notifications/push-unsubscribe)
+ * once those endpoints are implemented.
  */
-import { Meteor } from 'meteor/meteor';
+import { TIMECORE_BASE_URL } from './api';
 
 export function isPushNotificationSupported(): boolean {
   return typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window;
@@ -23,7 +27,7 @@ function urlBase64ToUint8Array(base64String: string): BufferSource {
   return outputArray;
 }
 
-/** Register /sw.js (matches timeharbor-old: replace existing registrations first). */
+/** Register /sw.js (replace existing registrations first). */
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration> {
   if (!('serviceWorker' in navigator)) throw new Error('Service workers are not supported');
   const existingRegistrations = await navigator.serviceWorker.getRegistrations();
@@ -38,18 +42,17 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 export async function subscribeToWebPush(): Promise<void> {
   if (!isPushNotificationSupported()) throw new Error('Push notifications are not supported');
 
+  const vapidPublicKey =
+    (typeof import.meta !== 'undefined' &&
+      (import.meta as { env?: Record<string, string> }).env?.VITE_VAPID_PUBLIC_KEY) ||
+    '';
+  if (!vapidPublicKey) throw new Error('VITE_VAPID_PUBLIC_KEY is not configured');
+
   const permissionGranted = await requestNotificationPermission();
   if (!permissionGranted) throw new Error('Notification permission denied');
 
   const registration = await registerServiceWorker();
   await new Promise<void>((resolve) => setTimeout(resolve, 500));
-
-  const vapidPublicKey = await new Promise<string>((resolve, reject) => {
-    Meteor.call('getVapidPublicKey', (err: Meteor.Error | undefined, key: string) => {
-      if (err) reject(err);
-      else resolve(key);
-    });
-  });
 
   let subscription = await registration.pushManager.getSubscription();
   if (subscription) await subscription.unsubscribe();
@@ -60,21 +63,18 @@ export async function subscribeToWebPush(): Promise<void> {
   });
 
   const json = subscription.toJSON();
-  await new Promise<void>((resolve, reject) => {
-    Meteor.call(
-      'subscribeToPushNotifications',
-      {
-        type: 'webpush',
-        endpoint: json.endpoint,
-        keys: json.keys,
-        expirationTime: json.expirationTime,
-      },
-      (err: Meteor.Error | undefined) => {
-        if (err) reject(err);
-        else resolve();
-      },
-    );
+  const res = await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-subscribe`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'webpush',
+      endpoint: json.endpoint,
+      keys: json.keys,
+      expirationTime: json.expirationTime,
+    }),
   });
+  if (!res.ok) throw new Error(`Server push-subscribe failed: HTTP ${res.status}`);
 }
 
 export async function unsubscribeFromWebPush(): Promise<void> {
@@ -83,13 +83,12 @@ export async function unsubscribeFromWebPush(): Promise<void> {
     const subscription = await registration.pushManager.getSubscription();
     if (subscription) await subscription.unsubscribe();
   } catch {
-    /* ignore */
+    /* ignore browser errors */
   }
-  await new Promise<void>((resolve, reject) => {
-    Meteor.call('unsubscribeFromPushNotifications', (err: Meteor.Error | undefined) => {
-      if (err) reject(err);
-      else resolve();
-    });
+
+  await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-unsubscribe`, {
+    method: 'POST',
+    credentials: 'include',
   });
 }
 
@@ -105,13 +104,6 @@ export async function checkPushNotificationStatus(): Promise<{
 
   const permission = Notification.permission;
 
-  const serverEnabled = await new Promise<boolean>((resolve) => {
-    Meteor.call('checkPushNotificationStatus', (err: Meteor.Error | undefined, result?: { enabled?: boolean }) => {
-      if (err) resolve(false);
-      else resolve(!!result?.enabled);
-    });
-  });
-
   try {
     const registration = await navigator.serviceWorker.getRegistration('/');
     let subscribed = false;
@@ -119,8 +111,8 @@ export async function checkPushNotificationStatus(): Promise<{
       const sub = await registration.pushManager.getSubscription();
       subscribed = !!sub;
     }
-    return { supported: true, permission, subscribed, serverEnabled };
+    return { supported: true, permission, subscribed, serverEnabled: subscribed };
   } catch {
-    return { supported: true, permission, subscribed: false, serverEnabled };
+    return { supported: true, permission, subscribed: false, serverEnabled: false };
   }
 }

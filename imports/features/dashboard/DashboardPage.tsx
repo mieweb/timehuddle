@@ -18,8 +18,6 @@ import {
   faRightToBracket,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Meteor } from 'meteor/meteor';
-import { useFind } from 'meteor/react-meteor-data';
 import {
   Alert,
   AlertDescription,
@@ -34,21 +32,21 @@ import {
   Spinner,
   Text,
 } from '@mieweb/ui';
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
-import { ClockEvents } from '../clock/api';
-import type { ClockEventDoc } from '../clock/schema';
+import { clockApi, type ClockEvent } from '../../lib/api';
+import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration, formatTime, formatDate, startOfDay } from '../../lib/timeUtils';
 import { useRouter } from '../../ui/router';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function computeHours(events: ClockEventDoc[], after: number, now: number): number {
+function computeHours(events: ClockEvent[], after: number, now: number): number {
   let total = 0;
   for (const e of events) {
     if (e.startTimestamp < after) continue;
-    const end = e.endTime ? e.endTime.getTime() : now;
+    const end = e.endTime ? new Date(e.endTime).getTime() : now;
     total += (end - e.startTimestamp) / 1000;
   }
   return total;
@@ -57,7 +55,7 @@ function computeHours(events: ClockEventDoc[], after: number, now: number): numb
 // ─── DashboardPage ────────────────────────────────────────────────────────────
 
 export const DashboardPage: React.FC = () => {
-  const userId = Meteor.userId();
+  const { user } = useSession();
   const { navigate } = useRouter();
   const {
     teams,
@@ -68,11 +66,12 @@ export const DashboardPage: React.FC = () => {
     currentTime,
   } = useTeam();
 
-  // All user clock events (from subscription)
-  const allEvents = useFind(
-    () => ClockEvents.find({ userId: userId ?? '__none__' }, { sort: { startTimestamp: -1 } }),
-    [userId],
-  );
+  // All user clock events (from timecore REST)
+  const [allEvents, setAllEvents] = useState<ClockEvent[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    clockApi.getEvents().then(setAllEvents).catch(() => setAllEvents([]));
+  }, [user]);
 
   // Compute stats
   const todayStart = useMemo(() => startOfDay(new Date()).getTime(), []);
@@ -256,7 +255,7 @@ export const DashboardPage: React.FC = () => {
                 const durSec = end ? (end.getTime() - event.startTimestamp) / 1000 : 0;
                 const team = teams.find((t) => t.id === event.teamId);
                 return (
-                  <li key={event._id} className="flex items-center justify-between px-5 py-3">
+                  <li key={event.id} className="flex items-center justify-between px-5 py-3">
                     <div className="min-w-0">
                       <Text size="sm" weight="medium">
                         {formatDate(start)} • {formatTime(start)}

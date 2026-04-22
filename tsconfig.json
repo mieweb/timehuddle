@@ -17,6 +17,6 @@
       "@lib/*": ["imports/lib/*"]
     }
   },
-  "include": ["imports", "client", "server"],
+  "include": ["imports", "client", "vite.config.ts"],
   "exclude": ["node_modules"]
 }

@@ -151,9 +151,12 @@ const PushNotificationsSettings: React.FC = () => {
 
   useEffect(() => {
     setSupported(isPushNotificationSupported());
-    Meteor.call('getVapidPublicKey', (err: unknown) => {
-      setServerHasVapid(!err);
-    });
+    // VAPID key is configured if the env var is present
+    const vapidKey =
+      (typeof import.meta !== 'undefined' &&
+        (import.meta as { env?: Record<string, string> }).env?.VITE_VAPID_PUBLIC_KEY) ||
+      '';
+    setServerHasVapid(vapidKey.length > 0);
     void refreshStatus();
   }, [refreshStatus]);
 
@@ -367,7 +370,7 @@ export const SettingsPage: React.FC = () => {
       <Section icon={faInfo} title="About" description="Stack versions for this application.">
         {(
           [
-            ['Meteor', '3.5'],
+            ['Vite', '8'],
             ['React', '19'],
             ['Tailwind CSS', '4'],
             ['TypeScript', '5.9'],

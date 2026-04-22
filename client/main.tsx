@@ -1,7 +1,5 @@
 import './styles.css';
-import '../imports/startup/client';
 
-import { Meteor } from 'meteor/meteor';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -37,25 +35,17 @@ const App: React.FC = () => {
   if (!user) return <LoginForm />;
   return <AppLayout />;
 };
+
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
-Meteor.startup(() => {
-  const el = document.getElementById('root');
-  if (!el) return;
-
+const el = document.getElementById('root');
+if (el) {
   if (window.location.pathname === '/') {
     // Root redirects to /app (login or dashboard depending on auth state).
     window.location.replace('/app');
-    return;
   } else if (window.location.pathname === '/inbox') {
-    // Dev inbox — no auth required, no SSR to hydrate.
+    // Dev inbox — no auth required.
     createRoot(el).render(<InboxPage />);
-  } else if (window.location.pathname.startsWith('/app')) {
-    createRoot(el).render(
-      <SessionProvider>
-        <App />
-      </SessionProvider>,
-    );
   } else {
     createRoot(el).render(
       <SessionProvider>
@@ -63,4 +53,4 @@ Meteor.startup(() => {
       </SessionProvider>,
     );
   }
-});
+}

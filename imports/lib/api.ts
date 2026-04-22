@@ -1,15 +1,14 @@
 /**
  * Typed fetch wrappers for the timecore backend.
  *
- * Base URL is read from Meteor.settings.public.timecoreUrl (set in settings.json),
+ * Base URL is read from the VITE_TIMECORE_URL env var (set in .env),
  * falling back to localhost:4000 for local development.
  */
-import { Meteor } from 'meteor/meteor';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 export const TIMECORE_BASE_URL: string =
-  (Meteor.settings?.public as Record<string, string> | undefined)?.timecoreUrl ??
+  (typeof import.meta !== 'undefined' && (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
   'http://localhost:4000';
 
 // ─── Types ────────────────────────────────────────────────────────────────────

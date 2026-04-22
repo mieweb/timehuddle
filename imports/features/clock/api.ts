@@ -1,8 +1,2 @@
-import { Mongo } from 'meteor/mongo';
-
-import type { ClockEventDoc, SessionDoc } from './schema';
-
-// ─── Collections ──────────────────────────────────────────────────────────────
-
-export const ClockEvents = new Mongo.Collection<ClockEventDoc>('clockevents');
-export const Sessions = new Mongo.Collection<SessionDoc>('sessions');
+// Clock feature types — collections removed in Phase 10 (migrated to timecore REST API)
+export type { ClockEventDoc, SessionDoc } from './schema';

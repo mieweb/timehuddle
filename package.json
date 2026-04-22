@@ -1,8 +1,11 @@
 {
-  "name": "meteor-react-tailwind-prettier-starter",
+  "name": "timehuddle",
   "private": true,
   "scripts": {
-    "start": "meteor run --settings settings.json",
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "prune:legacy": "bash ./scripts/prune-legacy.sh --yes",
     "lint:fix": "eslint . --fix",
     "lint": "eslint .",
@@ -25,31 +28,22 @@
     "@mieweb/ui": "^0.2.4",
     "@mieweb/ychart": "^1.0.0",
     "@swc/helpers": "^0.5.17",
-    "firebase-admin": "^13.7.0",
-    "meteor-node-stubs": "^1.2.24",
     "motion": "^12.34.3",
     "postcss-load-config": "^6.0.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "web-push": "^3.6.7",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",
-    "@meteorjs/rspack": "^1.0.0",
     "@playwright/test": "^1.58.2",
-    "@rsdoctor/rspack-plugin": "^1.2.3",
-    "@rspack/cli": "^1.7.1",
-    "@rspack/core": "^1.7.1",
-    "@rspack/plugin-react-refresh": "^1.4.3",
     "@tailwindcss/oxide": "4.1.13",
     "@tailwindcss/postcss": "^4.1.13",
-    "@types/meteor": "2.9.9",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "@types/web-push": "^3.6.4",
     "@typescript-eslint/eslint-plugin": "^8.42.0",
     "@typescript-eslint/parser": "^8.42.0",
+    "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.4.19",
     "eslint": "^9.35.0",
     "eslint-plugin-import": "^2.31.0",
@@ -69,14 +63,8 @@
     "react-refresh": "^0.17.0",
     "tailwindcss": "^4.1.13",
     "typescript": "^5.9.2",
-    "vitest": "^4.0.18"
-  },
-  "meteor": {
-    "mainModule": {
-      "client": "client/main.tsx",
-      "server": "server/main.ts"
-    },
-    "modern": true
+    "vite": "^8.0.9",
+    "vitest": "^4.1.5"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
