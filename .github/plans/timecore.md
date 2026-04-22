@@ -89,21 +89,21 @@ timecore's `users` collection managed by better-auth.
 **Goal:** Move all team management to timecore REST.
 
 ### timehuddle changes
-- [ ] Replace all 10 team Meteor methods with REST calls
-- [ ] Replace `userTeams` / `teamMembers` publications with REST + stale-while-revalidate
-- [ ] Remove `imports/features/teams/api.ts` server half
+- [x] Replace all 10 team Meteor methods with REST calls
+- [x] Replace `userTeams` / `teamMembers` publications with REST + stale-while-revalidate
+- [x] Remove `imports/features/teams/api.ts` server half
 
 ### timecore changes
-- [ ] `GET /v1/teams` — teams for current user
-- [ ] `POST /v1/teams` — create team
-- [ ] `DELETE /v1/teams/:id` — delete team
-- [ ] `PUT /v1/teams/:id/name` — rename
-- [ ] `GET /v1/teams/:id/members` — member list with user details
-- [ ] `POST /v1/teams/:id/invite` — invite by email
-- [ ] `POST /v1/teams/:id/join` — join by code
-- [ ] `DELETE /v1/teams/:id/members/:userId` — remove member
-- [ ] `PUT /v1/teams/:id/members/:userId/role` — promote/demote admin
-- [ ] `PUT /v1/teams/:id/members/:userId/password` — admin set member password
+- [x] `GET /v1/teams` — teams for current user
+- [x] `POST /v1/teams` — create team
+- [x] `DELETE /v1/teams/:id` — delete team
+- [x] `PUT /v1/teams/:id/name` — rename
+- [x] `GET /v1/teams/:id/members` — member list with user details
+- [x] `POST /v1/teams/:id/invite` — invite by email
+- [x] `POST /v1/teams/:id/join` — join by code
+- [x] `DELETE /v1/teams/:id/members/:userId` — remove member
+- [x] `PUT /v1/teams/:id/members/:userId/role` — promote/demote admin
+- [x] `PUT /v1/teams/:id/members/:userId/password` — admin set member password
 
 ---
 
@@ -113,18 +113,18 @@ timecore's `users` collection managed by better-auth.
 **Goal:** Move ticket CRUD and timer operations to timecore.
 
 ### timehuddle changes
-- [ ] Replace 6 ticket Meteor methods with REST calls
-- [ ] Replace `teamTickets` / `adminTeamTickets` publications with REST + poll or SSE
-- [ ] Remove `imports/features/tickets/api.ts` server half
+- [x] Replace 6 ticket Meteor methods with REST calls
+- [x] Replace `teamTickets` / `adminTeamTickets` publications with REST + poll or SSE
+- [x] Remove `imports/features/tickets/api.ts` server half
 - [ ] Admin ticket review page — team-admin view of all tickets across managed teams, with batch status update
 
 ### timecore changes
-- [ ] `GET /v1/tickets?teamId=` — list tickets for team
-- [ ] `POST /v1/tickets` — create ticket
-- [ ] `PUT /v1/tickets/:id` — update ticket
-- [ ] `DELETE /v1/tickets/:id` — delete ticket
-- [ ] `POST /v1/tickets/:id/start` — start timer
-- [ ] `POST /v1/tickets/:id/stop` — stop timer
+- [x] `GET /v1/tickets?teamId=` — list tickets for team
+- [x] `POST /v1/tickets` — create ticket
+- [x] `PUT /v1/tickets/:id` — update ticket
+- [x] `DELETE /v1/tickets/:id` — delete ticket
+- [x] `POST /v1/tickets/:id/start` — start timer
+- [x] `POST /v1/tickets/:id/stop` — stop timer
 - [ ] `POST /v1/tickets/batch-status` — batch status update
 - [ ] `PUT /v1/tickets/:id/assign` — assign to user
 

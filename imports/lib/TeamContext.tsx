@@ -1,18 +1,18 @@
 /**
  * TeamContext — Shared selected-team state.
  *
- * Teams are now fetched via REST from timecore (Phase 3).
- * Clock events still use Meteor subscriptions (Phase 5 will migrate them).
+ * Teams and clock events are fetched via REST from timecore.
  *
  * Provides:
- *   • teams           — all teams the user belongs to (REST)
- *   • teamsReady      — true once the first fetch completes
- *   • refetchTeams    — callable after mutations to refresh the list
- *   • selectedTeamId  — persisted in localStorage
- *   • activeClockEvent — the user's current open clock event (still Meteor)
- *   • currentTime     — ticks every second for live timers
+ *   • teams            — all teams the user belongs to (REST)
+ *   • teamsReady       — true once the first fetch completes
+ *   • refetchTeams     — callable after mutations to refresh the list
+ *   • selectedTeamId   — persisted in localStorage
+ *   • activeClockEvent — the user's current open clock event (REST)
+ *   • clockReady       — true once the first clock fetch completes
+ *   • refetchClock     — callable after clock mutations to refresh
+ *   • currentTime      — ticks every second for live timers
  */
-import { useFind, useSubscribe } from 'meteor/react-meteor-data';
 import React, {
   createContext,
   useCallback,
@@ -22,9 +22,7 @@ import React, {
   useState,
 } from 'react';
 
-import type { ClockEventDoc } from '../features/clock/schema';
-import { ClockEvents } from '../features/clock/api';
-import { teamApi, type Team } from './api';
+import { teamApi, clockApi, type Team, type ClockEvent } from './api';
 import { useSession } from './useSession';
 
 const TEAM_KEY = 'app:selectedTeamId';
@@ -37,8 +35,9 @@ export interface TeamContextValue {
   selectedTeam: Team | null;
   setSelectedTeamId: (id: string) => void;
   isAdmin: boolean;
-  activeClockEvent: ClockEventDoc | null;
+  activeClockEvent: ClockEvent | null;
   clockReady: boolean;
+  refetchClock: () => void;
   currentTime: number;
 }
 
@@ -52,6 +51,7 @@ const TeamCtx = createContext<TeamContextValue>({
   isAdmin: false,
   activeClockEvent: null,
   clockReady: false,
+  refetchClock: () => {},
   currentTime: Date.now(),
 });
 
@@ -112,19 +112,30 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [userId, selectedTeam],
   );
 
-  // ── Clock events (still Meteor — Phase 5) ──────────────────────────────────
+  // ── Clock events via REST ───────────────────────────────────────────────────
 
-  const clockLoading = useSubscribe('clockEventsForUser');
+  const [activeClockEvent, setActiveClockEvent] = useState<ClockEvent | null>(null);
+  const [clockReady, setClockReady] = useState(false);
 
-  const activeClockEvent =
-    useFind(
-      () =>
-        ClockEvents.find(
-          { userId: userId ?? '__none__', teamId: selectedTeamId ?? '__none__', endTime: null },
-          { limit: 1 },
-        ),
-      [userId, selectedTeamId],
-    )?.[0] ?? null;
+  const refetchClock = useCallback(async () => {
+    if (!userId) {
+      setActiveClockEvent(null);
+      setClockReady(true);
+      return;
+    }
+    try {
+      const event = await clockApi.getActive();
+      setActiveClockEvent(event);
+    } catch {
+      setActiveClockEvent(null);
+    } finally {
+      setClockReady(true);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    void refetchClock();
+  }, [refetchClock, selectedTeamId]);
 
   // ── Live timer ──────────────────────────────────────────────────────────────
 
@@ -146,7 +157,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSelectedTeamId,
       isAdmin,
       activeClockEvent,
-      clockReady: !clockLoading(),
+      clockReady,
+      refetchClock,
       currentTime,
     }),
     [
@@ -158,7 +170,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setSelectedTeamId,
       isAdmin,
       activeClockEvent,
-      clockLoading,
+      clockReady,
+      refetchClock,
       currentTime,
     ],
   );

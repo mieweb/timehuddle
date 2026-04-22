@@ -29,27 +29,16 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
-import { Meteor } from 'meteor/meteor';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration, formatTime, formatDate, toDateString } from '../../lib/timeUtils';
-import { useMethod } from '../../lib/useMethod';
+import { clockApi, type ClockEvent } from '../../lib/api';
+import { useSession } from '../../lib/useSession';
 
-interface TimesheetSession {
-  id: string;
-  date: string;
-  startTime: Date;
-  endTime: Date | null;
-  duration: number | null;
-  isActive: boolean;
-  teamName: string | null;
-  teamId: string;
-  accumulatedTime: number;
-}
 
 interface TimesheetData {
-  sessions: TimesheetSession[];
+  sessions: ClockEvent[];
   summary: {
     totalSeconds: number;
     totalSessions: number;
@@ -94,23 +83,18 @@ function getDateRange(preset: Preset): [Date, Date] {
 }
 
 export const TimesheetPage: React.FC = () => {
-  const userId = Meteor.userId();
-  const { teamsReady } = useTeam();
+  const { user } = useSession();
+  const { teamsReady, teams } = useTeam();
 
   const [preset, setPreset] = useState<Preset>('week');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-
-  const getTimesheet = useMethod<
-    [{ userId: string; startDate: string; endDate: string }],
-    TimesheetData
-  >('clock.getTimesheetData');
-
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<TimesheetData | null>(null);
 
   const fetchData = useCallback(async () => {
-    if (!userId) return;
-
+    if (!user?.id) return;
     let startDate: string;
     let endDate: string;
 
@@ -124,16 +108,20 @@ export const TimesheetPage: React.FC = () => {
       endDate = toDateString(e);
     }
 
+    setLoading(true);
+    setError(null);
     try {
-      const result = await getTimesheet.call({ userId, startDate, endDate });
+      const result = await clockApi.getTimesheet(user?.id ?? '', startDate, endDate);
       setData(result);
-    } catch {
-      // Error is in getTimesheet.error
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load timesheet');
+    } finally {
+      setLoading(false);
     }
-  }, [userId, preset, customStart, customEnd, getTimesheet]);
+  }, [user?.id, preset, customStart, customEnd]);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, [preset]);
 
   const presets: { key: Preset; label: string }[] = [
@@ -190,8 +178,8 @@ export const TimesheetPage: React.FC = () => {
             variant="primary"
             size="sm"
             onClick={fetchData}
-            disabled={getTimesheet.loading || !customStart || !customEnd}
-            isLoading={getTimesheet.loading}
+            disabled={loading || !customStart || !customEnd}
+            isLoading={loading}
             loadingText="Applying…"
           >
             Apply
@@ -222,16 +210,16 @@ export const TimesheetPage: React.FC = () => {
       )}
 
       {/* Loading */}
-      {getTimesheet.loading && (
+      {loading && (
         <div className="flex items-center justify-center p-8">
           <Spinner label="Loading timesheet…" />
         </div>
       )}
 
       {/* Error */}
-      {getTimesheet.error && (
+      {error && (
         <Alert variant="danger" dismissible>
-          <AlertDescription>{getTimesheet.error}</AlertDescription>
+          <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
@@ -254,15 +242,23 @@ export const TimesheetPage: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.sessions.map((s) => (
+                {data.sessions.map((s) => {
+                  const startTime = new Date(s.startTimestamp);
+                  const endTime = s.endTime ? new Date(s.endTime) : null;
+                  const duration = endTime
+                    ? Math.floor((endTime.getTime() - startTime.getTime()) / 1000)
+                    : null;
+                  const isActive = !s.endTime;
+                  const teamName = teams.find((t) => t.id === s.teamId)?.name ?? s.teamId;
+                  return (
                   <TableRow key={s.id}>
-                    <TableCell>{formatDate(new Date(s.startTime), true)}</TableCell>
-                    <TableCell>{formatTime(new Date(s.startTime))}</TableCell>
-                    <TableCell>{s.endTime ? formatTime(new Date(s.endTime)) : '—'}</TableCell>
-                    <TableCell className="font-mono">{s.duration ? formatDuration(s.duration) : '—'}</TableCell>
-                    <TableCell>{s.teamName ?? '—'}</TableCell>
+                    <TableCell>{formatDate(startTime, true)}</TableCell>
+                    <TableCell>{formatTime(startTime)}</TableCell>
+                    <TableCell>{endTime ? formatTime(endTime) : '—'}</TableCell>
+                    <TableCell className="font-mono">{duration ? formatDuration(duration) : '—'}</TableCell>
+                    <TableCell>{teamName}</TableCell>
                     <TableCell>
-                      {s.isActive ? (
+                      {isActive ? (
                         <Badge variant="success" size="sm">
                           <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
                           Active
@@ -272,14 +268,15 @@ export const TimesheetPage: React.FC = () => {
                       )}
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </CardContent>
         </Card>
       )}
 
-      {data && data.sessions.length === 0 && !getTimesheet.loading && (
+      {data && data.sessions.length === 0 && !loading && (
         <Card variant="outlined" padding="lg" className="border-dashed text-center">
           <CardContent>
             <FontAwesomeIcon icon={faCalendar} className="mb-2 text-2xl text-neutral-300 dark:text-neutral-600" />

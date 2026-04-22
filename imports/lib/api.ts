@@ -274,3 +274,86 @@ export const teamApi = {
       { method: 'PUT', body: JSON.stringify({ newPassword }) },
     ),
 };
+
+// ─── Clock API ────────────────────────────────────────────────────────────────
+
+export interface ClockTicketSession {
+  startTimestamp: number;
+  endTimestamp: number | null;
+}
+
+export interface ClockEventTicket {
+  ticketId: string;
+  startTimestamp: number | null;
+  accumulatedTime: number;
+  sessions: ClockTicketSession[];
+}
+
+export interface ClockEvent {
+  id: string;
+  userId: string;
+  teamId: string;
+  startTimestamp: number;
+  accumulatedTime: number;
+  tickets: ClockEventTicket[];
+  endTime: string | null;
+  youtubeShortLink: string | null;
+}
+
+export const clockApi = {
+  /** Clock in to a team. Returns the new clock event. */
+  start: (teamId: string) =>
+    request<{ event: ClockEvent }>('/v1/clock/start', {
+      method: 'POST',
+      body: JSON.stringify({ teamId }),
+    }).then((r) => r.event),
+
+  /** Clock out of a team. */
+  stop: (teamId: string, youtubeShortLink?: string) =>
+    request<{ event: ClockEvent }>('/v1/clock/stop', {
+      method: 'POST',
+      body: JSON.stringify({ teamId, ...(youtubeShortLink ? { youtubeShortLink } : {}) }),
+    }).then((r) => r.event),
+
+  /** Start a ticket timer inside an active clock event. */
+  addTicket: (clockEventId: string, ticketId: string, now: number) =>
+    request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/ticket/start`, {
+      method: 'POST',
+      body: JSON.stringify({ ticketId, now }),
+    }).then((r) => r.event),
+
+  /** Stop a ticket timer inside a clock event. */
+  stopTicket: (clockEventId: string, ticketId: string, now: number) =>
+    request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/ticket/stop`, {
+      method: 'POST',
+      body: JSON.stringify({ ticketId, now }),
+    }).then((r) => r.event),
+
+  /** Get the current user's active clock event (any team), or null. */
+  getActive: () =>
+    request<{ event: ClockEvent | null }>('/v1/clock/active').then((r) => r.event),
+
+  /** Get all clock events for the current user. */
+  getEvents: () =>
+    request<{ events: ClockEvent[] }>('/v1/clock/events').then((r) => r.events),
+
+  /** Get timesheet data for a user over a date range. */
+  getTimesheet: (userId: string, startDate: string, endDate: string) =>
+    request<{
+      sessions: ClockEvent[];
+      summary: {
+        totalSeconds: number;
+        totalSessions: number;
+        completedSessions: number;
+        averageSessionSeconds: number;
+        workingDays: number;
+      };
+    }>(`/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startDate=${startDate}&endDate=${endDate}`),
+
+  /** Open an SSE connection for live team clock state. Returns an EventSource. */
+  openLiveStream: (teamIds: string[]): EventSource =>
+    new EventSource(
+      `${TIMECORE_BASE_URL}/v1/clock/live?teamIds=${teamIds.map(encodeURIComponent).join(',')}`,
+      { withCredentials: true },
+    ),
+};

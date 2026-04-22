@@ -18,8 +18,6 @@ import {
   faXmark,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Meteor } from 'meteor/meteor';
-import { useFind, useSubscribe } from 'meteor/react-meteor-data';
 import {
   Badge,
   Button,
@@ -38,17 +36,15 @@ import {
   Spinner,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
 import { formatTimer, formatDuration } from '../../lib/timeUtils';
-import { useMethod } from '../../lib/useMethod';
-import { Tickets } from '../tickets/api';
+import { clockApi, ticketApi, type Ticket } from '../../lib/api';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
 export const ClockPage: React.FC = () => {
-  const userId = Meteor.userId();
   const {
     teams,
     selectedTeamId,
@@ -56,23 +52,21 @@ export const ClockPage: React.FC = () => {
     activeClockEvent,
     currentTime,
     teamsReady,
+    refetchClock,
   } = useTeam();
 
-  // Subscribe to tickets for the selected team
-  const teamIds = useMemo(() => (selectedTeamId ? [selectedTeamId] : []), [selectedTeamId]);
-  useSubscribe('teamTickets', teamIds);
+  // Tickets for the selected team
+  const [allTickets, setAllTickets] = useState<Ticket[]>([]);
 
-  const allTickets = useFind(
-    () => Tickets.find({ teamId: selectedTeamId ?? '__none__' }),
-    [selectedTeamId],
-  );
+  useEffect(() => {
+    if (!selectedTeamId) { setAllTickets([]); return; }
+    ticketApi.getTickets(selectedTeamId).then(setAllTickets).catch(() => {});
+  }, [selectedTeamId]);
 
-  // Methods
-  const clockStart = useMethod<[{ teamId: string }], string>('clock.start');
-  const clockStop = useMethod<[{ teamId: string; youtubeShortLink?: string }]>('clock.stop');
-  const addTicketToEvent = useMethod<[{ clockEventId: string; ticketId: string; now: number }]>('clock.addTicket');
-  const stopTicketInEvent = useMethod<[{ clockEventId: string; ticketId: string; now: number }]>('clock.stopTicket');
-  const createTicket = useMethod<[{ teamId: string; title: string }], string>('tickets.create');
+  // Loading states
+  const [clockInLoading, setClockInLoading] = useState(false);
+  const [clockOutLoading, setClockOutLoading] = useState(false);
+  const [createTicketLoading, setCreateTicketLoading] = useState(false);
 
   // UI state
   const [showYoutubeModal, setShowYoutubeModal] = useState(false);
@@ -89,8 +83,14 @@ export const ClockPage: React.FC = () => {
 
   const handleClockIn = useCallback(async () => {
     if (!selectedTeamId) return;
-    await clockStart.call({ teamId: selectedTeamId });
-  }, [selectedTeamId, clockStart]);
+    setClockInLoading(true);
+    try {
+      await clockApi.start(selectedTeamId);
+      await refetchClock();
+    } finally {
+      setClockInLoading(false);
+    }
+  }, [selectedTeamId, refetchClock]);
 
   const handleClockOut = useCallback(() => {
     setShowYoutubeModal(true);
@@ -98,34 +98,49 @@ export const ClockPage: React.FC = () => {
 
   const confirmClockOut = useCallback(async () => {
     if (!selectedTeamId) return;
-    const link = youtubeLink.trim();
-    await clockStop.call({ teamId: selectedTeamId, youtubeShortLink: link || undefined });
-    setShowYoutubeModal(false);
-    setYoutubeLink('');
-  }, [selectedTeamId, clockStop, youtubeLink]);
+    setClockOutLoading(true);
+    try {
+      const link = youtubeLink.trim();
+      await clockApi.stop(selectedTeamId, link || undefined);
+      await refetchClock();
+      setShowYoutubeModal(false);
+      setYoutubeLink('');
+    } finally {
+      setClockOutLoading(false);
+    }
+  }, [selectedTeamId, refetchClock, youtubeLink]);
 
   const handleStartTicket = useCallback(
     async (ticketId: string) => {
-      if (!activeClockEvent?._id) return;
-      await addTicketToEvent.call({ clockEventId: activeClockEvent._id, ticketId, now: Date.now() });
+      if (!activeClockEvent?.id) return;
+      await clockApi.addTicket(activeClockEvent.id, ticketId, Date.now());
+      await refetchClock();
     },
-    [activeClockEvent, addTicketToEvent],
+    [activeClockEvent, refetchClock],
   );
 
   const handleStopTicket = useCallback(
     async (ticketId: string) => {
-      if (!activeClockEvent?._id) return;
-      await stopTicketInEvent.call({ clockEventId: activeClockEvent._id, ticketId, now: Date.now() });
+      if (!activeClockEvent?.id) return;
+      await clockApi.stopTicket(activeClockEvent.id, ticketId, Date.now());
+      await refetchClock();
     },
-    [activeClockEvent, stopTicketInEvent],
+    [activeClockEvent, refetchClock],
   );
 
   const handleCreateTicket = useCallback(async () => {
     if (!newTicketTitle.trim() || !selectedTeamId) return;
-    await createTicket.call({ teamId: selectedTeamId, title: newTicketTitle.trim() });
-    setNewTicketTitle('');
-    setShowNewTicket(false);
-  }, [newTicketTitle, selectedTeamId, createTicket]);
+    setCreateTicketLoading(true);
+    try {
+      await ticketApi.createTicket({ teamId: selectedTeamId, title: newTicketTitle.trim() });
+      const updated = await ticketApi.getTickets(selectedTeamId);
+      setAllTickets(updated);
+      setNewTicketTitle('');
+      setShowNewTicket(false);
+    } finally {
+      setCreateTicketLoading(false);
+    }
+  }, [newTicketTitle, selectedTeamId]);
 
   // Tickets in the active clock event
   const activeTicketIds = useMemo(
@@ -135,8 +150,8 @@ export const ClockPage: React.FC = () => {
 
   // Available tickets not yet in the session
   const availableTickets = useMemo(
-    () => allTickets.filter((t) => !activeTicketIds.has(t._id!) && t.createdBy === userId),
-    [allTickets, activeTicketIds, userId],
+    () => allTickets.filter((t) => !activeTicketIds.has(t.id)),
+    [allTickets, activeTicketIds],
   );
 
   const teamOptions = useMemo(
@@ -187,7 +202,7 @@ export const ClockPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleClockOut}
-                disabled={clockStop.loading}
+                disabled={clockOutLoading}
                 className="flex h-24 w-24 items-center justify-center rounded-full bg-red-500 text-white shadow-lg transition-transform hover:scale-105 hover:bg-red-600 active:scale-95 disabled:opacity-50"
                 aria-label="Clock out"
               >
@@ -204,7 +219,7 @@ export const ClockPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleClockIn}
-                disabled={clockStart.loading || !selectedTeamId}
+                disabled={clockInLoading || !selectedTeamId}
                 className="flex h-24 w-24 items-center justify-center rounded-full bg-green-500 text-white shadow-lg transition-transform hover:scale-105 hover:bg-green-600 active:scale-95 disabled:opacity-50"
                 aria-label="Clock in"
               >
@@ -245,7 +260,7 @@ export const ClockPage: React.FC = () => {
                 variant="primary"
                 size="sm"
                 onClick={handleCreateTicket}
-                isLoading={createTicket.loading}
+                isLoading={createTicketLoading}
               >
                 Add
               </Button>
@@ -264,7 +279,7 @@ export const ClockPage: React.FC = () => {
           <CardContent className="p-0">
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {activeClockEvent.tickets.map((ct) => {
-                const ticket = allTickets.find((t) => t._id === ct.ticketId);
+                const ticket = allTickets.find((t) => t.id === ct.ticketId);
                 const isRunning = !!ct.startTimestamp;
                 const elapsed = isRunning
                   ? ct.accumulatedTime + Math.floor((currentTime - ct.startTimestamp!) / 1000)
@@ -316,10 +331,10 @@ export const ClockPage: React.FC = () => {
               <div className="flex flex-wrap gap-2">
                 {availableTickets.slice(0, 5).map((t) => (
                   <Button
-                    key={t._id}
+                    key={t.id}
                     variant="outline"
                     size="sm"
-                    onClick={() => handleStartTicket(t._id!)}
+                    onClick={() => handleStartTicket(t.id)}
                   >
                     {t.title}
                   </Button>
@@ -363,7 +378,7 @@ export const ClockPage: React.FC = () => {
         </ModalBody>
         <ModalFooter>
           <Button variant="outline" onClick={confirmClockOut}>Skip</Button>
-          <Button variant="danger" onClick={confirmClockOut} isLoading={clockStop.loading}>
+          <Button variant="danger" onClick={confirmClockOut} isLoading={clockOutLoading}>
             Clock Out
           </Button>
         </ModalFooter>
