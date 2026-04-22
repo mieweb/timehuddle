@@ -13,19 +13,16 @@
  *   • refetchClock     — callable after clock mutations to refresh
  *   • currentTime      — ticks every second for live timers
  */
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { teamApi, clockApi, type Team, type ClockEvent } from './api';
 import { useSession } from './useSession';
 
 const TEAM_KEY = 'app:selectedTeamId';
+
+function getUserTeamKey(userId: string): string {
+  return `${TEAM_KEY}:${userId}`;
+}
 
 export interface TeamContextValue {
   teams: Team[];
@@ -85,22 +82,40 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // ── Selected team ───────────────────────────────────────────────────────────
 
-  const [selectedTeamId, _setSelectedTeamId] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem(TEAM_KEY);
-  });
+  const [selectedTeamId, _setSelectedTeamId] = useState<string | null>(null);
 
-  const setSelectedTeamId = useCallback((id: string) => {
-    _setSelectedTeamId(id);
-    localStorage.setItem(TEAM_KEY, id);
-  }, []);
-
-  // Auto-select first team when none selected
   useEffect(() => {
-    if (!selectedTeamId && teams.length > 0) {
+    if (typeof window === 'undefined') return;
+    if (!userId) {
+      _setSelectedTeamId(null);
+      return;
+    }
+
+    // Backward compatibility: fall back to the legacy global key once.
+    const scoped = localStorage.getItem(getUserTeamKey(userId));
+    const legacy = localStorage.getItem(TEAM_KEY);
+    _setSelectedTeamId(scoped ?? legacy);
+  }, [userId]);
+
+  const setSelectedTeamId = useCallback(
+    (id: string) => {
+      _setSelectedTeamId(id);
+      if (!userId || typeof window === 'undefined') return;
+      localStorage.setItem(getUserTeamKey(userId), id);
+    },
+    [userId],
+  );
+
+  // Ensure selected team belongs to the current user; otherwise pick first available.
+  useEffect(() => {
+    if (!userId || teams.length === 0) return;
+
+    const hasSelected = selectedTeamId ? teams.some((team) => team.id === selectedTeamId) : false;
+
+    if (!hasSelected) {
       setSelectedTeamId(teams[0].id);
     }
-  }, [selectedTeamId, teams, setSelectedTeamId]);
+  }, [selectedTeamId, teams, setSelectedTeamId, userId]);
 
   const selectedTeam = useMemo(
     () => teams.find((t) => t.id === selectedTeamId) ?? null,
