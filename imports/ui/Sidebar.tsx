@@ -132,10 +132,9 @@ const SidebarContent: React.FC = () => {
         ].join(' ')}
       >
         {' '}
-        <a
-          href="/app"
-          className="flex min-w-0 items-center gap-3 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/40"
-          aria-label="Home"
+        <span
+          className="flex min-w-0 items-center gap-3 rounded-md"
+          aria-label="TimeHuddle"
         >
           {/* Icon mark */}
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 text-sm font-bold text-white shadow-sm">
@@ -161,7 +160,7 @@ const SidebarContent: React.FC = () => {
               </motion.div>
             )}
           </AnimatePresence>
-        </a>
+        </span>
       </div>
 
       {/* Nav */}
