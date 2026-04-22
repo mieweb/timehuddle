@@ -23,8 +23,20 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button } from '@mieweb/ui';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import React from 'react';
+
+// Detect page reload once at module load time (before React mounts).
+// Only suppresses animations during the initial reload render — normal
+// expand/collapse interactions animate as usual afterwards.
+const isReload = (() => {
+  try {
+    const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+    return nav?.type === 'reload';
+  } catch {
+    return false;
+  }
+})();
 
 import { useSidebar } from './AppLayout';
 import { useRouter } from './router';
@@ -236,43 +248,45 @@ export const Sidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, closeMobile } = useSidebar();
 
   return (
-    <>
-      {/* ── Desktop: animated-width panel ─────────────────────────────── */}
-      <motion.aside
-        className="hidden h-full shrink-0 flex-col overflow-hidden border-r border-neutral-200 bg-white md:flex dark:border-neutral-800 dark:bg-neutral-900"
-        animate={{ width: isExpanded ? 240 : 64 }}
-        transition={{ type: 'spring', damping: 28, stiffness: 280 }}
-      >
-        <SidebarContent />
-      </motion.aside>
+    <MotionConfig transition={isReload ? { duration: 0 } : undefined}>
+      <>
+        {/* ── Desktop: animated-width panel ─────────────────────────────── */}
+        <motion.aside
+          className="hidden h-full shrink-0 flex-col overflow-hidden border-r border-neutral-200 bg-white md:flex dark:border-neutral-800 dark:bg-neutral-900"
+          animate={{ width: isExpanded ? 240 : 64 }}
+          transition={isReload ? { duration: 0 } : { type: 'spring', damping: 28, stiffness: 280 }}
+        >
+          <SidebarContent />
+        </motion.aside>
 
-      {/* ── Mobile: slide-in drawer ────────────────────────────────────── */}
-      <AnimatePresence>
-        {isMobileOpen && (
-          <motion.aside
-            className="fixed left-0 top-0 z-30 flex h-full w-60 flex-col overflow-hidden border-r border-neutral-200 bg-white shadow-xl md:hidden dark:border-neutral-800 dark:bg-neutral-900"
-            initial={{ x: -240 }}
-            animate={{ x: 0 }}
-            exit={{ x: -240 }}
-            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            aria-modal
-            role="dialog"
-            aria-label="Navigation"
-          >
-            {/* Close button for a11y */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={closeMobile}
-              className="absolute right-3 top-3"
-              aria-label="Close navigation"
+        {/* ── Mobile: slide-in drawer ────────────────────────────────────── */}
+        <AnimatePresence>
+          {isMobileOpen && (
+            <motion.aside
+              className="fixed left-0 top-0 z-30 flex h-full w-60 flex-col overflow-hidden border-r border-neutral-200 bg-white shadow-xl md:hidden dark:border-neutral-800 dark:bg-neutral-900"
+              initial={{ x: -240 }}
+              animate={{ x: 0 }}
+              exit={{ x: -240 }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              aria-modal
+              role="dialog"
+              aria-label="Navigation"
             >
-              ✕
-            </Button>
-            <SidebarContent />
-          </motion.aside>
-        )}
-      </AnimatePresence>
-    </>
+              {/* Close button for a11y */}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={closeMobile}
+                className="absolute right-3 top-3"
+                aria-label="Close navigation"
+              >
+                ✕
+              </Button>
+              <SidebarContent />
+            </motion.aside>
+          )}
+        </AnimatePresence>
+      </>
+    </MotionConfig>
   );
 };
