@@ -12,14 +12,14 @@ concurrency:
 
 jobs:
   lint_and_types:
-    name: Lint & Type Check (Node 24)
+    name: Lint & Type Check (Node 25)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Use Node 24
+      - name: Use Node 25
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 25
           cache: 'npm'
       - name: Install deps
         run: npm ci --no-audit --no-fund
@@ -36,10 +36,10 @@ jobs:
     needs: lint_and_types
     steps:
       - uses: actions/checkout@v4
-      - name: Use Node 24
+      - name: Use Node 25
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 25
           cache: 'npm'
       - name: Install deps
         run: npm ci --no-audit --no-fund
