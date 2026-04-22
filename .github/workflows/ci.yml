@@ -1,13 +1,12 @@
-name: CI
+name: Deploy Frontend
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches:
+      - main
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: deploy-frontend-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -51,3 +50,81 @@ jobs:
           name: vite-build
           path: dist
           if-no-files-found: error
+
+  deploy:
+    name: Deploy Frontend - ${{ matrix.env }}
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env: DEV
+            host_secret: SSH_HOST_DEV
+            port_secret: SSH_PORT_DEV
+            key_secret: SSH_PRIVATE_KEY_DEV
+            pm2_name: timehuddledev
+          - env: PROD
+            host_secret: SSH_HOST_PROD
+            port_secret: SSH_PORT_PROD
+            key_secret: SSH_PRIVATE_KEY_PROD
+            pm2_name: timehuddle-prod
+
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets[matrix.key_secret] }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p ${{ secrets[matrix.port_secret] }} ${{ secrets[matrix.host_secret] }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy to ${{ matrix.env }}
+        run: |
+          ssh -p ${{ secrets[matrix.port_secret] }} \
+              -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=no \
+              ${{ secrets.SSH_USER }}@${{ secrets[matrix.host_secret] }} << 'EOF'
+            set -e
+
+            REPO_DIR="/home/pdharamkar/timehuddle"
+            PM2_NAME="${{ matrix.pm2_name }}"
+
+            git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
+            cd "$REPO_DIR"
+
+            echo "🛑 Stopping PM2 process: $PM2_NAME..."
+            pm2 stop "$PM2_NAME" 2>/dev/null || true
+
+            echo "🔄 Fetching and pulling latest code..."
+            git fetch origin
+            git pull origin main
+
+            echo "⚙️  Installing dependencies..."
+            npm install
+
+            echo "🏗️  Building frontend..."
+            npm run build
+
+            echo "🚀 Restarting PM2..."
+            pm2 restart "$PM2_NAME" 2>/dev/null || pm2 start ecosystem.config.cjs --only "$PM2_NAME"
+            pm2 save
+
+            echo "⏳ Waiting for process to stabilize..."
+            sleep 5
+
+            echo "📊 PM2 Status:"
+            pm2 status
+
+            echo "✅ Verifying $PM2_NAME is online..."
+            if pm2 list | grep -E "$PM2_NAME" | grep -q "online"; then
+              echo "✅ ${{ matrix.env }} frontend deployment successful! $PM2_NAME is online."
+            else
+              echo "❌ $PM2_NAME failed to start!"
+              pm2 logs "$PM2_NAME" --lines 30 --nostream || true
+              exit 1
+            fi
+          EOF
+
+      - name: Deployment Status
+        if: failure()
+        run: echo "❌ ${{ matrix.env }} frontend deployment failed!"
