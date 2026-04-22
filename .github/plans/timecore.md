@@ -137,20 +137,20 @@ timecore's `users` collection managed by better-auth.
 requirement — the team dashboard shows live clock state for all members.
 
 ### timehuddle changes
-- [ ] Replace 7 clock Meteor methods with REST calls
-- [ ] Replace `clockEventsForUser` publication with REST + refresh on action
+- [x] Replace 7 clock Meteor methods with REST calls
+- [x] Replace `clockEventsForUser` publication with REST + refresh on action
 - [ ] Replace `clockEventsForTeams` publication with **SSE** stream
-- [ ] Remove `imports/features/clock/api.ts` server half
+- [x] Remove `imports/features/clock/api.ts` server half
 - [ ] Member Activity page — team-admin view of a specific member's clock history, tickets worked, and message thread
 
 ### timecore changes
-- [ ] `POST /v1/clock/start` — clock in
-- [ ] `POST /v1/clock/stop` — clock out
-- [ ] `POST /v1/clock/:id/ticket/start` — start ticket timer in clock event
-- [ ] `POST /v1/clock/:id/ticket/stop` — stop ticket timer
-- [ ] `PUT /v1/clock/:id/times` — admin adjust times
-- [ ] `PUT /v1/clock/:id/youtube` — attach YouTube link
-- [ ] `GET /v1/clock/timesheet` — query timesheet data
+- [x] `POST /v1/clock/start` — clock in
+- [x] `POST /v1/clock/stop` — clock out
+- [x] `POST /v1/clock/:id/ticket/start` — start ticket timer in clock event
+- [x] `POST /v1/clock/:id/ticket/stop` — stop ticket timer
+- [x] `PUT /v1/clock/:id/times` — admin adjust times
+- [x] `PUT /v1/clock/:id/youtube` — attach YouTube link
+- [x] `GET /v1/clock/timesheet` — query timesheet data
 - [ ] `GET /v1/clock/live?teamIds=` — **SSE** — live clock state for teams
 
 ---
@@ -172,26 +172,7 @@ requirement — the team dashboard shows live clock state for all members.
 
 ---
 
-## Phase 7 — Push Notifications
-
-**Effort:** 1 day  
-**Goal:** Move VAPID/FCM handling to timecore. The existing `public/sw.js` is already
-Meteor-independent and stays as-is.
-
-### timehuddle changes
-- [ ] Replace `getVapidPublicKey`, `push.subscribe`, `push.unsubscribe` Meteor methods
-- [ ] Remove `imports/server/push.ts`
-- [ ] Remove `imports/lib/pushNotificationsClient.ts` Meteor dependency
-
-### timecore changes
-- [ ] `GET /v1/push/vapid-key` — return public VAPID key
-- [ ] `POST /v1/push/subscribe` — store subscription
-- [ ] `DELETE /v1/push/subscribe` — remove subscription
-- [ ] Move web-push + FCM sending logic from Meteor into timecore service
-
----
-
-## Phase 8 — Notifications
+## Phase 7 — Notifications
 
 **Effort:** 1 day  
 **Goal:** Move the notifications inbox to timecore with SSE for real-time delivery.
@@ -209,7 +190,7 @@ Meteor-independent and stays as-is.
 
 ---
 
-## Phase 9 — GitHub Integration
+## Phase 8 — GitHub Integration
 
 **Effort:** 1–2 days  
 **Goal:** Allow users to connect their GitHub account via OAuth, browse repos/issues, and link GitHub issues to tickets — parity with timeharbor-legacy.
@@ -229,7 +210,7 @@ Meteor-independent and stays as-is.
 
 ---
 
-## Phase 10 — PulseVault Integration
+## Phase 9 — PulseVault Integration
 
 **Effort:** 1 day  
 **Goal:** Allow users to attach media to tickets via PulseCam app using a QR code/deeplink — parity with timeharbor-legacy.
@@ -245,7 +226,7 @@ Meteor-independent and stays as-is.
 
 ---
 
-## Phase 11 — Rip Out Meteor
+## Phase 10 — Rip Out Meteor
 
 **Effort:** 1 day  
 **Goal:** Remove the Meteor build system and all remaining Meteor packages. Replace the dev
@@ -272,21 +253,6 @@ server with Vite. The app becomes a plain React SPA.
 
 ---
 
-## Post-Migration: Mobile Path
-
-Once Meteor is removed the codebase is universally portable:
-
-| Target | Additional work |
-|---|---|
-| **PWA** | Add `manifest.json`, done — `sw.js` already exists |
-| **Capacitor** | `npx cap init`, wrap existing React app, ~1 week |
-| **Expo (React Native)** | Shared TanStack Query hooks + API layer, new native UI layer |
-
-better-auth supports cookie auth (web) and token auth (mobile) natively — no changes needed
-to timecore when adding mobile clients.
-
----
-
 ## Future — Needs Issues Filed
 
 These features exist in timeharbor-legacy but are not yet covered by any phase above.
@@ -295,3 +261,4 @@ File a GitHub issue for each before starting the affected phase.
 - [ ] **URL title fetch** — when a ticket is created with a reference URL, the server fetches the page title automatically (`extractUrlTitle` method). Needs a timecore endpoint (e.g. `POST /v1/util/extract-url-title`) and timehuddle ticket form integration. *(related: Phase 4)*
 - [ ] **Ticket time history** — per-ticket time breakdown by configurable date range (today / yesterday / this week / this month / quarter / year / custom). Used in the ticket detail view (`getTicketTimeHistory` method). Needs a timecore endpoint (e.g. `GET /v1/tickets/:id/time-history?range=`) and timehuddle ticket detail UI. *(related: Phase 4)*
 - [ ] **Auto clock-out background job** — server-side job that force-clocks-out any session running for 8+ consecutive hours (burnout prevention), fires push notifications to user and team admins. In legacy this is a `Meteor.setInterval` running every 60 seconds on the server. Needs a scheduled job in timecore (Node `setInterval` or a cron package) that replicates this logic. *(related: Phase 5)*
+- [ ] **File Mobile issues** - see [mobile.md](./mobile.md)
