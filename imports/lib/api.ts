@@ -357,3 +357,42 @@ export const clockApi = {
       { withCredentials: true },
     ),
 };
+
+// ─── Messages ─────────────────────────────────────────────────────────────────
+
+export interface Message {
+  id: string;
+  threadId: string;
+  teamId: string;
+  adminId: string;
+  memberId: string;
+  fromUserId: string;
+  toUserId: string;
+  text: string;
+  senderName: string;
+  ticketId?: string;
+  createdAt: string; // ISO
+}
+
+export const messageApi = {
+  /** Fetch a thread's message history. */
+  getThread: (teamId: string, adminId: string, memberId: string) =>
+    request<{ messages: Message[] }>(
+      `/v1/messages?teamId=${encodeURIComponent(teamId)}&adminId=${encodeURIComponent(adminId)}&memberId=${encodeURIComponent(memberId)}`,
+    ).then((r) => r.messages),
+
+  /** Send a message. */
+  send: (data: { teamId: string; toUserId: string; text: string; adminId: string; ticketId?: string }) =>
+    request<{ message: Message }>('/v1/messages', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.message),
+
+  /** Open an SSE stream for a thread. Returns an EventSource. */
+  openStream: (threadId: string): EventSource =>
+    new EventSource(
+      `${TIMECORE_BASE_URL}/v1/messages/stream?threadId=${encodeURIComponent(threadId)}`,
+      { withCredentials: true },
+    ),
+};
+

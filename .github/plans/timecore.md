@@ -161,14 +161,14 @@ requirement — the team dashboard shows live clock state for all members.
 **Goal:** Move the admin↔member messaging system to timecore with SSE for real-time delivery.
 
 ### timehuddle changes
-- [ ] Replace `messages.send` Meteor method with `POST /v1/messages`
-- [ ] Replace `messages.thread` publication with **SSE** stream per thread
-- [ ] Remove `imports/features/messages/api.ts` server half
+- [x] Replace `messages.send` Meteor method with `POST /v1/messages`
+- [x] Replace `messages.thread` publication with **SSE** stream per thread
+- [x] Remove `imports/features/messages/api.ts` server half
 
 ### timecore changes
-- [ ] `GET /v1/messages?teamId=&adminId=&memberId=` — fetch thread
-- [ ] `POST /v1/messages` — send message
-- [ ] `GET /v1/messages/stream?threadId=` — **SSE** — live message delivery
+- [x] `GET /v1/messages?teamId=&adminId=&memberId=` — fetch thread
+- [x] `POST /v1/messages` — send message
+- [x] `GET /v1/messages/stream?threadId=` — **SSE** — live message delivery
 
 ---
 
