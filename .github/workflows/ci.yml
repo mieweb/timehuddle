@@ -21,16 +21,6 @@ jobs:
         with:
           node-version: 22
           cache: 'npm'
-      - name: Cache Meteor
-        uses: actions/cache@v4
-        with:
-          path: ~/.meteor
-          key: meteor-${{ runner.os }}-3.4-beta.3
-      - name: Install Meteor
-        run: |
-          if ! command -v meteor >/dev/null; then
-            curl https://install.meteor.com/ | sh
-          fi
       - name: Install deps
         run: npm ci --no-audit --no-fund
       - name: Lint
@@ -41,7 +31,7 @@ jobs:
         run: npm test
 
   build:
-    name: Meteor Build (Linux)
+    name: Vite Build
     runs-on: ubuntu-latest
     needs: lint_and_types
     steps:
@@ -51,25 +41,13 @@ jobs:
         with:
           node-version: 22
           cache: 'npm'
-      - name: Cache Meteor
-        uses: actions/cache@v4
-        with:
-          path: ~/.meteor
-          key: meteor-${{ runner.os }}-3.4-beta.3
-      - name: Install Meteor
-        run: |
-          if ! command -v meteor >/dev/null; then
-            curl https://install.meteor.com/ | sh
-          fi
       - name: Install deps
         run: npm ci --no-audit --no-fund
-      - name: Build (directory)
-        run: |
-          meteor build ./build --directory
-          ls -1 ./build
+      - name: Build
+        run: npm run build
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: meteor-build
-          path: build
+          name: vite-build
+          path: dist
           if-no-files-found: error
