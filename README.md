@@ -6,13 +6,13 @@ Real-time team time tracking and collaboration platform built with React 19, Vit
 
 Features **Clock In/Out**, **Ticket Tracking**, **Timesheets**, **Team Management**, and **Direct Messaging**.
 
-| Stack        | Version  | Notes                              |
-| ------------ | -------- | ---------------------------------- |
-| React        | 19.x     | Suspense / concurrent features     |
-| Vite         | 8.x      | Fast dev server + production build |
-| Tailwind CSS | 4.x      | Oxide (Lightning CSS) engine       |
-| TypeScript   | 5.9.x    | Strict mode                        |
-| Vitest       | 4.x      | Unit testing                       |
+| Stack        | Version | Notes                              |
+| ------------ | ------- | ---------------------------------- |
+| React        | 19.x    | Suspense / concurrent features     |
+| Vite         | 8.x     | Fast dev server + production build |
+| Tailwind CSS | 4.x     | Oxide (Lightning CSS) engine       |
+| TypeScript   | 5.9.x   | Strict mode                        |
+| Vitest       | 4.x     | Unit testing                       |
 
 ![Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4?logo=prettier&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
@@ -43,17 +43,17 @@ Features **Clock In/Out**, **Ticket Tracking**, **Timesheets**, **Team Managemen
 
 <div align="center">
 
-| Login (Light)                                                                                         | Login (Dark)                                                                                        | Dashboard (Light)                                                                                           |
-| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| <img src="./public/screenshots/login-light.png" alt="Login page — light mode" width="300" />          | <img src="./public/screenshots/login-dark.png" alt="Login page — dark mode" width="300" />          | <img src="./public/screenshots/dashboard-light.png" alt="Dashboard — light mode" width="300" />             |
+| Login (Light)                                                                                | Login (Dark)                                                                               | Dashboard (Light)                                                                               |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| <img src="./public/screenshots/login-light.png" alt="Login page — light mode" width="300" /> | <img src="./public/screenshots/login-dark.png" alt="Login page — dark mode" width="300" /> | <img src="./public/screenshots/dashboard-light.png" alt="Dashboard — light mode" width="300" /> |
 
-| Dashboard (Dark)                                                                                        | Clock (Light)                                                                                         | Clock (Dark)                                                                                        |
-| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| <img src="./public/screenshots/dashboard-dark.png" alt="Dashboard — dark mode" width="300" />           | <img src="./public/screenshots/clock-light.png" alt="Clock In/Out — light mode" width="300" />        | <img src="./public/screenshots/clock-dark.png" alt="Clock In/Out — dark mode" width="300" />        |
+| Dashboard (Dark)                                                                              | Clock (Light)                                                                                  | Clock (Dark)                                                                                 |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| <img src="./public/screenshots/dashboard-dark.png" alt="Dashboard — dark mode" width="300" /> | <img src="./public/screenshots/clock-light.png" alt="Clock In/Out — light mode" width="300" /> | <img src="./public/screenshots/clock-dark.png" alt="Clock In/Out — dark mode" width="300" /> |
 
-| Tickets (Light)                                                                                         | Tickets (Dark)                                                                                        | Teams (Light)                                                                                       |
-| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| <img src="./public/screenshots/tickets-light.png" alt="Tickets — light mode" width="300" />             | <img src="./public/screenshots/tickets-dark.png" alt="Tickets — dark mode" width="300" />             | <img src="./public/screenshots/teams-light.png" alt="Teams — light mode" width="300" />             |
+| Tickets (Light)                                                                             | Tickets (Dark)                                                                            | Teams (Light)                                                                           |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| <img src="./public/screenshots/tickets-light.png" alt="Tickets — light mode" width="300" /> | <img src="./public/screenshots/tickets-dark.png" alt="Tickets — dark mode" width="300" /> | <img src="./public/screenshots/teams-light.png" alt="Teams — light mode" width="300" /> |
 
 </div>
 

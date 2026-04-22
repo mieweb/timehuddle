@@ -59,8 +59,14 @@ export const ClockPage: React.FC = () => {
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
 
   useEffect(() => {
-    if (!selectedTeamId) { setAllTickets([]); return; }
-    ticketApi.getTickets(selectedTeamId).then(setAllTickets).catch(() => {});
+    if (!selectedTeamId) {
+      setAllTickets([]);
+      return;
+    }
+    ticketApi
+      .getTickets(selectedTeamId)
+      .then(setAllTickets)
+      .catch(() => {});
   }, [selectedTeamId]);
 
   // Loading states
@@ -191,7 +197,12 @@ export const ClockPage: React.FC = () => {
           {activeClockEvent ? (
             <>
               <div className="text-center">
-                <Text variant="success" size="xs" weight="medium" className="uppercase tracking-widest">
+                <Text
+                  variant="success"
+                  size="xs"
+                  weight="medium"
+                  className="uppercase tracking-widest"
+                >
                   Session Active
                 </Text>
                 <Text size="3xl" weight="bold" className="mt-2 font-mono">
@@ -208,7 +219,9 @@ export const ClockPage: React.FC = () => {
               >
                 <FontAwesomeIcon icon={faCircleStop} className="text-3xl" />
               </button>
-              <Text variant="muted" size="xs">Tap to clock out</Text>
+              <Text variant="muted" size="xs">
+                Tap to clock out
+              </Text>
             </>
           ) : (
             <>
@@ -225,7 +238,9 @@ export const ClockPage: React.FC = () => {
               >
                 <FontAwesomeIcon icon={faStopwatch} className="text-3xl" />
               </button>
-              <Text variant="muted" size="xs">Tap to clock in</Text>
+              <Text variant="muted" size="xs">
+                Tap to clock in
+              </Text>
             </>
           )}
         </CardContent>
@@ -267,7 +282,10 @@ export const ClockPage: React.FC = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => { setShowNewTicket(false); setNewTicketTitle(''); }}
+                onClick={() => {
+                  setShowNewTicket(false);
+                  setNewTicketTitle('');
+                }}
                 aria-label="Cancel"
               >
                 <FontAwesomeIcon icon={faXmark} />
@@ -290,7 +308,9 @@ export const ClockPage: React.FC = () => {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => (isRunning ? handleStopTicket(ct.ticketId) : handleStartTicket(ct.ticketId))}
+                      onClick={() =>
+                        isRunning ? handleStopTicket(ct.ticketId) : handleStartTicket(ct.ticketId)
+                      }
                       className={
                         isRunning
                           ? 'rounded-full bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'
@@ -315,7 +335,11 @@ export const ClockPage: React.FC = () => {
                         </a>
                       )}
                     </div>
-                    <Badge variant={isRunning ? 'success' : 'secondary'} size="sm" className="font-mono">
+                    <Badge
+                      variant={isRunning ? 'success' : 'secondary'}
+                      size="sm"
+                      className="font-mono"
+                    >
                       {formatDuration(elapsed)}
                     </Badge>
                   </li>
@@ -327,7 +351,9 @@ export const ClockPage: React.FC = () => {
           {/* Add existing ticket */}
           {availableTickets.length > 0 && (
             <div className="border-t border-neutral-100 px-5 py-3 dark:border-neutral-800">
-              <Text variant="muted" size="xs" className="mb-2">Add existing ticket:</Text>
+              <Text variant="muted" size="xs" className="mb-2">
+                Add existing ticket:
+              </Text>
               <div className="flex flex-wrap gap-2">
                 {availableTickets.slice(0, 5).map((t) => (
                   <Button
@@ -377,7 +403,9 @@ export const ClockPage: React.FC = () => {
           />
         </ModalBody>
         <ModalFooter>
-          <Button variant="outline" onClick={confirmClockOut}>Skip</Button>
+          <Button variant="outline" onClick={confirmClockOut}>
+            Skip
+          </Button>
           <Button variant="danger" onClick={confirmClockOut} isLoading={clockOutLoading}>
             Clock Out
           </Button>

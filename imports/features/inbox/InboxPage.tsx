@@ -177,11 +177,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({ initialEmail }) => {
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="Enter email to check inbox…"
           />
-          <Button
-            variant="primary"
-            type="submit"
-            disabled={!inputValue.trim()}
-          >
+          <Button variant="primary" type="submit" disabled={!inputValue.trim()}>
             Check
           </Button>
         </form>

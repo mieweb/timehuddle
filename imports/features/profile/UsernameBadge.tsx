@@ -24,8 +24,12 @@ export const UsernameBadge: React.FC<UsernameBadgeProps> = ({ userId, username }
   useEffect(() => {
     userApi
       .getUser(userId)
-      .then((p) => { if (p.name) setDisplayName(p.name); })
-      .catch(() => { /* keep fallback */ });
+      .then((p) => {
+        if (p.name) setDisplayName(p.name);
+      })
+      .catch(() => {
+        /* keep fallback */
+      });
   }, [userId]);
 
   return (

@@ -6,9 +6,7 @@
  *   • Session list with date, times, duration, team name, tickets
  *   • Summary stats (total hours, sessions, avg, working days)
  */
-import {
-  faCalendar
-} from '@fortawesome/free-solid-svg-icons';
+import { faCalendar } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
@@ -35,7 +33,6 @@ import { useTeam } from '../../lib/TeamContext';
 import { formatDuration, formatTime, formatDate, toDateString } from '../../lib/timeUtils';
 import { clockApi, type ClockEvent } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
-
 
 interface TimesheetData {
   sessions: ClockEvent[];
@@ -190,22 +187,46 @@ export const TimesheetPage: React.FC = () => {
       {/* Summary stats */}
       {data && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Card><CardContent>
-            <Text variant="muted" size="xs">Total Hours</Text>
-            <Text size="lg" weight="semibold">{formatDuration(data.summary.totalSeconds)}</Text>
-          </CardContent></Card>
-          <Card><CardContent>
-            <Text variant="muted" size="xs">Sessions</Text>
-            <Text size="lg" weight="semibold">{data.summary.totalSessions}</Text>
-          </CardContent></Card>
-          <Card><CardContent>
-            <Text variant="muted" size="xs">Avg Session</Text>
-            <Text size="lg" weight="semibold">{formatDuration(data.summary.averageSessionSeconds)}</Text>
-          </CardContent></Card>
-          <Card><CardContent>
-            <Text variant="muted" size="xs">Working Days</Text>
-            <Text size="lg" weight="semibold">{data.summary.workingDays}</Text>
-          </CardContent></Card>
+          <Card>
+            <CardContent>
+              <Text variant="muted" size="xs">
+                Total Hours
+              </Text>
+              <Text size="lg" weight="semibold">
+                {formatDuration(data.summary.totalSeconds)}
+              </Text>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent>
+              <Text variant="muted" size="xs">
+                Sessions
+              </Text>
+              <Text size="lg" weight="semibold">
+                {data.summary.totalSessions}
+              </Text>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent>
+              <Text variant="muted" size="xs">
+                Avg Session
+              </Text>
+              <Text size="lg" weight="semibold">
+                {formatDuration(data.summary.averageSessionSeconds)}
+              </Text>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent>
+              <Text variant="muted" size="xs">
+                Working Days
+              </Text>
+              <Text size="lg" weight="semibold">
+                {data.summary.workingDays}
+              </Text>
+            </CardContent>
+          </Card>
         </div>
       )}
 
@@ -251,23 +272,27 @@ export const TimesheetPage: React.FC = () => {
                   const isActive = !s.endTime;
                   const teamName = teams.find((t) => t.id === s.teamId)?.name ?? s.teamId;
                   return (
-                  <TableRow key={s.id}>
-                    <TableCell>{formatDate(startTime, true)}</TableCell>
-                    <TableCell>{formatTime(startTime)}</TableCell>
-                    <TableCell>{endTime ? formatTime(endTime) : '—'}</TableCell>
-                    <TableCell className="font-mono">{duration ? formatDuration(duration) : '—'}</TableCell>
-                    <TableCell>{teamName}</TableCell>
-                    <TableCell>
-                      {isActive ? (
-                        <Badge variant="success" size="sm">
-                          <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                          Active
-                        </Badge>
-                      ) : (
-                        <Text variant="muted" size="xs">Completed</Text>
-                      )}
-                    </TableCell>
-                  </TableRow>
+                    <TableRow key={s.id}>
+                      <TableCell>{formatDate(startTime, true)}</TableCell>
+                      <TableCell>{formatTime(startTime)}</TableCell>
+                      <TableCell>{endTime ? formatTime(endTime) : '—'}</TableCell>
+                      <TableCell className="font-mono">
+                        {duration ? formatDuration(duration) : '—'}
+                      </TableCell>
+                      <TableCell>{teamName}</TableCell>
+                      <TableCell>
+                        {isActive ? (
+                          <Badge variant="success" size="sm">
+                            <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+                            Active
+                          </Badge>
+                        ) : (
+                          <Text variant="muted" size="xs">
+                            Completed
+                          </Text>
+                        )}
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
               </TableBody>
@@ -279,8 +304,13 @@ export const TimesheetPage: React.FC = () => {
       {data && data.sessions.length === 0 && !loading && (
         <Card variant="outlined" padding="lg" className="border-dashed text-center">
           <CardContent>
-            <FontAwesomeIcon icon={faCalendar} className="mb-2 text-2xl text-neutral-300 dark:text-neutral-600" />
-            <Text variant="muted" size="sm">No clock events in this date range.</Text>
+            <FontAwesomeIcon
+              icon={faCalendar}
+              className="mb-2 text-2xl text-neutral-300 dark:text-neutral-600"
+            />
+            <Text variant="muted" size="sm">
+              No clock events in this date range.
+            </Text>
           </CardContent>
         </Card>
       )}

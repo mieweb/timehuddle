@@ -57,7 +57,9 @@ const Section: React.FC<{
       <div>
         <CardTitle className="text-sm">{title}</CardTitle>
         {description && (
-          <Text variant="muted" size="xs" className="mt-0.5">{description}</Text>
+          <Text variant="muted" size="xs" className="mt-0.5">
+            {description}
+          </Text>
         )}
       </div>
     </CardHeader>
@@ -74,8 +76,14 @@ const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode }>
 }) => (
   <div className="flex items-center justify-between gap-4 px-5 py-3.5">
     <div className="min-w-0">
-      <Text size="sm" weight="medium">{label}</Text>
-      {hint && <Text variant="muted" size="xs" className="mt-0.5">{hint}</Text>}
+      <Text size="sm" weight="medium">
+        {label}
+      </Text>
+      {hint && (
+        <Text variant="muted" size="xs" className="mt-0.5">
+          {hint}
+        </Text>
+      )}
     </div>
     <div className="shrink-0">{children}</div>
   </div>
@@ -165,8 +173,10 @@ const PushNotificationsSettings: React.FC = () => {
     try {
       await subscribeToWebPush();
       await refreshStatus();
-       
-      window.alert('Notifications enabled! You will receive alerts when team members clock in or out.');
+
+      window.alert(
+        'Notifications enabled! You will receive alerts when team members clock in or out.',
+      );
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       let detail = 'Failed to enable notifications. ';
@@ -177,7 +187,7 @@ const PushNotificationsSettings: React.FC = () => {
       } else {
         detail += msg;
       }
-       
+
       window.alert(detail);
     } finally {
       setLoading(false);
@@ -185,16 +195,14 @@ const PushNotificationsSettings: React.FC = () => {
   };
 
   const handleDisable = async () => {
-     
     if (!window.confirm('Are you sure you want to disable push notifications?')) return;
     setLoading(true);
     try {
       await unsubscribeFromWebPush();
       await refreshStatus();
-       
+
       window.alert('Notifications disabled.');
     } catch {
-       
       window.alert('Failed to disable notifications. Please try again.');
     } finally {
       setLoading(false);
@@ -205,8 +213,9 @@ const PushNotificationsSettings: React.FC = () => {
     <div className="space-y-3 px-5 py-4">
       {serverHasVapid === false && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-          Web Push is not configured on this server. Add VAPID keys to <code className="text-xs">settings.json</code>{' '}
-          (see <code className="text-xs">settings.push.example.json</code>).
+          Web Push is not configured on this server. Add VAPID keys to{' '}
+          <code className="text-xs">settings.json</code> (see{' '}
+          <code className="text-xs">settings.push.example.json</code>).
         </div>
       )}
       {!supported ? (
@@ -218,7 +227,13 @@ const PushNotificationsSettings: React.FC = () => {
           <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200">
             Notifications are enabled. You will receive alerts when team members clock in or out.
           </div>
-          <Button variant="outline" size="sm" onClick={handleDisable} disabled={loading} isLoading={loading}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDisable}
+            disabled={loading}
+            isLoading={loading}
+          >
             Disable notifications
           </Button>
         </>
@@ -289,11 +304,7 @@ export const SettingsPage: React.FC = () => {
   return (
     <div className="mx-auto max-w-2xl space-y-5 px-4 py-8">
       {/* Profile */}
-      <Section
-        icon={faCircleUser}
-        title="Profile"
-        description="Your account information."
-      >
+      <Section icon={faCircleUser} title="Profile" description="Your account information.">
         <Row label="First name">
           <Input
             label="First name"
@@ -324,8 +335,16 @@ export const SettingsPage: React.FC = () => {
           >
             Save Profile
           </Button>
-          {saved && <Text variant="success" size="xs">Saved!</Text>}
-          {profileError && <Text variant="destructive" size="xs">{profileError}</Text>}
+          {saved && (
+            <Text variant="success" size="xs">
+              Saved!
+            </Text>
+          )}
+          {profileError && (
+            <Text variant="destructive" size="xs">
+              {profileError}
+            </Text>
+          )}
         </div>
       </Section>
 
@@ -381,7 +400,6 @@ export const SettingsPage: React.FC = () => {
             <Badge variant="outline">{version}</Badge>
           </Row>
         ))}
-
       </Section>
     </div>
   );

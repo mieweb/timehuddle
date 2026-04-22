@@ -93,8 +93,14 @@ export const TicketsPage: React.FC = () => {
   }, [tickets, searchQuery]);
 
   // My tickets vs others
-  const myTickets = useMemo(() => filteredTickets.filter((t) => t.createdBy === userId), [filteredTickets, userId]);
-  const otherTickets = useMemo(() => filteredTickets.filter((t) => t.createdBy !== userId), [filteredTickets, userId]);
+  const myTickets = useMemo(
+    () => filteredTickets.filter((t) => t.createdBy === userId),
+    [filteredTickets, userId],
+  );
+  const otherTickets = useMemo(
+    () => filteredTickets.filter((t) => t.createdBy !== userId),
+    [filteredTickets, userId],
+  );
 
   // ── Handlers ──
 
@@ -208,13 +214,19 @@ export const TicketsPage: React.FC = () => {
                 size="sm"
               />
               <div className="flex gap-2">
-                <Button variant="primary" size="sm" onClick={handleSaveEdit}>Save</Button>
-                <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
+                <Button variant="primary" size="sm" onClick={handleSaveEdit}>
+                  Save
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
+                  Cancel
+                </Button>
               </div>
             </div>
           ) : (
             <>
-              <Text size="sm" weight="medium" truncate>{ticket.title}</Text>
+              <Text size="sm" weight="medium" truncate>
+                {ticket.title}
+              </Text>
               <div className="flex items-center gap-2">
                 {ticket.github && (
                   <a
@@ -228,10 +240,7 @@ export const TicketsPage: React.FC = () => {
                   </a>
                 )}
                 {ticket.status && ticket.status !== 'open' && (
-                  <Badge
-                    variant={ticket.status === 'reviewed' ? 'success' : 'secondary'}
-                    size="sm"
-                  >
+                  <Badge variant={ticket.status === 'reviewed' ? 'success' : 'secondary'} size="sm">
                     {ticket.status}
                   </Badge>
                 )}
@@ -248,12 +257,7 @@ export const TicketsPage: React.FC = () => {
         {/* Actions */}
         {canManage && !isEditing && (
           <div className="flex gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => startEdit(ticket)}
-              aria-label="Edit"
-            >
+            <Button variant="ghost" size="icon" onClick={() => startEdit(ticket)} aria-label="Edit">
               <FontAwesomeIcon icon={faPen} className="text-xs" />
             </Button>
             <Button
@@ -302,7 +306,10 @@ export const TicketsPage: React.FC = () => {
 
         {/* Search */}
         <div className="relative flex-1">
-          <FontAwesomeIcon icon={faSearch} className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400" />
+          <FontAwesomeIcon
+            icon={faSearch}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
+          />
           <Input
             label="Search"
             hideLabel
@@ -329,11 +336,22 @@ export const TicketsPage: React.FC = () => {
 
       {/* Create ticket form */}
       {showCreate && (
-        <Card variant="outlined" padding="md" className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
+        <Card
+          variant="outlined"
+          padding="md"
+          className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20"
+        >
           <CardContent>
             <div className="flex items-center justify-between">
-              <Text size="sm" weight="semibold">New Ticket</Text>
-              <Button variant="ghost" size="icon" onClick={() => setShowCreate(false)} aria-label="Close">
+              <Text size="sm" weight="semibold">
+                New Ticket
+              </Text>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowCreate(false)}
+                aria-label="Close"
+              >
                 <FontAwesomeIcon icon={faXmark} />
               </Button>
             </div>
@@ -404,7 +422,9 @@ export const TicketsPage: React.FC = () => {
         <Card variant="outlined" padding="lg" className="border-dashed text-center">
           <CardContent>
             <Text variant="muted" size="sm">
-              {searchQuery ? 'No tickets match your search.' : 'No tickets yet. Create one to get started!'}
+              {searchQuery
+                ? 'No tickets match your search.'
+                : 'No tickets yet. Create one to get started!'}
             </Text>
           </CardContent>
         </Card>
@@ -422,12 +442,10 @@ export const TicketsPage: React.FC = () => {
           </Text>
         </ModalBody>
         <ModalFooter>
-          <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
-          <Button
-            variant="danger"
-            onClick={handleDelete}
-            isLoading={deleteLoading}
-          >
+          <Button variant="outline" onClick={() => setDeleteId(null)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={handleDelete} isLoading={deleteLoading}>
             Delete
           </Button>
         </ModalFooter>

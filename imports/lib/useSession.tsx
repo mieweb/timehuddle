@@ -5,13 +5,7 @@
  *   wrap root with <SessionProvider>
  *   read auth state anywhere with useSession()
  */
-import React, {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-} from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 import { authApi, type TimecoreUser } from './api';
 

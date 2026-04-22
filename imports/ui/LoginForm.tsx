@@ -57,7 +57,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
 
   const resetToken =
     typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('token') ?? undefined
+      ? (new URLSearchParams(window.location.search).get('token') ?? undefined)
       : undefined;
 
   const [mode, setMode] = useState<AuthMode>(initialMode ?? getMode(!!resetToken));
@@ -187,7 +187,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
             {isSignup
               ? 'Create your account and start tracking time with your team — real-time collaboration built in.'
               : isForgot || isResetConfirm
-                ? 'Enter your email address and we\'ll send you a link to reset your password.'
+                ? "Enter your email address and we'll send you a link to reset your password."
                 : 'Sign in to pick up where you left off. Your data syncs in real-time.'}
           </p>
         </div>
@@ -254,7 +254,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
               {isSignup
                 ? 'Enter your details to get started'
                 : isForgot
-                  ? 'Enter your email and we\'ll send a reset link'
+                  ? "Enter your email and we'll send a reset link"
                   : isResetConfirm
                     ? 'Enter and confirm your new password'
                     : 'Enter your email and password'}

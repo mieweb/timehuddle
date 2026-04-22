@@ -7,4 +7,3 @@ export type {
   BatchUpdateStatusInput,
   AssignTicketInput,
 } from './schema';
-

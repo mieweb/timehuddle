@@ -89,14 +89,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
         <Avatar name={nameText} size="xl" />
 
         <div className="min-w-0 flex-1">
-          <Text as="h1" size="xl" weight="bold">{nameText}</Text>
+          <Text as="h1" size="xl" weight="bold">
+            {nameText}
+          </Text>
 
           {isOwn && sessionUser?.email && (
-            <Text variant="muted" size="sm" className="mt-0.5">{sessionUser.email}</Text>
+            <Text variant="muted" size="sm" className="mt-0.5">
+              {sessionUser.email}
+            </Text>
           )}
 
           {profile?.bio && (
-            <Text size="sm" className="mt-2">{profile.bio}</Text>
+            <Text size="sm" className="mt-2">
+              {profile.bio}
+            </Text>
           )}
 
           {profile?.website && (
@@ -164,18 +170,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
               type="url"
             />
 
-            {saveError && <Text variant="destructive" size="xs">{saveError}</Text>}
+            {saveError && (
+              <Text variant="destructive" size="xs">
+                {saveError}
+              </Text>
+            )}
 
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={() => setEditing(false)}>
                 Cancel
               </Button>
-              <Button
-                variant="primary"
-                type="submit"
-                isLoading={saving}
-                loadingText="Saving…"
-              >
+              <Button variant="primary" type="submit" isLoading={saving} loadingText="Saving…">
                 Save
               </Button>
             </div>

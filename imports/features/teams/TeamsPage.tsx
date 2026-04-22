@@ -49,9 +49,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { teamApi, type TeamMember } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
-const TeamChart = React.lazy(() =>
-  import('./TeamChart').then((m) => ({ default: m.TeamChart }))
-);
+const TeamChart = React.lazy(() => import('./TeamChart').then((m) => ({ default: m.TeamChart })));
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
 
@@ -63,7 +61,10 @@ export const TeamsPage: React.FC = () => {
   // Fetch members for selected team
   const [members, setMembers] = useState<TeamMember[]>([]);
   const fetchMembers = useCallback(async (teamId: string | null) => {
-    if (!teamId) { setMembers([]); return; }
+    if (!teamId) {
+      setMembers([]);
+      return;
+    }
     try {
       const data = await teamApi.getMembers(teamId);
       setMembers(data);
@@ -120,10 +121,7 @@ export const TeamsPage: React.FC = () => {
     [teams],
   );
 
-  const membersById = useMemo(
-    () => new Map(members.map((m) => [m.id, m])),
-    [members],
-  );
+  const membersById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
 
   // ── Handlers ──
 
@@ -204,33 +202,39 @@ export const TeamsPage: React.FC = () => {
     }
   }, [formValue, selectedTeamId, fetchMembers]);
 
-  const handleSetPassword = useCallback(async (memberId: string) => {
-    if (!formValue.trim() || !selectedTeamId) return;
-    setPasswordLoading(true);
-    try {
-      await teamApi.setMemberPassword(selectedTeamId, memberId, formValue.trim());
-      closeModal();
-    } catch (e: any) {
-      setFormError(e.message || 'Failed to set password');
-    } finally {
-      setPasswordLoading(false);
-    }
-  }, [formValue, selectedTeamId]);
+  const handleSetPassword = useCallback(
+    async (memberId: string) => {
+      if (!formValue.trim() || !selectedTeamId) return;
+      setPasswordLoading(true);
+      try {
+        await teamApi.setMemberPassword(selectedTeamId, memberId, formValue.trim());
+        closeModal();
+      } catch (e: any) {
+        setFormError(e.message || 'Failed to set password');
+      } finally {
+        setPasswordLoading(false);
+      }
+    },
+    [formValue, selectedTeamId],
+  );
 
-  const handleRemoveMember = useCallback(async (memberId: string) => {
-    if (!selectedTeamId) return;
-    setRemoveLoading(true);
-    try {
-      await teamApi.removeMember(selectedTeamId, memberId);
-      closeModal();
-      refetchTeams();
-      await fetchMembers(selectedTeamId);
-    } catch (e: any) {
-      setFormError(e.message || 'Failed to remove member');
-    } finally {
-      setRemoveLoading(false);
-    }
-  }, [selectedTeamId, refetchTeams, fetchMembers]);
+  const handleRemoveMember = useCallback(
+    async (memberId: string) => {
+      if (!selectedTeamId) return;
+      setRemoveLoading(true);
+      try {
+        await teamApi.removeMember(selectedTeamId, memberId);
+        closeModal();
+        refetchTeams();
+        await fetchMembers(selectedTeamId);
+      } catch (e: any) {
+        setFormError(e.message || 'Failed to remove member');
+      } finally {
+        setRemoveLoading(false);
+      }
+    },
+    [selectedTeamId, refetchTeams, fetchMembers],
+  );
 
   const copyCode = useCallback(() => {
     if (selectedTeam?.code) {
@@ -295,7 +299,9 @@ export const TeamsPage: React.FC = () => {
               )}
               {!selectedTeam.isPersonal && (
                 <div className="mt-1 flex items-center gap-2">
-                  <Badge variant="secondary" size="sm">{selectedTeam.code}</Badge>
+                  <Badge variant="secondary" size="sm">
+                    {selectedTeam.code}
+                  </Badge>
                   <Button variant="link" size="sm" onClick={copyCode}>
                     <FontAwesomeIcon icon={faCopy} className="mr-1" />
                     Copy
@@ -308,7 +314,10 @@ export const TeamsPage: React.FC = () => {
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={() => { setFormValue(selectedTeam.name); setModal('rename'); }}
+                  onClick={() => {
+                    setFormValue(selectedTeam.name);
+                    setModal('rename');
+                  }}
                   aria-label="Rename"
                 >
                   <FontAwesomeIcon icon={faPen} className="text-xs" />
@@ -328,7 +337,12 @@ export const TeamsPage: React.FC = () => {
           {/* Members list */}
           <CardContent className="px-5 py-3">
             <div className="mb-3 flex items-center justify-between">
-              <Text variant="muted" size="xs" weight="semibold" className="uppercase tracking-widest">
+              <Text
+                variant="muted"
+                size="xs"
+                weight="semibold"
+                className="uppercase tracking-widest"
+              >
                 Members ({selectedTeam.members.length})
               </Text>
               {isAdmin && !selectedTeam.isPersonal && (
@@ -351,9 +365,19 @@ export const TeamsPage: React.FC = () => {
                     <Avatar name={name} size="sm" />
                     <div className="min-w-0 flex-1">
                       <Text size="sm" weight="medium">
-                        {name}{isMe && <Text as="span" variant="muted" size="xs"> (you)</Text>}
+                        {name}
+                        {isMe && (
+                          <Text as="span" variant="muted" size="xs">
+                            {' '}
+                            (you)
+                          </Text>
+                        )}
                       </Text>
-                      {email && <Text variant="muted" size="xs">{email}</Text>}
+                      {email && (
+                        <Text variant="muted" size="xs">
+                          {email}
+                        </Text>
+                      )}
                     </div>
                     {isMemberAdmin && (
                       <Badge variant="warning" size="sm" icon={<FontAwesomeIcon icon={faCrown} />}>
@@ -372,14 +396,28 @@ export const TeamsPage: React.FC = () => {
                         {!isMemberAdmin ? (
                           <DropdownItem
                             icon={<FontAwesomeIcon icon={faShield} />}
-                            onClick={() => { void teamApi.setMemberRole(selectedTeamId!, memberId, 'admin').then(() => { refetchTeams(); void fetchMembers(selectedTeamId); }); }}
+                            onClick={() => {
+                              void teamApi
+                                .setMemberRole(selectedTeamId!, memberId, 'admin')
+                                .then(() => {
+                                  refetchTeams();
+                                  void fetchMembers(selectedTeamId);
+                                });
+                            }}
                           >
                             Make Admin
                           </DropdownItem>
                         ) : (
                           <DropdownItem
                             icon={<FontAwesomeIcon icon={faShield} />}
-                            onClick={() => { void teamApi.setMemberRole(selectedTeamId!, memberId, 'member').then(() => { refetchTeams(); void fetchMembers(selectedTeamId); }); }}
+                            onClick={() => {
+                              void teamApi
+                                .setMemberRole(selectedTeamId!, memberId, 'member')
+                                .then(() => {
+                                  refetchTeams();
+                                  void fetchMembers(selectedTeamId);
+                                });
+                            }}
                           >
                             Remove Admin
                           </DropdownItem>
@@ -415,7 +453,13 @@ export const TeamsPage: React.FC = () => {
             <CardTitle>Chart</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <React.Suspense fallback={<div className="flex items-center justify-center p-8"><Spinner size="lg" label="Loading chart…" /></div>}>
+            <React.Suspense
+              fallback={
+                <div className="flex items-center justify-center p-8">
+                  <Spinner size="lg" label="Loading chart…" />
+                </div>
+              }
+            >
               <TeamChart
                 teamName={selectedTeam.name}
                 members={selectedTeam.members.map((memberId) => {
@@ -524,12 +568,7 @@ export const TeamsPage: React.FC = () => {
           />
         </ModalBody>
         <ModalFooter>
-          <Button
-            variant="primary"
-            fullWidth
-            onClick={handleRename}
-            isLoading={renameLoading}
-          >
+          <Button variant="primary" fullWidth onClick={handleRename} isLoading={renameLoading}>
             Save
           </Button>
         </ModalFooter>
@@ -544,15 +583,17 @@ export const TeamsPage: React.FC = () => {
           <Text variant="muted" size="sm">
             Are you sure? This action cannot be undone. All team data will be permanently deleted.
           </Text>
-          {formError && <Text variant="destructive" size="xs" className="mt-2">{formError}</Text>}
+          {formError && (
+            <Text variant="destructive" size="xs" className="mt-2">
+              {formError}
+            </Text>
+          )}
         </ModalBody>
         <ModalFooter>
-          <Button variant="outline" onClick={closeModal}>Cancel</Button>
-          <Button
-            variant="danger"
-            onClick={handleDelete}
-            isLoading={deleteLoading}
-          >
+          <Button variant="outline" onClick={closeModal}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={handleDelete} isLoading={deleteLoading}>
             Delete
           </Button>
         </ModalFooter>
@@ -577,12 +618,7 @@ export const TeamsPage: React.FC = () => {
           />
         </ModalBody>
         <ModalFooter>
-          <Button
-            variant="primary"
-            fullWidth
-            onClick={handleInvite}
-            isLoading={inviteLoading}
-          >
+          <Button variant="primary" fullWidth onClick={handleInvite} isLoading={inviteLoading}>
             Send Invite
           </Button>
         </ModalFooter>
@@ -646,10 +682,16 @@ export const TeamsPage: React.FC = () => {
           <Text variant="muted" size="sm">
             Remove this member from the team? They can rejoin using the team code.
           </Text>
-          {formError && <Text variant="destructive" size="xs" className="mt-2">{formError}</Text>}
+          {formError && (
+            <Text variant="destructive" size="xs" className="mt-2">
+              {formError}
+            </Text>
+          )}
         </ModalBody>
         <ModalFooter>
-          <Button variant="outline" onClick={closeModal}>Cancel</Button>
+          <Button variant="outline" onClick={closeModal}>
+            Cancel
+          </Button>
           <Button
             variant="danger"
             onClick={() =>
@@ -680,7 +722,9 @@ export const TeamsPage: React.FC = () => {
           </Text>
           <div className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-neutral-100 p-3 dark:bg-neutral-800">
             <Text size="lg" weight="bold" className="font-mono">
-              {typeof modal === 'object' && modal !== null && modal.type === 'created' ? modal.code : ''}
+              {typeof modal === 'object' && modal !== null && modal.type === 'created'
+                ? modal.code
+                : ''}
             </Text>
             <Button
               variant="ghost"
@@ -698,7 +742,9 @@ export const TeamsPage: React.FC = () => {
           </div>
         </ModalBody>
         <ModalFooter>
-          <Button variant="primary" fullWidth onClick={closeModal}>Done</Button>
+          <Button variant="primary" fullWidth onClick={closeModal}>
+            Done
+          </Button>
         </ModalFooter>
       </Modal>
     </div>

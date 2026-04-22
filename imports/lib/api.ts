@@ -8,7 +8,8 @@
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 export const TIMECORE_BASE_URL: string =
-  (typeof import.meta !== 'undefined' && (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
+  (typeof import.meta !== 'undefined' &&
+    (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
   'http://localhost:4000';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -44,11 +45,11 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
   });
 
   if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as Record<string, unknown>;
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     throw new Error(
       (body.message as string | undefined) ??
-      (body.error as string | undefined) ??
-      `HTTP ${res.status}`,
+        (body.error as string | undefined) ??
+        `HTTP ${res.status}`,
     );
   }
 
@@ -73,8 +74,7 @@ export const authApi = {
     }),
 
   /** Sign out — clears better-auth session cookie. */
-  signOut: () =>
-    request('/api/auth/sign-out', { method: 'POST' }),
+  signOut: () => request('/api/auth/sign-out', { method: 'POST' }),
 
   /**
    * Request a password-reset email.
@@ -156,13 +156,21 @@ export const ticketApi = {
       (r) => r.tickets,
     ),
 
-  createTicket: (data: { teamId: string; title: string; github?: string; accumulatedTime?: number }) =>
+  createTicket: (data: {
+    teamId: string;
+    title: string;
+    github?: string;
+    accumulatedTime?: number;
+  }) =>
     request<{ ticket: Ticket }>('/v1/tickets', {
       method: 'POST',
       body: JSON.stringify(data),
     }).then((r) => r.ticket),
 
-  updateTicket: (id: string, updates: { title?: string; github?: string; accumulatedTime?: number; status?: string }) =>
+  updateTicket: (
+    id: string,
+    updates: { title?: string; github?: string; accumulatedTime?: number; status?: string },
+  ) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
@@ -217,8 +225,7 @@ export interface TeamMember {
 }
 
 export const teamApi = {
-  getTeams: () =>
-    request<{ teams: Team[] }>('/v1/teams').then((r) => r.teams),
+  getTeams: () => request<{ teams: Team[] }>('/v1/teams').then((r) => r.teams),
 
   ensurePersonal: () =>
     request<{ team: Team }>('/v1/teams/ensure-personal', { method: 'POST' }).then((r) => r.team),
@@ -329,12 +336,10 @@ export const clockApi = {
     }).then((r) => r.event),
 
   /** Get the current user's active clock event (any team), or null. */
-  getActive: () =>
-    request<{ event: ClockEvent | null }>('/v1/clock/active').then((r) => r.event),
+  getActive: () => request<{ event: ClockEvent | null }>('/v1/clock/active').then((r) => r.event),
 
   /** Get all clock events for the current user. */
-  getEvents: () =>
-    request<{ events: ClockEvent[] }>('/v1/clock/events').then((r) => r.events),
+  getEvents: () => request<{ events: ClockEvent[] }>('/v1/clock/events').then((r) => r.events),
 
   /** Get timesheet data for a user over a date range. */
   getTimesheet: (userId: string, startDate: string, endDate: string) =>
@@ -347,7 +352,9 @@ export const clockApi = {
         averageSessionSeconds: number;
         workingDays: number;
       };
-    }>(`/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startDate=${startDate}&endDate=${endDate}`),
+    }>(
+      `/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startDate=${startDate}&endDate=${endDate}`,
+    ),
 
   /** Open an SSE connection for live team clock state. Returns an EventSource. */
   openLiveStream: (teamIds: string[]): EventSource =>
@@ -381,7 +388,13 @@ export const messageApi = {
     ).then((r) => r.messages),
 
   /** Send a message. */
-  send: (data: { teamId: string; toUserId: string; text: string; adminId: string; ticketId?: string }) =>
+  send: (data: {
+    teamId: string;
+    toUserId: string;
+    text: string;
+    adminId: string;
+    ticketId?: string;
+  }) =>
     request<{ message: Message }>('/v1/messages', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -421,9 +434,7 @@ export type TeamInvitePreview = {
 export const notificationApi = {
   /** Fetch the user's notification inbox. */
   getInbox: () =>
-    request<{ notifications: Notification[] }>('/v1/notifications').then(
-      (r) => r.notifications,
-    ),
+    request<{ notifications: Notification[] }>('/v1/notifications').then((r) => r.notifications),
 
   /** Mark a single notification as read. */
   markOneRead: (id: string) =>
@@ -432,8 +443,7 @@ export const notificationApi = {
     }),
 
   /** Mark all notifications as read. */
-  markAllRead: () =>
-    request<{ ok: boolean }>('/v1/notifications/read', { method: 'POST' }),
+  markAllRead: () => request<{ ok: boolean }>('/v1/notifications/read', { method: 'POST' }),
 
   /** Bulk-delete notifications by ID. */
   deleteMany: (ids: string[]) =>
@@ -444,16 +454,14 @@ export const notificationApi = {
 
   /** Fetch team-invite preview for a notification. */
   getInvitePreview: (id: string) =>
-    request<TeamInvitePreview>(
-      `/v1/notifications/${encodeURIComponent(id)}/invite-preview`,
-    ),
+    request<TeamInvitePreview>(`/v1/notifications/${encodeURIComponent(id)}/invite-preview`),
 
   /** Accept or ignore a team invite. */
   respondToInvite: (id: string, action: 'join' | 'ignore') =>
-    request<{ ok: boolean }>(
-      `/v1/notifications/${encodeURIComponent(id)}/invite-respond`,
-      { method: 'POST', body: JSON.stringify({ action }) },
-    ),
+    request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/invite-respond`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
 
   /** Open an SSE stream for new notifications. */
   openStream: (): EventSource =>

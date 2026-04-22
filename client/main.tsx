@@ -16,9 +16,7 @@ const App: React.FC = () => {
   // If a reset token is present in the URL, show the reset-confirm form
   // regardless of auth state (so users can reset even if cookies are stale).
   const resetToken =
-    typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('token')
-      : null;
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') : null;
 
   if (resetToken) {
     return <LoginForm initialMode="reset-confirm" />;

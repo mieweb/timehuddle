@@ -5,13 +5,7 @@
  */
 import { faChevronDown, faCircleUser, faRightFromBracket } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  Avatar,
-  Dropdown,
-  DropdownItem,
-  DropdownSeparator,
-  Text,
-} from '@mieweb/ui';
+import { Avatar, Dropdown, DropdownItem, DropdownSeparator, Text } from '@mieweb/ui';
 import React, { useCallback } from 'react';
 
 import { useSession } from '../lib/useSession';
@@ -45,10 +39,7 @@ export const UserDropdown: React.FC = () => {
         >
           <Avatar name={displayName} size="sm" />
           <span className="hidden max-w-[140px] truncate sm:block">{truncated}</span>
-          <FontAwesomeIcon
-            icon={faChevronDown}
-            className="text-[10px] text-neutral-400"
-          />
+          <FontAwesomeIcon icon={faChevronDown} className="text-[10px] text-neutral-400" />
         </button>
       }
       placement="bottom-end"
@@ -58,17 +49,18 @@ export const UserDropdown: React.FC = () => {
       <div className="flex items-center gap-3 px-3 py-2.5">
         <Avatar name={displayName} size="md" />
         <div className="min-w-0">
-          <Text size="sm" weight="medium" truncate>{truncated}</Text>
-          <Text variant="muted" size="xs" className="mt-0.5">Authenticated</Text>
+          <Text size="sm" weight="medium" truncate>
+            {truncated}
+          </Text>
+          <Text variant="muted" size="xs" className="mt-0.5">
+            Authenticated
+          </Text>
         </div>
       </div>
 
       <DropdownSeparator />
 
-      <DropdownItem
-        icon={<FontAwesomeIcon icon={faCircleUser} />}
-        onClick={handleProfile}
-      >
+      <DropdownItem icon={<FontAwesomeIcon icon={faCircleUser} />} onClick={handleProfile}>
         Profile
       </DropdownItem>
 

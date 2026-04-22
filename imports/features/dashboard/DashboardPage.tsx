@@ -57,20 +57,17 @@ function computeHours(events: ClockEvent[], after: number, now: number): number 
 export const DashboardPage: React.FC = () => {
   const { user } = useSession();
   const { navigate } = useRouter();
-  const {
-    teams,
-    teamsReady,
-    selectedTeamId,
-    setSelectedTeamId,
-    activeClockEvent,
-    currentTime,
-  } = useTeam();
+  const { teams, teamsReady, selectedTeamId, setSelectedTeamId, activeClockEvent, currentTime } =
+    useTeam();
 
   // All user clock events (from timecore REST)
   const [allEvents, setAllEvents] = useState<ClockEvent[]>([]);
   useEffect(() => {
     if (!user) return;
-    clockApi.getEvents().then(setAllEvents).catch(() => setAllEvents([]));
+    clockApi
+      .getEvents()
+      .then(setAllEvents)
+      .catch(() => setAllEvents([]));
   }, [user]);
 
   // Compute stats
@@ -92,15 +89,9 @@ export const DashboardPage: React.FC = () => {
     [allEvents, weekStart, currentTime],
   );
 
-  const activeSessions = useMemo(
-    () => allEvents.filter((e) => !e.endTime).length,
-    [allEvents],
-  );
+  const activeSessions = useMemo(() => allEvents.filter((e) => !e.endTime).length, [allEvents]);
 
-  const recentEvents = useMemo(
-    () => allEvents.filter((e) => e.endTime).slice(0, 5),
-    [allEvents],
-  );
+  const recentEvents = useMemo(() => allEvents.filter((e) => e.endTime).slice(0, 5), [allEvents]);
 
   const isFirstTime = teams.length <= 1 && allEvents.length === 0;
 
@@ -139,7 +130,9 @@ export const DashboardPage: React.FC = () => {
       {isFirstTime && (
         <Card variant="outlined" padding="lg" className="text-center">
           <CardContent>
-            <Text as="h2" size="lg" weight="semibold">Welcome to TimeHuddle</Text>
+            <Text as="h2" size="lg" weight="semibold">
+              Welcome to TimeHuddle
+            </Text>
             <Text variant="muted" size="sm" className="mt-2">
               Get started by creating or joining a team, then clock in to start tracking time.
             </Text>
@@ -178,8 +171,12 @@ export const DashboardPage: React.FC = () => {
               <FontAwesomeIcon icon={faClock} className="text-sm" />
             </div>
             <div>
-              <Text variant="muted" size="xs">Today</Text>
-              <Text size="lg" weight="semibold">{formatDuration(todayHours)}</Text>
+              <Text variant="muted" size="xs">
+                Today
+              </Text>
+              <Text size="lg" weight="semibold">
+                {formatDuration(todayHours)}
+              </Text>
             </div>
           </CardContent>
         </Card>
@@ -189,19 +186,29 @@ export const DashboardPage: React.FC = () => {
               <FontAwesomeIcon icon={faCalendarWeek} className="text-sm" />
             </div>
             <div>
-              <Text variant="muted" size="xs">This Week</Text>
-              <Text size="lg" weight="semibold">{formatDuration(weekHours)}</Text>
+              <Text variant="muted" size="xs">
+                This Week
+              </Text>
+              <Text size="lg" weight="semibold">
+                {formatDuration(weekHours)}
+              </Text>
             </div>
           </CardContent>
         </Card>
         <Card padding="sm">
           <CardContent className="flex items-center gap-3">
-            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${activeSessions > 0 ? 'bg-green-50 text-green-600 dark:bg-green-950/50 dark:text-green-400' : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'}`}>
+            <div
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${activeSessions > 0 ? 'bg-green-50 text-green-600 dark:bg-green-950/50 dark:text-green-400' : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'}`}
+            >
               <FontAwesomeIcon icon={faPlay} className="text-sm" />
             </div>
             <div>
-              <Text variant="muted" size="xs">Active</Text>
-              <Text size="lg" weight="semibold">{String(activeSessions)}</Text>
+              <Text variant="muted" size="xs">
+                Active
+              </Text>
+              <Text size="lg" weight="semibold">
+                {String(activeSessions)}
+              </Text>
             </div>
           </CardContent>
         </Card>
@@ -211,8 +218,12 @@ export const DashboardPage: React.FC = () => {
               <FontAwesomeIcon icon={faUsers} className="text-sm" />
             </div>
             <div>
-              <Text variant="muted" size="xs">Teams</Text>
-              <Text size="lg" weight="semibold">{String(teams.filter((t) => !t.isPersonal).length)}</Text>
+              <Text variant="muted" size="xs">
+                Teams
+              </Text>
+              <Text size="lg" weight="semibold">
+                {String(teams.filter((t) => !t.isPersonal).length)}
+              </Text>
             </div>
           </CardContent>
         </Card>
@@ -220,7 +231,10 @@ export const DashboardPage: React.FC = () => {
 
       {/* Active session banner */}
       {activeClockEvent && (
-        <Alert variant="success" icon={<div className="h-3 w-3 animate-pulse rounded-full bg-green-500" />}>
+        <Alert
+          variant="success"
+          icon={<div className="h-3 w-3 animate-pulse rounded-full bg-green-500" />}
+        >
           <AlertTitle>Session Active</AlertTitle>
           <AlertDescription>
             Started {formatTime(new Date(activeClockEvent.startTimestamp))} •{' '}
@@ -262,11 +276,13 @@ export const DashboardPage: React.FC = () => {
                         {end ? ` – ${formatTime(end)}` : ''}
                       </Text>
                       <Text variant="muted" size="xs" className="mt-0.5">
-                        {team?.isPersonal ? 'Personal' : team?.name ?? 'Unknown'}
+                        {team?.isPersonal ? 'Personal' : (team?.name ?? 'Unknown')}
                         {event.tickets.length > 0 && ` • ${event.tickets.length} ticket(s)`}
                       </Text>
                     </div>
-                    <Badge variant="secondary" size="sm">{formatDuration(durSec)}</Badge>
+                    <Badge variant="secondary" size="sm">
+                      {formatDuration(durSec)}
+                    </Badge>
                   </li>
                 );
               })}
