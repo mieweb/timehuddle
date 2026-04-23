@@ -55,7 +55,7 @@ jobs:
               -p 2062 \
               -o StrictHostKeyChecking=no \
               -o ConnectTimeout=15 \
-              ${{ secrets.DEPLOY_SSH_USER }}@timehuddledev.os.mieweb.org \
+              pdharamkar@timehuddledev.os.mieweb.org \
               "echo 'SSH OK: DEV' && hostname && whoami && pwd"
 
   check_ssh_prod:
@@ -77,5 +77,5 @@ jobs:
               -p 2064 \
               -o StrictHostKeyChecking=no \
               -o ConnectTimeout=15 \
-              ${{ secrets.DEPLOY_SSH_USER }}@timehuddle-prod.os.mieweb.org \
+              pdharamkar@timehuddle-prod.os.mieweb.org \
               "echo 'SSH OK: PROD' && hostname && whoami && pwd"
