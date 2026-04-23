@@ -59,6 +59,8 @@ jobs:
               pdharamkar@timehuddledev.os.mieweb.org << 'ENDSSH'
             set -e
             cd ~/timehuddle
+            echo "=== stop pm2 ==="
+            sudo pm2 stop timehuddle-frontend || true
             echo "=== git pull ==="
             git fetch origin
             git reset --hard origin/main
@@ -110,6 +112,8 @@ jobs:
               pdharamkar@timehuddle-prod.os.mieweb.org << 'ENDSSH'
             set -e
             cd ~/timehuddle
+            echo "=== stop pm2 ==="
+            sudo pm2 stop timehuddle-frontend || true
             echo "=== git pull ==="
             git fetch origin
             git reset --hard origin/main
