@@ -114,6 +114,11 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-6">
+      {/* CI smoke-test banner — remove after deploy verified */}
+      <div className="rounded-xl bg-blue-600 py-4 text-center text-6xl font-black text-white">
+        Hi! 👋
+      </div>
+
       {/* Team selector */}
       {teams.length > 1 && (
         <Select
