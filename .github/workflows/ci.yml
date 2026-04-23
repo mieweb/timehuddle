@@ -1,46 +1,28 @@
-name: CI / Deploy Frontend
+name: CI / Frontend
 
 on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
-  workflow_dispatch:
-    inputs:
-      deploy:
-        description: 'Deploy after build?'
-        required: false
-        default: 'false'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
 
 concurrency:
-  group: deploy-frontend-${{ github.ref }}
+  group: ci-frontend-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   lint_and_types:
-    name: Lint & Type Check (Node 25)
+    name: Lint & Type Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Use Node 25
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 25
+          node-version: '22'
           cache: 'npm'
-      - name: Install deps
-        run: npm install --no-audit --no-fund
-      - name: Lint
-        run: npm run lint
-      - name: Type Check
-        run: npm run typecheck
-      - name: Test
-        run: npm test
+      - run: npm install --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
 
   build:
     name: Vite Build
@@ -48,108 +30,52 @@ jobs:
     needs: lint_and_types
     steps:
       - uses: actions/checkout@v4
-      - name: Use Node 25
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 25
+          node-version: '22'
           cache: 'npm'
-      - name: Install deps
-        run: npm install --no-audit --no-fund
-      - name: Build
-        run: npm run build
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: vite-build
-          path: dist
-          if-no-files-found: error
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
 
-  # Stage 1: Deploy to DEV
-  deploy_frontend_dev:
-    name: Deploy Frontend - DEV
+  check_ssh_dev:
+    name: SSH Check - DEV
     runs-on: ubuntu-latest
     needs: build
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.deploy == 'true')
     steps:
-      - name: Setup SSH
+      - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY_DEV }}" > ~/.ssh/deploy_key
+          echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p ${{ secrets.SSH_PORT_DEV }} ${{ secrets.SSH_HOST_DEV }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -p 2062 timehuddledev.os.mieweb.org >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Deploy to DEV
+      - name: Test SSH connectivity to DEV (port 2062)
         run: |
-          ssh -p ${{ secrets.SSH_PORT_DEV }} \
-              -i ~/.ssh/deploy_key \
+          ssh -i ~/.ssh/deploy_key \
+              -p 2062 \
               -o StrictHostKeyChecking=no \
-              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST_DEV }} << 'ENDSSH'
-            set -e
-            REPO_DIR="$HOME/timehuddle"
-            git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
-            if [ ! -d "$REPO_DIR/.git" ]; then
-              git clone https://github.com/mieweb/timehuddle.git "$REPO_DIR"
-            fi
-            cd "$REPO_DIR"
-            git fetch origin
-            git reset --hard origin/main
-            sudo npm install --no-audit --no-fund
-            sudo npm run build
-            sudo pm2 restart timehuddle-frontend
-            sudo pm2 save
-            echo "DEV frontend deployed"
-          ENDSSH
+              -o ConnectTimeout=15 \
+              ${{ secrets.DEPLOY_SSH_USER }}@timehuddledev.os.mieweb.org \
+              "echo 'SSH OK: DEV' && hostname && whoami && pwd"
 
-  # Stage 2: Verify DEV
-  verify_frontend_dev:
-    name: Verify Frontend - DEV
+  check_ssh_prod:
+    name: SSH Check - PROD
     runs-on: ubuntu-latest
-    needs: deploy_frontend_dev
-    steps:
-      - name: Health check DEV frontend
-        run: |
-          sleep 8
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://timehuddledev.os.mieweb.org/)
-          echo "HTTP status: $STATUS"
-          [ "$STATUS" = "200" ] || { echo "DEV frontend health check failed (HTTP $STATUS)"; exit 1; }
-          echo "DEV frontend is up"
-
-  # Stage 3: Deploy to PROD (manual approval via GitHub environment)
-  deploy_frontend_prod:
-    name: Deploy Frontend - PROD
-    runs-on: ubuntu-latest
-    needs: verify_frontend_dev
+    needs: check_ssh_dev
     environment: production
     steps:
-      - name: Setup SSH
+      - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY_PROD }}" > ~/.ssh/deploy_key
+          echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p ${{ secrets.SSH_PORT_PROD }} ${{ secrets.SSH_HOST_PROD }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -p 2064 timehuddle-prod.os.mieweb.org >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Deploy to PROD
+      - name: Test SSH connectivity to PROD (port 2064)
         run: |
-          ssh -p ${{ secrets.SSH_PORT_PROD }} \
-              -i ~/.ssh/deploy_key \
+          ssh -i ~/.ssh/deploy_key \
+              -p 2064 \
               -o StrictHostKeyChecking=no \
-              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST_PROD }} << 'ENDSSH'
-            set -e
-            REPO_DIR="$HOME/timehuddle"
-            git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
-            if [ ! -d "$REPO_DIR/.git" ]; then
-              git clone https://github.com/mieweb/timehuddle.git "$REPO_DIR"
-            fi
-            cd "$REPO_DIR"
-            git fetch origin
-            git reset --hard origin/main
-            sudo npm install --no-audit --no-fund
-            sudo npm run build
-            sudo pm2 restart timehuddle-frontend
-            sudo pm2 save
-            echo "PROD frontend deployed"
-          ENDSSH
-
-      - name: Deployment Status
-        if: failure()
-        run: echo "PROD frontend deployment failed"
+              -o ConnectTimeout=15 \
+              ${{ secrets.DEPLOY_SSH_USER }}@timehuddle-prod.os.mieweb.org \
+              "echo 'SSH OK: PROD' && hostname && whoami && pwd"
