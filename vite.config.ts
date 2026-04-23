@@ -16,6 +16,10 @@ export default defineConfig({
     port: 3000,
   },
 
+  preview: {
+    allowedHosts: true,
+  },
+
   build: {
     outDir: 'dist',
     sourcemap: true,
