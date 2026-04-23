@@ -48,15 +48,15 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p 2062 timehuddledev.os.mieweb.org >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -p ${{ secrets.DEPLOY_DEV_PORT }} ${{ secrets.DEPLOY_DEV_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Deploy to DEV
         run: |
           ssh -i ~/.ssh/deploy_key \
-              -p 2062 \
+              -p ${{ secrets.DEPLOY_DEV_PORT }} \
               -o StrictHostKeyChecking=no \
               -o ConnectTimeout=15 \
-              pdharamkar@timehuddledev.os.mieweb.org << 'ENDSSH'
+              ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_DEV_HOST }} << 'ENDSSH'
             set -e
             cd ~/timehuddle
             echo "=== stop pm2 ==="
@@ -86,7 +86,7 @@ jobs:
       - name: Health check DEV
         run: |
           sleep 5
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://timehuddledev.os.mieweb.org/)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEPLOY_DEV_URL }})
           echo "HTTP status: $STATUS"
           [ "$STATUS" = "200" ] || { echo "DEV health check failed (HTTP $STATUS)"; exit 1; }
 
@@ -101,15 +101,15 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p 2064 timehuddle-prod.os.mieweb.org >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -p ${{ secrets.DEPLOY_PROD_PORT }} ${{ secrets.DEPLOY_PROD_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Deploy to PROD
         run: |
           ssh -i ~/.ssh/deploy_key \
-              -p 2064 \
+              -p ${{ secrets.DEPLOY_PROD_PORT }} \
               -o StrictHostKeyChecking=no \
               -o ConnectTimeout=15 \
-              pdharamkar@timehuddle-prod.os.mieweb.org << 'ENDSSH'
+              ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_PROD_HOST }} << 'ENDSSH'
             set -e
             cd ~/timehuddle
             echo "=== stop pm2 ==="
@@ -139,6 +139,6 @@ jobs:
       - name: Health check PROD
         run: |
           sleep 5
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://timehuddle-prod.os.mieweb.org/)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEPLOY_PROD_URL }})
           echo "HTTP status: $STATUS"
           [ "$STATUS" = "200" ] || { echo "PROD health check failed (HTTP $STATUS)"; exit 1; }
