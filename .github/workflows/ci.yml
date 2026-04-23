@@ -101,10 +101,15 @@ jobs:
             set -e
 
             REPO_DIR="$HOME/timehuddle"
-            mkdir -p "${REPO_DIR}"
             PM2_NAME="${{ matrix.pm2_name }}"
 
             git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
+
+            if [ ! -d "$REPO_DIR/.git" ]; then
+              echo "📥 Cloning repository for first-time setup..."
+              git clone https://github.com/mieweb/timehuddle.git "$REPO_DIR"
+            fi
+
             cd "$REPO_DIR"
 
             echo "🛑 Stopping PM2 process: $PM2_NAME..."
