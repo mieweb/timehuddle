@@ -109,9 +109,9 @@ jobs:
 
             cd "$REPO_DIR"
 
-            echo "🔄 Fetching and pulling latest code..."
+            echo "🔄 Fetching latest code..."
             git fetch origin
-            git pull origin main
+            git reset --hard origin/main
 
             echo "⚙️  Installing dependencies..."
             npm install
