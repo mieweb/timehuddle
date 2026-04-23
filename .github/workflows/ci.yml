@@ -77,12 +77,10 @@ jobs:
             host_secret: SSH_HOST_DEV
             port_secret: SSH_PORT_DEV
             key_secret: SSH_PRIVATE_KEY_DEV
-            pm2_name: timehuddle-frontend
           - env: PROD
             host_secret: SSH_HOST_PROD
             port_secret: SSH_PORT_PROD
             key_secret: SSH_PRIVATE_KEY_PROD
-            pm2_name: timehuddle-frontend
 
     steps:
       - name: Setup SSH
@@ -101,7 +99,6 @@ jobs:
             set -e
 
             REPO_DIR="$HOME/timehuddle"
-            PM2_NAME="${{ matrix.pm2_name }}"
 
             git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
 
@@ -111,9 +108,6 @@ jobs:
             fi
 
             cd "$REPO_DIR"
-
-            echo "🛑 Stopping PM2 process: $PM2_NAME..."
-            pm2 stop "$PM2_NAME" 2>/dev/null || true
 
             echo "🔄 Fetching and pulling latest code..."
             git fetch origin
@@ -126,28 +120,16 @@ jobs:
             npm run build
 
             echo "🚀 Restarting PM2..."
-            if pm2 describe "$PM2_NAME" > /dev/null 2>&1; then
-              pm2 restart "$PM2_NAME" --update-env
-            else
-              echo "❌ PM2 process '$PM2_NAME' not found. Please start it manually on the server first."
-              exit 1
-            fi
-            pm2 save
+            sudo pm2 restart all --update-env
+            sudo pm2 save
 
             echo "⏳ Waiting for process to stabilize..."
             sleep 5
 
             echo "📊 PM2 Status:"
-            pm2 status
+            sudo pm2 status
 
-            echo "✅ Verifying $PM2_NAME is online..."
-            if pm2 list | grep -E "$PM2_NAME" | grep -q "online"; then
-              echo "✅ ${{ matrix.env }} frontend deployment successful! $PM2_NAME is online."
-            else
-              echo "❌ $PM2_NAME failed to start!"
-              pm2 logs "$PM2_NAME" --lines 30 --nostream || true
-              exit 1
-            fi
+            echo "✅ ${{ matrix.env }} frontend deployment successful!"
           EOF
 
       - name: Deployment Status
