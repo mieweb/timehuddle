@@ -23,6 +23,9 @@ export default [
       '_build',
       'build',
       'coverage',
+      // Capacitor native project directories — generated, not linted
+      'ios',
+      'android',
     ],
   },
   {

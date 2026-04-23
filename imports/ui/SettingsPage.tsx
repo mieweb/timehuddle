@@ -30,12 +30,13 @@ import {
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
+import { Capacitor } from '@capacitor/core';
 import {
   checkPushNotificationStatus,
-  isPushNotificationSupported,
-  subscribeToWebPush,
-  unsubscribeFromWebPush,
-} from '../lib/pushNotificationsClient';
+  isPushSupported,
+  subscribeToPush,
+  unsubscribeFromPush,
+} from '../lib/nativePush';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
@@ -143,36 +144,46 @@ const BrandSelector: React.FC = () => {
 // ─── Push notifications (Web Push — timeharbor-old parity) ────────────────────
 
 const PushNotificationsSettings: React.FC = () => {
+  const isNative = Capacitor.isNativePlatform();
   const [supported, setSupported] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [serverHasVapid, setServerHasVapid] = useState<boolean | null>(null);
+  // VAPID check is only relevant on the web; always pass on native.
+  const [serverHasVapid, setServerHasVapid] = useState<boolean | null>(isNative ? true : null);
 
   const refreshStatus = useCallback(async () => {
-    if (!isPushNotificationSupported()) {
+    if (isNative) {
+      // On native we don't have a synchronous way to check if we are subscribed
+      // without a stored token, so treat "supported" as the indicator.
+      return;
+    }
+    if (!isPushSupported()) {
       setEnabled(false);
       return;
     }
     const st = await checkPushNotificationStatus();
     setEnabled(st.permission === 'granted' && st.subscribed && st.serverEnabled);
-  }, []);
+  }, [isNative]);
 
   useEffect(() => {
-    setSupported(isPushNotificationSupported());
-    // VAPID key is configured if the env var is present
-    const vapidKey =
-      (typeof import.meta !== 'undefined' &&
-        (import.meta as { env?: Record<string, string> }).env?.VITE_VAPID_PUBLIC_KEY) ||
-      '';
-    setServerHasVapid(vapidKey.length > 0);
+    setSupported(isPushSupported());
+    if (!isNative) {
+      // VAPID key is configured if the env var is present
+      const vapidKey =
+        (typeof import.meta !== 'undefined' &&
+          (import.meta as { env?: Record<string, string> }).env?.VITE_VAPID_PUBLIC_KEY) ||
+        '';
+      setServerHasVapid(vapidKey.length > 0);
+    }
     void refreshStatus();
-  }, [refreshStatus]);
+  }, [isNative, refreshStatus]);
 
   const handleEnable = async () => {
     setLoading(true);
     try {
-      await subscribeToWebPush();
-      await refreshStatus();
+      await subscribeToPush();
+      if (!isNative) await refreshStatus();
+      else setEnabled(true);
 
       window.alert(
         'Notifications enabled! You will receive alerts when team members clock in or out.',
@@ -198,8 +209,9 @@ const PushNotificationsSettings: React.FC = () => {
     if (!window.confirm('Are you sure you want to disable push notifications?')) return;
     setLoading(true);
     try {
-      await unsubscribeFromWebPush();
-      await refreshStatus();
+      await unsubscribeFromPush();
+      if (!isNative) await refreshStatus();
+      else setEnabled(false);
 
       window.alert('Notifications disabled.');
     } catch {
@@ -220,7 +232,7 @@ const PushNotificationsSettings: React.FC = () => {
       )}
       {!supported ? (
         <Text variant="muted" size="sm">
-          Push notifications are not supported in this browser. Try Chrome, Firefox, or Edge.
+          Push notifications are not supported on this platform.
         </Text>
       ) : enabled ? (
         <>

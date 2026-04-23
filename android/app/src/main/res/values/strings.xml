@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TimeHuddle</string>
+    <string name="title_activity_main">TimeHuddle</string>
+    <string name="package_name">com.mieweb.timehuddle</string>
+    <string name="custom_url_scheme">com.mieweb.timehuddle</string>
+</resources>
