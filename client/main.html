@@ -5,5 +5,16 @@
     every route gets the correct SEO content without duplication.
   -->
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- Anti-flash: apply saved theme before first paint to avoid white flicker -->
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('app:theme');
+        if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', t);
+        if (t === 'dark') document.documentElement.classList.add('dark');
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body></body>

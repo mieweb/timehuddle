@@ -3,68 +3,74 @@
  *
  * • Any authenticated user can view any profile by userId
  * • The profile owner sees an inline edit form (displayName, bio, website)
- * • Avatar, displayName, bio and website are the editable public fields
- *
- * Subscriptions: 'profile.public' for the viewed userId
+ * • Data fetched from timecore GET /v1/users/:id and PUT /v1/me/profile
  */
 import { faGlobe, faPen } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Avatar, Button, Card, Input, Spinner, Text } from '@mieweb/ui';
-import { Meteor } from 'meteor/meteor';
-import { useTracker } from 'meteor/react-meteor-data';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import {
   PROFILE_BIO_MAX,
   PROFILE_DISPLAY_NAME_MAX,
   PROFILE_WEBSITE_MAX,
 } from '../../lib/constants';
-import { useMethod } from '../../lib/useMethod';
-import { UserProfiles } from './api';
-import { type ProfileUpdateInput } from './schema';
+import { userApi, type PublicUser } from '../../lib/api';
+import { useSession } from '../../lib/useSession';
 
 interface ProfilePageProps {
   userId: string;
 }
 
 export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
-  const myId = useTracker(() => Meteor.userId(), []);
-  const isOwn = myId === userId;
+  const { user: sessionUser, refetch: refetchSession } = useSession();
+  const isOwn = sessionUser?.id === userId;
 
-  const { profile, isReady } = useTracker(() => {
-    const handle = Meteor.subscribe('profile.public', userId);
-    return {
-      profile: UserProfiles.findOne({ userId }),
-      isReady: handle.ready(),
-    };
+  const [profile, setProfile] = useState<PublicUser | null>(null);
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    setIsReady(false);
+    userApi
+      .getUser(userId)
+      .then((p) => setProfile(p))
+      .catch(() => setProfile(null))
+      .finally(() => setIsReady(true));
   }, [userId]);
-
-  const email = useTracker(() => {
-    if (!isOwn) return null;
-    const user = Meteor.user();
-    return user?.emails?.[0]?.address ?? null;
-  }, [isOwn]);
 
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
   const [website, setWebsite] = useState('');
-  const updateProfile = useMethod<[ProfileUpdateInput]>('profile.update');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const startEdit = () => {
-    setDisplayName(profile?.displayName ?? '');
+    setDisplayName(profile?.name ?? '');
     setBio(profile?.bio ?? '');
     setWebsite(profile?.website ?? '');
-    updateProfile.clearError();
+    setSaveError(null);
     setEditing(true);
   };
 
-  const save = (e: React.FormEvent) => {
+  const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateProfile
-      .call({ displayName, bio, website })
-      .then(() => setEditing(false))
-      .catch(() => {}); // error shown via updateProfile.error
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const updated = await userApi.updateProfile({
+        name: displayName.trim() || undefined,
+        bio: bio.trim(),
+        website: website.trim(),
+      });
+      setProfile(updated);
+      await refetchSession();
+      setEditing(false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!isReady) {
@@ -75,8 +81,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
     );
   }
 
-  // Determine what to display: prefer saved displayName, then email, then fallback
-  const nameText = profile?.displayName || email || 'Unknown user';
+  const nameText = profile?.name || sessionUser?.email?.split('@')[0] || 'Unknown user';
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
       {/* Profile header card */}
@@ -84,14 +89,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
         <Avatar name={nameText} size="xl" />
 
         <div className="min-w-0 flex-1">
-          <Text as="h1" size="xl" weight="bold">{nameText}</Text>
+          <Text as="h1" size="xl" weight="bold">
+            {nameText}
+          </Text>
 
-          {isOwn && email && (
-            <Text variant="muted" size="sm" className="mt-0.5">{email}</Text>
+          {isOwn && sessionUser?.email && (
+            <Text variant="muted" size="sm" className="mt-0.5">
+              {sessionUser.email}
+            </Text>
           )}
 
           {profile?.bio && (
-            <Text size="sm" className="mt-2">{profile.bio}</Text>
+            <Text size="sm" className="mt-2">
+              {profile.bio}
+            </Text>
           )}
 
           {profile?.website && (
@@ -106,7 +117,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
             </a>
           )}
 
-          {isOwn && !profile?.displayName && !profile?.bio && !editing && (
+          {isOwn && !profile?.name && !profile?.bio && !editing && (
             <Text variant="muted" size="xs" className="mt-2">
               Your profile is empty. Click edit to add a display name and bio.
             </Text>
@@ -159,18 +170,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
               type="url"
             />
 
-            {updateProfile.error && <Text variant="destructive" size="xs">{updateProfile.error}</Text>}
+            {saveError && (
+              <Text variant="destructive" size="xs">
+                {saveError}
+              </Text>
+            )}
 
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={() => setEditing(false)}>
                 Cancel
               </Button>
-              <Button
-                variant="primary"
-                type="submit"
-                isLoading={updateProfile.loading}
-                loadingText="Saving…"
-              >
+              <Button variant="primary" type="submit" isLoading={saving} loadingText="Saving…">
                 Save
               </Button>
             </div>

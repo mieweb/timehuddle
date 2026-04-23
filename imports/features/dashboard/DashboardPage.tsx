@@ -18,8 +18,6 @@ import {
   faRightToBracket,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Meteor } from 'meteor/meteor';
-import { useFind } from 'meteor/react-meteor-data';
 import {
   Alert,
   AlertDescription,
@@ -34,21 +32,21 @@ import {
   Spinner,
   Text,
 } from '@mieweb/ui';
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
-import { ClockEvents } from '../clock/api';
-import type { ClockEventDoc } from '../clock/schema';
+import { clockApi, type ClockEvent } from '../../lib/api';
+import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration, formatTime, formatDate, startOfDay } from '../../lib/timeUtils';
 import { useRouter } from '../../ui/router';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function computeHours(events: ClockEventDoc[], after: number, now: number): number {
+function computeHours(events: ClockEvent[], after: number, now: number): number {
   let total = 0;
   for (const e of events) {
     if (e.startTimestamp < after) continue;
-    const end = e.endTime ? e.endTime.getTime() : now;
+    const end = e.endTime ? new Date(e.endTime).getTime() : now;
     total += (end - e.startTimestamp) / 1000;
   }
   return total;
@@ -57,22 +55,20 @@ function computeHours(events: ClockEventDoc[], after: number, now: number): numb
 // ─── DashboardPage ────────────────────────────────────────────────────────────
 
 export const DashboardPage: React.FC = () => {
-  const userId = Meteor.userId();
+  const { user } = useSession();
   const { navigate } = useRouter();
-  const {
-    teams,
-    teamsReady,
-    selectedTeamId,
-    setSelectedTeamId,
-    activeClockEvent,
-    currentTime,
-  } = useTeam();
+  const { teams, teamsReady, selectedTeamId, setSelectedTeamId, activeClockEvent, currentTime } =
+    useTeam();
 
-  // All user clock events (from subscription)
-  const allEvents = useFind(
-    () => ClockEvents.find({ userId: userId ?? '__none__' }, { sort: { startTimestamp: -1 } }),
-    [userId],
-  );
+  // All user clock events (from timecore REST)
+  const [allEvents, setAllEvents] = useState<ClockEvent[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    clockApi
+      .getEvents()
+      .then(setAllEvents)
+      .catch(() => setAllEvents([]));
+  }, [user]);
 
   // Compute stats
   const todayStart = useMemo(() => startOfDay(new Date()).getTime(), []);
@@ -93,22 +89,16 @@ export const DashboardPage: React.FC = () => {
     [allEvents, weekStart, currentTime],
   );
 
-  const activeSessions = useMemo(
-    () => allEvents.filter((e) => !e.endTime).length,
-    [allEvents],
-  );
+  const activeSessions = useMemo(() => allEvents.filter((e) => !e.endTime).length, [allEvents]);
 
-  const recentEvents = useMemo(
-    () => allEvents.filter((e) => e.endTime).slice(0, 5),
-    [allEvents],
-  );
+  const recentEvents = useMemo(() => allEvents.filter((e) => e.endTime).slice(0, 5), [allEvents]);
 
   const isFirstTime = teams.length <= 1 && allEvents.length === 0;
 
   const teamOptions = useMemo(
     () =>
       teams.map((t) => ({
-        value: t._id!,
+        value: t.id,
         label: t.isPersonal ? 'Personal Workspace' : t.name,
       })),
     [teams],
@@ -140,7 +130,9 @@ export const DashboardPage: React.FC = () => {
       {isFirstTime && (
         <Card variant="outlined" padding="lg" className="text-center">
           <CardContent>
-            <Text as="h2" size="lg" weight="semibold">Welcome to TimeHuddle</Text>
+            <Text as="h2" size="lg" weight="semibold">
+              Welcome to TimeHuddle
+            </Text>
             <Text variant="muted" size="sm" className="mt-2">
               Get started by creating or joining a team, then clock in to start tracking time.
             </Text>
@@ -179,8 +171,12 @@ export const DashboardPage: React.FC = () => {
               <FontAwesomeIcon icon={faClock} className="text-sm" />
             </div>
             <div>
-              <Text variant="muted" size="xs">Today</Text>
-              <Text size="lg" weight="semibold">{formatDuration(todayHours)}</Text>
+              <Text variant="muted" size="xs">
+                Today
+              </Text>
+              <Text size="lg" weight="semibold">
+                {formatDuration(todayHours)}
+              </Text>
             </div>
           </CardContent>
         </Card>
@@ -190,19 +186,29 @@ export const DashboardPage: React.FC = () => {
               <FontAwesomeIcon icon={faCalendarWeek} className="text-sm" />
             </div>
             <div>
-              <Text variant="muted" size="xs">This Week</Text>
-              <Text size="lg" weight="semibold">{formatDuration(weekHours)}</Text>
+              <Text variant="muted" size="xs">
+                This Week
+              </Text>
+              <Text size="lg" weight="semibold">
+                {formatDuration(weekHours)}
+              </Text>
             </div>
           </CardContent>
         </Card>
         <Card padding="sm">
           <CardContent className="flex items-center gap-3">
-            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${activeSessions > 0 ? 'bg-green-50 text-green-600 dark:bg-green-950/50 dark:text-green-400' : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'}`}>
+            <div
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${activeSessions > 0 ? 'bg-green-50 text-green-600 dark:bg-green-950/50 dark:text-green-400' : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400'}`}
+            >
               <FontAwesomeIcon icon={faPlay} className="text-sm" />
             </div>
             <div>
-              <Text variant="muted" size="xs">Active</Text>
-              <Text size="lg" weight="semibold">{String(activeSessions)}</Text>
+              <Text variant="muted" size="xs">
+                Active
+              </Text>
+              <Text size="lg" weight="semibold">
+                {String(activeSessions)}
+              </Text>
             </div>
           </CardContent>
         </Card>
@@ -212,8 +218,12 @@ export const DashboardPage: React.FC = () => {
               <FontAwesomeIcon icon={faUsers} className="text-sm" />
             </div>
             <div>
-              <Text variant="muted" size="xs">Teams</Text>
-              <Text size="lg" weight="semibold">{String(teams.filter((t) => !t.isPersonal).length)}</Text>
+              <Text variant="muted" size="xs">
+                Teams
+              </Text>
+              <Text size="lg" weight="semibold">
+                {String(teams.filter((t) => !t.isPersonal).length)}
+              </Text>
             </div>
           </CardContent>
         </Card>
@@ -221,7 +231,10 @@ export const DashboardPage: React.FC = () => {
 
       {/* Active session banner */}
       {activeClockEvent && (
-        <Alert variant="success" icon={<div className="h-3 w-3 animate-pulse rounded-full bg-green-500" />}>
+        <Alert
+          variant="success"
+          icon={<div className="h-3 w-3 animate-pulse rounded-full bg-green-500" />}
+        >
           <AlertTitle>Session Active</AlertTitle>
           <AlertDescription>
             Started {formatTime(new Date(activeClockEvent.startTimestamp))} •{' '}
@@ -254,20 +267,22 @@ export const DashboardPage: React.FC = () => {
                 const start = new Date(event.startTimestamp);
                 const end = event.endTime ? new Date(event.endTime) : null;
                 const durSec = end ? (end.getTime() - event.startTimestamp) / 1000 : 0;
-                const team = teams.find((t) => t._id === event.teamId);
+                const team = teams.find((t) => t.id === event.teamId);
                 return (
-                  <li key={event._id} className="flex items-center justify-between px-5 py-3">
+                  <li key={event.id} className="flex items-center justify-between px-5 py-3">
                     <div className="min-w-0">
                       <Text size="sm" weight="medium">
                         {formatDate(start)} • {formatTime(start)}
                         {end ? ` – ${formatTime(end)}` : ''}
                       </Text>
                       <Text variant="muted" size="xs" className="mt-0.5">
-                        {team?.isPersonal ? 'Personal' : team?.name ?? 'Unknown'}
+                        {team?.isPersonal ? 'Personal' : (team?.name ?? 'Unknown')}
                         {event.tickets.length > 0 && ` • ${event.tickets.length} ticket(s)`}
                       </Text>
                     </div>
-                    <Badge variant="secondary" size="sm">{formatDuration(durSec)}</Badge>
+                    <Badge variant="secondary" size="sm">
+                      {formatDuration(durSec)}
+                    </Badge>
                   </li>
                 );
               })}

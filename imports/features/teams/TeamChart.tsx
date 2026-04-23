@@ -62,9 +62,7 @@ function buildYaml(teamName: string, members: Member[]): string {
 const TeamChartMount: React.FC<{ yaml: string }> = ({ yaml }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<YChartInstance | null>(null);
-  const chartId = useRef(
-    `tc-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  ).current;
+  const chartId = useRef(`tc-${Date.now()}-${Math.random().toString(36).slice(2)}`).current;
 
   useEffect(() => {
     const el = containerRef.current!;
@@ -122,20 +120,17 @@ const TeamChartMount: React.FC<{ yaml: string }> = ({ yaml }) => {
 };
 
 export const TeamChart: React.FC<TeamChartProps> = ({ teamName, members }) => {
-  const memberKey = members.map((m) => `${m.id}:${m.name}:${m.email ?? ''}:${m.isAdmin ? '1' : '0'}`).join(',');
+  const memberKey = members
+    .map((m) => `${m.id}:${m.name}:${m.email ?? ''}:${m.isAdmin ? '1' : '0'}`)
+    .join(',');
   const yaml = useMemo(() => buildYaml(teamName, members), [teamName, memberKey]);
 
   if (members.length === 0) {
-    return (
-      <p className="text-center text-sm text-neutral-500 py-8">No members to display.</p>
-    );
+    return <p className="text-center text-sm text-neutral-500 py-8">No members to display.</p>;
   }
 
   return (
-    <div
-      style={{ width: '100%', height: '500px' }}
-      aria-label={`Org chart for ${teamName}`}
-    >
+    <div style={{ width: '100%', height: '500px' }} aria-label={`Org chart for ${teamName}`}>
       <TeamChartMount key={yaml} yaml={yaml} />
     </div>
   );

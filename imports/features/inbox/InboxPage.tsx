@@ -9,13 +9,11 @@
  */
 import { faArrowLeft, faEnvelope, faInbox, faTrash } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Meteor } from 'meteor/meteor';
-import { useTracker } from 'meteor/react-meteor-data';
 import React, { useState } from 'react';
 
 import { Button, Input } from '@mieweb/ui';
 import { ThemeToggle } from '../../ui/ThemeToggle';
-import { type DevMailDoc, DevMails } from './api';
+import { type DevMailDoc } from './api';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -127,14 +125,10 @@ export const InboxPage: React.FC<InboxPageProps> = ({ initialEmail }) => {
   const [email, setEmail] = useState(initialEmail || getEmailParam());
   const [inputValue, setInputValue] = useState(email);
 
-  const { messages, isReady } = useTracker(() => {
-    if (!email) return { messages: [] as DevMailDoc[], isReady: true };
-    const handle = Meteor.subscribe('inbox.messages', email);
-    return {
-      messages: DevMails.find({ to: email }, { sort: { sentAt: -1 } }).fetch(),
-      isReady: handle.ready(),
-    };
-  }, [email]);
+  // Dev inbox: requires a backend endpoint at /api/dev-inbox?email=...
+  // Not yet implemented in timecore — shows empty state.
+  const [messages] = useState<DevMailDoc[]>([]);
+  const [isReady] = useState(true);
 
   const handleLookup = (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,8 +143,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({ initialEmail }) => {
   };
 
   const clearInbox = () => {
-    if (!email) return;
-    Meteor.call('inbox.clear', email);
+    // No-op until timecore dev-inbox endpoint is implemented
   };
 
   return (
@@ -184,11 +177,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({ initialEmail }) => {
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="Enter email to check inbox…"
           />
-          <Button
-            variant="primary"
-            type="submit"
-            disabled={!inputValue.trim()}
-          >
+          <Button variant="primary" type="submit" disabled={!inputValue.trim()}>
             Check
           </Button>
         </form>

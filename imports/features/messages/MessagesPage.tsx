@@ -4,12 +4,9 @@
  * Features:
  *   • Thread list — admin sees all member threads, member sees admin threads
  *   • Message composition with send
- *   • Real-time updates via Meteor subscription
+ *   • Real-time updates via SSE stream
  */
-import {
-  faEnvelope,
-  faPaperPlane,
-} from '@fortawesome/free-solid-svg-icons';
+import { faEnvelope, faPaperPlane } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Avatar,
@@ -23,19 +20,18 @@ import {
   Spinner,
   Text,
 } from '@mieweb/ui';
-import { Meteor } from 'meteor/meteor';
-import { useFind, useSubscribe } from 'meteor/react-meteor-data';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { useTeam } from '../../lib/TeamContext';
-import { useMethod } from '../../lib/useMethod';
-import { Messages } from './api';
+import { useSession } from '../../lib/useSession';
+import { messageApi, userApi, type Message } from '../../lib/api';
 
 // ─── MessagesPage ─────────────────────────────────────────────────────────────
 
 export const MessagesPage: React.FC = () => {
-  const userId = Meteor.userId()!;
+  const { user } = useSession();
+  const userId = user?.id ?? '';
   const { teams, selectedTeamId, setSelectedTeamId, teamsReady, isAdmin, selectedTeam } = useTeam();
 
   // Thread selection
@@ -46,6 +42,10 @@ export const MessagesPage: React.FC = () => {
   const [selectedAdminId, setSelectedAdminId] = useState<string | null>(null);
   const effectiveAdminId = isAdmin ? userId : selectedAdminId;
   const effectiveMemberId = isAdmin ? selectedMemberId : userId;
+
+  // Messages state
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [sendLoading, setSendLoading] = useState(false);
 
   /** From push notification URL: /app/messages?openTeam=&openPeer= */
   const pendingOpenPeerRef = useRef<string | null>(null);
@@ -58,7 +58,6 @@ export const MessagesPage: React.FC = () => {
     if (openTeam) setSelectedTeamId(openTeam);
     if (openPeer) pendingOpenPeerRef.current = openPeer;
     window.history.replaceState(null, '', '/app/messages');
-     
   }, []);
 
   useEffect(() => {
@@ -74,8 +73,7 @@ export const MessagesPage: React.FC = () => {
 
   // Deep-link from notification inbox (threadId team:admin:member) — one-shot on mount
   useEffect(() => {
-    const uid = Meteor.userId();
-    if (!uid || typeof window === 'undefined') return;
+    if (!userId || typeof window === 'undefined') return;
     let raw: string | null = null;
     try {
       raw = sessionStorage.getItem(MESSAGES_PENDING_THREAD_KEY);
@@ -89,52 +87,58 @@ export const MessagesPage: React.FC = () => {
       const { teamId, adminId, memberId } = parsed;
       if (teamId) setSelectedTeamId(teamId);
       if (adminId && memberId) {
-        if (uid === adminId) setSelectedMemberId(memberId);
-        else if (uid === memberId) setSelectedAdminId(adminId);
+        if (userId === adminId) setSelectedMemberId(memberId);
+        else if (userId === memberId) setSelectedAdminId(adminId);
       }
     } catch {
       /* ignore */
     }
-     
-  }, []);
+  }, [userId]);
 
-  // Subscribe to thread
-  useSubscribe(
-    'messages.thread',
-    selectedTeamId ?? '',
-    effectiveAdminId ?? '',
-    effectiveMemberId ?? '',
-  );
+  // Fetch thread history + open SSE when thread is selected
+  useEffect(() => {
+    if (!selectedTeamId || !effectiveAdminId || !effectiveMemberId) {
+      setMessages([]);
+      return;
+    }
+    const threadId = `${selectedTeamId}:${effectiveAdminId}:${effectiveMemberId}`;
 
-  const messages = useFind(
-    () => {
-      if (!selectedTeamId || !effectiveAdminId || !effectiveMemberId) {
-        return Messages.find({ _id: '__none__' });
+    // Initial fetch
+    messageApi
+      .getThread(selectedTeamId, effectiveAdminId, effectiveMemberId)
+      .then(setMessages)
+      .catch(() => {});
+
+    // SSE for real-time updates
+    const es = messageApi.openStream(threadId);
+    es.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data) as Message;
+        setMessages((prev) => {
+          // Deduplicate by id
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
+      } catch {
+        /* ignore */
       }
-      const threadId = `${selectedTeamId}:${effectiveAdminId}:${effectiveMemberId}`;
-      return Messages.find({ threadId }, { sort: { createdAt: 1 } });
-    },
-    [selectedTeamId, effectiveAdminId, effectiveMemberId],
-  );
+    };
+    return () => es.close();
+  }, [selectedTeamId, effectiveAdminId, effectiveMemberId]);
 
-  // Fetch team member names
-  const getUsers = useMethod<[string[]], Array<{ id: string; name: string; email: string }>>('teams.getUsers');
-
+  // Fetch team member names via REST
   useEffect(() => {
     if (!selectedTeam) return;
     const ids = [...new Set([...selectedTeam.members, ...selectedTeam.admins])];
-    getUsers.call(ids).then((users) => {
-      const names: Record<string, string> = {};
-      for (const u of users) names[u.id] = u.name;
-      setMemberNames(names);
-    }).catch(() => {});
+    userApi
+      .getUsers(ids)
+      .then((users) => {
+        const names: Record<string, string> = {};
+        for (const u of users) names[u.id] = u.name;
+        setMemberNames(names);
+      })
+      .catch(() => {});
   }, [selectedTeam]);
-
-  // Send message
-  const sendMessage = useMethod<
-    [{ teamId: string; toUserId: string; text: string; adminId: string }],
-    string
-  >('messages.send');
 
   const [messageText, setMessageText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -147,14 +151,21 @@ export const MessagesPage: React.FC = () => {
   const handleSend = useCallback(async () => {
     if (!messageText.trim() || !selectedTeamId || !effectiveAdminId || !effectiveMemberId) return;
     const toUserId = userId === effectiveAdminId ? effectiveMemberId : effectiveAdminId;
-    await sendMessage.call({
-      teamId: selectedTeamId,
-      toUserId,
-      text: messageText.trim(),
-      adminId: effectiveAdminId,
-    });
-    setMessageText('');
-  }, [messageText, selectedTeamId, effectiveAdminId, effectiveMemberId, userId, sendMessage]);
+    setSendLoading(true);
+    try {
+      const sent = await messageApi.send({
+        teamId: selectedTeamId,
+        toUserId,
+        text: messageText.trim(),
+        adminId: effectiveAdminId,
+      });
+      // Append immediately (SSE will deduplicate if it also arrives)
+      setMessages((prev) => (prev.some((m) => m.id === sent.id) ? prev : [...prev, sent]));
+      setMessageText('');
+    } finally {
+      setSendLoading(false);
+    }
+  }, [messageText, selectedTeamId, effectiveAdminId, effectiveMemberId, userId]);
 
   // Thread participants
   const threadMembers = useMemo(() => {
@@ -173,10 +184,7 @@ export const MessagesPage: React.FC = () => {
   const hasThread = isAdmin ? !!selectedMemberId : !!selectedAdminId;
 
   const teamOptions = useMemo(
-    () =>
-      teams
-        .filter((t) => !t.isPersonal)
-        .map((t) => ({ value: t._id!, label: t.name })),
+    () => teams.filter((t) => !t.isPersonal).map((t) => ({ value: t.id, label: t.name })),
     [teams],
   );
 
@@ -199,7 +207,11 @@ export const MessagesPage: React.FC = () => {
             size="sm"
             options={teamOptions}
             value={selectedTeamId ?? ''}
-            onValueChange={(v) => { setSelectedTeamId(v); setSelectedMemberId(null); setSelectedAdminId(null); }}
+            onValueChange={(v) => {
+              setSelectedTeamId(v);
+              setSelectedMemberId(null);
+              setSelectedAdminId(null);
+            }}
           />
         </div>
       )}
@@ -208,7 +220,11 @@ export const MessagesPage: React.FC = () => {
         {/* Thread list */}
         <Card padding="none" className="w-48 shrink-0 overflow-y-auto md:w-56">
           <CardHeader className="px-4 py-3">
-            <Text size="xs" weight="semibold" className="uppercase tracking-widest text-neutral-400">
+            <Text
+              size="xs"
+              weight="semibold"
+              className="uppercase tracking-widest text-neutral-400"
+            >
               {isAdmin ? 'Members' : 'Admins'}
             </Text>
           </CardHeader>
@@ -220,7 +236,9 @@ export const MessagesPage: React.FC = () => {
                   <li key={m.id}>
                     <button
                       type="button"
-                      onClick={() => isAdmin ? setSelectedMemberId(m.id) : setSelectedAdminId(m.id)}
+                      onClick={() =>
+                        isAdmin ? setSelectedMemberId(m.id) : setSelectedAdminId(m.id)
+                      }
                       className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm transition-colors ${
                         isSelected
                           ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
@@ -260,14 +278,19 @@ export const MessagesPage: React.FC = () => {
               <div className="flex-1 overflow-y-auto px-5 py-4">
                 {messages.length === 0 && (
                   <div className="flex h-full items-center justify-center">
-                    <Text variant="muted" size="sm">No messages yet. Start the conversation!</Text>
+                    <Text variant="muted" size="sm">
+                      No messages yet. Start the conversation!
+                    </Text>
                   </div>
                 )}
                 <div className="space-y-3">
                   {messages.map((msg) => {
                     const isMe = msg.fromUserId === userId;
                     return (
-                      <div key={msg._id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                      <div
+                        key={msg.id}
+                        className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
+                      >
                         <div
                           className={`max-w-[75%] rounded-xl px-3 py-2 text-sm ${
                             isMe
@@ -276,8 +299,13 @@ export const MessagesPage: React.FC = () => {
                           }`}
                         >
                           <p>{msg.text}</p>
-                          <p className={`mt-1 text-[10px] ${isMe ? 'text-blue-200' : 'text-neutral-400'}`}>
-                            {new Date(msg.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                          <p
+                            className={`mt-1 text-[10px] ${isMe ? 'text-blue-200' : 'text-neutral-400'}`}
+                          >
+                            {new Date(msg.createdAt).toLocaleTimeString('en-US', {
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })}
                           </p>
                         </div>
                       </div>
@@ -303,8 +331,8 @@ export const MessagesPage: React.FC = () => {
                     variant="primary"
                     size="icon"
                     onClick={handleSend}
-                    disabled={sendMessage.loading || !messageText.trim()}
-                    isLoading={sendMessage.loading}
+                    disabled={sendLoading || !messageText.trim()}
+                    isLoading={sendLoading}
                     aria-label="Send message"
                   >
                     <FontAwesomeIcon icon={faPaperPlane} className="text-xs" />

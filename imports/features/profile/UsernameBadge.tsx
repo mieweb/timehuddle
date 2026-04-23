@@ -1,28 +1,36 @@
 /**
  * UsernameBadge — Clickable username used in chat message groups.
  *
- * Reads the sender's UserProfile from the local mini-mongo collection (populated
- * by the parent ChatApp via the 'profile.byIds' subscription) and shows the
- * displayName if one exists, falling back to the stored `username`.
+ * Fetches the sender's public profile from timecore (GET /v1/users/:id)
+ * and shows the name if available, falling back to the stored `username`.
  *
  * Clicking navigates to /app/profile/:userId.
  */
-import { useTracker } from 'meteor/react-meteor-data';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
+import { userApi } from '../../lib/api';
 import { useRouter } from '../../ui/router';
-import { UserProfiles } from './api';
 
 interface UsernameBadgeProps {
   userId: string;
-  /** Fallback display if no UserProfile document exists yet */
+  /** Fallback display if the profile fetch fails or is pending */
   username: string;
 }
 
 export const UsernameBadge: React.FC<UsernameBadgeProps> = ({ userId, username }) => {
   const { navigate } = useRouter();
-  const profile = useTracker(() => UserProfiles.findOne({ userId }), [userId]);
-  const displayName = profile?.displayName || username;
+  const [displayName, setDisplayName] = useState(username);
+
+  useEffect(() => {
+    userApi
+      .getUser(userId)
+      .then((p) => {
+        if (p.name) setDisplayName(p.name);
+      })
+      .catch(() => {
+        /* keep fallback */
+      });
+  }, [userId]);
 
   return (
     <button

@@ -6,39 +6,22 @@
  */
 import { faCheckDouble, faCircleInfo, faTrash, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Modal, ModalBody, ModalClose, ModalFooter, ModalHeader, ModalTitle, Text } from '@mieweb/ui';
-import { useFind, useSubscribe } from 'meteor/react-meteor-data';
+import {
+  Button,
+  Modal,
+  ModalBody,
+  ModalClose,
+  ModalFooter,
+  ModalHeader,
+  ModalTitle,
+  Text,
+} from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
-import { useMethod } from '../../lib/useMethod';
+import { notificationApi, type Notification, type TeamInvitePreview } from '../../lib/api';
+import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
-import { Notifications } from '../teams/api';
-import type { NotificationDoc } from '../teams/schema';
-
-type UserSummary = {
-  id: string;
-  name: string;
-  email: string;
-};
-
-type TeamInvitePreview = {
-  notificationId: string;
-  teamId: string;
-  teamName: string;
-  teamDescription: string;
-  inviter: UserSummary | null;
-  members: UserSummary[];
-  admins: UserSummary[];
-  alreadyMember: boolean;
-};
-
-function idStr(id: unknown): string {
-  if (id == null) return '';
-  if (typeof id === 'string') return id;
-  const o = id as { _str?: string; toHexString?: () => string };
-  return o._str ?? o.toHexString?.() ?? String(id);
-}
 
 function timeAgo(date: Date | string | undefined): string {
   if (!date) return '';
@@ -74,7 +57,7 @@ function normalizeAppPath(path: string): string {
 }
 
 function resolveNotificationTarget(
-  doc: NotificationDoc | undefined,
+  doc: Notification | undefined,
   navigate: (path: string) => void,
 ): void {
   if (!doc) return;
@@ -121,29 +104,44 @@ function resolveNotificationTarget(
 
 export const NotificationsPage: React.FC = () => {
   const { navigate } = useRouter();
-  const loading = useSubscribe('notifications.inbox');
-  const notifications = useFind(
-    () => Notifications.find({}, { sort: { createdAt: -1 } }),
-    [],
-  );
+  const { user } = useSession();
+
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [markAllLoading, setMarkAllLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [respondLoading, setRespondLoading] = useState(false);
+
+  // Fetch inbox + open SSE for real-time delivery
+  useEffect(() => {
+    if (!user) return;
+
+    setLoading(true);
+    notificationApi
+      .getInbox()
+      .then(setNotifications)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+
+    const es = notificationApi.openStream();
+    es.onmessage = (e) => {
+      try {
+        const n = JSON.parse(e.data) as Notification;
+        setNotifications((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev]));
+      } catch {
+        /* ignore */
+      }
+    };
+    return () => es.close();
+  }, [user]);
 
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-
-  const markAsRead = useMethod<[unknown], void>('notifications.markAsRead');
-  const markAllAsRead = useMethod<[], void>('notifications.markAllAsRead');
-  const deleteNotifications = useMethod<[string[]], { deletedCount: number }>('notifications.delete');
-  const getInvitePreview = useMethod<[unknown], TeamInvitePreview>('notifications.getTeamInvitePreview');
-  const respondToInvite = useMethod<
-  [{ notificationId: unknown; action: 'join' | 'ignore' }],
-  { success: true }
-  >('notifications.respondToTeamInvite');
-
   const [invitePreview, setInvitePreview] = useState<TeamInvitePreview | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
 
   const hasUnread = useMemo(() => notifications.some((n) => !n.read), [notifications]);
-  const allIds = useMemo(() => notifications.map((n) => idStr(n._id)), [notifications]);
+  const allIds = useMemo(() => notifications.map((n) => n.id), [notifications]);
   const allSelected = allIds.length > 0 && selectedIds.length === allIds.length;
 
   const toggleSelect = useCallback((id: string) => {
@@ -156,43 +154,56 @@ export const NotificationsPage: React.FC = () => {
   }, []);
 
   const handleRowClick = useCallback(
-    async (doc: NotificationDoc) => {
-      const nid = idStr(doc._id);
+    async (doc: Notification) => {
       if (selectMode) {
-        toggleSelect(nid);
+        toggleSelect(doc.id);
         return;
       }
       try {
         const data = (doc.data ?? {}) as Record<string, unknown>;
         if (data.type === 'team-invite') {
-          await markAsRead.call(doc._id ?? nid);
-          const preview = await getInvitePreview.call(doc._id ?? nid);
+          await notificationApi.markOneRead(doc.id);
+          setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
+          const preview = await notificationApi.getInvitePreview(doc.id);
           setInvitePreview(preview);
           setInviteError(null);
           return;
         }
-        await markAsRead.call(doc._id ?? nid);
+        await notificationApi.markOneRead(doc.id);
+        setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
         resolveNotificationTarget(doc, navigate);
       } catch {
-        /* useMethod surfaces error */
+        /* ignore */
       }
     },
-    [selectMode, toggleSelect, markAsRead, getInvitePreview, navigate],
+    [selectMode, toggleSelect, navigate],
   );
 
-  const handleMarkAllRead = useCallback(() => {
-    markAllAsRead.call().catch(() => {});
-  }, [markAllAsRead]);
+  const handleMarkAllRead = useCallback(async () => {
+    setMarkAllLoading(true);
+    try {
+      await notificationApi.markAllRead();
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    } catch {
+      /* ignore */
+    } finally {
+      setMarkAllLoading(false);
+    }
+  }, []);
 
-  const handleDeleteSelected = useCallback(() => {
+  const handleDeleteSelected = useCallback(async () => {
     if (selectedIds.length === 0) return;
-    deleteNotifications
-      .call(selectedIds)
-      .then(() => {
-        setSelectedIds([]);
-      })
-      .catch(() => {});
-  }, [selectedIds, deleteNotifications]);
+    setDeleteLoading(true);
+    try {
+      await notificationApi.deleteMany(selectedIds);
+      setNotifications((prev) => prev.filter((n) => !selectedIds.includes(n.id)));
+      setSelectedIds([]);
+    } catch {
+      /* ignore */
+    } finally {
+      setDeleteLoading(false);
+    }
+  }, [selectedIds]);
 
   useEffect(() => {
     if (selectMode && notifications.length === 0) exitSelectMode();
@@ -203,18 +214,25 @@ export const NotificationsPage: React.FC = () => {
     setInviteError(null);
   }, []);
 
-  const handleInviteAction = useCallback(async (action: 'join' | 'ignore') => {
-    if (!invitePreview) return;
-    try {
-      await respondToInvite.call({ notificationId: invitePreview.notificationId, action });
-      closeInviteModal();
-      if (action === 'join') navigate('/app/teams');
-    } catch (e: any) {
-      setInviteError(e?.reason || 'Failed to process invite');
-    }
-  }, [invitePreview, respondToInvite, closeInviteModal, navigate]);
+  const handleInviteAction = useCallback(
+    async (action: 'join' | 'ignore') => {
+      if (!invitePreview) return;
+      setRespondLoading(true);
+      try {
+        await notificationApi.respondToInvite(invitePreview.notificationId, action);
+        setNotifications((prev) => prev.filter((n) => n.id !== invitePreview.notificationId));
+        closeInviteModal();
+        if (action === 'join') navigate('/app/teams');
+      } catch (e: any) {
+        setInviteError(e?.message || 'Failed to process invite');
+      } finally {
+        setRespondLoading(false);
+      }
+    },
+    [invitePreview, closeInviteModal, navigate],
+  );
 
-  if (loading()) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center p-16">
         <Text variant="muted" size="sm">
@@ -230,7 +248,12 @@ export const NotificationsPage: React.FC = () => {
         {selectMode ? (
           <>
             <div className="flex items-center gap-3">
-              <Button variant="ghost" size="icon" onClick={exitSelectMode} aria-label="Exit selection mode">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={exitSelectMode}
+                aria-label="Exit selection mode"
+              >
                 <FontAwesomeIcon icon={faXmark} className="h-4 w-4" />
               </Button>
               <Text size="sm" weight="medium">
@@ -250,7 +273,7 @@ export const NotificationsPage: React.FC = () => {
                   variant="danger"
                   size="sm"
                   onClick={handleDeleteSelected}
-                  isLoading={deleteNotifications.loading}
+                  isLoading={deleteLoading}
                   aria-label="Delete selected notifications"
                 >
                   <FontAwesomeIcon icon={faTrash} className="mr-1.5 h-3.5 w-3.5" />
@@ -263,12 +286,24 @@ export const NotificationsPage: React.FC = () => {
           <>
             <div className="flex flex-wrap items-center gap-2">
               {hasUnread && (
-                <Button variant="secondary" size="sm" onClick={handleMarkAllRead} isLoading={markAllAsRead.loading}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleMarkAllRead}
+                  isLoading={markAllLoading}
+                >
                   <FontAwesomeIcon icon={faCheckDouble} className="mr-1.5 h-3.5 w-3.5" />
                   Mark all read
                 </Button>
               )}
-              <Button variant="secondary" size="sm" onClick={() => { setSelectMode(true); setSelectedIds([]); }}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setSelectMode(true);
+                  setSelectedIds([]);
+                }}
+              >
                 Select
               </Button>
             </div>
@@ -280,10 +315,9 @@ export const NotificationsPage: React.FC = () => {
       {notifications.length > 0 ? (
         <ul className="divide-y divide-neutral-100 dark:divide-neutral-800/80" role="list">
           {notifications.map((n) => {
-            const nid = idStr(n._id);
-            const selected = selectedIds.includes(nid);
+            const selected = selectedIds.includes(n.id);
             return (
-              <li key={nid}>
+              <li key={n.id}>
                 <div
                   role="button"
                   tabIndex={0}
@@ -308,11 +342,11 @@ export const NotificationsPage: React.FC = () => {
                           ? 'border-blue-500 bg-blue-500 text-white'
                           : 'border-neutral-400 bg-white dark:border-neutral-500 dark:bg-neutral-800',
                       ].join(' ')}
-                      data-notification-id={nid}
+                      data-notification-id={n.id}
                       aria-label={selected ? 'Deselect' : 'Select'}
                       onClick={(e) => {
                         e.stopPropagation();
-                        toggleSelect(nid);
+                        toggleSelect(n.id);
                       }}
                     >
                       {selected && <span className="text-xs font-bold">✓</span>}
@@ -325,7 +359,9 @@ export const NotificationsPage: React.FC = () => {
                     <p className="text-sm font-semibold leading-tight text-neutral-900 dark:text-neutral-50 md:text-base">
                       {n.title}
                     </p>
-                    <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">{n.body}</p>
+                    <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
+                      {n.body}
+                    </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <span className="whitespace-nowrap text-xs text-neutral-400 dark:text-neutral-500">
@@ -364,17 +400,25 @@ export const NotificationsPage: React.FC = () => {
           {invitePreview && (
             <div className="space-y-4">
               <div>
-                <Text size="sm" variant="muted">Team name</Text>
-                <Text size="lg" weight="semibold">{invitePreview.teamName}</Text>
+                <Text size="sm" variant="muted">
+                  Team name
+                </Text>
+                <Text size="lg" weight="semibold">
+                  {invitePreview.teamName}
+                </Text>
               </div>
               <div>
-                <Text size="sm" variant="muted">Team description</Text>
+                <Text size="sm" variant="muted">
+                  Team description
+                </Text>
                 <Text size="sm">
                   {invitePreview.teamDescription || 'No team description provided.'}
                 </Text>
               </div>
               <div>
-                <Text size="sm" variant="muted">Invited by</Text>
+                <Text size="sm" variant="muted">
+                  Invited by
+                </Text>
                 <Text size="sm">
                   {invitePreview.inviter
                     ? `${invitePreview.inviter.name}${invitePreview.inviter.email ? ` (${invitePreview.inviter.email})` : ''}`
@@ -382,31 +426,41 @@ export const NotificationsPage: React.FC = () => {
                 </Text>
               </div>
               <div>
-                <Text size="sm" variant="muted">Admins ({invitePreview.admins.length})</Text>
+                <Text size="sm" variant="muted">
+                  Admins ({invitePreview.admins.length})
+                </Text>
                 <Text size="sm">
                   {invitePreview.admins.map((a) => a.name).join(', ') || 'None'}
                 </Text>
               </div>
               <div>
-                <Text size="sm" variant="muted">Team members ({invitePreview.members.length})</Text>
+                <Text size="sm" variant="muted">
+                  Team members ({invitePreview.members.length})
+                </Text>
                 <Text size="sm">
                   {invitePreview.members.map((m) => m.name).join(', ') || 'None'}
                 </Text>
               </div>
               {inviteError && (
-                <Text size="sm" variant="destructive">{inviteError}</Text>
+                <Text size="sm" variant="destructive">
+                  {inviteError}
+                </Text>
               )}
             </div>
           )}
         </ModalBody>
         <ModalFooter>
-          <Button variant="outline" onClick={() => handleInviteAction('ignore')} isLoading={respondToInvite.loading}>
+          <Button
+            variant="outline"
+            onClick={() => handleInviteAction('ignore')}
+            isLoading={respondLoading}
+          >
             Ignore
           </Button>
           <Button
             variant="primary"
             onClick={() => handleInviteAction('join')}
-            isLoading={respondToInvite.loading}
+            isLoading={respondLoading}
             disabled={invitePreview?.alreadyMember}
           >
             {invitePreview?.alreadyMember ? 'Already in team' : 'Join'}

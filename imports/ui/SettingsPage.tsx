@@ -28,8 +28,6 @@ import {
   Select,
   Text,
 } from '@mieweb/ui';
-import { Meteor } from 'meteor/meteor';
-import { useTracker } from 'meteor/react-meteor-data';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import {
@@ -39,8 +37,9 @@ import {
   unsubscribeFromWebPush,
 } from '../lib/pushNotificationsClient';
 import { useBrand, BRANDS } from '../lib/useBrand';
-import { useMethod } from '../lib/useMethod';
+import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
+import { userApi } from '../lib/api';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
@@ -58,7 +57,9 @@ const Section: React.FC<{
       <div>
         <CardTitle className="text-sm">{title}</CardTitle>
         {description && (
-          <Text variant="muted" size="xs" className="mt-0.5">{description}</Text>
+          <Text variant="muted" size="xs" className="mt-0.5">
+            {description}
+          </Text>
         )}
       </div>
     </CardHeader>
@@ -75,8 +76,14 @@ const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode }>
 }) => (
   <div className="flex items-center justify-between gap-4 px-5 py-3.5">
     <div className="min-w-0">
-      <Text size="sm" weight="medium">{label}</Text>
-      {hint && <Text variant="muted" size="xs" className="mt-0.5">{hint}</Text>}
+      <Text size="sm" weight="medium">
+        {label}
+      </Text>
+      {hint && (
+        <Text variant="muted" size="xs" className="mt-0.5">
+          {hint}
+        </Text>
+      )}
     </div>
     <div className="shrink-0">{children}</div>
   </div>
@@ -152,9 +159,12 @@ const PushNotificationsSettings: React.FC = () => {
 
   useEffect(() => {
     setSupported(isPushNotificationSupported());
-    Meteor.call('getVapidPublicKey', (err: unknown) => {
-      setServerHasVapid(!err);
-    });
+    // VAPID key is configured if the env var is present
+    const vapidKey =
+      (typeof import.meta !== 'undefined' &&
+        (import.meta as { env?: Record<string, string> }).env?.VITE_VAPID_PUBLIC_KEY) ||
+      '';
+    setServerHasVapid(vapidKey.length > 0);
     void refreshStatus();
   }, [refreshStatus]);
 
@@ -163,8 +173,10 @@ const PushNotificationsSettings: React.FC = () => {
     try {
       await subscribeToWebPush();
       await refreshStatus();
-       
-      window.alert('Notifications enabled! You will receive alerts when team members clock in or out.');
+
+      window.alert(
+        'Notifications enabled! You will receive alerts when team members clock in or out.',
+      );
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       let detail = 'Failed to enable notifications. ';
@@ -175,7 +187,7 @@ const PushNotificationsSettings: React.FC = () => {
       } else {
         detail += msg;
       }
-       
+
       window.alert(detail);
     } finally {
       setLoading(false);
@@ -183,16 +195,14 @@ const PushNotificationsSettings: React.FC = () => {
   };
 
   const handleDisable = async () => {
-     
     if (!window.confirm('Are you sure you want to disable push notifications?')) return;
     setLoading(true);
     try {
       await unsubscribeFromWebPush();
       await refreshStatus();
-       
+
       window.alert('Notifications disabled.');
     } catch {
-       
       window.alert('Failed to disable notifications. Please try again.');
     } finally {
       setLoading(false);
@@ -203,8 +213,9 @@ const PushNotificationsSettings: React.FC = () => {
     <div className="space-y-3 px-5 py-4">
       {serverHasVapid === false && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-          Web Push is not configured on this server. Add VAPID keys to <code className="text-xs">settings.json</code>{' '}
-          (see <code className="text-xs">settings.push.example.json</code>).
+          Web Push is not configured on this server. Add VAPID keys to{' '}
+          <code className="text-xs">settings.json</code> (see{' '}
+          <code className="text-xs">settings.push.example.json</code>).
         </div>
       )}
       {!supported ? (
@@ -216,7 +227,13 @@ const PushNotificationsSettings: React.FC = () => {
           <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200">
             Notifications are enabled. You will receive alerts when team members clock in or out.
           </div>
-          <Button variant="outline" size="sm" onClick={handleDisable} disabled={loading} isLoading={loading}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleDisable}
+            disabled={loading}
+            isLoading={loading}
+          >
             Disable notifications
           </Button>
         </>
@@ -244,29 +261,50 @@ const PushNotificationsSettings: React.FC = () => {
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 export const SettingsPage: React.FC = () => {
-  const user = useTracker(() => Meteor.user());
-  const profile = user?.profile as { firstName?: string; lastName?: string; email?: string } | undefined;
-  const email: string | undefined = user?.emails?.[0]?.address ?? profile?.email;
+  const { user, signOut } = useSession();
+  const email = user?.email;
 
-  const [firstName, setFirstName] = useState(profile?.firstName ?? '');
-  const [lastName, setLastName] = useState(profile?.lastName ?? '');
+  // Split display name into first/last for the edit fields
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  useEffect(() => {
+    if (user?.name) {
+      const [first = '', ...rest] = user.name.split(' ');
+      setFirstName(first);
+      setLastName(rest.join(' '));
+    }
+  }, [user?.name]);
+
   const [saved, setSaved] = useState(false);
-  const updateProfile = useMethod<[{ firstName: string; lastName: string }]>('updateUserProfile');
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const { refetch } = useSession();
 
   const handleSaveProfile = useCallback(async () => {
-    await updateProfile.call({ firstName: firstName.trim(), lastName: lastName.trim() });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }, [firstName, lastName, updateProfile]);
+    setProfileLoading(true);
+    setProfileError(null);
+    try {
+      const name = [firstName, lastName].filter(Boolean).join(' ').trim();
+      if (!name) {
+        setProfileError('Name cannot be empty');
+        setProfileLoading(false);
+        return;
+      }
+      await userApi.updateProfile({ name });
+      await refetch();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setProfileLoading(false);
+    }
+  }, [firstName, lastName, refetch]);
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 px-4 py-8">
       {/* Profile */}
-      <Section
-        icon={faCircleUser}
-        title="Profile"
-        description="Your account information."
-      >
+      <Section icon={faCircleUser} title="Profile" description="Your account information.">
         <Row label="First name">
           <Input
             label="First name"
@@ -292,13 +330,21 @@ export const SettingsPage: React.FC = () => {
           <Button
             variant="primary"
             onClick={handleSaveProfile}
-            isLoading={updateProfile.loading}
+            isLoading={profileLoading}
             loadingText="Saving…"
           >
             Save Profile
           </Button>
-          {saved && <Text variant="success" size="xs">Saved!</Text>}
-          {updateProfile.error && <Text variant="destructive" size="xs">{updateProfile.error}</Text>}
+          {saved && (
+            <Text variant="success" size="xs">
+              Saved!
+            </Text>
+          )}
+          {profileError && (
+            <Text variant="destructive" size="xs">
+              {profileError}
+            </Text>
+          )}
         </div>
       </Section>
 
@@ -332,7 +378,7 @@ export const SettingsPage: React.FC = () => {
             variant="danger"
             size="sm"
             leftIcon={<FontAwesomeIcon icon={faRightFromBracket} className="text-xs" />}
-            onClick={() => Meteor.logout()}
+            onClick={() => void signOut()}
           >
             Sign out
           </Button>
@@ -343,7 +389,7 @@ export const SettingsPage: React.FC = () => {
       <Section icon={faInfo} title="About" description="Stack versions for this application.">
         {(
           [
-            ['Meteor', '3.5'],
+            ['Vite', '8'],
             ['React', '19'],
             ['Tailwind CSS', '4'],
             ['TypeScript', '5.9'],
@@ -354,7 +400,6 @@ export const SettingsPage: React.FC = () => {
             <Badge variant="outline">{version}</Badge>
           </Row>
         ))}
-
       </Section>
     </div>
   );

@@ -4,19 +4,19 @@ import {
   faShieldHalved,
   faUsers,
   faListCheck,
-  faFlask,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Meteor } from 'meteor/meteor';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 
-import { useMethod } from '../lib/useMethod';
+import { authApi } from '../lib/api';
+import { useSession } from '../lib/useSession';
 import { Button, Input, Text } from '@mieweb/ui';
 import { ThemeToggle } from './ThemeToggle';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type AuthMode = 'login' | 'signup' | 'reset';
+/** login / signup / forgot = request reset email / reset-confirm = enter new password via token */
+type AuthMode = 'login' | 'signup' | 'forgot' | 'reset-confirm';
 
 interface LoginFormProps {
   initialMode?: AuthMode;
@@ -24,17 +24,20 @@ interface LoginFormProps {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getMode(): AuthMode {
+function getMode(resetTokenInUrl: boolean): AuthMode {
+  if (resetTokenInUrl) return 'reset-confirm';
   if (typeof window === 'undefined') return 'login';
   const params = new URLSearchParams(window.location.search);
   const m = params.get('mode');
   if (m === 'signup') return 'signup';
-  if (m === 'reset') return 'reset';
+  if (m === 'forgot') return 'forgot';
   return 'login';
 }
 
 function setModeParam(mode: AuthMode) {
   const url = new URL(window.location.href);
+  // Remove any reset token when explicitly switching modes
+  url.searchParams.delete('token');
   url.searchParams.set('mode', mode);
   window.history.replaceState(null, '', url.toString());
 }
@@ -50,35 +53,32 @@ const FEATURES = [
 ] as const;
 
 export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
-  const [mode, setMode] = useState<AuthMode>(initialMode ?? getMode());
+  const session = useSession();
+
+  const resetToken =
+    typeof window !== 'undefined'
+      ? (new URLSearchParams(window.location.search).get('token') ?? undefined)
+      : undefined;
+
+  const [mode, setMode] = useState<AuthMode>(initialMode ?? getMode(!!resetToken));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [teamCode, setTeamCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [resetSuccess, setResetSuccess] = useState(false);
-
-  const createUser = useMethod<
-    [{ email: string; password: string; firstName: string; lastName: string }],
-    string
-  >('createUserAccount');
-
-  const resetPassword = useMethod<
-    [{ email: string; teamCode: string; newPassword: string }],
-    boolean
-  >('resetPasswordWithTeamCode');
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const isSignup = mode === 'signup';
-  const isReset = mode === 'reset';
+  const isForgot = mode === 'forgot';
+  const isResetConfirm = mode === 'reset-confirm';
 
   const switchMode = (next: AuthMode) => {
     setMode(next);
     setModeParam(next);
     setError(null);
-    setResetSuccess(false);
+    setSuccessMessage(null);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -86,14 +86,13 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     if (!email || !password || loading) return;
     setLoading(true);
     setError(null);
-    Meteor.loginWithPassword(email.trim().toLowerCase(), password, (err) => {
+    try {
+      await authApi.signIn(email.trim().toLowerCase(), password);
+      await session.refetch();
+    } catch (err: unknown) {
+      setError((err as Error).message || 'Login failed');
       setLoading(false);
-      if (err) {
-        setError(
-          (err as Meteor.Error).reason || (err as Error).message || 'Login failed',
-        );
-      }
-    });
+    }
   };
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -106,32 +105,36 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     }
     setLoading(true);
     try {
-      await createUser.call({
-        email: email.trim().toLowerCase(),
-        password,
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-      });
-      // Auto-login after signup
-      Meteor.loginWithPassword(email.trim().toLowerCase(), password, (err) => {
-        setLoading(false);
-        if (err) {
-          setError(
-            (err as Meteor.Error).reason || (err as Error).message || 'Login failed after signup',
-          );
-        }
-      });
+      const name = `${firstName.trim()} ${lastName.trim()}`.trim();
+      await authApi.signUp(email.trim().toLowerCase(), password, name);
+      // Sign in immediately after signup to establish the session cookie
+      await authApi.signIn(email.trim().toLowerCase(), password);
+      await session.refetch();
     } catch (err: unknown) {
       setLoading(false);
-      setError(
-        (err as Meteor.Error)?.reason || (err as Error)?.message || 'Signup failed',
-      );
+      setError((err as Error).message || 'Signup failed');
     }
   };
 
-  const handleReset = async (e: React.FormEvent) => {
+  const handleForgot = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (loading) return;
+    if (!email || loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const redirectTo = `${window.location.origin}/app`;
+      await authApi.requestPasswordReset(email.trim().toLowerCase(), redirectTo);
+      setSuccessMessage('Check your email for a reset link.');
+    } catch (err: unknown) {
+      setError((err as Error).message || 'Request failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetConfirm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetToken || loading) return;
     setError(null);
     if (password !== confirmPassword) {
       setError('Passwords do not match');
@@ -139,22 +142,30 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     }
     setLoading(true);
     try {
-      await resetPassword.call({
-        email: email.trim().toLowerCase(),
-        teamCode: teamCode.trim(),
-        newPassword: password,
-      });
-      setResetSuccess(true);
-      setLoading(false);
+      await authApi.resetPassword(resetToken, password);
+      // Clear token from URL and go to login with success message
+      const url = new URL(window.location.href);
+      url.searchParams.delete('token');
+      url.searchParams.set('mode', 'login');
+      window.history.replaceState(null, '', url.toString());
+      setMode('login');
+      setPassword('');
+      setConfirmPassword('');
+      setSuccessMessage('Password reset successfully. You can now sign in.');
     } catch (err: unknown) {
+      setError((err as Error).message || 'Password reset failed');
+    } finally {
       setLoading(false);
-      setError(
-        (err as Meteor.Error)?.reason || (err as Error)?.message || 'Password reset failed',
-      );
     }
   };
 
-  const onSubmit = isReset ? handleReset : isSignup ? handleSignup : handleLogin;
+  const onSubmit = isResetConfirm
+    ? handleResetConfirm
+    : isForgot
+      ? handleForgot
+      : isSignup
+        ? handleSignup
+        : handleLogin;
 
   // ── Marketing panel (left) ──────────────────────────────────────────────────
 
@@ -168,15 +179,15 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
           <h1 className="text-3xl font-bold tracking-tight lg:text-4xl">
             {isSignup
               ? 'Start tracking in minutes'
-              : isReset
+              : isForgot || isResetConfirm
                 ? 'Reset your password'
                 : 'Welcome back'}
           </h1>
           <p className="mt-3 max-w-sm text-base leading-relaxed text-blue-100 lg:text-lg">
             {isSignup
               ? 'Create your account and start tracking time with your team — real-time collaboration built in.'
-              : isReset
-                ? 'Use your team code to securely reset your password.'
+              : isForgot || isResetConfirm
+                ? "Enter your email address and we'll send you a link to reset your password."
                 : 'Sign in to pick up where you left off. Your data syncs in real-time.'}
           </p>
         </div>
@@ -233,26 +244,30 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
             <h2 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50">
               {isSignup
                 ? 'Create your account'
-                : isReset
-                  ? 'Reset your password'
-                  : 'Sign in to your account'}
+                : isForgot
+                  ? 'Forgot your password?'
+                  : isResetConfirm
+                    ? 'Set a new password'
+                    : 'Sign in to your account'}
             </h2>
             <p className="text-sm text-neutral-500 dark:text-neutral-400">
               {isSignup
                 ? 'Enter your details to get started'
-                : isReset
-                  ? 'Use your team code to verify your identity'
-                  : 'Enter your email and password'}
+                : isForgot
+                  ? "Enter your email and we'll send a reset link"
+                  : isResetConfirm
+                    ? 'Enter and confirm your new password'
+                    : 'Enter your email and password'}
             </p>
           </div>
 
           {/* Form */}
           <form onSubmit={onSubmit} noValidate className="space-y-4" aria-live="polite">
-            {resetSuccess ? (
+            {successMessage ? (
               <div className="space-y-4" role="status">
                 <div className="rounded-md border border-green-200 bg-green-50/60 p-3 text-sm dark:border-green-700 dark:bg-green-900/30">
                   <p className="leading-relaxed text-green-800 dark:text-green-200">
-                    Password reset successfully! You can now sign in with your new password.
+                    {successMessage}
                   </p>
                 </div>
                 <Button
@@ -290,46 +305,38 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                   </div>
                 )}
 
-                {/* Email */}
-                <Input
-                  label="Email address"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  type="email"
-                  required
-                  autoComplete="email"
-                  inputMode="email"
-                  spellCheck={false}
-                  placeholder="you@example.com"
-                  disabled={loading}
-                />
-
-                {/* Team code (reset only) */}
-                {isReset && (
+                {/* Email (login / signup / forgot) */}
+                {!isResetConfirm && (
                   <Input
-                    label="Team code"
-                    value={teamCode}
-                    onChange={(e) => setTeamCode(e.target.value)}
+                    label="Email address"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    type="email"
                     required
-                    placeholder="ABCD1234"
+                    autoComplete="email"
+                    inputMode="email"
+                    spellCheck={false}
+                    placeholder="you@example.com"
                     disabled={loading}
                   />
                 )}
 
-                {/* Password */}
-                <Input
-                  label={isReset ? 'New password' : 'Password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  type="password"
-                  required
-                  autoComplete={isSignup || isReset ? 'new-password' : 'current-password'}
-                  placeholder="••••••••"
-                  disabled={loading}
-                />
+                {/* Password (login / signup / reset-confirm) */}
+                {!isForgot && (
+                  <Input
+                    label={isResetConfirm ? 'New password' : 'Password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    type="password"
+                    required
+                    autoComplete={isSignup || isResetConfirm ? 'new-password' : 'current-password'}
+                    placeholder="••••••••"
+                    disabled={loading}
+                  />
+                )}
 
-                {/* Confirm password (signup + reset) */}
-                {(isSignup || isReset) && (
+                {/* Confirm password (signup + reset-confirm) */}
+                {(isSignup || isResetConfirm) && (
                   <Input
                     label="Confirm password"
                     value={confirmPassword}
@@ -358,20 +365,22 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                 >
                   {isSignup
                     ? 'Create account'
-                    : isReset
-                      ? 'Reset password'
-                      : 'Sign in'}
+                    : isForgot
+                      ? 'Send reset link'
+                      : isResetConfirm
+                        ? 'Set new password'
+                        : 'Sign in'}
                 </Button>
               </>
             )}
           </form>
 
-          {/* Forgot password (login mode) */}
+          {/* Forgot password (login mode only) */}
           {mode === 'login' && (
             <div className="mt-3 text-center">
               <button
                 type="button"
-                onClick={() => switchMode('reset')}
+                onClick={() => switchMode('forgot')}
                 className="text-xs text-neutral-500 hover:underline dark:text-neutral-400"
               >
                 Forgot your password?
@@ -379,144 +388,57 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
             </div>
           )}
 
-          {/* Divider */}
-          <div className="my-6 flex items-center gap-3">
-            <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
-            <span className="text-xs text-neutral-400 dark:text-neutral-500">or</span>
-            <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
-          </div>
-
-          {/* Mode toggle */}
-          <p className="text-center text-sm text-neutral-600 dark:text-neutral-400">
-            {isSignup ? (
-              <>
-                Already have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => switchMode('login')}
-                  className="font-semibold text-blue-600 hover:underline dark:text-blue-400"
-                >
-                  Sign in
-                </button>
-              </>
-            ) : (
-              <>
-                Don&apos;t have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => switchMode('signup')}
-                  className="font-semibold text-blue-600 hover:underline dark:text-blue-400"
-                >
-                  Sign up
-                </button>
-              </>
-            )}
-          </p>
-
-          {/* Dev persona picker — only in development */}
-          {Meteor.isDevelopment && <DevPersonaPicker />}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ─── Dev Persona Picker ───────────────────────────────────────────────────────
-
-interface PersonaInfo {
-  key: string;
-  firstName: string;
-  lastName: string;
-  role: string;
-  description: string;
-  email: string;
-}
-
-const DevPersonaPicker: React.FC = () => {
-  const [personas, setPersonas] = useState<PersonaInfo[]>([]);
-  const [loading, setLoading] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    Meteor.call('dev.personas', (err: Meteor.Error | null, result: PersonaInfo[]) => {
-      if (!err && result) setPersonas(result);
-    });
-  }, []);
-
-  const loginAs = (personaKey: string) => {
-    setLoading(personaKey);
-    setError(null);
-    Meteor.call(
-      'dev.loginAs',
-      personaKey,
-      (err: Meteor.Error | null, result: { userId: string; token: string }) => {
-        if (err) {
-          setLoading(null);
-          setError(err.reason || 'Login failed');
-          return;
-        }
-        Meteor.loginWithToken(result.token, (loginErr) => {
-          setLoading(null);
-          if (loginErr) {
-            setError((loginErr as Error).message || 'Token login failed');
-          }
-        });
-      },
-    );
-  };
-
-  if (personas.length === 0) return null;
-
-  return (
-    <div className="mt-6 rounded-lg border border-amber-300/50 bg-amber-50/50 p-4 dark:border-amber-700/50 dark:bg-amber-950/30">
-      <div className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-        <FontAwesomeIcon icon={faFlask} />
-        Dev Quick Login
-      </div>
-
-      {error && (
-        <p className="mb-2 text-xs text-red-600 dark:text-red-400" role="alert">
-          {error}
-        </p>
-      )}
-
-      <div className="space-y-2">
-        {personas.map((p) => (
-          <button
-            key={p.key}
-            type="button"
-            disabled={loading !== null}
-            onClick={() => loginAs(p.key)}
-            className="flex w-full items-center gap-3 rounded-md border border-neutral-200 bg-white px-3 py-2.5 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/50 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:hover:border-blue-600 dark:hover:bg-blue-950/30"
-          >
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
-              {p.firstName[0]}{p.lastName[0]}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                  {p.firstName} {p.lastName}
-                </span>
-                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                  p.role === 'manager'
-                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300'
-                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-                }`}>
-                  {p.role}
-                </span>
+          {/* Mode toggle (login ↔ signup only) */}
+          {(mode === 'login' || mode === 'signup') && (
+            <>
+              {/* Divider */}
+              <div className="my-6 flex items-center gap-3">
+                <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
+                <span className="text-xs text-neutral-400 dark:text-neutral-500">or</span>
+                <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
               </div>
-              <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
-                {p.description}
+
+              <p className="text-center text-sm text-neutral-600 dark:text-neutral-400">
+                {isSignup ? (
+                  <>
+                    Already have an account?{' '}
+                    <button
+                      type="button"
+                      onClick={() => switchMode('login')}
+                      className="font-semibold text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      Sign in
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    Don&apos;t have an account?{' '}
+                    <button
+                      type="button"
+                      onClick={() => switchMode('signup')}
+                      className="font-semibold text-blue-600 hover:underline dark:text-blue-400"
+                    >
+                      Sign up
+                    </button>
+                  </>
+                )}
               </p>
+            </>
+          )}
+
+          {/* Back to sign in (forgot / reset-confirm) */}
+          {(isForgot || isResetConfirm) && !successMessage && (
+            <div className="mt-4 text-center">
+              <button
+                type="button"
+                onClick={() => switchMode('login')}
+                className="text-xs text-neutral-500 hover:underline dark:text-neutral-400"
+              >
+                Back to sign in
+              </button>
             </div>
-            {loading === p.key && (
-              <svg className="h-4 w-4 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
-                <path d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" fill="currentColor" className="opacity-75" />
-              </svg>
-            )}
-          </button>
-        ))}
+          )}
+        </div>
       </div>
     </div>
   );

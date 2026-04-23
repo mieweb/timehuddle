@@ -20,8 +20,6 @@ import {
   faXmark,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Meteor } from 'meteor/meteor';
-import { useFind, useSubscribe } from 'meteor/react-meteor-data';
 import {
   Badge,
   Button,
@@ -40,32 +38,40 @@ import {
   Spinner,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { ticketApi, type Ticket } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration } from '../../lib/timeUtils';
-import { useMethod } from '../../lib/useMethod';
-import { Tickets } from './api';
-import type { TicketDoc } from './schema';
+import { useSession } from '../../lib/useSession';
 
 export const TicketsPage: React.FC = () => {
-  const userId = Meteor.userId();
+  const { user } = useSession();
+  const userId = user?.id ?? null;
   const { teams, selectedTeamId, setSelectedTeamId, teamsReady, currentTime } = useTeam();
 
-  const teamIds = useMemo(() => (selectedTeamId ? [selectedTeamId] : []), [selectedTeamId]);
-  useSubscribe('teamTickets', teamIds);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
 
-  const allTickets = useFind(
-    () => Tickets.find({ teamId: selectedTeamId ?? '__none__' }, { sort: { createdAt: -1 } }),
-    [selectedTeamId],
-  );
+  const refetch = useCallback(async () => {
+    if (!selectedTeamId) {
+      setTickets([]);
+      return;
+    }
+    try {
+      const data = await ticketApi.getTickets(selectedTeamId);
+      setTickets(data);
+    } catch {
+      // keep previous tickets on error
+    }
+  }, [selectedTeamId]);
 
-  // Methods
-  const createTicketMethod = useMethod<[{ teamId: string; title: string; github?: string }], string>('tickets.create');
-  const updateTicketMethod = useMethod<[{ ticketId: string; updates: Record<string, unknown> }]>('tickets.update');
-  const deleteTicketMethod = useMethod<[string]>('tickets.delete');
-  const startTicketMethod = useMethod<[{ ticketId: string; now: number }]>('tickets.start');
-  const stopTicketMethod = useMethod<[{ ticketId: string; now: number }]>('tickets.stop');
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  // Mutation loading states
+  const [createLoading, setCreateLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   // UI state
   const [showCreate, setShowCreate] = useState(false);
@@ -79,73 +85,93 @@ export const TicketsPage: React.FC = () => {
 
   // Filter tickets
   const filteredTickets = useMemo(() => {
-    if (!searchQuery.trim()) return allTickets;
+    if (!searchQuery.trim()) return tickets;
     const q = searchQuery.toLowerCase();
-    return allTickets.filter(
+    return tickets.filter(
       (t) => t.title.toLowerCase().includes(q) || t.github?.toLowerCase().includes(q),
     );
-  }, [allTickets, searchQuery]);
+  }, [tickets, searchQuery]);
 
   // My tickets vs others
-  const myTickets = useMemo(() => filteredTickets.filter((t) => t.createdBy === userId), [filteredTickets, userId]);
-  const otherTickets = useMemo(() => filteredTickets.filter((t) => t.createdBy !== userId), [filteredTickets, userId]);
+  const myTickets = useMemo(
+    () => filteredTickets.filter((t) => t.createdBy === userId),
+    [filteredTickets, userId],
+  );
+  const otherTickets = useMemo(
+    () => filteredTickets.filter((t) => t.createdBy !== userId),
+    [filteredTickets, userId],
+  );
 
   // ── Handlers ──
 
   const handleCreate = useCallback(async () => {
     if (!createTitle.trim() || !selectedTeamId) return;
-    await createTicketMethod.call({
-      teamId: selectedTeamId,
-      title: createTitle.trim(),
-      github: createGithub.trim() || undefined,
-    });
-    setCreateTitle('');
-    setCreateGithub('');
-    setShowCreate(false);
-  }, [createTitle, createGithub, selectedTeamId, createTicketMethod]);
+    setCreateLoading(true);
+    try {
+      await ticketApi.createTicket({
+        teamId: selectedTeamId,
+        title: createTitle.trim(),
+        github: createGithub.trim() || undefined,
+      });
+      setCreateTitle('');
+      setCreateGithub('');
+      setShowCreate(false);
+      void refetch();
+    } finally {
+      setCreateLoading(false);
+    }
+  }, [createTitle, createGithub, selectedTeamId, refetch]);
 
   const handleStartStop = useCallback(
-    async (ticket: TicketDoc) => {
+    async (ticket: Ticket) => {
       const now = Date.now();
       if (ticket.startTimestamp) {
-        await stopTicketMethod.call({ ticketId: ticket._id!, now });
+        await ticketApi.stopTimer(ticket.id, now);
       } else {
-        await startTicketMethod.call({ ticketId: ticket._id!, now });
+        await ticketApi.startTimer(ticket.id, now);
       }
+      void refetch();
     },
-    [startTicketMethod, stopTicketMethod],
+    [refetch],
   );
 
   const handleSaveEdit = useCallback(async () => {
     if (!editingId || !editTitle.trim()) return;
-    await updateTicketMethod.call({
-      ticketId: editingId,
-      updates: { title: editTitle.trim(), github: editGithub.trim() },
+    await ticketApi.updateTicket(editingId, {
+      title: editTitle.trim(),
+      github: editGithub.trim(),
     });
     setEditingId(null);
-  }, [editingId, editTitle, editGithub, updateTicketMethod]);
+    void refetch();
+  }, [editingId, editTitle, editGithub, refetch]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteId) return;
-    await deleteTicketMethod.call(deleteId);
-    setDeleteId(null);
-  }, [deleteId, deleteTicketMethod]);
+    setDeleteLoading(true);
+    try {
+      await ticketApi.deleteTicket(deleteId);
+      setDeleteId(null);
+      void refetch();
+    } finally {
+      setDeleteLoading(false);
+    }
+  }, [deleteId, refetch]);
 
-  const startEdit = (ticket: TicketDoc) => {
-    setEditingId(ticket._id!);
+  const startEdit = (ticket: Ticket) => {
+    setEditingId(ticket.id);
     setEditTitle(ticket.title);
     setEditGithub(ticket.github || '');
   };
 
   // ── Ticket Row ──
 
-  const TicketRow: React.FC<{ ticket: TicketDoc; canManage: boolean }> = ({ ticket, canManage }) => {
+  const TicketRow: React.FC<{ ticket: Ticket; canManage: boolean }> = ({ ticket, canManage }) => {
     const isRunning = !!ticket.startTimestamp;
     const elapsed = isRunning
       ? (ticket.accumulatedTime || 0) + Math.floor((currentTime - ticket.startTimestamp!) / 1000)
       : ticket.accumulatedTime || 0;
 
-    const isEditing = editingId === ticket._id;
+    const isEditing = editingId === ticket.id;
 
     return (
       <li className="flex items-center gap-3 px-5 py-3">
@@ -188,13 +214,19 @@ export const TicketsPage: React.FC = () => {
                 size="sm"
               />
               <div className="flex gap-2">
-                <Button variant="primary" size="sm" onClick={handleSaveEdit}>Save</Button>
-                <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
+                <Button variant="primary" size="sm" onClick={handleSaveEdit}>
+                  Save
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
+                  Cancel
+                </Button>
               </div>
             </div>
           ) : (
             <>
-              <Text size="sm" weight="medium" truncate>{ticket.title}</Text>
+              <Text size="sm" weight="medium" truncate>
+                {ticket.title}
+              </Text>
               <div className="flex items-center gap-2">
                 {ticket.github && (
                   <a
@@ -208,10 +240,7 @@ export const TicketsPage: React.FC = () => {
                   </a>
                 )}
                 {ticket.status && ticket.status !== 'open' && (
-                  <Badge
-                    variant={ticket.status === 'reviewed' ? 'success' : 'secondary'}
-                    size="sm"
-                  >
+                  <Badge variant={ticket.status === 'reviewed' ? 'success' : 'secondary'} size="sm">
                     {ticket.status}
                   </Badge>
                 )}
@@ -228,18 +257,13 @@ export const TicketsPage: React.FC = () => {
         {/* Actions */}
         {canManage && !isEditing && (
           <div className="flex gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => startEdit(ticket)}
-              aria-label="Edit"
-            >
+            <Button variant="ghost" size="icon" onClick={() => startEdit(ticket)} aria-label="Edit">
               <FontAwesomeIcon icon={faPen} className="text-xs" />
             </Button>
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setDeleteId(ticket._id!)}
+              onClick={() => setDeleteId(ticket.id)}
               className="text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30"
               aria-label="Delete"
             >
@@ -254,7 +278,7 @@ export const TicketsPage: React.FC = () => {
   const teamOptions = useMemo(
     () =>
       teams.map((t) => ({
-        value: t._id!,
+        value: t.id,
         label: t.isPersonal ? 'Personal' : t.name,
       })),
     [teams],
@@ -282,7 +306,10 @@ export const TicketsPage: React.FC = () => {
 
         {/* Search */}
         <div className="relative flex-1">
-          <FontAwesomeIcon icon={faSearch} className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400" />
+          <FontAwesomeIcon
+            icon={faSearch}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
+          />
           <Input
             label="Search"
             hideLabel
@@ -309,11 +336,22 @@ export const TicketsPage: React.FC = () => {
 
       {/* Create ticket form */}
       {showCreate && (
-        <Card variant="outlined" padding="md" className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20">
+        <Card
+          variant="outlined"
+          padding="md"
+          className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20"
+        >
           <CardContent>
             <div className="flex items-center justify-between">
-              <Text size="sm" weight="semibold">New Ticket</Text>
-              <Button variant="ghost" size="icon" onClick={() => setShowCreate(false)} aria-label="Close">
+              <Text size="sm" weight="semibold">
+                New Ticket
+              </Text>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowCreate(false)}
+                aria-label="Close"
+              >
                 <FontAwesomeIcon icon={faXmark} />
               </Button>
             </div>
@@ -337,7 +375,7 @@ export const TicketsPage: React.FC = () => {
               <Button
                 variant="primary"
                 onClick={handleCreate}
-                isLoading={createTicketMethod.loading}
+                isLoading={createLoading}
                 loadingText="Creating…"
                 disabled={!createTitle.trim()}
               >
@@ -357,7 +395,7 @@ export const TicketsPage: React.FC = () => {
           <CardContent className="p-0">
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {myTickets.map((t) => (
-                <TicketRow key={t._id} ticket={t} canManage={true} />
+                <TicketRow key={t.id} ticket={t} canManage={true} />
               ))}
             </ul>
           </CardContent>
@@ -373,7 +411,7 @@ export const TicketsPage: React.FC = () => {
           <CardContent className="p-0">
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {otherTickets.map((t) => (
-                <TicketRow key={t._id} ticket={t} canManage={false} />
+                <TicketRow key={t.id} ticket={t} canManage={false} />
               ))}
             </ul>
           </CardContent>
@@ -384,7 +422,9 @@ export const TicketsPage: React.FC = () => {
         <Card variant="outlined" padding="lg" className="border-dashed text-center">
           <CardContent>
             <Text variant="muted" size="sm">
-              {searchQuery ? 'No tickets match your search.' : 'No tickets yet. Create one to get started!'}
+              {searchQuery
+                ? 'No tickets match your search.'
+                : 'No tickets yet. Create one to get started!'}
             </Text>
           </CardContent>
         </Card>
@@ -402,12 +442,10 @@ export const TicketsPage: React.FC = () => {
           </Text>
         </ModalBody>
         <ModalFooter>
-          <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
-          <Button
-            variant="danger"
-            onClick={handleDelete}
-            isLoading={deleteTicketMethod.loading}
-          >
+          <Button variant="outline" onClick={() => setDeleteId(null)}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={handleDelete} isLoading={deleteLoading}>
             Delete
           </Button>
         </ModalFooter>

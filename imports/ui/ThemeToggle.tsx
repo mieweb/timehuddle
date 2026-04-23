@@ -11,12 +11,7 @@ export const ThemeToggle: React.FC = () => {
   const label = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
   return (
     <Tooltip content={label} placement="bottom" delay={140}>
-      <Button
-        variant="outline"
-        size="icon"
-        aria-label={label}
-        onClick={toggle}
-      >
+      <Button variant="outline" size="icon" aria-label={label} onClick={toggle}>
         <FontAwesomeIcon icon={theme === 'dark' ? faSun : faMoon} className="text-sm" />
       </Button>
     </Tooltip>
