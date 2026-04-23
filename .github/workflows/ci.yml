@@ -120,10 +120,8 @@ jobs:
             sudo npm run build
 
             echo "🚀 Restarting PM2..."
-            sudo pm2 delete all 2>/dev/null || true
-            sudo fuser -k 80/tcp 2>/dev/null || true
-            sudo pkill -f 'node_modules/.bin/vite' 2>/dev/null || true
-            sleep 2
+            sudo pm2 kill 2>/dev/null || true
+            sleep 1
             sudo pm2 start node_modules/.bin/vite --name timehuddle-frontend --cwd "$REPO_DIR" -- preview --port 80 --host
             sudo pm2 save
 
@@ -132,6 +130,10 @@ jobs:
 
             echo "📊 PM2 Status:"
             sudo pm2 status
+
+            echo "🔍 Verifying built dist is served..."
+            curl -s http://localhost:80/ | grep -q 'vite/client' && echo "ERROR: still serving dev mode" && exit 1 || echo "OK: not serving dev mode"
+            curl -s http://localhost:80/ | grep -c 'html' | grep -q '[1-9]' && echo "OK: serving HTML" || echo "WARN: no HTML found"
 
             echo "✅ ${{ matrix.env }} frontend deployment successful!"
           EOF
