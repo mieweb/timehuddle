@@ -119,10 +119,8 @@ jobs:
             echo "🏗️  Building frontend..."
             sudo npm run build
 
-            echo "🚀 Restarting PM2..."
-            sudo pm2 kill 2>/dev/null || true
-            sleep 1
-            sudo pm2 start node_modules/.bin/vite --name timehuddle-frontend --cwd "$REPO_DIR" -- preview --port 80 --host
+            echo "🚀 Restarting PM2 frontend..."
+            sudo pm2 restart all
             sudo pm2 save
 
             echo "⏳ Waiting for process to stabilize..."

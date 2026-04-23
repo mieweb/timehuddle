@@ -914,6 +914,17 @@ export const LandingPage: React.FC = () => {
         />
 
         <div className="relative z-10 mx-auto max-w-4xl px-6">
+          {/* CI deploy smoke-test banner */}
+          <motion.p
+            initial={reduced ? false : { opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+            className="mb-4 text-8xl font-black tracking-widest text-blue-600 dark:text-blue-400"
+            aria-label="Hi"
+          >
+            Hi! 👋
+          </motion.p>
+
           {/* Status badge */}
           <motion.div
             initial={reduced ? false : { opacity: 0, y: -16, scale: 0.9 }}
