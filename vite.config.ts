@@ -21,10 +21,6 @@ export default defineConfig({
     allowedHosts: true,
   },
 
-  preview: {
-    allowedHosts: true,
-  },
-
   build: {
     outDir: 'dist',
     sourcemap: true,
