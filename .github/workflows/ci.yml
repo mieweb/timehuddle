@@ -77,12 +77,12 @@ jobs:
             host_secret: SSH_HOST_DEV
             port_secret: SSH_PORT_DEV
             key_secret: SSH_PRIVATE_KEY_DEV
-            pm2_name: timehuddledev
+            pm2_name: timehuddle-frontend
           - env: PROD
             host_secret: SSH_HOST_PROD
             port_secret: SSH_PORT_PROD
             key_secret: SSH_PRIVATE_KEY_PROD
-            pm2_name: timehuddle-prod
+            pm2_name: timehuddle-frontend
 
     steps:
       - name: Setup SSH
