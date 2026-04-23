@@ -1,7 +1,10 @@
-name: Deploy Frontend
+name: CI / Deploy Frontend
 
 on:
   push:
+    branches:
+      - main
+  pull_request:
     branches:
       - main
 
@@ -55,6 +58,7 @@ jobs:
     name: Deploy Frontend - ${{ matrix.env }}
     runs-on: ubuntu-latest
     needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:
