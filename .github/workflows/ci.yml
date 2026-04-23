@@ -121,6 +121,9 @@ jobs:
 
             echo "🚀 Restarting PM2..."
             sudo pm2 delete all 2>/dev/null || true
+            sudo fuser -k 80/tcp 2>/dev/null || true
+            sudo pkill -f 'node_modules/.bin/vite' 2>/dev/null || true
+            sleep 2
             sudo pm2 start node_modules/.bin/vite --name timehuddle-frontend --cwd "$REPO_DIR" -- preview --port 80 --host
             sudo pm2 save
 
