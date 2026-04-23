@@ -100,7 +100,7 @@ jobs:
               ${{ secrets.SSH_USER }}@${{ secrets[matrix.host_secret] }} << 'EOF'
             set -e
 
-            REPO_DIR="/home/pdharamkar/timehuddle"
+            REPO_DIR="$HOME/timehuddle"
             mkdir -p "${REPO_DIR}"
             PM2_NAME="${{ matrix.pm2_name }}"
 
