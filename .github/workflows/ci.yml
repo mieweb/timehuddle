@@ -120,7 +120,8 @@ jobs:
             npm run build
 
             echo "🚀 Restarting PM2..."
-            sudo pm2 restart all --update-env
+            sudo pm2 delete timehuddle-frontend 2>/dev/null || true
+            sudo pm2 start npm --name timehuddle-frontend --cwd "$REPO_DIR" -- run preview
             sudo pm2 save
 
             echo "⏳ Waiting for process to stabilize..."
