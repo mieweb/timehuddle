@@ -114,14 +114,14 @@ jobs:
             git reset --hard origin/main
 
             echo "⚙️  Installing dependencies..."
-            npm install
+            sudo npm install
 
             echo "🏗️  Building frontend..."
-            npm run build
+            sudo npm run build
 
             echo "🚀 Restarting PM2..."
             sudo pm2 delete all 2>/dev/null || true
-            sudo pm2 start npm --name timehuddle-frontend --cwd "$REPO_DIR" -- run preview
+            sudo pm2 start node_modules/.bin/vite --name timehuddle-frontend --cwd "$REPO_DIR" -- preview --port 80 --host
             sudo pm2 save
 
             echo "⏳ Waiting for process to stabilize..."
