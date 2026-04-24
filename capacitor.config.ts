@@ -1,16 +1,21 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
+// When CAPACITOR_SERVER_URL is set (e.g. http://10.0.0.8:3000) the WebView
+// loads from the Vite dev server for live reload instead of the bundled dist.
+// Unset (or absent) means serve the built bundle from webDir.
+const liveReloadUrl = process.env.CAPACITOR_SERVER_URL;
+
 const config: CapacitorConfig = {
   appId: 'com.mieweb.timehuddle',
   appName: 'TimeHuddle',
   webDir: 'dist',
 
-  // Load production backend when running on a real device.
-  // Overridden during local dev by setting CAPACITOR_SERVER_URL env var or
-  // using `npx cap run ios --livereload`.
   server: {
     androidScheme: 'https',
     iosScheme: 'timehuddle',
+    ...(liveReloadUrl
+      ? { url: liveReloadUrl, cleartext: true }
+      : {}),
   },
 
   plugins: {

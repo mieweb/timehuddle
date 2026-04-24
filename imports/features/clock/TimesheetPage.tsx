@@ -156,21 +156,23 @@ export const TimesheetPage: React.FC = () => {
 
       {/* Custom date inputs */}
       {preset === 'custom' && (
-        <div className="flex flex-wrap items-end gap-3">
-          <Input
-            label="Start"
-            type="date"
-            value={customStart}
-            onChange={(e) => setCustomStart(e.target.value)}
-            size="sm"
-          />
-          <Input
-            label="End"
-            type="date"
-            value={customEnd}
-            onChange={(e) => setCustomEnd(e.target.value)}
-            size="sm"
-          />
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <Input
+              label="Start"
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              size="sm"
+            />
+            <Input
+              label="End"
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              size="sm"
+            />
+          </div>
           <Button
             variant="primary"
             size="sm"
@@ -178,6 +180,7 @@ export const TimesheetPage: React.FC = () => {
             disabled={loading || !customStart || !customEnd}
             isLoading={loading}
             loadingText="Applying…"
+            className="w-full md:w-auto"
           >
             Apply
           </Button>

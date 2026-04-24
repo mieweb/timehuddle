@@ -8,6 +8,21 @@ html {
 html[data-theme='dark'] {
   background-color: #0a0a0a; /* neutral-950 */
 }
+
+/* Push app header below the device status bar on mobile (notch / Dynamic Island) */
+.app-header {
+  padding-top: max(env(safe-area-inset-top), 0px);
+}
+
+/* Push sidebar brand row below the status bar on mobile */
+.sidebar-brand {
+  padding-top: max(env(safe-area-inset-top), 0px);
+}
+
+/* Bottom nav safe area — sits above the iPhone home indicator */
+.bottom-nav {
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}
 @source "../node_modules/@mieweb/ui/dist";
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 

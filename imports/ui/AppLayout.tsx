@@ -26,6 +26,7 @@ import { SIDEBAR_KEY } from '../lib/constants';
 import { TeamProvider } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
 import { AppHeader } from './AppHeader';
+import { BottomNav } from './BottomNav';
 import { RouterContext } from './router';
 import { SettingsPage } from './SettingsPage';
 import { Sidebar } from './Sidebar';
@@ -162,7 +163,7 @@ export const AppLayout: React.FC = () => {
             {/* Content column */}
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
               <AppHeader title={pageTitle} />
-              <main className="flex-1 overflow-auto">
+              <main className="flex-1 overflow-auto pb-20 md:pb-0">
                 {profileUserId ? (
                   <ProfilePage userId={profileUserId} />
                 ) : (
@@ -170,6 +171,8 @@ export const AppLayout: React.FC = () => {
                 )}
               </main>
             </div>
+
+            <BottomNav />
           </div>
         </SidebarContext.Provider>
       </TeamProvider>

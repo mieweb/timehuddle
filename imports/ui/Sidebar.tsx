@@ -139,9 +139,10 @@ const SidebarContent: React.FC = () => {
       {/* Logo / brand */}
       <div
         className={[
-          'flex h-16 shrink-0 items-center border-b border-neutral-200 px-3 dark:border-neutral-800',
+          'sidebar-brand flex shrink-0 items-center border-b border-neutral-200 px-3 dark:border-neutral-800',
           isExpanded ? '' : 'justify-center',
         ].join(' ')}
+        style={{ minHeight: '4rem' }}
       >
         {' '}
         <span className="flex min-w-0 items-center gap-3 rounded-md" aria-label="TimeHuddle">
