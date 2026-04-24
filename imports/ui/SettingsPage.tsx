@@ -46,10 +46,10 @@ const Section: React.FC<{
   description?: string;
   children: React.ReactNode;
 }> = ({ icon, title, description, children }) => (
-  <div>
-    <div className="mb-2 flex items-center gap-2">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-        <FontAwesomeIcon icon={icon} className="text-xs" />
+  <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+    <div className="flex items-center gap-3 border-b border-neutral-100 px-4 py-3.5 dark:border-neutral-800">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+        <FontAwesomeIcon icon={icon} className="text-sm" />
       </div>
       <div>
         <Text size="sm" weight="semibold">{title}</Text>
@@ -66,13 +66,20 @@ const Section: React.FC<{
   </div>
 );
 
-const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({
+const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode; inline?: boolean }> = ({
   label,
   hint,
   children,
+  inline = false,
 }) => (
-  <div className="flex items-center justify-between gap-4 px-5 py-3.5">
-    <div className="min-w-0">
+  <div
+    className={`px-4 py-3.5 ${
+      inline
+        ? 'flex items-center justify-between gap-4'
+        : 'flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4'
+    }`}
+  >
+    <div className="min-w-0 shrink-0">
       <Text size="sm" weight="medium">
         {label}
       </Text>
@@ -82,7 +89,7 @@ const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode }>
         </Text>
       )}
     </div>
-    <div className="shrink-0">{children}</div>
+    <div className={inline ? 'shrink-0' : 'w-full sm:w-auto sm:shrink-0'}>{children}</div>
   </div>
 );
 
@@ -319,7 +326,6 @@ export const SettingsPage: React.FC = () => {
             hideLabel
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
-            size="sm"
           />
         </Row>
         <Row label="Last name">
@@ -328,13 +334,12 @@ export const SettingsPage: React.FC = () => {
             hideLabel
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
-            size="sm"
           />
         </Row>
-        <Row label="Email address" hint="Read-only">
+        <Row label="Email address" hint="Read-only" inline>
           <Badge variant="secondary">{email ?? '—'}</Badge>
         </Row>
-        <div className="flex items-center gap-3 px-5 py-3">
+        <div className="flex items-center gap-3 px-4 py-3.5">
           <Button
             variant="primary"
             onClick={handleSaveProfile}
@@ -365,7 +370,7 @@ export const SettingsPage: React.FC = () => {
         <Row label="Brand theme" hint="Switch between brand themes">
           <BrandSelector />
         </Row>
-        <Row label="Colour theme" hint="Persisted in localStorage for this browser">
+        <Row label="Colour theme" hint="Light or dark mode">
           <ThemeSelector />
         </Row>
       </Section>
@@ -381,7 +386,7 @@ export const SettingsPage: React.FC = () => {
 
       {/* Account */}
       <Section icon={faGear} title="Account">
-        <Row label="Sign out" hint="You will be returned to the login screen">
+        <Row label="Sign out" hint="You will be returned to the login screen" inline>
           <Button
             variant="danger"
             size="sm"
@@ -404,7 +409,7 @@ export const SettingsPage: React.FC = () => {
             ['Node.js', '22'],
           ] as const
         ).map(([name, version]) => (
-          <Row key={name} label={name}>
+          <Row key={name} label={name} inline>
             <Badge variant="outline">{version}</Badge>
           </Row>
         ))}
