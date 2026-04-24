@@ -31,6 +31,16 @@ html[data-theme='dark'] {
   select {
     font-size: max(16px, 1em) !important;
   }
+
+  /* Convert @mieweb/ui Modal from full-screen to centered modal on mobile */
+  [role='dialog'] {
+    min-height: auto !important;
+    max-height: 85dvh !important;
+    border-radius: 0.75rem !important;
+    width: calc(100% - 2rem) !important;
+    margin: auto !important;
+    overflow-y: auto !important;
+  }
 }
 @source "../node_modules/@mieweb/ui/dist";
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
