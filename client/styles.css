@@ -23,6 +23,15 @@ html[data-theme='dark'] {
 .bottom-nav {
   padding-bottom: max(env(safe-area-inset-bottom), 0px);
 }
+
+/* Prevent iOS Safari from auto-zooming when focusing inputs smaller than 16px */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em) !important;
+  }
+}
 @source "../node_modules/@mieweb/ui/dist";
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
