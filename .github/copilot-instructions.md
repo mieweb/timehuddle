@@ -1,214 +1,128 @@
-# Meteor React Tailwind TypeScript Starter
+# TimeHuddle
 
 **ALWAYS follow these instructions first and fallback to search or bash commands only when you encounter unexpected information that does not match the info here.**
 
-This is a Meteor 3.4 + React 19 + Tailwind CSS 4 + TypeScript starter application with passwordless authentication and a real-time Todo example.
+This is a **Vite 8 + React 19 + Tailwind CSS 4 + TypeScript** SPA. It is a pure frontend — no Meteor, no server-side rendering, no embedded database. The backend API is the separate `timecore` project (Fastify on port 4000).
 
 ## Working Effectively
 
 ### Initial Setup and Dependencies
 
-- **CRITICAL**: Install Meteor first: `curl https://install.meteor.com/ | sh`
-  - If network restrictions prevent direct installation, use package managers or manual installation
-  - Alternative: Use `npx meteor` for commands (may require Meteor package installation)
-- Install Node.js dependencies: `npm ci --no-audit --no-fund` -- takes 30 seconds
-- **NEVER CANCEL**: Wait for complete dependency installation
+```bash
+npm install
+```
 
 ### Build and Development
 
-- **NEVER CANCEL**: Development server startup: `meteor run` or `npm start` -- NEVER CANCEL, can take 2-5 minutes for initial build. Set timeout to 10+ minutes.
-- **NEVER CANCEL**: Production build: `meteor build ../build --directory` -- NEVER CANCEL, takes 5-15 minutes. Set timeout to 30+ minutes.
-- Development URL: `http://localhost:3000` (default Meteor port)
+```bash
+npm run dev      # Vite dev server — instant startup, port 3000
+npm run build    # Production build → dist/
+npm run preview  # Preview production build locally
+```
+
+- Development URL: `http://localhost:3000`
+- Connects to `timecore` API at `http://localhost:4000`
 
 ### Code Quality and Validation
 
-- Lint check: `npm run lint` -- takes 4 seconds
-- Lint fix: `npm run lint:fix` -- takes 3 seconds
-- Type checking: `npm run typecheck` -- takes 5 seconds
-- Format check: `npm run format` -- takes 2 seconds
-- Format fix: `npm run format:fix` -- takes 1 second
-- **ALWAYS run these before committing**: Pre-commit hooks will automatically run lint-staged
+```bash
+npm run lint       # ESLint
+npm run lint:fix   # ESLint auto-fix
+npm run typecheck  # tsc --noEmit
+npm run format     # Prettier check
+npm run format:fix # Prettier auto-fix
+npm test           # Vitest (run once)
+npm run test:watch # Vitest watch mode
+```
+
+Pre-commit hooks (husky + lint-staged) run lint + format automatically.
 
 ### Required Validation Steps
 
-- **ALWAYS validate changes by**:
-  1. Run `npm run lint` and `npm run typecheck` -- both must pass
-  2. Run `npm run format` to ensure code style compliance
-  3. Start the application with `meteor run` and test functionality
-  4. **MANUAL VALIDATION REQUIRED**: Test the complete auth flow and Todo functionality
+1. `npm run lint && npm run typecheck` — both must pass
+2. `npm run format` — must be clean
+3. Smoke-test in browser at `http://localhost:3000`
 
-## Validation Scenarios
+## Project Structure
 
-### Authentication Flow Testing
+```
+index.html              # Vite entry — mounts <div id="root">
+client/
+  main.tsx              # ReactDOM.createRoot entry point
+  styles.css            # Tailwind 4 entry + brand token bridge (required)
+imports/
+  features/             # Feature-sliced modules (clock, teams, tickets, …)
+  lib/                  # Shared utilities (api, TeamContext, useSession, …)
+  ui/                   # Shell components (AppLayout, Sidebar, AppHeader, …)
+```
 
-**ALWAYS test the passwordless auth flow after making auth-related changes:**
+### Path Aliases
 
-1. Start application: `meteor run`
-2. Navigate to `http://localhost:3000`
-3. Enter an email address and submit
-4. Check server logs for magic link (if no SMTP configured)
-5. Either click the link or copy the token from the URL and paste it manually
-6. Verify successful login and Todo app access
+| Alias | Resolves to |
+|---|---|
+| `@ui/*` | `imports/ui/*` |
+| `@lib/*` | `imports/lib/*` |
 
-### Todo Application Testing
+### Key Files
 
-**ALWAYS test Todo functionality after making UI or API changes:**
+- **Global styles**: `client/styles.css` — Tailwind 4 `@import`, brand tokens, dark-mode variant. **Do not remove.**
+- **App shell**: `imports/ui/AppLayout.tsx` — layout, sidebar, routing context
+- **Routing**: client-side only via `RouterContext` (no React Router)
+- **API calls**: `imports/lib/api.ts` — fetch wrappers to `timecore`
+- **Auth**: `imports/lib/useSession.ts`
 
-1. Create a new todo item
-2. Toggle todo completion status
-3. Delete a todo item
-4. Test filtering (all/active/completed)
-5. Test clearing completed todos
-6. Verify real-time updates (open multiple browser tabs)
+## Technology Stack
 
-### Theme and UI Testing
-
-**ALWAYS test theme switching and responsive design:**
-
-1. Toggle between light and dark themes
-2. Test responsive behavior on different screen sizes
-3. Verify all UI components render correctly
-4. Check accessibility with screen readers if available
-
-## Configuration and Environment
-
-### Environment Variables
-
-- `MAIL_URL`: SMTP configuration for magic link emails (optional for development)
-- `ROOT_URL`: Base URL for production deployment
-- `PORT`: Server port (default: 3000)
-- `MONGO_URL`: MongoDB connection string for production
-
-### Development vs Production
-
-- Development: Magic links logged to console (no SMTP required)
-- Production: Requires SMTP configuration via `MAIL_URL`
-- Build artifacts: Created in `../build` directory (outside project root)
-
-## Project Structure and Navigation
-
-### Core Directories
-
-- `client/`: React application entry point and global styles
-  - `main.tsx`: React root component and Meteor startup
-  - `main.html`: HTML shell with root element
-  - `styles.css`: Tailwind CSS imports and global styles
-- `imports/`: Shared application code
-  - `api/todos.ts`: Meteor methods, publications, and data model
-  - `startup/`: Client and server startup configuration
-  - `ui/`: React components and UI logic
-- `server/main.ts`: Meteor server entry point
-- Configuration files: `tsconfig.json`, `tailwind.config.cjs`, `eslint.config.mjs`
-
-### Key Files to Modify
-
-- **API Changes**: `imports/api/todos.ts` (methods and publications)
-- **UI Components**: `imports/ui/` directory
-- **Authentication**: `imports/startup/server.ts` (accounts configuration)
-- **Styling**: `client/styles.css` and component files
-- **Type Definitions**: Add to `imports/` subdirectories
-
-### Common File Relationships
-
-- When modifying `imports/api/todos.ts`, check `imports/ui/TodosApp.tsx` and `imports/ui/TodoItem.tsx`
-- When changing theme variables, check `client/styles.css` and `tailwind.config.cjs`
-- When adding UI components, update `imports/ui/index.ts` if creating a shared component library
-
-## Build Pipeline and CI
-
-### GitHub Actions Workflow
-
-The `.github/workflows/ci.yml` validates:
-
-1. Code linting with ESLint
-2. Type checking with TypeScript
-3. **NEVER CANCEL**: Full Meteor build -- takes 10-20 minutes. Set timeout to 45+ minutes.
-
-### Local Development Workflow
-
-1. Make code changes
-2. Run validation: `npm run lint && npm run typecheck && npm run format`
-3. Test manually: `meteor run` and validate user scenarios
-4. Commit changes (pre-commit hooks will re-run validation)
-
-## Technology Stack Details
-
-### Meteor 3.4 (Node 22)
-
-- Modern ESM module system
-- Rspack build toolchain (faster than Webpack)
-- Built-in MongoDB integration
-- Real-time data synchronization via DDP
+### Vite 8
+- `@vitejs/plugin-react` (SWC)
+- HMR — changes reflect instantly, no restart needed
+- Build output: `dist/`
 
 ### React 19
-
-- Concurrent features enabled
-- Suspense for data fetching ready
-- Modern hooks and error boundaries
+- Concurrent features, Suspense
+- `motion` (Framer Motion 12) for animations
 
 ### Tailwind CSS 4
-
-- Oxide (Lightning CSS) engine
-- Custom CSS variables for theming
-- Utility-first styling approach
+- Oxide/Lightning CSS engine — **no `tailwind.config.js` required**
+- Theme tokens via CSS variables in `client/styles.css`
+- `@mieweb/ui` brand tokens mapped to Tailwind colors
+- Dark mode via `data-theme="dark"` on `<html>`
 
 ### TypeScript 5.x
+- Strict mode, `moduleResolution: Bundler`, `module: ESNext`
 
-- Strict mode enabled
-- Path aliases configured (`@api/*`, `@ui/*`, etc.)
-- Meteor type definitions included
+### Vitest
+- Unit/integration tests alongside source files
+
+## Styling Conventions
+
+- **Tailwind utility classes** for layout, spacing, color — inline in JSX
+- **`client/styles.css`** for global tokens and third-party overrides only
+- **SASS/SCSS** can be added per-component (`Component.module.scss`) for complex vendor overrides where utility classes don't reach
+- No global CSS beyond `client/styles.css`
+
+## @mieweb/ui Usage
+
+**HARD RULE: Every UI element MUST use `@mieweb/ui` imports. No raw `<button>`, `<input>`, `<select>`, `<table>`, or custom modal/card/badge markup.**
+
+| Element | Import |
+|---|---|
+| `<button>` | `Button` |
+| `<input>` | `Input` |
+| modal | `Modal, ModalHeader, ModalBody, ModalFooter` |
+| card | `Card, CardHeader, CardContent` |
+| `<table>` | `Table, TableHeader, TableBody, TableRow, TableCell` |
+| badge | `Badge` |
+| avatar | `Avatar` |
+| `<select>` | `Select` |
+| loading | `Spinner` |
 
 ## Troubleshooting
 
-### Common Issues
-
-- **Build fails**: Ensure Meteor is properly installed and Node.js version is 22+
-- **Type errors**: Run `npm run typecheck` and fix TypeScript issues
-- **Lint errors**: Run `npm run lint:fix` to auto-fix most issues
-- **Style issues**: Run `npm run format:fix` to auto-format code
-- **Database issues**: Meteor uses embedded MongoDB in development
-
-### Network Restrictions
-
-- If Meteor installation fails due to network restrictions, try alternative installation methods
-- Document any installation workarounds in the instructions
-- Use `npx meteor` as fallback if global installation unavailable
-
-### Performance Notes
-
-- **NEVER CANCEL**: Initial Meteor startup can take 2-5 minutes
-- **NEVER CANCEL**: Meteor builds take 5-15 minutes (normal behavior)
-- Hot module reloading works for most React changes
-- Database changes may require server restart
-
-## Testing (Currently No Test Framework)
-
-This starter does not include a testing framework. To add testing:
-
-- Consider `meteortesting:mocha` for Meteor-specific testing
-- Jest can be added for pure JavaScript/React logic testing
-- Playwright or Cypress for end-to-end testing
-
-## Common Commands Reference
-
-```bash
-# Setup (one-time)
-curl https://install.meteor.com/ | sh
-npm ci --no-audit --no-fund
-
-# Development
-meteor run                    # Start dev server (2-5 min startup)
-npm run lint                  # Check code style (4 sec)
-npm run typecheck             # Check TypeScript (5 sec)
-npm run format                # Check formatting (2 sec)
-
-# Fixes
-npm run lint:fix              # Auto-fix lint issues (3 sec)
-npm run format:fix            # Auto-format code (1 sec)
-
-# Production
-meteor build ../build --directory  # Build for production (5-15 min)
-```
+- **Blank page / API errors**: ensure `timecore` is running on port 4000
+- **Type errors**: `npm run typecheck`
+- **Lint errors**: `npm run lint:fix`
+- **Style broken**: check `client/styles.css` imports are intact
 
 ## Code Quality Principles
 
@@ -259,29 +173,11 @@ meteor build ../build --directory  # Build for production (5-15 min)
 - Let the user interact with the browser after navigation or testing
 - Only use `browser_close` when the user specifically requests it
 
-## Production vs Development Mode
-
-### 🚀 Environment Detection
-
-- **Check `.env` for `MYNAME`**: Before testing, check if `MYNAME` is defined in the server `.env` file
-- **If `MYNAME` is defined**: This indicates a production/proxy environment
-  - Don't restart for UI changes; just build with `npm run build` in the client folder. If you need to restart the server, just ask the user to do it.
-  - Use the `MYNAME` URL (e.g., `https://pulseclip.os.mieweb.org/`) for all browser testing
-  - Do NOT use `localhost` URLs for testing - the app is behind an nginx proxy
-- **If `MYNAME` is not defined**: Use development mode with `localhost:3000`
-
-### 🔧 Testing Workflow
-
-1. Read `server/.env` to check for `MYNAME` variable
-2. If `MYNAME` exists, build and start the server: `npm run build && npm run start`
-3. Navigate to the `MYNAME` URL for browser testing (not localhost)
-4. The nginx proxy handles routing to the local server
-
 ## HTML & CSS Guidelines
 
 - **Semantic Naming**: Every `<div>` and other structural element must use a meaningful, semantic class name that clearly indicates its purpose or role within the layout.
 - **CSS Simplicity**: Styles should avoid global resets or overrides that affect unrelated components or default browser behavior. Keep changes scoped and minimal.
-- **SASS-First Approach**: All styles should be written in SASS (SCSS) whenever possible. Each component should have its own dedicated SASS file to promote modularity and maintainability.
+- **Tailwind-first**: Use Tailwind utility classes for all layout, spacing, and color. Add per-component `.module.scss` files only for complex vendor overrides where utility classes don't reach.
 
 ## Accessibility (ARIA Labeling)
 
