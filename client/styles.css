@@ -32,6 +32,14 @@ html[data-theme='dark'] {
     font-size: max(16px, 1em) !important;
   }
 
+  /* Override ychart's global [role="option"].px-3.py-2 { font-size: 0.75rem !important } rule.
+   * Must match its specificity [0,3,0] so our later-in-document rule wins. */
+  [role='option'].px-3.py-2 {
+    font-size: 1rem !important;
+    padding-top: 0.625rem !important;
+    padding-bottom: 0.625rem !important;
+  }
+
   /* Convert @mieweb/ui Modal from full-screen to centered modal on mobile */
   [role='dialog'] {
     min-height: auto !important;

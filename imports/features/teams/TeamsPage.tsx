@@ -253,33 +253,34 @@ export const TeamsPage: React.FC = () => {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-6">
       {/* Header actions */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          variant="primary"
-          leftIcon={<FontAwesomeIcon icon={faPlus} />}
-          onClick={() => setModal('create')}
-        >
-          Create Team
-        </Button>
-        <Button
-          variant="outline"
-          leftIcon={<FontAwesomeIcon icon={faRightToBracket} />}
-          onClick={() => setModal('join')}
-        >
-          Join Team
-        </Button>
-        {/* Team switcher */}
+      <div className="space-y-3">
+        <div className="flex gap-3">
+          <Button
+            variant="primary"
+            fullWidth
+            leftIcon={<FontAwesomeIcon icon={faPlus} />}
+            onClick={() => setModal('create')}
+          >
+            Create Team
+          </Button>
+          <Button
+            variant="outline"
+            fullWidth
+            leftIcon={<FontAwesomeIcon icon={faRightToBracket} />}
+            onClick={() => setModal('join')}
+          >
+            Join Team
+          </Button>
+        </div>
+        {/* Team switcher — full width below buttons on mobile */}
         {teams.length > 1 && (
-          <div className="ml-auto">
-            <Select
-              label="Team"
-              hideLabel
-              size="sm"
-              options={teamOptions}
-              value={selectedTeamId ?? ''}
-              onValueChange={setSelectedTeamId}
-            />
-          </div>
+          <Select
+            label="Switch team"
+            hideLabel={false}
+            options={teamOptions}
+            value={selectedTeamId ?? ''}
+            onValueChange={setSelectedTeamId}
+          />
         )}
       </div>
 
@@ -448,11 +449,11 @@ export const TeamsPage: React.FC = () => {
 
       {/* Chart */}
       {selectedTeam && !selectedTeam.isPersonal && (
-        <Card padding="none">
+        <Card padding="none" className="overflow-hidden">
           <CardHeader className="px-5 py-4">
             <CardTitle>Chart</CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="overflow-x-auto p-0">
             <React.Suspense
               fallback={
                 <div className="flex items-center justify-center p-8">

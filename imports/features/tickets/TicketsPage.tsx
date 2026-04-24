@@ -312,7 +312,6 @@ export const TicketsPage: React.FC = () => {
           <Select
             label="Team"
             hideLabel
-            size="sm"
             options={teamOptions}
             value={selectedTeamId ?? ''}
             onValueChange={setSelectedTeamId}
@@ -386,7 +385,6 @@ export const TicketsPage: React.FC = () => {
           <Select
             label="Team"
             hideLabel
-            size="sm"
             options={teamOptions}
             value={selectedTeamId ?? ''}
             onValueChange={setSelectedTeamId}
