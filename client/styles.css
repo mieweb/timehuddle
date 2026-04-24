@@ -41,7 +41,7 @@ html[data-theme='dark'] {
   }
 
   /* Convert @mieweb/ui Modal from full-screen to centered modal on mobile */
-  [role='dialog'] {
+  [role='dialog']:not([aria-label='Navigation']) {
     min-height: auto !important;
     max-height: 85dvh !important;
     border-radius: 0.75rem !important;
@@ -50,6 +50,9 @@ html[data-theme='dark'] {
     overflow-y: auto !important;
   }
 }
+@source "../node_modules/@mieweb/ui/dist";
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
 @source "../node_modules/@mieweb/ui/dist";
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 

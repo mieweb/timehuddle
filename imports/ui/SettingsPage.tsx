@@ -20,10 +20,6 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   Input,
   Select,
   Text,
@@ -50,24 +46,24 @@ const Section: React.FC<{
   description?: string;
   children: React.ReactNode;
 }> = ({ icon, title, description, children }) => (
-  <Card padding="none">
-    <CardHeader className="flex items-start gap-3 px-5 py-4">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-        <FontAwesomeIcon icon={icon} className="text-sm" />
+  <div>
+    <div className="mb-2 flex items-center gap-2">
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+        <FontAwesomeIcon icon={icon} className="text-xs" />
       </div>
       <div>
-        <CardTitle className="text-sm">{title}</CardTitle>
+        <Text size="sm" weight="semibold">{title}</Text>
         {description && (
-          <Text variant="muted" size="xs" className="mt-0.5">
+          <Text variant="muted" size="xs">
             {description}
           </Text>
         )}
       </div>
-    </CardHeader>
-    <CardContent className="divide-y divide-neutral-100 p-0 dark:divide-neutral-800">
+    </div>
+    <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
       {children}
-    </CardContent>
-  </Card>
+    </div>
+  </div>
 );
 
 const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({
@@ -314,7 +310,7 @@ export const SettingsPage: React.FC = () => {
   }, [firstName, lastName, refetch]);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5 px-4 py-8">
+    <div className="mx-auto max-w-2xl space-y-4 px-3 py-3">
       {/* Profile */}
       <Section icon={faCircleUser} title="Profile" description="Your account information.">
         <Row label="First name">

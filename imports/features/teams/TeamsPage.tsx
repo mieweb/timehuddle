@@ -26,9 +26,6 @@ import {
   Avatar,
   Badge,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
   CardTitle,
   Dropdown,
   DropdownItem,
@@ -251,7 +248,7 @@ export const TeamsPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-6">
+    <div className="mx-auto max-w-3xl space-y-4 px-3 py-3">
       {/* Header actions */}
       <div className="space-y-3">
         <div className="flex gap-3">
@@ -286,9 +283,9 @@ export const TeamsPage: React.FC = () => {
 
       {/* Current team card */}
       {selectedTeam && (
-        <Card padding="none">
+        <div>
           {/* Team header */}
-          <CardHeader className="flex flex-row items-center justify-between px-5 py-4">
+          <div className="flex flex-row items-center justify-between py-2">
             <div>
               <CardTitle>
                 {selectedTeam.isPersonal ? 'Personal Workspace' : selectedTeam.name}
@@ -333,10 +330,10 @@ export const TeamsPage: React.FC = () => {
                 </Button>
               </div>
             )}
-          </CardHeader>
+          </div>
 
           {/* Members list */}
-          <CardContent className="px-5 py-3">
+          <div className="py-1">
             <div className="mb-3 flex items-center justify-between">
               <Text
                 variant="muted"
@@ -443,17 +440,17 @@ export const TeamsPage: React.FC = () => {
                 );
               })}
             </ul>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Chart */}
       {selectedTeam && !selectedTeam.isPersonal && (
-        <Card padding="none" className="overflow-hidden">
-          <CardHeader className="px-5 py-4">
+        <div className="overflow-hidden">
+          <div className="py-2">
             <CardTitle>Chart</CardTitle>
-          </CardHeader>
-          <CardContent className="overflow-x-auto p-0">
+          </div>
+          <div className="overflow-x-auto">
             <React.Suspense
               fallback={
                 <div className="flex items-center justify-center p-8">
@@ -474,8 +471,8 @@ export const TeamsPage: React.FC = () => {
                 })}
               />
             </React.Suspense>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* ── Modals ── */}
