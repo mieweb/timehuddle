@@ -340,6 +340,22 @@ meteor build ../build --directory  # Build for production (5-15 min)
 - **Simple workflows**: GitHub Actions should be thin wrappers around scripts, not contain complex logic
 - **Easy debugging**: When CI fails, developers can reproduce the issue locally by running the same script
 
+## Reporting Issues
+
+### GitHub Issue Titles
+
+- **Use Title Case**: Capitalize all major words in issue titles (e.g., "Add Docker Compose for Full Local Development Stack")
+- **No conventional commit prefixes**: Do not use `feat:`, `fix:`, `chore:` etc. in issue titles — those belong in commit messages, not issues
+- **Be descriptive**: Titles should clearly convey the what, not the how
+
+### Issue Body Structure
+
+- **Overview**: One paragraph explaining the problem or goal
+- **Current State**: Bullet list of how things work today
+- **Proposed Changes**: Numbered sections with sub-bullets for each change
+- **Acceptance Criteria**: Checkboxes (`- [ ]`) for each verifiable outcome
+- **Out of Scope (for Now)**: Explicit list of what is intentionally excluded from this issue
+
 ## Quick Reference
 
 ### 🪶 All Changes should be considered for Pull Request Philosophy
