@@ -1,11 +1,5 @@
 /**
- * LandingPage — Isomorphic marketing page with Motion animations.
- *
- * Isomorphic rules (safe for SSR via renderToString):
- *   • No `meteor/*` imports
- *   • No `window`/`document`/`localStorage` at render time — only in useEffect
- *   • motion/* hooks (useScroll, useTransform, useInView) are client-only;
- *     they render the `initial` state as static HTML during SSR.
+ * LandingPage — Marketing page with Motion animations.
  *
  * Animation strategy:
  *   • Hero: staggered word-by-word entrance + animated mesh gradient background
@@ -52,14 +46,14 @@ import { useTheme } from '../lib/useTheme';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TECH_BADGES = [
-  'Meteor 3.5',
+  'Vite',
   'React 19',
   'Tailwind CSS 4',
   'TypeScript 5',
   'Node.js 22',
-  'Rspack',
-  'SSR + Hydration',
-  'Passwordless Auth',
+  'Fastify',
+  'MongoDB',
+  'better-auth',
 ] as const;
 
 interface Feature {
@@ -73,17 +67,17 @@ interface Feature {
 const FEATURES: Feature[] = [
   {
     icon: faBolt,
-    title: 'Real-time DDP',
+    title: 'REST API + SSE',
     description:
-      "Reactive data sync between server and client using Meteor's built-in DDP protocol. No polling, no manual cache invalidation — it just works.",
+      'Fastify backend with REST endpoints and Server-Sent Events for live updates. Clean, typed API contracts shared between frontend and backend.',
     gradient: 'from-yellow-500/20 to-orange-500/5',
     glow: 'group-hover:shadow-yellow-500/20',
   },
   {
     icon: faKey,
-    title: 'Passwordless Auth',
+    title: 'Email + Password Auth',
     description:
-      'Email magic link authentication powered by accounts-passwordless. Zero passwords, seamless UX, with built-in rate limiting.',
+      'Email and password authentication powered by better-auth. Secure session management with cookie-based auth and password reset flows.',
     gradient: 'from-green-500/20 to-emerald-500/5',
     glow: 'group-hover:shadow-green-500/20',
   },
@@ -105,9 +99,9 @@ const FEATURES: Feature[] = [
   },
   {
     icon: faGlobe,
-    title: 'SSR + Hydration',
+    title: 'Vite + TypeScript',
     description:
-      'Server-side rendering with isomorphic components and client hydration. Full HTML on first byte for instant FCP and perfect SEO.',
+      'Lightning-fast Vite dev server with HMR and optimized production builds. End-to-end strict type safety with path aliases across the stack.',
     gradient: 'from-purple-500/20 to-violet-500/5',
     glow: 'group-hover:shadow-purple-500/20',
   },
@@ -115,7 +109,7 @@ const FEATURES: Feature[] = [
     icon: faCode,
     title: 'TypeScript 5',
     description:
-      'End-to-end strict type safety with full Meteor declarations, path aliases, and composite project configuration.',
+      'End-to-end strict type safety with path aliases and composite project configuration.',
     gradient: 'from-red-500/20 to-rose-500/5',
     glow: 'group-hover:shadow-red-500/20',
   },
@@ -124,14 +118,12 @@ const FEATURES: Feature[] = [
 const TERMINAL_LINES = [
   { type: 'comment' as const, text: '# Clone the repository' },
   { type: 'cmd' as const, text: `git clone ${REPO_URL}` },
-  { type: 'cmd' as const, text: 'cd meteor-react-tailwind-prettier-starter' },
-  { type: 'blank' as const, text: '' },
-  { type: 'comment' as const, text: '# Install Meteor (once)' },
-  { type: 'cmd' as const, text: 'npx meteor@latest' },
+  { type: 'cmd' as const, text: 'cd timehuddle' },
   { type: 'blank' as const, text: '' },
   { type: 'comment' as const, text: '# Install deps & start dev server' },
-  { type: 'cmd' as const, text: 'meteor npm install && meteor npm run start' },
-  { type: 'output' as const, text: '→  http://localhost:3000  ✓ ready' },
+  { type: 'cmd' as const, text: 'npm ci --no-audit --no-fund' },
+  { type: 'cmd' as const, text: 'npm run dev' },
+  { type: 'output' as const, text: '→  http://localhost:5173  ✓ ready' },
 ];
 
 const STATS = [
@@ -156,9 +148,9 @@ const DEMOS: Demo[] = [
     icon: faComments,
     title: 'Real-time Chat',
     description:
-      'Multi-room messaging with grouped threads, clickable user profile links, and instant delivery via DDP. Open two tabs and watch it sync live — zero polling.',
+      'Multi-room messaging with grouped threads, clickable user profile links, and instant delivery via SSE. Open two tabs and watch it sync live.',
     path: '/app/chat',
-    tag: 'Multi-room · Profiles · DDP',
+    tag: 'Multi-room · Profiles · SSE',
     gradient: 'from-blue-500/20 to-sky-500/5',
     glow: 'group-hover:shadow-blue-500/20',
   },
@@ -166,7 +158,7 @@ const DEMOS: Demo[] = [
     icon: faChartBar,
     title: 'Live Polls',
     description:
-      'Create polls with 2–8 options, vote, and change your vote. Animated result bars update in real-time across every connected client the moment a vote is cast.',
+      'Create polls with 2-8 options, vote, and change your vote. Animated result bars update in real-time across every connected client the moment a vote is cast.',
     path: '/app/polls',
     tag: 'Voting · Animated bars · One-per-user',
     gradient: 'from-violet-500/20 to-purple-500/5',
@@ -176,7 +168,7 @@ const DEMOS: Demo[] = [
     icon: faList,
     title: 'Reactive Todos',
     description:
-      'Drag-to-reorder, active/completed filters, and bulk clear — all synced live across every open client. The classic DDP example, done with proper drag UX.',
+      'Drag-to-reorder, active/completed filters, and bulk clear — all synced live across every open client. The classic todo example, done with proper drag UX.',
     path: '/app/todos',
     tag: 'Drag & drop · Filters · Real-time',
     gradient: 'from-emerald-500/20 to-green-500/5',
@@ -512,7 +504,7 @@ const AnimatedTerminal: React.FC<{ reduced: boolean }> = ({ reduced }) => {
         <span className="h-3 w-3 rounded-full bg-red-500" />
         <span className="h-3 w-3 rounded-full bg-yellow-500" />
         <span className="h-3 w-3 rounded-full bg-green-500" />
-        <span className="ml-3 text-xs font-medium text-neutral-500">bash — meteor-starter</span>
+        <span className="ml-3 text-xs font-medium text-neutral-500">bash — timehuddle</span>
       </div>
       <pre className="overflow-x-auto p-6 text-sm leading-7" aria-label="Quick start commands">
         <code>
@@ -870,7 +862,7 @@ export const LandingPage: React.FC = () => {
             >
               <FontAwesomeIcon icon={faBolt} className="text-xs" aria-hidden="true" />
             </motion.span>
-            <span>Meteor Starter</span>
+            <span>TimeHuddle</span>
           </motion.a>
 
           <nav aria-label="Site navigation" className="flex items-center gap-2">
@@ -939,7 +931,7 @@ export const LandingPage: React.FC = () => {
               aria-hidden="true"
             />
             <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">
-              Up-to-date · Meteor 3.5-beta.4 · React 19 · Tailwind CSS 4
+              Up-to-date · Vite · React 19 · Tailwind CSS 4
             </span>
           </motion.div>
 
@@ -974,7 +966,7 @@ export const LandingPage: React.FC = () => {
             transition={{ duration: 0.6, delay: 0.55, ease: [0.22, 1, 0.36, 1] }}
             className="mx-auto mt-8 max-w-2xl text-xl leading-relaxed text-neutral-600 dark:text-neutral-400"
           >
-            Production-ready Meteor 3.5 template with real-time{' '}
+            Production-ready time tracking app with real-time{' '}
             <strong className="font-semibold text-neutral-900 dark:text-neutral-100">
               Chat, Polls,
             </strong>{' '}
@@ -1172,7 +1164,7 @@ export const LandingPage: React.FC = () => {
                 Ready to build something great?
               </h2>
               <p className="relative z-10 mx-auto mt-4 max-w-xl text-blue-100/90">
-                Grab the starter, fork it, and start building your next Meteor app in minutes. No
+                Grab the starter, fork it, and start building your next app in minutes. No
                 boilerplate setup — it&apos;s already done.
               </p>
               <motion.a
@@ -1198,7 +1190,6 @@ export const LandingPage: React.FC = () => {
           <div className="flex items-center gap-6 text-sm text-neutral-500">
             {[
               { label: 'GitHub ↗', href: REPO_URL },
-              { label: 'Meteor Docs ↗', href: 'https://docs.meteor.com' },
               { label: 'React Docs ↗', href: 'https://react.dev' },
               { label: 'motion.dev ↗', href: 'https://motion.dev' },
             ].map((link) => (

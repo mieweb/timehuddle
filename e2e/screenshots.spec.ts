@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 
 const SCREENSHOT_DIR = 'public/screenshots';
-const TEST_EMAIL = 'screenshots@demo.test';
+const TEST_EMAIL = 'alice@example.com';
+const TEST_PASSWORD = 'Password1!';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -19,49 +20,20 @@ async function scrollToSelector(page: import('@playwright/test').Page, selector:
 }
 
 /**
-/**
- * Log in by obtaining a login token from the server and applying it client-side.
- * This bypasses the email/inbox flow entirely for reliable E2E testing.
+ * Log in via the backend REST API (better-auth sign-in/email endpoint).
+ * Uses a seeded demo account so no email flow is required.
  */
 async function login(page: import('@playwright/test').Page) {
-  // Navigate to app so Meteor client is loaded
+  await page.goto('/app');
+  await page.waitForTimeout(1000);
+
+  // Sign in via the backend auth API
+  await page.request.post('/api/auth/sign-in/email', {
+    data: { email: TEST_EMAIL, password: TEST_PASSWORD },
+  });
+
   await page.goto('/app');
   await page.waitForTimeout(2000);
-
-  // Get a login token from the server and log in client-side
-  await page.evaluate(async (email) => {
-    const result = await new Promise<{ userId: string; token: string }>((resolve, reject) => {
-      // @ts-expect-error Meteor is a global
-      window.Meteor.call(
-        'e2e.loginToken',
-        email,
-        (err: unknown, res: { userId: string; token: string }) =>
-          err ? reject(err) : resolve(res),
-      );
-    });
-    await new Promise<void>((resolve, reject) => {
-      // @ts-expect-error Meteor is a global
-      window.Meteor.loginWithToken(result.token, (err: unknown) => (err ? reject(err) : resolve()));
-    });
-  }, TEST_EMAIL);
-
-  await page.waitForTimeout(2000);
-
-  // Seed demo data
-  await page.evaluate(async () => {
-    await new Promise<void>((resolve, reject) => {
-      // @ts-expect-error Meteor is a global
-      window.Meteor.call('e2e.seed', (err: unknown) => {
-        if (err) {
-          const e = err as { error?: string; reason?: string; message?: string };
-          reject(new Error(`e2e.seed failed: ${e.reason || e.message || e.error || 'unknown'}`));
-        } else {
-          resolve();
-        }
-      });
-    });
-  });
-  await page.waitForTimeout(1000);
 }
 
 // ─── Landing Page Screenshots ─────────────────────────────────────────────────
