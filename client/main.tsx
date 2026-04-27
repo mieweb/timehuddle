@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { InboxPage } from '../imports/features/inbox/InboxPage';
 import { SessionProvider, useSession } from '../imports/lib/useSession';
 import { AppLayout } from '../imports/ui/AppLayout';
+import { LandingPage } from '../imports/ui/LandingPage';
 import { LoginForm } from '../imports/ui/LoginForm';
 
 // ─── App (client-side rendered, /app and all non-root routes) ─────────────────
@@ -39,8 +40,8 @@ const App: React.FC = () => {
 const el = document.getElementById('root');
 if (el) {
   if (window.location.pathname === '/') {
-    // Root redirects to /app (login or dashboard depending on auth state).
-    window.location.replace('/app');
+    // Root renders the marketing landing page.
+    createRoot(el).render(<LandingPage />);
   } else if (window.location.pathname === '/inbox') {
     // Dev inbox — no auth required.
     createRoot(el).render(<InboxPage />);

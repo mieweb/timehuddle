@@ -1,8 +1,8 @@
-# TimeHuddle
+# TimeHuddle Frontend
 
 **ALWAYS follow these instructions first and fallback to search or bash commands only when you encounter unexpected information that does not match the info here.**
 
-This is a **Vite 8 + React 19 + Tailwind CSS 4 + TypeScript** SPA. It is a pure frontend — no Meteor, no server-side rendering, no embedded database. The backend API is the separate `timecore` project (Fastify on port 4000).
+This is a React 19 + Vite + Tailwind CSS 4 + TypeScript frontend application. The backend is a separate Fastify + MongoDB service located in `backend/`.
 
 ## Working Effectively
 
