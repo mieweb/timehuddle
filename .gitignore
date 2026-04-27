@@ -1,5 +1,4 @@
 node_modules
-.meteor/local
 .DS_Store
 *.log
 packages/*/node_modules
@@ -17,7 +16,7 @@ my-submodule/*
 # Build output directory
 build/
 
-# Meteor Modern-Tools build context directories
+# Build context directories
 _build
 */build-assets
 */build-chunks

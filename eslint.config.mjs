@@ -15,10 +15,7 @@ export default [
     // Consolidated ignores (migrated from legacy .eslintignore file)
     ignores: [
       'dist',
-      '.meteor',
       'node_modules',
-      '**/.meteor/**',
-      'apps/web/.meteor/**',
       '**/scheduler.worker.js',
       '_build',
       'build',

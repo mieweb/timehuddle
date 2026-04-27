@@ -30,5 +30,5 @@ module.exports = {
     'simple-import-sort/imports': 'error',
     'simple-import-sort/exports': 'error',
   },
-  ignorePatterns: ['dist', '.meteor', 'node_modules'],
+  ignorePatterns: ['dist', 'node_modules'],
 };

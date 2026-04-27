@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client';
 import { InboxPage } from '../imports/features/inbox/InboxPage';
 import { SessionProvider, useSession } from '../imports/lib/useSession';
 import { AppLayout } from '../imports/ui/AppLayout';
+import { LandingPage } from '../imports/ui/LandingPage';
 import { LoginForm } from '../imports/ui/LoginForm';
 
 // ─── Deep link handling (Capacitor native only) ───────────────────────────────
@@ -74,7 +75,8 @@ function renderRoot() {
 
   if (!_root) {
     if (window.location.pathname === '/') {
-      window.location.replace('/app');
+      _root = createRoot(el)
+      _root.render(<LandingPage />);
       return;
     } else if (window.location.pathname === '/inbox') {
       _root = createRoot(el);
