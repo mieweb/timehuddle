@@ -121,46 +121,60 @@ test.describe('App (logged in)', () => {
     await login(page);
   });
 
-  test('todos — light', async ({ page }) => {
-    await page.goto('/app/todos');
+  test('dashboard — light', async ({ page }) => {
+    await page.goto('/app/dashboard');
     await page.waitForTimeout(1500);
     await setTheme(page, 'light');
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/todos-light.png` });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/dashboard-light.png` });
   });
 
-  test('todos — dark', async ({ page }) => {
-    await page.goto('/app/todos');
+  test('dashboard — dark', async ({ page }) => {
+    await page.goto('/app/dashboard');
     await page.waitForTimeout(1500);
     await setTheme(page, 'dark');
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/todos-dark.png` });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/dashboard-dark.png` });
   });
 
-  test('chat — light', async ({ page }) => {
-    await page.goto('/app/chat');
-    await page.waitForTimeout(2000);
-    await setTheme(page, 'light');
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/chat-light.png` });
-  });
-
-  test('chat — dark', async ({ page }) => {
-    await page.goto('/app/chat');
-    await page.waitForTimeout(2000);
-    await setTheme(page, 'dark');
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/chat-dark.png` });
-  });
-
-  test('polls — light', async ({ page }) => {
-    await page.goto('/app/polls');
+  test('clock — light', async ({ page }) => {
+    await page.goto('/app/clock');
     await page.waitForTimeout(1500);
     await setTheme(page, 'light');
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/polls-light.png` });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/clock-light.png` });
   });
 
-  test('polls — dark', async ({ page }) => {
-    await page.goto('/app/polls');
+  test('clock — dark', async ({ page }) => {
+    await page.goto('/app/clock');
     await page.waitForTimeout(1500);
     await setTheme(page, 'dark');
-    await page.screenshot({ path: `${SCREENSHOT_DIR}/polls-dark.png` });
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/clock-dark.png` });
+  });
+
+  test('tickets — light', async ({ page }) => {
+    await page.goto('/app/tickets');
+    await page.waitForTimeout(1500);
+    await setTheme(page, 'light');
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/tickets-light.png` });
+  });
+
+  test('tickets — dark', async ({ page }) => {
+    await page.goto('/app/tickets');
+    await page.waitForTimeout(1500);
+    await setTheme(page, 'dark');
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/tickets-dark.png` });
+  });
+
+  test('messages — light', async ({ page }) => {
+    await page.goto('/app/messages');
+    await page.waitForTimeout(1500);
+    await setTheme(page, 'light');
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/messages-light.png` });
+  });
+
+  test('messages — dark', async ({ page }) => {
+    await page.goto('/app/messages');
+    await page.waitForTimeout(1500);
+    await setTheme(page, 'dark');
+    await page.screenshot({ path: `${SCREENSHOT_DIR}/messages-dark.png` });
   });
 });
 
@@ -179,12 +193,14 @@ test('all screenshots exist', async () => {
     'landing-full-dark.png',
     'login-light.png',
     'login-dark.png',
-    'todos-light.png',
-    'todos-dark.png',
-    'chat-light.png',
-    'chat-dark.png',
-    'polls-light.png',
-    'polls-dark.png',
+    'dashboard-light.png',
+    'dashboard-dark.png',
+    'clock-light.png',
+    'clock-dark.png',
+    'tickets-light.png',
+    'tickets-dark.png',
+    'messages-light.png',
+    'messages-dark.png',
   ];
   for (const name of expected) {
     expect(fs.existsSync(`${SCREENSHOT_DIR}/${name}`)).toBe(true);
