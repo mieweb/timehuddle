@@ -36,8 +36,8 @@ settings.json
 # Meteor legacy local cache
 .meteor/local
 
-# Capacitor native build directories (generated, not committed)
-android/
-
 # Local PM2 process config
 ecosystem.config.cjs
+
+# AI-generated scratch output (not for version control)
+output.txt
