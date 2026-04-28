@@ -13,6 +13,7 @@
  * SidebarContext owns expand/collapse + mobile drawer state.
  */
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { ClockPage } from '../features/clock/ClockPage';
 import { TimesheetPage } from '../features/clock/TimesheetPage';
@@ -26,6 +27,7 @@ import { SIDEBAR_KEY } from '../lib/constants';
 import { TeamProvider } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
 import { AppHeader } from './AppHeader';
+import { BottomNav } from './BottomNav';
 import { RouterContext } from './router';
 import { SettingsPage } from './SettingsPage';
 import { Sidebar } from './Sidebar';
@@ -148,13 +150,14 @@ export const AppLayout: React.FC = () => {
           value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
         >
           <div className="flex h-screen overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-            {/* Mobile backdrop — tap to close drawer */}
-            {isMobileOpen && (
+            {/* Mobile backdrop — rendered via portal to escape overflow-hidden */}
+            {isMobileOpen && createPortal(
               <div
-                className="fixed inset-0 z-20 bg-black/50 backdrop-blur-sm md:hidden"
+                className="fixed inset-0 z-[45] bg-black/50 backdrop-blur-sm md:hidden"
                 onClick={closeMobile}
                 aria-hidden
-              />
+              />,
+              document.body,
             )}
 
             <Sidebar />
@@ -162,7 +165,7 @@ export const AppLayout: React.FC = () => {
             {/* Content column */}
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
               <AppHeader title={pageTitle} />
-              <main className="flex-1 overflow-auto">
+              <main className="flex-1 overflow-auto pb-20 md:pb-0">
                 {profileUserId ? (
                   <ProfilePage userId={profileUserId} />
                 ) : (
@@ -170,6 +173,8 @@ export const AppLayout: React.FC = () => {
                 )}
               </main>
             </div>
+
+            <BottomNav />
           </div>
         </SidebarContext.Provider>
       </TeamProvider>

@@ -1,5 +1,7 @@
 import './styles.css';
 
+import { App as CapApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -9,15 +11,43 @@ import { AppLayout } from '../imports/ui/AppLayout';
 import { LandingPage } from '../imports/ui/LandingPage';
 import { LoginForm } from '../imports/ui/LoginForm';
 
+// ─── Deep link handling (Capacitor native only) ───────────────────────────────
+//
+// Password reset emails contain a timehuddle://reset?token=XXX link.
+// When the user taps it, the OS opens the app and fires appUrlOpen.
+// We store the token in this module-level variable so the App component
+// can read it on mount (and on every resume).
+
+let _deepLinkToken: string | null = null;
+
+if (Capacitor.isNativePlatform()) {
+  void CapApp.addListener('appUrlOpen', ({ url }) => {
+    try {
+      // Expected format: timehuddle://reset?token=<value>
+      const parsed = new URL(url);
+      const token = parsed.searchParams.get('token');
+      if (token) {
+        _deepLinkToken = token;
+        // Re-render the root so the App component picks up the token.
+        renderRoot();
+      }
+    } catch {
+      // Malformed URL — ignore
+    }
+  });
+}
+
 // ─── App (client-side rendered, /app and all non-root routes) ─────────────────
 
 const App: React.FC = () => {
   const { user, loading } = useSession();
 
-  // If a reset token is present in the URL, show the reset-confirm form
-  // regardless of auth state (so users can reset even if cookies are stale).
+  // Reset token: check URL params (web) or deep link (native).
   const resetToken =
-    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') : null;
+    _deepLinkToken ??
+    (typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('token')
+      : null);
 
   if (resetToken) {
     return <LoginForm initialMode="reset-confirm" />;
@@ -37,19 +67,30 @@ const App: React.FC = () => {
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
-const el = document.getElementById('root');
-if (el) {
-  if (window.location.pathname === '/') {
-    // Root renders the marketing landing page.
-    createRoot(el).render(<LandingPage />);
-  } else if (window.location.pathname === '/inbox') {
-    // Dev inbox — no auth required.
-    createRoot(el).render(<InboxPage />);
-  } else {
-    createRoot(el).render(
-      <SessionProvider>
-        <App />
-      </SessionProvider>,
-    );
+let _root: ReturnType<typeof createRoot> | null = null;
+
+function renderRoot() {
+  const el = document.getElementById('root');
+  if (!el) return;
+
+  if (!_root) {
+    if (window.location.pathname === '/') {
+      _root = createRoot(el)
+      _root.render(<LandingPage />);
+      return;
+    } else if (window.location.pathname === '/inbox') {
+      _root = createRoot(el);
+      _root.render(<InboxPage />);
+      return;
+    }
+    _root = createRoot(el);
   }
+
+  _root.render(
+    <SessionProvider>
+      <App />
+    </SessionProvider>,
+  );
 }
+
+renderRoot();

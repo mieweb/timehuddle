@@ -15,10 +15,19 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "screenshots": "npx playwright test e2e/screenshots.spec.ts",
-    "prepare": "node scripts/prepare-husky.cjs"
+    "prepare": "node scripts/prepare-husky.cjs",
+    "dev:mobile": "vite --host",
+    "dev:ios": "CAPACITOR_SERVER_URL=http://10.0.0.8:3000 npx cap sync && npx cap open ios",
+    "dev:ios:serve": "VITE_TIMECORE_URL=http://10.0.0.8:4000 vite --host",
+    "prod:ios": "vite build --mode production && npx cap sync && npx cap open ios",
+    "dev:android": "vite build --mode capacitor.dev && npx cap sync && npx cap open android",
+    "prod:android": "vite build --mode production && npx cap sync && npx cap open android"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.4",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/core": "^8.3.1",
+    "@capacitor/push-notifications": "^8.0.3",
     "@fortawesome/fontawesome-free": "^7.0.1",
     "@fortawesome/fontawesome-svg-core": "^7.0.1",
     "@fortawesome/free-brands-svg-icons": "^7.0.1",
@@ -35,6 +44,10 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/ios": "^8.3.1",
     "@eslint/js": "^9.35.0",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/oxide": "4.1.13",

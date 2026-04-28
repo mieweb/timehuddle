@@ -6,7 +6,7 @@
  *   • Message composition with send
  *   • Real-time updates via SSE stream
  */
-import { faEnvelope, faPaperPlane } from '@fortawesome/free-solid-svg-icons';
+import { faArrowLeft, faEnvelope, faPaperPlane } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Avatar,
@@ -183,6 +183,11 @@ export const MessagesPage: React.FC = () => {
 
   const hasThread = isAdmin ? !!selectedMemberId : !!selectedAdminId;
 
+  const handleBack = useCallback(() => {
+    if (isAdmin) setSelectedMemberId(null);
+    else setSelectedAdminId(null);
+  }, [isAdmin]);
+
   const teamOptions = useMemo(
     () => teams.filter((t) => !t.isPersonal).map((t) => ({ value: t.id, label: t.name })),
     [teams],
@@ -217,8 +222,13 @@ export const MessagesPage: React.FC = () => {
       )}
 
       <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
-        {/* Thread list */}
-        <Card padding="none" className="w-48 shrink-0 overflow-y-auto md:w-56">
+        {/* Thread list — full width on mobile, sidebar on desktop */}
+        <Card
+          padding="none"
+          className={`overflow-y-auto md:block md:w-56 md:shrink-0 ${
+            hasThread ? 'hidden' : 'w-full'
+          }`}
+        >
           <CardHeader className="px-4 py-3">
             <Text
               size="xs"
@@ -239,22 +249,22 @@ export const MessagesPage: React.FC = () => {
                       onClick={() =>
                         isAdmin ? setSelectedMemberId(m.id) : setSelectedAdminId(m.id)
                       }
-                      className={`flex w-full items-center gap-2 px-4 py-3 text-left text-sm transition-colors ${
+                      className={`flex w-full items-center gap-3 px-4 py-3.5 text-left text-sm transition-colors ${
                         isSelected
                           ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
                           : 'text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800'
                       }`}
                       aria-label={`Chat with ${m.name}`}
                     >
-                      <Avatar name={m.name} size="xs" />
-                      <span className="truncate">{m.name}</span>
+                      <Avatar name={m.name} size="sm" />
+                      <span className="truncate font-medium">{m.name}</span>
                     </button>
                   </li>
                 );
               })}
               {threadMembers.length === 0 && (
-                <li className="px-4 py-6 text-center">
-                  <Text variant="muted" size="xs">
+                <li className="px-4 py-8 text-center">
+                  <Text variant="muted" size="sm">
                     {isAdmin ? 'No other members in this team.' : 'No admins in this team.'}
                   </Text>
                 </li>
@@ -263,15 +273,30 @@ export const MessagesPage: React.FC = () => {
           </CardContent>
         </Card>
 
-        {/* Chat area */}
-        <Card padding="none" className="flex min-w-0 flex-1 flex-col">
+        {/* Chat area — hidden on mobile until a thread is selected */}
+        <Card
+          padding="none"
+          className={`flex min-w-0 flex-col md:flex-1 ${
+            hasThread ? 'flex-1' : 'hidden md:flex'
+          }`}
+        >
           {hasThread ? (
             <>
-              {/* Header */}
-              <CardHeader className="px-5 py-3">
-                <CardTitle className="text-sm">
-                  {memberNames[isAdmin ? selectedMemberId! : selectedAdminId!] ?? 'Chat'}
-                </CardTitle>
+              {/* Header with back button on mobile */}
+              <CardHeader className="px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleBack}
+                    className="flex items-center justify-center rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 md:hidden"
+                    aria-label="Back to list"
+                  >
+                    <FontAwesomeIcon icon={faArrowLeft} className="text-sm" />
+                  </button>
+                  <CardTitle className="text-sm">
+                    {memberNames[isAdmin ? selectedMemberId! : selectedAdminId!] ?? 'Chat'}
+                  </CardTitle>
+                </div>
               </CardHeader>
 
               {/* Messages */}

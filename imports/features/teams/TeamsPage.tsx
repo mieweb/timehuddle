@@ -26,9 +26,6 @@ import {
   Avatar,
   Badge,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
   CardTitle,
   Dropdown,
   DropdownItem,
@@ -251,43 +248,44 @@ export const TeamsPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-6">
+    <div className="mx-auto max-w-3xl space-y-4 px-3 py-3">
       {/* Header actions */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          variant="primary"
-          leftIcon={<FontAwesomeIcon icon={faPlus} />}
-          onClick={() => setModal('create')}
-        >
-          Create Team
-        </Button>
-        <Button
-          variant="outline"
-          leftIcon={<FontAwesomeIcon icon={faRightToBracket} />}
-          onClick={() => setModal('join')}
-        >
-          Join Team
-        </Button>
-        {/* Team switcher */}
+      <div className="space-y-3">
+        <div className="flex gap-3">
+          <Button
+            variant="primary"
+            fullWidth
+            leftIcon={<FontAwesomeIcon icon={faPlus} />}
+            onClick={() => setModal('create')}
+          >
+            Create Team
+          </Button>
+          <Button
+            variant="outline"
+            fullWidth
+            leftIcon={<FontAwesomeIcon icon={faRightToBracket} />}
+            onClick={() => setModal('join')}
+          >
+            Join Team
+          </Button>
+        </div>
+        {/* Team switcher — full width below buttons on mobile */}
         {teams.length > 1 && (
-          <div className="ml-auto">
-            <Select
-              label="Team"
-              hideLabel
-              size="sm"
-              options={teamOptions}
-              value={selectedTeamId ?? ''}
-              onValueChange={setSelectedTeamId}
-            />
-          </div>
+          <Select
+            label="Switch team"
+            hideLabel={false}
+            options={teamOptions}
+            value={selectedTeamId ?? ''}
+            onValueChange={setSelectedTeamId}
+          />
         )}
       </div>
 
       {/* Current team card */}
       {selectedTeam && (
-        <Card padding="none">
+        <div>
           {/* Team header */}
-          <CardHeader className="flex flex-row items-center justify-between px-5 py-4">
+          <div className="flex flex-row items-center justify-between py-2">
             <div>
               <CardTitle>
                 {selectedTeam.isPersonal ? 'Personal Workspace' : selectedTeam.name}
@@ -332,10 +330,10 @@ export const TeamsPage: React.FC = () => {
                 </Button>
               </div>
             )}
-          </CardHeader>
+          </div>
 
           {/* Members list */}
-          <CardContent className="px-5 py-3">
+          <div className="py-1">
             <div className="mb-3 flex items-center justify-between">
               <Text
                 variant="muted"
@@ -442,17 +440,17 @@ export const TeamsPage: React.FC = () => {
                 );
               })}
             </ul>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Chart */}
       {selectedTeam && !selectedTeam.isPersonal && (
-        <Card padding="none">
-          <CardHeader className="px-5 py-4">
+        <div className="overflow-hidden">
+          <div className="py-2">
             <CardTitle>Chart</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
+          </div>
+          <div className="overflow-x-auto">
             <React.Suspense
               fallback={
                 <div className="flex items-center justify-center p-8">
@@ -473,8 +471,8 @@ export const TeamsPage: React.FC = () => {
                 })}
               />
             </React.Suspense>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* ── Modals ── */}

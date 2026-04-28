@@ -99,6 +99,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     e.preventDefault();
     if (loading) return;
     setError(null);
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -136,6 +140,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     e.preventDefault();
     if (!resetToken || loading) return;
     setError(null);
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;

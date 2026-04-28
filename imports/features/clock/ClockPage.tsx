@@ -103,18 +103,23 @@ export const ClockPage: React.FC = () => {
   }, []);
 
   const confirmClockOut = useCallback(async () => {
-    if (!selectedTeamId) return;
+    // Always use the teamId from the active event, not the selected team in the UI.
+    // The user may have switched teams after clocking in, which would cause a 404.
+    const teamId = activeClockEvent?.teamId ?? selectedTeamId;
+    if (!teamId) return;
     setClockOutLoading(true);
     try {
       const link = youtubeLink.trim();
-      await clockApi.stop(selectedTeamId, link || undefined);
+      await clockApi.stop(teamId, link || undefined);
       await refetchClock();
       setShowYoutubeModal(false);
       setYoutubeLink('');
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to clock out. Please try again.');
     } finally {
       setClockOutLoading(false);
     }
-  }, [selectedTeamId, refetchClock, youtubeLink]);
+  }, [activeClockEvent, selectedTeamId, refetchClock, youtubeLink]);
 
   const handleStartTicket = useCallback(
     async (ticketId: string) => {

@@ -156,7 +156,7 @@ export const TimesheetPage: React.FC = () => {
 
       {/* Custom date inputs */}
       {preset === 'custom' && (
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end">
           <Input
             label="Start"
             type="date"
@@ -178,6 +178,7 @@ export const TimesheetPage: React.FC = () => {
             disabled={loading || !customStart || !customEnd}
             isLoading={loading}
             loadingText="Applying…"
+            className="w-full md:w-auto"
           >
             Apply
           </Button>

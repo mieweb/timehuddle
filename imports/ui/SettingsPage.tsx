@@ -20,22 +20,19 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
   Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   Input,
   Select,
   Text,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
+import { Capacitor } from '@capacitor/core';
 import {
   checkPushNotificationStatus,
-  isPushNotificationSupported,
-  subscribeToWebPush,
-  unsubscribeFromWebPush,
-} from '../lib/pushNotificationsClient';
+  isPushSupported,
+  subscribeToPush,
+  unsubscribeFromPush,
+} from '../lib/nativePush';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
@@ -49,33 +46,40 @@ const Section: React.FC<{
   description?: string;
   children: React.ReactNode;
 }> = ({ icon, title, description, children }) => (
-  <Card padding="none">
-    <CardHeader className="flex items-start gap-3 px-5 py-4">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+  <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+    <div className="flex items-center gap-3 border-b border-neutral-100 px-4 py-3.5 dark:border-neutral-800">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
         <FontAwesomeIcon icon={icon} className="text-sm" />
       </div>
       <div>
-        <CardTitle className="text-sm">{title}</CardTitle>
+        <Text size="sm" weight="semibold">{title}</Text>
         {description && (
-          <Text variant="muted" size="xs" className="mt-0.5">
+          <Text variant="muted" size="xs">
             {description}
           </Text>
         )}
       </div>
-    </CardHeader>
-    <CardContent className="divide-y divide-neutral-100 p-0 dark:divide-neutral-800">
+    </div>
+    <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
       {children}
-    </CardContent>
-  </Card>
+    </div>
+  </div>
 );
 
-const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode }> = ({
+const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode; inline?: boolean }> = ({
   label,
   hint,
   children,
+  inline = false,
 }) => (
-  <div className="flex items-center justify-between gap-4 px-5 py-3.5">
-    <div className="min-w-0">
+  <div
+    className={`px-4 py-3.5 ${
+      inline
+        ? 'flex items-center justify-between gap-4'
+        : 'flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4'
+    }`}
+  >
+    <div className="min-w-0 shrink-0">
       <Text size="sm" weight="medium">
         {label}
       </Text>
@@ -85,7 +89,7 @@ const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode }>
         </Text>
       )}
     </div>
-    <div className="shrink-0">{children}</div>
+    <div className={inline ? 'shrink-0' : 'w-full sm:w-auto sm:shrink-0'}>{children}</div>
   </div>
 );
 
@@ -143,36 +147,46 @@ const BrandSelector: React.FC = () => {
 // ─── Push notifications (Web Push — timeharbor-old parity) ────────────────────
 
 const PushNotificationsSettings: React.FC = () => {
+  const isNative = Capacitor.isNativePlatform();
   const [supported, setSupported] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [serverHasVapid, setServerHasVapid] = useState<boolean | null>(null);
+  // VAPID check is only relevant on the web; always pass on native.
+  const [serverHasVapid, setServerHasVapid] = useState<boolean | null>(isNative ? true : null);
 
   const refreshStatus = useCallback(async () => {
-    if (!isPushNotificationSupported()) {
+    if (isNative) {
+      // On native we don't have a synchronous way to check if we are subscribed
+      // without a stored token, so treat "supported" as the indicator.
+      return;
+    }
+    if (!isPushSupported()) {
       setEnabled(false);
       return;
     }
     const st = await checkPushNotificationStatus();
     setEnabled(st.permission === 'granted' && st.subscribed && st.serverEnabled);
-  }, []);
+  }, [isNative]);
 
   useEffect(() => {
-    setSupported(isPushNotificationSupported());
-    // VAPID key is configured if the env var is present
-    const vapidKey =
-      (typeof import.meta !== 'undefined' &&
-        (import.meta as { env?: Record<string, string> }).env?.VITE_VAPID_PUBLIC_KEY) ||
-      '';
-    setServerHasVapid(vapidKey.length > 0);
+    setSupported(isPushSupported());
+    if (!isNative) {
+      // VAPID key is configured if the env var is present
+      const vapidKey =
+        (typeof import.meta !== 'undefined' &&
+          (import.meta as { env?: Record<string, string> }).env?.VITE_VAPID_PUBLIC_KEY) ||
+        '';
+      setServerHasVapid(vapidKey.length > 0);
+    }
     void refreshStatus();
-  }, [refreshStatus]);
+  }, [isNative, refreshStatus]);
 
   const handleEnable = async () => {
     setLoading(true);
     try {
-      await subscribeToWebPush();
-      await refreshStatus();
+      await subscribeToPush();
+      if (!isNative) await refreshStatus();
+      else setEnabled(true);
 
       window.alert(
         'Notifications enabled! You will receive alerts when team members clock in or out.',
@@ -198,8 +212,9 @@ const PushNotificationsSettings: React.FC = () => {
     if (!window.confirm('Are you sure you want to disable push notifications?')) return;
     setLoading(true);
     try {
-      await unsubscribeFromWebPush();
-      await refreshStatus();
+      await unsubscribeFromPush();
+      if (!isNative) await refreshStatus();
+      else setEnabled(false);
 
       window.alert('Notifications disabled.');
     } catch {
@@ -220,7 +235,7 @@ const PushNotificationsSettings: React.FC = () => {
       )}
       {!supported ? (
         <Text variant="muted" size="sm">
-          Push notifications are not supported in this browser. Try Chrome, Firefox, or Edge.
+          Push notifications are not supported on this platform.
         </Text>
       ) : enabled ? (
         <>
@@ -302,7 +317,7 @@ export const SettingsPage: React.FC = () => {
   }, [firstName, lastName, refetch]);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5 px-4 py-8">
+    <div className="mx-auto max-w-2xl space-y-4 px-3 py-3">
       {/* Profile */}
       <Section icon={faCircleUser} title="Profile" description="Your account information.">
         <Row label="First name">
@@ -311,7 +326,6 @@ export const SettingsPage: React.FC = () => {
             hideLabel
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
-            size="sm"
           />
         </Row>
         <Row label="Last name">
@@ -320,13 +334,12 @@ export const SettingsPage: React.FC = () => {
             hideLabel
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
-            size="sm"
           />
         </Row>
-        <Row label="Email address" hint="Read-only">
+        <Row label="Email address" hint="Read-only" inline>
           <Badge variant="secondary">{email ?? '—'}</Badge>
         </Row>
-        <div className="flex items-center gap-3 px-5 py-3">
+        <div className="flex items-center gap-3 px-4 py-3.5">
           <Button
             variant="primary"
             onClick={handleSaveProfile}
@@ -357,7 +370,7 @@ export const SettingsPage: React.FC = () => {
         <Row label="Brand theme" hint="Switch between brand themes">
           <BrandSelector />
         </Row>
-        <Row label="Colour theme" hint="Persisted in localStorage for this browser">
+        <Row label="Colour theme" hint="Light or dark mode">
           <ThemeSelector />
         </Row>
       </Section>
@@ -373,7 +386,7 @@ export const SettingsPage: React.FC = () => {
 
       {/* Account */}
       <Section icon={faGear} title="Account">
-        <Row label="Sign out" hint="You will be returned to the login screen">
+        <Row label="Sign out" hint="You will be returned to the login screen" inline>
           <Button
             variant="danger"
             size="sm"
@@ -396,7 +409,7 @@ export const SettingsPage: React.FC = () => {
             ['Node.js', '22'],
           ] as const
         ).map(([name, version]) => (
-          <Row key={name} label={name}>
+          <Row key={name} label={name} inline>
             <Badge variant="outline">{version}</Badge>
           </Row>
         ))}

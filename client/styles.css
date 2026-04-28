@@ -8,6 +8,51 @@ html {
 html[data-theme='dark'] {
   background-color: #0a0a0a; /* neutral-950 */
 }
+
+/* Push app header below the device status bar on mobile (notch / Dynamic Island) */
+.app-header {
+  padding-top: max(env(safe-area-inset-top), 0px);
+}
+
+/* Push sidebar brand row below the status bar on mobile */
+.sidebar-brand {
+  padding-top: max(env(safe-area-inset-top), 0px);
+}
+
+/* Bottom nav safe area — sits above the iPhone home indicator */
+.bottom-nav {
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
+}
+
+/* Prevent iOS Safari from auto-zooming when focusing inputs smaller than 16px */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em) !important;
+  }
+
+  /* Override ychart's global [role="option"].px-3.py-2 { font-size: 0.75rem !important } rule.
+   * Must match its specificity [0,3,0] so our later-in-document rule wins. */
+  [role='option'].px-3.py-2 {
+    font-size: 1rem !important;
+    padding-top: 0.625rem !important;
+    padding-bottom: 0.625rem !important;
+  }
+
+  /* Convert @mieweb/ui Modal from full-screen to centered modal on mobile */
+  [role='dialog']:not([aria-label='Navigation']) {
+    min-height: auto !important;
+    max-height: 85dvh !important;
+    border-radius: 0.75rem !important;
+    width: calc(100% - 2rem) !important;
+    margin: auto !important;
+    overflow-y: auto !important;
+  }
+}
+@source "../node_modules/@mieweb/ui/dist";
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
 @source "../node_modules/@mieweb/ui/dist";
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 

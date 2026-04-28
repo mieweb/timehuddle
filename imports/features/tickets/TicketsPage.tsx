@@ -78,6 +78,7 @@ export const TicketsPage: React.FC = () => {
   const [createTitle, setCreateTitle] = useState('');
   const [createGithub, setCreateGithub] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editGithub, setEditGithub] = useState('');
@@ -294,8 +295,66 @@ export const TicketsPage: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center gap-3">
+      {/* ── Mobile header ── */}
+      <div className="flex items-center gap-2 md:hidden">
+        {/* + icon button */}
+        <Button
+          variant="primary"
+          size="icon"
+          onClick={() => setShowCreate(true)}
+          aria-label="New Ticket"
+        >
+          <FontAwesomeIcon icon={faPlus} />
+        </Button>
+
+        {/* Team switcher — same Select as Dashboard */}
+        {teams.length > 1 && (
+          <Select
+            label="Team"
+            hideLabel
+            options={teamOptions}
+            value={selectedTeamId ?? ''}
+            onValueChange={setSelectedTeamId}
+            className="flex-1"
+          />
+        )}
+
+        {/* Search toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => {
+            setShowSearch((v) => !v);
+            if (showSearch) setSearchQuery('');
+          }}
+          aria-label={showSearch ? 'Close search' : 'Search tickets'}
+        >
+          <FontAwesomeIcon icon={showSearch ? faXmark : faSearch} />
+        </Button>
+      </div>
+
+      {/* Search input — expands below on mobile */}
+      {showSearch && (
+        <div className="relative md:hidden">
+          <FontAwesomeIcon
+            icon={faSearch}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
+          />
+          <Input
+            label="Search"
+            hideLabel
+            placeholder="Search tickets…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-8"
+            size="sm"
+            autoFocus
+          />
+        </div>
+      )}
+
+      {/* ── Desktop header ── */}
+      <div className="hidden flex-wrap items-center gap-3 md:flex">
         <Button
           variant="primary"
           leftIcon={<FontAwesomeIcon icon={faPlus} />}
@@ -326,7 +385,6 @@ export const TicketsPage: React.FC = () => {
           <Select
             label="Team"
             hideLabel
-            size="sm"
             options={teamOptions}
             value={selectedTeamId ?? ''}
             onValueChange={setSelectedTeamId}
