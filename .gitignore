@@ -32,3 +32,12 @@ settings.json
 
 # Local migration/reference repos (not part of app deploy)
 .gitmodules
+
+# Meteor legacy local cache
+.meteor/local
+
+# Capacitor native build directories (generated, not committed)
+android/
+
+# Local PM2 process config
+ecosystem.config.cjs

@@ -31,14 +31,26 @@ export interface PublicUser {
   website: string;
 }
 
+// ─── Token storage (for Capacitor / custom-scheme WebViews where cookies are unreliable) ──
+
+const TOKEN_KEY = 'timecore_session_token';
+
+export const sessionToken = {
+  get: (): string | null => localStorage.getItem(TOKEN_KEY),
+  set: (token: string) => localStorage.setItem(TOKEN_KEY, token),
+  clear: () => localStorage.removeItem(TOKEN_KEY),
+};
+
 // ─── Base request ─────────────────────────────────────────────────────────────
 
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const hasBody = options.body != null;
+  const token = sessionToken.get();
   const res = await fetch(`${TIMECORE_BASE_URL}${path}`, {
     credentials: 'include',
     headers: {
       ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
     ...options,
@@ -59,22 +71,31 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
 // ─── Auth API ─────────────────────────────────────────────────────────────────
 
 export const authApi = {
-  /** Sign in — sets better-auth session cookie on success. */
-  signIn: (email: string, password: string) =>
-    request('/api/auth/sign-in/email', {
+  /** Sign in — stores session token and sets better-auth session cookie on success. */
+  signIn: async (email: string, password: string) => {
+    const res = await request<{ token?: string }>('/api/auth/sign-in/email', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
-    }),
+    });
+    if (res.token) sessionToken.set(res.token);
+    return res;
+  },
 
-  /** Sign up — creates account. Does NOT auto-create session; call signIn after. */
-  signUp: (email: string, password: string, name: string) =>
-    request('/api/auth/sign-up/email', {
+  /** Sign up — creates account and stores session token. */
+  signUp: async (email: string, password: string, name: string) => {
+    const res = await request<{ token?: string }>('/api/auth/sign-up/email', {
       method: 'POST',
       body: JSON.stringify({ email, password, name }),
-    }),
+    });
+    if (res.token) sessionToken.set(res.token);
+    return res;
+  },
 
-  /** Sign out — clears better-auth session cookie. */
-  signOut: () => request('/api/auth/sign-out', { method: 'POST' }),
+  /** Sign out — clears better-auth session cookie and stored token. */
+  signOut: async () => {
+    await request('/api/auth/sign-out', { method: 'POST' }).catch(() => {});
+    sessionToken.clear();
+  },
 
   /**
    * Request a password-reset email.
