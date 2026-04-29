@@ -36,7 +36,7 @@ function setupTeam(opts: {
     selectedTeam: null,
     setSelectedTeamId: vi.fn(),
     isAdmin: false,
-    activeClockEvent: opts.activeClockEvent ?? null,
+    activeClockEvent: (opts.activeClockEvent ?? null) as any,
     clockReady: true,
     refetchClock: mockRefetchClock,
     currentTime: Date.now(),
@@ -95,8 +95,8 @@ describe('useClockToggle', () => {
 
     it('sets clockInLoading=true during the call and false after', async () => {
       setupTeam({ selectedTeamId: 'team1' });
-      let resolveStart!: () => void;
-      mockStart.mockReturnValue(new Promise<void>((res) => { resolveStart = res; }));
+      let resolveStart!: (value?: any) => void;
+      mockStart.mockReturnValue(new Promise<any>((res) => { resolveStart = res; }));
 
       const { result } = renderHook(() => useClockToggle());
 
@@ -157,8 +157,8 @@ describe('useClockToggle', () => {
 
     it('sets clockOutLoading=true during the call and false after', async () => {
       setupTeam({ activeClockEvent: { id: 'evt1', teamId: 'team1' } });
-      let resolveStop!: () => void;
-      mockStop.mockReturnValue(new Promise<void>((res) => { resolveStop = res; }));
+      let resolveStop!: (value?: any) => void;
+      mockStop.mockReturnValue(new Promise<any>((res) => { resolveStop = res; }));
 
       const { result } = renderHook(() => useClockToggle());
 
