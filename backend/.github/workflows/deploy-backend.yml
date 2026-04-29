@@ -1,0 +1,85 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy Backend - ${{ matrix.env }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env: DEV
+            host_secret: DEV_BACKEND_HOST
+            port: 2063
+            branch: main
+            health_url_secret: DEV_BACKEND_HEALTH_URL
+          - env: PROD
+            host_secret: PROD_BACKEND_HOST
+            port: 2065
+            branch: main
+            health_url_secret: PROD_BACKEND_HEALTH_URL
+
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p ${{ matrix.port }} ${{ secrets[matrix.host_secret] }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Deploy to ${{ matrix.env }}
+        run: |
+          ssh -p ${{ matrix.port }} \
+              -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=no \
+              ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets[matrix.host_secret] }} << 'EOF'
+            set -e
+
+            REPO_DIR="$HOME/timeharbor-timehuddle-backend"
+
+            # Fix git safe directory (sudo npm creates root-owned files)
+            git config --global --add safe.directory "$REPO_DIR" 2>/dev/null || true
+
+            if [ ! -d "$REPO_DIR/.git" ]; then
+              echo "📥 Cloning repository for first-time setup..."
+              git clone -b ${{ matrix.branch }} https://github.com/Dharp02/timeharbor-timehuddle-backend.git "$REPO_DIR"
+            fi
+
+            cd "$REPO_DIR"
+
+
+            echo "🔄 Fetching latest code on ${{ matrix.branch }}..."
+            git fetch origin
+            git checkout ${{ matrix.branch }}
+            git reset --hard origin/${{ matrix.branch }}
+
+            echo "⏹️  Stopping PM2..."
+            sudo pm2 stop all 2>/dev/null || true
+
+            echo "⚙️  Installing dependencies..."
+            sudo npm install --no-audit --no-fund
+
+            echo "🚀 Restarting PM2 backend..."
+            sudo pm2 restart all
+            sudo pm2 save
+
+            echo "✅ ${{ matrix.env }} backend deployment completed!"
+            sudo pm2 status
+          EOF
+
+      - name: Deployment Status
+        if: failure()
+        run: echo "❌ ${{ matrix.env }} backend deployment failed!"
+
+      - name: Verify ${{ matrix.env }} health
+        run: |
+          sleep 8
+          BODY=$(curl -s ${{ secrets[matrix.health_url_secret] }})
+          echo "Response: $BODY"
+          echo "$BODY" | grep -q '"status":"ok"' || { echo "${{ matrix.env }} backend health check failed"; exit 1; }
+          echo "${{ matrix.env }} backend is healthy"
