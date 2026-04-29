@@ -8,7 +8,6 @@
  */
 import {
   faBell,
-  faCircleUser,
   faGear,
   faInfo,
   faMoon,
@@ -17,13 +16,7 @@ import {
   faSun,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  Badge,
-  Button,
-  Input,
-  Select,
-  Text,
-} from '@mieweb/ui';
+import { Badge, Button, Select, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { Capacitor } from '@capacitor/core';
@@ -36,7 +29,6 @@ import {
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
-import { userApi } from '../lib/api';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
@@ -276,91 +268,10 @@ const PushNotificationsSettings: React.FC = () => {
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 export const SettingsPage: React.FC = () => {
-  const { user, signOut } = useSession();
-  const email = user?.email;
-
-  // Split display name into first/last for the edit fields
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  useEffect(() => {
-    if (user?.name) {
-      const [first = '', ...rest] = user.name.split(' ');
-      setFirstName(first);
-      setLastName(rest.join(' '));
-    }
-  }, [user?.name]);
-
-  const [saved, setSaved] = useState(false);
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [profileError, setProfileError] = useState<string | null>(null);
-  const { refetch } = useSession();
-
-  const handleSaveProfile = useCallback(async () => {
-    setProfileLoading(true);
-    setProfileError(null);
-    try {
-      const name = [firstName, lastName].filter(Boolean).join(' ').trim();
-      if (!name) {
-        setProfileError('Name cannot be empty');
-        setProfileLoading(false);
-        return;
-      }
-      await userApi.updateProfile({ name });
-      await refetch();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch (err) {
-      setProfileError(err instanceof Error ? err.message : 'Something went wrong');
-    } finally {
-      setProfileLoading(false);
-    }
-  }, [firstName, lastName, refetch]);
+  const { signOut } = useSession();
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 px-3 py-3">
-      {/* Profile */}
-      <Section icon={faCircleUser} title="Profile" description="Your account information.">
-        <Row label="First name">
-          <Input
-            label="First name"
-            hideLabel
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
-          />
-        </Row>
-        <Row label="Last name">
-          <Input
-            label="Last name"
-            hideLabel
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
-          />
-        </Row>
-        <Row label="Email address" hint="Read-only" inline>
-          <Badge variant="secondary">{email ?? '—'}</Badge>
-        </Row>
-        <div className="flex items-center gap-3 px-4 py-3.5">
-          <Button
-            variant="primary"
-            onClick={handleSaveProfile}
-            isLoading={profileLoading}
-            loadingText="Saving…"
-          >
-            Save Profile
-          </Button>
-          {saved && (
-            <Text variant="success" size="xs">
-              Saved!
-            </Text>
-          )}
-          {profileError && (
-            <Text variant="destructive" size="xs">
-              {profileError}
-            </Text>
-          )}
-        </div>
-      </Section>
-
       {/* Appearance */}
       <Section
         icon={faPalette}
