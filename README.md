@@ -16,7 +16,7 @@ Features **Clock In/Out**, **Ticket Tracking**, **Timesheets**, **Team Managemen
 
 ![Prettier](https://img.shields.io/badge/code_style-prettier-ff69b4?logo=prettier&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
-![Node](https://img.shields.io/badge/Node-22.x-339933?logo=node.js&logoColor=white)
+![Node](https://img.shields.io/badge/Node-24.x-339933?logo=node.js&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-8.x-646CFF?logo=vite&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-4.x-38B2AC?logo=tailwind-css&logoColor=white)
@@ -59,9 +59,41 @@ Features **Clock In/Out**, **Ticket Tracking**, **Timesheets**, **Team Managemen
 
 ## Quick Start
 
-You need both **timehuddle** (this repo, the frontend) and **timecore** (the backend API) running.
+### Docker
 
-### 1. Start the backend (timecore)
+The fastest way to get everything running locally is Docker Compose — MongoDB, the backend, and the frontend all start together with live reload.
+
+```bash
+docker compose up
+```
+
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:4000
+- MongoDB: `mongodb://localhost:27017/timehuddle`
+
+`node_modules` are installed automatically inside the containers on first start. Subsequent starts skip the install and boot quickly.
+
+**Seed the database** with demo data after the containers are up:
+
+```bash
+sh scripts/seed-docker.sh
+```
+
+**Environment**: create `backend/.env.local` to override any backend env vars (it's optional and gitignored). At minimum the backend needs:
+
+```bash
+# backend/.env.local
+MONGODB_URI=mongodb://mongodb:27017/timehuddle
+TRUSTED_ORIGINS=http://localhost:3000
+```
+
+> These are already set in `docker-compose.yml` — only needed if you override them.
+
+---
+
+### Manual Setup
+
+#### 1. Start the backend
 
 ```bash
 cd ../timecore
@@ -69,7 +101,7 @@ npm install
 npm run dev        # Fastify API on http://localhost:4000
 ```
 
-### 2. Start the frontend (timehuddle)
+#### 2. Start the frontend
 
 ```bash
 git clone https://github.com/mieweb/timehuddle.git
@@ -90,83 +122,6 @@ VITE_TIMECORE_URL=http://localhost:4000
 # VITE_VAPID_PUBLIC_KEY=your_vapid_public_key_here  # optional, for push notifications
 ```
 
-## Project Structure
-
-```
-index.html                    # Vite entry point
-client/
-  main.tsx                    # React root — createRoot
-  styles.css                  # Tailwind imports + minimal global styles
-imports/
-  features/                   # Feature modules — self-contained UI + types
-    auth/
-      schema.ts               # Zod schemas for auth validation
-    clock/
-      schema.ts               # Clock event schemas
-      ClockPage.tsx           # Clock in/out UI
-      TimesheetPage.tsx       # Timesheet view
-    dashboard/
-      DashboardPage.tsx       # Main dashboard with stats overview
-    messages/
-      schema.ts               # Message schemas
-      MessagesPage.tsx        # Messaging UI
-    notifications/
-      NotificationsPage.tsx   # Notification inbox UI
-    profile/
-      schema.ts               # Profile schemas
-      ProfilePage.tsx         # User profile page
-    teams/
-      schema.ts               # Team schemas
-      TeamsPage.tsx           # Team management UI
-    tickets/
-      schema.ts               # Ticket schemas
-      TicketsPage.tsx         # Ticket tracking UI
-    inbox/
-      InboxPage.tsx           # Dev email viewer (/inbox route, dev only)
-  lib/
-    api.ts                    # All timecore REST API wrappers
-    constants.ts              # Shared validation limits, storage keys
-    TeamContext.tsx           # React context for active team selection
-    timeUtils.ts              # Time formatting utilities
-    useBrand.ts               # Branding hook
-    useSession.ts             # Auth session hook (reads timecore session)
-    useTheme.ts               # Shared theme hook (read/apply/toggle)
-    pushNotificationsClient.ts # Web Push subscription helpers
-  ui/                         # Shared UI components
-    AppLayout.tsx             # Root shell — routing, sidebar, header
-    LoginForm.tsx             # Email/password auth form
-    Sidebar.tsx               # Collapsible sidebar navigation
-    AppHeader.tsx             # Top bar with title, theme toggle, user menu
-    ThemeToggle.tsx           # Dark/light mode toggle
-    UserDropdown.tsx          # User menu dropdown
-    SettingsPage.tsx          # App settings
-```
-
-### How to Add a Feature
-
-1. Create `imports/features/myfeature/`
-2. Add `schema.ts` — Zod schemas + TypeScript types
-3. Add `MyFeaturePage.tsx` — UI component (use `imports/lib/api.ts` for data)
-4. Add route in `imports/ui/AppLayout.tsx` → `ROUTES` map
-5. Add nav item in `imports/ui/Sidebar.tsx` → `NAV_SECTIONS`
-6. Add backend endpoints in [timecore](../timecore)
-
-### Conventions
-
-- **API calls**: All data fetching goes through `imports/lib/api.ts` — typed wrappers around `fetch`
-- **Validation**: Define Zod schemas in `schema.ts`, use them in client forms
-- **Constants**: Shared limits/keys live in `imports/lib/constants.ts`
-- **Auth**: Use `useSession()` from `imports/lib/useSession.ts` to get the current user
-- **Theme**: Use `useTheme()` from `imports/lib/useTheme.ts` — never access `localStorage` directly
-- **UI Components**: Use `@mieweb/ui` for all UI primitives (Button, Input, Modal, etc.)
-
-## Auth Flow
-
-1. User creates an account with email, password, and name (POST `/api/auth/sign-up/email`)
-2. User signs in with email and password (POST `/api/auth/sign-in/email`)
-3. Password reset available via email link
-4. Authenticated users are redirected to `/app/dashboard`
-
 ## Commands
 
 ```bash
@@ -186,24 +141,6 @@ npm run format:fix    # Auto-format code
 npm run build         # Vite production build → dist/
 npm run preview       # Preview the production build locally
 ```
-
-## Styling & Theming
-
-- **Tailwind CSS 4** with Oxide (Lightning CSS) engine
-- Minimal custom CSS in `client/styles.css` (font smoothing + resets)
-- Dark mode via `data-theme` attribute + `dark` class
-- Theme persisted in `localStorage` using shared `THEME_KEY` constant
-
-## Production
-
-```bash
-npm run build
-# Serve the dist/ folder with any static host (Nginx, Caddy, Vercel, etc.)
-# Set VITE_TIMECORE_URL to your production timecore URL at build time:
-VITE_TIMECORE_URL=https://api.yourdomain.com npm run build
-```
-
-The backend (timecore) is a separate Fastify service — see [timecore README](../timecore/README.md) for deployment.
 
 ## License
 
