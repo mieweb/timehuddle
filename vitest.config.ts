@@ -4,12 +4,12 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['imports/**/*.test.ts'],
+    include: ['src/**/*.test.ts'],
   },
   resolve: {
     alias: {
-      '@ui': path.resolve(__dirname, 'imports/ui'),
-      '@lib': path.resolve(__dirname, 'imports/lib'),
+      '@ui': path.resolve(__dirname, 'src/ui'),
+      '@lib': path.resolve(__dirname, 'src/lib'),
     },
   },
 });

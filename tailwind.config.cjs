@@ -7,7 +7,7 @@ module.exports = {
   darkMode: ['class', '.dark &'],
   content: [
     './client/**/*.{js,ts,jsx,tsx,html}',
-    './imports/**/*.{js,ts,jsx,tsx,html}',
+    './src/**/*.{js,ts,jsx,tsx,html}',
     './node_modules/@mieweb/ui/dist/**/*.js',
   ],
   theme: {

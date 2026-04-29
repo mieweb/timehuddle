@@ -13,10 +13,10 @@
     "jsx": "react-jsx",
     "baseUrl": "./",
     "paths": {
-      "@ui/*": ["imports/ui/*"],
-      "@lib/*": ["imports/lib/*"]
+      "@ui/*": ["src/ui/*"],
+      "@lib/*": ["src/lib/*"]
     }
   },
-  "include": ["imports", "client"],
+  "include": ["src"],
   "exclude": ["node_modules"]
 }

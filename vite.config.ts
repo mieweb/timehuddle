@@ -7,8 +7,8 @@ export default defineConfig({
 
   resolve: {
     alias: {
-      '@ui': path.resolve(__dirname, 'imports/ui'),
-      '@lib': path.resolve(__dirname, 'imports/lib'),
+      '@ui': path.resolve(__dirname, 'src/ui'),
+      '@lib': path.resolve(__dirname, 'src/lib'),
     },
   },
 

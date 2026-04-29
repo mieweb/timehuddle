@@ -47,10 +47,9 @@ Pre-commit hooks (husky + lint-staged) run lint + format automatically.
 
 ```
 index.html              # Vite entry — mounts <div id="root">
-client/
+src/
   main.tsx              # ReactDOM.createRoot entry point
   styles.css            # Tailwind 4 entry + brand token bridge (required)
-imports/
   features/             # Feature-sliced modules (clock, teams, tickets, …)
   lib/                  # Shared utilities (api, TeamContext, useSession, …)
   ui/                   # Shell components (AppLayout, Sidebar, AppHeader, …)
@@ -60,16 +59,16 @@ imports/
 
 | Alias | Resolves to |
 |---|---|
-| `@ui/*` | `imports/ui/*` |
-| `@lib/*` | `imports/lib/*` |
+| `@ui/*` | `src/ui/*` |
+| `@lib/*` | `src/lib/*` |
 
 ### Key Files
 
-- **Global styles**: `client/styles.css` — Tailwind 4 `@import`, brand tokens, dark-mode variant. **Do not remove.**
-- **App shell**: `imports/ui/AppLayout.tsx` — layout, sidebar, routing context
+- **Global styles**: `src/styles.css` — Tailwind 4 `@import`, brand tokens, dark-mode variant. **Do not remove.**
+- **App shell**: `src/ui/AppLayout.tsx` — layout, sidebar, routing context
 - **Routing**: client-side only via `RouterContext` (no React Router)
-- **API calls**: `imports/lib/api.ts` — fetch wrappers to `timecore`
-- **Auth**: `imports/lib/useSession.ts`
+- **API calls**: `src/lib/api.ts` — fetch wrappers to `timecore`
+- **Auth**: `src/lib/useSession.ts`
 
 ## Technology Stack
 

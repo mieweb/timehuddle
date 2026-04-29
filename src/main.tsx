@@ -5,11 +5,11 @@ import { Capacitor } from '@capacitor/core';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { InboxPage } from '../imports/features/inbox/InboxPage';
-import { SessionProvider, useSession } from '../imports/lib/useSession';
-import { AppLayout } from '../imports/ui/AppLayout';
-import { LandingPage } from '../imports/ui/LandingPage';
-import { LoginForm } from '../imports/ui/LoginForm';
+import { InboxPage } from './features/inbox/InboxPage';
+import { SessionProvider, useSession } from './lib/useSession';
+import { AppLayout } from './ui/AppLayout';
+import { LandingPage } from './ui/LandingPage';
+import { LoginForm } from './ui/LoginForm';
 
 // ─── Deep link handling (Capacitor native only) ───────────────────────────────
 //
