@@ -2,7 +2,7 @@
 
 # TimeHuddle — Team Time Tracking & Collaboration
 
-Real-time team time tracking and collaboration platform built with React 19, Vite, Tailwind CSS 4, and TypeScript — powered by the [timecore](../timecore) Fastify + MongoDB backend.
+Real-time team time tracking and collaboration platform built with React 19, Vite, Tailwind CSS 4, and TypeScript — powered by a Fastify + MongoDB backend.
 
 Features **Clock In/Out**, **Ticket Tracking**, **Timesheets**, **Team Management**, and **Direct Messaging**.
 
@@ -28,8 +28,8 @@ Features **Clock In/Out**, **Ticket Tracking**, **Timesheets**, **Team Managemen
 
 ## Highlights
 
-- **Email/password auth** — account creation, login, and password reset via [timecore](../timecore)
-- **Clock in/out** — real-time time tracking with per-ticket timers and YouTube link attachments
+- **Email/password auth** — account creation, login, and password reset via the backend
+- **Clock in/out** — real-time time tracking with per-ticket timers and media attachments
 - **Ticket tracking** — create, assign, and track tickets with accumulated time
 - **Timesheets** — view and manage time entries by date range
 - **Team management** — create/join teams, invite members, role-based admin controls
@@ -96,7 +96,7 @@ TRUSTED_ORIGINS=http://localhost:3000
 #### 1. Start the backend
 
 ```bash
-cd ../timecore
+cd backend
 npm install
 npm run dev        # Fastify API on http://localhost:4000
 ```
@@ -114,11 +114,11 @@ Open http://localhost:3000 — you'll see the login page. Create an account to g
 
 ### Environment
 
-Copy `.env` and adjust if your timecore URL differs:
+Copy `.env` and adjust if your backend URL differs:
 
 ```bash
 # .env (already committed with defaults)
-VITE_TIMECORE_URL=http://localhost:4000
+VITE_API_URL=http://localhost:4000
 # VITE_VAPID_PUBLIC_KEY=your_vapid_public_key_here  # optional, for push notifications
 ```
 

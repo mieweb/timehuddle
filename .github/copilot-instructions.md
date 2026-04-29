@@ -33,7 +33,7 @@ npm run preview  # Preview production build locally
 ```
 
 - Development URL: `http://localhost:3000`
-- Connects to `timecore` API at `http://localhost:4000`
+- Connects to the backend API at `http://localhost:4000`
 
 ### Code Quality and Validation
 
@@ -79,7 +79,7 @@ src/
 - **Global styles**: `src/styles.css` — Tailwind 4 `@import`, brand tokens, dark-mode variant. **Do not remove.**
 - **App shell**: `src/ui/AppLayout.tsx` — layout, sidebar, routing context
 - **Routing**: client-side only via `RouterContext` (no React Router)
-- **API calls**: `src/lib/api.ts` — fetch wrappers to `timecore`
+- **API calls**: `src/lib/api.ts` — fetch wrappers to the backend
 - **Auth**: `src/lib/useSession.ts`
 
 ## Technology Stack
@@ -130,7 +130,7 @@ src/
 
 ## Troubleshooting
 
-- **Blank page / API errors**: ensure `timecore` is running on port 4000
+- **Blank page / API errors**: ensure the backend is running on port 4000
 - **Type errors**: `npm run typecheck`
 - **Lint errors**: `npm run lint:fix`
 - **Style broken**: check `client/styles.css` imports are intact
