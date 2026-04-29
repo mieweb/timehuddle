@@ -45,7 +45,6 @@ export function toPublicClockEvent(e: ClockEvent) {
       })),
     })),
     endTime: e.endTime ? e.endTime.toISOString() : null,
-    youtubeShortLink: e.youtubeShortLink ?? null,
   };
 }
 
@@ -166,8 +165,7 @@ export class ClockService {
 
   async stop(
     userId: string,
-    teamId: string,
-    youtubeShortLink?: string
+    teamId: string
   ): Promise<PublicClockEvent | "not-found"> {
     const coll = clockEventsCollection();
     const event = await coll.findOne({ userId, teamId, endTime: null });
@@ -202,7 +200,6 @@ export class ClockService {
       endTime: new Date(),
       accumulatedTime: prev + elapsed,
     };
-    if (youtubeShortLink?.trim()) $set.youtubeShortLink = youtubeShortLink.trim();
 
     await coll.updateOne({ _id: event._id }, { $set });
 
@@ -315,20 +312,7 @@ export class ClockService {
     return pub;
   }
 
-  async updateYoutubeLink(
-    userId: string,
-    clockEventId: string,
-    youtubeShortLink: string
-  ): Promise<PublicClockEvent | "not-found"> {
-    if (!isValidId(clockEventId)) return "not-found";
-    const coll = clockEventsCollection();
-    const event = await coll.findOne({ _id: new ObjectId(clockEventId), userId });
-    if (!event) return "not-found";
-    const link = youtubeShortLink.trim();
-    if (link) await coll.updateOne({ _id: event._id }, { $set: { youtubeShortLink: link } });
-    const updated = await coll.findOne({ _id: event._id });
-    return updated ? toPublicClockEvent(updated) : "not-found";
-  }
+
 
   async updateTimes(
     requesterId: string,

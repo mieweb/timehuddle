@@ -238,24 +238,30 @@ describe("POST /v1/clock/:id/ticket/stop", () => {
   });
 });
 
-// ─── PUT /v1/clock/:id/youtube ────────────────────────────────────────────────
+// ─── Attachments (replaces YouTube-specific route) ───────────────────────────
 
-describe("PUT /v1/clock/:id/youtube", () => {
-  it("sets the YouTube link — 200", async () => {
-    const link = "https://youtube.com/shorts/abc123";
-    const res = await inject("PUT", `/v1/clock/${clockEventId}/youtube`, workerCookie, {
-      youtubeShortLink: link,
+describe("POST /v1/attachments (clock)", () => {
+  it("adds a link attachment to a clock entry — 201", async () => {
+    const res = await inject("POST", "/v1/attachments", workerCookie, {
+      url: "https://youtube.com/shorts/abc123",
+      type: "video",
+      title: "My session recording",
+      attachedTo: { kind: "clock", id: clockEventId },
     });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().event.youtubeShortLink).toBe(link);
+    expect(res.statusCode).toBe(201);
+    const { attachment } = res.json();
+    expect(attachment.url).toBe("https://youtube.com/shorts/abc123");
+    expect(attachment.type).toBe("video");
+    expect(attachment.attachedTo.kind).toBe("clock");
+    expect(attachment.attachedTo.id).toBe(clockEventId);
   });
 
-  it("returns 404 for unknown event", async () => {
-    const fakeId = new ObjectId().toHexString();
-    const res = await inject("PUT", `/v1/clock/${fakeId}/youtube`, workerCookie, {
-      youtubeShortLink: "https://youtube.com/shorts/xyz",
-    });
-    expect(res.statusCode).toBe(404);
+  it("lists attachments for a clock entry — 200", async () => {
+    const res = await inject("GET", `/v1/attachments?kind=clock&id=${clockEventId}`, workerCookie);
+    expect(res.statusCode).toBe(200);
+    const { attachments } = res.json();
+    expect(Array.isArray(attachments)).toBe(true);
+    expect(attachments.length).toBeGreaterThan(0);
   });
 });
 

@@ -324,7 +324,6 @@ export interface ClockEvent {
   accumulatedTime: number;
   tickets: ClockEventTicket[];
   endTime: string | null;
-  youtubeShortLink: string | null;
 }
 
 export const clockApi = {
@@ -336,10 +335,10 @@ export const clockApi = {
     }).then((r) => r.event),
 
   /** Clock out of a team. */
-  stop: (teamId: string, youtubeShortLink?: string) =>
+  stop: (teamId: string) =>
     request<{ event: ClockEvent }>('/v1/clock/stop', {
       method: 'POST',
-      body: JSON.stringify({ teamId, ...(youtubeShortLink ? { youtubeShortLink } : {}) }),
+      body: JSON.stringify({ teamId }),
     }).then((r) => r.event),
 
   /** Start a ticket timer inside an active clock event. */
@@ -488,5 +487,46 @@ export const notificationApi = {
   openStream: (): EventSource =>
     new EventSource(`${TIMECORE_BASE_URL}/v1/notifications/stream`, {
       withCredentials: true,
+    }),
+};
+// ─── Attachments ──────────────────────────────────────────────────────────────
+
+export type AttachmentKind = 'clock' | 'ticket';
+export type AttachmentType = 'video' | 'image' | 'link';
+
+export interface Attachment {
+  id: string;
+  url: string;
+  type: AttachmentType;
+  title: string | null;
+  thumbnail: string | null;
+  attachedTo: { kind: AttachmentKind; id: string };
+  addedBy: string;
+  addedAt: string;
+}
+
+export const attachmentApi = {
+  /** Fetch all attachments for a clock entry or ticket. */
+  list: (kind: AttachmentKind, id: string) =>
+    request<{ attachments: Attachment[] }>(
+      `/v1/attachments?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
+    ).then((r) => r.attachments),
+
+  /** Add a new attachment to a clock entry or ticket. */
+  add: (data: {
+    url: string;
+    type: AttachmentType;
+    title?: string;
+    attachedTo: { kind: AttachmentKind; id: string };
+  }) =>
+    request<{ attachment: Attachment }>('/v1/attachments', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.attachment),
+
+  /** Delete an attachment by ID. */
+  remove: (id: string) =>
+    request<{ ok: boolean }>(`/v1/attachments/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
     }),
 };

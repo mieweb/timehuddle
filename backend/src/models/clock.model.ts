@@ -20,5 +20,4 @@ export interface ClockEvent {
   accumulatedTime: number; // seconds
   tickets: ClockEventTicket[];
   endTime: Date | null; // null = still clocked in
-  youtubeShortLink?: string;
 }

@@ -44,6 +44,7 @@ import { ticketApi, type Ticket } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration } from '../../lib/timeUtils';
 import { useSession } from '../../lib/useSession';
+import { AttachmentsPanel } from '../clock/AttachmentsPanel';
 
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
@@ -175,7 +176,8 @@ export const TicketsPage: React.FC = () => {
     const isEditing = editingId === ticket.id;
 
     return (
-      <li className="flex items-center gap-3 px-5 py-3">
+      <li className="flex flex-col gap-1 px-5 py-3">
+        <div className="flex items-center gap-3">
         {/* Play/Pause */}
         {canManage && (
           <Button
@@ -272,6 +274,8 @@ export const TicketsPage: React.FC = () => {
             </Button>
           </div>
         )}
+        </div>
+        <AttachmentsPanel kind="ticket" entityId={ticket.id} currentUserId={userId ?? undefined} />
       </li>
     );
   };

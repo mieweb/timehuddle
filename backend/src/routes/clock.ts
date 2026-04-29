@@ -32,7 +32,7 @@ const clockEventShape = {
     accumulatedTime: { type: "number" },
     tickets: { type: "array", items: clockTicketShape },
     endTime: { type: "string", nullable: true },
-    youtubeShortLink: { type: "string", nullable: true },
+
   },
 };
 
@@ -75,7 +75,6 @@ export async function clockRoutes(app: FastifyInstance) {
           required: ["teamId"],
           properties: {
             teamId: { type: "string" },
-            youtubeShortLink: { type: "string" },
           },
         },
         response: { 200: { type: "object", properties: { event: clockEventShape } } },
@@ -83,11 +82,8 @@ export async function clockRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { id: userId } = (req as any).user;
-      const { teamId, youtubeShortLink } = req.body as {
-        teamId: string;
-        youtubeShortLink?: string;
-      };
-      const result = await clockService.stop(userId, teamId, youtubeShortLink);
+      const { teamId } = req.body as { teamId: string };
+      const result = await clockService.stop(userId, teamId);
       if (result === "not-found") return reply.status(404).send({ error: "No active clock event" });
       return { event: result };
     }
@@ -152,31 +148,6 @@ export async function clockRoutes(app: FastifyInstance) {
     }
   );
 
-  // PUT /v1/clock/:id/youtube
-  app.put(
-    "/clock/:id/youtube",
-    {
-      onRequest: [requireAuth],
-      schema: {
-        tags: ["Clock"],
-        params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
-        body: {
-          type: "object",
-          required: ["youtubeShortLink"],
-          properties: { youtubeShortLink: { type: "string" } },
-        },
-        response: { 200: { type: "object", properties: { event: clockEventShape } } },
-      },
-    },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { id: clockEventId } = req.params as { id: string };
-      const { youtubeShortLink } = req.body as { youtubeShortLink: string };
-      const result = await clockService.updateYoutubeLink(userId, clockEventId, youtubeShortLink);
-      if (result === "not-found") return reply.status(404).send({ error: "Clock event not found" });
-      return { event: result };
-    }
-  );
 
   // PUT /v1/clock/:id/times
   app.put(
