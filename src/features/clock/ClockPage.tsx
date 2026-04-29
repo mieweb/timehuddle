@@ -34,6 +34,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTeam } from '../../lib/TeamContext';
 import { formatTimer, formatDuration } from '../../lib/timeUtils';
 import { clockApi, ticketApi, type Ticket } from '../../lib/api';
+import { useClockToggle } from '../../lib/useClockToggle';
 import { AttachmentsPanel } from './AttachmentsPanel';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
@@ -48,6 +49,8 @@ export const ClockPage: React.FC = () => {
     teamsReady,
     refetchClock,
   } = useTeam();
+
+  const { clockIn, clockOut, clockInLoading, clockOutLoading } = useClockToggle();
 
   // Tickets for the selected team
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
@@ -64,8 +67,6 @@ export const ClockPage: React.FC = () => {
   }, [selectedTeamId]);
 
   // Loading states
-  const [clockInLoading, setClockInLoading] = useState(false);
-  const [clockOutLoading, setClockOutLoading] = useState(false);
   const [createTicketLoading, setCreateTicketLoading] = useState(false);
 
   // UI state
@@ -78,33 +79,6 @@ export const ClockPage: React.FC = () => {
     : 0;
 
   // ── Handlers ──
-
-  const handleClockIn = useCallback(async () => {
-    if (!selectedTeamId) return;
-    setClockInLoading(true);
-    try {
-      await clockApi.start(selectedTeamId);
-      await refetchClock();
-    } finally {
-      setClockInLoading(false);
-    }
-  }, [selectedTeamId, refetchClock]);
-
-  const handleClockOut = useCallback(async () => {
-    // Always use the teamId from the active event, not the selected team in the UI.
-    // The user may have switched teams after clocking in, which would cause a 404.
-    const teamId = activeClockEvent?.teamId ?? selectedTeamId;
-    if (!teamId) return;
-    setClockOutLoading(true);
-    try {
-      await clockApi.stop(teamId);
-      await refetchClock();
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Failed to clock out. Please try again.');
-    } finally {
-      setClockOutLoading(false);
-    }
-  }, [activeClockEvent, selectedTeamId, refetchClock]);
 
   const handleStartTicket = useCallback(
     async (ticketId: string) => {
@@ -202,7 +176,7 @@ export const ClockPage: React.FC = () => {
               {/* Clock Out — keeping custom round button for the unique clock UI */}
               <button
                 type="button"
-                onClick={handleClockOut}
+                onClick={clockOut}
                 disabled={clockOutLoading}
                 className="flex h-24 w-24 items-center justify-center rounded-full bg-red-500 text-white shadow-lg transition-transform hover:scale-105 hover:bg-red-600 active:scale-95 disabled:opacity-50"
                 aria-label="Clock out"
@@ -221,7 +195,7 @@ export const ClockPage: React.FC = () => {
               {/* Clock In — keeping custom round button for the unique clock UI */}
               <button
                 type="button"
-                onClick={handleClockIn}
+                onClick={clockIn}
                 disabled={clockInLoading || !selectedTeamId}
                 className="flex h-24 w-24 items-center justify-center rounded-full bg-green-500 text-white shadow-lg transition-transform hover:scale-105 hover:bg-green-600 active:scale-95 disabled:opacity-50"
                 aria-label="Clock in"
