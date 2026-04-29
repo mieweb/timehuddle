@@ -6,9 +6,21 @@ This is a React 19 + Vite + Tailwind CSS 4 + TypeScript frontend application. Th
 
 ## Working Effectively
 
+### Node Version
+
+This project pins Node via `.nvmrc`. **Always run `nvm use` before any terminal commands** to ensure the correct Node version is active. Using the wrong version causes `package-lock.json` drift and CI failures.
+
+```bash
+nvm use          # activate the pinned version
+node --version   # verify
+```
+
+If `nvm` is not available, check `.nvmrc` for the required version and install it before proceeding.
+
 ### Initial Setup and Dependencies
 
 ```bash
+nvm use
 npm install
 ```
 
