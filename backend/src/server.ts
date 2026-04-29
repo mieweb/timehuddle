@@ -1,16 +1,11 @@
 import "dotenv/config";
 import { fileURLToPath } from "url";
-import path from "path";
-import fs from "fs";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
-import multipart from "@fastify/multipart";
-import fastifyStatic from "@fastify/static";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { connectDB } from "./lib/db.js";
 import { auth } from "./lib/auth.js";
-import { ensureIndexes } from "./lib/ensure-indexes.js";
 import { appContext } from "./middleware/app-context.js";
 import { healthRoutes } from "./routes/health.js";
 import { userRoutes } from "./routes/users.js";

@@ -1,7 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
 import { clockService, toPublicClockEvent, subscribeSse } from "../services/clock.service.js";
-import { clockEventsCollection } from "../models/index.js";
 
 // ─── Public shape schema ──────────────────────────────────────────────────────
 
