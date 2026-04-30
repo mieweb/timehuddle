@@ -77,9 +77,13 @@ jobs:
             sudo pm2 restart timehuddle-frontend
             sudo pm2 save
             echo "=== verify ==="
-            sleep 2
-            curl -s http://localhost:80/ | grep -o '<title>.*</title>'
-            echo "DEV deployed OK"
+            for i in 1 2 3 4 5; do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/ 2>/dev/null)
+              [ "$STATUS" = "200" ] && echo "DEV deployed OK (HTTP 200)" && break
+              echo "Attempt $i: HTTP $STATUS — retrying in 5s"
+              sleep 5
+            done
+            [ "$STATUS" = "200" ] || { echo "DEV serve not ready after retries"; exit 1; }
           ENDSSH
 
   verify_dev:
@@ -129,9 +133,13 @@ jobs:
             sudo pm2 restart timehuddle-frontend
             sudo pm2 save
             echo "=== verify ==="
-            sleep 2
-            curl -s http://localhost:80/ | grep -o '<title>.*</title>'
-            echo "PROD deployed OK"
+            for i in 1 2 3 4 5; do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/ 2>/dev/null)
+              [ "$STATUS" = "200" ] && echo "PROD deployed OK (HTTP 200)" && break
+              echo "Attempt $i: HTTP $STATUS — retrying in 5s"
+              sleep 5
+            done
+            [ "$STATUS" = "200" ] || { echo "PROD serve not ready after retries"; exit 1; }
           ENDSSH
 
   verify_prod:
