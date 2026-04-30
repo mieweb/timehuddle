@@ -19,6 +19,7 @@ services:
       - "4000:4000"
     volumes:
       - .:/app
+      - root_nm:/app/node_modules
       - backend_nm:/app/backend/node_modules
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/timehuddle
@@ -47,5 +48,6 @@ services:
 
 volumes:
   mongo_data:
+  root_nm:
   backend_nm:
   frontend_nm:
