@@ -84,7 +84,7 @@ jobs:
             sudo pm2 save
             echo "=== verify ==="
             for i in 1 2 3 4 5; do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/ 2>/dev/null)
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/ 2>/dev/null) || STATUS="000"
               [ "$STATUS" = "200" ] && echo "DEV frontend OK (HTTP 200)" && exit 0
               echo "Attempt $i: HTTP $STATUS — retrying in 5s"
               sleep 5
@@ -122,7 +122,7 @@ jobs:
       - name: Health check DEV frontend
         run: |
           sleep 5
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEPLOY_DEV_URL }})
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEPLOY_DEV_URL }}) || STATUS="000"
           echo "HTTP status: $STATUS"
           [ "$STATUS" = "200" ] || { echo "DEV health check failed (HTTP $STATUS)"; exit 1; }
 
@@ -165,7 +165,7 @@ jobs:
             sudo pm2 save
             echo "=== verify ==="
             for i in 1 2 3 4 5; do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/ 2>/dev/null)
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/ 2>/dev/null) || STATUS="000"
               [ "$STATUS" = "200" ] && echo "PROD frontend OK (HTTP 200)" && exit 0
               echo "Attempt $i: HTTP $STATUS — retrying in 5s"
               sleep 5
@@ -203,6 +203,6 @@ jobs:
       - name: Health check PROD frontend
         run: |
           sleep 5
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEPLOY_PROD_URL }})
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEPLOY_PROD_URL }}) || STATUS="000"
           echo "HTTP status: $STATUS"
           [ "$STATUS" = "200" ] || { echo "PROD health check failed (HTTP $STATUS)"; exit 1; }
