@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
 import { attachmentService } from "../services/attachment.service.js";
+import { getYouTubeTitleFromUrl, isYouTubeUrl } from "../services/youtube.js";
 import type { AttachmentKind, AttachmentType } from "../models/attachment.model.js";
 
 const VALID_KINDS = ["clock", "ticket"] as const;
@@ -73,7 +74,7 @@ export async function attachmentRoutes(app: FastifyInstance) {
       }
 
       const attachment = await attachmentService.create(userId, url, type, attachedTo, {
-        title,
+        title: title ?? (isYouTubeUrl(url) ? (await getYouTubeTitleFromUrl(url)) ?? undefined : undefined),
         thumbnail,
       });
       return reply.status(201).send({ attachment });
