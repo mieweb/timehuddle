@@ -189,7 +189,58 @@ interface GalleryItem {
   label: string;
 }
 
-const GALLERY: GalleryItem[] = [];
+const GALLERY: GalleryItem[] = [
+  {
+    src: '/screenshots/dashboard-dark.png',
+    alt: 'Dashboard — dark mode',
+    label: 'Dashboard',
+  },
+  {
+    src: '/screenshots/clock-dark.png',
+    alt: 'Clock — dark mode',
+    label: 'Clock',
+  },
+  {
+    src: '/screenshots/teams-dark.png',
+    alt: 'Teams — dark mode',
+    label: 'Teams',
+  },
+  {
+    src: '/screenshots/tickets-dark.png',
+    alt: 'Tickets — dark mode',
+    label: 'Tickets',
+  },
+  {
+    src: '/screenshots/login-dark.png',
+    alt: 'Login — dark mode',
+    label: 'Login',
+  },
+  {
+    src: '/screenshots/dashboard-light.png',
+    alt: 'Dashboard — light mode',
+    label: 'Dashboard (Light)',
+  },
+  {
+    src: '/screenshots/clock-light.png',
+    alt: 'Clock — light mode',
+    label: 'Clock (Light)',
+  },
+  {
+    src: '/screenshots/teams-light.png',
+    alt: 'Teams — light mode',
+    label: 'Teams (Light)',
+  },
+  {
+    src: '/screenshots/tickets-light.png',
+    alt: 'Tickets — light mode',
+    label: 'Tickets (Light)',
+  },
+  {
+    src: '/screenshots/login-light.png',
+    alt: 'Login — light mode',
+    label: 'Login (Light)',
+  },
+];
 
 const HERO_WORDS_1 = ['Track', 'Time.'];
 const HERO_HIGHLIGHT = ['Run', 'Teams.'];
@@ -655,7 +706,7 @@ const GallerySection: React.FC<{ reduced: boolean }> = ({ reduced }) => {
         <SectionHeading
           id="gallery-heading"
           title="See it in action"
-          subtitle="Light and dark themes, responsive layouts, and a polished UI — click to expand."
+          subtitle="A look at the real app — click any screenshot to expand."
           reduced={reduced}
         />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
