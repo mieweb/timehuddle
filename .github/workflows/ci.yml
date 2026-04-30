@@ -1,5 +1,8 @@
 name: CI / Deploy
 
+# Push to `dev`  → deploys frontend (timehuddledev:2062) + backend (timecoredev:2063)
+# Push to `prod` → deploys frontend (timehuddle-prod:2064) + backend (timecore-prod:2065)
+
 on:
   push:
     branches: [dev, prod]
@@ -43,8 +46,9 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  # ── DEV ──────────────────────────────────────────────────────────────────────
   deploy_dev:
-    name: Deploy - DEV
+    name: Deploy - DEV (frontend + backend)
     runs-on: ubuntu-latest
     needs: build
     if: github.ref == 'refs/heads/dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
@@ -55,8 +59,9 @@ jobs:
           echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p ${{ secrets.DEPLOY_DEV_PORT }} ${{ secrets.DEPLOY_DEV_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -p ${{ secrets.DEPLOY_DEV_BACKEND_PORT }} ${{ secrets.DEPLOY_DEV_BACKEND_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy frontend to DEV
+      - name: Deploy frontend to DEV (timehuddledev:2062)
         run: |
           ssh -i ~/.ssh/deploy_key \
               -p ${{ secrets.DEPLOY_DEV_PORT }} \
@@ -64,14 +69,15 @@ jobs:
               -o ConnectTimeout=15 \
               ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_DEV_HOST }} << 'ENDSSH'
             set -e
-            cd ~/timehuddle
-            echo "=== git sync dev ==="
+            cd /home/pdharamkar/timehuddle
+            echo "=== git sync → dev ==="
             git fetch origin
+            git checkout dev 2>/dev/null || git checkout -b dev origin/dev
             git reset --hard origin/dev
             echo "=== npm install ==="
             npm install --no-audit --no-fund
             echo "=== build ==="
-            sudo rm -rf dist
+            rm -rf dist
             npm run build
             echo "=== pm2 restart ==="
             sudo pm2 restart timehuddle-frontend
@@ -79,11 +85,33 @@ jobs:
             echo "=== verify ==="
             for i in 1 2 3 4 5; do
               STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/ 2>/dev/null)
-              [ "$STATUS" = "200" ] && echo "DEV deployed OK (HTTP 200)" && break
+              [ "$STATUS" = "200" ] && echo "DEV frontend OK (HTTP 200)" && exit 0
               echo "Attempt $i: HTTP $STATUS — retrying in 5s"
               sleep 5
             done
-            [ "$STATUS" = "200" ] || { echo "DEV serve not ready after retries"; exit 1; }
+            echo "DEV frontend not ready after retries"; exit 1
+          ENDSSH
+
+      - name: Deploy backend to DEV (timecoredev:2063)
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+              -p ${{ secrets.DEPLOY_DEV_BACKEND_PORT }} \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=15 \
+              ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_DEV_BACKEND_HOST }} << 'ENDSSH'
+            set -e
+            cd /home/pdharamkar/timehuddle
+            echo "=== git sync → dev ==="
+            git fetch origin
+            git checkout dev 2>/dev/null || git checkout -b dev origin/dev
+            git reset --hard origin/dev
+            echo "=== backend npm install ==="
+            cd backend
+            npm install --no-audit --no-fund
+            echo "=== pm2 restart ==="
+            sudo pm2 restart timehuddle-api
+            sudo pm2 save
+            echo "DEV backend OK"
           ENDSSH
 
   verify_dev:
@@ -91,15 +119,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: deploy_dev
     steps:
-      - name: Health check DEV
+      - name: Health check DEV frontend
         run: |
           sleep 5
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEPLOY_DEV_URL }})
           echo "HTTP status: $STATUS"
           [ "$STATUS" = "200" ] || { echo "DEV health check failed (HTTP $STATUS)"; exit 1; }
 
+  # ── PROD ─────────────────────────────────────────────────────────────────────
   deploy_prod:
-    name: Deploy - PROD
+    name: Deploy - PROD (frontend + backend)
     runs-on: ubuntu-latest
     needs: build
     if: github.ref == 'refs/heads/prod' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
@@ -111,8 +140,9 @@ jobs:
           echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p ${{ secrets.DEPLOY_PROD_PORT }} ${{ secrets.DEPLOY_PROD_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -p ${{ secrets.DEPLOY_PROD_BACKEND_PORT }} ${{ secrets.DEPLOY_PROD_BACKEND_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy frontend to PROD
+      - name: Deploy frontend to PROD (timehuddle-prod:2064)
         run: |
           ssh -i ~/.ssh/deploy_key \
               -p ${{ secrets.DEPLOY_PROD_PORT }} \
@@ -120,14 +150,15 @@ jobs:
               -o ConnectTimeout=15 \
               ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_PROD_HOST }} << 'ENDSSH'
             set -e
-            cd ~/timehuddle
-            echo "=== git sync prod ==="
+            cd /home/pdharamkar/timehuddle
+            echo "=== git sync → prod ==="
             git fetch origin
+            git checkout prod 2>/dev/null || git checkout -b prod origin/prod
             git reset --hard origin/prod
             echo "=== npm install ==="
             npm install --no-audit --no-fund
             echo "=== build ==="
-            sudo rm -rf dist
+            rm -rf dist
             npm run build
             echo "=== pm2 restart ==="
             sudo pm2 restart timehuddle-frontend
@@ -135,11 +166,33 @@ jobs:
             echo "=== verify ==="
             for i in 1 2 3 4 5; do
               STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/ 2>/dev/null)
-              [ "$STATUS" = "200" ] && echo "PROD deployed OK (HTTP 200)" && break
+              [ "$STATUS" = "200" ] && echo "PROD frontend OK (HTTP 200)" && exit 0
               echo "Attempt $i: HTTP $STATUS — retrying in 5s"
               sleep 5
             done
-            [ "$STATUS" = "200" ] || { echo "PROD serve not ready after retries"; exit 1; }
+            echo "PROD frontend not ready after retries"; exit 1
+          ENDSSH
+
+      - name: Deploy backend to PROD (timecore-prod:2065)
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+              -p ${{ secrets.DEPLOY_PROD_BACKEND_PORT }} \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=15 \
+              ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_PROD_BACKEND_HOST }} << 'ENDSSH'
+            set -e
+            cd /home/pdharamkar/timehuddle
+            echo "=== git sync → prod ==="
+            git fetch origin
+            git checkout prod 2>/dev/null || git checkout -b prod origin/prod
+            git reset --hard origin/prod
+            echo "=== backend npm install ==="
+            cd backend
+            npm install --no-audit --no-fund
+            echo "=== pm2 restart ==="
+            sudo pm2 restart timehuddle-api
+            sudo pm2 save
+            echo "PROD backend OK"
           ENDSSH
 
   verify_prod:
@@ -147,7 +200,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: deploy_prod
     steps:
-      - name: Health check PROD
+      - name: Health check PROD frontend
         run: |
           sleep 5
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEPLOY_PROD_URL }})
