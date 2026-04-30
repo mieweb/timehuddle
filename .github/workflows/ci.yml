@@ -67,29 +67,41 @@ jobs:
               -p ${{ secrets.DEPLOY_DEV_PORT }} \
               -o StrictHostKeyChecking=yes \
               -o ConnectTimeout=15 \
-              ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_DEV_HOST }} << 'ENDSSH'
-            set -e
-            cd /home/pdharamkar/timehuddle
+              ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_DEV_HOST }} bash << 'ENDSSH'
             echo "=== git sync → dev ==="
-            git fetch origin
-            git checkout dev 2>/dev/null || git checkout -b dev origin/dev
-            git reset --hard origin/dev
+            cd /home/pdharamkar/timehuddle || { echo "ERROR: repo dir missing"; exit 1; }
+            git fetch origin || { echo "ERROR: git fetch failed"; exit 1; }
+            git checkout -f -B dev origin/dev || { echo "ERROR: git checkout failed"; exit 1; }
+            git clean -fd
+            echo "branch: $(git branch --show-current)"
+
             echo "=== npm install ==="
-            npm install --no-audit --no-fund
+            npm install --no-audit --no-fund || { echo "ERROR: npm install failed"; exit 1; }
+
             echo "=== build ==="
             rm -rf dist
-            npm run build
+            npm run build || { echo "ERROR: build failed"; exit 1; }
+
             echo "=== pm2 restart ==="
-            sudo pm2 restart timehuddle-frontend
+            sudo pm2 restart timehuddle-frontend || { echo "ERROR: pm2 restart failed"; exit 1; }
             sudo pm2 save
+
             echo "=== verify ==="
+            ok=false
             for i in 1 2 3 4 5; do
               STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/ 2>/dev/null) || STATUS="000"
-              [ "$STATUS" = "200" ] && echo "DEV frontend OK (HTTP 200)" && exit 0
+              if [ "$STATUS" = "200" ]; then
+                echo "DEV frontend OK (HTTP 200)"
+                ok=true
+                break
+              fi
               echo "Attempt $i: HTTP $STATUS — retrying in 5s"
               sleep 5
             done
-            echo "DEV frontend not ready after retries"; exit 1
+            if [ "$ok" != "true" ]; then
+              echo "ERROR: DEV frontend not ready after retries"
+              exit 1
+            fi
           ENDSSH
 
       - name: Deploy backend to DEV (timecoredev:2063)
@@ -98,18 +110,20 @@ jobs:
               -p ${{ secrets.DEPLOY_DEV_BACKEND_PORT }} \
               -o StrictHostKeyChecking=yes \
               -o ConnectTimeout=15 \
-              ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_DEV_BACKEND_HOST }} << 'ENDSSH'
-            set -e
-            cd /home/pdharamkar/timehuddle
+              ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_DEV_BACKEND_HOST }} bash << 'ENDSSH'
             echo "=== git sync → dev ==="
-            git fetch origin
-            git checkout dev 2>/dev/null || git checkout -b dev origin/dev
-            git reset --hard origin/dev
+            cd /home/pdharamkar/timehuddle || { echo "ERROR: repo dir missing"; exit 1; }
+            git fetch origin || { echo "ERROR: git fetch failed"; exit 1; }
+            git checkout -f -B dev origin/dev || { echo "ERROR: git checkout failed"; exit 1; }
+            git clean -fd
+            echo "branch: $(git branch --show-current)"
+
             echo "=== backend npm install ==="
-            cd backend
-            npm install --no-audit --no-fund
+            cd backend || { echo "ERROR: backend dir missing"; exit 1; }
+            npm install --no-audit --no-fund || { echo "ERROR: npm install failed"; exit 1; }
+
             echo "=== pm2 restart ==="
-            sudo pm2 restart timehuddle-api
+            sudo pm2 restart timehuddle-api || { echo "ERROR: pm2 restart failed"; exit 1; }
             sudo pm2 save
             echo "DEV backend OK"
           ENDSSH
@@ -124,7 +138,10 @@ jobs:
           sleep 5
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEPLOY_DEV_URL }}) || STATUS="000"
           echo "HTTP status: $STATUS"
-          [ "$STATUS" = "200" ] || { echo "DEV health check failed (HTTP $STATUS)"; exit 1; }
+          if [ "$STATUS" != "200" ]; then
+            echo "DEV health check failed (HTTP $STATUS)"
+            exit 1
+          fi
 
   # ── PROD ─────────────────────────────────────────────────────────────────────
   deploy_prod:
@@ -148,29 +165,41 @@ jobs:
               -p ${{ secrets.DEPLOY_PROD_PORT }} \
               -o StrictHostKeyChecking=yes \
               -o ConnectTimeout=15 \
-              ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_PROD_HOST }} << 'ENDSSH'
-            set -e
-            cd /home/pdharamkar/timehuddle
+              ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_PROD_HOST }} bash << 'ENDSSH'
             echo "=== git sync → prod ==="
-            git fetch origin
-            git checkout prod 2>/dev/null || git checkout -b prod origin/prod
-            git reset --hard origin/prod
+            cd /home/pdharamkar/timehuddle || { echo "ERROR: repo dir missing"; exit 1; }
+            git fetch origin || { echo "ERROR: git fetch failed"; exit 1; }
+            git checkout -f -B prod origin/prod || { echo "ERROR: git checkout failed"; exit 1; }
+            git clean -fd
+            echo "branch: $(git branch --show-current)"
+
             echo "=== npm install ==="
-            npm install --no-audit --no-fund
+            npm install --no-audit --no-fund || { echo "ERROR: npm install failed"; exit 1; }
+
             echo "=== build ==="
             rm -rf dist
-            npm run build
+            npm run build || { echo "ERROR: build failed"; exit 1; }
+
             echo "=== pm2 restart ==="
-            sudo pm2 restart timehuddle-frontend
+            sudo pm2 restart timehuddle-frontend || { echo "ERROR: pm2 restart failed"; exit 1; }
             sudo pm2 save
+
             echo "=== verify ==="
+            ok=false
             for i in 1 2 3 4 5; do
               STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/ 2>/dev/null) || STATUS="000"
-              [ "$STATUS" = "200" ] && echo "PROD frontend OK (HTTP 200)" && exit 0
+              if [ "$STATUS" = "200" ]; then
+                echo "PROD frontend OK (HTTP 200)"
+                ok=true
+                break
+              fi
               echo "Attempt $i: HTTP $STATUS — retrying in 5s"
               sleep 5
             done
-            echo "PROD frontend not ready after retries"; exit 1
+            if [ "$ok" != "true" ]; then
+              echo "ERROR: PROD frontend not ready after retries"
+              exit 1
+            fi
           ENDSSH
 
       - name: Deploy backend to PROD (timecore-prod:2065)
@@ -179,18 +208,20 @@ jobs:
               -p ${{ secrets.DEPLOY_PROD_BACKEND_PORT }} \
               -o StrictHostKeyChecking=yes \
               -o ConnectTimeout=15 \
-              ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_PROD_BACKEND_HOST }} << 'ENDSSH'
-            set -e
-            cd /home/pdharamkar/timehuddle
+              ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_PROD_BACKEND_HOST }} bash << 'ENDSSH'
             echo "=== git sync → prod ==="
-            git fetch origin
-            git checkout prod 2>/dev/null || git checkout -b prod origin/prod
-            git reset --hard origin/prod
+            cd /home/pdharamkar/timehuddle || { echo "ERROR: repo dir missing"; exit 1; }
+            git fetch origin || { echo "ERROR: git fetch failed"; exit 1; }
+            git checkout -f -B prod origin/prod || { echo "ERROR: git checkout failed"; exit 1; }
+            git clean -fd
+            echo "branch: $(git branch --show-current)"
+
             echo "=== backend npm install ==="
-            cd backend
-            npm install --no-audit --no-fund
+            cd backend || { echo "ERROR: backend dir missing"; exit 1; }
+            npm install --no-audit --no-fund || { echo "ERROR: npm install failed"; exit 1; }
+
             echo "=== pm2 restart ==="
-            sudo pm2 restart timehuddle-api
+            sudo pm2 restart timehuddle-api || { echo "ERROR: pm2 restart failed"; exit 1; }
             sudo pm2 save
             echo "PROD backend OK"
           ENDSSH
@@ -205,4 +236,7 @@ jobs:
           sleep 5
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEPLOY_PROD_URL }}) || STATUS="000"
           echo "HTTP status: $STATUS"
-          [ "$STATUS" = "200" ] || { echo "PROD health check failed (HTTP $STATUS)"; exit 1; }
+          if [ "$STATUS" != "200" ]; then
+            echo "PROD health check failed (HTTP $STATUS)"
+            exit 1
+          fi
