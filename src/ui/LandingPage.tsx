@@ -13,18 +13,13 @@
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import {
   faBolt,
-  faChartBar,
   faChevronLeft,
   faChevronRight,
-  faCircleUser,
-  faCode,
   faComments,
   faGlobe,
-  faImages,
   faKey,
   faLayerGroup,
   faList,
-  faPalette,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -41,19 +36,19 @@ import {
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { REPO_URL } from '../lib/constants';
-import { useTheme } from '../lib/useTheme';
+
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TECH_BADGES = [
-  'Vite',
-  'React 19',
-  'Tailwind CSS 4',
-  'TypeScript 5',
-  'Node.js 22',
-  'Fastify',
-  'MongoDB',
-  'better-auth',
+  'Time Tracking',
+  'Teams',
+  'Tickets',
+  'Real-time Messaging',
+  'Clock In / Out',
+  'Notifications',
+  'Inbox',
+  'Dark Mode',
 ] as const;
 
 interface Feature {
@@ -67,51 +62,51 @@ interface Feature {
 const FEATURES: Feature[] = [
   {
     icon: faBolt,
-    title: 'REST API + SSE',
+    title: 'Clock In / Out',
     description:
-      'Fastify backend with REST endpoints and Server-Sent Events for live updates. Clean, typed API contracts shared between frontend and backend.',
+      'Track time with a single tap. Clock in, clock out, and log breaks — all from any device. Real-time status visible to your whole team.',
     gradient: 'from-yellow-500/20 to-orange-500/5',
     glow: 'group-hover:shadow-yellow-500/20',
   },
   {
-    icon: faKey,
-    title: 'Email + Password Auth',
-    description:
-      'Email and password authentication powered by better-auth. Secure session management with cookie-based auth and password reset flows.',
-    gradient: 'from-green-500/20 to-emerald-500/5',
-    glow: 'group-hover:shadow-green-500/20',
-  },
-  {
-    icon: faPalette,
-    title: 'Tailwind CSS 4',
-    description:
-      'Next-generation utility CSS with the Oxide engine. CSS-first configuration, zero-runtime, and dark mode via custom variant.',
-    gradient: 'from-blue-500/20 to-sky-500/5',
-    glow: 'group-hover:shadow-blue-500/20',
-  },
-  {
     icon: faLayerGroup,
-    title: 'React 19',
+    title: 'Team Management',
     description:
-      'Latest React with concurrent rendering, improved Suspense, and the Actions API. Architecture is Server Components-ready.',
+      'Organise staff into teams with roles, schedules, and permissions. Managers get a live view of who is in, who is out, and who is late.',
     gradient: 'from-cyan-500/20 to-blue-500/5',
     glow: 'group-hover:shadow-cyan-500/20',
   },
   {
-    icon: faGlobe,
-    title: 'Vite + TypeScript',
+    icon: faList,
+    title: 'Tickets & Tasks',
     description:
-      'Lightning-fast Vite dev server with HMR and optimized production builds. End-to-end strict type safety with path aliases across the stack.',
+      'Create, assign, and track tickets tied to time entries. Keep work accountable with status tracking from open through to resolved.',
+    gradient: 'from-red-500/20 to-rose-500/5',
+    glow: 'group-hover:shadow-red-500/20',
+  },
+  {
+    icon: faComments,
+    title: 'Real-time Messaging',
+    description:
+      'Built-in team messaging with instant delivery via Server-Sent Events. Chat within a team or start a direct thread — no third-party app required.',
+    gradient: 'from-blue-500/20 to-sky-500/5',
+    glow: 'group-hover:shadow-blue-500/20',
+  },
+  {
+    icon: faGlobe,
+    title: 'Inbox & Notifications',
+    description:
+      'Every action that matters lands in your inbox. Mention a teammate, reassign a ticket, or update a shift — they will know instantly.',
     gradient: 'from-purple-500/20 to-violet-500/5',
     glow: 'group-hover:shadow-purple-500/20',
   },
   {
-    icon: faCode,
-    title: 'TypeScript 5',
+    icon: faKey,
+    title: 'Secure Authentication',
     description:
-      'End-to-end strict type safety with path aliases and composite project configuration.',
-    gradient: 'from-red-500/20 to-rose-500/5',
-    glow: 'group-hover:shadow-red-500/20',
+      'Email and password auth with secure session management. Password reset flows, profile management, and role-based access built in from day one.',
+    gradient: 'from-green-500/20 to-emerald-500/5',
+    glow: 'group-hover:shadow-green-500/20',
   },
 ];
 
@@ -120,15 +115,17 @@ const TERMINAL_LINES = [
   { type: 'cmd' as const, text: `git clone ${REPO_URL}` },
   { type: 'cmd' as const, text: 'cd timehuddle' },
   { type: 'blank' as const, text: '' },
-  { type: 'comment' as const, text: '# Install deps & start dev server' },
-  { type: 'cmd' as const, text: 'npm ci --no-audit --no-fund' },
-  { type: 'cmd' as const, text: 'npm run dev' },
-  { type: 'output' as const, text: '→  http://localhost:5173  ✓ ready' },
+  { type: 'comment' as const, text: '# Start the full stack with Docker' },
+  { type: 'cmd' as const, text: 'docker compose up -d' },
+  { type: 'blank' as const, text: '' },
+  { type: 'output' as const, text: '✓ frontend  →  http://localhost:3000' },
+  { type: 'output' as const, text: '✓ backend   →  http://localhost:4000' },
+  { type: 'output' as const, text: '✓ mongodb   →  localhost:27017' },
 ];
 
 const STATS = [
-  { value: '< 5min', label: 'To first run' },
-  { value: '3', label: 'Real-time examples' },
+  { value: '1 tap', label: 'To clock in' },
+  { value: 'Live', label: 'Team status' },
   { value: '100%', label: 'TypeScript' },
   { value: 'MIT', label: 'License' },
 ];
@@ -145,44 +142,44 @@ interface Demo {
 
 const DEMOS: Demo[] = [
   {
-    icon: faComments,
-    title: 'Real-time Chat',
+    icon: faBolt,
+    title: 'Clock Dashboard',
     description:
-      'Multi-room messaging with grouped threads, clickable user profile links, and instant delivery via SSE. Open two tabs and watch it sync live.',
-    path: '/app/chat',
-    tag: 'Multi-room · Profiles · SSE',
-    gradient: 'from-blue-500/20 to-sky-500/5',
-    glow: 'group-hover:shadow-blue-500/20',
+      'Clock in and out with one tap. Your team\'s live attendance status is always visible — see who is working, on break, or clocked out right now.',
+    path: '/app/clock',
+    tag: 'Live status · Breaks · History',
+    gradient: 'from-yellow-500/20 to-orange-500/5',
+    glow: 'group-hover:shadow-yellow-500/20',
   },
   {
-    icon: faChartBar,
-    title: 'Live Polls',
+    icon: faLayerGroup,
+    title: 'Teams',
     description:
-      'Create polls with 2-8 options, vote, and change your vote. Animated result bars update in real-time across every connected client the moment a vote is cast.',
-    path: '/app/polls',
-    tag: 'Voting · Animated bars · One-per-user',
-    gradient: 'from-violet-500/20 to-purple-500/5',
-    glow: 'group-hover:shadow-violet-500/20',
+      'Browse your teams, view member rosters, and manage roles. Managers get full oversight of schedules and attendance across every team they own.',
+    path: '/app/teams',
+    tag: 'Rosters · Roles · Schedules',
+    gradient: 'from-cyan-500/20 to-blue-500/5',
+    glow: 'group-hover:shadow-cyan-500/20',
   },
   {
     icon: faList,
-    title: 'Reactive Todos',
+    title: 'Tickets',
     description:
-      'Drag-to-reorder, active/completed filters, and bulk clear — all synced live across every open client. The classic todo example, done with proper drag UX.',
-    path: '/app/todos',
-    tag: 'Drag & drop · Filters · Real-time',
-    gradient: 'from-emerald-500/20 to-green-500/5',
-    glow: 'group-hover:shadow-emerald-500/20',
+      'Raise tickets, assign them to teammates, and track progress from open to resolved. Linked to time entries so you always know what work took how long.',
+    path: '/app/tickets',
+    tag: 'Assign · Track · Resolve',
+    gradient: 'from-red-500/20 to-rose-500/5',
+    glow: 'group-hover:shadow-red-500/20',
   },
   {
-    icon: faCircleUser,
-    title: 'User Profiles',
+    icon: faComments,
+    title: 'Messages',
     description:
-      'Every user gets a public profile with display name, bio, and website. Click any username in chat to view their profile; edit your own from the header dropdown.',
-    path: '/app',
-    tag: 'Public · Editable · Linked from chat',
-    gradient: 'from-rose-500/20 to-pink-500/5',
-    glow: 'group-hover:shadow-rose-500/20',
+      'Team messaging built right into the app. No switching to Slack or Teams — just open Messages and chat with your colleagues in real time.',
+    path: '/app/messages',
+    tag: 'Real-time · Direct · Team threads',
+    gradient: 'from-blue-500/20 to-sky-500/5',
+    glow: 'group-hover:shadow-blue-500/20',
   },
 ];
 
@@ -192,61 +189,10 @@ interface GalleryItem {
   label: string;
 }
 
-const GALLERY: GalleryItem[] = [
-  {
-    src: '/screenshots/landing-hero-light.png',
-    alt: 'Landing page hero — light mode',
-    label: 'Landing (Light)',
-  },
-  {
-    src: '/screenshots/landing-hero-dark.png',
-    alt: 'Landing page hero — dark mode',
-    label: 'Landing (Dark)',
-  },
-  {
-    src: '/screenshots/todos-light.png',
-    alt: 'Todos app — light mode',
-    label: 'Todos (Light)',
-  },
-  {
-    src: '/screenshots/todos-dark.png',
-    alt: 'Todos app — dark mode',
-    label: 'Todos (Dark)',
-  },
-  {
-    src: '/screenshots/chat-light.png',
-    alt: 'Real-time chat — light mode',
-    label: 'Chat (Light)',
-  },
-  {
-    src: '/screenshots/chat-dark.png',
-    alt: 'Real-time chat — dark mode',
-    label: 'Chat (Dark)',
-  },
-  {
-    src: '/screenshots/polls-light.png',
-    alt: 'Live polls — light mode',
-    label: 'Polls (Light)',
-  },
-  {
-    src: '/screenshots/polls-dark.png',
-    alt: 'Live polls — dark mode',
-    label: 'Polls (Dark)',
-  },
-  {
-    src: '/screenshots/login-light.png',
-    alt: 'Login page — light mode',
-    label: 'Login (Light)',
-  },
-  {
-    src: '/screenshots/login-dark.png',
-    alt: 'Login page — dark mode',
-    label: 'Login (Dark)',
-  },
-];
+const GALLERY: GalleryItem[] = [];
 
-const HERO_WORDS_1 = ['The', 'Modern', 'Full-Stack'];
-const HERO_HIGHLIGHT = ['React', 'Starter'];
+const HERO_WORDS_1 = ['Track', 'Time.'];
+const HERO_HIGHLIGHT = ['Run', 'Teams.'];
 
 // ─── Reduced-motion hook ──────────────────────────────────────────────────────
 
@@ -262,62 +208,6 @@ function useReducedMotion() {
   }, []);
   return reduced;
 }
-
-// ─── ThemeButton ──────────────────────────────────────────────────────────────
-
-const ThemeButton: React.FC = () => {
-  const { theme, toggle } = useTheme();
-  const isDark = theme === 'dark';
-
-  return (
-    <motion.button
-      type="button"
-      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-      onClick={toggle}
-      whileHover={{ scale: 1.08 }}
-      whileTap={{ scale: 0.92 }}
-      className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-600 shadow-sm hover:bg-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
-    >
-      <AnimatePresence mode="wait" initial={false}>
-        {isDark ? (
-          <motion.svg
-            key="sun"
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            className="h-4 w-4"
-            aria-hidden="true"
-            initial={{ rotate: -90, opacity: 0 }}
-            animate={{ rotate: 0, opacity: 1 }}
-            exit={{ rotate: 90, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <path d="M12 2.25a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.166a.75.75 0 00-1.06-1.06l-1.591 1.59a.75.75 0 101.06 1.061l1.591-1.59zM21.75 12a.75.75 0 01-.75.75h-2.25a.75.75 0 010-1.5H21a.75.75 0 01.75.75zM17.834 18.894a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 10-1.061 1.06l1.59 1.591zM12 18a.75.75 0 01.75.75V21a.75.75 0 01-1.5 0v-2.25A.75.75 0 0112 18zM7.772 17.303a.75.75 0 00-1.06 1.06l1.59 1.591a.75.75 0 001.061-1.06l-1.59-1.591zM6 12a.75.75 0 01-.75.75H3a.75.75 0 010-1.5h2.25A.75.75 0 016 12zM6.166 5.106a.75.75 0 011.06 1.06L5.635 7.757a.75.75 0 01-1.061-1.06l1.591-1.591z" />
-          </motion.svg>
-        ) : (
-          <motion.svg
-            key="moon"
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            className="h-4 w-4"
-            aria-hidden="true"
-            initial={{ rotate: 90, opacity: 0 }}
-            animate={{ rotate: 0, opacity: 1 }}
-            exit={{ rotate: -90, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <path
-              fillRule="evenodd"
-              d="M9.528 1.718a.75.75 0 01.162.819A8.97 8.97 0 009 6a9 9 0 009 9 8.97 8.97 0 003.463-.69.75.75 0 01.981.98 10.503 10.503 0 01-9.694 6.46c-5.799 0-10.5-4.701-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 01.818.162z"
-              clipRule="evenodd"
-            />
-          </motion.svg>
-        )}
-      </AnimatePresence>
-    </motion.button>
-  );
-};
 
 // ─── Parallax orbs ────────────────────────────────────────────────────────────
 
@@ -753,6 +643,8 @@ const GallerySection: React.FC<{ reduced: boolean }> = ({ reduced }) => {
     [],
   );
 
+  if (GALLERY.length === 0) return null;
+
   return (
     <section aria-labelledby="gallery-heading" className="relative overflow-hidden py-24">
       <div
@@ -792,7 +684,7 @@ const GallerySection: React.FC<{ reduced: boolean }> = ({ reduced }) => {
                   whileHover={{ opacity: 1, scale: 1 }}
                   className="rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-neutral-800 opacity-0 shadow-sm transition-opacity duration-200 group-hover:opacity-100"
                 >
-                  <FontAwesomeIcon icon={faImages} className="mr-1.5" aria-hidden="true" />
+                  <FontAwesomeIcon icon={faLayerGroup} className="mr-1.5" aria-hidden="true" />
                   Expand
                 </motion.span>
               </div>
@@ -828,6 +720,17 @@ export const LandingPage: React.FC = () => {
   const { scrollY } = useScroll();
   const smoothScrollY = useSpring(scrollY, { stiffness: 80, damping: 20 });
 
+  // Force dark mode for the landing page only
+  useEffect(() => {
+    const html = document.documentElement;
+    const prev = html.getAttribute('data-theme');
+    html.setAttribute('data-theme', 'dark');
+    return () => {
+      if (prev === null) html.removeAttribute('data-theme');
+      else html.setAttribute('data-theme', prev);
+    };
+  }, []);
+
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const unsub = scrollY.on('change', (v) => setScrolled(v > 20));
@@ -850,41 +753,67 @@ export const LandingPage: React.FC = () => {
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
       >
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
+          {/* Logo */}
           <motion.a
             href="/"
-            className="flex items-center gap-2.5 font-semibold"
-            whileHover={{ scale: 1.04 }}
+            className="flex items-center gap-2.5"
+            whileHover={{ scale: 1.03 }}
           >
             <motion.span
-              className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-600 text-white"
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-600 text-white shadow-sm shadow-blue-500/40"
               whileHover={reduced ? {} : { rotate: 20 }}
               transition={{ type: 'spring', stiffness: 400 }}
             >
               <FontAwesomeIcon icon={faBolt} className="text-xs" aria-hidden="true" />
             </motion.span>
-            <span>TimeHuddle</span>
+            <span className="text-sm font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
+              TimeHuddle
+            </span>
           </motion.a>
 
-          <nav aria-label="Site navigation" className="flex items-center gap-2">
-            <ThemeButton />
+          {/* Nav actions */}
+          <nav aria-label="Site navigation" className="flex items-center gap-1">
+            {/* GitHub */}
             <motion.a
               href={REPO_URL}
               target="_blank"
               rel="noopener noreferrer"
               aria-label="View source on GitHub"
-              whileHover={{ scale: 1.08 }}
+              whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.93 }}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-neutral-200 bg-white text-neutral-600 shadow-sm hover:bg-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
             >
-              <FontAwesomeIcon icon={faGithub} aria-hidden="true" />
+              <FontAwesomeIcon icon={faGithub} className="text-sm" aria-hidden="true" />
             </motion.a>
+
+            {/* Divider */}
+            <span className="mx-1 h-4 w-px bg-neutral-700" aria-hidden="true" />
+
+            {/* Sign in */}
+            <motion.a
+              href="/app"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.97 }}
+              className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+            >
+              Sign in
+            </motion.a>
+
+            {/* Sign up — primary CTA */}
             <motion.a
               href="/app?mode=signup"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="ml-1 inline-flex h-9 items-center justify-center rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+              whileHover={reduced ? {} : { scale: 1.04, y: -1 }}
+              whileTap={{ scale: 0.96 }}
+              className="relative ml-1 inline-flex h-8 items-center overflow-hidden rounded-md bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm shadow-blue-500/30 transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/60"
             >
-              Get Started →
+              <motion.span
+                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-blue-400/0 via-white/15 to-blue-400/0"
+                initial={{ x: '-100%' }}
+                animate={reduced ? {} : { x: '200%' }}
+                transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
+                aria-hidden="true"
+              />
+              Get started
             </motion.a>
           </nav>
         </div>
@@ -906,17 +835,6 @@ export const LandingPage: React.FC = () => {
         />
 
         <div className="relative z-10 mx-auto max-w-4xl px-6">
-          {/* CI deploy smoke-test banner */}
-          <motion.p
-            initial={reduced ? false : { opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-            className="mb-4 text-8xl font-black tracking-widest text-blue-600 dark:text-blue-400"
-            aria-label="Hi"
-          >
-            Hi! 👋
-          </motion.p>
-
           {/* Status badge */}
           <motion.div
             initial={reduced ? false : { opacity: 0, y: -16, scale: 0.9 }}
@@ -931,7 +849,7 @@ export const LandingPage: React.FC = () => {
               aria-hidden="true"
             />
             <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">
-              Up-to-date · Vite · React 19 · Tailwind CSS 4
+              Time Tracking · Teams · Tickets · Messaging
             </span>
           </motion.div>
 
@@ -966,15 +884,15 @@ export const LandingPage: React.FC = () => {
             transition={{ duration: 0.6, delay: 0.55, ease: [0.22, 1, 0.36, 1] }}
             className="mx-auto mt-8 max-w-2xl text-xl leading-relaxed text-neutral-600 dark:text-neutral-400"
           >
-            Production-ready time tracking app with real-time{' '}
+            TimeHuddle keeps your team in sync.{' '}
             <strong className="font-semibold text-neutral-900 dark:text-neutral-100">
-              Chat, Polls,
+              Clock in, clock out,
             </strong>{' '}
-            and{' '}
-            <strong className="font-semibold text-neutral-900 dark:text-neutral-100">Todos</strong>{' '}
-            built in — plus passwordless auth, Tailwind CSS 4, TypeScript, and SSR.{' '}
+            manage{' '}
+            <strong className="font-semibold text-neutral-900 dark:text-neutral-100">teams and tickets</strong>,{' '}
+            and chat with your colleagues — all in one place.{' '}
             <strong className="font-semibold text-neutral-900 dark:text-neutral-100">
-              Clone and ship.
+              No spreadsheets required.
             </strong>
           </motion.p>
 
@@ -1009,7 +927,7 @@ export const LandingPage: React.FC = () => {
                 transition={{ duration: 1.8, repeat: Infinity, repeatDelay: 2.5 }}
                 aria-hidden="true"
               />
-              Get Started Free
+              Get Started
               <FontAwesomeIcon icon={faBolt} className="text-xs" aria-hidden="true" />
             </motion.a>
           </motion.div>
@@ -1037,22 +955,7 @@ export const LandingPage: React.FC = () => {
           </motion.div>
         </div>
 
-        {/* Scroll indicator */}
-        <motion.div
-          initial={reduced ? false : { opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1.8 }}
-          className="absolute bottom-8 left-1/2 -translate-x-1/2"
-          aria-hidden="true"
-        >
-          <motion.div
-            animate={reduced ? {} : { y: [0, 8, 0] }}
-            transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
-            className="flex h-9 w-5 items-start justify-center rounded-full border-2 border-neutral-400/60 pt-1.5 dark:border-neutral-600"
-          >
-            <div className="h-2 w-0.5 rounded-full bg-neutral-400 dark:bg-neutral-500" />
-          </motion.div>
-        </motion.div>
+
       </section>
 
       {/* ── Stats ── */}
@@ -1072,8 +975,8 @@ export const LandingPage: React.FC = () => {
         <div className="relative mx-auto max-w-5xl px-6">
           <SectionHeading
             id="features-heading"
-            title="Everything you need to ship"
-            subtitle="A curated, modern stack — configured, integrated, and ready to go."
+            title="Everything your team needs"
+            subtitle="Time tracking, collaboration, and task management — all in one place."
             reduced={reduced}
           />
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -1093,8 +996,8 @@ export const LandingPage: React.FC = () => {
         <div className="relative mx-auto max-w-5xl px-6">
           <SectionHeading
             id="demos-heading"
-            title="Batteries included"
-            subtitle="Three production-quality real-time examples — remove what you don't need, build on what you do."
+            title="See what's inside"
+            subtitle="Jump straight into the app — clock in, manage your team, or open a ticket."
             reduced={reduced}
           />
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
@@ -1114,7 +1017,7 @@ export const LandingPage: React.FC = () => {
           <SectionHeading
             id="quickstart-heading"
             title="Quick Start"
-            subtitle="Clone, install, and start developing in minutes."
+            subtitle="One command with Docker Compose gets the full stack running."
             reduced={reduced}
           />
           <AnimatedTerminal reduced={reduced} />
@@ -1129,7 +1032,15 @@ export const LandingPage: React.FC = () => {
             <code className="rounded-md bg-neutral-100 px-1.5 py-0.5 font-mono text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200">
               http://localhost:3000
             </code>{' '}
-            in your browser.
+            in your browser. Requires{' '}
+            <a
+              href="https://docs.docker.com/get-docker/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-neutral-700 dark:hover:text-neutral-300"
+            >
+              Docker
+            </a>.
           </motion.p>
         </div>
       </section>
@@ -1161,22 +1072,20 @@ export const LandingPage: React.FC = () => {
                 id="cta-heading"
                 className="relative z-10 text-3xl font-bold text-white lg:text-4xl"
               >
-                Ready to build something great?
+                Ready to huddle up?
               </h2>
               <p className="relative z-10 mx-auto mt-4 max-w-xl text-blue-100/90">
-                Grab the starter, fork it, and start building your next app in minutes. No
-                boilerplate setup — it&apos;s already done.
+                Sign up free and get your team tracking time, managing tickets, and communicating
+                in minutes.
               </p>
               <motion.a
-                href={REPO_URL}
-                target="_blank"
-                rel="noopener noreferrer"
+                href="/app?mode=signup"
                 whileHover={reduced ? {} : { scale: 1.06, y: -2 }}
                 whileTap={{ scale: 0.96 }}
                 className="relative z-10 mt-8 inline-flex items-center gap-2.5 rounded-xl bg-white px-7 py-3.5 text-sm font-bold text-blue-700 shadow-lg shadow-black/20 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-white/60"
               >
-                <FontAwesomeIcon icon={faGithub} aria-hidden="true" />
-                Clone on GitHub
+                <FontAwesomeIcon icon={faBolt} aria-hidden="true" />
+                Get Started
               </motion.a>
             </div>
           </motion.div>
@@ -1186,12 +1095,12 @@ export const LandingPage: React.FC = () => {
       {/* ── Footer ── */}
       <footer className="border-t border-neutral-200 py-10 dark:border-neutral-800">
         <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 px-6 sm:flex-row">
-          <p className="text-sm text-neutral-500">MIT License · Open source starter template</p>
+          <p className="text-sm text-neutral-500">© 2026 TimeHuddle · MIT License</p>
           <div className="flex items-center gap-6 text-sm text-neutral-500">
             {[
               { label: 'GitHub ↗', href: REPO_URL },
-              { label: 'React Docs ↗', href: 'https://react.dev' },
-              { label: 'motion.dev ↗', href: 'https://motion.dev' },
+              { label: 'Sign In ↗', href: '/app' },
+              { label: 'Sign Up ↗', href: '/app?mode=signup' },
             ].map((link) => (
               <motion.a
                 key={link.label}
