@@ -1,6 +1,7 @@
 {
   "name": "timehuddle",
   "private": true,
+  "workspaces": ["packages/*", "backend"],
   "engines": {
     "node": ">=24"
   },
