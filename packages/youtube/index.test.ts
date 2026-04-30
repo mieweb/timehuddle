@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { getYouTubeTitleFromUrl, isYouTubeUrl } from "../src/services/youtube.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { getYouTubeTitleFromUrl, isYouTubeUrl } from "./index.ts";
 
 describe("isYouTubeUrl", () => {
   it("recognizes www.youtube.com URLs", () => {

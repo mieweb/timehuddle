@@ -8,6 +8,7 @@
 import { faLink, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Input, Select, Spinner, Text } from '@mieweb/ui';
+import { getYouTubeTitleFromUrl, isYouTubeUrl } from '@timehuddle/youtube';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { attachmentApi, type AttachmentKind, type AttachmentType, type Attachment } from '../../lib/api';
@@ -62,7 +63,14 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ kind, entity
   const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setUrl(val);
-    if (val.trim()) setType(guessType(val));
+    if (val.trim()) {
+      setType(guessType(val));
+      if (isYouTubeUrl(val) && !title.trim()) {
+        void getYouTubeTitleFromUrl(val).then((resolved) => {
+          if (resolved) setTitle((prev) => (prev.trim() ? prev : resolved));
+        });
+      }
+    }
   };
 
   const handleSubmit = useCallback(async () => {
