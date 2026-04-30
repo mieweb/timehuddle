@@ -46,6 +46,151 @@ import { formatDuration } from '../../lib/timeUtils';
 import { useSession } from '../../lib/useSession';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
 
+interface TicketRowProps {
+  ticket: Ticket;
+  canManage: boolean;
+  currentTime: number;
+  editingId: string | null;
+  editTitle: string;
+  editGithub: string;
+  userId: string | null;
+  onStartStop: (ticket: Ticket) => Promise<void>;
+  onSaveEdit: () => Promise<void>;
+  onCancelEdit: () => void;
+  onStartEdit: (ticket: Ticket) => void;
+  onDeleteRequest: (id: string) => void;
+  onEditTitleChange: (value: string) => void;
+  onEditGithubChange: (value: string) => void;
+}
+
+const TicketRow: React.FC<TicketRowProps> = ({
+  ticket,
+  canManage,
+  currentTime,
+  editingId,
+  editTitle,
+  editGithub,
+  userId,
+  onStartStop,
+  onSaveEdit,
+  onCancelEdit,
+  onStartEdit,
+  onDeleteRequest,
+  onEditTitleChange,
+  onEditGithubChange,
+}) => {
+  const isRunning = !!ticket.startTimestamp;
+  const elapsed = isRunning
+    ? (ticket.accumulatedTime || 0) + Math.floor((currentTime - ticket.startTimestamp!) / 1000)
+    : ticket.accumulatedTime || 0;
+
+  const isEditing = editingId === ticket.id;
+
+  return (
+    <li className="flex flex-col gap-1 px-5 py-3">
+      <div className="flex items-center gap-3">
+      {/* Play/Pause */}
+      {canManage && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onStartStop(ticket)}
+          className={`rounded-full ${
+            isRunning
+              ? 'bg-amber-100 text-amber-600 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-400'
+              : 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-400'
+          }`}
+          aria-label={isRunning ? 'Pause ticket' : 'Start ticket'}
+        >
+          <FontAwesomeIcon icon={isRunning ? faPause : faPlay} className="text-xs" />
+        </Button>
+      )}
+
+      {/* Content */}
+      <div className="min-w-0 flex-1">
+        {isEditing ? (
+          <div className="flex flex-col gap-2">
+            <Input
+              label="Title"
+              hideLabel
+              value={editTitle}
+              onChange={(e) => onEditTitleChange(e.target.value)}
+              size="sm"
+              autoFocus
+            />
+            <Input
+              label="GitHub URL"
+              hideLabel
+              type="url"
+              value={editGithub}
+              onChange={(e) => onEditGithubChange(e.target.value)}
+              placeholder="GitHub URL (optional)"
+              size="sm"
+            />
+            <div className="flex gap-2">
+              <Button variant="primary" size="sm" onClick={onSaveEdit}>
+                Save
+              </Button>
+              <Button variant="ghost" size="sm" onClick={onCancelEdit}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <Text size="sm" weight="medium" truncate>
+              {ticket.title}
+            </Text>
+            <div className="flex items-center gap-2">
+              {ticket.github && (
+                <a
+                  href={ticket.github}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-blue-500 hover:underline"
+                >
+                  <FontAwesomeIcon icon={faExternalLink} className="text-[10px]" />
+                  {ticket.github.includes('github.com') ? 'GitHub' : 'Link'}
+                </a>
+              )}
+              {ticket.status && ticket.status !== 'open' && (
+                <Badge variant={ticket.status === 'reviewed' ? 'success' : 'secondary'} size="sm">
+                  {ticket.status}
+                </Badge>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Time */}
+      <Badge variant={isRunning ? 'success' : 'secondary'} size="sm" className="font-mono">
+        {formatDuration(elapsed)}
+      </Badge>
+
+      {/* Actions */}
+      {canManage && !isEditing && (
+        <div className="flex gap-1">
+          <Button variant="ghost" size="icon" onClick={() => onStartEdit(ticket)} aria-label="Edit">
+            <FontAwesomeIcon icon={faPen} className="text-xs" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onDeleteRequest(ticket.id)}
+            className="text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30"
+            aria-label="Delete"
+          >
+            <FontAwesomeIcon icon={faTrash} className="text-xs" />
+          </Button>
+        </div>
+      )}
+      </div>
+      <AttachmentsPanel kind="ticket" entityId={ticket.id} currentUserId={userId ?? undefined} />
+    </li>
+  );
+};
+
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
@@ -163,121 +308,6 @@ export const TicketsPage: React.FC = () => {
     setEditingId(ticket.id);
     setEditTitle(ticket.title);
     setEditGithub(ticket.github || '');
-  };
-
-  // ── Ticket Row ──
-
-  const TicketRow: React.FC<{ ticket: Ticket; canManage: boolean }> = ({ ticket, canManage }) => {
-    const isRunning = !!ticket.startTimestamp;
-    const elapsed = isRunning
-      ? (ticket.accumulatedTime || 0) + Math.floor((currentTime - ticket.startTimestamp!) / 1000)
-      : ticket.accumulatedTime || 0;
-
-    const isEditing = editingId === ticket.id;
-
-    return (
-      <li className="flex flex-col gap-1 px-5 py-3">
-        <div className="flex items-center gap-3">
-        {/* Play/Pause */}
-        {canManage && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => handleStartStop(ticket)}
-            className={`rounded-full ${
-              isRunning
-                ? 'bg-amber-100 text-amber-600 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-400'
-                : 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-400'
-            }`}
-            aria-label={isRunning ? 'Pause ticket' : 'Start ticket'}
-          >
-            <FontAwesomeIcon icon={isRunning ? faPause : faPlay} className="text-xs" />
-          </Button>
-        )}
-
-        {/* Content */}
-        <div className="min-w-0 flex-1">
-          {isEditing ? (
-            <div className="flex flex-col gap-2">
-              <Input
-                label="Title"
-                hideLabel
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                size="sm"
-                autoFocus
-              />
-              <Input
-                label="GitHub URL"
-                hideLabel
-                type="url"
-                value={editGithub}
-                onChange={(e) => setEditGithub(e.target.value)}
-                placeholder="GitHub URL (optional)"
-                size="sm"
-              />
-              <div className="flex gap-2">
-                <Button variant="primary" size="sm" onClick={handleSaveEdit}>
-                  Save
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <Text size="sm" weight="medium" truncate>
-                {ticket.title}
-              </Text>
-              <div className="flex items-center gap-2">
-                {ticket.github && (
-                  <a
-                    href={ticket.github}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-blue-500 hover:underline"
-                  >
-                    <FontAwesomeIcon icon={faExternalLink} className="text-[10px]" />
-                    {ticket.github.includes('github.com') ? 'GitHub' : 'Link'}
-                  </a>
-                )}
-                {ticket.status && ticket.status !== 'open' && (
-                  <Badge variant={ticket.status === 'reviewed' ? 'success' : 'secondary'} size="sm">
-                    {ticket.status}
-                  </Badge>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* Time */}
-        <Badge variant={isRunning ? 'success' : 'secondary'} size="sm" className="font-mono">
-          {formatDuration(elapsed)}
-        </Badge>
-
-        {/* Actions */}
-        {canManage && !isEditing && (
-          <div className="flex gap-1">
-            <Button variant="ghost" size="icon" onClick={() => startEdit(ticket)} aria-label="Edit">
-              <FontAwesomeIcon icon={faPen} className="text-xs" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setDeleteId(ticket.id)}
-              className="text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30"
-              aria-label="Delete"
-            >
-              <FontAwesomeIcon icon={faTrash} className="text-xs" />
-            </Button>
-          </div>
-        )}
-        </div>
-        <AttachmentsPanel kind="ticket" entityId={ticket.id} currentUserId={userId ?? undefined} />
-      </li>
-    );
   };
 
   const teamOptions = useMemo(
@@ -457,7 +487,23 @@ export const TicketsPage: React.FC = () => {
           <CardContent className="p-0">
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {myTickets.map((t) => (
-                <TicketRow key={t.id} ticket={t} canManage={true} />
+                <TicketRow
+                  key={t.id}
+                  ticket={t}
+                  canManage={true}
+                  currentTime={currentTime}
+                  editingId={editingId}
+                  editTitle={editTitle}
+                  editGithub={editGithub}
+                  userId={userId}
+                  onStartStop={handleStartStop}
+                  onSaveEdit={handleSaveEdit}
+                  onCancelEdit={() => setEditingId(null)}
+                  onStartEdit={startEdit}
+                  onDeleteRequest={setDeleteId}
+                  onEditTitleChange={setEditTitle}
+                  onEditGithubChange={setEditGithub}
+                />
               ))}
             </ul>
           </CardContent>
@@ -473,7 +519,23 @@ export const TicketsPage: React.FC = () => {
           <CardContent className="p-0">
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {otherTickets.map((t) => (
-                <TicketRow key={t.id} ticket={t} canManage={false} />
+                <TicketRow
+                  key={t.id}
+                  ticket={t}
+                  canManage={false}
+                  currentTime={currentTime}
+                  editingId={editingId}
+                  editTitle={editTitle}
+                  editGithub={editGithub}
+                  userId={userId}
+                  onStartStop={handleStartStop}
+                  onSaveEdit={handleSaveEdit}
+                  onCancelEdit={() => setEditingId(null)}
+                  onStartEdit={startEdit}
+                  onDeleteRequest={setDeleteId}
+                  onEditTitleChange={setEditTitle}
+                  onEditGithubChange={setEditGithub}
+                />
               ))}
             </ul>
           </CardContent>
