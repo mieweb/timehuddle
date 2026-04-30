@@ -33,6 +33,7 @@ import { useTeam } from '../../lib/TeamContext';
 import { formatDuration, formatTime, formatDate, toDateString } from '../../lib/timeUtils';
 import { clockApi, type ClockEvent } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
+import { AttachmentsPanel } from './AttachmentsPanel';
 
 interface TimesheetData {
   sessions: ClockEvent[];
@@ -89,6 +90,7 @@ export const TimesheetPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<TimesheetData | null>(null);
+  const [attachmentsOpenForSession, setAttachmentsOpenForSession] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!user?.id) return;
@@ -190,7 +192,7 @@ export const TimesheetPage: React.FC = () => {
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Card>
             <CardContent>
-              <Text variant="muted" size="xs">
+                            <Text variant="muted" size="xs">
                 Total Hours
               </Text>
               <Text size="lg" weight="semibold">
@@ -261,6 +263,7 @@ export const TimesheetPage: React.FC = () => {
                   <TableHead>Duration</TableHead>
                   <TableHead>Team</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Attachments</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -272,28 +275,55 @@ export const TimesheetPage: React.FC = () => {
                     : null;
                   const isActive = !s.endTime;
                   const teamName = teams.find((t) => t.id === s.teamId)?.name ?? s.teamId;
+                  const isAttachmentsOpen = attachmentsOpenForSession === s.id;
                   return (
-                    <TableRow key={s.id}>
-                      <TableCell>{formatDate(startTime, true)}</TableCell>
-                      <TableCell>{formatTime(startTime)}</TableCell>
-                      <TableCell>{endTime ? formatTime(endTime) : '—'}</TableCell>
-                      <TableCell className="font-mono">
-                        {duration ? formatDuration(duration) : '—'}
-                      </TableCell>
-                      <TableCell>{teamName}</TableCell>
-                      <TableCell>
-                        {isActive ? (
-                          <Badge variant="success" size="sm">
-                            <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                            Active
-                          </Badge>
-                        ) : (
-                          <Text variant="muted" size="xs">
-                            Completed
-                          </Text>
-                        )}
-                      </TableCell>
-                    </TableRow>
+                    <React.Fragment key={s.id}>
+                      <TableRow>
+                        <TableCell>{formatDate(startTime, true)}</TableCell>
+                        <TableCell>{formatTime(startTime)}</TableCell>
+                        <TableCell>{endTime ? formatTime(endTime) : '—'}</TableCell>
+                        <TableCell className="font-mono">
+                          {duration ? formatDuration(duration) : '—'}
+                        </TableCell>
+                        <TableCell>{teamName}</TableCell>
+                        <TableCell>
+                          {isActive ? (
+                            <Badge variant="success" size="sm">
+                              <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+                              Active
+                            </Badge>
+                          ) : (
+                            <Text variant="muted" size="xs">
+                              Completed
+                            </Text>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {isActive ? (
+                            <Text variant="muted" size="xs">
+                              —
+                            </Text>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setAttachmentsOpenForSession((prev) => (prev === s.id ? null : s.id))
+                              }
+                            >
+                              {isAttachmentsOpen ? 'Hide' : 'Manage'}
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      {!isActive && isAttachmentsOpen && (
+                        <TableRow>
+                          <TableCell colSpan={7}>
+                            <AttachmentsPanel kind="clock" entityId={s.id} currentUserId={user?.id} />
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </TableBody>

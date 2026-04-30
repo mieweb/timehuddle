@@ -6,9 +6,21 @@ This is a React 19 + Vite + Tailwind CSS 4 + TypeScript frontend application. Th
 
 ## Working Effectively
 
+### Node Version
+
+This project pins Node via `.nvmrc`. **Always run `nvm use` before any terminal commands** to ensure the correct Node version is active. Using the wrong version causes `package-lock.json` drift and CI failures.
+
+```bash
+nvm use          # activate the pinned version
+node --version   # verify
+```
+
+If `nvm` is not available, check `.nvmrc` for the required version and install it before proceeding.
+
 ### Initial Setup and Dependencies
 
 ```bash
+nvm use
 npm install
 ```
 
@@ -21,7 +33,7 @@ npm run preview  # Preview production build locally
 ```
 
 - Development URL: `http://localhost:3000`
-- Connects to `timecore` API at `http://localhost:4000`
+- Connects to the backend API at `http://localhost:4000`
 
 ### Code Quality and Validation
 
@@ -67,7 +79,7 @@ src/
 - **Global styles**: `src/styles.css` — Tailwind 4 `@import`, brand tokens, dark-mode variant. **Do not remove.**
 - **App shell**: `src/ui/AppLayout.tsx` — layout, sidebar, routing context
 - **Routing**: client-side only via `RouterContext` (no React Router)
-- **API calls**: `src/lib/api.ts` — fetch wrappers to `timecore`
+- **API calls**: `src/lib/api.ts` — fetch wrappers to the backend
 - **Auth**: `src/lib/useSession.ts`
 
 ## Technology Stack
@@ -118,7 +130,7 @@ src/
 
 ## Troubleshooting
 
-- **Blank page / API errors**: ensure `timecore` is running on port 4000
+- **Blank page / API errors**: ensure the backend is running on port 4000
 - **Type errors**: `npm run typecheck`
 - **Lint errors**: `npm run lint:fix`
 - **Style broken**: check `client/styles.css` imports are intact

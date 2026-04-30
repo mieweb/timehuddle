@@ -3,7 +3,7 @@
  *
  * Uses @mieweb/ui Dropdown, Avatar, and DropdownItem components.
  */
-import { faChevronDown, faCircleUser, faRightFromBracket } from '@fortawesome/free-solid-svg-icons';
+import { faCircleUser, faRightFromBracket } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Avatar, Dropdown, DropdownItem, DropdownSeparator, Text } from '@mieweb/ui';
 import React, { useCallback } from 'react';
@@ -27,7 +27,7 @@ export const UserDropdown: React.FC = () => {
     if (user?.id) navigate(`/app/profile/${user.id}`);
   }, [navigate, user?.id]);
 
-  const displayName = email ?? 'Account';
+  const displayName = user?.name || email?.split('@')[0] || 'Account';
   const truncated = displayName.length > 22 ? `${displayName.slice(0, 20)}…` : displayName;
 
   return (
@@ -35,11 +35,10 @@ export const UserDropdown: React.FC = () => {
       trigger={
         <button
           type="button"
-          className="flex h-9 items-center gap-2 rounded-lg border border-transparent px-2 text-sm text-neutral-700 transition-colors hover:border-neutral-200 hover:bg-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:text-neutral-300 dark:hover:border-neutral-700 dark:hover:bg-neutral-800"
+          className="flex items-center rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+          aria-label="Account menu"
         >
           <Avatar name={displayName} size="sm" />
-          <span className="hidden max-w-[140px] truncate sm:block">{truncated}</span>
-          <FontAwesomeIcon icon={faChevronDown} className="text-[10px] text-neutral-400" />
         </button>
       }
       placement="bottom-end"

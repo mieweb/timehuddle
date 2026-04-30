@@ -14,6 +14,7 @@ import { teamRoutes } from "./routes/teams.js";
 import { clockRoutes } from "./routes/clock.js";
 import { messageRoutes } from "./routes/messages.js";
 import { notificationRoutes } from "./routes/notifications.js";
+import { attachmentRoutes } from "./routes/attachments.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? true });
@@ -48,6 +49,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
           name: "Notifications",
           description: "User notification inbox, mark-read, delete, and SSE stream",
         },
+        { name: "Attachments", description: "Generic media attachments for clock entries and tickets" },
       ],
     },
   });
@@ -389,6 +391,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(clockRoutes, { prefix: "/v1" });
   await app.register(messageRoutes, { prefix: "/v1" });
   await app.register(notificationRoutes, { prefix: "/v1" });
+  await app.register(attachmentRoutes, { prefix: "/v1" });
 
   return app;
 }

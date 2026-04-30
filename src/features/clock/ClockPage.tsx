@@ -5,7 +5,7 @@
  *   • Big clock in/out button with live session timer
  *   • Team selector
  *   • Active session ticket list with start/stop toggles
- *   • YouTube showcase link (prompted on clock out)
+ *   • Media attachments (links) on clock entries
  *   • Add existing ticket or create new ticket from here
  */
 import {
@@ -14,7 +14,6 @@ import {
   faPause,
   faPlus,
   faStopwatch,
-  faVideo,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -26,12 +25,6 @@ import {
   CardHeader,
   CardTitle,
   Input,
-  Modal,
-  ModalBody,
-  ModalClose,
-  ModalFooter,
-  ModalHeader,
-  ModalTitle,
   Select,
   Spinner,
   Text,
@@ -41,6 +34,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTeam } from '../../lib/TeamContext';
 import { formatTimer, formatDuration } from '../../lib/timeUtils';
 import { clockApi, ticketApi, type Ticket } from '../../lib/api';
+import { useClockToggle } from '../../lib/useClockToggle';
+import { AttachmentsPanel } from './AttachmentsPanel';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
@@ -54,6 +49,8 @@ export const ClockPage: React.FC = () => {
     teamsReady,
     refetchClock,
   } = useTeam();
+
+  const { clockIn, clockOut, clockInLoading, clockOutLoading } = useClockToggle();
 
   // Tickets for the selected team
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
@@ -70,13 +67,9 @@ export const ClockPage: React.FC = () => {
   }, [selectedTeamId]);
 
   // Loading states
-  const [clockInLoading, setClockInLoading] = useState(false);
-  const [clockOutLoading, setClockOutLoading] = useState(false);
   const [createTicketLoading, setCreateTicketLoading] = useState(false);
 
   // UI state
-  const [showYoutubeModal, setShowYoutubeModal] = useState(false);
-  const [youtubeLink, setYoutubeLink] = useState('');
   const [showNewTicket, setShowNewTicket] = useState(false);
   const [newTicketTitle, setNewTicketTitle] = useState('');
 
@@ -86,40 +79,6 @@ export const ClockPage: React.FC = () => {
     : 0;
 
   // ── Handlers ──
-
-  const handleClockIn = useCallback(async () => {
-    if (!selectedTeamId) return;
-    setClockInLoading(true);
-    try {
-      await clockApi.start(selectedTeamId);
-      await refetchClock();
-    } finally {
-      setClockInLoading(false);
-    }
-  }, [selectedTeamId, refetchClock]);
-
-  const handleClockOut = useCallback(() => {
-    setShowYoutubeModal(true);
-  }, []);
-
-  const confirmClockOut = useCallback(async () => {
-    // Always use the teamId from the active event, not the selected team in the UI.
-    // The user may have switched teams after clocking in, which would cause a 404.
-    const teamId = activeClockEvent?.teamId ?? selectedTeamId;
-    if (!teamId) return;
-    setClockOutLoading(true);
-    try {
-      const link = youtubeLink.trim();
-      await clockApi.stop(teamId, link || undefined);
-      await refetchClock();
-      setShowYoutubeModal(false);
-      setYoutubeLink('');
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Failed to clock out. Please try again.');
-    } finally {
-      setClockOutLoading(false);
-    }
-  }, [activeClockEvent, selectedTeamId, refetchClock, youtubeLink]);
 
   const handleStartTicket = useCallback(
     async (ticketId: string) => {
@@ -217,7 +176,7 @@ export const ClockPage: React.FC = () => {
               {/* Clock Out — keeping custom round button for the unique clock UI */}
               <button
                 type="button"
-                onClick={handleClockOut}
+                onClick={clockOut}
                 disabled={clockOutLoading}
                 className="flex h-24 w-24 items-center justify-center rounded-full bg-red-500 text-white shadow-lg transition-transform hover:scale-105 hover:bg-red-600 active:scale-95 disabled:opacity-50"
                 aria-label="Clock out"
@@ -236,7 +195,7 @@ export const ClockPage: React.FC = () => {
               {/* Clock In — keeping custom round button for the unique clock UI */}
               <button
                 type="button"
-                onClick={handleClockIn}
+                onClick={clockIn}
                 disabled={clockInLoading || !selectedTeamId}
                 className="flex h-24 w-24 items-center justify-center rounded-full bg-green-500 text-white shadow-lg transition-transform hover:scale-105 hover:bg-green-600 active:scale-95 disabled:opacity-50"
                 aria-label="Clock in"
@@ -384,38 +343,12 @@ export const ClockPage: React.FC = () => {
         </Card>
       )}
 
-      {/* ── YouTube Modal ── */}
-      <Modal open={showYoutubeModal} onOpenChange={(open) => !open && confirmClockOut()} size="md">
-        <ModalHeader>
-          <ModalTitle>
-            <FontAwesomeIcon icon={faVideo} className="mr-2 text-red-500" />
-            YouTube Showcase Link
-          </ModalTitle>
-          <ModalClose />
-        </ModalHeader>
-        <ModalBody>
-          <Text variant="muted" size="sm" className="mb-3">
-            Optionally add a YouTube link to showcase your work during this session.
-          </Text>
-          <Input
-            label="YouTube URL"
-            hideLabel
-            type="url"
-            placeholder="https://youtube.com/shorts/..."
-            value={youtubeLink}
-            onChange={(e) => setYoutubeLink(e.target.value)}
-            autoFocus
-          />
-        </ModalBody>
-        <ModalFooter>
-          <Button variant="outline" onClick={confirmClockOut}>
-            Skip
-          </Button>
-          <Button variant="danger" onClick={confirmClockOut} isLoading={clockOutLoading}>
-            Clock Out
-          </Button>
-        </ModalFooter>
-      </Modal>
+      {/* ── Attachments for the active clock entry ── */}
+      {activeClockEvent && (
+        <Card padding="md">
+          <AttachmentsPanel kind="clock" entityId={activeClockEvent.id} />
+        </Card>
+      )}
     </div>
   );
 };

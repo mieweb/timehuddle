@@ -5,6 +5,7 @@ import type { Ticket } from "./ticket.model.js";
 import type { ClockEvent } from "./clock.model.js";
 import type { Message } from "./message.model.js";
 import type { Notification } from "./notification.model.js";
+import type { Attachment } from "./attachment.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
 export function usersCollection() {
@@ -34,4 +35,9 @@ export function messagesCollection() {
 // Notifications
 export function notificationsCollection() {
   return getDB().collection<Notification>("notifications");
+}
+
+// Attachments
+export function attachmentsCollection() {
+  return getDB().collection<Attachment>("attachments");
 }

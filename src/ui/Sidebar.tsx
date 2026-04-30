@@ -87,10 +87,11 @@ const NavLink: React.FC<{ item: NavItem; active: boolean; expanded: boolean }> =
   expanded,
 }) => {
   const { navigate } = useRouter();
+  const { closeMobile } = useSidebar();
   return (
     <button
       type="button"
-      onClick={() => navigate(item.href)}
+      onClick={() => { navigate(item.href); closeMobile(); }}
       className={[
         'group flex h-9 w-full items-center rounded-lg text-sm transition-colors',
         'focus:outline-none focus:ring-2 focus:ring-blue-500/40',
