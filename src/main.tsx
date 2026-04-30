@@ -75,6 +75,17 @@ function renderRoot() {
 
   if (!_root) {
     if (window.location.pathname === '/') {
+      // On native (Capacitor iOS/Android) the WebView always starts at '/'.
+      // Skip the marketing landing page and go straight to the app.
+      if (Capacitor.isNativePlatform()) {
+        _root = createRoot(el);
+        _root.render(
+          <SessionProvider>
+            <App />
+          </SessionProvider>,
+        );
+        return;
+      }
       _root = createRoot(el)
       _root.render(<LandingPage />);
       return;
