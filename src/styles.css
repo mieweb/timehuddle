@@ -1,5 +1,6 @@
 @import '@mieweb/ui/brands/bluehive.css' layer(theme);
 @import 'tailwindcss';
+@import './features/teams/ychart-dark.css';
 
 /* Prevent white flash before React mounts — matches AppLayout bg classes */
 html {
