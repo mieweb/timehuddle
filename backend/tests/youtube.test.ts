@@ -34,7 +34,7 @@ describe("getYouTubeTitleFromUrl", () => {
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ title: "My YouTube Video", author_name: "Test Channel" }),
+        json: async () => ({ title: "My YouTube Video" }),
       }),
     );
 
@@ -67,7 +67,7 @@ describe("getYouTubeTitleFromUrl", () => {
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
-        json: async () => ({ author_name: "Test Channel" }),
+        json: async () => ({}),
       }),
     );
 

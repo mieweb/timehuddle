@@ -73,8 +73,11 @@ export async function attachmentRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: "Invalid type" });
       }
 
+      const resolvedTitle =
+        title ?? (isYouTubeUrl(url) ? ((await getYouTubeTitleFromUrl(url)) ?? undefined) : undefined);
+
       const attachment = await attachmentService.create(userId, url, type, attachedTo, {
-        title: title ?? (isYouTubeUrl(url) ? (await getYouTubeTitleFromUrl(url)) ?? undefined : undefined),
+        title: resolvedTitle,
         thumbnail,
       });
       return reply.status(201).send({ attachment });
