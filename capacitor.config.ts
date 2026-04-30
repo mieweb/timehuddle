@@ -12,7 +12,7 @@ const config: CapacitorConfig = {
 
   server: {
     androidScheme: 'https',
-    iosScheme: 'timehuddle',
+    iosScheme: 'https',
     ...(liveReloadUrl
       ? { url: liveReloadUrl, cleartext: true }
       : {}),
