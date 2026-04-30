@@ -71,24 +71,46 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
 // ─── Auth API ─────────────────────────────────────────────────────────────────
 
 export const authApi = {
-  /** Sign in — stores session token and sets better-auth session cookie on success. */
+  /** Sign in — stores session token from `set-auth-token` header (better-auth bearer plugin). */
   signIn: async (email: string, password: string) => {
-    const res = await request<{ token?: string }>('/api/auth/sign-in/email', {
+    const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/email`, {
       method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
-    if (res.token) sessionToken.set(res.token);
-    return res;
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+      );
+    }
+    const token = res.headers.get('set-auth-token');
+    if (token) sessionToken.set(token);
+    return res.json();
   },
 
-  /** Sign up — creates account and stores session token. */
+  /** Sign up — stores session token from `set-auth-token` header (better-auth bearer plugin). */
   signUp: async (email: string, password: string, name: string) => {
-    const res = await request<{ token?: string }>('/api/auth/sign-up/email', {
+    const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-up/email`, {
       method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, name }),
     });
-    if (res.token) sessionToken.set(res.token);
-    return res;
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+      );
+    }
+    const token = res.headers.get('set-auth-token');
+    if (token) sessionToken.set(token);
+    return res.json();
   },
 
   /** Sign out — clears better-auth session cookie and stored token. */
