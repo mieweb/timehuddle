@@ -1,0 +1,89 @@
+/**
+ * ychart dark mode overrides.
+ *
+ * @mieweb/ychart has no built-in dark mode, but exposes all colors as
+ * --yc-* CSS custom properties. Overriding them under [data-theme=dark]
+ * (set by useTheme.ts on <html>) is sufficient — no component changes needed.
+ */
+
+[data-theme='dark'] {
+  /* ── Backgrounds ───────────────────────────────────────────────── */
+  --yc-color-bg-primary: #171717;    /* neutral-900 */
+  --yc-color-bg-secondary: #262626;  /* neutral-800 */
+  --yc-color-bg-tertiary: #404040;   /* neutral-700 */
+  --yc-color-bg-card: #262626;
+  --yc-color-editor-bg: #171717;
+  --yc-color-editor-border: #404040;
+
+  /* ── Chart canvas ──────────────────────────────────────────────── */
+  --yc-gradient-background: linear-gradient(to bottom, #171717 0%, #1c1c1c 100%);
+  --yc-color-pattern: #2d2d2d;       /* dot pattern on canvas */
+
+  /* ── Text ──────────────────────────────────────────────────────── */
+  --yc-color-text-primary: #fafafa;
+  --yc-color-text-secondary: #d4d4d4;
+  --yc-color-text-muted: #a3a3a3;
+  --yc-color-text-tertiary: #737373;
+  --yc-color-text-heading: #fafafa;
+  --yc-color-text-inverse: #171717;
+  --yc-color-editor-text: #fafafa;
+  --yc-color-header-subtext: #a3a3a3;
+
+  /* ── Buttons ───────────────────────────────────────────────────── */
+  --yc-color-button-bg: #404040;
+  --yc-color-button-bg-hover: #525252;
+  --yc-color-button-border: #525252;
+  --yc-color-button-border-hover: #737373;
+  --yc-color-button-text: #fafafa;
+
+  /* ── Icons ─────────────────────────────────────────────────────── */
+  --yc-color-icon: #a3a3a3;
+
+  /* ── Shadows ───────────────────────────────────────────────────── */
+  --yc-color-shadow-dark: rgba(0, 0, 0, 0.5);
+  --yc-color-shadow-medium: rgba(0, 0, 0, 0.4);
+  --yc-color-shadow-light: rgba(0, 0, 0, 0.2);
+
+  /* ── Overlay ───────────────────────────────────────────────────── */
+  --yc-color-overlay-bg: rgba(0, 0, 0, 0.7);
+  --yc-color-overlay-dark: rgba(0, 0, 0, 0.9);
+
+  /* ── Gray scale (used for borders, dividers, hover states) ─────── */
+  --yc-color-gray-50: #1c1c1c;
+  --yc-color-gray-100: #262626;
+  --yc-color-gray-200: #2d2d2d;
+  --yc-color-gray-300: #404040;
+  --yc-color-gray-400: #525252;
+  --yc-color-gray-500: #737373;
+  --yc-color-gray-600: #a3a3a3;
+  --yc-color-gray-700: #d4d4d4;
+  --yc-color-gray-800: #e5e5e5;
+  --yc-color-gray-900: #fafafa;
+}
+
+/* ── POI selector combobox button: hardcoded bg needs a direct override ── */
+[data-theme='dark'] .ychart-poi-selector-wrapper .mw-ui button[role='combobox'] {
+  background-color: #262626 !important;
+  color: #fafafa !important;
+  border-color: #525252 !important;
+}
+
+/* ── Collapse/expand button on the chart canvas (inline styles → !important) */
+[data-theme='dark'] .ychart-container .ychart-expand-btn-wrapper {
+  background-color: #262626 !important;
+  border-color: #525252 !important;
+  color: #fafafa !important;
+}
+
+[data-theme='dark'] .ychart-container .ychart-expand-btn-wrapper:hover {
+  background-color: #404040 !important;
+}
+
+[data-theme='dark'] .ychart-container .ychart-expand-btn-icon svg path {
+  stroke: #fafafa !important;
+  fill: #fafafa !important;
+}
+
+[data-theme='dark'] .ychart-container .ychart-expand-btn-count {
+  color: #fafafa !important;
+}
