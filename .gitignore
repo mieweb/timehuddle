@@ -41,8 +41,6 @@ settings.json
 # Local PM2 process config
 ecosystem.config.cjs
 
-# AI-generated scratch output (not for version control)
-output.txt
 
 # Local Vite config override (overrides vite.config.ts in CI/CD - never commit)
 vite.config.js
