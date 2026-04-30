@@ -1,13 +1,18 @@
-name: CI / Frontend
+name: CI / Deploy
 
 on:
   push:
-    branches:
-      - main
+    branches: [dev, prod]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options: [dev, prod]
 
 concurrency:
-  group: ci-frontend-${{ github.ref }}
+  group: ci-deploy-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -18,9 +23,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
-      - run: npm install --no-audit --no-fund
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
@@ -33,37 +38,36 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
-          cache: 'npm'
-      - run: npm install --no-audit --no-fund
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
       - run: npm run build
 
   deploy_dev:
     name: Deploy - DEV
     runs-on: ubuntu-latest
     needs: build
+    if: github.ref == 'refs/heads/dev' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
     steps:
-      - name: Setup SSH key
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p ${{ secrets.DEPLOY_DEV_PORT }} ${{ secrets.DEPLOY_DEV_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -p ${{ secrets.DEPLOY_DEV_PORT }} ${{ secrets.DEPLOY_DEV_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy to DEV
+      - name: Deploy frontend to DEV
         run: |
           ssh -i ~/.ssh/deploy_key \
               -p ${{ secrets.DEPLOY_DEV_PORT }} \
-              -o StrictHostKeyChecking=no \
+              -o StrictHostKeyChecking=yes \
               -o ConnectTimeout=15 \
               ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_DEV_HOST }} << 'ENDSSH'
             set -e
             cd ~/timehuddle
-            echo "=== stop pm2 ==="
-            sudo pm2 stop timehuddle-frontend || true
-            echo "=== git pull ==="
+            echo "=== git sync dev ==="
             git fetch origin
-            git reset --hard origin/main
+            git reset --hard origin/dev
             echo "=== npm install ==="
             npm install --no-audit --no-fund
             echo "=== build ==="
@@ -93,30 +97,29 @@ jobs:
   deploy_prod:
     name: Deploy - PROD
     runs-on: ubuntu-latest
-    needs: verify_dev
+    needs: build
+    if: github.ref == 'refs/heads/prod' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
     environment: production
     steps:
-      - name: Setup SSH key
+      - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p ${{ secrets.DEPLOY_PROD_PORT }} ${{ secrets.DEPLOY_PROD_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh-keyscan -p ${{ secrets.DEPLOY_PROD_PORT }} ${{ secrets.DEPLOY_PROD_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy to PROD
+      - name: Deploy frontend to PROD
         run: |
           ssh -i ~/.ssh/deploy_key \
               -p ${{ secrets.DEPLOY_PROD_PORT }} \
-              -o StrictHostKeyChecking=no \
+              -o StrictHostKeyChecking=yes \
               -o ConnectTimeout=15 \
               ${{ secrets.DEPLOY_SSH_USER }}@${{ secrets.DEPLOY_PROD_HOST }} << 'ENDSSH'
             set -e
             cd ~/timehuddle
-            echo "=== stop pm2 ==="
-            sudo pm2 stop timehuddle-frontend || true
-            echo "=== git pull ==="
+            echo "=== git sync prod ==="
             git fetch origin
-            git reset --hard origin/main
+            git reset --hard origin/prod
             echo "=== npm install ==="
             npm install --no-audit --no-fund
             echo "=== build ==="
