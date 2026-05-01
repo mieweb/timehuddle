@@ -7,11 +7,6 @@
 // ─── Validation limits ────────────────────────────────────────────────────────
 
 export const TODO_TEXT_MAX = 200;
-
-// ─── Username ─────────────────────────────────────────────────────────────────
-
-export const USERNAME_MIN = 3;
-export const USERNAME_MAX = 32;
 export const CHAT_MESSAGE_MAX = 2000;
 export const CHAT_ROOM_NAME_MAX = 50;
 export const POLL_QUESTION_MAX = 300;

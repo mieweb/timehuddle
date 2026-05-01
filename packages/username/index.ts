@@ -1,7 +1,10 @@
 /**
- * Username utilities — isomorphic (frontend + backend).
+ * @timehuddle/username
+ *
+ * Isomorphic username utilities shared by the frontend and the backend.
  *
  * Covers:
+ * - Constants (length limits)
  * - Normalization (canonical form)
  * - Validation (length, character rules)
  * - Reserved/blocked name policy
@@ -9,7 +12,10 @@
  * - Namespace compatibility (ID-based → username migration)
  */
 
-import { USERNAME_MAX, USERNAME_MIN } from './constants';
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+export const USERNAME_MIN = 3;
+export const USERNAME_MAX = 32;
 
 // ─── Reserved names ───────────────────────────────────────────────────────────
 

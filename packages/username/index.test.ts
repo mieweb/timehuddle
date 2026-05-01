@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { USERNAME_MAX, USERNAME_MIN } from './constants';
 import {
   isReserved,
   normalizeUsername,
   RESERVED_USERNAMES,
   resolveCollision,
+  USERNAME_MAX,
+  USERNAME_MIN,
   usernameOrId,
   validateUsername,
-} from './username';
+} from './index.ts';
 
 // ─── normalizeUsername ────────────────────────────────────────────────────────
 
