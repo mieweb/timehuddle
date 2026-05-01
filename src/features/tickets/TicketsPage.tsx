@@ -78,6 +78,41 @@ function priorityDotColor(p: string | null): string {
   return '';
 }
 
+async function fetchIssueTitle(url: string): Promise<string | null> {
+  // GitHub: https://github.com/{owner}/{repo}/issues/{n} or /pull/{n}
+  const githubMatch = url.match(/github\.com\/([^/?#]+)\/([^/?#]+)\/(issues|pull)\/(\d+)/);
+  if (githubMatch) {
+    const [, owner, repo, , number] = githubMatch;
+    try {
+      const res = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/issues/${number}`,
+        { headers: { Accept: 'application/vnd.github+json' } },
+      );
+      if (!res.ok) return null;
+      const data = (await res.json()) as { title?: string };
+      return data.title ?? null;
+    } catch {
+      return null;
+    }
+  }
+  // Redmine: https://{host}/issues/{n}
+  const redmineMatch = url.match(/^(https?:\/\/[^/]+)\/issues\/(\d+)/);
+  if (redmineMatch) {
+    const [, base, number] = redmineMatch;
+    try {
+      const res = await fetch(`${base}/issues/${number}.json`, {
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { issue?: { subject?: string } };
+      return data.issue?.subject ?? null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 // ─── TicketRow ─────────────────────────────────────────────────────────────────
 
 interface TicketRowProps {
@@ -275,6 +310,8 @@ export const TicketsPage: React.FC = () => {
   const [showCreate, setShowCreate] = useState(false);
   const [createTitle, setCreateTitle] = useState('');
   const [createGithub, setCreateGithub] = useState('');
+  const [createTitleFetching, setCreateTitleFetching] = useState(false);
+  const createFetchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Search + filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -290,6 +327,8 @@ export const TicketsPage: React.FC = () => {
   const [editGithub, setEditGithub] = useState('');
   const [editAssignee, setEditAssignee] = useState('');
   const [editPriority, setEditPriority] = useState('');
+  const [titleFetching, setTitleFetching] = useState(false);
+  const editFetchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Change status modal (any team member)
   const [changeStatusTicket, setChangeStatusTicket] = useState<Ticket | null>(null);
@@ -608,18 +647,47 @@ export const TicketsPage: React.FC = () => {
               <Input
                 label="Title"
                 hideLabel
-                placeholder="Ticket title"
+                placeholder={createTitleFetching ? 'Fetching title…' : 'Ticket title'}
                 value={createTitle}
                 onChange={(e) => setCreateTitle(e.target.value)}
                 autoFocus
+                disabled={createTitleFetching}
+                onPaste={(e) => {
+                  const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)?.getData('text')?.trim();
+                  if (!text) return;
+                  const isUrl = /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(text) ||
+                    /https?:\/\/.+\/issues\/\d+/.test(text);
+                  if (!isUrl) return;
+                  e.preventDefault();
+                  setCreateGithub(text);
+                  setCreateTitleFetching(true);
+                  void fetchIssueTitle(text).then((title) => {
+                    if (title) setCreateTitle(title);
+                    setCreateTitleFetching(false);
+                  });
+                }}
               />
               <Input
-                label="GitHub URL"
+                label="GitHub / Redmine URL"
                 hideLabel
                 type="url"
-                placeholder="GitHub URL (optional)"
+                placeholder="GitHub / Redmine URL (optional)"
                 value={createGithub}
-                onChange={(e) => setCreateGithub(e.target.value)}
+                onChange={(e) => {
+                  const url = e.target.value;
+                  setCreateGithub(url);
+                  if (createFetchTimer.current) clearTimeout(createFetchTimer.current);
+                  if (/github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(url) ||
+                      /https?:\/\/.+\/issues\/\d+/.test(url)) {
+                    createFetchTimer.current = setTimeout(() => {
+                      setCreateTitleFetching(true);
+                      void fetchIssueTitle(url).then((title) => {
+                        if (title) setCreateTitle(title);
+                        setCreateTitleFetching(false);
+                      });
+                    }, 300);
+                  }
+                }}
               />
               <Button
                 variant="primary"
@@ -716,10 +784,25 @@ export const TicketsPage: React.FC = () => {
         <ModalBody>
           <div className="space-y-4">
             <Input
-              label="Title"
+              label={titleFetching ? 'Title (fetching…)' : 'Title'}
               value={editTitle}
               onChange={(e) => setEditTitle(e.target.value)}
               autoFocus
+              disabled={titleFetching}
+              onPaste={(e) => {
+                const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)?.getData('text')?.trim();
+                if (!text) return;
+                const isUrl = /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(text) ||
+                  /https?:\/\/.+\/issues\/\d+/.test(text);
+                if (!isUrl) return;
+                e.preventDefault();
+                setEditGithub(text);
+                setTitleFetching(true);
+                void fetchIssueTitle(text).then((title) => {
+                  if (title) setEditTitle(title);
+                  setTitleFetching(false);
+                });
+              }}
             />
             <Textarea
               label="Description"
@@ -730,11 +813,25 @@ export const TicketsPage: React.FC = () => {
               rows={3}
             />
             <Input
-              label="GitHub URL"
+              label="GitHub / Redmine URL"
               type="url"
               placeholder="https://github.com/…"
               value={editGithub}
-              onChange={(e) => setEditGithub(e.target.value)}
+              onChange={(e) => {
+                  const url = e.target.value;
+                  setEditGithub(url);
+                  if (editFetchTimer.current) clearTimeout(editFetchTimer.current);
+                  if (/github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(url) ||
+                      /https?:\/\/.+\/issues\/\d+/.test(url)) {
+                    editFetchTimer.current = setTimeout(() => {
+                      setTitleFetching(true);
+                      void fetchIssueTitle(url).then((title) => {
+                        if (title) setEditTitle(title);
+                        setTitleFetching(false);
+                      });
+                    }, 300);
+                  }
+                }}
             />
             <Select
               label="Assignee"
