@@ -50,7 +50,8 @@ APP_URL=http://localhost:3000
 
 # GitHub OAuth — required for "Continue with GitHub" sign-in.
 # Create an OAuth App at https://github.com/settings/developers
-# Set the Authorization callback URL to: http://localhost:8080/api/auth/callback/github
+# Set the Authorization callback URL to: {BETTER_AUTH_URL}/api/auth/callback/github
+# e.g. http://localhost:8080/api/auth/callback/github (when using the dev proxy)
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 ```

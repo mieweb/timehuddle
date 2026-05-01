@@ -125,18 +125,18 @@ export class UserService {
     const user = await this.findById(userId);
     if (user?.username) return "already-claimed";
 
-    // Atomically set username only if no other document holds it.
-    const result = await usersCollection().findOneAndUpdate(
-      { username: normalized },
-      { $setOnInsert: {} }, // probe — never actually inserts
-      { upsert: false }
-    );
-    if (result) return "taken"; // another user already has it
-
-    await usersCollection().updateOne(
-      { _id: new ObjectId(userId) },
-      { $set: { username: normalized, updatedAt: new Date() } }
-    );
+    // Rely on the unique index to reject duplicates atomically.
+    // Catch a MongoDB duplicate-key error (E11000) and surface it as "taken".
+    try {
+      await usersCollection().updateOne(
+        { _id: new ObjectId(userId), username: { $in: [null, undefined] } },
+        { $set: { username: normalized, updatedAt: new Date() } }
+      );
+    } catch (err: unknown) {
+      // MongoDB duplicate key error code
+      if ((err as { code?: number }).code === 11000) return "taken";
+      throw err;
+    }
 
     return this.findById(userId);
   }

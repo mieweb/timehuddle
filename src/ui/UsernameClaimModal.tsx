@@ -12,6 +12,11 @@ import { Button, Input, Text } from '@mieweb/ui';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Normalize a username candidate for comparison and submission. */
+function normalizeUsername(raw: string): string {
+  return raw.trim().toLowerCase();
+}
+
 /** Derive a username suggestion from a display name. */
 function suggestUsername(name: string): string {
   return name
@@ -54,8 +59,8 @@ export const UsernameClaimModal: React.FC = () => {
 
   // Debounced availability check
   useEffect(() => {
-    const trimmed = username.trim().toLowerCase();
-    if (trimmed.length < 3) {
+    const normalized = normalizeUsername(username);
+    if (normalized.length < 3) {
       setAvailability('idle');
       setAvailabilityReason(null);
       return;
@@ -64,7 +69,7 @@ export const UsernameClaimModal: React.FC = () => {
     setAvailability('checking');
     const timer = setTimeout(async () => {
       try {
-        const result = await usernameApi.check(trimmed);
+        const result = await usernameApi.check(normalized);
         if (result.available) {
           setAvailability('available');
           setAvailabilityReason(null);
@@ -84,13 +89,13 @@ export const UsernameClaimModal: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = username.trim().toLowerCase();
-    if (!trimmed || loading) return;
+    const normalized = normalizeUsername(username);
+    if (!normalized || loading) return;
     setLoading(true);
     setError(null);
 
     try {
-      await usernameApi.claim(trimmed);
+      await usernameApi.claim(normalized);
       // Refresh session so needsUsernameClaim becomes false
       await refetch();
     } catch (err: unknown) {
@@ -155,7 +160,7 @@ export const UsernameClaimModal: React.FC = () => {
               aria-live="polite"
             >
               {availability === 'checking' && 'Checking…'}
-              {availability === 'available' && `✓ @${username.trim().toLowerCase()} is available`}
+              {availability === 'available' && `✓ @${normalizeUsername(username)} is available`}
               {availability === 'unavailable' &&
                 (availabilityReason ?? 'That username is not available.')}
             </p>
