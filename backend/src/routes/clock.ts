@@ -272,21 +272,15 @@ export async function clockRoutes(app: FastifyInstance) {
       // Because hijack() bypasses @fastify/cors hooks, we must set CORS headers manually.
       reply.hijack();
 
-      const trustedOrigins = process.env.TRUSTED_ORIGINS
-        ? process.env.TRUSTED_ORIGINS.split(",").map((o) => o.trim())
-        : [];
-      const requestOrigin = req.headers.origin ?? "";
-      const allowOrigin = trustedOrigins.includes(requestOrigin) ? requestOrigin : "";
+      const allowOrigin = req.headers.origin ?? "*";
 
       reply.raw.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
         "X-Accel-Buffering": "no",
-        ...(allowOrigin && {
-          "Access-Control-Allow-Origin": allowOrigin,
-          "Access-Control-Allow-Credentials": "true",
-        }),
+        "Access-Control-Allow-Origin": allowOrigin,
+        "Access-Control-Allow-Credentials": "true",
       });
       reply.raw.flushHeaders();
 
