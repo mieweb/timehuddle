@@ -5,6 +5,7 @@ import {
   faUsers,
   faListCheck,
 } from '@fortawesome/free-solid-svg-icons';
+import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useState } from 'react';
 
@@ -174,6 +175,23 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       : isSignup
         ? handleSignup
         : handleLogin;
+
+  const [githubLoading, setGithubLoading] = useState(false);
+  const [githubError, setGithubError] = useState<string | null>(null);
+
+  const handleGitHubSignIn = async () => {
+    if (githubLoading) return;
+    setGithubLoading(true);
+    setGithubError(null);
+    try {
+      const callbackURL = `${window.location.origin}/app/dashboard`;
+      const url = await authApi.signInWithSocial('github', callbackURL);
+      window.location.href = url;
+    } catch (err: unknown) {
+      setGithubError((err as Error).message || 'GitHub sign-in failed');
+      setGithubLoading(false);
+    }
+  };
 
   // ── Marketing panel (left) ──────────────────────────────────────────────────
 
@@ -405,6 +423,36 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                 <span className="text-xs text-neutral-400 dark:text-neutral-500">or</span>
                 <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
               </div>
+
+              {/* GitHub social sign-in */}
+              <div className="space-y-3">
+                <Button
+                  variant="outline"
+                  fullWidth
+                  type="button"
+                  onClick={handleGitHubSignIn}
+                  disabled={githubLoading}
+                  isLoading={githubLoading}
+                  loadingText="Redirecting…"
+                  aria-label="Continue with GitHub"
+                >
+                  {!githubLoading && (
+                    <span className="flex items-center justify-center gap-2">
+                      <FontAwesomeIcon icon={faGithub} className="text-base" />
+                      Continue with GitHub
+                    </span>
+                  )}
+                </Button>
+
+                {githubError && (
+                  <Text variant="destructive" size="xs" weight="medium" as="div" role="alert">
+                    {githubError}
+                  </Text>
+                )}
+              </div>
+
+              {/* Divider between social and mode toggle text */}
+              <div className="my-4" />
 
               <p className="text-center text-sm text-neutral-600 dark:text-neutral-400">
                 {isSignup ? (

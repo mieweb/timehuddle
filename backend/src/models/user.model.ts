@@ -8,6 +8,8 @@ export interface User {
   email: string;
   emailVerified: boolean;
   image?: string | null;
+  /** Canonical username/handle — null until the user claims one. Globally unique. */
+  username?: string | null;
   bio?: string;
   website?: string;
   createdAt: Date;

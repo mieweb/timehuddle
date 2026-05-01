@@ -86,7 +86,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
-      <ProfileNotices notices={[ { type: 'coming-soon' }]} />
+      <ProfileNotices notices={[{ type: 'coming-soon' }]} />
 
       {/* Profile header card */}
       <Card padding="lg" className="flex items-start gap-5">

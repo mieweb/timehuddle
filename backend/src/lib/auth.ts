@@ -20,6 +20,45 @@ export const auth = betterAuth({
     },
   },
 
+  // GitHub OAuth social provider
+  // Credentials are read from GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET env vars.
+  socialProviders: {
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID ?? "",
+      clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
+    },
+  },
+
+  // username is claimed post-signup via a dedicated endpoint — stored on the user document.
+  user: {
+    additionalFields: {
+      username: {
+        type: "string",
+        required: false,
+        unique: true,
+        input: false,
+      },
+    },
+  },
+
+  // Bootstrap a personal workspace the first time a user account is created.
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          try {
+            // Lazy-require to avoid circular imports at module load time.
+            const { teamService } = await import("../services/team.service.js");
+            await teamService.ensurePersonalWorkspace(user.id);
+          } catch (err) {
+            // Non-fatal — the user can still sign in; personal org is idempotent.
+            console.error("[auth] Failed to bootstrap personal workspace for", user.id, err);
+          }
+        },
+      },
+    },
+  },
+
   secret: process.env.BETTER_AUTH_SECRET!,
 
   // Static baseURL — must always be the FRONTEND domain so that:

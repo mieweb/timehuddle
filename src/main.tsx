@@ -10,6 +10,7 @@ import { SessionProvider, useSession } from './lib/useSession';
 import { AppLayout } from './ui/AppLayout';
 import { LandingPage } from './ui/LandingPage';
 import { LoginForm } from './ui/LoginForm';
+import { UsernameClaimModal } from './ui/UsernameClaimModal';
 
 // ─── Deep link handling (Capacitor native only) ───────────────────────────────
 //
@@ -40,7 +41,7 @@ if (Capacitor.isNativePlatform()) {
 // ─── App (client-side rendered, /app and all non-root routes) ─────────────────
 
 const App: React.FC = () => {
-  const { user, loading } = useSession();
+  const { user, loading, needsUsernameClaim } = useSession();
 
   // Reset token: check URL params (web) or deep link (native).
   const resetToken =
@@ -62,6 +63,13 @@ const App: React.FC = () => {
   }
 
   if (!user) return <LoginForm />;
+  if (needsUsernameClaim)
+    return (
+      <>
+        <AppLayout />
+        <UsernameClaimModal />
+      </>
+    );
   return <AppLayout />;
 };
 

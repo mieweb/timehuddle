@@ -20,6 +20,7 @@ const userSessionSchema = {
     name: { type: "string" },
     email: { type: "string", format: "email" },
     image: { type: "string", nullable: true },
+    username: { type: "string", nullable: true },
   },
 };
 
@@ -31,6 +32,7 @@ const userProfileSchema = {
     email: { type: "string", format: "email" },
     emailVerified: { type: "boolean" },
     image: { type: "string", nullable: true },
+    username: { type: "string", nullable: true },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
   },
@@ -54,7 +56,15 @@ export async function userRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      return reply.send({ user: req.user });
+      // Augment the session user with the username from the users collection.
+      const sessionUser = req.user!;
+      const dbUser = await usersCollection().findOne({ _id: new ObjectId(sessionUser.id) });
+      return reply.send({
+        user: {
+          ...sessionUser,
+          username: dbUser?.username ?? null,
+        },
+      });
     }
   );
 
@@ -85,6 +95,82 @@ export async function userRoutes(app: FastifyInstance) {
     }
   );
 
+  // ─── Username availability check ─────────────────────────────────────────────
+
+  app.get(
+    "/me/username-available",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Check whether a username is available",
+        security: [{ cookieAuth: [] }],
+        querystring: {
+          type: "object",
+          required: ["username"],
+          properties: { username: { type: "string" } },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              available: { type: "boolean" },
+              reason: { type: "string", nullable: true },
+            },
+          },
+          ...unauthorizedResponse,
+        },
+      },
+    },
+    async (req, reply) => {
+      const { username } = req.query as { username: string };
+      const result = await userService.isUsernameAvailable(username.trim().toLowerCase());
+      return reply.send({ available: result.available, reason: result.reason ?? null });
+    }
+  );
+
+  // ─── Username claim ───────────────────────────────────────────────────────────
+
+  app.post(
+    "/me/username",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Claim a canonical username",
+        security: [{ cookieAuth: [] }],
+        body: {
+          type: "object",
+          required: ["username"],
+          properties: { username: { type: "string", minLength: 3, maxLength: 30 } },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: { username: { type: "string" } },
+          },
+          400: { type: "object", properties: { error: { type: "string" } } },
+          409: { type: "object", properties: { error: { type: "string" } } },
+          ...unauthorizedResponse,
+        },
+      },
+    },
+    async (req, reply) => {
+      const { username } = req.body as { username: string };
+      const result = await userService.claimUsername(req.user!.id, username);
+
+      if (typeof result === "string") {
+        // Discriminated error
+        if (result === "taken" || result === "already-claimed") {
+          return reply.status(409).send({ error: result });
+        }
+        return reply.status(400).send({ error: result });
+      }
+
+      return reply.send({ username: result!.username });
+    }
+  );
+
   // ─── Public user lookups (for display names & avatars) ──────────────────────
 
   const publicUserSchema = {
@@ -92,6 +178,7 @@ export async function userRoutes(app: FastifyInstance) {
     properties: {
       id: { type: "string" },
       name: { type: "string" },
+      username: { type: "string", nullable: true },
       image: { type: "string", nullable: true },
       bio: { type: "string" },
       website: { type: "string" },
@@ -104,6 +191,7 @@ export async function userRoutes(app: FastifyInstance) {
     return {
       id: u._id.toHexString(),
       name: u.name,
+      username: u.username ?? null,
       image: u.image ?? null,
       bio: u.bio ?? "",
       website: u.website ?? "",
