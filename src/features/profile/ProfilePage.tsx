@@ -83,7 +83,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
   }
 
   const nameText = profile?.name || sessionUser?.email?.split('@')[0] || 'Unknown user';
-  const usernameRequired = isOwn && !profile?.username;
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
