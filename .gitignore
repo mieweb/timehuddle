@@ -5,20 +5,18 @@ packages/*/node_modules
 *.tsbuildinfo
 coverage
 dist
-.env
-.env.local
-.env.capacitor.dev
-.env.production
-.env.*.local
+
+# Environment files — all variants, keep only .env.example if one exists
+.env*
+!.env.example
+
+# IDE
 /.idea
 /.vscode/*
 !.vscode/extensions.json
-my-submodule/*
 
-# Build output directory
+# Build output
 build/
-
-# Build context directories
 _build
 */build-assets
 */build-chunks
@@ -32,15 +30,13 @@ _build
 # Local runtime secrets (never commit)
 settings.json
 
-# Local migration/reference repos (not part of app deploy)
-.gitmodules
-
-# Meteor legacy local cache
-.meteor/local
-
-# Local PM2 process config
+# Local PM2 process config (machine-specific paths, never commit)
 ecosystem.config.cjs
 
-
-# Local Vite config override (overrides vite.config.ts in CI/CD - never commit)
+# Local Vite config override (never commit — overrides vite.config.ts in CI)
 vite.config.js
+
+# Misc local artifacts
+my-submodule/*
+.gitmodules
+.meteor/local

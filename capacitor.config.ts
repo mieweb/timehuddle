@@ -12,8 +12,12 @@ const config: CapacitorConfig = {
 
   server: {
     androidScheme: 'https',
-    iosScheme: 'https',
-    ...(liveReloadUrl ? { url: liveReloadUrl, cleartext: true } : {}),
+    // iosScheme must NOT be 'http' or 'https' — WKWebView handles those
+    // natively as real network requests, causing 19s+ networking process
+    // launch times and watchdog kills. Default ('capacitor') is correct.
+    ...(liveReloadUrl
+      ? { url: liveReloadUrl, cleartext: true }
+      : {}),
   },
 
   plugins: {
