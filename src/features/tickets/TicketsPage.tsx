@@ -149,7 +149,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
 
   return (
     <li className="px-5 py-3">
-      <div className="flex items-center gap-3">
+      <div className="flex items-start gap-3">
         {/* Play/Pause — creator only */}
         {isCreator && (
           <Button
@@ -168,18 +168,61 @@ const TicketRow: React.FC<TicketRowProps> = ({
         )}
 
         {/* Content */}
-        <div className="min-w-0 flex-1 space-y-0.5">
-          {/* Title row with priority dot */}
-          <div className="flex items-center gap-1.5">
+        <div className="min-w-0 flex-1 space-y-1">
+          {/* Title row: priority dot + title + 3-dot menu */}
+          <div className="flex items-start gap-1.5">
             {dotColor && (
               <span
-                className={`inline-block h-2 w-2 shrink-0 rounded-full ${dotColor}`}
+                className={`mt-1 inline-block h-2 w-2 shrink-0 rounded-full ${dotColor}`}
                 aria-label={`Priority: ${ticket.priority}`}
               />
             )}
-            <Text size="sm" weight="medium" truncate>
+            <Text size="sm" weight="medium" className="flex-1">
               {ticket.title}
             </Text>
+            <Dropdown
+              trigger={
+                <Button variant="ghost" size="icon" aria-label="Ticket options" className="-mt-1 -mr-2 shrink-0">
+                  <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+                </Button>
+              }
+              placement="bottom-end"
+            >
+              <DropdownContent>
+                <DropdownItem
+                  icon={<FontAwesomeIcon icon={faEye} />}
+                  onClick={() => onDetailsRequest(ticket)}
+                >
+                  Ticket Details
+                </DropdownItem>
+                {isCreator && (
+                  <DropdownItem
+                    icon={<FontAwesomeIcon icon={faPen} />}
+                    onClick={() => onEditRequest(ticket)}
+                  >
+                    Edit Ticket
+                  </DropdownItem>
+                )}
+                <DropdownItem
+                  icon={<FontAwesomeIcon icon={faRightLeft} />}
+                  onClick={() => onChangeStatusRequest(ticket)}
+                >
+                  Change Status
+                </DropdownItem>
+                {isCreator && (
+                  <>
+                    <DropdownSeparator />
+                    <DropdownItem
+                      icon={<FontAwesomeIcon icon={faTrash} />}
+                      variant="danger"
+                      onClick={() => onDeleteRequest(ticket.id)}
+                    >
+                      Delete Ticket
+                    </DropdownItem>
+                  </>
+                )}
+              </DropdownContent>
+            </Dropdown>
           </div>
 
           {ticket.description && (
@@ -188,6 +231,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
             </p>
           )}
 
+          {/* Footer: github, assignee, time, status */}
           <div className="flex flex-wrap items-center gap-2">
             {ticket.github && (
               <a
@@ -205,62 +249,13 @@ const TicketRow: React.FC<TicketRowProps> = ({
                 {assigneeName}
               </span>
             )}
+            <Badge variant={isRunning ? 'success' : 'secondary'} size="sm" className="font-mono">
+              {formatDuration(elapsed)}
+            </Badge>
+            <Badge variant="secondary" size="sm">
+              {statusLabel}
+            </Badge>
           </div>
-        </div>
-
-        {/* Right: time + status badge + 3-dot menu */}
-        <div className="flex shrink-0 items-center gap-2">
-          <Badge variant={isRunning ? 'success' : 'secondary'} size="sm" className="font-mono">
-            {formatDuration(elapsed)}
-          </Badge>
-
-          <Badge variant="secondary" size="sm">
-            {statusLabel}
-          </Badge>
-
-          <Dropdown
-            trigger={
-              <Button variant="ghost" size="icon" aria-label="Ticket options">
-                <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-              </Button>
-            }
-            placement="bottom-end"
-          >
-            <DropdownContent>
-              <DropdownItem
-                icon={<FontAwesomeIcon icon={faEye} />}
-                onClick={() => onDetailsRequest(ticket)}
-              >
-                Ticket Details
-              </DropdownItem>
-              {isCreator && (
-                <DropdownItem
-                  icon={<FontAwesomeIcon icon={faPen} />}
-                  onClick={() => onEditRequest(ticket)}
-                >
-                  Edit Ticket
-                </DropdownItem>
-              )}
-              <DropdownItem
-                icon={<FontAwesomeIcon icon={faRightLeft} />}
-                onClick={() => onChangeStatusRequest(ticket)}
-              >
-                Change Status
-              </DropdownItem>
-              {isCreator && (
-                <>
-                  <DropdownSeparator />
-                  <DropdownItem
-                    icon={<FontAwesomeIcon icon={faTrash} />}
-                    variant="danger"
-                    onClick={() => onDeleteRequest(ticket.id)}
-                  >
-                    Delete Ticket
-                  </DropdownItem>
-                </>
-              )}
-            </DropdownContent>
-          </Dropdown>
         </div>
       </div>
     </li>
