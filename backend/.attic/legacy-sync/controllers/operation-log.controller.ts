@@ -57,7 +57,7 @@ export const operationLogController = {
                 updatedAt: now,
               },
               $inc: { _rev: 1 },
-            },
+            }
           );
         }
         serverIds[incoming.clientId] = incoming._serverId;
@@ -102,9 +102,7 @@ export const operationLogController = {
   async pullOperationLogs(req: FastifyRequest, reply: FastifyReply) {
     const userId = req.user!.id;
     const body = req.body as { lastPulledAt?: string };
-    const since = body.lastPulledAt
-      ? new Date(body.lastPulledAt)
-      : new Date(0);
+    const since = body.lastPulledAt ? new Date(body.lastPulledAt) : new Date(0);
 
     const logs = await operationLogsCollection()
       .find({ userId, updatedAt: { $gt: since } })

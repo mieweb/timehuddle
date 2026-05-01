@@ -8,16 +8,16 @@
 
 [data-theme='dark'] {
   /* ── Backgrounds ───────────────────────────────────────────────── */
-  --yc-color-bg-primary: #171717;    /* neutral-900 */
-  --yc-color-bg-secondary: #262626;  /* neutral-800 */
-  --yc-color-bg-tertiary: #404040;   /* neutral-700 */
+  --yc-color-bg-primary: #171717; /* neutral-900 */
+  --yc-color-bg-secondary: #262626; /* neutral-800 */
+  --yc-color-bg-tertiary: #404040; /* neutral-700 */
   --yc-color-bg-card: #262626;
   --yc-color-editor-bg: #171717;
   --yc-color-editor-border: #404040;
 
   /* ── Chart canvas ──────────────────────────────────────────────── */
   --yc-gradient-background: linear-gradient(to bottom, #171717 0%, #1c1c1c 100%);
-  --yc-color-pattern: #2d2d2d;       /* dot pattern on canvas */
+  --yc-color-pattern: #2d2d2d; /* dot pattern on canvas */
 
   /* ── Text ──────────────────────────────────────────────────────── */
   --yc-color-text-primary: #fafafa;

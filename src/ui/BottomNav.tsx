@@ -62,8 +62,7 @@ export const BottomNav: React.FC = () => {
       >
         {TABS.map((tab) => {
           const isActive =
-            pathname === tab.href ||
-            (tab.href === '/app/dashboard' && pathname === '/app');
+            pathname === tab.href || (tab.href === '/app/dashboard' && pathname === '/app');
 
           if (tab.isFab) {
             return (

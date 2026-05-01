@@ -13,9 +13,7 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: 'https',
     iosScheme: 'https',
-    ...(liveReloadUrl
-      ? { url: liveReloadUrl, cleartext: true }
-      : {}),
+    ...(liveReloadUrl ? { url: liveReloadUrl, cleartext: true } : {}),
   },
 
   plugins: {

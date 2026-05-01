@@ -49,7 +49,10 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
           name: "Notifications",
           description: "User notification inbox, mark-read, delete, and SSE stream",
         },
-        { name: "Attachments", description: "Generic media attachments for clock entries and tickets" },
+        {
+          name: "Attachments",
+          description: "Generic media attachments for clock entries and tickets",
+        },
       ],
     },
   });

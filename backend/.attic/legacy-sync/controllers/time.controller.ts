@@ -1,13 +1,6 @@
 import { FastifyRequest, FastifyReply } from "fastify";
-import {
-  workSessionsCollection,
-  userDailyStatsCollection,
-} from "../models/index.js";
-import {
-  computeSession,
-  computeDay,
-  type RawSession,
-} from "@timeharbor/time-engine";
+import { workSessionsCollection, userDailyStatsCollection } from "../models/index.js";
+import { computeSession, computeDay, type RawSession } from "@timeharbor/time-engine";
 import type { WorkSession } from "../models/work-session.model.js";
 
 function toRaw(s: WorkSession): RawSession {
@@ -20,9 +13,7 @@ function toRaw(s: WorkSession): RawSession {
 }
 
 async function recomputeDailyStats(userId: string, date: string) {
-  const sessions = await workSessionsCollection()
-    .find({ userId, date })
-    .toArray();
+  const sessions = await workSessionsCollection().find({ userId, date }).toArray();
 
   const raw = sessions.map(toRaw);
   const now = Date.now();

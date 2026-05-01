@@ -1,4 +1,4 @@
-import type { RawSession, SessionStats, TicketTime } from './types.js';
+import type { RawSession, SessionStats, TicketTime } from "./types.js";
 
 /**
  * Compute stats for a single work session.
@@ -10,10 +10,7 @@ import type { RawSession, SessionStats, TicketTime } from './types.js';
  * @param referenceTime  epoch ms — used as virtual clockOut/end for open items
  * @returns Computed session statistics
  */
-export function computeSession(
-  session: RawSession,
-  referenceTime: number
-): SessionStats {
+export function computeSession(session: RawSession, referenceTime: number): SessionStats {
   const clockOut = session.clockOut ?? referenceTime;
   const totalSessionMs = Math.max(0, clockOut - session.clockIn);
 
