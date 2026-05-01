@@ -64,7 +64,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(cors, {
     origin: true,
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     // Expose the bearer token header so Capacitor WebViews can read it after sign-in.
     exposedHeaders: ["set-auth-token"],
   });

@@ -214,10 +214,12 @@ export interface Ticket {
   id: string;
   teamId: string;
   title: string;
+  description: string | null;
   github: string;
   accumulatedTime: number;
   startTimestamp: number | null;
   status: string;
+  priority: string | null;
   createdBy: string;
   assignedTo: string | null;
   reviewedBy: string | null;
@@ -245,10 +247,16 @@ export const ticketApi = {
 
   updateTicket: (
     id: string,
-    updates: { title?: string; github?: string; accumulatedTime?: number; status?: string },
+    updates: { title?: string; github?: string; accumulatedTime?: number; description?: string },
   ) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`, {
       method: 'PUT',
+      body: JSON.stringify(updates),
+    }).then((r) => r.ticket),
+
+  updateStatusPriority: (id: string, updates: { status?: string; priority?: string }) =>
+    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/status-priority`, {
+      method: 'PATCH',
       body: JSON.stringify(updates),
     }).then((r) => r.ticket),
 
