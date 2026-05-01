@@ -80,7 +80,8 @@ export const UsernameClaimModal: React.FC = () => {
           );
         }
       } catch {
-        setAvailability('idle');
+        setAvailability('unavailable');
+        setAvailabilityReason('Unable to check availability. Please try again.');
       }
     }, 400);
 
@@ -123,8 +124,7 @@ export const UsernameClaimModal: React.FC = () => {
             Choose your username
           </h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
-            Pick a unique handle for your TimeHuddle profile. You&apos;ll use this to share your
-            profile URL and identify yourself in the app.
+            Pick a unique handle for your TimeHuddle account. This identifies you across the app.
           </p>
         </div>
 

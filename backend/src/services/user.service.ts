@@ -129,7 +129,7 @@ export class UserService {
     // Catch a MongoDB duplicate-key error (E11000) and surface it as "taken".
     try {
       await usersCollection().updateOne(
-        { _id: new ObjectId(userId), username: { $in: [null, undefined] } },
+        { _id: new ObjectId(userId), username: { $eq: null } },
         { $set: { username: normalized, updatedAt: new Date() } }
       );
     } catch (err: unknown) {

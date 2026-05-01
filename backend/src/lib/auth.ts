@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
 import { client } from "./db.js";
 import { sendEmail } from "./email.js";
+import { teamService } from "../services/team.service.js";
 
 export const auth = betterAuth({
   database: mongodbAdapter(client.db()),
@@ -47,8 +48,6 @@ export const auth = betterAuth({
       create: {
         after: async (user) => {
           try {
-            // Lazy-require to avoid circular imports at module load time.
-            const { teamService } = await import("../services/team.service.js");
             await teamService.ensurePersonalWorkspace(user.id);
           } catch (err) {
             // Non-fatal — the user can still sign in; personal org is idempotent.
