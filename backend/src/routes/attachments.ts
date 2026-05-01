@@ -74,7 +74,8 @@ export async function attachmentRoutes(app: FastifyInstance) {
       }
 
       const resolvedTitle =
-        title ?? (isYouTubeUrl(url) ? ((await getYouTubeTitleFromUrl(url)) ?? undefined) : undefined);
+        title ??
+        (isYouTubeUrl(url) ? ((await getYouTubeTitleFromUrl(url)) ?? undefined) : undefined);
 
       const attachment = await attachmentService.create(userId, url, type, attachedTo, {
         title: resolvedTitle,
@@ -100,7 +101,10 @@ export async function attachmentRoutes(app: FastifyInstance) {
           },
         },
         response: {
-          200: { type: "object", properties: { attachments: { type: "array", items: attachmentShape } } },
+          200: {
+            type: "object",
+            properties: { attachments: { type: "array", items: attachmentShape } },
+          },
         },
       },
     },

@@ -276,9 +276,7 @@ export const MessagesPage: React.FC = () => {
         {/* Chat area — hidden on mobile until a thread is selected */}
         <Card
           padding="none"
-          className={`flex min-w-0 flex-col md:flex-1 ${
-            hasThread ? 'flex-1' : 'hidden md:flex'
-          }`}
+          className={`flex min-w-0 flex-col md:flex-1 ${hasThread ? 'flex-1' : 'hidden md:flex'}`}
         >
           {hasThread ? (
             <>

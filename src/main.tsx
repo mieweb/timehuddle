@@ -86,7 +86,7 @@ function renderRoot() {
         );
         return;
       }
-      _root = createRoot(el)
+      _root = createRoot(el);
       _root.render(<LandingPage />);
       return;
     } else if (window.location.pathname === '/inbox') {

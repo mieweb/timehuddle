@@ -92,9 +92,9 @@ src/
 
 ### Path Aliases
 
-| Alias | Resolves to |
-|---|---|
-| `@ui/*` | `src/ui/*` |
+| Alias    | Resolves to |
+| -------- | ----------- |
+| `@ui/*`  | `src/ui/*`  |
 | `@lib/*` | `src/lib/*` |
 
 ### Key Files
@@ -108,24 +108,29 @@ src/
 ## Technology Stack
 
 ### Vite 8
+
 - `@vitejs/plugin-react` (SWC)
 - HMR — changes reflect instantly, no restart needed
 - Build output: `dist/`
 
 ### React 19
+
 - Concurrent features, Suspense
 - `motion` (Framer Motion 12) for animations
 
 ### Tailwind CSS 4
+
 - Oxide/Lightning CSS engine — **no `tailwind.config.js` required**
 - Theme tokens via CSS variables in `client/styles.css`
 - `@mieweb/ui` brand tokens mapped to Tailwind colors
 - Dark mode via `data-theme="dark"` on `<html>`
 
 ### TypeScript 5.x
+
 - Strict mode, `moduleResolution: Bundler`, `module: ESNext`
 
 ### Vitest
+
 - Unit/integration tests alongside source files
 
 ## Styling Conventions

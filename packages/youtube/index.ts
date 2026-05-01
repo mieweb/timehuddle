@@ -1,9 +1,9 @@
-const YOUTUBE_OEMBED = "https://www.youtube.com/oembed";
+const YOUTUBE_OEMBED = 'https://www.youtube.com/oembed';
 
 export function isYouTubeUrl(url: string): boolean {
   try {
     const { hostname } = new URL(url);
-    return hostname === "www.youtube.com" || hostname === "youtube.com" || hostname === "youtu.be";
+    return hostname === 'www.youtube.com' || hostname === 'youtube.com' || hostname === 'youtu.be';
   } catch {
     return false;
   }

@@ -19,13 +19,10 @@
  * @example formatTime(ts) → "9:00 AM"
  * @example formatTime(ts, 'Asia/Kolkata') → "2:30 PM"
  */
-export function formatTime(
-  epochMs: number,
-  timezone?: string
-): string {
+export function formatTime(epochMs: number, timezone?: string): string {
   return new Intl.DateTimeFormat(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
+    hour: "numeric",
+    minute: "2-digit",
     ...(timezone ? { timeZone: timezone } : {}),
   }).format(epochMs);
 }
@@ -34,14 +31,11 @@ export function formatTime(
  * Format epoch ms as a local time string with seconds.
  * @example formatTimeFull(ts) → "9:00:45 AM"
  */
-export function formatTimeFull(
-  epochMs: number,
-  timezone?: string
-): string {
+export function formatTimeFull(epochMs: number, timezone?: string): string {
   return new Intl.DateTimeFormat(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
     ...(timezone ? { timeZone: timezone } : {}),
   }).format(epochMs);
 }
@@ -52,14 +46,11 @@ export function formatTimeFull(
  * Format epoch ms as a local date string.
  * @example formatDate(ts) → "Mar 20, 2026"
  */
-export function formatDate(
-  epochMs: number,
-  timezone?: string
-): string {
+export function formatDate(epochMs: number, timezone?: string): string {
   return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
+    month: "short",
+    day: "numeric",
+    year: "numeric",
     ...(timezone ? { timeZone: timezone } : {}),
   }).format(epochMs);
 }
@@ -68,13 +59,10 @@ export function formatDate(
  * Format epoch ms as a short date (no year).
  * @example formatDateShort(ts) → "Mar 20"
  */
-export function formatDateShort(
-  epochMs: number,
-  timezone?: string
-): string {
+export function formatDateShort(epochMs: number, timezone?: string): string {
   return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
+    month: "short",
+    day: "numeric",
     ...(timezone ? { timeZone: timezone } : {}),
   }).format(epochMs);
 }
@@ -85,16 +73,13 @@ export function formatDateShort(
  * Format epoch ms as a local date + time string.
  * @example formatDateTime(ts) → "Mar 20, 2026, 9:00 AM"
  */
-export function formatDateTime(
-  epochMs: number,
-  timezone?: string
-): string {
+export function formatDateTime(epochMs: number, timezone?: string): string {
   return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
     ...(timezone ? { timeZone: timezone } : {}),
   }).format(epochMs);
 }
@@ -106,14 +91,10 @@ export function formatDateTime(
  * @example formatTimeRange(start, end)  → "9:00 AM – 12:30 PM"
  * @example formatTimeRange(start, null) → "9:00 AM – now"
  */
-export function formatTimeRange(
-  startMs: number,
-  endMs: number | null,
-  timezone?: string
-): string {
+export function formatTimeRange(startMs: number, endMs: number | null, timezone?: string): string {
   const opts: Intl.DateTimeFormatOptions = {
-    hour: 'numeric',
-    minute: '2-digit',
+    hour: "numeric",
+    minute: "2-digit",
     ...(timezone ? { timeZone: timezone } : {}),
   };
   const fmt = new Intl.DateTimeFormat(undefined, opts);
@@ -154,7 +135,7 @@ export function formatDurationClock(ms: number): string {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-  return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 // ── YYYY-MM-DD ──────────────────────────────────────────────────────────
@@ -167,15 +148,12 @@ export function formatDurationClock(ms: number): string {
  * @example toLocalDateString(ts)                   → "2026-03-20"
  * @example toLocalDateString(ts, 'Asia/Kolkata')   → "2026-03-21" (past midnight there)
  */
-export function toLocalDateString(
-  epochMs: number,
-  timezone?: string
-): string {
+export function toLocalDateString(epochMs: number, timezone?: string): string {
   // Use Intl to get year/month/day in the target timezone
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     ...(timezone ? { timeZone: timezone } : {}),
   }).format(epochMs);
   // en-CA formats as YYYY-MM-DD natively

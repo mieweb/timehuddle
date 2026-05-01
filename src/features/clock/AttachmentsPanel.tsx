@@ -11,7 +11,12 @@ import { Button, Input, Select, Spinner, Text } from '@mieweb/ui';
 import { getYouTubeTitleFromUrl, isYouTubeUrl } from '@timehuddle/youtube';
 import React, { useCallback, useEffect, useState } from 'react';
 
-import { attachmentApi, type AttachmentKind, type AttachmentType, type Attachment } from '../../lib/api';
+import {
+  attachmentApi,
+  type AttachmentKind,
+  type AttachmentType,
+  type Attachment,
+} from '../../lib/api';
 
 interface AttachmentsPanelProps {
   kind: AttachmentKind;
@@ -27,14 +32,23 @@ const TYPE_OPTIONS: { value: AttachmentType; label: string }[] = [
 
 function guessType(url: string): AttachmentType {
   const lower = url.toLowerCase();
-  if (lower.includes('youtube') || lower.includes('youtu.be') || lower.includes('vimeo') || lower.includes('loom')) {
+  if (
+    lower.includes('youtube') ||
+    lower.includes('youtu.be') ||
+    lower.includes('vimeo') ||
+    lower.includes('loom')
+  ) {
     return 'video';
   }
   if (/\.(png|jpe?g|gif|webp|svg)(\?|$)/.test(lower)) return 'image';
   return 'link';
 }
 
-export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ kind, entityId, currentUserId }) => {
+export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
+  kind,
+  entityId,
+  currentUserId,
+}) => {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -110,7 +124,12 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ kind, entity
           <FontAwesomeIcon icon={faLink} className="text-muted-foreground" />
           Links
         </Text>
-        <Button size="sm" variant="ghost" onClick={() => setShowForm((v) => !v)} aria-label="Add link">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setShowForm((v) => !v)}
+          aria-label="Add link"
+        >
           <FontAwesomeIcon icon={faPlus} className="mr-1" />
           Add
         </Button>
@@ -164,7 +183,10 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ kind, entity
 
       <ul className="attachment-list flex flex-col gap-1" aria-label="Attached links">
         {attachments.map((a) => (
-          <li key={a.id} className="attachment-item flex items-center justify-between gap-2 text-sm">
+          <li
+            key={a.id}
+            className="attachment-item flex items-center justify-between gap-2 text-sm"
+          >
             <a
               href={a.url}
               target="_blank"

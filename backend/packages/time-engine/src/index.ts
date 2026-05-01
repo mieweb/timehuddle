@@ -1,5 +1,5 @@
-export { computeSession } from './computeSession.js';
-export { computeDay } from './computeDay.js';
+export { computeSession } from "./computeSession.js";
+export { computeDay } from "./computeDay.js";
 export {
   formatTime,
   formatTimeFull,
@@ -12,7 +12,7 @@ export {
   toLocalDateString,
   toUTCString,
   nowUTC,
-} from './format.js';
+} from "./format.js";
 export type {
   RawSession,
   SessionStats,
@@ -20,4 +20,4 @@ export type {
   TicketSegment,
   Break,
   TicketTime,
-} from './types.js';
+} from "./types.js";

@@ -57,7 +57,7 @@ export const projectController = {
                   updatedAt: now,
                 },
                 $inc: { _rev: 1 },
-              },
+              }
             );
           }
         }
@@ -94,9 +94,7 @@ export const projectController = {
   async pullProjects(req: FastifyRequest, reply: FastifyReply) {
     const userId = req.user!.id;
     const body = req.body as { lastPulledAt?: string };
-    const since = body.lastPulledAt
-      ? new Date(body.lastPulledAt)
-      : new Date(0);
+    const since = body.lastPulledAt ? new Date(body.lastPulledAt) : new Date(0);
 
     const projects = await projectsCollection()
       .find({ createdBy: userId, updatedAt: { $gt: since } })
