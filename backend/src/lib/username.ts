@@ -1,7 +1,5 @@
 /**
- * @timehuddle/username
- *
- * Isomorphic username utilities shared by the frontend and the backend.
+ * Username utilities for the backend.
  *
  * Covers:
  * - Constants (length limits)
@@ -32,38 +30,38 @@ export const USERNAME_MAX = 32;
  */
 export const RESERVED_USERNAMES: ReadonlySet<string> = new Set([
   // Route roots
-  'admin',
-  'api',
-  'app',
-  'auth',
-  'dashboard',
-  'help',
-  'login',
-  'logout',
-  'me',
-  'pricing',
-  'privacy',
-  'settings',
-  'signup',
-  'status',
-  'support',
-  'terms',
-  'www',
+  "admin",
+  "api",
+  "app",
+  "auth",
+  "dashboard",
+  "help",
+  "login",
+  "logout",
+  "me",
+  "pricing",
+  "privacy",
+  "settings",
+  "signup",
+  "status",
+  "support",
+  "terms",
+  "www",
   // Trust-sensitive
-  'administrator',
-  'mod',
-  'moderator',
-  'official',
-  'root',
-  'staff',
-  'system',
-  'timehuddle',
+  "administrator",
+  "mod",
+  "moderator",
+  "official",
+  "root",
+  "staff",
+  "system",
+  "timehuddle",
   // Confusion / abuse
-  'anonymous',
-  'ghost',
-  'null',
-  'undefined',
-  'unknown',
+  "anonymous",
+  "ghost",
+  "null",
+  "undefined",
+  "unknown",
 ]);
 
 // ─── Normalization ────────────────────────────────────────────────────────────
@@ -86,10 +84,10 @@ export function normalizeUsername(input: string): string {
   return input
     .toLowerCase()
     .trim()
-    .replace(/[\s_]+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
-    .replace(/-{2,}/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/[\s_]+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "")
     .slice(0, USERNAME_MAX);
 }
 
@@ -114,19 +112,19 @@ export function validateUsername(username: string): UsernameValidationResult {
     return { valid: false, error: `Username must be at most ${USERNAME_MAX} characters` };
   }
   if (!/^[a-z0-9]/.test(username)) {
-    return { valid: false, error: 'Username must start with a letter or number' };
+    return { valid: false, error: "Username must start with a letter or number" };
   }
   if (!/[a-z0-9]$/.test(username)) {
-    return { valid: false, error: 'Username must end with a letter or number' };
+    return { valid: false, error: "Username must end with a letter or number" };
   }
   if (!/^[a-z0-9-]+$/.test(username)) {
     return {
       valid: false,
-      error: 'Username may only contain lowercase letters, numbers, and hyphens',
+      error: "Username may only contain lowercase letters, numbers, and hyphens",
     };
   }
   if (isReserved(username)) {
-    return { valid: false, error: 'This username is reserved and cannot be claimed' };
+    return { valid: false, error: "This username is reserved and cannot be claimed" };
   }
   return { valid: true };
 }
