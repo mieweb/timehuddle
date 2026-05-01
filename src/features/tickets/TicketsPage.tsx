@@ -45,7 +45,6 @@ import { useTeam } from '../../lib/TeamContext';
 import { formatDuration } from '../../lib/timeUtils';
 import { useSession } from '../../lib/useSession';
 
-
 interface TicketRowProps {
   ticket: Ticket;
   canManage: boolean;
