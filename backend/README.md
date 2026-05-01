@@ -23,13 +23,13 @@ timeharbor-timehuddle-backend/
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Framework | Fastify v5 |
-| Database | MongoDB (native driver, no Mongoose) |
-| Auth | Better Auth with MongoDB adapter |
-| Real-time | Server-Sent Events (SSE) for live streams |
-| API docs | @fastify/swagger (auto-generated at `/docs`) |
+| Layer     | Technology                                   |
+| --------- | -------------------------------------------- |
+| Framework | Fastify v5                                   |
+| Database  | MongoDB (native driver, no Mongoose)         |
+| Auth      | Better Auth with MongoDB adapter             |
+| Real-time | Server-Sent Events (SSE) for live streams    |
+| API docs  | @fastify/swagger (auto-generated at `/docs`) |
 
 ## Getting Started
 

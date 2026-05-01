@@ -1,5 +1,5 @@
-import type { RawSession, DayStats, TicketTime } from './types.js';
-import { computeSession } from './computeSession.js';
+import type { RawSession, DayStats, TicketTime } from "./types.js";
+import { computeSession } from "./computeSession.js";
 
 /**
  * Compute aggregated stats for an entire day (sums multiple sessions).
@@ -11,11 +11,7 @@ import { computeSession } from './computeSession.js';
  * @param referenceTime  epoch ms — for open sessions
  * @returns Aggregated day statistics
  */
-export function computeDay(
-  sessions: RawSession[],
-  date: string,
-  referenceTime: number
-): DayStats {
+export function computeDay(sessions: RawSession[], date: string, referenceTime: number): DayStats {
   const results = sessions.map((s) => computeSession(s, referenceTime));
 
   // Merge ticket breakdowns across all sessions

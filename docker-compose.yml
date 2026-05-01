@@ -2,24 +2,25 @@ services:
   mongodb:
     image: mongo:8
     ports:
-      - "27017:27017"
+      - '27017:27017'
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   backend:
     image: node:24-alpine
-    working_dir: /app
-    command: sh -c "npm install && npx tsx watch src/server.ts"
+    working_dir: /app/backend
+    command: sh -c "cd /app && npm install && cd /app/backend && npx tsx watch src/server.ts"
     ports:
-      - "4000:4000"
+      - '4000:4000'
     volumes:
-      - ./backend:/app
-      - backend_nm:/app/node_modules
+      - .:/app
+      - root_nm:/app/node_modules
+      - backend_nm:/app/backend/node_modules
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/timehuddle
       - PORT=4000
@@ -36,7 +37,7 @@ services:
     working_dir: /app
     command: sh -c "npm install && npx vite --host"
     ports:
-      - "3000:3000"
+      - '3000:3000'
     volumes:
       - .:/app
       - frontend_nm:/app/node_modules
@@ -47,5 +48,6 @@ services:
 
 volumes:
   mongo_data:
+  root_nm:
   backend_nm:
   frontend_nm:

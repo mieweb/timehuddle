@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
 import { attachmentService } from "../services/attachment.service.js";
+import { getYouTubeTitleFromUrl, isYouTubeUrl } from "../services/youtube.js";
 import type { AttachmentKind, AttachmentType } from "../models/attachment.model.js";
 
 const VALID_KINDS = ["clock", "ticket"] as const;
@@ -72,8 +73,12 @@ export async function attachmentRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: "Invalid type" });
       }
 
+      const resolvedTitle =
+        title ??
+        (isYouTubeUrl(url) ? ((await getYouTubeTitleFromUrl(url)) ?? undefined) : undefined);
+
       const attachment = await attachmentService.create(userId, url, type, attachedTo, {
-        title,
+        title: resolvedTitle,
         thumbnail,
       });
       return reply.status(201).send({ attachment });
@@ -96,7 +101,10 @@ export async function attachmentRoutes(app: FastifyInstance) {
           },
         },
         response: {
-          200: { type: "object", properties: { attachments: { type: "array", items: attachmentShape } } },
+          200: {
+            type: "object",
+            properties: { attachments: { type: "array", items: attachmentShape } },
+          },
         },
       },
     },

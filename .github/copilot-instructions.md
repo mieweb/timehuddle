@@ -1,4 +1,4 @@
-# TimeHuddle Frontend
+# TimeHuddle
 
 **ALWAYS follow these instructions first and fallback to search or bash commands only when you encounter unexpected information that does not match the info here.**
 
@@ -55,6 +55,29 @@ Pre-commit hooks (husky + lint-staged) run lint + format automatically.
 2. `npm run format` — must be clean
 3. Smoke-test in browser at `http://localhost:3000`
 
+### Testing with MCP Browser
+
+- Use MCP browser in Playwright if available to test functionality
+- **Never close the browser** after running MCP browser commands unless explicitly asked
+- Let the user interact with the browser after navigation or testing
+- Only use `browser_close` when the user specifically requests it
+
+## Reporting Issues
+
+### GitHub Issue Titles
+
+- **Use Title Case**: Capitalize all major words in issue titles (e.g., "Add Docker Compose for Full Local Development Stack")
+- **No conventional commit prefixes**: Do not use `feat:`, `fix:`, `chore:` etc. in issue titles — those belong in commit messages, not issues
+- **Be descriptive**: Titles should clearly convey the what, not the how
+
+### Issue Body Structure
+
+- **Overview**: One paragraph explaining the problem or goal
+- **Current State**: Bullet list of how things work today
+- **Proposed Changes**: Numbered sections with sub-bullets for each change
+- **Acceptance Criteria**: Checkboxes (`- [ ]`) for each verifiable outcome
+- **Out of Scope (for Now)**: Explicit list of what is intentionally excluded from this issue
+
 ## Project Structure
 
 ```
@@ -69,9 +92,9 @@ src/
 
 ### Path Aliases
 
-| Alias | Resolves to |
-|---|---|
-| `@ui/*` | `src/ui/*` |
+| Alias    | Resolves to |
+| -------- | ----------- |
+| `@ui/*`  | `src/ui/*`  |
 | `@lib/*` | `src/lib/*` |
 
 ### Key Files
@@ -85,24 +108,29 @@ src/
 ## Technology Stack
 
 ### Vite 8
+
 - `@vitejs/plugin-react` (SWC)
 - HMR — changes reflect instantly, no restart needed
 - Build output: `dist/`
 
 ### React 19
+
 - Concurrent features, Suspense
 - `motion` (Framer Motion 12) for animations
 
 ### Tailwind CSS 4
+
 - Oxide/Lightning CSS engine — **no `tailwind.config.js` required**
 - Theme tokens via CSS variables in `client/styles.css`
 - `@mieweb/ui` brand tokens mapped to Tailwind colors
 - Dark mode via `data-theme="dark"` on `<html>`
 
 ### TypeScript 5.x
+
 - Strict mode, `moduleResolution: Bundler`, `module: ESNext`
 
 ### Vitest
+
 - Unit/integration tests alongside source files
 
 ## Styling Conventions
@@ -111,22 +139,6 @@ src/
 - **`client/styles.css`** for global tokens and third-party overrides only
 - **SASS/SCSS** can be added per-component (`Component.module.scss`) for complex vendor overrides where utility classes don't reach
 - No global CSS beyond `client/styles.css`
-
-## @mieweb/ui Usage
-
-**HARD RULE: Every UI element MUST use `@mieweb/ui` imports. No raw `<button>`, `<input>`, `<select>`, `<table>`, or custom modal/card/badge markup.**
-
-| Element | Import |
-|---|---|
-| `<button>` | `Button` |
-| `<input>` | `Input` |
-| modal | `Modal, ModalHeader, ModalBody, ModalFooter` |
-| card | `Card, CardHeader, CardContent` |
-| `<table>` | `Table, TableHeader, TableBody, TableRow, TableCell` |
-| badge | `Badge` |
-| avatar | `Avatar` |
-| `<select>` | `Select` |
-| loading | `Spinner` |
 
 ## Troubleshooting
 
@@ -137,16 +149,14 @@ src/
 
 ## Code Quality Principles
 
-<!-- https://github.com/mieweb/template-mieweb-opensource/blob/main/.github/copilot-instructions.md -->
-
-### 🎯 DRY (Don't Repeat Yourself)
+### DRY (Don't Repeat Yourself)
 
 - **Never duplicate code**: If you find yourself copying code, extract it into a reusable function
 - **Single source of truth**: Each piece of knowledge should have one authoritative representation
 - **Refactor mercilessly**: When you see duplication, eliminate it immediately
 - **Shared utilities**: Common patterns should be abstracted into utility functions
 
-### 💋 KISS (Keep It Simple, Stupid)
+### KISS (Keep It Simple, Stupid)
 
 - **Simple solutions**: Prefer the simplest solution that works
 - **Avoid over-engineering**: Don't add complexity for hypothetical future needs
@@ -154,14 +164,21 @@ src/
 - **Small functions**: Break down complex functions into smaller, focused ones
 - **Readable code**: Code should be obvious to understand at first glance
 
-### 🧹 Folder Philosophy
+### Folder Philosophy
 
 - **Clear purpose**: Every folder should have a main thing that anchors its contents.
 - **No junk drawers**: Don’t leave loose files without context or explanation.
 - **Explain relationships**: If it’s not elegantly obvious how files fit together, add a README or note.
 - **Immediate clarity**: Opening a folder should make its organizing principle clear at a glance.
 
-### 🔄 Refactoring Guidelines
+### Frontend / Backend Code Barrier
+
+- **Never import frontend code from the backend** and never import backend code from the frontend.
+- **Shared logic belongs in `packages/`**: If both sides need the same utility, it lives in a scoped package (e.g. `packages/youtube/` as `@timehuddle/youtube`) — not duplicated, not cross-imported.
+- **The backend owns data**: Persistence, validation, and business rules live in the backend. The frontend only consumes the API.
+- **Public APIs only**: The frontend communicates with the backend exclusively through versioned HTTP endpoints — never by reaching into backend modules directly.
+
+### Refactoring Guidelines
 
 - **Continuous improvement**: Refactor as you work, not as a separate task
 - **Safe refactoring**: Always run tests before and after refactoring
@@ -169,7 +186,7 @@ src/
 - **Preserve behavior**: Refactoring should not change external behavior
 - **Code reviews**: All refactoring should be reviewed for correctness
 
-### ⚰️ Dead Code Management
+### Dead Code Management
 
 - **Immediate removal**: Delete unused code immediately when identified
 - **Historical preservation**: Move significant dead code to `.attic/` directory with context
@@ -177,12 +194,12 @@ src/
 - **Regular cleanup**: Review and clean attic directory periodically
 - **No accumulation**: Don't let dead code accumulate in active codebase
 
-### 🌐 Testing with MCP Browser
+### Performance Considerations
 
-- Use MCP browser in Playwright if available to test functionality
-- **Never close the browser** after running MCP browser commands unless explicitly asked
-- Let the user interact with the browser after navigation or testing
-- Only use `browser_close` when the user specifically requests it
+- **Lazy load features**: Use `React.lazy` and `Suspense` for route-level code splitting
+- **Avoid unnecessary re-renders**: Prefer `useMemo` and `useCallback` only where measurable impact exists — don't pre-optimize
+- **Bundle size**: Avoid importing entire libraries; prefer named imports
+- **Backend queries**: Return only the fields the client needs; avoid over-fetching from the API
 
 ## HTML & CSS Guidelines
 
@@ -192,13 +209,13 @@ src/
 
 ## Accessibility (ARIA Labeling)
 
-### 🎯 Interactive Elements
+### Interactive Elements
 
 - **All interactive elements** (buttons, links, forms, dialogs) must include appropriate ARIA roles and labels
 - **Use ARIA attributes**: Implement aria-label, aria-labelledby, and aria-describedby to provide clear, descriptive information for screen readers
 - **Semantic HTML**: Use semantic HTML wherever possible to enhance accessibility
 
-### 📢 Dynamic Content
+### Dynamic Content
 
 - **Announce updates**: Ensure all dynamic content updates (modals, alerts, notifications) are announced to assistive technologies using aria-live regions
 - **Maintain tab order**: Maintain logical tab order and keyboard navigation for all features
@@ -206,13 +223,13 @@ src/
 
 ## Internationalization (I18N)
 
-### 🌍 Text and Language Support
+### Text and Language Support
 
 - **Externalize text**: All user-facing text must be externalized for translation
 - **Multiple languages**: Support multiple languages, including right-to-left (RTL) languages such as Arabic and Hebrew
 - **Language selector**: Provide a language selector for users to choose their preferred language
 
-### 🕐 Localization
+### Localization
 
 - **Format localization**: Ensure date, time, number, and currency formats are localized based on user settings
 - **UI compatibility**: Test UI layouts for text expansion and RTL compatibility
@@ -247,25 +264,9 @@ src/
 - **Simple workflows**: GitHub Actions should be thin wrappers around scripts, not contain complex logic
 - **Easy debugging**: When CI fails, developers can reproduce the issue locally by running the same script
 
-## Reporting Issues
-
-### GitHub Issue Titles
-
-- **Use Title Case**: Capitalize all major words in issue titles (e.g., "Add Docker Compose for Full Local Development Stack")
-- **No conventional commit prefixes**: Do not use `feat:`, `fix:`, `chore:` etc. in issue titles — those belong in commit messages, not issues
-- **Be descriptive**: Titles should clearly convey the what, not the how
-
-### Issue Body Structure
-
-- **Overview**: One paragraph explaining the problem or goal
-- **Current State**: Bullet list of how things work today
-- **Proposed Changes**: Numbered sections with sub-bullets for each change
-- **Acceptance Criteria**: Checkboxes (`- [ ]`) for each verifiable outcome
-- **Out of Scope (for Now)**: Explicit list of what is intentionally excluded from this issue
-
 ## Quick Reference
 
-### 🪶 All Changes should be considered for Pull Request Philosophy
+### Pull Request Philosophy
 
 - **Smallest viable change**: Always make the smallest change that fully solves the problem.
 - **Fewest files first**: Start with the minimal number of files required.

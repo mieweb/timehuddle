@@ -2,8 +2,16 @@ import { ObjectId } from "mongodb";
 
 export type ProjectStatus = "Active" | "On Hold" | "Completed" | "Archived";
 export type ProjectColor =
-  | "blue" | "green" | "purple" | "orange" | "red"
-  | "teal" | "pink" | "yellow" | "indigo" | "gray";
+  | "blue"
+  | "green"
+  | "purple"
+  | "orange"
+  | "red"
+  | "teal"
+  | "pink"
+  | "yellow"
+  | "indigo"
+  | "gray";
 
 export interface Project {
   _id: ObjectId;

@@ -24,7 +24,9 @@ npm run format:fix
 ## Code Quality
 
 ### 🎯 DRY — No duplication. Extract shared logic into `src/lib/`.
+
 ### 💋 KISS — Simplest solution that works. No over-engineering.
+
 ### 🚫 No spaghetti — Every file has one clear responsibility.
 
 ## Project Structure

@@ -26,6 +26,8 @@ export interface TimecoreUser {
 export interface PublicUser {
   id: string;
   name: string;
+  /** Canonical username/handle. Null until the user claims one. */
+  username: string | null;
   image: string | null;
   bio: string;
   website: string;

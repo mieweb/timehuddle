@@ -130,7 +130,10 @@ export const TeamChart: React.FC<TeamChartProps> = ({ teamName, members }) => {
   }
 
   return (
-    <div style={{ width: '100%', height: '500px', isolation: 'isolate' }} aria-label={`Org chart for ${teamName}`}>
+    <div
+      style={{ width: '100%', height: '500px', isolation: 'isolate' }}
+      aria-label={`Org chart for ${teamName}`}
+    >
       <TeamChartMount key={yaml} yaml={yaml} />
     </div>
   );

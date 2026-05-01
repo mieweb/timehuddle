@@ -37,7 +37,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { REPO_URL } from '../lib/constants';
 
-
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TECH_BADGES = [
@@ -145,7 +144,7 @@ const DEMOS: Demo[] = [
     icon: faBolt,
     title: 'Clock Dashboard',
     description:
-      'Clock in and out with one tap. Your team\'s live attendance status is always visible — see who is working, on break, or clocked out right now.',
+      "Clock in and out with one tap. Your team's live attendance status is always visible — see who is working, on break, or clocked out right now.",
     path: '/app/clock',
     tag: 'Live status · Breaks · History',
     gradient: 'from-yellow-500/20 to-orange-500/5',
@@ -805,11 +804,7 @@ export const LandingPage: React.FC = () => {
       >
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
           {/* Logo */}
-          <motion.a
-            href="/"
-            className="flex items-center gap-2.5"
-            whileHover={{ scale: 1.03 }}
-          >
+          <motion.a href="/" className="flex items-center gap-2.5" whileHover={{ scale: 1.03 }}>
             <motion.span
               className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-600 text-white shadow-sm shadow-blue-500/40"
               whileHover={reduced ? {} : { rotate: 20 }}
@@ -940,8 +935,10 @@ export const LandingPage: React.FC = () => {
               Clock in, clock out,
             </strong>{' '}
             manage{' '}
-            <strong className="font-semibold text-neutral-900 dark:text-neutral-100">teams and tickets</strong>,{' '}
-            and chat with your colleagues — all in one place.{' '}
+            <strong className="font-semibold text-neutral-900 dark:text-neutral-100">
+              teams and tickets
+            </strong>
+            , and chat with your colleagues — all in one place.{' '}
             <strong className="font-semibold text-neutral-900 dark:text-neutral-100">
               No spreadsheets required.
             </strong>
@@ -1005,8 +1002,6 @@ export const LandingPage: React.FC = () => {
             ))}
           </motion.div>
         </div>
-
-
       </section>
 
       {/* ── Stats ── */}
@@ -1091,7 +1086,8 @@ export const LandingPage: React.FC = () => {
               className="underline hover:text-neutral-700 dark:hover:text-neutral-300"
             >
               Docker
-            </a>.
+            </a>
+            .
           </motion.p>
         </div>
       </section>
@@ -1126,8 +1122,8 @@ export const LandingPage: React.FC = () => {
                 Ready to huddle up?
               </h2>
               <p className="relative z-10 mx-auto mt-4 max-w-xl text-blue-100/90">
-                Sign up free and get your team tracking time, managing tickets, and communicating
-                in minutes.
+                Sign up free and get your team tracking time, managing tickets, and communicating in
+                minutes.
               </p>
               <motion.a
                 href="/app?mode=signup"

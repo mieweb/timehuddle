@@ -43,10 +43,7 @@ export const attachmentService = {
     return toPublicAttachment(doc);
   },
 
-  async getForEntity(
-    kind: AttachmentKind,
-    id: string
-  ): Promise<PublicAttachment[]> {
+  async getForEntity(kind: AttachmentKind, id: string): Promise<PublicAttachment[]> {
     const docs = await attachmentsCollection()
       .find({ "attachedTo.kind": kind, "attachedTo.id": id })
       .sort({ addedAt: 1 })
