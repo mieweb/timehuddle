@@ -152,6 +152,10 @@ export async function userRoutes(app: FastifyInstance) {
       const viewerId = req.user!.id;
       const { id: targetId } = req.params as { id: string };
 
+      // 404 takes precedence over 403 — check existence first
+      const user = await userService.findById(targetId);
+      if (!user) return reply.status(404).send({ error: "Not found" });
+
       // Resolve shared teams (non-personal) between viewer and target
       const sharedTeamDocs =
         viewerId === targetId
@@ -167,9 +171,6 @@ export async function userRoutes(app: FastifyInstance) {
       if (viewerId !== targetId && sharedTeamDocs.length === 0) {
         return reply.status(403).send({ error: "No shared team" });
       }
-
-      const user = await userService.findById(targetId);
-      if (!user) return reply.status(404).send({ error: "Not found" });
 
       const sharedTeams = sharedTeamDocs.map((t) => ({
         id: t._id.toString(),
