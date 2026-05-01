@@ -41,6 +41,18 @@ export const sessionToken = {
   clear: () => localStorage.removeItem(TOKEN_KEY),
 };
 
+// ─── API error (carries HTTP status for reliable status-code checks) ─────────
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 // ─── Base request ─────────────────────────────────────────────────────────────
 
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
@@ -62,10 +74,11 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
 
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new Error(
+      throw new ApiError(
         (body.message as string | undefined) ??
           (body.error as string | undefined) ??
           `HTTP ${res.status}`,
+        res.status,
       );
     }
 
@@ -166,7 +179,7 @@ export const authApi = {
     try {
       return await request<{ user: TimecoreUser }>('/v1/me');
     } catch (err) {
-      if (err instanceof Error && err.message.startsWith('HTTP 401')) return null;
+      if (err instanceof ApiError && err.status === 401) return null;
       throw err;
     }
   },

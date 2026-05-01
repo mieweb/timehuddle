@@ -62,6 +62,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     origin: true,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    // Expose the bearer token header so Capacitor WebViews can read it after sign-in.
+    exposedHeaders: ["set-auth-token"],
   });
 
   // Attach X-App-Id (timeharbor | timehuddle) to every request
@@ -105,6 +107,10 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
     reply.status(response.status);
     response.headers.forEach((value: string, key: string) => {
+      // Skip CORS headers — @fastify/cors already sets them.
+      // Forwarding better-auth's CORS headers too causes duplicate
+      // Access-Control-Allow-Origin, which WKWebView rejects as "Load failed".
+      if (key.toLowerCase().startsWith("access-control-")) return;
       reply.header(key, value);
     });
 
