@@ -21,9 +21,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ title }) => {
   const { openMobile } = useSidebar();
 
   return (
-    <header
-      className="app-header sticky top-0 z-10 flex shrink-0 flex-col justify-end border-b border-neutral-200 bg-white/80 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/80"
-    >
+    <header className="app-header sticky top-0 z-10 flex shrink-0 flex-col justify-end border-b border-neutral-200 bg-white/80 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/80">
       <div className="flex h-16 items-center justify-between gap-4 px-4">
         {/* ── Left ── */}
         <div className="flex items-center gap-3">

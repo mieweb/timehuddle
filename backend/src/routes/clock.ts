@@ -32,7 +32,6 @@ const clockEventShape = {
     accumulatedTime: { type: "number" },
     tickets: { type: "array", items: clockTicketShape },
     endTime: { type: "string", nullable: true },
-
   },
 };
 
@@ -147,7 +146,6 @@ export async function clockRoutes(app: FastifyInstance) {
       return { event: result };
     }
   );
-
 
   // PUT /v1/clock/:id/times
   app.put(

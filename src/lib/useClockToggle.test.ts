@@ -24,15 +24,17 @@ const mockStop = vi.mocked(clockApi.stop);
 
 const mockRefetchClock = vi.fn();
 
-function setupTeam(opts: {
-  activeClockEvent?: { id: string; teamId: string } | null;
-  selectedTeamId?: string | null;
-} = {}) {
+function setupTeam(
+  opts: {
+    activeClockEvent?: { id: string; teamId: string } | null;
+    selectedTeamId?: string | null;
+  } = {},
+) {
   mockUseTeam.mockReturnValue({
     teams: [],
     teamsReady: true,
     refetchTeams: vi.fn(),
-    selectedTeamId: 'selectedTeamId' in opts ? opts.selectedTeamId ?? null : 'team1',
+    selectedTeamId: 'selectedTeamId' in opts ? (opts.selectedTeamId ?? null) : 'team1',
     selectedTeam: null,
     setSelectedTeamId: vi.fn(),
     isAdmin: false,
@@ -96,14 +98,22 @@ describe('useClockToggle', () => {
     it('sets clockInLoading=true during the call and false after', async () => {
       setupTeam({ selectedTeamId: 'team1' });
       let resolveStart!: (value?: any) => void;
-      mockStart.mockReturnValue(new Promise<any>((res) => { resolveStart = res; }));
+      mockStart.mockReturnValue(
+        new Promise<any>((res) => {
+          resolveStart = res;
+        }),
+      );
 
       const { result } = renderHook(() => useClockToggle());
 
-      act(() => { void result.current.clockIn(); });
+      act(() => {
+        void result.current.clockIn();
+      });
       expect(result.current.clockInLoading).toBe(true);
 
-      await act(async () => { resolveStart(); });
+      await act(async () => {
+        resolveStart();
+      });
       expect(result.current.clockInLoading).toBe(false);
     });
   });
@@ -158,14 +168,22 @@ describe('useClockToggle', () => {
     it('sets clockOutLoading=true during the call and false after', async () => {
       setupTeam({ activeClockEvent: { id: 'evt1', teamId: 'team1' } });
       let resolveStop!: (value?: any) => void;
-      mockStop.mockReturnValue(new Promise<any>((res) => { resolveStop = res; }));
+      mockStop.mockReturnValue(
+        new Promise<any>((res) => {
+          resolveStop = res;
+        }),
+      );
 
       const { result } = renderHook(() => useClockToggle());
 
-      act(() => { void result.current.clockOut(); });
+      act(() => {
+        void result.current.clockOut();
+      });
       expect(result.current.clockOutLoading).toBe(true);
 
-      await act(async () => { resolveStop(); });
+      await act(async () => {
+        resolveStop();
+      });
       expect(result.current.clockOutLoading).toBe(false);
     });
   });

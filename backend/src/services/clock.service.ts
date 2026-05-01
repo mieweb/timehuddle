@@ -163,10 +163,7 @@ export class ClockService {
     return pub;
   }
 
-  async stop(
-    userId: string,
-    teamId: string
-  ): Promise<PublicClockEvent | "not-found"> {
+  async stop(userId: string, teamId: string): Promise<PublicClockEvent | "not-found"> {
     const coll = clockEventsCollection();
     const event = await coll.findOne({ userId, teamId, endTime: null });
     if (!event) return "not-found";
@@ -311,8 +308,6 @@ export class ClockService {
     broadcast(event.teamId, pub);
     return pub;
   }
-
-
 
   async updateTimes(
     requesterId: string,

@@ -1,0 +1,14 @@
+{
+  "name": "@timehuddle/youtube",
+  "version": "0.0.1",
+  "type": "module",
+  "exports": "./index.ts",
+  "main": "./index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.4"
+  }
+}
