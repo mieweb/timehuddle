@@ -46,34 +46,52 @@ export const sessionToken = {
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const hasBody = options.body != null;
   const token = sessionToken.get();
-  const res = await fetch(`${TIMECORE_BASE_URL}${path}`, {
-    credentials: 'include',
-    headers: {
-      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-    ...options,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`${TIMECORE_BASE_URL}${path}`, {
+      credentials: 'include',
+      signal: controller.signal,
+      headers: {
+        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+      ...options,
+    });
 
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    throw new Error(
-      (body.message as string | undefined) ??
-        (body.error as string | undefined) ??
-        `HTTP ${res.status}`,
-    );
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+      );
+    }
+
+    return res.json() as Promise<T>;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return res.json() as Promise<T>;
 }
 
 // ─── Auth API ─────────────────────────────────────────────────────────────────
 
+/** fetch() with an 8-second abort timeout — prevents indefinite hangs on slow connections. */
+async function timedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try {
+    return await fetch(url, { signal: controller.signal, ...options });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export const authApi = {
   /** Sign in — stores session token from `set-auth-token` header (better-auth bearer plugin). */
   signIn: async (email: string, password: string) => {
-    const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/email`, {
+    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/email`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -94,7 +112,7 @@ export const authApi = {
 
   /** Sign up — stores session token from `set-auth-token` header (better-auth bearer plugin). */
   signUp: async (email: string, password: string, name: string) => {
-    const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-up/email`, {
+    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/sign-up/email`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
