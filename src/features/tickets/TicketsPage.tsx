@@ -44,7 +44,7 @@ import { ticketApi, type Ticket } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration } from '../../lib/timeUtils';
 import { useSession } from '../../lib/useSession';
-import { AttachmentsPanel } from '../clock/AttachmentsPanel';
+
 
 interface TicketRowProps {
   ticket: Ticket;
@@ -53,7 +53,6 @@ interface TicketRowProps {
   editingId: string | null;
   editTitle: string;
   editGithub: string;
-  userId: string | null;
   onStartStop: (ticket: Ticket) => Promise<void>;
   onSaveEdit: () => Promise<void>;
   onCancelEdit: () => void;
@@ -70,7 +69,6 @@ const TicketRow: React.FC<TicketRowProps> = ({
   editingId,
   editTitle,
   editGithub,
-  userId,
   onStartStop,
   onSaveEdit,
   onCancelEdit,
@@ -191,7 +189,6 @@ const TicketRow: React.FC<TicketRowProps> = ({
           </div>
         )}
       </div>
-      <AttachmentsPanel kind="ticket" entityId={ticket.id} currentUserId={userId ?? undefined} />
     </li>
   );
 };
@@ -500,7 +497,6 @@ export const TicketsPage: React.FC = () => {
                   editingId={editingId}
                   editTitle={editTitle}
                   editGithub={editGithub}
-                  userId={userId}
                   onStartStop={handleStartStop}
                   onSaveEdit={handleSaveEdit}
                   onCancelEdit={() => setEditingId(null)}
@@ -532,7 +528,6 @@ export const TicketsPage: React.FC = () => {
                   editingId={editingId}
                   editTitle={editTitle}
                   editGithub={editGithub}
-                  userId={userId}
                   onStartStop={handleStartStop}
                   onSaveEdit={handleSaveEdit}
                   onCancelEdit={() => setEditingId(null)}
