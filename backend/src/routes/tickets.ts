@@ -1,7 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
 import { ticketService } from "../services/ticket.service.js";
-import type { Ticket, TicketStatus } from "../models/ticket.model.js";
+import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -10,10 +10,12 @@ function toPublicTicket(t: Ticket) {
     id: t._id.toHexString(),
     teamId: t.teamId,
     title: t.title,
+    description: t.description ?? null,
     github: t.github,
     accumulatedTime: t.accumulatedTime,
     startTimestamp: t.startTimestamp ?? null,
     status: t.status,
+    priority: t.priority ?? null,
     createdBy: t.createdBy,
     assignedTo: t.assignedTo,
     reviewedBy: t.reviewedBy ?? null,
@@ -25,16 +27,21 @@ function toPublicTicket(t: Ticket) {
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
+const ALL_STATUSES = ["open", "in-progress", "blocked", "reviewed", "closed", "deleted"] as const;
+const ALL_PRIORITIES = ["low", "medium", "high", "critical"] as const;
+
 const ticketShape = {
   type: "object",
   properties: {
     id: { type: "string" },
     teamId: { type: "string" },
     title: { type: "string" },
+    description: { type: "string", nullable: true },
     github: { type: "string" },
     accumulatedTime: { type: "number" },
     startTimestamp: { type: "number", nullable: true },
-    status: { type: "string", enum: ["open", "reviewed", "deleted", "closed"] },
+    status: { type: "string", enum: ALL_STATUSES },
+    priority: { type: "string", enum: ALL_PRIORITIES, nullable: true },
     createdBy: { type: "string" },
     assignedTo: { type: "string", nullable: true },
     reviewedBy: { type: "string", nullable: true },
@@ -148,9 +155,9 @@ export async function ticketRoutes(app: FastifyInstance) {
           additionalProperties: false,
           properties: {
             title: { type: "string", minLength: 1, maxLength: 500 },
+            description: { type: "string", maxLength: 5000 },
             github: { type: "string", maxLength: 1000 },
             accumulatedTime: { type: "number", minimum: 0 },
-            status: { type: "string", enum: ["open", "reviewed", "deleted", "closed"] },
           },
         },
         response: {
@@ -165,9 +172,9 @@ export async function ticketRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const body = req.body as Partial<{
         title: string;
+        description: string;
         github: string;
         accumulatedTime: number;
-        status: TicketStatus;
       }>;
       const result = await ticketService.update(id, req.user!.id, body);
       if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
@@ -216,7 +223,7 @@ export async function ticketRoutes(app: FastifyInstance) {
           additionalProperties: false,
           properties: {
             ticketIds: { type: "array", items: { type: "string" }, minItems: 1 },
-            status: { type: "string", enum: ["open", "reviewed", "deleted", "closed"] },
+            status: { type: "string", enum: ALL_STATUSES },
             teamId: { type: "string" },
           },
         },
@@ -236,6 +243,41 @@ export async function ticketRoutes(app: FastifyInstance) {
       const result = await ticketService.batchUpdateStatus(ticketIds, teamId, status, req.user!.id);
       if (result === "forbidden") return reply.status(403).send({ error: "Not a team admin" });
       return reply.send({ modified: result });
+    }
+  );
+
+  // PATCH /v1/tickets/:id/status-priority — any team member
+  app.patch(
+    "/tickets/:id/status-priority",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Tickets"],
+        summary: "Update ticket status and/or priority (any team member)",
+        params: idParam,
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            status: { type: "string", enum: ALL_STATUSES },
+            priority: { type: "string", enum: ALL_PRIORITIES },
+          },
+        },
+        response: {
+          200: { type: "object", properties: { ticket: ticketShape } },
+          ...unauth,
+          403: err("Not a team member"),
+          404: err("Ticket not found"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as { status?: TicketStatus; priority?: TicketPriority };
+      const result = await ticketService.updateStatusPriority(id, req.user!.id, body);
+      if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
+      if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
+      return reply.send({ ticket: toPublicTicket(result) });
     }
   );
 
@@ -312,7 +354,7 @@ export async function ticketRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Tickets"],
-        summary: "Assign ticket to a team member (team admin only)",
+        summary: "Assign ticket to a team member (ticket creator or team admin)",
         params: idParam,
         body: {
           type: "object",
