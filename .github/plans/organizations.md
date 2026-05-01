@@ -2,6 +2,52 @@
 
 > **STATUS: PLANNING** — This document is exploratory and not yet approved for implementation. Nothing here represents a commitment or active development work.
 
+> **NAMESPACE NOTE (PENDING):** Profile and org URL namespacing is intentionally not finalized yet. This plan should stay at a product/data-shape level until that decision is made.
+
+## Namespace Decisions (Pending)
+
+We are intentionally keeping this lightweight for now and deferring implementation detail.
+
+- User public handles are expected to be globally unique.
+- Org path strategy is still open (`/{orgSlug}` vs `/org/{orgSlug}`).
+- Subdomains remain a future option, not a current commitment.
+- Certain URL roots should be reserved or blocked for both user handles and org slugs
+  (product/system routes, trust-sensitive names, and profanity/abuse terms).
+
+## Signup And Identity Principles
+
+To avoid awkward account states, signup should not require an email-first flow.
+Users should be able to create an account directly with Google/GitHub and land
+in a valid profile/org context immediately.
+
+- **Social-first signup is valid**: Google/GitHub can be the first and only
+  identity step at account creation.
+- **Username is a product identity, not a provider identity**: provider emails
+  and provider usernames can inform a default suggestion, but the TimeHuddle
+  handle is the canonical URL identity.
+- **URL identity is stable**: user profile URLs should resolve by canonical
+  handle, and org URLs should resolve by canonical org slug once namespace
+  decisions are finalized.
+- **No silent account merges**: linking an external provider to an existing
+  account should require explicit user intent when there is ambiguity.
+- **One external account maps to one internal account**: this prevents account
+  takeover and duplicate ownership oddities.
+- **Personal org still applies**: first-time signup (email or social) should
+  create or attach to the same personal-org model described in this plan.
+
+This keeps onboarding simple now while preserving clean identity foundations for
+future org routing and profile visibility features.
+
+### Social Signup Flow (Google/GitHub)
+
+For social-first signup, the expected flow is:
+
+1. User selects **Continue with Google** or **Continue with GitHub**.
+2. User completes provider auth/consent and returns to TimeHuddle.
+3. User chooses/confirms canonical TimeHuddle username (and resolves any
+  collisions or blocked names).
+4. Account creation completes and user lands in personal-org context.
+
 ## The Problem
 
 Today the data hierarchy is flat:
@@ -158,6 +204,18 @@ cannot have additional org-level admins.
 This means the org layer is always present in the data model — features built
 on top of it work consistently without special-casing solo users.
 
+### Personal Org First (Near-Term Direction)
+
+To unblock GitHub login and clean profile/org URL identity quickly, personal
+org support should ship before full multi-org capabilities.
+
+- First successful signup (email, GitHub, or Google) creates one personal org.
+- User handle and personal-org slug become the first namespace anchors.
+- Team and org admin complexity can come later; namespace and identity should
+  not wait for full org management.
+
+This keeps onboarding fast while reducing future migration pressure.
+
 ---
 
 ## Open Questions
@@ -165,12 +223,17 @@ on top of it work consistently without special-casing solo users.
 - **Multi-org users**: can one person belong to multiple orgs? (Consultants,
   contractors working for multiple companies.) If yes, how does the UI handle
   switching context?
-- **Org slug / custom domain**: do orgs get a subdomain (`acme.timehuddle.app`)
-  or a path prefix (`timehuddle.app/org/acme`)?
+- **Org slug / URL shape**: should org pages use `/{orgSlug}` or
+  `/org/{orgSlug}`?
+- **Subdomain strategy**: should subdomains (`acme.timehuddle.app`) be
+  supported later as canonical or redirect-only?
 - **Invitation flow**: does joining an org require an invite, or can anyone with
   a matching email domain join?
 - **Data isolation**: are org data boundaries enforced at the DB level (separate
   collections) or application level (orgId filter on every query)?
+- **Reserved and blocked names**: what baseline deny-list should apply to both
+  user handles and org slugs (for example system routes, trademark-sensitive
+  terms, and profanity/abuse patterns), and what moderation process updates it?
 - **When to add it?**: adding orgs early is less painful than retrofitting.
   Even a minimal org layer (org exists, teams belong to org, no extra UI) would
   future-proof the data model without requiring a full org management UI upfront.
@@ -191,14 +254,16 @@ on top of it work consistently without special-casing solo users.
 
 ## Possible Rollout Sequence
 
-1. **Data model only** — add `Organization` + `OrgMembership` collections, add
-   `orgId` to `Team`; auto-create personal orgs for all existing users; no UI
-   change yet
-2. **Org context in API** — all queries implicitly scope to the user's current
-   org; enforced at middleware level
-3. **Org settings page** — name, logo, member list, invite by email
-4. **Org admin role** — promote members to org admin, org-wide team management
-5. **Google Workspace SSO** — domain-level login, directory sync
-6. **Org-wide reporting** — reports that span all teams in the org
-7. **Billing** — plan tiers, seat counting, upgrade/downgrade flows
-8. **Enterprise SSO** — SAML/OIDC, SCIM provisioning
+1. **Personal org + social signup foundation** — on first signup (including
+  GitHub/Google), create personal org and establish canonical handle/slug
+  identity; keep scope minimal and onboarding-focused
+2. **Baseline org model** — add `Organization` + `OrgMembership`, add `orgId`
+  to `Team`, and backfill existing users/teams into personal org defaults
+3. **Org context in API** — all queries implicitly scope to the user's current
+  org; enforced at middleware level
+4. **Org settings page** — name, logo, member list, invite by email
+5. **Org admin role** — promote members to org admin, org-wide team management
+6. **Google Workspace SSO** — domain-level login, directory sync
+7. **Org-wide reporting** — reports that span all teams in the org
+8. **Billing** — plan tiers, seat counting, upgrade/downgrade flows
+9. **Enterprise SSO** — SAML/OIDC, SCIM provisioning

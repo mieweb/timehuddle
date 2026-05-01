@@ -13,6 +13,10 @@ some decisions made early (data models, org hierarchy, event architecture)
 become very expensive to change later. These plans exist to think those
 decisions through *before* they become constraints.
 
+Planning docs should stay high-level by default: problem, options, tradeoffs,
+and acceptance criteria. Avoid deep implementation details until a direction is
+approved.
+
 ---
 
 ## The Platform Vision
@@ -133,6 +137,7 @@ Underneath all of these plans, a few structural decisions show up repeatedly:
 | Decision | Why it matters |
 |----------|---------------|
 | **Add the org layer early** | Retrofitting org scoping onto a mature codebase is expensive. Even a minimal org in the DB (no UI yet) future-proofs every query. |
+| **Ship personal org first** | Unblocks social signup and namespace identity now, while deferring full multi-org/admin complexity until later phases. |
 | **Clean, typed event data** | The activity feed, custom fields, and standup responses are only as useful as the structure of their data. Schemaless blobs make reporting and AI hard. |
 | **Reports and exporters are separate** | Reports decide *what* data, exporters decide *what format*. The same timesheet report powers the UI table and the ADP CSV file. |
 | **Custom fields as a shared primitive** | Standup questions, ticket metadata, and capacity tags all use the same field schema system — one implementation, not three. |

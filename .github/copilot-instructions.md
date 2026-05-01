@@ -254,6 +254,9 @@ src/
 - Keep documentation DRY (Don't Repeat Yourself) - reference other docs instead of duplicating
 - Use clear cross-references between related documentation files
 - Update the main architecture document when workflow structure changes
+- Planning docs (`.github/plans/*.md`) should stay light on implementation detail:
+  focus on problem framing, decision options, tradeoffs, and acceptance criteria;
+  defer schema/index/API specifics until implementation is explicitly approved.
 
 ## Working with GitHub Actions Workflows
 
