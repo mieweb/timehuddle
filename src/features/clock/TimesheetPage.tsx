@@ -192,7 +192,7 @@ export const TimesheetPage: React.FC = () => {
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Card>
             <CardContent>
-                            <Text variant="muted" size="xs">
+              <Text variant="muted" size="xs">
                 Total Hours
               </Text>
               <Text size="lg" weight="semibold">
@@ -308,7 +308,9 @@ export const TimesheetPage: React.FC = () => {
                               variant="outline"
                               size="sm"
                               onClick={() =>
-                                setAttachmentsOpenForSession((prev) => (prev === s.id ? null : s.id))
+                                setAttachmentsOpenForSession((prev) =>
+                                  prev === s.id ? null : s.id,
+                                )
                               }
                             >
                               {isAttachmentsOpen ? 'Hide' : 'Manage'}
@@ -319,7 +321,11 @@ export const TimesheetPage: React.FC = () => {
                       {!isActive && isAttachmentsOpen && (
                         <TableRow>
                           <TableCell colSpan={7}>
-                            <AttachmentsPanel kind="clock" entityId={s.id} currentUserId={user?.id} />
+                            <AttachmentsPanel
+                              kind="clock"
+                              entityId={s.id}
+                              currentUserId={user?.id}
+                            />
                           </TableCell>
                         </TableRow>
                       )}

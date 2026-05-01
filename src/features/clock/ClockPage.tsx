@@ -35,6 +35,7 @@ import { useTeam } from '../../lib/TeamContext';
 import { formatTimer, formatDuration } from '../../lib/timeUtils';
 import { clockApi, ticketApi, type Ticket } from '../../lib/api';
 import { useClockToggle } from '../../lib/useClockToggle';
+import { useSession } from '../../lib/useSession';
 import { AttachmentsPanel } from './AttachmentsPanel';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
@@ -51,6 +52,7 @@ export const ClockPage: React.FC = () => {
   } = useTeam();
 
   const { clockIn, clockOut, clockInLoading, clockOutLoading } = useClockToggle();
+  const { user } = useSession();
 
   // Tickets for the selected team
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
@@ -346,7 +348,7 @@ export const ClockPage: React.FC = () => {
       {/* ── Attachments for the active clock entry ── */}
       {activeClockEvent && (
         <Card padding="md">
-          <AttachmentsPanel kind="clock" entityId={activeClockEvent.id} />
+          <AttachmentsPanel kind="clock" entityId={activeClockEvent.id} currentUserId={user?.id} />
         </Card>
       )}
     </div>

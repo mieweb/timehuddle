@@ -45,10 +45,7 @@ export const ticketController = {
       filter.status = query.status;
     }
 
-    const tickets = await ticketsCollection()
-      .find(filter)
-      .sort({ updatedAt: -1 })
-      .toArray();
+    const tickets = await ticketsCollection().find(filter).sort({ updatedAt: -1 }).toArray();
 
     reply.send({ tickets });
   },
@@ -88,9 +85,7 @@ export const ticketController = {
 
     for (const [field, value] of Object.entries(fields)) {
       if (value === undefined) continue;
-      const incomingDate = incomingTs?.[field]
-        ? new Date(incomingTs[field])
-        : new Date();
+      const incomingDate = incomingTs?.[field] ? new Date(incomingTs[field]) : new Date();
       const existingDate = mergedTs[field];
 
       if (!existingDate || incomingDate >= existingDate) {
@@ -120,9 +115,11 @@ export const ticketController = {
       return reply.status(400).send({ error: "Invalid ticket ID" });
     }
 
-    const result = await ticketsCollection().findOneAndDelete(
-      { _id: oid, createdBy: userId, _deleted: false },
-    );
+    const result = await ticketsCollection().findOneAndDelete({
+      _id: oid,
+      createdBy: userId,
+      _deleted: false,
+    });
 
     if (!result) {
       return reply.status(404).send({ error: "Ticket not found" });
@@ -251,9 +248,7 @@ export const ticketController = {
   async pullTickets(req: FastifyRequest, reply: FastifyReply) {
     const userId = req.user!.id;
     const body = req.body as { lastPulledAt?: string };
-    const since = body.lastPulledAt
-      ? new Date(body.lastPulledAt)
-      : new Date(0);
+    const since = body.lastPulledAt ? new Date(body.lastPulledAt) : new Date(0);
 
     const tickets = await ticketsCollection()
       .find({ createdBy: userId, updatedAt: { $gt: since } })

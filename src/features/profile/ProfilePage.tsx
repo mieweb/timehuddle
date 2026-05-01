@@ -17,6 +17,7 @@ import {
 } from '../../lib/constants';
 import { userApi, type PublicUser } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
+import { ProfileNotices } from './ProfileNotices';
 
 interface ProfilePageProps {
   userId: string;
@@ -82,8 +83,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
   }
 
   const nameText = profile?.name || sessionUser?.email?.split('@')[0] || 'Unknown user';
+
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
+      <ProfileNotices notices={[ { type: 'coming-soon' }]} />
+
       {/* Profile header card */}
       <Card padding="lg" className="flex items-start gap-5">
         <Avatar name={nameText} size="xl" />

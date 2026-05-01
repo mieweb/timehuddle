@@ -37,10 +37,14 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const fetchSession = useCallback(async () => {
     setLoading(true);
+    const t = performance.now();
+    console.log('[TimeHuddle] fetchSession: calling getMe...');
     try {
       const data = await authApi.getMe();
+      console.log(`[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${data?.user?.email ?? 'null'}`);
       setUser(data?.user ?? null);
-    } catch {
+    } catch (err) {
+      console.log(`[TimeHuddle] fetchSession: getMe failed in ${(performance.now() - t).toFixed(0)}ms — ${String(err)}`);
       setUser(null);
     } finally {
       setLoading(false);
