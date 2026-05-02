@@ -1,5 +1,7 @@
 import { ObjectId } from "mongodb";
 import { FastifyInstance } from "fastify";
+import { fromNodeHeaders } from "better-auth/node";
+import { auth } from "../lib/auth.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { usersCollection, teamsCollection } from "../models/index.js";
 import { userService } from "../services/user.service.js";
@@ -208,6 +210,61 @@ export async function userRoutes(app: FastifyInstance) {
       website: u.website ?? "",
     };
   }
+
+  // ─── Public profile by username (no auth required) ──────────────────────────
+
+  app.get(
+    "/users/by-username/:username",
+    {
+      schema: {
+        tags: ["Users"],
+        summary:
+          "Get public profile by username (no auth required; shared teams shown if authenticated)",
+        params: {
+          type: "object",
+          required: ["username"],
+          properties: { username: { type: "string" } },
+        },
+        response: {
+          200: { type: "object", properties: { user: publicUserSchema } },
+          404: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { username } = req.params as { username: string };
+      const user = await userService.findByUsername(username);
+      if (!user) return reply.status(404).send({ error: "Not found" });
+
+      // Optionally resolve shared teams if the viewer is authenticated
+      const session = await auth.api.getSession({
+        headers: fromNodeHeaders(req.headers),
+      });
+      const viewerId = session?.user?.id ?? null;
+      const targetId = user._id.toHexString();
+
+      const sharedTeamDocs =
+        viewerId && viewerId !== targetId
+          ? await teamsCollection()
+              .find({
+                members: { $all: [viewerId, targetId] },
+                isPersonal: { $ne: true },
+              })
+              .toArray()
+          : [];
+
+      const sharedTeams = sharedTeamDocs.map((t) => ({
+        id: t._id.toString(),
+        name: t.name,
+        isAdmin: t.admins.includes(targetId),
+      }));
+
+      return reply.send({ user: { ...toPublicUser(user), sharedTeams } });
+    }
+  );
 
   app.get(
     "/users/:id",

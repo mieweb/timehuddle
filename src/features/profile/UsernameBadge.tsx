@@ -4,7 +4,8 @@
  * Fetches the sender's public profile from timecore (GET /v1/users/:id)
  * and shows the name if available, falling back to the stored `username`.
  *
- * Clicking navigates to /app/profile/:userId.
+ * Clicking navigates to /:username (public profile) if available,
+ * or falls back to the /app/profile/:userId internal view.
  */
 import React, { useEffect, useState } from 'react';
 
@@ -20,22 +21,32 @@ interface UsernameBadgeProps {
 export const UsernameBadge: React.FC<UsernameBadgeProps> = ({ userId, username }) => {
   const { navigate } = useRouter();
   const [displayName, setDisplayName] = useState(username);
+  const [profileUsername, setProfileUsername] = useState<string | null>(null);
 
   useEffect(() => {
     userApi
       .getUser(userId)
       .then((p) => {
         if (p.name) setDisplayName(p.name);
+        if (p.username) setProfileUsername(p.username);
       })
       .catch(() => {
         /* keep fallback */
       });
   }, [userId]);
 
+  const handleClick = () => {
+    if (profileUsername) {
+      window.location.href = `/${profileUsername}`;
+    } else {
+      navigate(`/app/profile/${userId}`);
+    }
+  };
+
   return (
     <button
       type="button"
-      onClick={() => navigate(`/app/profile/${userId}`)}
+      onClick={handleClick}
       className="text-sm font-semibold text-neutral-900 hover:underline dark:text-neutral-100"
     >
       {displayName}

@@ -11,12 +11,18 @@ import { Capacitor } from '@capacitor/core';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
+import { PublicProfilePage } from './features/profile/PublicProfilePage';
 import { InboxPage } from './features/inbox/InboxPage';
 import { SessionProvider, useSession } from './lib/useSession';
 import { AppLayout } from './ui/AppLayout';
 import { LandingPage } from './ui/LandingPage';
 import { LoginForm } from './ui/LoginForm';
 import { UsernameClaimModal } from './ui/UsernameClaimModal';
+
+// ─── Username path detection ──────────────────────────────────────────────────
+
+/** Regex matching /:username — 3-30 chars, start/end alphanumeric. */
+const USERNAME_PATH_RE = /^\/([a-z0-9][a-z0-9_-]{1,28}[a-z0-9])$/;
 
 // ─── Deep link handling (Capacitor native only) ───────────────────────────────
 //
@@ -111,6 +117,21 @@ function renderRoot() {
       _root.render(<InboxPage />);
       return;
     }
+
+    // Public profile route — /:username (no auth required)
+    const usernameMatch = window.location.pathname.match(USERNAME_PATH_RE);
+    if (usernameMatch) {
+      const username = usernameMatch[1];
+      _log(`public profile route — @${username}`);
+      _root = createRoot(el);
+      _root.render(
+        <SessionProvider>
+          <PublicProfilePage username={username} />
+        </SessionProvider>,
+      );
+      return;
+    }
+
     _root = createRoot(el);
   }
 
