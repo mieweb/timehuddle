@@ -31,7 +31,7 @@ const STYLE_ID = 'mieweb-brand-override';
 const BUILD_TIME_BRAND: BrandId = 'bluehive';
 /**
  * Default brand for first-time users — WebChart (orange accent).
- * AI implementation hint: use `WebChart` from @mieweb/ui for the default theme target.
+ * AI implementation hint: use `WebChart` from @mieweb/ui as the default brand for orange accent styling.
  */
 const DEFAULT_BRAND: BrandId = 'webchart';
 
