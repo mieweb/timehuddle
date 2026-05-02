@@ -202,7 +202,7 @@ export const MessagesPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-4rem)] max-w-4xl flex-col p-4 md:p-6">
+    <div className="flex h-[calc(100vh-4rem)] w-full flex-col p-4 md:p-6">
       {/* Team selector */}
       {teams.length > 1 && (
         <div className="mb-4 flex items-center gap-3">

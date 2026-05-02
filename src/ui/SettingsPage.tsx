@@ -12,6 +12,7 @@ import {
   faInfo,
   faMoon,
   faPalette,
+  faRotateLeft,
   faRightFromBracket,
   faSun,
 } from '@fortawesome/free-solid-svg-icons';
@@ -26,6 +27,7 @@ import {
   subscribeToPush,
   unsubscribeFromPush,
 } from '../lib/nativePush';
+import { authApi } from '../lib/api';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
@@ -261,10 +263,26 @@ const PushNotificationsSettings: React.FC = () => {
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 export const SettingsPage: React.FC = () => {
-  const { signOut } = useSession();
+  const { user, signOut } = useSession();
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+
+  const handlePasswordReset = async () => {
+    if (!user?.email || resetBusy) return;
+    setResetBusy(true);
+    setResetMessage(null);
+    try {
+      await authApi.requestPasswordReset(user.email, `${window.location.origin}/app`);
+      setResetMessage('Check your email for a password reset link.');
+    } catch (error: unknown) {
+      setResetMessage(error instanceof Error ? error.message : 'Failed to send reset email.');
+    } finally {
+      setResetBusy(false);
+    }
+  };
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5 px-4 py-8">
+    <div className="w-full space-y-5 px-4 py-8">
       {/* Appearance */}
       <Section
         icon={faPalette}
@@ -290,6 +308,26 @@ export const SettingsPage: React.FC = () => {
 
       {/* Account */}
       <Section icon={faGear} title="Account">
+        <Row label="Reset password" hint="We will email you a link to choose a new password">
+          <Button
+            variant="outline"
+            size="sm"
+            leftIcon={<FontAwesomeIcon icon={faRotateLeft} className="text-xs" />}
+            onClick={() => void handlePasswordReset()}
+            disabled={!user?.email || resetBusy}
+            isLoading={resetBusy}
+            loadingText="Sending…"
+          >
+            Reset password
+          </Button>
+        </Row>
+        {resetMessage && (
+          <div className="px-5 py-3.5">
+            <Text variant="muted" size="xs">
+              {resetMessage}
+            </Text>
+          </div>
+        )}
         <Row label="Sign out" hint="You will be returned to the login screen">
           <Button
             variant="danger"

@@ -243,7 +243,7 @@ export const NotificationsPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4 p-4 pb-20 md:p-6 md:pb-6">
+    <div className="w-full space-y-4 p-4 pb-20 md:p-6 md:pb-6">
       <div className="flex items-center justify-between border-b border-neutral-200 pb-3 dark:border-neutral-800">
         {selectMode ? (
           <>

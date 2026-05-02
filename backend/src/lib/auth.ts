@@ -3,6 +3,7 @@ import { mongodbAdapter } from "better-auth/adapters/mongodb";
 import { bearer } from "better-auth/plugins";
 import { client } from "./db.js";
 import { sendEmail } from "./email.js";
+import { teamService } from "../services/team.service.js";
 
 export const auth = betterAuth({
   database: mongodbAdapter(client.db()),
@@ -25,6 +26,43 @@ export const auth = betterAuth({
         subject: "Reset your password",
         html: `<p>You requested a password reset.</p><p><a href="${resetUrl}">Click here to reset your password</a></p><p>If you did not request this, please ignore this email.</p>`,
       });
+    },
+  },
+
+  // GitHub OAuth social provider
+  // Credentials are read from GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET env vars.
+  socialProviders: {
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID ?? "",
+      clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
+    },
+  },
+
+  // username is claimed post-signup via a dedicated endpoint — stored on the user document.
+  user: {
+    additionalFields: {
+      username: {
+        type: "string",
+        required: false,
+        unique: true,
+        input: false,
+      },
+    },
+  },
+
+  // Bootstrap a personal workspace the first time a user account is created.
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          try {
+            await teamService.ensurePersonalWorkspace(user.id);
+          } catch (err) {
+            // Non-fatal — the user can still sign in; personal org is idempotent.
+            console.error("[auth] Failed to bootstrap personal workspace for", user.id, err);
+          }
+        },
+      },
     },
   },
 

@@ -11,6 +11,12 @@ services:
       timeout: 5s
       retries: 5
 
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - '1025:1025'
+      - '8025:8025'
+
   backend:
     image: node:24-alpine
     working_dir: /app/backend
@@ -24,11 +30,19 @@ services:
     environment:
       - MONGODB_URI=mongodb://mongodb:27017/timehuddle
       - PORT=4000
-      - TRUSTED_ORIGINS=http://localhost:3000
+      - BETTER_AUTH_URL=http://localhost:4000
+      - APP_URL=http://localhost:3000
+      - TRUSTED_ORIGINS=http://localhost:3000,http://localhost:8080
+      - SMTP_HOST=mailpit
+      - SMTP_PORT=1025
+      - SMTP_SECURE=false
+      - EMAIL_FROM=noreply@timehuddle.local
     env_file:
       - path: ./backend/.env.local
         required: false
     depends_on:
+      mailpit:
+        condition: service_started
       mongodb:
         condition: service_healthy
 

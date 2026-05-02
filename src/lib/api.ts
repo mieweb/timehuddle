@@ -21,6 +21,18 @@ export interface TimecoreUser {
   createdAt: string;
   emailVerified: boolean;
   image?: string | null;
+  /** Canonical username — null until the user has claimed one. */
+  username: string | null;
+}
+
+export interface AuthAccount {
+  id: string;
+  accountId: string;
+  providerId: string;
+  userId: string;
+  createdAt: string;
+  updatedAt: string;
+  scopes: string[];
 }
 
 export interface PublicUser {
@@ -147,6 +159,49 @@ export const authApi = {
     return res.json();
   },
 
+  /**
+   * Initiate a social OAuth sign-in (e.g. GitHub).
+   * Returns the provider redirect URL; caller should set window.location.href to it.
+   */
+  signInWithSocial: async (provider: 'github' | 'google', callbackURL: string): Promise<string> => {
+    const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/social`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, callbackURL }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+      );
+    }
+    const data = (await res.json()) as { url: string };
+    return data.url;
+  },
+
+  /** Initiate linking a social provider to the currently authenticated user. */
+  linkSocial: async (provider: 'github' | 'google', callbackURL: string): Promise<string> => {
+    const data = await request<{ url: string }>('/api/auth/link-social', {
+      method: 'POST',
+      body: JSON.stringify({ provider, callbackURL }),
+    });
+    return data.url;
+  },
+
+  /** Remove a linked auth provider from the current account. */
+  unlinkAccount: async (providerId: string): Promise<void> => {
+    await request('/api/auth/unlink-account', {
+      method: 'POST',
+      body: JSON.stringify({ providerId }),
+    });
+  },
+
+  /** List auth providers linked to the current account. */
+  listAccounts: (): Promise<AuthAccount[]> => request<AuthAccount[]>('/api/auth/list-accounts'),
+
   /** Sign out — clears better-auth session cookie and stored token. */
   signOut: async () => {
     await request('/api/auth/sign-out', { method: 'POST' }).catch(() => {});
@@ -207,6 +262,29 @@ export const userApi = {
       method: 'PUT',
       body: JSON.stringify(data),
     }).then((r) => r.user),
+};
+
+// ─── Username API ─────────────────────────────────────────────────────────────
+
+export const usernameApi = {
+  /**
+   * Check whether a username is available.
+   * Returns { available: true } or { available: false, reason: string }.
+   */
+  check: (username: string) =>
+    request<{ available: boolean; reason: string | null }>(
+      `/v1/me/username-available?username=${encodeURIComponent(username)}`,
+    ),
+
+  /**
+   * Claim a canonical username for the current user.
+   * Throws if the username is taken, invalid, or already claimed.
+   */
+  claim: (username: string) =>
+    request<{ username: string }>('/v1/me/username', {
+      method: 'POST',
+      body: JSON.stringify({ username }),
+    }),
 };
 
 // ─── Ticket API ───────────────────────────────────────────────────────────────

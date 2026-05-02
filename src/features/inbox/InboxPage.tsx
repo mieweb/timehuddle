@@ -166,7 +166,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({ initialEmail }) => {
         <ThemeToggle />
       </header>
 
-      <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-6">
+      <main className="w-full flex-1 px-4 py-6">
         {/* Email lookup form */}
         <form onSubmit={handleLookup} className="mb-6 flex gap-2">
           <Input
