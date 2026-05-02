@@ -1,7 +1,7 @@
 import { ObjectId } from "mongodb";
 import { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
-import { usersCollection } from "../models/index.js";
+import { usersCollection, teamsCollection } from "../models/index.js";
 import { userService } from "../services/user.service.js";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -182,6 +182,17 @@ export async function userRoutes(app: FastifyInstance) {
       image: { type: "string", nullable: true },
       bio: { type: "string" },
       website: { type: "string" },
+      sharedTeams: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            isAdmin: { type: "boolean" },
+          },
+        },
+      },
     },
   };
 
@@ -222,10 +233,29 @@ export async function userRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const { id } = req.params as { id: string };
-      const user = await userService.findById(id);
+      const { id: targetId } = req.params as { id: string };
+
+      const user = await userService.findById(targetId);
       if (!user) return reply.status(404).send({ error: "Not found" });
-      return reply.send({ user: toPublicUser(user) });
+
+      // Resolve shared teams (non-personal) between viewer and target
+      const sharedTeamDocs =
+        req.user!.id === targetId
+          ? []
+          : await teamsCollection()
+              .find({
+                members: { $all: [req.user!.id, targetId] },
+                isPersonal: { $ne: true },
+              })
+              .toArray();
+
+      const sharedTeams = sharedTeamDocs.map((t) => ({
+        id: t._id.toString(),
+        name: t.name,
+        isAdmin: t.admins.includes(targetId),
+      }));
+
+      return reply.send({ user: { ...toPublicUser(user), sharedTeams } });
     }
   );
 

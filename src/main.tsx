@@ -1,5 +1,11 @@
 import './styles.css';
 
+// ─── Startup timing (visible in Xcode device console) ─────────────────────────
+const t0 = performance.now();
+const _log = (msg: string) =>
+  console.log(`[TimeHuddle] +${(performance.now() - t0).toFixed(0)}ms ${msg}`);
+_log('main.tsx evaluated');
+
 import { App as CapApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import React from 'react';
@@ -39,6 +45,7 @@ if (Capacitor.isNativePlatform()) {
 }
 
 // ─── App (client-side rendered, /app and all non-root routes) ─────────────────
+_log('App component defined — modules loaded');
 
 const App: React.FC = () => {
   const { user, loading, needsUsernameClaim } = useSession();
@@ -78,6 +85,7 @@ const App: React.FC = () => {
 let _root: ReturnType<typeof createRoot> | null = null;
 
 function renderRoot() {
+  _log('renderRoot called');
   const el = document.getElementById('root');
   if (!el) return;
 
@@ -86,6 +94,7 @@ function renderRoot() {
       // On native (Capacitor iOS/Android) the WebView always starts at '/'.
       // Skip the marketing landing page and go straight to the app.
       if (Capacitor.isNativePlatform()) {
+        _log('native platform detected — mounting SessionProvider + App');
         _root = createRoot(el);
         _root.render(
           <SessionProvider>

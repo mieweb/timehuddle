@@ -1,11 +1,19 @@
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
+import { bearer } from "better-auth/plugins";
 import { client } from "./db.js";
 import { sendEmail } from "./email.js";
 import { teamService } from "../services/team.service.js";
 
 export const auth = betterAuth({
   database: mongodbAdapter(client.db()),
+
+  plugins: [
+    // Emit `set-auth-token` response header on sign-in and accept
+    // `Authorization: Bearer <token>` on all authenticated requests.
+    // Required for Capacitor (custom-scheme WebViews where cookies are unreliable).
+    bearer(),
+  ],
 
   emailAndPassword: {
     enabled: true,

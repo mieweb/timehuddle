@@ -57,7 +57,7 @@ export async function clockRoutes(app: FastifyInstance) {
       const { id: userId } = (req as any).user;
       const { teamId } = req.body as { teamId: string };
       const result = await clockService.start(userId, teamId);
-      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
       return { event: result };
     }
   );
@@ -83,7 +83,8 @@ export async function clockRoutes(app: FastifyInstance) {
       const { id: userId } = (req as any).user;
       const { teamId } = req.body as { teamId: string };
       const result = await clockService.stop(userId, teamId);
-      if (result === "not-found") return reply.status(404).send({ error: "No active clock event" });
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "No active clock event" });
       return { event: result };
     }
   );
@@ -112,8 +113,9 @@ export async function clockRoutes(app: FastifyInstance) {
       const { id: clockEventId } = req.params as { id: string };
       const { ticketId, now } = req.body as { ticketId: string; now: number };
       const result = await clockService.addTicket(userId, clockEventId, ticketId, now);
-      if (result === "not-found") return reply.status(404).send({ error: "Clock event not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "Clock event not found" });
+      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
       return { event: result };
     }
   );
@@ -142,7 +144,8 @@ export async function clockRoutes(app: FastifyInstance) {
       const { id: clockEventId } = req.params as { id: string };
       const { ticketId, now } = req.body as { ticketId: string; now: number };
       const result = await clockService.stopTicket(userId, clockEventId, ticketId, now);
-      if (result === "not-found") return reply.status(404).send({ error: "Clock event not found" });
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "Clock event not found" });
       return { event: result };
     }
   );
@@ -170,10 +173,13 @@ export async function clockRoutes(app: FastifyInstance) {
       const { id: clockEventId } = req.params as { id: string };
       const data = req.body as { startTimestamp?: number; endTimestamp?: number | null };
       const result = await clockService.updateTimes(userId, clockEventId, data);
-      if (result === "not-found") return reply.status(404).send({ error: "Clock event not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "Clock event not found" });
+      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
       if (result === "invalid-range")
-        return reply.status(422).send({ error: "Clock-out cannot be earlier than clock-in" });
+        return (reply as any)
+          .status(422)
+          .send({ error: "Clock-out cannot be earlier than clock-in" });
       return { event: result };
     }
   );
@@ -204,7 +210,7 @@ export async function clockRoutes(app: FastifyInstance) {
         endDate: string;
       };
       const result = await clockService.getTimesheet(requesterId, userId, startDate, endDate);
-      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
       return result;
     }
   );
@@ -270,21 +276,15 @@ export async function clockRoutes(app: FastifyInstance) {
       // Because hijack() bypasses @fastify/cors hooks, we must set CORS headers manually.
       reply.hijack();
 
-      const trustedOrigins = process.env.TRUSTED_ORIGINS
-        ? process.env.TRUSTED_ORIGINS.split(",").map((o) => o.trim())
-        : [];
-      const requestOrigin = req.headers.origin ?? "";
-      const allowOrigin = trustedOrigins.includes(requestOrigin) ? requestOrigin : "";
+      const allowOrigin = req.headers.origin ?? "*";
 
       reply.raw.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
         "X-Accel-Buffering": "no",
-        ...(allowOrigin && {
-          "Access-Control-Allow-Origin": allowOrigin,
-          "Access-Control-Allow-Credentials": "true",
-        }),
+        "Access-Control-Allow-Origin": allowOrigin,
+        "Access-Control-Allow-Credentials": "true",
       });
       reply.raw.flushHeaders();
 

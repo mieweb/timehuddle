@@ -1,5 +1,6 @@
 import {
   faBolt,
+  faChartLine,
   faClock,
   faShieldHalved,
   faUsers,
@@ -51,6 +52,7 @@ const FEATURES = [
   { icon: faUsers, text: 'Team dashboards with member activity' },
   { icon: faBolt, text: 'Instant real-time sync — no polling, no REST' },
   { icon: faShieldHalved, text: 'Role-based access with admin controls' },
+  { icon: faChartLine, text: 'Analytics and reporting across all teams' },
 ] as const;
 
 export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {

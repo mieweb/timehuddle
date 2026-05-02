@@ -33,6 +33,19 @@ export interface PublicUser {
   image: string | null;
   bio: string;
   website: string;
+  /** Teams shared between the viewer and this user (non-personal). Empty for own profile. */
+  sharedTeams?: Array<{ id: string; name: string; isAdmin: boolean }>;
+}
+
+/** API error that carries the HTTP status code. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
 }
 
 // ─── Token storage (for Capacitor / custom-scheme WebViews where cookies are unreliable) ──
@@ -50,34 +63,53 @@ export const sessionToken = {
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const hasBody = options.body != null;
   const token = sessionToken.get();
-  const res = await fetch(`${TIMECORE_BASE_URL}${path}`, {
-    credentials: 'include',
-    headers: {
-      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-    ...options,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`${TIMECORE_BASE_URL}${path}`, {
+      credentials: 'include',
+      signal: controller.signal,
+      headers: {
+        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+      ...options,
+    });
 
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    throw new Error(
-      (body.message as string | undefined) ??
-        (body.error as string | undefined) ??
-        `HTTP ${res.status}`,
-    );
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+        res.status,
+      );
+    }
+
+    return res.json() as Promise<T>;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return res.json() as Promise<T>;
 }
 
 // ─── Auth API ─────────────────────────────────────────────────────────────────
 
+/** fetch() with an 8-second abort timeout — prevents indefinite hangs on slow connections. */
+async function timedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try {
+    return await fetch(url, { signal: controller.signal, ...options });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export const authApi = {
   /** Sign in — stores session token from `set-auth-token` header (better-auth bearer plugin). */
   signIn: async (email: string, password: string) => {
-    const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/email`, {
+    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/email`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -98,7 +130,7 @@ export const authApi = {
 
   /** Sign up — stores session token from `set-auth-token` header (better-auth bearer plugin). */
   signUp: async (email: string, password: string, name: string) => {
-    const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-up/email`, {
+    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/sign-up/email`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -175,7 +207,7 @@ export const authApi = {
     try {
       return await request<{ user: TimecoreUser }>('/v1/me');
     } catch (err) {
-      if (err instanceof Error && err.message.startsWith('HTTP 401')) return null;
+      if (err instanceof ApiError && err.status === 401) return null;
       throw err;
     }
   },
@@ -231,10 +263,12 @@ export interface Ticket {
   id: string;
   teamId: string;
   title: string;
+  description: string | null;
   github: string;
   accumulatedTime: number;
   startTimestamp: number | null;
   status: string;
+  priority: string | null;
   createdBy: string;
   assignedTo: string | null;
   reviewedBy: string | null;
@@ -262,10 +296,16 @@ export const ticketApi = {
 
   updateTicket: (
     id: string,
-    updates: { title?: string; github?: string; accumulatedTime?: number; status?: string },
+    updates: { title?: string; github?: string; accumulatedTime?: number; description?: string },
   ) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`, {
       method: 'PUT',
+      body: JSON.stringify(updates),
+    }).then((r) => r.ticket),
+
+  updateStatusPriority: (id: string, updates: { status?: string; priority?: string }) =>
+    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/status-priority`, {
+      method: 'PATCH',
       body: JSON.stringify(updates),
     }).then((r) => r.ticket),
 
