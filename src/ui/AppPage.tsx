@@ -9,9 +9,7 @@
 import React from 'react';
 
 interface AppPageProps {
-  /** Primary page heading rendered as an accessible <h1>. */
-  title: string;
-  /** Optional subtitle rendered below the heading. */
+  /** Optional subtitle rendered below the header area. */
   subtitle?: string;
   children: React.ReactNode;
   /**
@@ -22,14 +20,9 @@ interface AppPageProps {
   className?: string;
 }
 
-export const AppPage: React.FC<AppPageProps> = ({ title, subtitle, children, className }) => (
+export const AppPage: React.FC<AppPageProps> = ({ subtitle, children, className }) => (
   <div className={`w-full space-y-6 p-4 md:p-6${className ? ` ${className}` : ''}`}>
-    <div>
-      <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{title}</h1>
-      {subtitle && (
-        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{subtitle}</p>
-      )}
-    </div>
+    {subtitle && <p className="text-sm text-neutral-500 dark:text-neutral-400">{subtitle}</p>}
     {children}
   </div>
 );

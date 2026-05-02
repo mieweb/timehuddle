@@ -514,7 +514,7 @@ export const TicketsPage: React.FC = () => {
   }
 
   return (
-    <AppPage title="Tickets">
+    <AppPage>
       {/* ── Status filter tabs ── */}
       <div className="flex gap-1" role="tablist" aria-label="Filter tickets by status">
         {STATUS_FILTERS.map((f) => (

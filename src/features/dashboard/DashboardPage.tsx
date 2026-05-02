@@ -114,7 +114,7 @@ export const DashboardPage: React.FC = () => {
   }
 
   return (
-    <AppPage title="Dashboard">
+    <AppPage>
       {/* Team selector */}
       {teams.length > 1 && (
         <Select

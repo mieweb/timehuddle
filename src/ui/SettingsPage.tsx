@@ -283,7 +283,7 @@ export const SettingsPage: React.FC = () => {
   };
 
   return (
-    <AppPage title="Settings">
+    <AppPage>
       {/* Appearance */}
       <Section
         icon={faPalette}

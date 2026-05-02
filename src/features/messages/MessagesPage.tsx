@@ -203,7 +203,7 @@ export const MessagesPage: React.FC = () => {
   }
 
   return (
-    <AppPage title="Messages" className="flex h-full flex-col overflow-hidden">
+    <AppPage className="flex h-full flex-col overflow-hidden">
       {/* Team selector */}
       {teams.length > 1 && (
         <div className="mb-4 flex items-center gap-3">

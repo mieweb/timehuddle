@@ -142,7 +142,7 @@ export const TimesheetPage: React.FC = () => {
   }
 
   return (
-    <AppPage title="Timesheet">
+    <AppPage>
       {/* Date range filter */}
       <div className="flex flex-wrap items-center gap-2">
         {presets.map((p) => (

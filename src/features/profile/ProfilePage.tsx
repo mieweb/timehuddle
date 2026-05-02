@@ -189,7 +189,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
   const canDisconnectGitHub = hasGitHub && accounts.length > 1;
 
   return (
-    <AppPage title="Profile">
+    <AppPage>
       {/* FUTURE: Show notices if any need to be shown */}
       {/* <ProfileNotices notices={[{ type: 'coming-soon' }]} /> */}
 

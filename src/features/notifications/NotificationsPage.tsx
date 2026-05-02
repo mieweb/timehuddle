@@ -244,7 +244,7 @@ export const NotificationsPage: React.FC = () => {
   }
 
   return (
-    <AppPage title="Notifications">
+    <AppPage>
       <div className="flex items-center justify-between border-b border-neutral-200 pb-3 dark:border-neutral-800">
         {selectMode ? (
           <>

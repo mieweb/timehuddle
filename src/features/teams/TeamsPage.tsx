@@ -251,7 +251,7 @@ export const TeamsPage: React.FC = () => {
   }
 
   return (
-    <AppPage title="Teams">
+    <AppPage>
       {/* Header actions */}
       <div className="space-y-3">
         <div className="flex gap-3">

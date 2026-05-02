@@ -145,7 +145,7 @@ export const ClockPage: React.FC = () => {
   }
 
   return (
-    <AppPage title="Clock In/Out">
+    <AppPage>
       {/* Team selector */}
       {teams.length > 1 && (
         <Select
