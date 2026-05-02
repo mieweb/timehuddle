@@ -34,6 +34,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTeam } from '../../lib/TeamContext';
 import { formatTimer, formatDuration } from '../../lib/timeUtils';
 import { clockApi, ticketApi, type Ticket } from '../../lib/api';
+import { AppPage } from '../../ui/AppPage';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useSession } from '../../lib/useSession';
 import { AttachmentsPanel } from './AttachmentsPanel';
@@ -144,7 +145,7 @@ export const ClockPage: React.FC = () => {
   }
 
   return (
-    <div className="w-full space-y-6 p-4 md:p-6">
+    <AppPage>
       {/* Team selector */}
       {teams.length > 1 && (
         <Select
@@ -351,6 +352,6 @@ export const ClockPage: React.FC = () => {
           <AttachmentsPanel kind="clock" entityId={activeClockEvent.id} currentUserId={user?.id} />
         </Card>
       )}
-    </div>
+    </AppPage>
   );
 };

@@ -52,6 +52,7 @@ import { teamApi, ticketApi, type TeamMember, type Ticket } from '../../lib/api'
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration } from '../../lib/timeUtils';
 import { useSession } from '../../lib/useSession';
+import { AppPage } from '../../ui/AppPage';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -420,18 +421,23 @@ export const TicketsPage: React.FC = () => {
     }
   }, [createTitle, createGithub, selectedTeamId, refetch]);
 
-  const handleStartStop = useCallback(
-    async (ticket: Ticket) => {
-      const now = Date.now();
-      if (ticket.startTimestamp) {
-        await ticketApi.stopTimer(ticket.id, now);
-      } else {
-        await ticketApi.startTimer(ticket.id, now);
-      }
-      void refetch();
-    },
-    [refetch],
-  );
+  const handleStartStop = useCallback(async (ticket: Ticket) => {
+    const now = Date.now();
+    if (ticket.startTimestamp) {
+      const updated = await ticketApi.stopTimer(ticket.id, now);
+      setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    } else {
+      const result = await ticketApi.startTimer(ticket.id, now);
+      // Immediately reconcile local state: update the started ticket and any auto-stopped ones.
+      const stoppedById = new Map(result.stoppedTickets.map((s) => [s.id, s]));
+      setTickets((prev) =>
+        prev.map((t) => {
+          if (t.id === result.ticket.id) return result.ticket;
+          return stoppedById.get(t.id) ?? t;
+        }),
+      );
+    }
+  }, []);
 
   const openEditModal = (ticket: Ticket) => {
     setEditTicket(ticket);
@@ -508,7 +514,7 @@ export const TicketsPage: React.FC = () => {
   }
 
   return (
-    <div className="w-full space-y-6 p-4 md:p-6">
+    <AppPage>
       {/* ── Status filter tabs ── */}
       <div className="flex gap-1" role="tablist" aria-label="Filter tickets by status">
         {STATUS_FILTERS.map((f) => (
@@ -1024,6 +1030,6 @@ export const TicketsPage: React.FC = () => {
           </Button>
         </ModalFooter>
       </Modal>
-    </div>
+    </AppPage>
   );
 };

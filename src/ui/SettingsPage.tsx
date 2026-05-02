@@ -44,6 +44,7 @@ import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
+import { AppPage } from './AppPage';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
@@ -585,16 +586,7 @@ export const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div className="w-full space-y-5 px-4 py-8">
-      {/* Profile */}
-      <Section
-        icon={faCircleUser}
-        title="Profile"
-        description="Update your display name, bio, website, and linked sign-in accounts."
-      >
-        <ProfileSettings />
-      </Section>
-
+    <AppPage>
       {/* Appearance */}
       <Section
         icon={faPalette}
@@ -668,6 +660,6 @@ export const SettingsPage: React.FC = () => {
           </Row>
         ))}
       </Section>
-    </div>
+    </AppPage>
   );
 };

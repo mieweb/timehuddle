@@ -39,6 +39,7 @@ import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration, formatTime, formatDate, startOfDay } from '../../lib/timeUtils';
 import { useRouter } from '../../ui/router';
+import { AppPage } from '../../ui/AppPage';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -113,7 +114,7 @@ export const DashboardPage: React.FC = () => {
   }
 
   return (
-    <div className="w-full space-y-6 p-4 md:p-6">
+    <AppPage>
       {/* Team selector */}
       {teams.length > 1 && (
         <Select
@@ -289,6 +290,6 @@ export const DashboardPage: React.FC = () => {
           </CardContent>
         </Card>
       )}
-    </div>
+    </AppPage>
   );
 };
