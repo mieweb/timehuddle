@@ -72,8 +72,8 @@ const FEATURES: Feature[] = [
     title: 'Team Management',
     description:
       'Organise staff into teams with roles, schedules, and permissions. Managers get a live view of who is in, who is out, and who is late.',
-    gradient: 'from-cyan-500/20 to-blue-500/5',
-    glow: 'group-hover:shadow-cyan-500/20',
+    gradient: 'from-amber-500/20 to-orange-500/5',
+    glow: 'group-hover:shadow-amber-500/20',
   },
   {
     icon: faList,
@@ -88,8 +88,8 @@ const FEATURES: Feature[] = [
     title: 'Real-time Messaging',
     description:
       'Built-in team messaging with instant delivery via Server-Sent Events. Chat within a team or start a direct thread — no third-party app required.',
-    gradient: 'from-blue-500/20 to-sky-500/5',
-    glow: 'group-hover:shadow-blue-500/20',
+    gradient: 'from-orange-500/20 to-amber-500/5',
+    glow: 'group-hover:shadow-orange-500/20',
   },
   {
     icon: faGlobe,
@@ -157,8 +157,8 @@ const DEMOS: Demo[] = [
       'Browse your teams, view member rosters, and manage roles. Managers get full oversight of schedules and attendance across every team they own.',
     path: '/app/teams',
     tag: 'Rosters · Roles · Schedules',
-    gradient: 'from-cyan-500/20 to-blue-500/5',
-    glow: 'group-hover:shadow-cyan-500/20',
+    gradient: 'from-amber-500/20 to-orange-500/5',
+    glow: 'group-hover:shadow-amber-500/20',
   },
   {
     icon: faList,
@@ -177,8 +177,8 @@ const DEMOS: Demo[] = [
       'Team messaging built right into the app. No switching to Slack or Teams — just open Messages and chat with your colleagues in real time.',
     path: '/app/messages',
     tag: 'Real-time · Direct · Team threads',
-    gradient: 'from-blue-500/20 to-sky-500/5',
-    glow: 'group-hover:shadow-blue-500/20',
+    gradient: 'from-orange-500/20 to-amber-500/5',
+    glow: 'group-hover:shadow-orange-500/20',
   },
 ];
 
@@ -275,7 +275,7 @@ const ParallaxOrbs: React.FC<OrbProps> = ({ scrollY, reduced }) => {
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
       <motion.div
         style={{ y: y1 }}
-        className="absolute -left-40 -top-20 h-[600px] w-[600px] rounded-full bg-blue-600/20 blur-[120px] dark:bg-blue-500/15"
+        className="absolute -left-40 -top-20 h-[600px] w-[600px] rounded-full bg-orange-600/20 blur-[120px] dark:bg-orange-500/15"
       />
       <motion.div
         style={{ y: y2 }}
@@ -283,7 +283,7 @@ const ParallaxOrbs: React.FC<OrbProps> = ({ scrollY, reduced }) => {
       />
       <motion.div
         style={{ y: y3 }}
-        className="absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-cyan-500/10 blur-[80px] dark:bg-cyan-400/8"
+        className="absolute left-1/2 top-1/3 h-[300px] w-[300px] -translate-x-1/2 rounded-full bg-amber-500/10 blur-[80px] dark:bg-amber-400/8"
       />
     </div>
   );
@@ -294,7 +294,7 @@ const ParallaxOrbs: React.FC<OrbProps> = ({ scrollY, reduced }) => {
 const MouseGlow: React.FC = () => {
   const mx = useMotionValue(0);
   const my = useMotionValue(0);
-  const background = useMotionTemplate`radial-gradient(600px at ${mx}px ${my}px, rgba(59,130,246,0.07), transparent 80%)`;
+  const background = useMotionTemplate`radial-gradient(600px at ${mx}px ${my}px, rgba(249,115,22,0.10), transparent 80%)`;
 
   useEffect(() => {
     const hero = document.getElementById('hero-section');
@@ -391,13 +391,13 @@ const DemoCard: React.FC<DemoCardProps> = ({ demo, index, reduced }) => {
           <FontAwesomeIcon icon={demo.icon} />
         </motion.div>
         <h3 className="mb-1 font-semibold text-neutral-900 dark:text-neutral-50">{demo.title}</h3>
-        <p className="mb-3 text-xs font-medium text-blue-600 dark:text-blue-400">{demo.tag}</p>
+        <p className="mb-3 text-xs font-medium text-orange-600 dark:text-orange-400">{demo.tag}</p>
         <p className="flex-1 text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">
           {demo.description}
         </p>
         <a
           href={demo.path}
-          className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 transition-colors hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
+          className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-orange-600 transition-colors hover:text-orange-500 dark:text-orange-400 dark:hover:text-orange-300"
         >
           Try it live →
         </a>
@@ -459,7 +459,7 @@ const AnimatedTerminal: React.FC<{ reduced: boolean }> = ({ reduced }) => {
               {line.type === 'blank' && <span>&nbsp;</span>}
               {line.type === 'cmd' && (
                 <>
-                  <span className="select-none text-blue-400">$ </span>
+                  <span className="select-none text-orange-400">$ </span>
                   <span className="text-neutral-100">{line.text}</span>
                 </>
               )}
@@ -470,7 +470,7 @@ const AnimatedTerminal: React.FC<{ reduced: boolean }> = ({ reduced }) => {
             <motion.span
               animate={{ opacity: [1, 0, 1] }}
               transition={{ duration: 0.9, repeat: Infinity }}
-              className="inline-block h-4 w-2 bg-blue-400"
+              className="inline-block h-4 w-2 bg-orange-400"
               aria-hidden="true"
             />
           )}
@@ -509,7 +509,7 @@ const SectionHeading: React.FC<SectionHeadingProps> = ({ id, title, subtitle, re
         initial={reduced ? false : { scaleX: 0 }}
         animate={inView ? { scaleX: 1 } : {}}
         transition={{ duration: 0.7, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
-        className="mx-auto mt-6 h-px w-20 origin-left bg-gradient-to-r from-blue-500 to-violet-500"
+        className="mx-auto mt-6 h-px w-20 origin-left bg-gradient-to-r from-orange-500 to-red-500"
       />
     </motion.div>
   );
@@ -523,7 +523,7 @@ const ScrollProgress: React.FC = () => {
 
   return (
     <motion.div
-      className="fixed left-0 right-0 top-0 z-50 h-[2px] origin-left bg-gradient-to-r from-blue-500 via-violet-500 to-cyan-400"
+      className="fixed left-0 right-0 top-0 z-50 h-[2px] origin-left bg-gradient-to-r from-orange-500 via-amber-400 to-yellow-400"
       style={{ scaleX }}
       aria-hidden="true"
     />
@@ -568,7 +568,7 @@ interface WordProps {
 
 const AnimatedWord: React.FC<WordProps> = ({ word, index, reduced, highlight }) => (
   <motion.span
-    className={`inline-block${highlight ? ' text-blue-500 dark:text-blue-400' : ''}`}
+    className={`inline-block${highlight ? ' text-orange-500 dark:text-orange-400' : ''}`}
     initial={reduced ? false : { opacity: 0, y: 30, rotateX: -30 }}
     animate={{ opacity: 1, y: 0, rotateX: 0 }}
     transition={{ duration: 0.6, delay: 0.1 + index * 0.09, ease: [0.22, 1, 0.36, 1] }}
@@ -719,7 +719,7 @@ const GallerySection: React.FC<{ reduced: boolean }> = ({ reduced }) => {
               transition={{ duration: 0.45, delay: i * 0.07, ease: [0.22, 1, 0.36, 1] }}
               whileHover={reduced ? {} : { y: -4, scale: 1.02 }}
               onClick={() => setLightboxIndex(i)}
-              className="group relative cursor-pointer overflow-hidden rounded-2xl border border-neutral-200/80 bg-white shadow-sm transition-shadow hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-neutral-800/80 dark:bg-neutral-900/80"
+              className="group relative cursor-pointer overflow-hidden rounded-2xl border border-neutral-200/80 bg-white shadow-sm transition-shadow hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-orange-500/40 dark:border-neutral-800/80 dark:bg-neutral-900/80"
               aria-label={`View screenshot: ${item.label}`}
             >
               <img
@@ -806,7 +806,7 @@ export const LandingPage: React.FC = () => {
           {/* Logo */}
           <motion.a href="/" className="flex items-center gap-2.5" whileHover={{ scale: 1.03 }}>
             <motion.span
-              className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-600 text-white shadow-sm shadow-blue-500/40"
+              className="flex h-7 w-7 items-center justify-center rounded-md bg-orange-600 text-white shadow-sm shadow-orange-500/40"
               whileHover={reduced ? {} : { rotate: 20 }}
               transition={{ type: 'spring', stiffness: 400 }}
             >
@@ -827,7 +827,7 @@ export const LandingPage: React.FC = () => {
               aria-label="View source on GitHub"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.93 }}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
             >
               <FontAwesomeIcon icon={faGithub} className="text-sm" aria-hidden="true" />
             </motion.a>
@@ -840,7 +840,7 @@ export const LandingPage: React.FC = () => {
               href="/app"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
-              className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+              className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
             >
               Sign in
             </motion.a>
@@ -850,10 +850,10 @@ export const LandingPage: React.FC = () => {
               href="/app?mode=signup"
               whileHover={reduced ? {} : { scale: 1.04, y: -1 }}
               whileTap={{ scale: 0.96 }}
-              className="relative ml-1 inline-flex h-8 items-center overflow-hidden rounded-md bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm shadow-blue-500/30 transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/60"
+              className="relative ml-1 inline-flex h-8 items-center overflow-hidden rounded-md bg-orange-600 px-4 text-sm font-semibold text-white shadow-sm shadow-orange-500/30 transition-colors hover:bg-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/60"
             >
               <motion.span
-                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-blue-400/0 via-white/15 to-blue-400/0"
+                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-orange-400/0 via-white/15 to-orange-400/0"
                 initial={{ x: '-100%' }}
                 animate={reduced ? {} : { x: '200%' }}
                 transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
@@ -886,15 +886,15 @@ export const LandingPage: React.FC = () => {
             initial={reduced ? false : { opacity: 0, y: -16, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-            className="mb-8 inline-flex items-center gap-2 rounded-full border border-blue-200/80 bg-blue-50/80 px-4 py-1.5 backdrop-blur-sm dark:border-blue-800/50 dark:bg-blue-950/40"
+            className="mb-8 inline-flex items-center gap-2 rounded-full border border-orange-200/80 bg-orange-50/80 px-4 py-1.5 backdrop-blur-sm dark:border-orange-800/50 dark:bg-orange-950/40"
           >
             <motion.span
               animate={reduced ? {} : { scale: [1, 1.5, 1] }}
               transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
-              className="h-1.5 w-1.5 rounded-full bg-blue-500"
+              className="h-1.5 w-1.5 rounded-full bg-orange-500"
               aria-hidden="true"
             />
-            <span className="text-xs font-semibold text-blue-700 dark:text-blue-300">
+            <span className="text-xs font-semibold text-orange-700 dark:text-orange-300">
               Time Tracking · Teams · Tickets · Messaging
             </span>
           </motion.div>
@@ -957,7 +957,7 @@ export const LandingPage: React.FC = () => {
               rel="noopener noreferrer"
               whileHover={reduced ? {} : { scale: 1.04, y: -2 }}
               whileTap={{ scale: 0.96 }}
-              className="inline-flex items-center gap-2.5 rounded-xl border-2 border-neutral-300 bg-white px-6 py-3 text-sm font-semibold text-neutral-700 shadow-sm hover:border-neutral-400 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
+              className="inline-flex items-center gap-2.5 rounded-xl border-2 border-neutral-300 bg-white px-6 py-3 text-sm font-semibold text-neutral-700 shadow-sm hover:border-neutral-400 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-orange-500/40 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
             >
               <FontAwesomeIcon icon={faGithub} aria-hidden="true" />
               View on GitHub
@@ -966,10 +966,10 @@ export const LandingPage: React.FC = () => {
               href="/app?mode=signup"
               whileHover={reduced ? {} : { scale: 1.06, y: -2 }}
               whileTap={{ scale: 0.95 }}
-              className="relative inline-flex items-center gap-2.5 overflow-hidden rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/30 hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+              className="relative inline-flex items-center gap-2.5 overflow-hidden rounded-xl bg-orange-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-orange-500/30 hover:bg-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
             >
               <motion.span
-                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-blue-400/0 via-white/20 to-blue-400/0"
+                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-orange-400/0 via-white/20 to-orange-400/0"
                 initial={{ x: '-100%' }}
                 animate={reduced ? {} : { x: '200%' }}
                 transition={{ duration: 1.8, repeat: Infinity, repeatDelay: 2.5 }}
@@ -1015,7 +1015,7 @@ export const LandingPage: React.FC = () => {
       {/* ── Features ── */}
       <section aria-labelledby="features-heading" className="relative overflow-hidden py-24">
         <div
-          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-blue-50/50 to-transparent dark:via-blue-950/10"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-orange-50/50 to-transparent dark:via-orange-950/10"
           aria-hidden="true"
         />
         <div className="relative mx-auto max-w-5xl px-6">
@@ -1036,7 +1036,7 @@ export const LandingPage: React.FC = () => {
       {/* ── Live examples ── */}
       <section aria-labelledby="demos-heading" className="relative overflow-hidden py-24">
         <div
-          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-violet-50/40 to-transparent dark:via-violet-950/10"
+          className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-orange-50/40 to-transparent dark:via-orange-950/10"
           aria-hidden="true"
         />
         <div className="relative mx-auto max-w-5xl px-6">
@@ -1100,9 +1100,9 @@ export const LandingPage: React.FC = () => {
             whileInView={{ opacity: 1, y: 0, scale: 1 }}
             viewport={{ once: true, margin: '-80px' }}
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-            className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-blue-600 to-violet-700 p-px shadow-2xl shadow-blue-500/20"
+            className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-orange-500 to-red-600 p-px shadow-2xl shadow-orange-500/20"
           >
-            <div className="relative rounded-[calc(1.5rem-1px)] bg-gradient-to-br from-blue-600 via-blue-700 to-violet-700 px-10 py-14 text-center">
+            <div className="relative rounded-[calc(1.5rem-1px)] bg-gradient-to-br from-orange-600 via-red-600 to-red-700 px-10 py-14 text-center">
               <motion.div
                 animate={reduced ? {} : { rotate: 360 }}
                 transition={{ duration: 20, repeat: Infinity, ease: 'linear' }}
@@ -1121,7 +1121,7 @@ export const LandingPage: React.FC = () => {
               >
                 Ready to huddle up?
               </h2>
-              <p className="relative z-10 mx-auto mt-4 max-w-xl text-blue-100/90">
+              <p className="relative z-10 mx-auto mt-4 max-w-xl text-orange-100/90">
                 Sign up free and get your team tracking time, managing tickets, and communicating in
                 minutes.
               </p>
@@ -1129,7 +1129,7 @@ export const LandingPage: React.FC = () => {
                 href="/app?mode=signup"
                 whileHover={reduced ? {} : { scale: 1.06, y: -2 }}
                 whileTap={{ scale: 0.96 }}
-                className="relative z-10 mt-8 inline-flex items-center gap-2.5 rounded-xl bg-white px-7 py-3.5 text-sm font-bold text-blue-700 shadow-lg shadow-black/20 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-white/60"
+                className="relative z-10 mt-8 inline-flex items-center gap-2.5 rounded-xl bg-white px-7 py-3.5 text-sm font-bold text-orange-700 shadow-lg shadow-black/20 hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-white/60"
               >
                 <FontAwesomeIcon icon={faBolt} aria-hidden="true" />
                 Get Started

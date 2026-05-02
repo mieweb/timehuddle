@@ -57,7 +57,7 @@ const ROUTES: Record<string, RouteConfig> = {
 };
 
 function match(pathname: string): RouteConfig | null {
-  if (pathname.startsWith('/app/profile/')) return null; // handled separately
+  if (pathname.startsWith('/app/profile/')) return null; // parameterized — rendered separately
   return ROUTES[pathname] ?? ROUTES['/app/dashboard'];
 }
 
@@ -109,7 +109,7 @@ export const AppLayout: React.FC = () => {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  // '/app/profile/:userId' is a parameterized route — resolved outside ROUTES
+  // Parameterized profile route — /app/profile/:userId
   const profileUserId = pathname.startsWith('/app/profile/')
     ? pathname.slice('/app/profile/'.length)
     : null;

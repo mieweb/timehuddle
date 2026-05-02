@@ -1,5 +1,35 @@
 import './styles.css';
 
+// ─── Eager theme + brand bootstrap ───────────────────────────────────────────
+// Apply theme immediately (before React mounts) so login, landing, and all
+// pre-auth pages receive the correct data-theme / .dark class without flicker.
+(function applyBootstrapTheme() {
+  const stored = localStorage.getItem('app:theme');
+  const theme = stored === 'light' || stored === 'dark' ? stored : 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.classList.toggle('dark', theme === 'dark');
+})();
+
+// Apply brand CSS eagerly so login/signup pages get the right brand colors.
+// useBrand() only runs inside AppLayout, so pre-auth pages need this bootstrap.
+(function applyBootstrapBrand() {
+  const BUILD_TIME_BRAND = 'bluehive';
+  const DEFAULT_BRAND = 'webchart';
+  const stored = localStorage.getItem('app:brand');
+  const brand = stored || DEFAULT_BRAND;
+  if (brand === BUILD_TIME_BRAND) return; // baked into CSS, no injection needed
+  // Dynamically import brand and inject CSS — async but fast enough for pre-auth pages
+  import('@mieweb/ui/brands').then(({ generateBrandCSS, brands }) => {
+    const loader = brands[brand as keyof typeof brands] ?? brands[DEFAULT_BRAND];
+    loader().then((config) => {
+      const el = document.createElement('style');
+      el.id = 'mieweb-brand-override';
+      el.textContent = generateBrandCSS(config);
+      document.head.appendChild(el);
+    });
+  });
+})();
+
 // ─── Startup timing (visible in Xcode device console) ─────────────────────────
 const t0 = performance.now();
 const _log = (msg: string) =>
@@ -11,12 +41,53 @@ import { Capacitor } from '@capacitor/core';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
+import { PublicProfilePage } from './features/profile/PublicProfilePage';
 import { InboxPage } from './features/inbox/InboxPage';
 import { SessionProvider, useSession } from './lib/useSession';
 import { AppLayout } from './ui/AppLayout';
 import { LandingPage } from './ui/LandingPage';
 import { LoginForm } from './ui/LoginForm';
 import { UsernameClaimModal } from './ui/UsernameClaimModal';
+
+// ─── Username path detection ──────────────────────────────────────────────────
+
+/** Regex matching /:username — 3-30 chars, start/end alphanumeric. */
+const USERNAME_PATH_RE = /^\/([a-z0-9][a-z0-9_-]{1,28}[a-z0-9])$/;
+
+/** Reserved path segments that must never be treated as usernames. */
+const RESERVED_PATHS = new Set([
+  'app',
+  'api',
+  'auth',
+  'login',
+  'logout',
+  'signup',
+  'register',
+  'admin',
+  'dashboard',
+  'settings',
+  'profile',
+  'account',
+  'user',
+  'static',
+  'assets',
+  'public',
+  'health',
+  'favicon',
+  'robots',
+  'sw',
+  'manifest',
+  'sitemap',
+  'feed',
+  'rss',
+  'help',
+  'support',
+  'about',
+  'contact',
+  'privacy',
+  'terms',
+  'legal',
+]);
 
 // ─── Deep link handling (Capacitor native only) ───────────────────────────────
 //
@@ -111,6 +182,21 @@ function renderRoot() {
       _root.render(<InboxPage />);
       return;
     }
+
+    // Public profile route — /:username (no auth required)
+    const usernameMatch = window.location.pathname.match(USERNAME_PATH_RE);
+    if (usernameMatch && !RESERVED_PATHS.has(usernameMatch[1])) {
+      const username = usernameMatch[1];
+      _log(`public profile route — @${username}`);
+      _root = createRoot(el);
+      _root.render(
+        <SessionProvider>
+          <PublicProfilePage username={username} />
+        </SessionProvider>,
+      );
+      return;
+    }
+
     _root = createRoot(el);
   }
 

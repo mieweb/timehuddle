@@ -1,7 +1,7 @@
 /**
  * SettingsPage — User & application settings.
  * Sections:
- *   • Profile       — name (editable) + email (read-only)
+ *   • Profile       — display name, bio, website, linked sign-in accounts, password reset
  *   • Appearance    — theme toggle
  *   • Account       — sign out
  *   • About         — stack versions

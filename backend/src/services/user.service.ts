@@ -63,6 +63,10 @@ export class UserService {
     return usersCollection().findOne({ email });
   }
 
+  async findByUsername(username: string) {
+    return usersCollection().findOne({ username: username.toLowerCase() });
+  }
+
   async findManyByIds(ids: string[]) {
     const objectIds = ids
       .slice(0, 200)
