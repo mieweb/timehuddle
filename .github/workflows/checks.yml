@@ -8,7 +8,7 @@ on:
 
 jobs:
   frontend:
-    name: Frontend — lint, typecheck, test, build
+    name: Frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +34,7 @@ jobs:
         run: npm run build
 
   backend:
-    name: Backend — typecheck, test
+    name: Backend
     runs-on: ubuntu-latest
     services:
       mongodb:
@@ -56,6 +56,18 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Lint
+        working-directory: backend
+        run: npm run lint
+
+      - name: Typecheck
+        working-directory: backend
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: backend
+        run: npm run build
 
       - name: Test
         working-directory: backend

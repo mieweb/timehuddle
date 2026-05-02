@@ -137,7 +137,9 @@ export class ClockService {
     broadcast(teamId, pub);
 
     // Notify team admins
-    const user = isValidId(userId) ? await usersCollection().findOne({ _id: new ObjectId(userId) }) : null;
+    const user = isValidId(userId)
+      ? await usersCollection().findOne({ _id: new ObjectId(userId) })
+      : null;
     const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
     const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
     await Promise.all(
@@ -208,7 +210,9 @@ export class ClockService {
     // Notify team admins
     const team = await teamsCollection().findOne({ _id: new ObjectId(teamId) });
     if (team) {
-      const user = isValidId(userId) ? await usersCollection().findOne({ _id: new ObjectId(userId) }) : null;
+      const user = isValidId(userId)
+        ? await usersCollection().findOne({ _id: new ObjectId(userId) })
+        : null;
       const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
       const totalSecs = pub.accumulatedTime ?? 0;
       const h = Math.floor(totalSecs / 3600);

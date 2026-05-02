@@ -132,9 +132,7 @@ class NotificationService {
     if (!team) return "not-found";
 
     const allIds = Array.from(new Set([...team.members, ...team.admins]));
-    const objectIds = allIds
-      .filter((id) => ObjectId.isValid(id))
-      .map((id) => new ObjectId(id));
+    const objectIds = allIds.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
     const userDocs = await usersCollection()
       .find({ _id: { $in: objectIds } })
       .toArray();

@@ -133,7 +133,8 @@ export async function attachmentRoutes(app: FastifyInstance) {
       const { id: userId } = (req as any).user;
       const { id: attachmentId } = req.params as { id: string };
       const result = await attachmentService.remove(userId, attachmentId);
-      if (result === "not-found") return (reply as any).status(404).send({ error: "Attachment not found" });
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "Attachment not found" });
       if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
       return { ok: true };
     }

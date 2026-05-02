@@ -77,9 +77,7 @@ type TeamSeed = (typeof SEED_TEAMS)[number];
 function emailsToIds(emails: string[], userIdsByEmail: Map<string, string>): string[] {
   return Array.from(
     new Set(
-      emails
-        .map((email) => userIdsByEmail.get(email))
-        .filter((id): id is string => Boolean(id))
+      emails.map((email) => userIdsByEmail.get(email)).filter((id): id is string => Boolean(id))
     )
   );
 }
