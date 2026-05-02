@@ -122,19 +122,23 @@ export class TicketService {
     const stoppedTickets: Ticket[] = [];
     for (const other of running) {
       const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
-      const prev = other.accumulatedTime ?? 0;
+      const newAccumulatedTime = (other.accumulatedTime ?? 0) + elapsed;
       await ticketsCollection().updateOne(
         { _id: other._id },
-        { $set: { accumulatedTime: prev + elapsed }, $unset: { startTimestamp: "" } }
+        { $set: { accumulatedTime: newAccumulatedTime }, $unset: { startTimestamp: "" } }
       );
-      stoppedTickets.push((await this.findById(other._id.toHexString()))!);
+      // Build the stopped ticket from the in-memory document to avoid an extra DB read per item.
+      const stopped: Ticket = { ...other, accumulatedTime: newAccumulatedTime };
+      delete stopped.startTimestamp;
+      stoppedTickets.push(stopped);
     }
 
-    await ticketsCollection().updateOne(
+    const started = await ticketsCollection().findOneAndUpdate(
       { _id: new ObjectId(id) },
-      { $set: { startTimestamp: now } }
+      { $set: { startTimestamp: now } },
+      { returnDocument: "after" }
     );
-    return { ticket: (await this.findById(id))!, stoppedTickets };
+    return { ticket: started!, stoppedTickets };
   }
 
   async stopTimer(id: string, userId: string, now: number): Promise<Ticket | OwnerError> {

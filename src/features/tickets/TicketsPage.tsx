@@ -425,6 +425,7 @@ export const TicketsPage: React.FC = () => {
       const now = Date.now();
       if (ticket.startTimestamp) {
         await ticketApi.stopTimer(ticket.id, now);
+        void refetch();
       } else {
         const result = await ticketApi.startTimer(ticket.id, now);
         // Immediately reconcile local state: update the started ticket and any auto-stopped ones.
@@ -435,9 +436,7 @@ export const TicketsPage: React.FC = () => {
             return stopped ?? t;
           }),
         );
-        return;
       }
-      void refetch();
     },
     [refetch],
   );
