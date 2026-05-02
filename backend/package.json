@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "lint": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.ts\"",
     "start": "node dist/server.js",
     "seed": "tsx scripts/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.ts\""
+    "format": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.ts\"",
+    "format:fix": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.ts\""
   },
   "dependencies": {
     "@better-auth/core": "^1.6.9",
@@ -22,6 +24,7 @@
     "@fastify/swagger-ui": "^5.2.5",
     "@noble/ciphers": "^2.2.0",
     "@timehuddle/youtube": "*",
+    "bcrypt": "^6.0.0",
     "better-auth": "^1.2.8",
     "dotenv": "^17.3.1",
     "fastify": "^5.8.5",
@@ -29,6 +32,7 @@
     "nodemailer": "^8.0.5"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/node": "^22.13.10",
     "@types/nodemailer": "^8.0.0",
     "prettier": "^3.8.3",

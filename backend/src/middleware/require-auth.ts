@@ -26,5 +26,6 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
 declare module "fastify" {
   interface FastifyRequest {
     user?: AppUser;
+    session?: unknown;
   }
 }

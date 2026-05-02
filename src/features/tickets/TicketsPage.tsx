@@ -84,10 +84,9 @@ async function fetchIssueTitle(url: string): Promise<string | null> {
   if (githubMatch) {
     const [, owner, repo, , number] = githubMatch;
     try {
-      const res = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/issues/${number}`,
-        { headers: { Accept: 'application/vnd.github+json' } },
-      );
+      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${number}`, {
+        headers: { Accept: 'application/vnd.github+json' },
+      });
       if (!res.ok) return null;
       const data = (await res.json()) as { title?: string };
       return data.title ?? null;
@@ -182,7 +181,12 @@ const TicketRow: React.FC<TicketRowProps> = ({
             </Text>
             <Dropdown
               trigger={
-                <Button variant="ghost" size="icon" aria-label="Ticket options" className="-mt-1 -mr-2 shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Ticket options"
+                  className="-mt-1 -mr-2 shrink-0"
+                >
                   <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
                 </Button>
               }
@@ -293,7 +297,10 @@ export const TicketsPage: React.FC = () => {
       setTeamMembers([]);
       return;
     }
-    teamApi.getMembers(selectedTeamId).then(setTeamMembers).catch(() => {});
+    teamApi
+      .getMembers(selectedTeamId)
+      .then(setTeamMembers)
+      .catch(() => {});
   }, [selectedTeamId]);
 
   // Mutation loading states
@@ -358,13 +365,9 @@ export const TicketsPage: React.FC = () => {
     if (statusFilter === 'open')
       return searchFilteredTickets.filter((t) => !t.status || t.status === 'open');
     if (statusFilter === 'inprogress')
-      return searchFilteredTickets.filter(
-        (t) => t.status === 'in-progress' || !!t.startTimestamp,
-      );
+      return searchFilteredTickets.filter((t) => t.status === 'in-progress' || !!t.startTimestamp);
     if (statusFilter === 'done')
-      return searchFilteredTickets.filter(
-        (t) => t.status === 'closed' || t.status === 'reviewed',
-      );
+      return searchFilteredTickets.filter((t) => t.status === 'closed' || t.status === 'reviewed');
     return searchFilteredTickets;
   }, [searchFilteredTickets, statusFilter]);
 
@@ -648,9 +651,12 @@ export const TicketsPage: React.FC = () => {
                 autoFocus
                 disabled={createTitleFetching}
                 onPaste={(e) => {
-                  const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)?.getData('text')?.trim();
+                  const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)
+                    ?.getData('text')
+                    ?.trim();
                   if (!text) return;
-                  const isUrl = /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(text) ||
+                  const isUrl =
+                    /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(text) ||
                     /https?:\/\/.+\/issues\/\d+/.test(text);
                   if (!isUrl) return;
                   e.preventDefault();
@@ -672,8 +678,10 @@ export const TicketsPage: React.FC = () => {
                   const url = e.target.value;
                   setCreateGithub(url);
                   if (createFetchTimer.current) clearTimeout(createFetchTimer.current);
-                  if (/github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(url) ||
-                      /https?:\/\/.+\/issues\/\d+/.test(url)) {
+                  if (
+                    /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(url) ||
+                    /https?:\/\/.+\/issues\/\d+/.test(url)
+                  ) {
                     createFetchTimer.current = setTimeout(() => {
                       setCreateTitleFetching(true);
                       void fetchIssueTitle(url).then((title) => {
@@ -705,7 +713,10 @@ export const TicketsPage: React.FC = () => {
             <CardTitle className="text-sm">My Tickets ({myTickets.length})</CardTitle>
           </CardHeader>
           <CardContent className="p-0" style={{ overflow: 'visible' }}>
-            <ul className="divide-y divide-neutral-100 dark:divide-neutral-800" style={{ overflow: 'visible' }}>
+            <ul
+              className="divide-y divide-neutral-100 dark:divide-neutral-800"
+              style={{ overflow: 'visible' }}
+            >
               {myTickets.map((t) => (
                 <TicketRow
                   key={t.id}
@@ -735,7 +746,10 @@ export const TicketsPage: React.FC = () => {
             <CardTitle className="text-sm">Team Tickets ({otherTickets.length})</CardTitle>
           </CardHeader>
           <CardContent className="p-0" style={{ overflow: 'visible' }}>
-            <ul className="divide-y divide-neutral-100 dark:divide-neutral-800" style={{ overflow: 'visible' }}>
+            <ul
+              className="divide-y divide-neutral-100 dark:divide-neutral-800"
+              style={{ overflow: 'visible' }}
+            >
               {otherTickets.map((t) => (
                 <TicketRow
                   key={t.id}
@@ -785,9 +799,12 @@ export const TicketsPage: React.FC = () => {
               autoFocus
               disabled={titleFetching}
               onPaste={(e) => {
-                const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)?.getData('text')?.trim();
+                const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)
+                  ?.getData('text')
+                  ?.trim();
                 if (!text) return;
-                const isUrl = /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(text) ||
+                const isUrl =
+                  /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(text) ||
                   /https?:\/\/.+\/issues\/\d+/.test(text);
                 if (!isUrl) return;
                 e.preventDefault();
@@ -813,20 +830,22 @@ export const TicketsPage: React.FC = () => {
               placeholder="https://github.com/…"
               value={editGithub}
               onChange={(e) => {
-                  const url = e.target.value;
-                  setEditGithub(url);
-                  if (editFetchTimer.current) clearTimeout(editFetchTimer.current);
-                  if (/github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(url) ||
-                      /https?:\/\/.+\/issues\/\d+/.test(url)) {
-                    editFetchTimer.current = setTimeout(() => {
-                      setTitleFetching(true);
-                      void fetchIssueTitle(url).then((title) => {
-                        if (title) setEditTitle(title);
-                        setTitleFetching(false);
-                      });
-                    }, 300);
-                  }
-                }}
+                const url = e.target.value;
+                setEditGithub(url);
+                if (editFetchTimer.current) clearTimeout(editFetchTimer.current);
+                if (
+                  /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(url) ||
+                  /https?:\/\/.+\/issues\/\d+/.test(url)
+                ) {
+                  editFetchTimer.current = setTimeout(() => {
+                    setTitleFetching(true);
+                    void fetchIssueTitle(url).then((title) => {
+                      if (title) setEditTitle(title);
+                      setTitleFetching(false);
+                    });
+                  }, 300);
+                }
+              }}
             />
             <Select
               label="Assignee"
@@ -970,7 +989,9 @@ export const TicketsPage: React.FC = () => {
                   <Text size="xs" variant="muted" weight="medium">
                     Assigned To
                   </Text>
-                  <Text size="sm">{getAssigneeName(detailsTicket.assignedTo) ?? detailsTicket.assignedTo}</Text>
+                  <Text size="sm">
+                    {getAssigneeName(detailsTicket.assignedTo) ?? detailsTicket.assignedTo}
+                  </Text>
                 </div>
               )}
             </div>

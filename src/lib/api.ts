@@ -31,6 +31,19 @@ export interface PublicUser {
   image: string | null;
   bio: string;
   website: string;
+  /** Teams shared between the viewer and this user (non-personal). Empty for own profile. */
+  sharedTeams?: Array<{ id: string; name: string; isAdmin: boolean }>;
+}
+
+/** API error that carries the HTTP status code. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
 }
 
 // ─── Token storage (for Capacitor / custom-scheme WebViews where cookies are unreliable) ──
@@ -42,18 +55,6 @@ export const sessionToken = {
   set: (token: string) => localStorage.setItem(TOKEN_KEY, token),
   clear: () => localStorage.removeItem(TOKEN_KEY),
 };
-
-// ─── API error (carries HTTP status for reliable status-code checks) ─────────
-
-export class ApiError extends Error {
-  constructor(
-    message: string,
-    public readonly status: number,
-  ) {
-    super(message);
-    this.name = 'ApiError';
-  }
-}
 
 // ─── Base request ─────────────────────────────────────────────────────────────
 

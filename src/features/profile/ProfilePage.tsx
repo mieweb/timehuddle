@@ -1,13 +1,15 @@
 /**
  * ProfilePage — Public profile view + own-profile edit form.
  *
- * • Any authenticated user can view any profile by userId
- * • The profile owner sees an inline edit form (displayName, bio, website)
+ * • Owner sees an inline edit form (displayName, bio, website)
+ * • Teammates can view each other's profiles (enforced server-side)
+ * • 403 → graceful "profile unavailable" fallback
+ * • Shared team context shown when viewing a teammate's profile
  * • Data fetched from timecore GET /v1/users/:id and PUT /v1/me/profile
  */
-import { faGlobe, faPen } from '@fortawesome/free-solid-svg-icons';
+import { faCrown, faGlobe, faPen, faUsers } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Avatar, Button, Card, Input, Spinner, Text } from '@mieweb/ui';
+import { Avatar, Badge, Button, Card, Input, Spinner, Text } from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
 
 import {
@@ -15,7 +17,7 @@ import {
   PROFILE_DISPLAY_NAME_MAX,
   PROFILE_WEBSITE_MAX,
 } from '../../lib/constants';
-import { userApi, type PublicUser } from '../../lib/api';
+import { ApiError, userApi, type PublicUser } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 import { ProfileNotices } from './ProfileNotices';
 
@@ -29,13 +31,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
 
   const [profile, setProfile] = useState<PublicUser | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [isForbidden, setIsForbidden] = useState(false);
 
   useEffect(() => {
     setIsReady(false);
+    setIsForbidden(false);
     userApi
       .getUser(userId)
       .then((p) => setProfile(p))
-      .catch(() => setProfile(null))
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 403) {
+          setIsForbidden(true);
+        }
+        setProfile(null);
+      })
       .finally(() => setIsReady(true));
   }, [userId]);
 
@@ -82,11 +91,28 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
     );
   }
 
+  // 403 — not a teammate
+  if (isForbidden) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-6 p-6">
+        <Card padding="lg" className="flex flex-col items-center gap-4 text-center">
+          <Avatar name="?" size="xl" />
+          <Text as="h1" size="xl" weight="bold">
+            Profile Unavailable
+          </Text>
+          <Text variant="muted" size="sm">
+            You can only view profiles of people who share a team with you.
+          </Text>
+        </Card>
+      </div>
+    );
+  }
+
   const nameText = profile?.name || sessionUser?.email?.split('@')[0] || 'Unknown user';
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
-      <ProfileNotices notices={[ { type: 'coming-soon' }]} />
+      <ProfileNotices notices={[{ type: 'coming-soon' }]} />
 
       {/* Profile header card */}
       <Card padding="lg" className="flex items-start gap-5">
@@ -134,6 +160,30 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
           </Button>
         )}
       </Card>
+
+      {/* Shared teams — shown when viewing a teammate's profile */}
+      {!isOwn && profile?.sharedTeams && profile.sharedTeams.length > 0 && (
+        <Card padding="lg">
+          <div className="flex items-center gap-2 mb-3">
+            <FontAwesomeIcon icon={faUsers} className="text-neutral-500" aria-hidden="true" />
+            <Text size="sm" weight="semibold">
+              Shared Teams
+            </Text>
+          </div>
+          <ul className="space-y-2">
+            {profile.sharedTeams.map((team) => (
+              <li key={team.id} className="flex items-center gap-2">
+                <Text size="sm">{team.name}</Text>
+                {team.isAdmin && (
+                  <Badge variant="warning" size="sm" icon={<FontAwesomeIcon icon={faCrown} />}>
+                    Admin
+                  </Badge>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {/* Edit form — own profile only */}
       {isOwn && editing && (

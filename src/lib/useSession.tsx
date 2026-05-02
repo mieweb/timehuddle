@@ -41,10 +41,14 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     console.log('[TimeHuddle] fetchSession: calling getMe...');
     try {
       const data = await authApi.getMe();
-      console.log(`[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${data?.user?.email ?? 'null'}`);
+      console.log(
+        `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${data?.user?.email ?? 'null'}`,
+      );
       setUser(data?.user ?? null);
     } catch (err) {
-      console.log(`[TimeHuddle] fetchSession: getMe failed in ${(performance.now() - t).toFixed(0)}ms — ${String(err)}`);
+      console.log(
+        `[TimeHuddle] fetchSession: getMe failed in ${(performance.now() - t).toFixed(0)}ms — ${String(err)}`,
+      );
       setUser(null);
     } finally {
       setLoading(false);

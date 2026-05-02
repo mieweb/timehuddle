@@ -46,6 +46,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { teamApi, type TeamMember } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
+import { useRouter } from '../../ui/router';
 const TeamChart = React.lazy(() => import('./TeamChart').then((m) => ({ default: m.TeamChart })));
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
@@ -53,6 +54,7 @@ const TeamChart = React.lazy(() => import('./TeamChart').then((m) => ({ default:
 export const TeamsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
+  const { navigate } = useRouter();
   const { teams, teamsReady, selectedTeamId, setSelectedTeamId, isAdmin, refetchTeams } = useTeam();
 
   // Fetch members for selected team
@@ -360,23 +362,30 @@ export const TeamsPage: React.FC = () => {
 
                 return (
                   <li key={memberId} className="flex items-center gap-3 py-2.5">
-                    <Avatar name={name} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <Text size="sm" weight="medium">
-                        {name}
-                        {isMe && (
-                          <Text as="span" variant="muted" size="xs">
-                            {' '}
-                            (you)
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/app/profile/${memberId}`)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                      aria-label={`View ${name}'s profile`}
+                    >
+                      <Avatar name={name} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <Text size="sm" weight="medium">
+                          {name}
+                          {isMe && (
+                            <Text as="span" variant="muted" size="xs">
+                              {' '}
+                              (you)
+                            </Text>
+                          )}
+                        </Text>
+                        {email && (
+                          <Text variant="muted" size="xs">
+                            {email}
                           </Text>
                         )}
-                      </Text>
-                      {email && (
-                        <Text variant="muted" size="xs">
-                          {email}
-                        </Text>
-                      )}
-                    </div>
+                      </div>
+                    </button>
                     {isMemberAdmin && (
                       <Badge variant="warning" size="sm" icon={<FontAwesomeIcon icon={faCrown} />}>
                         Admin

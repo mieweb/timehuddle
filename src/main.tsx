@@ -2,7 +2,8 @@ import './styles.css';
 
 // ─── Startup timing (visible in Xcode device console) ─────────────────────────
 const t0 = performance.now();
-const _log = (msg: string) => console.log(`[TimeHuddle] +${(performance.now() - t0).toFixed(0)}ms ${msg}`);
+const _log = (msg: string) =>
+  console.log(`[TimeHuddle] +${(performance.now() - t0).toFixed(0)}ms ${msg}`);
 _log('main.tsx evaluated');
 
 import { App as CapApp } from '@capacitor/app';
