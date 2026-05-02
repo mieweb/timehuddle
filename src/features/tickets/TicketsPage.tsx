@@ -426,7 +426,16 @@ export const TicketsPage: React.FC = () => {
       if (ticket.startTimestamp) {
         await ticketApi.stopTimer(ticket.id, now);
       } else {
-        await ticketApi.startTimer(ticket.id, now);
+        const result = await ticketApi.startTimer(ticket.id, now);
+        // Immediately reconcile local state: update the started ticket and any auto-stopped ones.
+        setTickets((prev) =>
+          prev.map((t) => {
+            if (t.id === result.ticket.id) return result.ticket;
+            const stopped = result.stoppedTickets.find((s) => s.id === t.id);
+            return stopped ?? t;
+          }),
+        );
+        return;
       }
       void refetch();
     },

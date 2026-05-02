@@ -105,15 +105,36 @@ export class TicketService {
     return "ok";
   }
 
-  async startTimer(id: string, userId: string, now: number): Promise<Ticket | OwnerError> {
+  async startTimer(
+    id: string,
+    userId: string,
+    now: number
+  ): Promise<{ ticket: Ticket; stoppedTickets: Ticket[] } | OwnerError> {
     const ticket = await this.findById(id);
     if (!ticket) return "not-found";
     if (ticket.createdBy !== userId) return "forbidden";
+
+    // Stop any other running timers owned by this user before starting the new one.
+    const running = await ticketsCollection()
+      .find({ createdBy: userId, startTimestamp: { $exists: true }, _id: { $ne: new ObjectId(id) } })
+      .toArray();
+
+    const stoppedTickets: Ticket[] = [];
+    for (const other of running) {
+      const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
+      const prev = other.accumulatedTime ?? 0;
+      await ticketsCollection().updateOne(
+        { _id: other._id },
+        { $set: { accumulatedTime: prev + elapsed }, $unset: { startTimestamp: "" } }
+      );
+      stoppedTickets.push((await this.findById(other._id.toHexString()))!);
+    }
+
     await ticketsCollection().updateOne(
       { _id: new ObjectId(id) },
       { $set: { startTimestamp: now } }
     );
-    return (await this.findById(id))!;
+    return { ticket: (await this.findById(id))!, stoppedTickets };
   }
 
   async stopTimer(id: string, userId: string, now: number): Promise<Ticket | OwnerError> {

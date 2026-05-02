@@ -297,7 +297,13 @@ export async function ticketRoutes(app: FastifyInstance) {
           properties: { now: { type: "number" } },
         },
         response: {
-          200: { type: "object", properties: { ticket: ticketShape } },
+          200: {
+            type: "object",
+            properties: {
+              ticket: ticketShape,
+              stoppedTickets: { type: "array", items: ticketShape },
+            },
+          },
           ...unauth,
           403: err("Not your ticket"),
           404: err("Ticket not found"),
@@ -310,7 +316,10 @@ export async function ticketRoutes(app: FastifyInstance) {
       const result = await ticketService.startTimer(id, req.user!.id, now);
       if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Not your ticket" });
-      return reply.send({ ticket: toPublicTicket(result) });
+      return reply.send({
+        ticket: toPublicTicket(result.ticket),
+        stoppedTickets: result.stoppedTickets.map(toPublicTicket),
+      });
     }
   );
 
