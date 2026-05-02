@@ -67,10 +67,10 @@ export async function attachmentRoutes(app: FastifyInstance) {
       };
 
       if (!VALID_KINDS.includes(attachedTo.kind)) {
-        return reply.status(400).send({ error: "Invalid attachedTo.kind" });
+        return (reply as any).status(400).send({ error: "Invalid attachedTo.kind" });
       }
       if (!VALID_TYPES.includes(type)) {
-        return reply.status(400).send({ error: "Invalid type" });
+        return (reply as any).status(400).send({ error: "Invalid type" });
       }
 
       const resolvedTitle =
@@ -81,7 +81,7 @@ export async function attachmentRoutes(app: FastifyInstance) {
         title: resolvedTitle,
         thumbnail,
       });
-      return reply.status(201).send({ attachment });
+      return (reply as any).status(201).send({ attachment });
     }
   );
 
@@ -111,7 +111,7 @@ export async function attachmentRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { kind, id } = req.query as { kind: AttachmentKind; id: string };
       if (!VALID_KINDS.includes(kind)) {
-        return reply.status(400).send({ error: "Invalid kind" });
+        return (reply as any).status(400).send({ error: "Invalid kind" });
       }
       const attachments = await attachmentService.getForEntity(kind, id);
       return { attachments };
@@ -133,8 +133,8 @@ export async function attachmentRoutes(app: FastifyInstance) {
       const { id: userId } = (req as any).user;
       const { id: attachmentId } = req.params as { id: string };
       const result = await attachmentService.remove(userId, attachmentId);
-      if (result === "not-found") return reply.status(404).send({ error: "Attachment not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      if (result === "not-found") return (reply as any).status(404).send({ error: "Attachment not found" });
+      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
       return { ok: true };
     }
   );

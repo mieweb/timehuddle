@@ -132,18 +132,24 @@ class NotificationService {
     if (!team) return "not-found";
 
     const allIds = Array.from(new Set([...team.members, ...team.admins]));
+    const objectIds = allIds
+      .filter((id) => ObjectId.isValid(id))
+      .map((id) => new ObjectId(id));
     const userDocs = await usersCollection()
-      .find({ _id: { $in: allIds } })
+      .find({ _id: { $in: objectIds } })
       .toArray();
     const userMap = new Map(
-      userDocs.map((u) => [
-        u._id,
-        {
-          id: u._id,
-          name: u.name ?? u.email?.split("@")[0] ?? "Unknown",
-          email: u.email ?? "",
-        },
-      ])
+      userDocs.map((u) => {
+        const id = u._id.toHexString();
+        return [
+          id,
+          {
+            id,
+            name: u.name ?? u.email?.split("@")[0] ?? "Unknown",
+            email: u.email ?? "",
+          },
+        ];
+      })
     );
 
     return {
