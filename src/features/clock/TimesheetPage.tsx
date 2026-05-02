@@ -32,6 +32,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration, formatTime, formatDate, toDateString } from '../../lib/timeUtils';
 import { clockApi, type ClockEvent } from '../../lib/api';
+import { AppPage } from '../../ui/AppPage';
 import { useSession } from '../../lib/useSession';
 import { AttachmentsPanel } from './AttachmentsPanel';
 
@@ -141,7 +142,7 @@ export const TimesheetPage: React.FC = () => {
   }
 
   return (
-    <div className="w-full space-y-6 p-4 md:p-6">
+    <AppPage title="Timesheet">
       {/* Date range filter */}
       <div className="flex flex-wrap items-center gap-2">
         {presets.map((p) => (
@@ -351,6 +352,6 @@ export const TimesheetPage: React.FC = () => {
           </CardContent>
         </Card>
       )}
-    </div>
+    </AppPage>
   );
 };

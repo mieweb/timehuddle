@@ -19,6 +19,7 @@ import {
 } from '../../lib/constants';
 import { ApiError, authApi, userApi, type AuthAccount, type PublicUser } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
+import { AppPage } from '../../ui/AppPage';
 
 interface ProfilePageProps {
   userId: string;
@@ -188,7 +189,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
   const canDisconnectGitHub = hasGitHub && accounts.length > 1;
 
   return (
-    <div className="w-full space-y-6 p-6">
+    <AppPage title="Profile">
       {/* FUTURE: Show notices if any need to be shown */}
       {/* <ProfileNotices notices={[{ type: 'coming-soon' }]} /> */}
 
@@ -411,6 +412,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
           </form>
         </Card>
       )}
-    </div>
+    </AppPage>
   );
 };

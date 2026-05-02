@@ -47,6 +47,7 @@ import { teamApi, type TeamMember } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
+import { AppPage } from '../../ui/AppPage';
 const TeamChart = React.lazy(() => import('./TeamChart').then((m) => ({ default: m.TeamChart })));
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
@@ -250,7 +251,7 @@ export const TeamsPage: React.FC = () => {
   }
 
   return (
-    <div className="w-full space-y-4 px-3 py-3">
+    <AppPage title="Teams">
       {/* Header actions */}
       <div className="space-y-3">
         <div className="flex gap-3">
@@ -754,6 +755,6 @@ export const TeamsPage: React.FC = () => {
           </Button>
         </ModalFooter>
       </Modal>
-    </div>
+    </AppPage>
   );
 };

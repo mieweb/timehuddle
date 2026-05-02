@@ -31,6 +31,7 @@ import { authApi } from '../lib/api';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
+import { AppPage } from './AppPage';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
@@ -282,7 +283,7 @@ export const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div className="w-full space-y-5 px-4 py-8">
+    <AppPage title="Settings">
       {/* Appearance */}
       <Section
         icon={faPalette}
@@ -356,6 +357,6 @@ export const SettingsPage: React.FC = () => {
           </Row>
         ))}
       </Section>
-    </div>
+    </AppPage>
   );
 };
