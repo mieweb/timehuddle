@@ -112,7 +112,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
-      <ProfileNotices notices={[ { type: 'coming-soon' }]} />
+      <ProfileNotices notices={[{ type: 'coming-soon' }]} />
 
       {/* Profile header card */}
       <Card padding="lg" className="flex items-start gap-5">
@@ -175,11 +175,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
               <li key={team.id} className="flex items-center gap-2">
                 <Text size="sm">{team.name}</Text>
                 {team.isAdmin && (
-                  <Badge
-                    variant="warning"
-                    size="sm"
-                    icon={<FontAwesomeIcon icon={faCrown} />}
-                  >
+                  <Badge variant="warning" size="sm" icon={<FontAwesomeIcon icon={faCrown} />}>
                     Admin
                   </Badge>
                 )}
