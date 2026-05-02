@@ -280,25 +280,27 @@ describe("GET /v1/users/:id", () => {
     expect(team.isAdmin).toBe(false);
   });
 
-  it("non-teammate gets 403 — no shared team", async () => {
+  it("non-teammate can view profile — 200", async () => {
     // Carol shares no team with Alice
     const res = await app.inject({
       method: "GET",
       url: `/v1/users/${aliceId}`,
       headers: { cookie: carolCookie },
     });
-    expect(res.statusCode).toBe(403);
-    expect(res.json().error).toBe("No shared team");
+    expect(res.statusCode).toBe(200);
+    const { user } = res.json();
+    expect(user.id).toBe(aliceId);
+    expect(Array.isArray(user.sharedTeams)).toBe(true);
+    expect(user.sharedTeams).toEqual([]);
   });
 
-  it("404 takes precedence over 403 for unknown user", async () => {
+  it("returns 404 for unknown user", async () => {
     const unknownId = "000000000000000000000099";
     const res = await app.inject({
       method: "GET",
       url: `/v1/users/${unknownId}`,
       headers: { cookie: carolCookie },
     });
-    // Target doesn't exist → 404, not 403
     expect(res.statusCode).toBe(404);
   });
 });

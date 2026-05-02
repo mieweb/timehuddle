@@ -15,6 +15,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Activate the pinned Node version if nvm is available
+# nvm is usually a shell function, so source it in non-interactive shells.
+if [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
+  # shellcheck disable=SC1090
+  source "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+fi
+
 if command -v nvm &>/dev/null; then
   nvm use
 elif [ -f .nvmrc ]; then
@@ -27,7 +33,7 @@ run_frontend() {
   npm run lint
   npm run format
   npm run typecheck
-  npm test
+  CI=1 npm test
   npm run build
   echo "==> Frontend: PASSED"
 }
@@ -60,7 +66,7 @@ run_backend() {
     MONGODB_URI="${MONGODB_URI:-mongodb://localhost:27017/timehuddle_test}" \
     BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-local-test-secret}" \
     PORT="${PORT:-4000}" \
-    npm test
+    CI=1 npm test
   )
   echo "==> Backend: PASSED"
 }

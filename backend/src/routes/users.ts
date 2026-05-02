@@ -127,7 +127,7 @@ export async function userRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Users"],
-        summary: "Get public profile by user ID (teammate-scoped)",
+        summary: "Get public profile by user ID",
         security: [{ cookieAuth: [] }],
         params: {
           type: "object",
@@ -137,10 +137,6 @@ export async function userRoutes(app: FastifyInstance) {
         response: {
           200: { type: "object", properties: { user: publicUserSchema } },
           ...unauthorizedResponse,
-          403: {
-            type: "object",
-            properties: { error: { type: "string" } },
-          },
           404: {
             type: "object",
             properties: { error: { type: "string" } },
@@ -149,28 +145,21 @@ export async function userRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const viewerId = req.user!.id;
       const { id: targetId } = req.params as { id: string };
 
-      // 404 takes precedence over 403 — check existence first
       const user = await userService.findById(targetId);
       if (!user) return reply.status(404).send({ error: "Not found" });
 
       // Resolve shared teams (non-personal) between viewer and target
       const sharedTeamDocs =
-        viewerId === targetId
+        req.user!.id === targetId
           ? []
           : await teamsCollection()
               .find({
-                members: { $all: [viewerId, targetId] },
+                members: { $all: [req.user!.id, targetId] },
                 isPersonal: { $ne: true },
               })
               .toArray();
-
-      // Non-self access requires at least one shared team
-      if (viewerId !== targetId && sharedTeamDocs.length === 0) {
-        return reply.status(403).send({ error: "No shared team" });
-      }
 
       const sharedTeams = sharedTeamDocs.map((t) => ({
         id: t._id.toString(),
