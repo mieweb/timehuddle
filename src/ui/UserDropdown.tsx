@@ -25,6 +25,7 @@ export const UserDropdown: React.FC = () => {
 
   const handleProfile = useCallback(() => {
     if (user?.username) {
+      // Full navigation: /:username is a separate SPA mount outside the AppLayout shell
       window.location.href = `/${user.username}`;
     } else {
       navigate('/app/settings');

@@ -37,6 +37,7 @@ export const UsernameBadge: React.FC<UsernameBadgeProps> = ({ userId, username }
 
   const handleClick = () => {
     if (profileUsername) {
+      // Full navigation: /:username is a separate SPA mount outside the AppLayout shell
       window.location.href = `/${profileUsername}`;
     } else {
       navigate(`/app/profile/${userId}`);

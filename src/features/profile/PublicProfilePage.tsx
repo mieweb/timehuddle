@@ -52,7 +52,7 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({ username }
   if (isNotFound || !profile) {
     return (
       <div className="flex min-h-screen items-center justify-center p-6">
-        <Card padding="lg" className="flex max-w-sm flex-col items-center gap-4 text-center w-full">
+        <Card padding="lg" className="flex max-w-sm flex-col items-center gap-4 text-center">
           <Text as="h1" size="xl" weight="bold">
             Profile Not Found
           </Text>
@@ -109,6 +109,7 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({ username }
             <Button
               variant="outline"
               size="sm"
+              // Full navigation: /app/settings is in the authenticated app SPA mount
               onClick={() => (window.location.href = '/app/settings')}
               aria-label="Edit your profile in Settings"
             >
