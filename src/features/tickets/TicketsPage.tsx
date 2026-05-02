@@ -52,6 +52,7 @@ import { teamApi, ticketApi, type TeamMember, type Ticket } from '../../lib/api'
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration } from '../../lib/timeUtils';
 import { useSession } from '../../lib/useSession';
+import { AppPage } from '../../ui/AppPage';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -508,7 +509,7 @@ export const TicketsPage: React.FC = () => {
   }
 
   return (
-    <div className="w-full space-y-6 p-4 md:p-6">
+    <AppPage title="Tickets">
       {/* ── Status filter tabs ── */}
       <div className="flex gap-1" role="tablist" aria-label="Filter tickets by status">
         {STATUS_FILTERS.map((f) => (
@@ -1024,6 +1025,6 @@ export const TicketsPage: React.FC = () => {
           </Button>
         </ModalFooter>
       </Modal>
-    </div>
+    </AppPage>
   );
 };

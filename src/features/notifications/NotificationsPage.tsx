@@ -22,6 +22,7 @@ import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { notificationApi, type Notification, type TeamInvitePreview } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
+import { AppPage } from '../../ui/AppPage';
 
 function timeAgo(date: Date | string | undefined): string {
   if (!date) return '';
@@ -243,7 +244,7 @@ export const NotificationsPage: React.FC = () => {
   }
 
   return (
-    <div className="w-full space-y-4 p-4 pb-20 md:p-6 md:pb-6">
+    <AppPage title="Notifications">
       <div className="flex items-center justify-between border-b border-neutral-200 pb-3 dark:border-neutral-800">
         {selectMode ? (
           <>
@@ -467,6 +468,6 @@ export const NotificationsPage: React.FC = () => {
           </Button>
         </ModalFooter>
       </Modal>
-    </div>
+    </AppPage>
   );
 };
