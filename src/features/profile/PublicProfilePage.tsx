@@ -71,7 +71,7 @@ export const PublicProfilePage: React.FC<PublicProfilePageProps> = ({ username }
   const nameText = profile.name || `@${username}`;
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 py-10 px-4">
+    <div className="min-h-screen py-10 px-4 bg-neutral-50 dark:bg-neutral-950">
       <div className="mx-auto max-w-lg space-y-6">
         {/* Profile header card */}
         <Card padding="lg" className="flex items-start gap-5">
