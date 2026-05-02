@@ -343,10 +343,13 @@ export const ticketApi = {
     request<{ ok: boolean }>(`/v1/tickets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   startTimer: (id: string, now: number) =>
-    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/start`, {
-      method: 'POST',
-      body: JSON.stringify({ now }),
-    }).then((r) => r.ticket),
+    request<{ ticket: Ticket; stoppedTickets: Ticket[] }>(
+      `/v1/tickets/${encodeURIComponent(id)}/start`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ now }),
+      },
+    ),
 
   stopTimer: (id: string, now: number) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/stop`, {

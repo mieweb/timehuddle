@@ -105,15 +105,61 @@ export class TicketService {
     return "ok";
   }
 
-  async startTimer(id: string, userId: string, now: number): Promise<Ticket | OwnerError> {
+  async startTimer(
+    id: string,
+    userId: string,
+    now: number
+  ): Promise<{ ticket: Ticket; stoppedTickets: Ticket[] } | OwnerError> {
     const ticket = await this.findById(id);
     if (!ticket) return "not-found";
     if (ticket.createdBy !== userId) return "forbidden";
-    await ticketsCollection().updateOne(
+
+    // Stop any other running timers owned by this user before starting the new one.
+    const running = await ticketsCollection()
+      .find({
+        createdBy: userId,
+        startTimestamp: { $exists: true },
+        _id: { $ne: new ObjectId(id) },
+      })
+      .toArray();
+
+    const stoppedTickets: Ticket[] = [];
+    if (running.length > 0) {
+      // Batch all stops into a single bulkWrite round-trip.
+      const bulkOps = running.map((other) => {
+        const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
+        const newAccumulatedTime = (other.accumulatedTime ?? 0) + elapsed;
+        return {
+          updateOne: {
+            filter: { _id: other._id },
+            update: {
+              $set: { accumulatedTime: newAccumulatedTime },
+              $unset: { startTimestamp: 1 as const },
+            },
+          },
+        };
+      });
+      await ticketsCollection().bulkWrite(bulkOps);
+
+      // Build stopped-ticket objects from in-memory data to avoid extra DB reads.
+      for (const other of running) {
+        const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
+        const stopped: Ticket = {
+          ...other,
+          accumulatedTime: (other.accumulatedTime ?? 0) + elapsed,
+        };
+        delete stopped.startTimestamp;
+        stoppedTickets.push(stopped);
+      }
+    }
+
+    const started = await ticketsCollection().findOneAndUpdate(
       { _id: new ObjectId(id) },
-      { $set: { startTimestamp: now } }
+      { $set: { startTimestamp: now } },
+      { returnDocument: "after" }
     );
-    return (await this.findById(id))!;
+    if (!started) return "not-found";
+    return { ticket: started, stoppedTickets };
   }
 
   async stopTimer(id: string, userId: string, now: number): Promise<Ticket | OwnerError> {
