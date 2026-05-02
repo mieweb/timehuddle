@@ -420,26 +420,23 @@ export const TicketsPage: React.FC = () => {
     }
   }, [createTitle, createGithub, selectedTeamId, refetch]);
 
-  const handleStartStop = useCallback(
-    async (ticket: Ticket) => {
-      const now = Date.now();
-      if (ticket.startTimestamp) {
-        await ticketApi.stopTimer(ticket.id, now);
-        void refetch();
-      } else {
-        const result = await ticketApi.startTimer(ticket.id, now);
-        // Immediately reconcile local state: update the started ticket and any auto-stopped ones.
-        const stoppedById = new Map(result.stoppedTickets.map((s) => [s.id, s]));
-        setTickets((prev) =>
-          prev.map((t) => {
-            if (t.id === result.ticket.id) return result.ticket;
-            return stoppedById.get(t.id) ?? t;
-          }),
-        );
-      }
-    },
-    [refetch],
-  );
+  const handleStartStop = useCallback(async (ticket: Ticket) => {
+    const now = Date.now();
+    if (ticket.startTimestamp) {
+      const updated = await ticketApi.stopTimer(ticket.id, now);
+      setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+    } else {
+      const result = await ticketApi.startTimer(ticket.id, now);
+      // Immediately reconcile local state: update the started ticket and any auto-stopped ones.
+      const stoppedById = new Map(result.stoppedTickets.map((s) => [s.id, s]));
+      setTickets((prev) =>
+        prev.map((t) => {
+          if (t.id === result.ticket.id) return result.ticket;
+          return stoppedById.get(t.id) ?? t;
+        }),
+      );
+    }
+  }, []);
 
   const openEditModal = (ticket: Ticket) => {
     setEditTicket(ticket);

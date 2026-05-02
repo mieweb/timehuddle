@@ -313,9 +313,14 @@ export async function ticketRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const { now } = req.body as { now: number };
+      req.log.info({ ticketId: id, userId: req.user!.id }, "[timer] startTimer called");
       const result = await ticketService.startTimer(id, req.user!.id, now);
       if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Not your ticket" });
+      req.log.info(
+        { ticketId: id, stoppedCount: result.stoppedTickets.length },
+        "[timer] startTimer result"
+      );
       return reply.send({
         ticket: toPublicTicket(result.ticket),
         stoppedTickets: result.stoppedTickets.map(toPublicTicket),
