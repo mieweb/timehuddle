@@ -120,17 +120,27 @@ export class TicketService {
       .toArray();
 
     const stoppedTickets: Ticket[] = [];
-    for (const other of running) {
-      const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
-      const newAccumulatedTime = (other.accumulatedTime ?? 0) + elapsed;
-      await ticketsCollection().updateOne(
-        { _id: other._id },
-        { $set: { accumulatedTime: newAccumulatedTime }, $unset: { startTimestamp: "" } }
-      );
-      // Build the stopped ticket from the in-memory document to avoid an extra DB read per item.
-      const stopped: Ticket = { ...other, accumulatedTime: newAccumulatedTime };
-      delete stopped.startTimestamp;
-      stoppedTickets.push(stopped);
+    if (running.length > 0) {
+      // Batch all stops into a single bulkWrite round-trip.
+      const bulkOps = running.map((other) => {
+        const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
+        const newAccumulatedTime = (other.accumulatedTime ?? 0) + elapsed;
+        return {
+          updateOne: {
+            filter: { _id: other._id },
+            update: { $set: { accumulatedTime: newAccumulatedTime }, $unset: { startTimestamp: 1 as const } },
+          },
+        };
+      });
+      await ticketsCollection().bulkWrite(bulkOps);
+
+      // Build stopped-ticket objects from in-memory data to avoid extra DB reads.
+      for (const other of running) {
+        const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
+        const stopped: Ticket = { ...other, accumulatedTime: (other.accumulatedTime ?? 0) + elapsed };
+        delete stopped.startTimestamp;
+        stoppedTickets.push(stopped);
+      }
     }
 
     const started = await ticketsCollection().findOneAndUpdate(
@@ -138,7 +148,8 @@ export class TicketService {
       { $set: { startTimestamp: now } },
       { returnDocument: "after" }
     );
-    return { ticket: started!, stoppedTickets };
+    if (!started) return "not-found";
+    return { ticket: started, stoppedTickets };
   }
 
   async stopTimer(id: string, userId: string, now: number): Promise<Ticket | OwnerError> {
