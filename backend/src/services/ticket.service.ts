@@ -116,7 +116,11 @@ export class TicketService {
 
     // Stop any other running timers owned by this user before starting the new one.
     const running = await ticketsCollection()
-      .find({ createdBy: userId, startTimestamp: { $exists: true }, _id: { $ne: new ObjectId(id) } })
+      .find({
+        createdBy: userId,
+        startTimestamp: { $exists: true },
+        _id: { $ne: new ObjectId(id) },
+      })
       .toArray();
 
     const stoppedTickets: Ticket[] = [];
@@ -128,7 +132,10 @@ export class TicketService {
         return {
           updateOne: {
             filter: { _id: other._id },
-            update: { $set: { accumulatedTime: newAccumulatedTime }, $unset: { startTimestamp: 1 as const } },
+            update: {
+              $set: { accumulatedTime: newAccumulatedTime },
+              $unset: { startTimestamp: 1 as const },
+            },
           },
         };
       });
@@ -137,7 +144,10 @@ export class TicketService {
       // Build stopped-ticket objects from in-memory data to avoid extra DB reads.
       for (const other of running) {
         const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
-        const stopped: Ticket = { ...other, accumulatedTime: (other.accumulatedTime ?? 0) + elapsed };
+        const stopped: Ticket = {
+          ...other,
+          accumulatedTime: (other.accumulatedTime ?? 0) + elapsed,
+        };
         delete stopped.startTimestamp;
         stoppedTickets.push(stopped);
       }
