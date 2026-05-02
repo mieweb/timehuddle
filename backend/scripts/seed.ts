@@ -22,6 +22,9 @@ const SEED_USERS = [
   { name: "Olivia Analyst", email: "olivia@example.com", password: "Password1!" },
 ];
 
+// Keep exactly one seeded user unclaimed for username-claim flows.
+const UNCLAIMED_USERNAME_EMAIL = "olivia@example.com";
+
 const SEED_TEAMS = [
   {
     name: "Developers",
@@ -146,6 +149,22 @@ async function seed() {
     .find({ email: { $in: SEED_USERS.map((u) => u.email) } })
     .toArray();
   const userIdsByEmail = new Map(users.map((u) => [u.email, u._id.toString()]));
+
+  // Assign deterministic usernames to all seeded users except one intentional unclaimed user.
+  await usersCollection().bulkWrite(
+    SEED_USERS.filter((u) => u.email !== UNCLAIMED_USERNAME_EMAIL).map((u) => ({
+      updateOne: {
+        filter: { email: u.email },
+        update: { $set: { username: u.email.split("@")[0] } },
+      },
+    }))
+  );
+
+  // Explicitly keep one seeded user without a username.
+  await usersCollection().updateOne(
+    { email: UNCLAIMED_USERNAME_EMAIL },
+    { $unset: { username: "" } }
+  );
 
   for (const team of SEED_TEAMS) {
     await upsertSeedTeam(team, userIdsByEmail);
