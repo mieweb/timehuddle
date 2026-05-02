@@ -17,9 +17,8 @@ import {
   PROFILE_DISPLAY_NAME_MAX,
   PROFILE_WEBSITE_MAX,
 } from '../../lib/constants';
-import { ApiError, userApi, type PublicUser } from '../../lib/api';
+import { ApiError, authApi, userApi, type AuthAccount, type PublicUser } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
-import { ProfileNotices } from './ProfileNotices';
 
 interface ProfilePageProps {
   userId: string;
@@ -54,6 +53,33 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
   const [website, setWebsite] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<AuthAccount[]>([]);
+  const [accountsReady, setAccountsReady] = useState(false);
+  const [accountsError, setAccountsError] = useState<string | null>(null);
+  const [githubBusy, setGithubBusy] = useState(false);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [sendingReset, setSendingReset] = useState(false);
+
+  useEffect(() => {
+    if (!isOwn) {
+      setAccounts([]);
+      setAccountsReady(false);
+      setAccountsError(null);
+      return;
+    }
+
+    setAccountsReady(false);
+    setAccountsError(null);
+
+    authApi
+      .listAccounts()
+      .then((list) => setAccounts(list))
+      .catch((err) => {
+        setAccounts([]);
+        setAccountsError(err instanceof Error ? err.message : 'Unable to load sign-in methods');
+      })
+      .finally(() => setAccountsReady(true));
+  }, [isOwn]);
 
   const startEdit = () => {
     setDisplayName(profile?.name ?? '');
@@ -83,6 +109,54 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
     }
   };
 
+  const refreshAccounts = async () => {
+    const list = await authApi.listAccounts();
+    setAccounts(list);
+  };
+
+  const connectGitHub = async () => {
+    if (githubBusy) return;
+    setAuthMessage(null);
+    setGithubBusy(true);
+    try {
+      const callbackURL = `${window.location.origin}/app/profile/${userId}`;
+      const url = await authApi.linkSocial('github', callbackURL);
+      window.location.href = url;
+    } catch (err) {
+      setAuthMessage(err instanceof Error ? err.message : 'Failed to connect GitHub');
+      setGithubBusy(false);
+    }
+  };
+
+  const disconnectGitHub = async () => {
+    if (githubBusy) return;
+    setAuthMessage(null);
+    setGithubBusy(true);
+    try {
+      await authApi.unlinkAccount('github');
+      await refreshAccounts();
+      setAuthMessage('GitHub disconnected.');
+    } catch (err) {
+      setAuthMessage(err instanceof Error ? err.message : 'Failed to disconnect GitHub');
+    } finally {
+      setGithubBusy(false);
+    }
+  };
+
+  const sendPasswordSetupEmail = async () => {
+    if (!sessionUser?.email || sendingReset) return;
+    setAuthMessage(null);
+    setSendingReset(true);
+    try {
+      await authApi.requestPasswordReset(sessionUser.email, `${window.location.origin}/app`);
+      setAuthMessage('Password setup email sent. Check your inbox.');
+    } catch (err) {
+      setAuthMessage(err instanceof Error ? err.message : 'Failed to send password setup email');
+    } finally {
+      setSendingReset(false);
+    }
+  };
+
   if (!isReady) {
     return (
       <div className="flex flex-1 items-center justify-center p-10">
@@ -94,7 +168,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
   // 403 — not a teammate
   if (isForbidden) {
     return (
-      <div className="mx-auto max-w-2xl space-y-6 p-6">
+      <div className="w-full space-y-6 p-6">
         <Card padding="lg" className="flex flex-col items-center gap-4 text-center">
           <Avatar name="?" size="xl" />
           <Text as="h1" size="xl" weight="bold">
@@ -109,10 +183,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
   }
 
   const nameText = profile?.name || sessionUser?.email?.split('@')[0] || 'Unknown user';
+  const hasGitHub = accounts.some((a) => a.providerId === 'github');
+  const hasCredential = accounts.some((a) => a.providerId === 'credential');
+  const canDisconnectGitHub = hasGitHub && accounts.length > 1;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
-      <ProfileNotices notices={[{ type: 'coming-soon' }]} />
+    <div className="w-full space-y-6 p-6">
+      {/* FUTURE: Show notices if any need to be shown */}
+      {/* <ProfileNotices notices={[{ type: 'coming-soon' }]} /> */}
 
       {/* Profile header card */}
       <Card padding="lg" className="flex items-start gap-5">
@@ -122,6 +200,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
           <Text as="h1" size="xl" weight="bold">
             {nameText}
           </Text>
+
+          {profile?.username && (
+            <Text variant="muted" size="sm" className="mt-0.5">
+              @{profile.username}
+            </Text>
+          )}
 
           {isOwn && sessionUser?.email && (
             <Text variant="muted" size="sm" className="mt-0.5">
@@ -182,6 +266,92 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
               </li>
             ))}
           </ul>
+        </Card>
+      )}
+
+      {/* Sign-in methods — own profile only */}
+      {isOwn && (
+        <Card padding="lg" className="space-y-3">
+          <Text as="h2" size="sm" weight="semibold">
+            Sign-in Methods
+          </Text>
+
+          {!accountsReady ? (
+            <Text variant="muted" size="sm">
+              Loading sign-in methods…
+            </Text>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <Text size="sm" weight="medium">
+                    GitHub
+                  </Text>
+                  <Text variant="muted" size="xs">
+                    {hasGitHub ? 'Connected' : 'Not connected'}
+                  </Text>
+                </div>
+
+                {hasGitHub ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={disconnectGitHub}
+                    isLoading={githubBusy}
+                    loadingText="Disconnecting…"
+                    disabled={!canDisconnectGitHub || githubBusy || sendingReset}
+                  >
+                    Disconnect
+                  </Button>
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={connectGitHub}
+                    isLoading={githubBusy}
+                    loadingText="Connecting…"
+                    disabled={githubBusy || sendingReset}
+                  >
+                    Connect
+                  </Button>
+                )}
+              </div>
+
+              {hasGitHub && !canDisconnectGitHub && (
+                <div className="rounded-md border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-700 dark:bg-neutral-900/40">
+                  <Text size="xs" variant="muted">
+                    To disconnect GitHub, add another sign-in method first.
+                  </Text>
+                  {!hasCredential && (
+                    <div className="mt-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={sendPasswordSetupEmail}
+                        isLoading={sendingReset}
+                        loadingText="Sending…"
+                        disabled={githubBusy || sendingReset}
+                      >
+                        Set Password via Email
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {accountsError && (
+                <Text variant="destructive" size="xs">
+                  {accountsError}
+                </Text>
+              )}
+
+              {authMessage && (
+                <Text size="xs" variant="muted">
+                  {authMessage}
+                </Text>
+              )}
+            </div>
+          )}
         </Card>
       )}
 

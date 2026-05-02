@@ -46,7 +46,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const UsernameClaimModal: React.FC = () => {
-  const { user, refetch } = useSession();
+  const { user, refetch, signOut } = useSession();
   const labelId = useId();
 
   const [username, setUsername] = useState(() => (user?.name ? suggestUsername(user.name) : ''));
@@ -56,6 +56,7 @@ export const UsernameClaimModal: React.FC = () => {
   const [availabilityReason, setAvailabilityReason] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   // Debounced availability check
   useEffect(() => {
@@ -91,7 +92,7 @@ export const UsernameClaimModal: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const normalized = normalizeUsername(username);
-    if (!normalized || loading) return;
+    if (!normalized || loading || signingOut) return;
     setLoading(true);
     setError(null);
 
@@ -103,6 +104,17 @@ export const UsernameClaimModal: React.FC = () => {
       const msg = (err as Error).message ?? 'Failed to claim username';
       setError(ERROR_MESSAGES[msg] ?? msg);
       setLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    if (loading || signingOut) return;
+    setError(null);
+    setSigningOut(true);
+    try {
+      await signOut();
+    } finally {
+      setSigningOut(false);
     }
   };
 
@@ -121,10 +133,11 @@ export const UsernameClaimModal: React.FC = () => {
             id={labelId}
             className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50"
           >
-            Choose your username
+            Username Required
           </h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
-            Pick a unique handle for your TimeHuddle account. This identifies you across the app.
+            You must claim a <strong>unique username</strong> before continuing in TimeHuddle. This
+            identifies you across the app.
           </p>
         </div>
 
@@ -142,7 +155,7 @@ export const UsernameClaimModal: React.FC = () => {
               autoComplete="username"
               spellCheck={false}
               placeholder="your-handle"
-              disabled={loading}
+              disabled={loading || signingOut}
               aria-describedby="username-hint username-status"
             />
 
@@ -176,16 +189,30 @@ export const UsernameClaimModal: React.FC = () => {
             </Text>
           )}
 
-          <Button
-            variant="primary"
-            fullWidth
-            type="submit"
-            disabled={loading || availability !== 'available'}
-            isLoading={loading}
-            loadingText="Claiming…"
-          >
-            Claim username
-          </Button>
+          <div className="space-y-2">
+            <Button
+              variant="primary"
+              fullWidth
+              type="submit"
+              disabled={loading || signingOut || availability !== 'available'}
+              isLoading={loading}
+              loadingText="Claiming…"
+            >
+              Claim username
+            </Button>
+
+            <Button
+              variant="ghost"
+              fullWidth
+              type="button"
+              onClick={handleSignOut}
+              disabled={loading || signingOut}
+              isLoading={signingOut}
+              loadingText="Signing out…"
+            >
+              Sign out
+            </Button>
+          </div>
         </form>
       </div>
     </div>

@@ -25,6 +25,16 @@ export interface TimecoreUser {
   username: string | null;
 }
 
+export interface AuthAccount {
+  id: string;
+  accountId: string;
+  providerId: string;
+  userId: string;
+  createdAt: string;
+  updatedAt: string;
+  scopes: string[];
+}
+
 export interface PublicUser {
   id: string;
   name: string;
@@ -171,6 +181,26 @@ export const authApi = {
     const data = (await res.json()) as { url: string };
     return data.url;
   },
+
+  /** Initiate linking a social provider to the currently authenticated user. */
+  linkSocial: async (provider: 'github' | 'google', callbackURL: string): Promise<string> => {
+    const data = await request<{ url: string }>('/api/auth/link-social', {
+      method: 'POST',
+      body: JSON.stringify({ provider, callbackURL }),
+    });
+    return data.url;
+  },
+
+  /** Remove a linked auth provider from the current account. */
+  unlinkAccount: async (providerId: string): Promise<void> => {
+    await request('/api/auth/unlink-account', {
+      method: 'POST',
+      body: JSON.stringify({ providerId }),
+    });
+  },
+
+  /** List auth providers linked to the current account. */
+  listAccounts: (): Promise<AuthAccount[]> => request<AuthAccount[]>('/api/auth/list-accounts'),
 
   /** Sign out — clears better-auth session cookie and stored token. */
   signOut: async () => {

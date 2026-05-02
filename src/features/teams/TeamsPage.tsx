@@ -250,7 +250,7 @@ export const TeamsPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4 px-3 py-3">
+    <div className="w-full space-y-4 px-3 py-3">
       {/* Header actions */}
       <div className="space-y-3">
         <div className="flex gap-3">

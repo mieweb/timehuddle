@@ -154,9 +154,16 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setLoading(true);
     try {
       await authApi.resetPassword(resetToken, password);
-      // Clear token from URL and go to login with success message
       const url = new URL(window.location.href);
       url.searchParams.delete('token');
+
+      if (session.user) {
+        window.history.replaceState(null, '', url.toString());
+        window.location.assign(`${window.location.origin}/app/dashboard`);
+        return;
+      }
+
+      // Clear token from URL and go to login with success message
       url.searchParams.set('mode', 'login');
       window.history.replaceState(null, '', url.toString());
       setMode('login');

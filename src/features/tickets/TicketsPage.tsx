@@ -508,7 +508,7 @@ export const TicketsPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-6">
+    <div className="w-full space-y-6 p-4 md:p-6">
       {/* ── Status filter tabs ── */}
       <div className="flex gap-1" role="tablist" aria-label="Filter tickets by status">
         {STATUS_FILTERS.map((f) => (
