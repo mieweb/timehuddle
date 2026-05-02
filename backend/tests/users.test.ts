@@ -5,12 +5,13 @@
  *   GET  /v1/me
  *   GET  /v1/me/profile
  *   PUT  /v1/me/profile
- *   GET  /v1/users/:id
+ *   GET  /v1/users/:id  (team-scoped visibility)
  *   GET  /v1/users?ids=
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { ObjectId } from "mongodb";
 import { buildApp } from "../src/server.js";
 import { connectDB, client } from "../src/lib/db.js";
 import { auth } from "../src/lib/auth.js";
@@ -19,11 +20,16 @@ import { auth } from "../src/lib/auth.js";
 
 const ALICE = { name: "Users Alice", email: "users-alice@test.dev", password: "Password1!" };
 const BOB = { name: "Users Bob", email: "users-bob@test.dev", password: "Password1!" };
+// Carol has no shared team with Alice — used to test 403 enforcement
+const CAROL = { name: "Users Carol", email: "users-carol@test.dev", password: "Password1!" };
 
 let app: FastifyInstance;
 let aliceCookie: string;
+let carolCookie: string;
 let aliceId: string;
 let bobId: string;
+let _carolId: string;
+let sharedTeamId: string;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -57,19 +63,36 @@ beforeAll(async () => {
 
   const db = client.db();
 
-  await Promise.all([purgeUser(ALICE.email), purgeUser(BOB.email)]);
+  await Promise.all([purgeUser(ALICE.email), purgeUser(BOB.email), purgeUser(CAROL.email)]);
 
   await auth.api.signUpEmail({ body: ALICE });
   await auth.api.signUpEmail({ body: BOB });
+  await auth.api.signUpEmail({ body: CAROL });
 
   aliceId = String((await db.collection("user").findOne({ email: ALICE.email }))!._id);
   bobId = String((await db.collection("user").findOne({ email: BOB.email }))!._id);
+  _carolId = String((await db.collection("user").findOne({ email: CAROL.email }))!._id);
+
+  // Shared non-personal team: Alice + Bob are members, Carol is not
+  const teamDoc = {
+    _id: new ObjectId(),
+    name: "Users Test Team",
+    members: [aliceId, bobId],
+    admins: [aliceId],
+    code: "USERSTESTTEAM1",
+    isPersonal: false,
+    createdAt: new Date(),
+  };
+  await db.collection("teams").insertOne(teamDoc);
+  sharedTeamId = teamDoc._id.toHexString();
 
   aliceCookie = await getSessionCookie(ALICE.email, ALICE.password);
+  carolCookie = await getSessionCookie(CAROL.email, CAROL.password);
 }, 20000);
 
 afterAll(async () => {
-  await Promise.all([purgeUser(ALICE.email), purgeUser(BOB.email)]);
+  await client.db().collection("teams").deleteOne({ code: "USERSTESTTEAM1" });
+  await Promise.all([purgeUser(ALICE.email), purgeUser(BOB.email), purgeUser(CAROL.email)]);
   await app.close();
 });
 
@@ -225,6 +248,58 @@ describe("GET /v1/users/:id", () => {
       headers: { cookie: aliceCookie },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("owner can always view own profile — 200 with empty sharedTeams", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/users/${aliceId}`,
+      headers: { cookie: aliceCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const { user } = res.json();
+    expect(user.id).toBe(aliceId);
+    expect(user.sharedTeams).toEqual([]);
+  });
+
+  it("teammate gets 200 with sharedTeams populated", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/users/${bobId}`,
+      headers: { cookie: aliceCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const { user } = res.json();
+    expect(user.id).toBe(bobId);
+    expect(Array.isArray(user.sharedTeams)).toBe(true);
+    expect(user.sharedTeams.length).toBeGreaterThan(0);
+    const team = user.sharedTeams.find((t: any) => t.id === sharedTeamId);
+    expect(team).toBeDefined();
+    expect(team.name).toBe("Users Test Team");
+    // Bob is not an admin of the team
+    expect(team.isAdmin).toBe(false);
+  });
+
+  it("non-teammate gets 403 — no shared team", async () => {
+    // Carol shares no team with Alice
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/users/${aliceId}`,
+      headers: { cookie: carolCookie },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error).toBe("No shared team");
+  });
+
+  it("404 takes precedence over 403 for unknown user", async () => {
+    const unknownId = "000000000000000000000099";
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/users/${unknownId}`,
+      headers: { cookie: carolCookie },
+    });
+    // Target doesn't exist → 404, not 403
+    expect(res.statusCode).toBe(404);
   });
 });
 

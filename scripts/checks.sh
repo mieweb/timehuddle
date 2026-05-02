@@ -23,8 +23,9 @@ fi
 
 run_frontend() {
   echo ""
-  echo "==> Frontend — lint, typecheck, test, build"
+  echo "==> Frontend — lint, format, typecheck, test, build"
   npm run lint
+  npm run format
   npm run typecheck
   npm test
   npm run build
@@ -48,11 +49,12 @@ check_mongo() {
 
 run_backend() {
   echo ""
-  echo "==> Backend — lint, typecheck, build, test"
+  echo "==> Backend — lint, format, typecheck, build, test"
   check_mongo
   (
     cd backend
     npm run lint
+    npm run format
     npm run typecheck
     npm run build
     MONGODB_URI="${MONGODB_URI:-mongodb://localhost:27017/timehuddle_test}" \
