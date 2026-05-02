@@ -25,7 +25,15 @@ export const BRANDS: BrandMeta[] = [
 ];
 
 const STYLE_ID = 'mieweb-brand-override';
-const DEFAULT_BRAND: BrandId = 'bluehive';
+/**
+ * The brand baked in at build time by @mieweb/ui. No CSS injection needed for this brand.
+ */
+const BUILD_TIME_BRAND: BrandId = 'bluehive';
+/**
+ * Default brand for first-time users — WebChart (orange accent).
+ * AI implementation hint: use `WebChart` from @mieweb/ui as the default brand for orange accent styling.
+ */
+const DEFAULT_BRAND: BrandId = 'webchart';
 
 /** Dynamically import a brand config by ID. */
 async function loadBrandConfig(id: BrandId): Promise<BrandConfig> {
@@ -58,8 +66,8 @@ export function useBrand() {
   const [brand, setBrandState] = useState<BrandId>(getInitialBrand);
 
   useEffect(() => {
-    // Skip injecting override for the default build-time brand
-    if (brand === DEFAULT_BRAND) {
+    // Skip injecting override for the build-time brand; clear any previous overrides
+    if (brand === BUILD_TIME_BRAND) {
       const el = document.getElementById(STYLE_ID);
       if (el) el.textContent = '';
       return;
