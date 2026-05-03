@@ -1,13 +1,13 @@
 import { ObjectId } from "mongodb";
 
 export interface ClockTicketSession {
-  startTimestamp: number;
-  endTimestamp: number | null;
+  startTimestamp: number; // epoch ms
+  endTimestamp: number | null; // epoch ms
 }
 
 export interface ClockEventTicket {
   ticketId: string;
-  startTimestamp?: number; // present while running
+  startTimestamp?: number; // epoch ms — present while running
   accumulatedTime: number; // seconds
   sessions: ClockTicketSession[];
 }
@@ -19,5 +19,5 @@ export interface ClockEvent {
   startTime: number; // epoch ms
   accumulatedTime: number; // seconds
   tickets: ClockEventTicket[];
-  endTime: number | null; // null = still clocked in
+  endTime: number | null; // epoch ms — null = still clocked in
 }
