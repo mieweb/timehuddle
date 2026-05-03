@@ -92,17 +92,15 @@ beforeAll(async () => {
 
   // Give Alice a username so /by/username tests can look her up
   aliceUsername = "users-alice-test";
-  await db.collection("user").updateOne(
-    { _id: new ObjectId(aliceId) },
-    { $set: { username: aliceUsername } }
-  );
+  await db
+    .collection("user")
+    .updateOne({ _id: new ObjectId(aliceId) }, { $set: { username: aliceUsername } });
 
   // Give Alice a username so /by/username tests can look her up
   aliceUsername = "users-alice-test";
-  await db.collection("user").updateOne(
-    { _id: new ObjectId(aliceId) },
-    { $set: { username: aliceUsername } }
-  );
+  await db
+    .collection("user")
+    .updateOne({ _id: new ObjectId(aliceId) }, { $set: { username: aliceUsername } });
 }, 20000);
 
 afterAll(async () => {
