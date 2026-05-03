@@ -250,6 +250,12 @@ export const userApi = {
   getUser: (id: string) =>
     request<{ user: PublicUser }>(`/v1/users/${encodeURIComponent(id)}`).then((r) => r.user),
 
+  /** Get a single user's public profile by username (requires auth). */
+  getUserByUsername: (username: string) =>
+    request<{ user: PublicUser }>(`/v1/users/by/username/${encodeURIComponent(username)}`).then(
+      (r) => r.user,
+    ),
+
   /** Batch-fetch public profiles by ID list (server caps at 200). */
   getUsers: (ids: string[]) =>
     request<{ users: PublicUser[] }>(`/v1/users?ids=${ids.map(encodeURIComponent).join(',')}`).then(
@@ -388,6 +394,7 @@ export interface TeamMember {
   id: string;
   name: string;
   email: string;
+  username: string | null;
 }
 
 export const teamApi = {

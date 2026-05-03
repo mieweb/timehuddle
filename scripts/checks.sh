@@ -71,19 +71,28 @@ run_backend() {
   echo "==> Backend: PASSED"
 }
 
+run_playwright() {
+  echo ""
+  echo "==> Playwright — E2E tests"
+  npx playwright test -j4 --fully-parallel
+  echo "==> Playwright: PASSED"
+}
+
 JOB="${1:-all}"
 
 case "$JOB" in
-  frontend) run_frontend ;;
-  backend)  run_backend ;;
+  frontend)   run_frontend ;;
+  backend)    run_backend ;;
+  playwright) run_playwright ;;
   all)
     run_frontend
     run_backend
+    run_playwright
     echo ""
     echo "All checks passed."
     ;;
   *)
-    echo "Unknown job: $JOB. Use: frontend | backend | all" >&2
+    echo "Unknown job: $JOB. Use: frontend | backend | playwright | all" >&2
     exit 1
     ;;
 esac

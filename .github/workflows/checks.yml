@@ -167,7 +167,7 @@ jobs:
         run: npm run seed
 
       - name: Run Playwright tests
-        run: npx playwright test
+        run: npx playwright test -j4 --fully-parallel
 
       - name: Upload test report
         if: failure()
@@ -178,7 +178,7 @@ jobs:
           retention-days: 7
 
   ios:
-    name: iOS — simulator build
+    name: iOS Checks
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

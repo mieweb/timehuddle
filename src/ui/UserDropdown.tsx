@@ -24,8 +24,12 @@ export const UserDropdown: React.FC = () => {
   }, [signOut]);
 
   const handleProfile = useCallback(() => {
-    if (user?.id) navigate(`/app/profile/${user.id}`);
-  }, [navigate, user?.id]);
+    if (user?.username) {
+      navigate(`/${user.username}`);
+    } else {
+      navigate('/app/settings');
+    }
+  }, [navigate, user?.username]);
 
   const displayName = user?.name || email?.split('@')[0] || 'Account';
   const truncated = displayName.length > 22 ? `${displayName.slice(0, 20)}…` : displayName;

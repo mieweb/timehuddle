@@ -30,6 +30,7 @@ let aliceId: string;
 let bobId: string;
 let _carolId: string;
 let sharedTeamId: string;
+let aliceUsername: string;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -88,6 +89,18 @@ beforeAll(async () => {
 
   aliceCookie = await getSessionCookie(ALICE.email, ALICE.password);
   carolCookie = await getSessionCookie(CAROL.email, CAROL.password);
+
+  // Give Alice a username so /by/username tests can look her up
+  aliceUsername = "users-alice-test";
+  await db
+    .collection("user")
+    .updateOne({ _id: new ObjectId(aliceId) }, { $set: { username: aliceUsername } });
+
+  // Give Alice a username so /by/username tests can look her up
+  aliceUsername = "users-alice-test";
+  await db
+    .collection("user")
+    .updateOne({ _id: new ObjectId(aliceId) }, { $set: { username: aliceUsername } });
 }, 20000);
 
 afterAll(async () => {
@@ -206,6 +219,52 @@ describe("PUT /v1/me/profile", () => {
     // Fastify strips unknown fields rather than rejecting; the request succeeds
     expect(res.statusCode).toBe(200);
     expect(res.json().user.role).toBeUndefined();
+  });
+});
+
+// ─── GET /v1/users/by/username/:username ─────────────────────────────────────
+
+describe("GET /v1/users/by/username/:username", () => {
+  it("returns 401 without auth", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/users/by/username/${aliceUsername}`,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("returns public profile — 200", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/users/by/username/${aliceUsername}`,
+      headers: { cookie: aliceCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const { user } = res.json();
+    expect(user.id).toBe(aliceId);
+    expect(user.name).toBeDefined();
+    expect(user.username).toBe(aliceUsername);
+    // email must NOT be exposed
+    expect(user.email).toBeUndefined();
+  });
+
+  it("returns 404 for unknown username", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/users/by/username/thisuserdoesnotexist99",
+      headers: { cookie: aliceCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("own profile — sharedTeams is empty", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/users/by/username/${aliceUsername}`,
+      headers: { cookie: aliceCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.sharedTeams).toEqual([]);
   });
 });
 

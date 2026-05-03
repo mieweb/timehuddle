@@ -209,6 +209,58 @@ export async function userRoutes(app: FastifyInstance) {
     };
   }
 
+  // ─── Profile lookup by username ───────────────────────────────────────────────
+
+  app.get(
+    "/users/by/username/:username",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Get public profile by username",
+        security: [{ cookieAuth: [] }],
+        params: {
+          type: "object",
+          required: ["username"],
+          properties: { username: { type: "string" } },
+        },
+        response: {
+          200: { type: "object", properties: { user: publicUserSchema } },
+          ...unauthorizedResponse,
+          404: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { username } = req.params as { username: string };
+      const user = await userService.findByUsername(username);
+      if (!user) return reply.status(404).send({ error: "Not found" });
+
+      const targetId = user._id.toHexString();
+
+      const sharedTeamDocs =
+        req.user!.id !== targetId
+          ? await teamsCollection()
+              .find({
+                members: { $all: [req.user!.id, targetId] },
+                isPersonal: { $ne: true },
+              })
+              .toArray()
+          : [];
+
+      const sharedTeams = sharedTeamDocs.map((t) => ({
+        id: t._id.toString(),
+        name: t.name,
+        isAdmin: t.admins.includes(targetId),
+      }));
+
+      return reply.send({ user: { ...toPublicUser(user), sharedTeams } });
+    }
+  );
+
   app.get(
     "/users/:id",
     {

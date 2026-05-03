@@ -120,6 +120,7 @@ export const DashboardPage: React.FC = () => {
         <Select
           label="Team"
           hideLabel={false}
+          size="sm"
           options={teamOptions}
           value={selectedTeamId ?? ''}
           onValueChange={setSelectedTeamId}

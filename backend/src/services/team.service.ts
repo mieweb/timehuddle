@@ -24,7 +24,7 @@ export function toPublicTeam(team: Team & { _id: ObjectId }) {
 }
 
 export type PublicTeam = ReturnType<typeof toPublicTeam>;
-export type TeamMember = { id: string; name: string; email: string };
+export type TeamMember = { id: string; name: string; email: string; username: string | null };
 
 // Discriminated error types
 export type TeamError =
@@ -143,7 +143,7 @@ export class TeamService {
 
     return allIds.map((id) => {
       const u = byId.get(id);
-      return { id, name: u?.name ?? id, email: u?.email ?? "" };
+      return { id, name: u?.name ?? id, email: u?.email ?? "", username: u?.username ?? null };
     });
   }
 
