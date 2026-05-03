@@ -250,9 +250,9 @@ export const userApi = {
   getUser: (id: string) =>
     request<{ user: PublicUser }>(`/v1/users/${encodeURIComponent(id)}`).then((r) => r.user),
 
-  /** Get a single user's public profile by username (no auth required). */
+  /** Get a single user's public profile by username (requires auth). */
   getUserByUsername: (username: string) =>
-    request<{ user: PublicUser }>(`/v1/users/by-username/${encodeURIComponent(username)}`).then(
+    request<{ user: PublicUser }>(`/v1/users/by/username/${encodeURIComponent(username)}`).then(
       (r) => r.user,
     ),
 

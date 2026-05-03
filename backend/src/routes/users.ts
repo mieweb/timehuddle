@@ -1,7 +1,5 @@
 import { ObjectId } from "mongodb";
 import { FastifyInstance } from "fastify";
-import { fromNodeHeaders } from "better-auth/node";
-import { auth } from "../lib/auth.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { usersCollection, teamsCollection } from "../models/index.js";
 import { userService } from "../services/user.service.js";
@@ -211,15 +209,16 @@ export async function userRoutes(app: FastifyInstance) {
     };
   }
 
-  // ─── Public profile by username (no auth required) ──────────────────────────
+  // ─── Profile lookup by username ───────────────────────────────────────────────
 
   app.get(
-    "/users/by-username/:username",
+    "/users/by/username/:username",
     {
+      preHandler: [requireAuth],
       schema: {
         tags: ["Users"],
-        summary:
-          "Get public profile by username (no auth required; shared teams shown if authenticated)",
+        summary: "Get public profile by username",
+        security: [{ cookieAuth: [] }],
         params: {
           type: "object",
           required: ["username"],
@@ -227,6 +226,7 @@ export async function userRoutes(app: FastifyInstance) {
         },
         response: {
           200: { type: "object", properties: { user: publicUserSchema } },
+          ...unauthorizedResponse,
           404: {
             type: "object",
             properties: { error: { type: "string" } },
@@ -239,18 +239,13 @@ export async function userRoutes(app: FastifyInstance) {
       const user = await userService.findByUsername(username);
       if (!user) return reply.status(404).send({ error: "Not found" });
 
-      // Optionally resolve shared teams if the viewer is authenticated
-      const session = await auth.api.getSession({
-        headers: fromNodeHeaders(req.headers),
-      });
-      const viewerId = session?.user?.id ?? null;
       const targetId = user._id.toHexString();
 
       const sharedTeamDocs =
-        viewerId && viewerId !== targetId
+        req.user!.id !== targetId
           ? await teamsCollection()
               .find({
-                members: { $all: [viewerId, targetId] },
+                members: { $all: [req.user!.id, targetId] },
                 isPersonal: { $ne: true },
               })
               .toArray()
