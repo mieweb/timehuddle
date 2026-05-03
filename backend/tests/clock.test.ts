@@ -159,7 +159,7 @@ describe("POST /v1/clock/start", () => {
     expect(event.userId).toBe(workerId);
     expect(event.teamId).toBe(teamId);
     expect(event.endTime).toBeNull();
-    expect(typeof event.startTimestamp).toBe("number");
+    expect(typeof event.startTime).toBe("number");
     clockEventId = event.id;
   });
 
@@ -301,24 +301,24 @@ describe("PUT /v1/clock/:id/times", () => {
   it("admin can adjust start time — 200", async () => {
     const newStart = Date.now() - 3600_000; // 1 hour ago
     const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
-      startTimestamp: newStart,
+      startTime: newStart,
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().event.startTimestamp).toBe(newStart);
+    expect(res.json().event.startTime).toBe(newStart);
   });
 
   it("non-admin returns 403", async () => {
     const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, workerCookie, {
-      startTimestamp: Date.now(),
+      startTime: Date.now(),
     });
     expect(res.statusCode).toBe(403);
   });
 
-  it("returns 422 if endTimestamp < startTimestamp", async () => {
+  it("returns 422 if endTime < startTime", async () => {
     const now = Date.now();
     const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
-      startTimestamp: now,
-      endTimestamp: now - 1000,
+      startTime: now,
+      endTime: now - 1000,
     });
     expect(res.statusCode).toBe(422);
   });

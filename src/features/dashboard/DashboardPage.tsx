@@ -46,9 +46,9 @@ import { AppPage } from '../../ui/AppPage';
 function computeHours(events: ClockEvent[], after: number, now: number): number {
   let total = 0;
   for (const e of events) {
-    if (e.startTimestamp < after) continue;
-    const end = e.endTime ? new Date(e.endTime).getTime() : now;
-    total += (end - e.startTimestamp) / 1000;
+    if (e.startTime < after) continue;
+    const end = e.endTime ?? now;
+    total += (end - e.startTime) / 1000;
   }
   return total;
 }
@@ -238,8 +238,8 @@ export const DashboardPage: React.FC = () => {
         >
           <AlertTitle>Session Active</AlertTitle>
           <AlertDescription>
-            Started {formatTime(new Date(activeClockEvent.startTimestamp))} •{' '}
-            {formatDuration(Math.floor((currentTime - activeClockEvent.startTimestamp) / 1000))}
+            Started {formatTime(new Date(activeClockEvent.startTime))} •{' '}
+            {formatDuration(Math.floor((currentTime - activeClockEvent.startTime) / 1000))}
           </AlertDescription>
           <Button
             variant="primary"
@@ -265,9 +265,9 @@ export const DashboardPage: React.FC = () => {
           <CardContent className="p-0">
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {recentEvents.map((event) => {
-                const start = new Date(event.startTimestamp);
+                const start = new Date(event.startTime);
                 const end = event.endTime ? new Date(event.endTime) : null;
-                const durSec = end ? (end.getTime() - event.startTimestamp) / 1000 : 0;
+                const durSec = end ? (end.getTime() - event.startTime) / 1000 : 0;
                 const team = teams.find((t) => t.id === event.teamId);
                 return (
                   <li key={event.id} className="flex items-center justify-between px-5 py-3">

@@ -33,7 +33,7 @@ export function toPublicClockEvent(e: ClockEvent) {
     id: e._id.toHexString(),
     userId: e.userId,
     teamId: e.teamId,
-    startTimestamp: e.startTimestamp,
+    startTime: e.startTime,
     accumulatedTime: e.accumulatedTime,
     tickets: (e.tickets ?? []).map((t) => ({
       ticketId: t.ticketId,
@@ -44,7 +44,7 @@ export function toPublicClockEvent(e: ClockEvent) {
         endTimestamp: s.endTimestamp,
       })),
     })),
-    endTime: e.endTime ? e.endTime.toISOString() : null,
+    endTime: e.endTime,
   };
 }
 
@@ -96,7 +96,7 @@ export class ClockService {
 
   /** All clock events for a user (for their own timesheet & history). */
   async getForUser(userId: string): Promise<ClockEvent[]> {
-    return clockEventsCollection().find({ userId }).sort({ startTimestamp: -1 }).toArray();
+    return clockEventsCollection().find({ userId }).sort({ startTime: -1 }).toArray();
   }
 
   /** Live clock events for a set of teams (used by SSE + dashboard). */
@@ -118,14 +118,14 @@ export class ClockService {
     const coll = clockEventsCollection();
 
     // Close any open events for this user+team
-    await coll.updateMany({ userId, teamId, endTime: null }, { $set: { endTime: new Date() } });
-
     const now = Date.now();
+    await coll.updateMany({ userId, teamId, endTime: null }, { $set: { endTime: now } });
+
     const result = await coll.insertOne({
       _id: new ObjectId(),
       userId,
       teamId,
-      startTimestamp: now,
+      startTime: now,
       accumulatedTime: 0,
       tickets: [],
       endTime: null,
@@ -173,7 +173,7 @@ export class ClockService {
     const now = Date.now();
 
     // Accumulate time
-    const elapsed = Math.floor((now - event.startTimestamp) / 1000);
+    const elapsed = Math.floor((now - event.startTime) / 1000);
     const prev = event.accumulatedTime ?? 0;
 
     // Stop all running ticket timers inside the event
@@ -196,7 +196,7 @@ export class ClockService {
     }
 
     const $set: Record<string, unknown> = {
-      endTime: new Date(),
+      endTime: now,
       accumulatedTime: prev + elapsed,
     };
 
@@ -316,7 +316,7 @@ export class ClockService {
   async updateTimes(
     requesterId: string,
     clockEventId: string,
-    data: { startTimestamp?: number; endTimestamp?: number | null }
+    data: { startTime?: number; endTime?: number | null }
   ): Promise<PublicClockEvent | "not-found" | "forbidden" | "invalid-range"> {
     if (!isValidId(clockEventId)) return "not-found";
     const coll = clockEventsCollection();
@@ -331,17 +331,17 @@ export class ClockService {
     if (!team) return "forbidden";
 
     if (
-      typeof data.startTimestamp === "number" &&
-      typeof data.endTimestamp === "number" &&
-      data.endTimestamp < data.startTimestamp
+      typeof data.startTime === "number" &&
+      typeof data.endTime === "number" &&
+      data.endTime < data.startTime
     ) {
       return "invalid-range";
     }
 
     const $set: Record<string, unknown> = {};
-    if (typeof data.startTimestamp === "number") $set.startTimestamp = data.startTimestamp;
-    if (data.endTimestamp === null) $set.endTime = null;
-    else if (typeof data.endTimestamp === "number") $set.endTime = new Date(data.endTimestamp);
+    if (typeof data.startTime === "number") $set.startTime = data.startTime;
+    if (data.endTime === null) $set.endTime = null;
+    else if (typeof data.endTime === "number") $set.endTime = data.endTime;
 
     if (Object.keys($set).length > 0) await coll.updateOne({ _id: event._id }, { $set });
 
@@ -378,19 +378,19 @@ export class ClockService {
     const end = new Date(`${endDate}T23:59:59.999Z`).getTime();
 
     const events = await clockEventsCollection()
-      .find({ userId: targetUserId, startTimestamp: { $gte: start, $lte: end } })
-      .sort({ startTimestamp: -1 })
+      .find({ userId: targetUserId, startTime: { $gte: start, $lte: end } })
+      .sort({ startTime: -1 })
       .toArray();
 
     const sessions = events.map(toPublicClockEvent);
     const completed = sessions.filter((s) => s.endTime !== null);
     const totalSeconds = sessions.reduce((sum, s) => {
       if (!s.endTime) return sum + s.accumulatedTime;
-      return sum + Math.floor((new Date(s.endTime).getTime() - s.startTimestamp) / 1000);
+      return sum + Math.floor((s.endTime - s.startTime) / 1000);
     }, 0);
     const avgSeconds = completed.length > 0 ? totalSeconds / completed.length : 0;
     const uniqueDates = new Set(
-      sessions.map((s) => new Date(s.startTimestamp).toISOString().split("T")[0])
+      sessions.map((s) => new Date(s.startTime).toISOString().split("T")[0])
     );
 
     return {

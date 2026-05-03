@@ -269,7 +269,7 @@ export const TimesheetPage: React.FC = () => {
               </TableHeader>
               <TableBody>
                 {data.sessions.map((s) => {
-                  const startTime = new Date(s.startTimestamp);
+                  const startTime = new Date(s.startTime);
                   const endTime = s.endTime ? new Date(s.endTime) : null;
                   const duration = endTime
                     ? Math.floor((endTime.getTime() - startTime.getTime()) / 1000)

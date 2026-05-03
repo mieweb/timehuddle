@@ -78,7 +78,7 @@ export const ClockPage: React.FC = () => {
 
   // Session duration
   const sessionSeconds = activeClockEvent
-    ? Math.floor((currentTime - activeClockEvent.startTimestamp) / 1000)
+    ? Math.floor((currentTime - activeClockEvent.startTime) / 1000)
     : 0;
 
   // ── Handlers ──

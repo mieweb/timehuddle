@@ -16,8 +16,8 @@ export interface ClockEvent {
   _id: ObjectId;
   userId: string;
   teamId: string;
-  startTimestamp: number; // epoch ms
+  startTime: number; // epoch ms
   accumulatedTime: number; // seconds
   tickets: ClockEventTicket[];
-  endTime: Date | null; // null = still clocked in
+  endTime: number | null; // null = still clocked in
 }

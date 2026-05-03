@@ -472,10 +472,10 @@ export interface ClockEvent {
   id: string;
   userId: string;
   teamId: string;
-  startTimestamp: number;
+  startTime: number;
   accumulatedTime: number;
   tickets: ClockEventTicket[];
-  endTime: string | null;
+  endTime: number | null;
 }
 
 export const clockApi = {
