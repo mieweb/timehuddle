@@ -14,7 +14,7 @@
  */
 
 import { MongoClient } from "mongodb";
-import * as m001 from "../src/migrations/001-normalize-clock-event-times.js";
+import * as m001 from "./migrations/001-normalize-clock-event-times.js";
 
 // ─── Register migrations in order ────────────────────────────────────────────
 // Add new entries here — order matters, earlier entries run first.
