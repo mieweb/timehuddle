@@ -178,7 +178,7 @@ jobs:
           retention-days: 7
 
   ios:
-    name: iOS — simulator build
+    name: iOS Checks
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
