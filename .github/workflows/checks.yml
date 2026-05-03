@@ -167,7 +167,7 @@ jobs:
         run: npm run seed
 
       - name: Run Playwright tests
-        run: npx playwright test
+        run: playwright test -j4 --fully-parallel
 
       - name: Upload test report
         if: failure()

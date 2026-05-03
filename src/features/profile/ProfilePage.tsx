@@ -27,16 +27,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   const [profile, setProfile] = useState<PublicUser | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [isForbidden, setIsForbidden] = useState(false);
+  const [isNotFound, setIsNotFound] = useState(false);
 
   useEffect(() => {
     setIsReady(false);
     setIsForbidden(false);
+    setIsNotFound(false);
     const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
     fetch
       .then((p) => setProfile(p))
       .catch((err) => {
         if (err instanceof ApiError && err.status === 403) {
           setIsForbidden(true);
+        } else if (err instanceof ApiError && err.status === 404) {
+          setIsNotFound(true);
         }
         setProfile(null);
       })
@@ -47,6 +51,23 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
     return (
       <div className="flex flex-1 items-center justify-center p-10">
         <Spinner size="lg" label="Loading…" />
+      </div>
+    );
+  }
+
+  // 404 — user does not exist
+  if (isNotFound) {
+    return (
+      <div className="w-full space-y-6 p-6">
+        <Card padding="lg" className="flex flex-col items-center gap-4 text-center">
+          <Avatar name="?" size="xl" />
+          <Text as="h1" size="xl" weight="bold">
+            User Not Found
+          </Text>
+          <Text variant="muted" size="sm">
+            This profile does not exist or the username may have changed.
+          </Text>
+        </Card>
       </div>
     );
   }
