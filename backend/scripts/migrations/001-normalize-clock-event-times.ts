@@ -9,8 +9,8 @@ export const name = "001-normalize-clock-event-times";
  *
  * Safe to run multiple times — the $exists guards prevent double-processing.
  */
-export async function up(db: Db): Promise<void> {
-  const coll = db.collection("clockEvent");
+export async function up(db: Db, collectionName = "clockEvent"): Promise<void> {
+  const coll = db.collection(collectionName);
 
   // 1. Rename startTimestamp → startTime for docs that haven't been migrated yet.
   await coll.updateMany({ startTimestamp: { $exists: true }, startTime: { $exists: false } }, [
