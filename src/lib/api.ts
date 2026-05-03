@@ -394,6 +394,7 @@ export interface TeamMember {
   id: string;
   name: string;
   email: string;
+  username: string | null;
 }
 
 export const teamApi = {

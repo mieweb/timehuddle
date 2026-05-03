@@ -40,6 +40,7 @@ import {
   Select,
   Spinner,
   Text,
+  Textarea,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -277,6 +278,7 @@ export const TeamsPage: React.FC = () => {
           <Select
             label="Switch team"
             hideLabel={false}
+            size="sm"
             options={teamOptions}
             value={selectedTeamId ?? ''}
             onValueChange={setSelectedTeamId}
@@ -357,6 +359,7 @@ export const TeamsPage: React.FC = () => {
               {selectedTeam.members.map((memberId) => {
                 const m = membersById.get(memberId);
                 const name = m?.name ?? memberId;
+                const username = m?.username ?? null;
                 const email = m?.email ?? '';
                 const isMemberAdmin = selectedTeam.admins.includes(memberId);
                 const isMe = memberId === userId;
@@ -365,7 +368,9 @@ export const TeamsPage: React.FC = () => {
                   <li key={memberId} className="flex items-center gap-3 py-2.5">
                     <button
                       type="button"
-                      onClick={() => navigate(`/app/profile/${memberId}`)}
+                      onClick={() =>
+                        navigate(username ? `/${username}` : `/app/profile/${memberId}`)
+                      }
                       className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
                       aria-label={`View ${name}'s profile`}
                     >
@@ -380,6 +385,11 @@ export const TeamsPage: React.FC = () => {
                             </Text>
                           )}
                         </Text>
+                        {username && (
+                          <Text variant="muted" size="xs">
+                            @{username}
+                          </Text>
+                        )}
                         {email && (
                           <Text variant="muted" size="xs">
                             {email}
@@ -504,14 +514,13 @@ export const TeamsPage: React.FC = () => {
               error={formError ?? undefined}
               autoFocus
             />
-            <textarea
+            <Textarea
               aria-label="Team description"
               placeholder="Team description (optional)"
               value={createDescription}
               onChange={(e) => setCreateDescription(e.target.value)}
               rows={4}
               maxLength={500}
-              className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/30 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
             />
           </div>
         </ModalBody>

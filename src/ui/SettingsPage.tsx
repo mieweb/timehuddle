@@ -15,9 +15,21 @@ import {
   faRotateLeft,
   faRightFromBracket,
   faSun,
+  faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Select, Text } from '@mieweb/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Input,
+  Select,
+  Text,
+  Textarea,
+} from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { Capacitor } from '@capacitor/core';
@@ -27,7 +39,8 @@ import {
   subscribeToPush,
   unsubscribeFromPush,
 } from '../lib/nativePush';
-import { authApi } from '../lib/api';
+import { authApi, userApi } from '../lib/api';
+import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
@@ -261,6 +274,138 @@ const PushNotificationsSettings: React.FC = () => {
   );
 };
 
+// ─── Profile editor ───────────────────────────────────────────────────────────
+
+const ProfileEditor: React.FC = () => {
+  const { user } = useSession();
+  const [name, setName] = useState(user?.name ?? '');
+  const [bio, setBio] = useState('');
+  const [website, setWebsite] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Load current profile values
+  useEffect(() => {
+    if (!user?.id) return;
+    userApi.getUser(user.id).then((p) => {
+      setName(p.name ?? '');
+      setBio(p.bio ?? '');
+      setWebsite(p.website ?? '');
+    });
+  }, [user?.id]);
+
+  const handleSave = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await userApi.updateProfile({ name, bio, website });
+      setMessage({ ok: true, text: 'Profile saved.' });
+    } catch (err: unknown) {
+      setMessage({ ok: false, text: err instanceof Error ? err.message : 'Save failed.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const websiteError =
+    website && !/^https?:\/\/.+/.test(website) ? 'Must start with http:// or https://' : undefined;
+
+  return (
+    <div className="space-y-3 px-5 py-4">
+      <div>
+        <Text size="xs" weight="medium" className="mb-1 block">
+          Display name
+        </Text>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          size="sm"
+          maxLength={PROFILE_DISPLAY_NAME_MAX}
+          placeholder="Your display name"
+          aria-label="Display name"
+        />
+        <Text variant="muted" size="xs" className="mt-1 text-right">
+          {name.length}/{PROFILE_DISPLAY_NAME_MAX}
+        </Text>
+      </div>
+      <div>
+        <Text size="xs" weight="medium" className="mb-1 block">
+          Email
+        </Text>
+        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-800">
+          <Text size="sm" variant="muted">
+            {user?.email}
+          </Text>
+        </div>
+        <Text variant="muted" size="xs" className="mt-1">
+          Email cannot be changed here.
+        </Text>
+      </div>
+      {user?.username && (
+        <div>
+          <Text size="xs" weight="medium" className="mb-1 block">
+            Username
+          </Text>
+          <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-800">
+            <Text size="sm" variant="muted">
+              @{user.username}
+            </Text>
+          </div>
+          <Text variant="muted" size="xs" className="mt-1">
+            Username cannot be changed after it is set.
+          </Text>
+        </div>
+      )}
+      <div>
+        <Text size="xs" weight="medium" className="mb-1 block">
+          Bio
+        </Text>
+        <Textarea
+          value={bio}
+          onChange={(e) => setBio(e.target.value)}
+          maxLength={PROFILE_BIO_MAX}
+          placeholder="Tell your team a little about yourself"
+          rows={3}
+          aria-label="Bio"
+        />
+        <Text variant="muted" size="xs" className="mt-1 text-right">
+          {bio.length}/{PROFILE_BIO_MAX}
+        </Text>
+      </div>
+      <div>
+        <Text size="xs" weight="medium" className="mb-1 block">
+          Website
+        </Text>
+        <Input
+          value={website}
+          onChange={(e) => setWebsite(e.target.value)}
+          size="sm"
+          maxLength={PROFILE_WEBSITE_MAX}
+          placeholder="https://example.com"
+          type="url"
+          aria-label="Website"
+          error={websiteError}
+        />
+      </div>
+      {message && (
+        <Text size="xs" variant={message.ok ? 'success' : 'destructive'}>
+          {message.text}
+        </Text>
+      )}
+      <Button
+        variant="primary"
+        size="sm"
+        onClick={() => void handleSave()}
+        disabled={busy || !!websiteError}
+        isLoading={busy}
+        loadingText="Saving…"
+      >
+        Save profile
+      </Button>
+    </div>
+  );
+};
+
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 export const SettingsPage: React.FC = () => {
@@ -284,6 +429,15 @@ export const SettingsPage: React.FC = () => {
 
   return (
     <AppPage>
+      {/* Profile */}
+      <Section
+        icon={faUser}
+        title="Profile"
+        description="Your public-facing display name, bio, and website."
+      >
+        <ProfileEditor />
+      </Section>
+
       {/* Appearance */}
       <Section
         icon={faPalette}

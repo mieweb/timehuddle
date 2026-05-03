@@ -41,7 +41,6 @@ import { Capacitor } from '@capacitor/core';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { PublicProfilePage } from './features/profile/PublicProfilePage';
 import { InboxPage } from './features/inbox/InboxPage';
 import { SessionProvider, useSession } from './lib/useSession';
 import { AppLayout } from './ui/AppLayout';
@@ -183,18 +182,12 @@ function renderRoot() {
       return;
     }
 
-    // Public profile route — /:username (no auth required)
+    // Public profile route — /:username
+    // AppLayout handles this internally, so fall through to <App /> which keeps the sidebar.
+    // The USERNAME_PATH_RE + RESERVED_PATHS check is still used by AppLayout for in-app routing.
     const usernameMatch = window.location.pathname.match(USERNAME_PATH_RE);
     if (usernameMatch && !RESERVED_PATHS.has(usernameMatch[1])) {
-      const username = usernameMatch[1];
-      _log(`public profile route — @${username}`);
-      _root = createRoot(el);
-      _root.render(
-        <SessionProvider>
-          <PublicProfilePage username={username} />
-        </SessionProvider>,
-      );
-      return;
+      _log(`profile route — @${usernameMatch[1]} — mounting full app shell`);
     }
 
     _root = createRoot(el);

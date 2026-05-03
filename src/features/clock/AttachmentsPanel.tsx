@@ -140,6 +140,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
           <Input
             label="URL"
             hideLabel
+            size="sm"
             type="url"
             placeholder="https://..."
             value={url}
@@ -149,6 +150,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
           <Input
             label="Title (optional)"
             hideLabel
+            size="sm"
             type="text"
             placeholder="Title (optional)"
             value={title}
@@ -157,6 +159,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
           <Select
             label="Type"
             hideLabel
+            size="sm"
             value={type}
             onValueChange={(val) => setType(val as AttachmentType)}
             options={TYPE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}

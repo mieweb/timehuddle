@@ -17,14 +17,12 @@ import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 
-interface ProfilePageProps {
-  userId: string;
-}
+type ProfilePageProps = { userId: string; username?: never } | { username: string; userId?: never };
 
-export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
+export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) => {
   const { user: sessionUser } = useSession();
   const { navigate } = useRouter();
-  const isOwn = sessionUser?.id === userId;
+  const isOwn = userId ? sessionUser?.id === userId : sessionUser?.username === username;
 
   const [profile, setProfile] = useState<PublicUser | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -33,8 +31,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
   useEffect(() => {
     setIsReady(false);
     setIsForbidden(false);
-    userApi
-      .getUser(userId)
+    const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
+    fetch
       .then((p) => setProfile(p))
       .catch((err) => {
         if (err instanceof ApiError && err.status === 403) {
@@ -43,7 +41,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
         setProfile(null);
       })
       .finally(() => setIsReady(true));
-  }, [userId]);
+  }, [userId, username]);
 
   if (!isReady) {
     return (

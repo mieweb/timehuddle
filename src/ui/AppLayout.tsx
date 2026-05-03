@@ -58,6 +58,7 @@ const ROUTES: Record<string, RouteConfig> = {
 
 function match(pathname: string): RouteConfig | null {
   if (pathname.startsWith('/app/profile/')) return null; // parameterized — rendered separately
+  if (/^\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/.test(pathname)) return null; // /:username — rendered separately
   return ROUTES[pathname] ?? ROUTES['/app/dashboard'];
 }
 
@@ -114,8 +115,14 @@ export const AppLayout: React.FC = () => {
     ? pathname.slice('/app/profile/'.length)
     : null;
 
-  const route = profileUserId ? null : match(pathname);
-  const pageTitle = profileUserId ? 'Profile' : (route?.title ?? 'App');
+  // Public profile route — /:username
+  const profileUsername =
+    !profileUserId && /^\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/.test(pathname)
+      ? pathname.slice(1)
+      : null;
+
+  const route = profileUserId || profileUsername ? null : match(pathname);
+  const pageTitle = profileUserId || profileUsername ? 'Profile' : (route?.title ?? 'App');
 
   // ── Sidebar ──
   const [isExpanded, setIsExpanded] = useState(() => {
@@ -169,6 +176,8 @@ export const AppLayout: React.FC = () => {
               <main className="flex-1 overflow-auto pb-20 md:pb-0">
                 {profileUserId ? (
                   <ProfilePage userId={profileUserId} />
+                ) : profileUsername ? (
+                  <ProfilePage username={profileUsername} />
                 ) : (
                   route && React.createElement(route.component)
                 )}
