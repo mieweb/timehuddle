@@ -322,6 +322,42 @@ describe("PUT /v1/clock/:id/times", () => {
     });
     expect(res.statusCode).toBe(422);
   });
+
+  it("returns 422 when only startTime is moved past existing endTime", async () => {
+    // First set a known startTime + endTime pair
+    const base = Date.now() - 3600_000;
+    await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
+      startTime: base,
+      endTime: base + 1000,
+    });
+    // Now move startTime past the stored endTime
+    const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
+      startTime: base + 5000,
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it("returns 422 when only endTime is set before existing startTime", async () => {
+    // First set a known startTime
+    const base = Date.now() - 3600_000;
+    await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
+      startTime: base,
+      endTime: base + 10_000,
+    });
+    // Now move endTime before the stored startTime
+    const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
+      endTime: base - 1000,
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it("clearing endTime (null) always succeeds regardless of startTime", async () => {
+    const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
+      endTime: null,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().event.endTime).toBeNull();
+  });
 });
 
 // ─── GET /v1/clock/timesheet ─────────────────────────────────────────────────
