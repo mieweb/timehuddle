@@ -328,10 +328,20 @@ describe("PUT /v1/clock/:id/times", () => {
 
 describe("GET /v1/clock/timesheet", () => {
   it("worker can view their own timesheet — 200", async () => {
-    const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const endMs = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+      999
+    ).getTime();
     const res = await inject(
       "GET",
-      `/v1/clock/timesheet?userId=${workerId}&startDate=${today}&endDate=${today}`,
+      `/v1/clock/timesheet?userId=${workerId}&startMs=${startMs}&endMs=${endMs}`,
       workerCookie
     );
     expect(res.statusCode).toBe(200);
@@ -342,20 +352,40 @@ describe("GET /v1/clock/timesheet", () => {
   });
 
   it("admin can view worker timesheet (shared team) — 200", async () => {
-    const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const endMs = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+      999
+    ).getTime();
     const res = await inject(
       "GET",
-      `/v1/clock/timesheet?userId=${workerId}&startDate=${today}&endDate=${today}`,
+      `/v1/clock/timesheet?userId=${workerId}&startMs=${startMs}&endMs=${endMs}`,
       adminCookie
     );
     expect(res.statusCode).toBe(200);
   });
 
   it("other user gets 403", async () => {
-    const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const endMs = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+      999
+    ).getTime();
     const res = await inject(
       "GET",
-      `/v1/clock/timesheet?userId=${workerId}&startDate=${today}&endDate=${today}`,
+      `/v1/clock/timesheet?userId=${workerId}&startMs=${startMs}&endMs=${endMs}`,
       otherCookie
     );
     expect(res.statusCode).toBe(403);

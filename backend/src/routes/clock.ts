@@ -193,23 +193,23 @@ export async function clockRoutes(app: FastifyInstance) {
         tags: ["Clock"],
         querystring: {
           type: "object",
-          required: ["userId", "startDate", "endDate"],
+          required: ["userId", "startMs", "endMs"],
           properties: {
             userId: { type: "string" },
-            startDate: { type: "string" },
-            endDate: { type: "string" },
+            startMs: { type: "number" },
+            endMs: { type: "number" },
           },
         },
       },
     },
     async (req, reply) => {
       const { id: requesterId } = (req as any).user;
-      const { userId, startDate, endDate } = req.query as {
+      const { userId, startMs, endMs } = req.query as {
         userId: string;
-        startDate: string;
-        endDate: string;
+        startMs: number;
+        endMs: number;
       };
-      const result = await clockService.getTimesheet(requesterId, userId, startDate, endDate);
+      const result = await clockService.getTimesheet(requesterId, userId, startMs, endMs);
       if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
       return result;
     }

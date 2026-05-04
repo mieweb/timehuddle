@@ -513,8 +513,8 @@ export const clockApi = {
   /** Get all clock events for the current user. */
   getEvents: () => request<{ events: ClockEvent[] }>('/v1/clock/events').then((r) => r.events),
 
-  /** Get timesheet data for a user over a date range. */
-  getTimesheet: (userId: string, startDate: string, endDate: string) =>
+  /** Get timesheet data for a user over a date range (epoch ms boundaries). */
+  getTimesheet: (userId: string, startMs: number, endMs: number) =>
     request<{
       sessions: ClockEvent[];
       summary: {
@@ -525,7 +525,7 @@ export const clockApi = {
         workingDays: number;
       };
     }>(
-      `/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startDate=${startDate}&endDate=${endDate}`,
+      `/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startMs=${startMs}&endMs=${endMs}`,
     ),
 
   /** Open an SSE connection for live team clock state. Returns an EventSource. */

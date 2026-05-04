@@ -352,8 +352,8 @@ export class ClockService {
   async getTimesheet(
     requesterId: string,
     targetUserId: string,
-    startDate: string,
-    endDate: string
+    startMs: number,
+    endMs: number
   ): Promise<
     | {
         sessions: ReturnType<typeof toPublicClockEvent>[];
@@ -374,11 +374,8 @@ export class ClockService {
     );
     if (!sharedTeam && requesterId !== targetUserId) return "forbidden";
 
-    const start = new Date(`${startDate}T00:00:00.000Z`).getTime();
-    const end = new Date(`${endDate}T23:59:59.999Z`).getTime();
-
     const events = await clockEventsCollection()
-      .find({ userId: targetUserId, startTime: { $gte: start, $lte: end } })
+      .find({ userId: targetUserId, startTime: { $gte: startMs, $lte: endMs } })
       .sort({ startTime: -1 })
       .toArray();
 
