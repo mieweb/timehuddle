@@ -40,6 +40,7 @@ import {
   unsubscribeFromPush,
 } from '../lib/nativePush';
 import { authApi, userApi } from '../lib/api';
+import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
@@ -433,7 +434,7 @@ export const SettingsPage: React.FC = () => {
       <Section
         icon={faUser}
         title="Profile"
-        description="Your public-facing display name, bio, and website."
+        description="Your display name, bio, and website."
       >
         <ProfileEditor />
       </Section>
@@ -463,6 +464,7 @@ export const SettingsPage: React.FC = () => {
 
       {/* Account */}
       <Section icon={faGear} title="Account">
+        <GitHubConnectionRow />
         <Row label="Reset password" hint="We will email you a link to choose a new password">
           <Button
             variant="outline"
