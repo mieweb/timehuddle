@@ -4,13 +4,17 @@
 
 > **NAMESPACE NOTE (PENDING):** Profile and org URL namespacing is intentionally not finalized yet. This plan should stay at a product/data-shape level until that decision is made.
 
+> **CURRENT PRODUCT REALITY:** TimeHuddle now has canonical user handles and an auto-provisioned personal workspace. Any org plan has to fit around that existing user namespace rather than assuming orgs own the entire top-level URL space.
+
 ## Namespace Decisions (Pending)
 
 We are intentionally keeping this lightweight for now and deferring implementation detail.
 
 - User public handles are expected to be globally unique.
-- Org path strategy is still open (`/{orgSlug}` vs `/org/{orgSlug}`).
+- User handles now occupy real product namespace and are expected to be globally unique.
+- Org path strategy is still open (`/{orgSlug}` vs `/org/{orgSlug}`), and subdomains remain viable because top-level path space may already be partly claimed by users.
 - Subdomains remain a future option, not a current commitment.
+- If orgs and users ever share one path namespace, org slugs and user handles must follow one combined uniqueness and reserved-name policy.
 - Certain URL roots should be reserved or blocked for both user handles and org slugs
   (product/system routes, trust-sensitive names, and profanity/abuse terms).
 
@@ -28,12 +32,17 @@ in a valid profile/org context immediately.
 - **URL identity is stable**: user profile URLs should resolve by canonical
   handle, and org URLs should resolve by canonical org slug once namespace
   decisions are finalized.
+- **Personal workspace exists before orgs**: once a user has an account and a
+  handle, they should land in a valid personal workspace context immediately,
+  even if no broader org concept exists yet.
 - **No silent account merges**: linking an external provider to an existing
   account should require explicit user intent when there is ambiguity.
 - **One external account maps to one internal account**: this prevents account
   takeover and duplicate ownership oddities.
-- **Personal org still applies**: first-time signup (email or social) should
-  create or attach to the same personal-org model described in this plan.
+- **Org modeling must preserve shipped personal identity**: future org work can
+  wrap, absorb, or sit above the current personal-workspace model, but it
+  should not break canonical usernames or force a second identity concept on
+  day one.
 
 This keeps onboarding simple now while preserving clean identity foundations for
 future org routing and profile visibility features.
@@ -46,13 +55,32 @@ For social-first signup, the expected flow is:
 2. User completes provider auth/consent and returns to TimeHuddle.
 3. User chooses/confirms canonical TimeHuddle username (and resolves any
   collisions or blocked names).
-4. Account creation completes and user lands in personal-org context.
+4. Account creation completes and user lands in personal workspace context.
+
+## Current Identity Baseline
+
+Before adding orgs, the product already has two meaningful identity anchors:
+
+- A globally unique user handle that acts as canonical public identity.
+- An auto-created personal workspace that gives each user a default private or
+  self-owned place to work.
+
+That changes the org discussion in two important ways:
+
+- Orgs are no longer inventing namespace from scratch; they must coexist with
+  the existing user namespace.
+- The first org implementation does not need to solve "what does a solo user
+  belong to?" because personal workspace already answers that operationally.
 
 ## The Problem
 
-Today the data hierarchy is flat:
+Today collaboration is still effectively team-centric even though every user
+now also has personal identity and a personal workspace:
 
 ```
+User handle/profile
+      └── Personal workspace
+
 User ──belongs to──▶ Team
 ```
 
@@ -62,8 +90,9 @@ resell TimeHuddle to many companies — the model breaks down. There is no
 concept of "all teams at Acme Corp" or "billing for Acme as a whole" or
 "Acme's admin manages all of Acme's teams."
 
-An **Organization** layer solves this cleanly and unlocks a range of features
-that simply cannot exist without it.
+An **Organization** layer still solves this cleanly and unlocks a range of
+features that simply cannot exist without it. The difference now is that orgs
+must be introduced without undoing the existing personal-workspace model.
 
 ---
 
@@ -77,9 +106,19 @@ Organization
         └── Members (users)
 ```
 
-Users belong to an organization and are then members of one or more teams
+Users would belong to an organization and then be members of one or more teams
 within that organization. An org admin can see and manage all teams. A team
 admin only manages their own team.
+
+The unresolved part is how the current personal workspace fits:
+
+- It may remain a special personal team outside collaborative org management.
+- It may become the default team inside a hidden or lightweight personal org.
+- It may later be represented as an org-owned workspace while still preserving
+  the user's canonical public handle.
+
+This document should stay compatible with all three until namespace and data
+model decisions are approved.
 
 This mirrors how **GitHub Organizations**, **Slack Workspaces**, **Linear
 Workspaces**, and **Google Workspace** are structured.
@@ -103,9 +142,10 @@ Workspaces**, and **Google Workspace** are structured.
 
 ## Impact on Existing Data Model
 
-Currently teams are top-level. Adding orgs means every team gets an `orgId`.
-Every user gets an `orgId` (or a set of org memberships for consulting/agency
-use cases where one person works for multiple orgs).
+Currently teams are top-level, with an existing `isPersonal` concept for the
+user's default workspace. Adding orgs means every collaborative team likely
+gets an `orgId`. Every user gets an `orgId` (or a set of org memberships for
+consulting/agency use cases where one person works for multiple orgs).
 
 ```typescript
 interface Organization {
@@ -139,14 +179,18 @@ interface Team {
 
 The migration from the current model is straightforward in concept:
 
-1. Create a default org for every existing top-level team cluster
-2. Associate all existing teams with their org
-3. All existing users become org members with `role: 'member'`
-4. Existing team admins remain team admins (not automatically org admins)
+1. Decide how existing personal workspaces map to orgs (remain special, or
+  become hidden/lightweight personal orgs)
+2. Create a default org for every existing collaborative team cluster
+3. Associate collaborative teams with their org
+4. All existing users become org members with `role: 'member'`
+5. Existing team admins remain team admins (not automatically org admins)
 
 The trickiest part is "what is a cluster?" — today there is no org boundary, so
 the migration would likely create one org per existing top-level admin or ask
-users to self-organize during an onboarding flow.
+users to self-organize during an onboarding flow. The other tricky part is not
+breaking the already-shipped username and personal-workspace model while that
+transition happens.
 
 ---
 
@@ -194,27 +238,30 @@ An org can have multiple `admin`s but should have at least one `owner`.
 
 ---
 
-## Personal Orgs
+## Personal Workspace vs Organization
 
-For individual users or very small teams who don't need the org concept, a
-**personal org** is auto-created on signup (similar to GitHub's personal
-namespace). It behaves exactly like a regular org but is owned by the user and
-cannot have additional org-level admins.
+Today the product already gives each user a **personal workspace**. That is the
+near-term reality to preserve; a visible **personal org** is still just one
+possible future implementation strategy.
 
-This means the org layer is always present in the data model — features built
-on top of it work consistently without special-casing solo users.
+- First successful signup leads to a personal workspace, not necessarily to a
+  user-visible org object.
+- User handle is already the first canonical namespace anchor.
+- Org work should layer on top of that without forcing a premature answer on
+  whether the personal workspace is technically a team, a hidden org, or a
+  future org-owned workspace.
 
-### Personal Org First (Near-Term Direction)
+### Near-Term Direction
 
-To unblock GitHub login and clean profile/org URL identity quickly, personal
-org support should ship before full multi-org capabilities.
+To unblock social login and clean identity, username plus personal workspace
+ships first. Full multi-org capability can come later.
 
-- First successful signup (email, GitHub, or Google) creates one personal org.
-- User handle and personal-org slug become the first namespace anchors.
-- Team and org admin complexity can come later; namespace and identity should
-  not wait for full org management.
-
-This keeps onboarding fast while reducing future migration pressure.
+- First successful signup (email, GitHub, or Google) should end with claimed
+  username and usable personal workspace.
+- Collaborative org identity should be additive, not a prerequisite for basic
+  onboarding.
+- Namespace and routing should stay flexible until the org URL strategy is
+  chosen.
 
 ---
 
@@ -225,8 +272,14 @@ This keeps onboarding fast while reducing future migration pressure.
   switching context?
 - **Org slug / URL shape**: should org pages use `/{orgSlug}` or
   `/org/{orgSlug}`?
+- **Shared namespace or split namespace**: if users already occupy `/{username}`,
+  should orgs live under a reserved prefix, a subdomain, or a unified global
+  slug namespace?
 - **Subdomain strategy**: should subdomains (`acme.timehuddle.app`) be
   supported later as canonical or redirect-only?
+- **Personal workspace mapping**: should the current personal workspace remain
+  a special team concept, or eventually become a hidden/lightweight personal
+  org behind the scenes?
 - **Invitation flow**: does joining an org require an invite, or can anyone with
   a matching email domain join?
 - **Data isolation**: are org data boundaries enforced at the DB level (separate
@@ -254,9 +307,9 @@ This keeps onboarding fast while reducing future migration pressure.
 
 ## Possible Rollout Sequence
 
-1. **Personal org + social signup foundation** — on first signup (including
-  GitHub/Google), create personal org and establish canonical handle/slug
-  identity; keep scope minimal and onboarding-focused
+1. **Username + personal workspace foundation** — on first signup (including
+  GitHub/Google), claim canonical handle and ensure a personal workspace exists;
+  keep scope minimal and onboarding-focused
 2. **Baseline org model** — add `Organization` + `OrgMembership`, add `orgId`
   to `Team`, and backfill existing users/teams into personal org defaults
 3. **Org context in API** — all queries implicitly scope to the user's current
