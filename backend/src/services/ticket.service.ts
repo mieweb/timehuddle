@@ -1,6 +1,8 @@
 import { ObjectId } from "mongodb";
-import { teamsCollection, ticketsCollection } from "../models/index.js";
+import { teamsCollection, ticketsCollection, usersCollection } from "../models/index.js";
 import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
+import { notificationService } from "./notification.service.js";
+import { pushService } from "./push.service.js";
 
 type OwnerError = "not-found" | "forbidden";
 type AssignError = "not-found" | "forbidden" | "bad-assignee";
@@ -112,7 +114,9 @@ export class TicketService {
   ): Promise<{ ticket: Ticket; stoppedTickets: Ticket[] } | OwnerError> {
     const ticket = await this.findById(id);
     if (!ticket) return "not-found";
-    if (ticket.createdBy !== userId) return "forbidden";
+    // If assigned: only assignee can run timer. If unassigned: only creator can.
+    const canTimer = ticket.assignedTo ? ticket.assignedTo === userId : ticket.createdBy === userId;
+    if (!canTimer) return "forbidden";
 
     // Stop any other running timers owned by this user before starting the new one.
     const running = await ticketsCollection()
@@ -159,13 +163,62 @@ export class TicketService {
       { returnDocument: "after" }
     );
     if (!started) return "not-found";
+
+    // Notify team admins
+    if (isValidId(ticket.teamId)) {
+      const [team, user] = await Promise.all([
+        teamsCollection().findOne({ _id: new ObjectId(ticket.teamId) }),
+        usersCollection().findOne({ _id: new ObjectId(userId) }),
+      ]);
+      if (team) {
+        const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
+        const notifyAdmins = (team.admins ?? []).filter((aid) => aid !== userId);
+        await Promise.all(
+          notifyAdmins.map((adminId) =>
+            Promise.all([
+              notificationService.create({
+                userId: adminId,
+                title: "TiméHuddle",
+                body: `${userName} started a timer on "${ticket.title}"`,
+                notificationData: {
+                  type: "ticket-timer-start",
+                  userId,
+                  userName,
+                  ticketId: id,
+                  ticketTitle: ticket.title,
+                  teamId: ticket.teamId,
+                  url: `/app/tickets`,
+                },
+              }).catch(() => {}),
+              pushService.sendPush(adminId, {
+                title: `${userName} started "${ticket.title}"`,
+                body: `${userName} started a timer on "${ticket.title}"`,
+                tag: `ticket-start-${id}`,
+                data: {
+                  type: "ticket-timer-start",
+                  userId,
+                  userName,
+                  ticketId: id,
+                  ticketTitle: ticket.title,
+                  teamId: ticket.teamId,
+                  url: `/app/tickets`,
+                },
+              }).catch(() => {}),
+            ])
+          )
+        );
+      }
+    }
+
     return { ticket: started, stoppedTickets };
   }
 
   async stopTimer(id: string, userId: string, now: number): Promise<Ticket | OwnerError> {
     const ticket = await this.findById(id);
     if (!ticket) return "not-found";
-    if (ticket.createdBy !== userId) return "forbidden";
+    // If assigned: only assignee can run timer. If unassigned: only creator can.
+    const canTimer = ticket.assignedTo ? ticket.assignedTo === userId : ticket.createdBy === userId;
+    if (!canTimer) return "forbidden";
     if (ticket.startTimestamp != null) {
       const elapsed = Math.floor((now - ticket.startTimestamp) / 1000);
       const prev = ticket.accumulatedTime ?? 0;
@@ -174,7 +227,55 @@ export class TicketService {
         { $set: { accumulatedTime: prev + elapsed }, $unset: { startTimestamp: "" } }
       );
     }
-    return (await this.findById(id))!;
+    const updated = (await this.findById(id))!;
+
+    // Notify team admins
+    if (isValidId(ticket.teamId)) {
+      const [team, user] = await Promise.all([
+        teamsCollection().findOne({ _id: new ObjectId(ticket.teamId) }),
+        usersCollection().findOne({ _id: new ObjectId(userId) }),
+      ]);
+      if (team) {
+        const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
+        const notifyAdmins = (team.admins ?? []).filter((aid) => aid !== userId);
+        await Promise.all(
+          notifyAdmins.map((adminId) =>
+            Promise.all([
+              notificationService.create({
+                userId: adminId,
+                title: "TiméHuddle",
+                body: `${userName} stopped the timer on "${ticket.title}"`,
+                notificationData: {
+                  type: "ticket-timer-stop",
+                  userId,
+                  userName,
+                  ticketId: id,
+                  ticketTitle: ticket.title,
+                  teamId: ticket.teamId,
+                  url: `/app/tickets`,
+                },
+              }).catch(() => {}),
+              pushService.sendPush(adminId, {
+                title: `${userName} stopped "${ticket.title}"`,
+                body: `${userName} stopped the timer on "${ticket.title}"`,
+                tag: `ticket-stop-${id}`,
+                data: {
+                  type: "ticket-timer-stop",
+                  userId,
+                  userName,
+                  ticketId: id,
+                  ticketTitle: ticket.title,
+                  teamId: ticket.teamId,
+                  url: `/app/tickets`,
+                },
+              }).catch(() => {}),
+            ])
+          )
+        );
+      }
+    }
+
+    return updated;
   }
 
   async batchUpdateStatus(
@@ -228,7 +329,45 @@ export class TicketService {
       { _id: new ObjectId(id) },
       { $set: { assignedTo: assignedToUserId, updatedAt: new Date(), updatedBy: requesterId } }
     );
-    return (await this.findById(id))!;
+    const updated = (await this.findById(id))!;
+
+    // Notify the assignee (skip if unassigning or assigning to self)
+    if (assignedToUserId && assignedToUserId !== requesterId) {
+      const requester = await usersCollection().findOne({ _id: new ObjectId(requesterId) });
+      const requesterName = requester?.name ?? requester?.email?.split("@")[0] ?? "Someone";
+      await Promise.all([
+        notificationService.create({
+          userId: assignedToUserId,
+          title: "TiméHuddle",
+          body: `${requesterName} assigned you "${ticket.title}"`,
+          notificationData: {
+            type: "ticket-assigned",
+            assignedBy: requesterId,
+            assignedByName: requesterName,
+            ticketId: id,
+            ticketTitle: ticket.title,
+            teamId: ticket.teamId,
+            url: `/app/tickets`,
+          },
+        }).catch(() => {}),
+        pushService.sendPush(assignedToUserId, {
+          title: `Ticket assigned to you`,
+          body: `${requesterName} assigned you "${ticket.title}"`,
+          tag: `ticket-assigned-${id}`,
+          data: {
+            type: "ticket-assigned",
+            assignedBy: requesterId,
+            assignedByName: requesterName,
+            ticketId: id,
+            ticketTitle: ticket.title,
+            teamId: ticket.teamId,
+            url: `/app/tickets`,
+          },
+        }).catch(() => {}),
+      ]);
+    }
+
+    return updated;
   }
 }
 
