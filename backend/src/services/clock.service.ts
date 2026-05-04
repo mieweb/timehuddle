@@ -330,11 +330,10 @@ export class ClockService {
     });
     if (!team) return "forbidden";
 
-    if (
-      typeof data.startTime === "number" &&
-      typeof data.endTime === "number" &&
-      data.endTime < data.startTime
-    ) {
+    // Resolve the effective start/end after the partial update to validate the range.
+    const effectiveStart = typeof data.startTime === "number" ? data.startTime : event.startTime;
+    const effectiveEnd = data.endTime === null ? null : typeof data.endTime === "number" ? data.endTime : event.endTime;
+    if (effectiveEnd !== null && effectiveEnd < effectiveStart) {
       return "invalid-range";
     }
 
