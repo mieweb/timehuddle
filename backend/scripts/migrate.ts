@@ -5,7 +5,7 @@
  *   npm run migrate                  # apply all pending migrations
  *   MONGODB_URI=... npm run migrate  # explicit URI
  *
- * Each migration file in src/migrations/ must export:
+ * Each migration file in scripts/migrations/ must export:
  *   name: string          — unique identifier (used as the idempotency key)
  *   up(db: Db): Promise<void>  — forward migration
  *
