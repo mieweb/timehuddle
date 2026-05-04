@@ -28,7 +28,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  Select,
   Spinner,
   Text,
 } from '@mieweb/ui';
@@ -58,8 +57,7 @@ function computeHours(events: ClockEvent[], after: number, now: number): number 
 export const DashboardPage: React.FC = () => {
   const { user } = useSession();
   const { navigate } = useRouter();
-  const { teams, teamsReady, selectedTeamId, setSelectedTeamId, activeClockEvent, currentTime } =
-    useTeam();
+  const { teams, teamsReady, activeClockEvent, currentTime } = useTeam();
 
   // All user clock events (from timecore REST)
   const [allEvents, setAllEvents] = useState<ClockEvent[]>([]);
@@ -96,15 +94,6 @@ export const DashboardPage: React.FC = () => {
 
   const isFirstTime = teams.length <= 1 && allEvents.length === 0;
 
-  const teamOptions = useMemo(
-    () =>
-      teams.map((t) => ({
-        value: t.id,
-        label: t.isPersonal ? 'Personal Workspace' : t.name,
-      })),
-    [teams],
-  );
-
   if (!teamsReady) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -115,18 +104,6 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <AppPage>
-      {/* Team selector */}
-      {teams.length > 1 && (
-        <Select
-          label="Team"
-          hideLabel={false}
-          size="sm"
-          options={teamOptions}
-          value={selectedTeamId ?? ''}
-          onValueChange={setSelectedTeamId}
-        />
-      )}
-
       {/* First time user welcome */}
       {isFirstTime && (
         <Card variant="outlined" padding="lg" className="text-center">

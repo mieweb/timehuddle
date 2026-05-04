@@ -270,7 +270,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { teams, selectedTeamId, setSelectedTeamId, teamsReady, currentTime } = useTeam();
+  const { selectedTeamId, teamsReady, currentTime } = useTeam();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -496,15 +496,6 @@ export const TicketsPage: React.FC = () => {
     }
   }, [deleteId, refetch]);
 
-  const teamOptions = useMemo(
-    () =>
-      teams.map((t) => ({
-        value: t.id,
-        label: t.isPersonal ? 'Personal' : t.name,
-      })),
-    [teams],
-  );
-
   if (!teamsReady) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -544,17 +535,6 @@ export const TicketsPage: React.FC = () => {
         >
           <FontAwesomeIcon icon={faPlus} />
         </Button>
-
-        {teams.length > 1 && (
-          <Select
-            label="Team"
-            hideLabel
-            options={teamOptions}
-            value={selectedTeamId ?? ''}
-            onValueChange={setSelectedTeamId}
-            className="flex-1"
-          />
-        )}
 
         <Button
           variant="ghost"
@@ -614,16 +594,6 @@ export const TicketsPage: React.FC = () => {
             size="sm"
           />
         </div>
-
-        {teams.length > 1 && (
-          <Select
-            label="Team"
-            hideLabel
-            options={teamOptions}
-            value={selectedTeamId ?? ''}
-            onValueChange={setSelectedTeamId}
-          />
-        )}
       </div>
 
       {/* Create ticket form */}

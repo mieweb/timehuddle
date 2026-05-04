@@ -37,7 +37,6 @@ import {
   ModalFooter,
   ModalHeader,
   ModalTitle,
-  Select,
   Spinner,
   Text,
   Textarea,
@@ -112,15 +111,6 @@ export const TeamsPage: React.FC = () => {
     setCreateDescription('');
     setFormError(null);
   };
-
-  const teamOptions = useMemo(
-    () =>
-      teams.map((t) => ({
-        value: t.id,
-        label: t.isPersonal ? 'Personal Workspace' : t.name,
-      })),
-    [teams],
-  );
 
   const membersById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
 
@@ -273,17 +263,6 @@ export const TeamsPage: React.FC = () => {
             Join Team
           </Button>
         </div>
-        {/* Team switcher — full width below buttons on mobile */}
-        {teams.length > 1 && (
-          <Select
-            label="Switch team"
-            hideLabel={false}
-            size="sm"
-            options={teamOptions}
-            value={selectedTeamId ?? ''}
-            onValueChange={setSelectedTeamId}
-          />
-        )}
       </div>
 
       {/* Current team card */}

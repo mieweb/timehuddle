@@ -25,7 +25,6 @@ import {
   CardHeader,
   CardTitle,
   Input,
-  Select,
   Spinner,
   Text,
 } from '@mieweb/ui';
@@ -42,15 +41,7 @@ import { AttachmentsPanel } from './AttachmentsPanel';
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
 export const ClockPage: React.FC = () => {
-  const {
-    teams,
-    selectedTeamId,
-    setSelectedTeamId,
-    activeClockEvent,
-    currentTime,
-    teamsReady,
-    refetchClock,
-  } = useTeam();
+  const { selectedTeamId, activeClockEvent, currentTime, teamsReady, refetchClock } = useTeam();
 
   const { clockIn, clockOut, clockInLoading, clockOutLoading } = useClockToggle();
   const { user } = useSession();
@@ -127,15 +118,6 @@ export const ClockPage: React.FC = () => {
     [allTickets, activeTicketIds],
   );
 
-  const teamOptions = useMemo(
-    () =>
-      teams.map((t) => ({
-        value: t.id,
-        label: t.isPersonal ? 'Personal' : t.name,
-      })),
-    [teams],
-  );
-
   if (!teamsReady) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -146,18 +128,6 @@ export const ClockPage: React.FC = () => {
 
   return (
     <AppPage>
-      {/* Team selector */}
-      {teams.length > 1 && (
-        <Select
-          label="Team"
-          hideLabel={false}
-          size="sm"
-          options={teamOptions}
-          value={selectedTeamId ?? ''}
-          onValueChange={setSelectedTeamId}
-        />
-      )}
-
       {/* ── Clock Button ── */}
       <Card padding="lg" className="flex flex-col items-center gap-4 rounded-2xl">
         <CardContent className="flex flex-col items-center gap-4">
