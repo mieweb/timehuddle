@@ -31,7 +31,7 @@ async function run() {
   const db = client.db();
   const coll = db.collection("_migrations");
 
-  console.log(`Connected to ${uri}`);
+  console.log("Connected to MongoDB");
 
   try {
     const applied = new Set((await coll.find().toArray()).map((m) => m.name));
