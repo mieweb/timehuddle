@@ -64,7 +64,7 @@ export const GitHubConnectionRow: React.FC = () => {
     if (!window.confirm('Disconnect your GitHub account?')) return;
     setBusy(true);
     try {
-      await authApi.unlinkAccount(githubAccount.id);
+      await authApi.unlinkAccount(githubAccount.providerId);
       await refresh();
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Failed to disconnect GitHub.');
