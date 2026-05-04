@@ -8,7 +8,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await getDB().collection("_migration_test_clock").drop().catch(() => {});
+  await getDB()
+    .collection("_migration_test_clock")
+    .drop()
+    .catch(() => {});
 });
 
 describe("001-normalize-clock-event-times", () => {
