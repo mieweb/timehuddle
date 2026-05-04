@@ -26,3 +26,6 @@ export const SIDEBAR_KEY = 'app:sidebar' as const;
 // ─── Misc ─────────────────────────────────────────────────────────────────────
 
 export const REPO_URL = 'https://github.com/mieweb/timehuddle' as const;
+
+/** Open Messages with a specific thread after navigating from a notification */
+export const MESSAGES_PENDING_THREAD_KEY = 'app:messagesPendingThread' as const;

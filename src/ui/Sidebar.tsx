@@ -14,6 +14,7 @@ import {
   faChevronRight,
   faClock,
   faBell,
+  faEnvelope,
   faGauge,
   faGear,
   faListCheck,
@@ -68,6 +69,7 @@ const NAV: NavSection[] = [
     heading: 'Manage',
     items: [
       { icon: faUsers, label: 'Teams', href: '/app/teams' },
+      { icon: faEnvelope, label: 'Messages', href: '/app/messages' },
       { icon: faBell, label: 'Notifications', href: '/app/notifications' },
     ],
   },
