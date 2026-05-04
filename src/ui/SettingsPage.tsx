@@ -10,11 +10,9 @@ import {
   faBell,
   faGear,
   faInfo,
-  faMoon,
   faPalette,
   faRotateLeft,
   faRightFromBracket,
-  faSun,
   faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -40,10 +38,10 @@ import {
   unsubscribeFromPush,
 } from '../lib/nativePush';
 import { authApi, userApi } from '../lib/api';
+import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
-import { useTheme } from '../lib/useTheme';
 import { AppPage } from './AppPage';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
@@ -94,35 +92,7 @@ const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode }>
   </div>
 );
 
-// ─── Theme selector ───────────────────────────────────────────────────────────
-
-const ThemeSelector: React.FC = () => {
-  const { theme, setTheme } = useTheme();
-
-  const options: { value: 'light' | 'dark'; icon: typeof faSun; label: string }[] = [
-    { value: 'light', icon: faSun, label: 'Light' },
-    { value: 'dark', icon: faMoon, label: 'Dark' },
-  ];
-
-  return (
-    <div role="radiogroup" aria-label="Colour theme" className="flex gap-2">
-      {options.map(({ value, icon, label }) => (
-        <Button
-          key={value}
-          variant={theme === value ? 'primary' : 'outline'}
-          size="sm"
-          leftIcon={<FontAwesomeIcon icon={icon} className="text-xs" />}
-          onClick={() => setTheme(value)}
-          aria-checked={theme === value}
-        >
-          {label}
-        </Button>
-      ))}
-    </div>
-  );
-};
-
-// ─── Brand selector ──────────────────────────────────────────────────────────
+// ─── Brand selector ────────────────────────────────────────────────────────────────────
 
 const brandOptions = BRANDS.map((b) => ({
   value: b.id,
@@ -430,11 +400,7 @@ export const SettingsPage: React.FC = () => {
   return (
     <AppPage>
       {/* Profile */}
-      <Section
-        icon={faUser}
-        title="Profile"
-        description="Your public-facing display name, bio, and website."
-      >
+      <Section icon={faUser} title="Profile" description="Your display name, bio, and website.">
         <ProfileEditor />
       </Section>
 
@@ -446,9 +412,6 @@ export const SettingsPage: React.FC = () => {
       >
         <Row label="Brand theme" hint="Switch between brand themes">
           <BrandSelector />
-        </Row>
-        <Row label="Colour theme" hint="Persisted in localStorage for this browser">
-          <ThemeSelector />
         </Row>
       </Section>
 
@@ -463,6 +426,7 @@ export const SettingsPage: React.FC = () => {
 
       {/* Account */}
       <Section icon={faGear} title="Account">
+        <GitHubConnectionRow />
         <Row label="Reset password" hint="We will email you a link to choose a new password">
           <Button
             variant="outline"

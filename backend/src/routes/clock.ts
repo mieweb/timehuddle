@@ -28,10 +28,10 @@ const clockEventShape = {
     id: { type: "string" },
     userId: { type: "string" },
     teamId: { type: "string" },
-    startTimestamp: { type: "number" },
+    startTime: { type: "number" },
     accumulatedTime: { type: "number" },
     tickets: { type: "array", items: clockTicketShape },
-    endTime: { type: "string", nullable: true },
+    endTime: { type: "number", nullable: true },
   },
 };
 
@@ -161,8 +161,8 @@ export async function clockRoutes(app: FastifyInstance) {
         body: {
           type: "object",
           properties: {
-            startTimestamp: { type: "number" },
-            endTimestamp: { type: "number", nullable: true },
+            startTime: { type: "number" },
+            endTime: { type: "number", nullable: true },
           },
         },
         response: { 200: { type: "object", properties: { event: clockEventShape } } },
@@ -171,7 +171,7 @@ export async function clockRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id: userId } = (req as any).user;
       const { id: clockEventId } = req.params as { id: string };
-      const data = req.body as { startTimestamp?: number; endTimestamp?: number | null };
+      const data = req.body as { startTime?: number; endTime?: number | null };
       const result = await clockService.updateTimes(userId, clockEventId, data);
       if (result === "not-found")
         return (reply as any).status(404).send({ error: "Clock event not found" });
@@ -193,23 +193,23 @@ export async function clockRoutes(app: FastifyInstance) {
         tags: ["Clock"],
         querystring: {
           type: "object",
-          required: ["userId", "startDate", "endDate"],
+          required: ["userId", "startMs", "endMs"],
           properties: {
             userId: { type: "string" },
-            startDate: { type: "string" },
-            endDate: { type: "string" },
+            startMs: { type: "number" },
+            endMs: { type: "number" },
           },
         },
       },
     },
     async (req, reply) => {
       const { id: requesterId } = (req as any).user;
-      const { userId, startDate, endDate } = req.query as {
+      const { userId, startMs, endMs } = req.query as {
         userId: string;
-        startDate: string;
-        endDate: string;
+        startMs: number;
+        endMs: number;
       };
-      const result = await clockService.getTimesheet(requesterId, userId, startDate, endDate);
+      const result = await clockService.getTimesheet(requesterId, userId, startMs, endMs);
       if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
       return result;
     }
