@@ -2,19 +2,33 @@
 /* global clients */
 
 self.addEventListener('push', function (event) {
-  if (!event.data) return;
+  if (!event.data) {
+    console.log('[SW] push received but event.data is null');
+    return;
+  }
   try {
-    const data = event.data.json();
+    let data;
+    const raw = event.data.text();
+    try {
+      data = JSON.parse(raw);
+    } catch (_) {
+      // DevTools sends plain text — show it directly
+      data = { title: 'TimeHuddle', body: raw, data: {} };
+    }
+    console.log('[SW] push received:', data.title, data.body);
     const notificationData = data.data || {};
 
     let formattedBody = data.body;
-    if (notificationData.userName && notificationData.teamName) {
-      if (notificationData.type === 'clock-in') {
-        formattedBody = `${notificationData.userName} clocked in to ${notificationData.teamName}`;
-      } else if (notificationData.type === 'clock-out') {
-        const duration = notificationData.duration ? ` (${notificationData.duration})` : '';
-        formattedBody = `${notificationData.userName} clocked out of ${notificationData.teamName}${duration}`;
-      }
+
+    if (notificationData.type === 'clock-in') {
+      formattedBody = `${notificationData.userName} clocked in to ${notificationData.teamName}`;
+    } else if (notificationData.type === 'clock-out') {
+      const duration = notificationData.duration ? ` (${notificationData.duration})` : '';
+      formattedBody = `${notificationData.userName} clocked out of ${notificationData.teamName}${duration}`;
+    } else if (notificationData.type === 'ticket-timer-start') {
+      formattedBody = `${notificationData.userName} started timer on "${notificationData.ticketTitle || notificationData.ticketId}"`;
+    } else if (notificationData.type === 'ticket-timer-stop') {
+      formattedBody = `${notificationData.userName} stopped timer on "${notificationData.ticketTitle || notificationData.ticketId}"`;
     }
 
     const options = {
@@ -30,7 +44,11 @@ self.addEventListener('push', function (event) {
       silent: false,
     };
 
-    event.waitUntil(self.registration.showNotification(data.title, options));
+    event.waitUntil(
+      self.registration.showNotification(data.title, options)
+        .then(() => console.log('[SW] showNotification ok'))
+        .catch(err => console.error('[SW] showNotification error:', err))
+    );
   } catch (error) {
     console.error('[Service Worker] Error processing push:', error);
   }
@@ -39,10 +57,13 @@ self.addEventListener('push', function (event) {
 self.addEventListener('notificationclick', function (event) {
   event.notification.close();
 
-  let urlToOpen = event.notification.data?.url || '/app/dashboard';
+  const notificationData = event.notification.data || {};
+  let urlToOpen = notificationData.url || event.notification.data?.url || '/app/dashboard';
+
+  // Normalise legacy paths
   if (typeof urlToOpen === 'string' && urlToOpen.startsWith('/') && !urlToOpen.startsWith('/app')) {
     if (urlToOpen === '/' || urlToOpen === '') urlToOpen = '/app/dashboard';
-    else if (urlToOpen.startsWith('/member/')) urlToOpen = '/app/messages';
+    else if (urlToOpen.startsWith('/member/')) urlToOpen = '/app/clock';
     else urlToOpen = `/app${urlToOpen}`;
   }
 
@@ -54,7 +75,7 @@ self.addEventListener('notificationclick', function (event) {
         for (let i = 0; i < windowClients.length; i++) {
           const client = windowClients[i];
           if (client.url.includes(pathPrefix) && 'focus' in client) {
-            return client.focus();
+            return client.navigate(urlToOpen).then((c) => c?.focus());
           }
         }
         if (clients.openWindow) {

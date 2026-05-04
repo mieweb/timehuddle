@@ -6,7 +6,7 @@
  * (/v1/notifications/push-subscribe and /v1/notifications/push-unsubscribe)
  * once those endpoints are implemented.
  */
-import { TIMECORE_BASE_URL } from './api';
+import { TIMECORE_BASE_URL, sessionToken } from './api';
 
 export function isPushNotificationSupported(): boolean {
   return typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window;
@@ -63,10 +63,14 @@ export async function subscribeToWebPush(): Promise<void> {
   });
 
   const json = subscription.toJSON();
+  const token = sessionToken.get();
   const res = await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-subscribe`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify({
       type: 'webpush',
       endpoint: json.endpoint,
@@ -86,9 +90,11 @@ export async function unsubscribeFromWebPush(): Promise<void> {
     /* ignore browser errors */
   }
 
+  const token = sessionToken.get();
   await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-unsubscribe`, {
     method: 'POST',
     credentials: 'include',
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   });
 }
 

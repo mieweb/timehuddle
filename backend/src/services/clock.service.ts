@@ -7,6 +7,7 @@ import {
 } from "../models/index.js";
 import type { ClockEvent, ClockEventTicket } from "../models/clock.model.js";
 import { notificationService } from "./notification.service.js";
+import { pushService } from "./push.service.js";
 
 function isValidId(id: string): boolean {
   return /^[0-9a-f]{24}$/i.test(id);
@@ -144,21 +145,38 @@ export class ClockService {
     const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
     await Promise.all(
       notifyAdmins.map((adminId) =>
-        notificationService
-          .create({
-            userId: adminId,
-            title: "TiméHuddle",
-            body: `${userName} clocked in to ${team.name}`,
-            notificationData: {
-              type: "clock-in",
-              userId,
-              userName,
-              teamName: team.name,
-              teamId,
-              url: `/member/${teamId}/${userId}`,
-            },
-          })
-          .catch(() => {})
+        Promise.all([
+          notificationService
+            .create({
+              userId: adminId,
+              title: "TiméHuddle",
+              body: `${userName} clocked in to ${team.name}`,
+              notificationData: {
+                type: "clock-in",
+                userId,
+                userName,
+                teamName: team.name,
+                teamId,
+                url: `/app/clock`,
+              },
+            })
+            .catch(() => {}),
+          pushService
+            .sendPush(adminId, {
+              title: `${userName} clocked in`,
+              body: `${userName} clocked in to ${team.name}`,
+              tag: `clock-in-${teamId}-${userId}`,
+              data: {
+                type: "clock-in",
+                userId,
+                userName,
+                teamName: team.name,
+                teamId,
+                url: `/app/clock`,
+              },
+            })
+            .catch(() => {}),
+        ])
       )
     );
 
@@ -221,22 +239,40 @@ export class ClockService {
       const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
       await Promise.all(
         notifyAdmins.map((adminId) =>
-          notificationService
-            .create({
-              userId: adminId,
-              title: "TiméHuddle",
-              body: `${userName} clocked out of ${team.name} (${durationText})`,
-              notificationData: {
-                type: "clock-out",
-                userId,
-                userName,
-                teamName: team.name,
-                teamId,
-                duration: durationText,
-                url: `/member/${teamId}/${userId}`,
-              },
-            })
-            .catch(() => {})
+          Promise.all([
+            notificationService
+              .create({
+                userId: adminId,
+                title: "TiméHuddle",
+                body: `${userName} clocked out of ${team.name} (${durationText})`,
+                notificationData: {
+                  type: "clock-out",
+                  userId,
+                  userName,
+                  teamName: team.name,
+                  teamId,
+                  duration: durationText,
+                  url: `/app/clock`,
+                },
+              })
+              .catch(() => {}),
+            pushService
+              .sendPush(adminId, {
+                title: `${userName} clocked out`,
+                body: `${userName} clocked out of ${team.name} (${durationText})`,
+                tag: `clock-out-${teamId}-${userId}`,
+                data: {
+                  type: "clock-out",
+                  userId,
+                  userName,
+                  teamName: team.name,
+                  teamId,
+                  duration: durationText,
+                  url: `/app/clock`,
+                },
+              })
+              .catch(() => {}),
+          ])
         )
       );
     }
@@ -287,6 +323,59 @@ export class ClockService {
     if (!updated) return "not-found";
     const pub = toPublicClockEvent(updated);
     broadcast(event.teamId, pub);
+
+    // Notify team admins of ticket timer start
+    const [team, user] = await Promise.all([
+      teamsCollection().findOne({ _id: new ObjectId(event.teamId) }),
+      usersCollection().findOne({ _id: new ObjectId(event.userId) }),
+    ]);
+    if (team) {
+      const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
+      const ticket = isValidId(ticketId)
+        ? await ticketsCollection().findOne({ _id: new ObjectId(ticketId) })
+        : null;
+      const ticketTitle = ticket?.title ?? ticketId;
+      const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
+      await Promise.all(
+        notifyAdmins.map((adminId) =>
+          Promise.all([
+            notificationService
+              .create({
+                userId: adminId,
+                title: "TiméHuddle",
+                body: `${userName} started a timer on "${ticketTitle}"`,
+                notificationData: {
+                  type: "ticket-timer-start",
+                  userId,
+                  userName,
+                  ticketId,
+                  ticketTitle,
+                  teamId: event.teamId,
+                  url: `/app/tickets`,
+                },
+              })
+              .catch(() => {}),
+            pushService
+              .sendPush(adminId, {
+                title: `${userName} started "${ticketTitle}"`,
+                body: `${userName} started a timer on "${ticketTitle}"`,
+                tag: `ticket-start-${clockEventId}-${ticketId}`,
+                data: {
+                  type: "ticket-timer-start",
+                  userId,
+                  userName,
+                  ticketId,
+                  ticketTitle,
+                  teamId: event.teamId,
+                  url: `/app/tickets`,
+                },
+              })
+              .catch(() => {}),
+          ])
+        )
+      );
+    }
+
     return pub;
   }
 
@@ -310,6 +399,59 @@ export class ClockService {
     if (!updated) return "not-found";
     const pub = toPublicClockEvent(updated);
     broadcast(event.teamId, pub);
+
+    // Notify team admins of ticket timer stop
+    const [team, user] = await Promise.all([
+      teamsCollection().findOne({ _id: new ObjectId(event.teamId) }),
+      usersCollection().findOne({ _id: new ObjectId(event.userId) }),
+    ]);
+    if (team) {
+      const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
+      const ticket = isValidId(ticketId)
+        ? await ticketsCollection().findOne({ _id: new ObjectId(ticketId) })
+        : null;
+      const ticketTitle = ticket?.title ?? ticketId;
+      const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
+      await Promise.all(
+        notifyAdmins.map((adminId) =>
+          Promise.all([
+            notificationService
+              .create({
+                userId: adminId,
+                title: "TiméHuddle",
+                body: `${userName} stopped the timer on "${ticketTitle}"`,
+                notificationData: {
+                  type: "ticket-timer-stop",
+                  userId,
+                  userName,
+                  ticketId,
+                  ticketTitle,
+                  teamId: event.teamId,
+                  url: `/app/tickets`,
+                },
+              })
+              .catch(() => {}),
+            pushService
+              .sendPush(adminId, {
+                title: `${userName} stopped "${ticketTitle}"`,
+                body: `${userName} stopped the timer on "${ticketTitle}"`,
+                tag: `ticket-stop-${clockEventId}-${ticketId}`,
+                data: {
+                  type: "ticket-timer-stop",
+                  userId,
+                  userName,
+                  ticketId,
+                  ticketTitle,
+                  teamId: event.teamId,
+                  url: `/app/tickets`,
+                },
+              })
+              .catch(() => {}),
+          ])
+        )
+      );
+    }
+
     return pub;
   }
 

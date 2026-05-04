@@ -42,6 +42,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { InboxPage } from './features/inbox/InboxPage';
+import { autoRegisterNativePush } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
 import { AppLayout } from './ui/AppLayout';
 import { LandingPage } from './ui/LandingPage';
@@ -119,6 +120,11 @@ _log('App component defined — modules loaded');
 
 const App: React.FC = () => {
   const { user, loading, needsUsernameClaim } = useSession();
+
+  // Auto-register FCM token on native as soon as the user is authenticated.
+  React.useEffect(() => {
+    if (user) void autoRegisterNativePush();
+  }, [user]);
 
   // Reset token: check URL params (web) or deep link (native).
   const resetToken =

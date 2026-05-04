@@ -18,7 +18,6 @@ import { createPortal } from 'react-dom';
 import { ClockPage } from '../features/clock/ClockPage';
 import { TimesheetPage } from '../features/clock/TimesheetPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
-import { MessagesPage } from '../features/messages/MessagesPage';
 import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { TeamsPage } from '../features/teams/TeamsPage';
@@ -51,7 +50,6 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/tickets': { title: 'Tickets', component: TicketsPage },
   '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
   '/app/teams': { title: 'Teams', component: TeamsPage },
-  '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
 };
