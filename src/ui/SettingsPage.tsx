@@ -1,7 +1,7 @@
 /**
  * SettingsPage — User & application settings.
  * Sections:
- *   • Profile       — name (editable) + email (read-only)
+ *   • Profile       — display name, bio, website, linked sign-in accounts, password reset
  *   • Appearance    — theme toggle
  *   • Account       — sign out
  *   • About         — stack versions
@@ -10,13 +10,24 @@ import {
   faBell,
   faGear,
   faInfo,
-  faMoon,
   faPalette,
+  faRotateLeft,
   faRightFromBracket,
-  faSun,
+  faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Select, Text } from '@mieweb/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Input,
+  Select,
+  Text,
+  Textarea,
+} from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { Capacitor } from '@capacitor/core';
@@ -26,9 +37,12 @@ import {
   subscribeToPush,
   unsubscribeFromPush,
 } from '../lib/nativePush';
+import { authApi, userApi } from '../lib/api';
+import { GitHubConnectionRow } from './GitHubConnectionRow';
+import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
-import { useTheme } from '../lib/useTheme';
+import { AppPage } from './AppPage';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
@@ -78,35 +92,7 @@ const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode }>
   </div>
 );
 
-// ─── Theme selector ───────────────────────────────────────────────────────────
-
-const ThemeSelector: React.FC = () => {
-  const { theme, setTheme } = useTheme();
-
-  const options: { value: 'light' | 'dark'; icon: typeof faSun; label: string }[] = [
-    { value: 'light', icon: faSun, label: 'Light' },
-    { value: 'dark', icon: faMoon, label: 'Dark' },
-  ];
-
-  return (
-    <div role="radiogroup" aria-label="Colour theme" className="flex gap-2">
-      {options.map(({ value, icon, label }) => (
-        <Button
-          key={value}
-          variant={theme === value ? 'primary' : 'outline'}
-          size="sm"
-          leftIcon={<FontAwesomeIcon icon={icon} className="text-xs" />}
-          onClick={() => setTheme(value)}
-          aria-checked={theme === value}
-        >
-          {label}
-        </Button>
-      ))}
-    </div>
-  );
-};
-
-// ─── Brand selector ──────────────────────────────────────────────────────────
+// ─── Brand selector ────────────────────────────────────────────────────────────────────
 
 const brandOptions = BRANDS.map((b) => ({
   value: b.id,
@@ -258,13 +244,166 @@ const PushNotificationsSettings: React.FC = () => {
   );
 };
 
+// ─── Profile editor ───────────────────────────────────────────────────────────
+
+const ProfileEditor: React.FC = () => {
+  const { user } = useSession();
+  const [name, setName] = useState(user?.name ?? '');
+  const [bio, setBio] = useState('');
+  const [website, setWebsite] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Load current profile values
+  useEffect(() => {
+    if (!user?.id) return;
+    userApi.getUser(user.id).then((p) => {
+      setName(p.name ?? '');
+      setBio(p.bio ?? '');
+      setWebsite(p.website ?? '');
+    });
+  }, [user?.id]);
+
+  const handleSave = async () => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      await userApi.updateProfile({ name, bio, website });
+      setMessage({ ok: true, text: 'Profile saved.' });
+    } catch (err: unknown) {
+      setMessage({ ok: false, text: err instanceof Error ? err.message : 'Save failed.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const websiteError =
+    website && !/^https?:\/\/.+/.test(website) ? 'Must start with http:// or https://' : undefined;
+
+  return (
+    <div className="space-y-3 px-5 py-4">
+      <div>
+        <Text size="xs" weight="medium" className="mb-1 block">
+          Display name
+        </Text>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          size="sm"
+          maxLength={PROFILE_DISPLAY_NAME_MAX}
+          placeholder="Your display name"
+          aria-label="Display name"
+        />
+        <Text variant="muted" size="xs" className="mt-1 text-right">
+          {name.length}/{PROFILE_DISPLAY_NAME_MAX}
+        </Text>
+      </div>
+      <div>
+        <Text size="xs" weight="medium" className="mb-1 block">
+          Email
+        </Text>
+        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-800">
+          <Text size="sm" variant="muted">
+            {user?.email}
+          </Text>
+        </div>
+        <Text variant="muted" size="xs" className="mt-1">
+          Email cannot be changed here.
+        </Text>
+      </div>
+      {user?.username && (
+        <div>
+          <Text size="xs" weight="medium" className="mb-1 block">
+            Username
+          </Text>
+          <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-800">
+            <Text size="sm" variant="muted">
+              @{user.username}
+            </Text>
+          </div>
+          <Text variant="muted" size="xs" className="mt-1">
+            Username cannot be changed after it is set.
+          </Text>
+        </div>
+      )}
+      <div>
+        <Text size="xs" weight="medium" className="mb-1 block">
+          Bio
+        </Text>
+        <Textarea
+          value={bio}
+          onChange={(e) => setBio(e.target.value)}
+          maxLength={PROFILE_BIO_MAX}
+          placeholder="Tell your team a little about yourself"
+          rows={3}
+          aria-label="Bio"
+        />
+        <Text variant="muted" size="xs" className="mt-1 text-right">
+          {bio.length}/{PROFILE_BIO_MAX}
+        </Text>
+      </div>
+      <div>
+        <Text size="xs" weight="medium" className="mb-1 block">
+          Website
+        </Text>
+        <Input
+          value={website}
+          onChange={(e) => setWebsite(e.target.value)}
+          size="sm"
+          maxLength={PROFILE_WEBSITE_MAX}
+          placeholder="https://example.com"
+          type="url"
+          aria-label="Website"
+          error={websiteError}
+        />
+      </div>
+      {message && (
+        <Text size="xs" variant={message.ok ? 'success' : 'destructive'}>
+          {message.text}
+        </Text>
+      )}
+      <Button
+        variant="primary"
+        size="sm"
+        onClick={() => void handleSave()}
+        disabled={busy || !!websiteError}
+        isLoading={busy}
+        loadingText="Saving…"
+      >
+        Save profile
+      </Button>
+    </div>
+  );
+};
+
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 export const SettingsPage: React.FC = () => {
-  const { signOut } = useSession();
+  const { user, signOut } = useSession();
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
+
+  const handlePasswordReset = async () => {
+    if (!user?.email || resetBusy) return;
+    setResetBusy(true);
+    setResetMessage(null);
+    try {
+      await authApi.requestPasswordReset(user.email, `${window.location.origin}/app`);
+      setResetMessage('Check your email for a password reset link.');
+    } catch (error: unknown) {
+      setResetMessage(error instanceof Error ? error.message : 'Failed to send reset email.');
+    } finally {
+      setResetBusy(false);
+    }
+  };
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5 px-4 py-8">
+    <AppPage>
+      {/* Profile */}
+      <Section icon={faUser} title="Profile" description="Your display name, bio, and website.">
+        <ProfileEditor />
+      </Section>
+
       {/* Appearance */}
       <Section
         icon={faPalette}
@@ -273,9 +412,6 @@ export const SettingsPage: React.FC = () => {
       >
         <Row label="Brand theme" hint="Switch between brand themes">
           <BrandSelector />
-        </Row>
-        <Row label="Colour theme" hint="Persisted in localStorage for this browser">
-          <ThemeSelector />
         </Row>
       </Section>
 
@@ -290,6 +426,27 @@ export const SettingsPage: React.FC = () => {
 
       {/* Account */}
       <Section icon={faGear} title="Account">
+        <GitHubConnectionRow />
+        <Row label="Reset password" hint="We will email you a link to choose a new password">
+          <Button
+            variant="outline"
+            size="sm"
+            leftIcon={<FontAwesomeIcon icon={faRotateLeft} className="text-xs" />}
+            onClick={() => void handlePasswordReset()}
+            disabled={!user?.email || resetBusy}
+            isLoading={resetBusy}
+            loadingText="Sending…"
+          >
+            Reset password
+          </Button>
+        </Row>
+        {resetMessage && (
+          <div className="px-5 py-3.5">
+            <Text variant="muted" size="xs">
+              {resetMessage}
+            </Text>
+          </div>
+        )}
         <Row label="Sign out" hint="You will be returned to the login screen">
           <Button
             variant="danger"
@@ -318,6 +475,6 @@ export const SettingsPage: React.FC = () => {
           </Row>
         ))}
       </Section>
-    </div>
+    </AppPage>
   );
 };

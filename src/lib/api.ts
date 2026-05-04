@@ -21,14 +21,41 @@ export interface TimecoreUser {
   createdAt: string;
   emailVerified: boolean;
   image?: string | null;
+  /** Canonical username — null until the user has claimed one. */
+  username: string | null;
+}
+
+export interface AuthAccount {
+  id: string;
+  accountId: string;
+  providerId: string;
+  userId: string;
+  createdAt: string;
+  updatedAt: string;
+  scopes: string[];
 }
 
 export interface PublicUser {
   id: string;
   name: string;
+  /** Canonical username/handle. Null until the user claims one. */
+  username: string | null;
   image: string | null;
   bio: string;
   website: string;
+  /** Teams shared between the viewer and this user (non-personal). Empty for own profile. */
+  sharedTeams?: Array<{ id: string; name: string; isAdmin: boolean }>;
+}
+
+/** API error that carries the HTTP status code. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
 }
 
 // ─── Token storage (for Capacitor / custom-scheme WebViews where cookies are unreliable) ──
@@ -46,34 +73,53 @@ export const sessionToken = {
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const hasBody = options.body != null;
   const token = sessionToken.get();
-  const res = await fetch(`${TIMECORE_BASE_URL}${path}`, {
-    credentials: 'include',
-    headers: {
-      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-    ...options,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`${TIMECORE_BASE_URL}${path}`, {
+      credentials: 'include',
+      signal: controller.signal,
+      headers: {
+        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+      ...options,
+    });
 
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    throw new Error(
-      (body.message as string | undefined) ??
-        (body.error as string | undefined) ??
-        `HTTP ${res.status}`,
-    );
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+        res.status,
+      );
+    }
+
+    return res.json() as Promise<T>;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return res.json() as Promise<T>;
 }
 
 // ─── Auth API ─────────────────────────────────────────────────────────────────
 
+/** fetch() with an 8-second abort timeout — prevents indefinite hangs on slow connections. */
+async function timedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  try {
+    return await fetch(url, { signal: controller.signal, ...options });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export const authApi = {
   /** Sign in — stores session token from `set-auth-token` header (better-auth bearer plugin). */
   signIn: async (email: string, password: string) => {
-    const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/email`, {
+    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/email`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -94,7 +140,7 @@ export const authApi = {
 
   /** Sign up — stores session token from `set-auth-token` header (better-auth bearer plugin). */
   signUp: async (email: string, password: string, name: string) => {
-    const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-up/email`, {
+    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/sign-up/email`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -112,6 +158,49 @@ export const authApi = {
     if (token) sessionToken.set(token);
     return res.json();
   },
+
+  /**
+   * Initiate a social OAuth sign-in (e.g. GitHub).
+   * Returns the provider redirect URL; caller should set window.location.href to it.
+   */
+  signInWithSocial: async (provider: 'github' | 'google', callbackURL: string): Promise<string> => {
+    const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/social`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, callbackURL }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+      );
+    }
+    const data = (await res.json()) as { url: string };
+    return data.url;
+  },
+
+  /** Initiate linking a social provider to the currently authenticated user. */
+  linkSocial: async (provider: 'github' | 'google', callbackURL: string): Promise<string> => {
+    const data = await request<{ url: string }>('/api/auth/link-social', {
+      method: 'POST',
+      body: JSON.stringify({ provider, callbackURL }),
+    });
+    return data.url;
+  },
+
+  /** Remove a linked auth provider from the current account. */
+  unlinkAccount: async (providerId: string): Promise<void> => {
+    await request('/api/auth/unlink-account', {
+      method: 'POST',
+      body: JSON.stringify({ providerId }),
+    });
+  },
+
+  /** List auth providers linked to the current account. */
+  listAccounts: (): Promise<AuthAccount[]> => request<AuthAccount[]>('/api/auth/list-accounts'),
 
   /** Sign out — clears better-auth session cookie and stored token. */
   signOut: async () => {
@@ -148,7 +237,7 @@ export const authApi = {
     try {
       return await request<{ user: TimecoreUser }>('/v1/me');
     } catch (err) {
-      if (err instanceof Error && err.message.startsWith('HTTP 401')) return null;
+      if (err instanceof ApiError && err.status === 401) return null;
       throw err;
     }
   },
@@ -160,6 +249,12 @@ export const userApi = {
   /** Get a single user's public profile by ID. */
   getUser: (id: string) =>
     request<{ user: PublicUser }>(`/v1/users/${encodeURIComponent(id)}`).then((r) => r.user),
+
+  /** Get a single user's public profile by username (requires auth). */
+  getUserByUsername: (username: string) =>
+    request<{ user: PublicUser }>(`/v1/users/by/username/${encodeURIComponent(username)}`).then(
+      (r) => r.user,
+    ),
 
   /** Batch-fetch public profiles by ID list (server caps at 200). */
   getUsers: (ids: string[]) =>
@@ -175,16 +270,41 @@ export const userApi = {
     }).then((r) => r.user),
 };
 
+// ─── Username API ─────────────────────────────────────────────────────────────
+
+export const usernameApi = {
+  /**
+   * Check whether a username is available.
+   * Returns { available: true } or { available: false, reason: string }.
+   */
+  check: (username: string) =>
+    request<{ available: boolean; reason: string | null }>(
+      `/v1/me/username-available?username=${encodeURIComponent(username)}`,
+    ),
+
+  /**
+   * Claim a canonical username for the current user.
+   * Throws if the username is taken, invalid, or already claimed.
+   */
+  claim: (username: string) =>
+    request<{ username: string }>('/v1/me/username', {
+      method: 'POST',
+      body: JSON.stringify({ username }),
+    }),
+};
+
 // ─── Ticket API ───────────────────────────────────────────────────────────────
 
 export interface Ticket {
   id: string;
   teamId: string;
   title: string;
+  description: string | null;
   github: string;
   accumulatedTime: number;
   startTimestamp: number | null;
   status: string;
+  priority: string | null;
   createdBy: string;
   assignedTo: string | null;
   reviewedBy: string | null;
@@ -212,10 +332,16 @@ export const ticketApi = {
 
   updateTicket: (
     id: string,
-    updates: { title?: string; github?: string; accumulatedTime?: number; status?: string },
+    updates: { title?: string; github?: string; accumulatedTime?: number; description?: string },
   ) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`, {
       method: 'PUT',
+      body: JSON.stringify(updates),
+    }).then((r) => r.ticket),
+
+  updateStatusPriority: (id: string, updates: { status?: string; priority?: string }) =>
+    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/status-priority`, {
+      method: 'PATCH',
       body: JSON.stringify(updates),
     }).then((r) => r.ticket),
 
@@ -223,10 +349,13 @@ export const ticketApi = {
     request<{ ok: boolean }>(`/v1/tickets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   startTimer: (id: string, now: number) =>
-    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/start`, {
-      method: 'POST',
-      body: JSON.stringify({ now }),
-    }).then((r) => r.ticket),
+    request<{ ticket: Ticket; stoppedTickets: Ticket[] }>(
+      `/v1/tickets/${encodeURIComponent(id)}/start`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ now }),
+      },
+    ),
 
   stopTimer: (id: string, now: number) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/stop`, {
@@ -265,6 +394,7 @@ export interface TeamMember {
   id: string;
   name: string;
   email: string;
+  username: string | null;
 }
 
 export const teamApi = {
@@ -342,10 +472,10 @@ export interface ClockEvent {
   id: string;
   userId: string;
   teamId: string;
-  startTimestamp: number;
+  startTime: number;
   accumulatedTime: number;
   tickets: ClockEventTicket[];
-  endTime: string | null;
+  endTime: number | null;
 }
 
 export const clockApi = {
@@ -383,8 +513,8 @@ export const clockApi = {
   /** Get all clock events for the current user. */
   getEvents: () => request<{ events: ClockEvent[] }>('/v1/clock/events').then((r) => r.events),
 
-  /** Get timesheet data for a user over a date range. */
-  getTimesheet: (userId: string, startDate: string, endDate: string) =>
+  /** Get timesheet data for a user over a date range (epoch ms boundaries). */
+  getTimesheet: (userId: string, startMs: number, endMs: number) =>
     request<{
       sessions: ClockEvent[];
       summary: {
@@ -395,7 +525,7 @@ export const clockApi = {
         workingDays: number;
       };
     }>(
-      `/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startDate=${startDate}&endDate=${endDate}`,
+      `/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startMs=${startMs}&endMs=${endMs}`,
     ),
 
   /** Open an SSE connection for live team clock state. Returns an EventSource. */

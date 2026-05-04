@@ -6,12 +6,12 @@
     <meta name="deploy-smoke-test" content="v1" />
     <title>TimeHuddle — Team Time Tracking</title>
     <link rel="icon" type="image/svg+xml" href="/timehuddle-icon.svg" />
-    <!-- Anti-flash: apply saved theme before first paint -->
+    <!-- Anti-flash: apply saved theme before first paint; defaults to dark -->
     <script>
       (function () {
         try {
           var t = localStorage.getItem('app:theme');
-          if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          if (!t) t = 'dark';
           document.documentElement.setAttribute('data-theme', t);
           if (t === 'dark') document.documentElement.classList.add('dark');
         } catch (e) {}

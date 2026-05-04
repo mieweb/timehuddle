@@ -1,6 +1,6 @@
 import { ObjectId } from "mongodb";
 import { teamsCollection, ticketsCollection } from "../models/index.js";
-import type { Ticket, TicketStatus } from "../models/ticket.model.js";
+import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
 
 type OwnerError = "not-found" | "forbidden";
 type AssignError = "not-found" | "forbidden" | "bad-assignee";
@@ -58,7 +58,7 @@ export class TicketService {
   async update(
     id: string,
     userId: string,
-    updates: Partial<Pick<Ticket, "title" | "github" | "accumulatedTime" | "status">>
+    updates: Partial<Pick<Ticket, "title" | "github" | "accumulatedTime" | "description">>
   ): Promise<Ticket | OwnerError> {
     const ticket = await this.findById(id);
     if (!ticket) return "not-found";
@@ -67,6 +67,29 @@ export class TicketService {
       { _id: new ObjectId(id) },
       { $set: { ...updates, updatedAt: new Date(), updatedBy: userId } }
     );
+    return (await this.findById(id))!;
+  }
+
+  // Any team member can update status and/or priority.
+  async updateStatusPriority(
+    id: string,
+    userId: string,
+    updates: { status?: TicketStatus; priority?: TicketPriority }
+  ): Promise<Ticket | OwnerError> {
+    const ticket = await this.findById(id);
+    if (!ticket) return "not-found";
+    if (!isValidId(ticket.teamId)) return "forbidden";
+    const team = await teamsCollection().findOne({
+      _id: new ObjectId(ticket.teamId),
+      $or: [{ members: userId }, { admins: userId }],
+    });
+    if (!team) return "forbidden";
+    const $set: Record<string, unknown> = { ...updates, updatedAt: new Date(), updatedBy: userId };
+    if (updates.status === "reviewed") {
+      $set.reviewedBy = userId;
+      $set.reviewedAt = new Date();
+    }
+    await ticketsCollection().updateOne({ _id: new ObjectId(id) }, { $set });
     return (await this.findById(id))!;
   }
 
@@ -82,15 +105,61 @@ export class TicketService {
     return "ok";
   }
 
-  async startTimer(id: string, userId: string, now: number): Promise<Ticket | OwnerError> {
+  async startTimer(
+    id: string,
+    userId: string,
+    now: number
+  ): Promise<{ ticket: Ticket; stoppedTickets: Ticket[] } | OwnerError> {
     const ticket = await this.findById(id);
     if (!ticket) return "not-found";
     if (ticket.createdBy !== userId) return "forbidden";
-    await ticketsCollection().updateOne(
+
+    // Stop any other running timers owned by this user before starting the new one.
+    const running = await ticketsCollection()
+      .find({
+        createdBy: userId,
+        startTimestamp: { $exists: true },
+        _id: { $ne: new ObjectId(id) },
+      })
+      .toArray();
+
+    const stoppedTickets: Ticket[] = [];
+    if (running.length > 0) {
+      // Batch all stops into a single bulkWrite round-trip.
+      const bulkOps = running.map((other) => {
+        const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
+        const newAccumulatedTime = (other.accumulatedTime ?? 0) + elapsed;
+        return {
+          updateOne: {
+            filter: { _id: other._id },
+            update: {
+              $set: { accumulatedTime: newAccumulatedTime },
+              $unset: { startTimestamp: 1 as const },
+            },
+          },
+        };
+      });
+      await ticketsCollection().bulkWrite(bulkOps);
+
+      // Build stopped-ticket objects from in-memory data to avoid extra DB reads.
+      for (const other of running) {
+        const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
+        const stopped: Ticket = {
+          ...other,
+          accumulatedTime: (other.accumulatedTime ?? 0) + elapsed,
+        };
+        delete stopped.startTimestamp;
+        stoppedTickets.push(stopped);
+      }
+    }
+
+    const started = await ticketsCollection().findOneAndUpdate(
       { _id: new ObjectId(id) },
-      { $set: { startTimestamp: now } }
+      { $set: { startTimestamp: now } },
+      { returnDocument: "after" }
     );
-    return (await this.findById(id))!;
+    if (!started) return "not-found";
+    return { ticket: started, stoppedTickets };
   }
 
   async stopTimer(id: string, userId: string, now: number): Promise<Ticket | OwnerError> {
@@ -134,9 +203,10 @@ export class TicketService {
     return result.modifiedCount;
   }
 
+  // Assign ticket: allowed for the ticket creator or a team admin.
   async assign(
     id: string,
-    adminId: string,
+    requesterId: string,
     assignedToUserId: string | null
   ): Promise<Ticket | AssignError> {
     const ticket = await this.findById(id);
@@ -144,16 +214,19 @@ export class TicketService {
     if (!isValidId(ticket.teamId)) return "forbidden";
     const team = await teamsCollection().findOne({
       _id: new ObjectId(ticket.teamId),
-      admins: adminId,
+      $or: [{ members: requesterId }, { admins: requesterId }],
     });
     if (!team) return "forbidden";
+    const isCreator = ticket.createdBy === requesterId;
+    const isAdmin = (team.admins ?? []).includes(requesterId);
+    if (!isCreator && !isAdmin) return "forbidden";
     if (assignedToUserId !== null) {
       const allMembers = [...new Set([...(team.members ?? []), ...(team.admins ?? [])])];
       if (!allMembers.includes(assignedToUserId)) return "bad-assignee";
     }
     await ticketsCollection().updateOne(
       { _id: new ObjectId(id) },
-      { $set: { assignedTo: assignedToUserId, updatedAt: new Date(), updatedBy: adminId } }
+      { $set: { assignedTo: assignedToUserId, updatedAt: new Date(), updatedBy: requesterId } }
     );
     return (await this.findById(id))!;
   }

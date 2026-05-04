@@ -51,9 +51,10 @@ Pre-commit hooks (husky + lint-staged) run lint + format automatically.
 
 ### Required Validation Steps
 
-1. `npm run lint && npm run typecheck` — both must pass
-2. `npm run format` — must be clean
-3. Smoke-test in browser at `http://localhost:3000`
+1. `npm run test:all` — must pass at the end of every coding session before handing off
+2. `npm run lint && npm run typecheck` — both must pass
+3. `npm run format` — must be clean
+4. Smoke-test in browser at `http://localhost:3000`
 
 ### Testing with MCP Browser
 

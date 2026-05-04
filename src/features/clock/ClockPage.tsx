@@ -25,7 +25,6 @@ import {
   CardHeader,
   CardTitle,
   Input,
-  Select,
   Spinner,
   Text,
 } from '@mieweb/ui';
@@ -34,6 +33,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTeam } from '../../lib/TeamContext';
 import { formatTimer, formatDuration } from '../../lib/timeUtils';
 import { clockApi, ticketApi, type Ticket } from '../../lib/api';
+import { AppPage } from '../../ui/AppPage';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useSession } from '../../lib/useSession';
 import { AttachmentsPanel } from './AttachmentsPanel';
@@ -41,15 +41,7 @@ import { AttachmentsPanel } from './AttachmentsPanel';
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
 export const ClockPage: React.FC = () => {
-  const {
-    teams,
-    selectedTeamId,
-    setSelectedTeamId,
-    activeClockEvent,
-    currentTime,
-    teamsReady,
-    refetchClock,
-  } = useTeam();
+  const { selectedTeamId, activeClockEvent, currentTime, teamsReady, refetchClock } = useTeam();
 
   const { clockIn, clockOut, clockInLoading, clockOutLoading } = useClockToggle();
   const { user } = useSession();
@@ -77,7 +69,7 @@ export const ClockPage: React.FC = () => {
 
   // Session duration
   const sessionSeconds = activeClockEvent
-    ? Math.floor((currentTime - activeClockEvent.startTimestamp) / 1000)
+    ? Math.floor((currentTime - activeClockEvent.startTime) / 1000)
     : 0;
 
   // ── Handlers ──
@@ -126,15 +118,6 @@ export const ClockPage: React.FC = () => {
     [allTickets, activeTicketIds],
   );
 
-  const teamOptions = useMemo(
-    () =>
-      teams.map((t) => ({
-        value: t.id,
-        label: t.isPersonal ? 'Personal' : t.name,
-      })),
-    [teams],
-  );
-
   if (!teamsReady) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -144,19 +127,7 @@ export const ClockPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-4 md:p-6">
-      {/* Team selector */}
-      {teams.length > 1 && (
-        <Select
-          label="Team"
-          hideLabel={false}
-          size="sm"
-          options={teamOptions}
-          value={selectedTeamId ?? ''}
-          onValueChange={setSelectedTeamId}
-        />
-      )}
-
+    <AppPage>
       {/* ── Clock Button ── */}
       <Card padding="lg" className="flex flex-col items-center gap-4 rounded-2xl">
         <CardContent className="flex flex-col items-center gap-4">
@@ -351,6 +322,6 @@ export const ClockPage: React.FC = () => {
           <AttachmentsPanel kind="clock" entityId={activeClockEvent.id} currentUserId={user?.id} />
         </Card>
       )}
-    </div>
+    </AppPage>
   );
 };

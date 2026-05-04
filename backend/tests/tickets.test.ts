@@ -338,6 +338,7 @@ describe("ticket timer (start / stop)", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().ticket.startTimestamp).toBe(now);
+    expect(Array.isArray(res.json().stoppedTickets)).toBe(true);
   });
 
   it("non-owner cannot start timer — 403", async () => {
@@ -372,6 +373,74 @@ describe("ticket timer (start / stop)", () => {
     // initial 10s + 30s elapsed = 40s
     expect(ticket.accumulatedTime).toBe(40);
     expect(ticket.startTimestamp).toBeNull();
+  });
+});
+
+// ─── Auto-stop: only one timer at a time ──────────────────────────────────────
+
+describe("starting a timer auto-stops any other running timer (owner)", () => {
+  let timerA: string;
+  let timerB: string;
+
+  beforeAll(async () => {
+    const [rA, rB] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: "/v1/tickets",
+        headers: { cookie: ownerCookie },
+        payload: { teamId, title: "Auto-stop A", accumulatedTime: 5 },
+      }),
+      app.inject({
+        method: "POST",
+        url: "/v1/tickets",
+        headers: { cookie: ownerCookie },
+        payload: { teamId, title: "Auto-stop B", accumulatedTime: 0 },
+      }),
+    ]);
+    timerA = rA.json().ticket.id;
+    timerB = rB.json().ticket.id;
+  });
+
+  it("starting B auto-stops A and returns stoppedTickets", async () => {
+    // Start A first
+    const startA = Date.now() - 10_000;
+    await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${timerA}/start`,
+      headers: { cookie: ownerCookie },
+      payload: { now: startA },
+    });
+
+    // Now start B — should auto-stop A
+    const startB = startA + 10_000;
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${timerB}/start`,
+      headers: { cookie: ownerCookie },
+      payload: { now: startB },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+
+    // B is now running
+    expect(body.ticket.id).toBe(timerB);
+    expect(body.ticket.startTimestamp).toBe(startB);
+
+    // A was auto-stopped and returned in stoppedTickets
+    expect(body.stoppedTickets).toHaveLength(1);
+    const stoppedA = body.stoppedTickets[0];
+    expect(stoppedA.id).toBe(timerA);
+    expect(stoppedA.startTimestamp).toBeNull();
+    // initial 5s + 10s elapsed = 15s
+    expect(stoppedA.accumulatedTime).toBe(15);
+  });
+
+  it("only one timer running after start — A has no startTimestamp", async () => {
+    const db = client.db();
+    const { ObjectId: ObjId } = await import("mongodb");
+    const docA = await db.collection("tickets").findOne({ _id: new ObjId(timerA) });
+    expect(docA?.startTimestamp).toBeUndefined();
   });
 });
 
