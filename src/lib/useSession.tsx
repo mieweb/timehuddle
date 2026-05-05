@@ -14,6 +14,8 @@ import { authApi, type TimecoreUser } from './api';
 interface SessionState {
   user: TimecoreUser | null;
   loading: boolean;
+  /** True when the user is authenticated but has not yet claimed a username. */
+  needsUsernameClaim: boolean;
   /** Re-fetch session from timecore — call after sign-in / sign-up. */
   refetch: () => Promise<void>;
   /** Sign out from timecore and clear local session state. */
@@ -25,6 +27,7 @@ interface SessionState {
 const SessionContext = createContext<SessionState>({
   user: null,
   loading: true,
+  needsUsernameClaim: false,
   refetch: async () => {},
   signOut: async () => {},
 });
@@ -41,10 +44,14 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     console.log('[TimeHuddle] fetchSession: calling getMe...');
     try {
       const data = await authApi.getMe();
-      console.log(`[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${data?.user?.email ?? 'null'}`);
+      console.log(
+        `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${data?.user?.email ?? 'null'}`,
+      );
       setUser(data?.user ?? null);
     } catch (err) {
-      console.log(`[TimeHuddle] fetchSession: getMe failed in ${(performance.now() - t).toFixed(0)}ms — ${String(err)}`);
+      console.log(
+        `[TimeHuddle] fetchSession: getMe failed in ${(performance.now() - t).toFixed(0)}ms — ${String(err)}`,
+      );
       setUser(null);
     } finally {
       setLoading(false);
@@ -60,8 +67,12 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setUser(null);
   }, []);
 
+  const needsUsernameClaim = !!user && user.username === null;
+
   return (
-    <SessionContext.Provider value={{ user, loading, refetch: fetchSession, signOut }}>
+    <SessionContext.Provider
+      value={{ user, loading, needsUsernameClaim, refetch: fetchSession, signOut }}
+    >
       {children}
     </SessionContext.Provider>
   );

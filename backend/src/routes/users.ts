@@ -1,7 +1,7 @@
 import { ObjectId } from "mongodb";
 import { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
-import { usersCollection } from "../models/index.js";
+import { usersCollection, teamsCollection } from "../models/index.js";
 import { userService } from "../services/user.service.js";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -20,6 +20,7 @@ const userSessionSchema = {
     name: { type: "string" },
     email: { type: "string", format: "email" },
     image: { type: "string", nullable: true },
+    username: { type: "string", nullable: true },
   },
 };
 
@@ -31,6 +32,7 @@ const userProfileSchema = {
     email: { type: "string", format: "email" },
     emailVerified: { type: "boolean" },
     image: { type: "string", nullable: true },
+    username: { type: "string", nullable: true },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
   },
@@ -54,7 +56,15 @@ export async function userRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      return reply.send({ user: req.user });
+      // Augment the session user with the username from the users collection.
+      const sessionUser = req.user!;
+      const dbUser = await usersCollection().findOne({ _id: new ObjectId(sessionUser.id) });
+      return reply.send({
+        user: {
+          ...sessionUser,
+          username: dbUser?.username ?? null,
+        },
+      });
     }
   );
 
@@ -85,6 +95,82 @@ export async function userRoutes(app: FastifyInstance) {
     }
   );
 
+  // ─── Username availability check ─────────────────────────────────────────────
+
+  app.get(
+    "/me/username-available",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Check whether a username is available",
+        security: [{ cookieAuth: [] }],
+        querystring: {
+          type: "object",
+          required: ["username"],
+          properties: { username: { type: "string" } },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              available: { type: "boolean" },
+              reason: { type: "string", nullable: true },
+            },
+          },
+          ...unauthorizedResponse,
+        },
+      },
+    },
+    async (req, reply) => {
+      const { username } = req.query as { username: string };
+      const result = await userService.isUsernameAvailable(username.trim().toLowerCase());
+      return reply.send({ available: result.available, reason: result.reason ?? null });
+    }
+  );
+
+  // ─── Username claim ───────────────────────────────────────────────────────────
+
+  app.post(
+    "/me/username",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Claim a canonical username",
+        security: [{ cookieAuth: [] }],
+        body: {
+          type: "object",
+          required: ["username"],
+          properties: { username: { type: "string", minLength: 3, maxLength: 30 } },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: { username: { type: "string" } },
+          },
+          400: { type: "object", properties: { error: { type: "string" } } },
+          409: { type: "object", properties: { error: { type: "string" } } },
+          ...unauthorizedResponse,
+        },
+      },
+    },
+    async (req, reply) => {
+      const { username } = req.body as { username: string };
+      const result = await userService.claimUsername(req.user!.id, username);
+
+      if (typeof result === "string") {
+        // Discriminated error
+        if (result === "taken" || result === "already-claimed") {
+          return reply.status(409).send({ error: result });
+        }
+        return reply.status(400).send({ error: result });
+      }
+
+      return reply.send({ username: result!.username });
+    }
+  );
+
   // ─── Public user lookups (for display names & avatars) ──────────────────────
 
   const publicUserSchema = {
@@ -92,9 +178,21 @@ export async function userRoutes(app: FastifyInstance) {
     properties: {
       id: { type: "string" },
       name: { type: "string" },
+      username: { type: "string", nullable: true },
       image: { type: "string", nullable: true },
       bio: { type: "string" },
       website: { type: "string" },
+      sharedTeams: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            isAdmin: { type: "boolean" },
+          },
+        },
+      },
     },
   };
 
@@ -104,11 +202,64 @@ export async function userRoutes(app: FastifyInstance) {
     return {
       id: u._id.toHexString(),
       name: u.name,
+      username: u.username ?? null,
       image: u.image ?? null,
       bio: u.bio ?? "",
       website: u.website ?? "",
     };
   }
+
+  // ─── Profile lookup by username ───────────────────────────────────────────────
+
+  app.get(
+    "/users/by/username/:username",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Get public profile by username",
+        security: [{ cookieAuth: [] }],
+        params: {
+          type: "object",
+          required: ["username"],
+          properties: { username: { type: "string" } },
+        },
+        response: {
+          200: { type: "object", properties: { user: publicUserSchema } },
+          ...unauthorizedResponse,
+          404: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { username } = req.params as { username: string };
+      const user = await userService.findByUsername(username);
+      if (!user) return reply.status(404).send({ error: "Not found" });
+
+      const targetId = user._id.toHexString();
+
+      const sharedTeamDocs =
+        req.user!.id !== targetId
+          ? await teamsCollection()
+              .find({
+                members: { $all: [req.user!.id, targetId] },
+                isPersonal: { $ne: true },
+              })
+              .toArray()
+          : [];
+
+      const sharedTeams = sharedTeamDocs.map((t) => ({
+        id: t._id.toString(),
+        name: t.name,
+        isAdmin: t.admins.includes(targetId),
+      }));
+
+      return reply.send({ user: { ...toPublicUser(user), sharedTeams } });
+    }
+  );
 
   app.get(
     "/users/:id",
@@ -134,10 +285,29 @@ export async function userRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const { id } = req.params as { id: string };
-      const user = await userService.findById(id);
+      const { id: targetId } = req.params as { id: string };
+
+      const user = await userService.findById(targetId);
       if (!user) return reply.status(404).send({ error: "Not found" });
-      return reply.send({ user: toPublicUser(user) });
+
+      // Resolve shared teams (non-personal) between viewer and target
+      const sharedTeamDocs =
+        req.user!.id === targetId
+          ? []
+          : await teamsCollection()
+              .find({
+                members: { $all: [req.user!.id, targetId] },
+                isPersonal: { $ne: true },
+              })
+              .toArray();
+
+      const sharedTeams = sharedTeamDocs.map((t) => ({
+        id: t._id.toString(),
+        name: t.name,
+        isAdmin: t.admins.includes(targetId),
+      }));
+
+      return reply.send({ user: { ...toPublicUser(user), sharedTeams } });
     }
   );
 

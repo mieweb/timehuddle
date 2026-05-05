@@ -30,8 +30,9 @@ import {
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
-import { formatDuration, formatTime, formatDate, toDateString } from '../../lib/timeUtils';
+import { formatDuration, formatTime, formatDate } from '../../lib/timeUtils';
 import { clockApi, type ClockEvent } from '../../lib/api';
+import { AppPage } from '../../ui/AppPage';
 import { useSession } from '../../lib/useSession';
 import { AttachmentsPanel } from './AttachmentsPanel';
 
@@ -94,23 +95,23 @@ export const TimesheetPage: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     if (!user?.id) return;
-    let startDate: string;
-    let endDate: string;
+    let startMs: number;
+    let endMs: number;
 
     if (preset === 'custom') {
       if (!customStart || !customEnd) return;
-      startDate = customStart;
-      endDate = customEnd;
+      startMs = new Date(`${customStart}T00:00:00`).getTime();
+      endMs = new Date(`${customEnd}T23:59:59.999`).getTime();
     } else {
       const [s, e] = getDateRange(preset);
-      startDate = toDateString(s);
-      endDate = toDateString(e);
+      startMs = s.getTime();
+      endMs = e.getTime();
     }
 
     setLoading(true);
     setError(null);
     try {
-      const result = await clockApi.getTimesheet(user?.id ?? '', startDate, endDate);
+      const result = await clockApi.getTimesheet(user?.id ?? '', startMs, endMs);
       setData(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load timesheet');
@@ -141,7 +142,7 @@ export const TimesheetPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-6">
+    <AppPage>
       {/* Date range filter */}
       <div className="flex flex-wrap items-center gap-2">
         {presets.map((p) => (
@@ -268,7 +269,7 @@ export const TimesheetPage: React.FC = () => {
               </TableHeader>
               <TableBody>
                 {data.sessions.map((s) => {
-                  const startTime = new Date(s.startTimestamp);
+                  const startTime = new Date(s.startTime);
                   const endTime = s.endTime ? new Date(s.endTime) : null;
                   const duration = endTime
                     ? Math.floor((endTime.getTime() - startTime.getTime()) / 1000)
@@ -351,6 +352,6 @@ export const TimesheetPage: React.FC = () => {
           </CardContent>
         </Card>
       )}
-    </div>
+    </AppPage>
   );
 };

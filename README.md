@@ -1,5 +1,3 @@
-<div align="center">
-
 # TimeHuddle — Team Time Tracking & Collaboration
 
 Real-time team time tracking and collaboration platform built with React 19, Vite, Tailwind CSS 4, and TypeScript — powered by a Fastify + MongoDB backend.
@@ -21,8 +19,6 @@ Features **Clock In/Out**, **Ticket Tracking**, **Timesheets**, **Team Managemen
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-4.x-38B2AC?logo=tailwind-css&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green)
-
-</div>
 
 ---
 
@@ -93,20 +89,26 @@ TRUSTED_ORIGINS=http://localhost:3000
 
 ### Manual Setup
 
-#### 1. Start the backend
-
-```bash
-cd backend
-npm install
-npm run dev        # Fastify API on http://localhost:4000
-```
-
-#### 2. Start the frontend
+#### 1. Clone and install
 
 ```bash
 git clone https://github.com/mieweb/timehuddle.git
 cd timehuddle
+nvm use
 npm install
+```
+
+#### 2. Start the backend
+
+```bash
+cd backend
+npm run dev        # Fastify API on http://localhost:4000
+```
+
+#### 3. Start the frontend
+
+```bash
+cd ..
 npm run dev        # Vite dev server on http://localhost:3000
 ```
 
@@ -121,6 +123,23 @@ Copy `.env` and adjust if your backend URL differs:
 VITE_API_URL=http://localhost:4000
 # VITE_VAPID_PUBLIC_KEY=your_vapid_public_key_here  # optional, for push notifications
 ```
+
+## Development
+
+### Seeds
+
+After running `sh scripts/seed-docker.sh`, the following demo teams are created. Use their join codes to add users to teams via the UI.
+
+| Team       | Join Code  |
+| ---------- | ---------- |
+| Developers | `ZDLYFY9T` |
+| Accounting | `P2SRHYYK` |
+| Product    | `FAKASXQ9` |
+| Design     | `MHGT2L3Z` |
+| Support    | `180YR2C3` |
+| Operations | `R0VCXWDP` |
+
+Demo user accounts all use the password `Password1!`. Emails follow the pattern `firstname@example.com` (e.g. `alice@example.com`).
 
 ## Commands
 

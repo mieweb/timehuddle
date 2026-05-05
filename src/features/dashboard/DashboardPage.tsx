@@ -28,7 +28,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  Select,
   Spinner,
   Text,
 } from '@mieweb/ui';
@@ -39,15 +38,16 @@ import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration, formatTime, formatDate, startOfDay } from '../../lib/timeUtils';
 import { useRouter } from '../../ui/router';
+import { AppPage } from '../../ui/AppPage';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function computeHours(events: ClockEvent[], after: number, now: number): number {
   let total = 0;
   for (const e of events) {
-    if (e.startTimestamp < after) continue;
-    const end = e.endTime ? new Date(e.endTime).getTime() : now;
-    total += (end - e.startTimestamp) / 1000;
+    if (e.startTime < after) continue;
+    const end = e.endTime ?? now;
+    total += (end - e.startTime) / 1000;
   }
   return total;
 }
@@ -57,8 +57,7 @@ function computeHours(events: ClockEvent[], after: number, now: number): number 
 export const DashboardPage: React.FC = () => {
   const { user } = useSession();
   const { navigate } = useRouter();
-  const { teams, teamsReady, selectedTeamId, setSelectedTeamId, activeClockEvent, currentTime } =
-    useTeam();
+  const { teams, teamsReady, activeClockEvent, currentTime } = useTeam();
 
   // All user clock events (from timecore REST)
   const [allEvents, setAllEvents] = useState<ClockEvent[]>([]);
@@ -95,15 +94,6 @@ export const DashboardPage: React.FC = () => {
 
   const isFirstTime = teams.length <= 1 && allEvents.length === 0;
 
-  const teamOptions = useMemo(
-    () =>
-      teams.map((t) => ({
-        value: t.id,
-        label: t.isPersonal ? 'Personal Workspace' : t.name,
-      })),
-    [teams],
-  );
-
   if (!teamsReady) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -113,18 +103,7 @@ export const DashboardPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4 md:p-6">
-      {/* Team selector */}
-      {teams.length > 1 && (
-        <Select
-          label="Team"
-          hideLabel={false}
-          options={teamOptions}
-          value={selectedTeamId ?? ''}
-          onValueChange={setSelectedTeamId}
-        />
-      )}
-
+    <AppPage>
       {/* First time user welcome */}
       {isFirstTime && (
         <Card variant="outlined" padding="lg" className="text-center">
@@ -236,8 +215,8 @@ export const DashboardPage: React.FC = () => {
         >
           <AlertTitle>Session Active</AlertTitle>
           <AlertDescription>
-            Started {formatTime(new Date(activeClockEvent.startTimestamp))} •{' '}
-            {formatDuration(Math.floor((currentTime - activeClockEvent.startTimestamp) / 1000))}
+            Started {formatTime(new Date(activeClockEvent.startTime))} •{' '}
+            {formatDuration(Math.floor((currentTime - activeClockEvent.startTime) / 1000))}
           </AlertDescription>
           <Button
             variant="primary"
@@ -263,9 +242,9 @@ export const DashboardPage: React.FC = () => {
           <CardContent className="p-0">
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {recentEvents.map((event) => {
-                const start = new Date(event.startTimestamp);
+                const start = new Date(event.startTime);
                 const end = event.endTime ? new Date(event.endTime) : null;
-                const durSec = end ? (end.getTime() - event.startTimestamp) / 1000 : 0;
+                const durSec = end ? (end.getTime() - event.startTime) / 1000 : 0;
                 const team = teams.find((t) => t.id === event.teamId);
                 return (
                   <li key={event.id} className="flex items-center justify-between px-5 py-3">
@@ -289,6 +268,6 @@ export const DashboardPage: React.FC = () => {
           </CardContent>
         </Card>
       )}
-    </div>
+    </AppPage>
   );
 };

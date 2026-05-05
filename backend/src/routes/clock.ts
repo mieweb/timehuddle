@@ -28,10 +28,10 @@ const clockEventShape = {
     id: { type: "string" },
     userId: { type: "string" },
     teamId: { type: "string" },
-    startTimestamp: { type: "number" },
+    startTime: { type: "number" },
     accumulatedTime: { type: "number" },
     tickets: { type: "array", items: clockTicketShape },
-    endTime: { type: "string", nullable: true },
+    endTime: { type: "number", nullable: true },
   },
 };
 
@@ -57,7 +57,7 @@ export async function clockRoutes(app: FastifyInstance) {
       const { id: userId } = (req as any).user;
       const { teamId } = req.body as { teamId: string };
       const result = await clockService.start(userId, teamId);
-      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
       return { event: result };
     }
   );
@@ -83,7 +83,8 @@ export async function clockRoutes(app: FastifyInstance) {
       const { id: userId } = (req as any).user;
       const { teamId } = req.body as { teamId: string };
       const result = await clockService.stop(userId, teamId);
-      if (result === "not-found") return reply.status(404).send({ error: "No active clock event" });
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "No active clock event" });
       return { event: result };
     }
   );
@@ -112,8 +113,9 @@ export async function clockRoutes(app: FastifyInstance) {
       const { id: clockEventId } = req.params as { id: string };
       const { ticketId, now } = req.body as { ticketId: string; now: number };
       const result = await clockService.addTicket(userId, clockEventId, ticketId, now);
-      if (result === "not-found") return reply.status(404).send({ error: "Clock event not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "Clock event not found" });
+      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
       return { event: result };
     }
   );
@@ -142,7 +144,8 @@ export async function clockRoutes(app: FastifyInstance) {
       const { id: clockEventId } = req.params as { id: string };
       const { ticketId, now } = req.body as { ticketId: string; now: number };
       const result = await clockService.stopTicket(userId, clockEventId, ticketId, now);
-      if (result === "not-found") return reply.status(404).send({ error: "Clock event not found" });
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "Clock event not found" });
       return { event: result };
     }
   );
@@ -158,8 +161,8 @@ export async function clockRoutes(app: FastifyInstance) {
         body: {
           type: "object",
           properties: {
-            startTimestamp: { type: "number" },
-            endTimestamp: { type: "number", nullable: true },
+            startTime: { type: "number" },
+            endTime: { type: "number", nullable: true },
           },
         },
         response: { 200: { type: "object", properties: { event: clockEventShape } } },
@@ -168,12 +171,15 @@ export async function clockRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id: userId } = (req as any).user;
       const { id: clockEventId } = req.params as { id: string };
-      const data = req.body as { startTimestamp?: number; endTimestamp?: number | null };
+      const data = req.body as { startTime?: number; endTime?: number | null };
       const result = await clockService.updateTimes(userId, clockEventId, data);
-      if (result === "not-found") return reply.status(404).send({ error: "Clock event not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "Clock event not found" });
+      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
       if (result === "invalid-range")
-        return reply.status(422).send({ error: "Clock-out cannot be earlier than clock-in" });
+        return (reply as any)
+          .status(422)
+          .send({ error: "Clock-out cannot be earlier than clock-in" });
       return { event: result };
     }
   );
@@ -187,24 +193,24 @@ export async function clockRoutes(app: FastifyInstance) {
         tags: ["Clock"],
         querystring: {
           type: "object",
-          required: ["userId", "startDate", "endDate"],
+          required: ["userId", "startMs", "endMs"],
           properties: {
             userId: { type: "string" },
-            startDate: { type: "string" },
-            endDate: { type: "string" },
+            startMs: { type: "number" },
+            endMs: { type: "number" },
           },
         },
       },
     },
     async (req, reply) => {
       const { id: requesterId } = (req as any).user;
-      const { userId, startDate, endDate } = req.query as {
+      const { userId, startMs, endMs } = req.query as {
         userId: string;
-        startDate: string;
-        endDate: string;
+        startMs: number;
+        endMs: number;
       };
-      const result = await clockService.getTimesheet(requesterId, userId, startDate, endDate);
-      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      const result = await clockService.getTimesheet(requesterId, userId, startMs, endMs);
+      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
       return result;
     }
   );
