@@ -1,6 +1,6 @@
 # Timers
 
-> **STATUS: PLANNING** — This document is exploratory and not yet approved for implementation. Nothing here represents a commitment or active development work.
+> **STATUS: READY** — Ready for implementation.
 
 ## Background
 
