@@ -15,10 +15,11 @@
 
 import { MongoClient } from "mongodb";
 import * as m001 from "./migrations/001-normalize-clock-event-times.js";
+import * as m002 from "./migrations/002-remove-legacy-timer-fields.js";
 
 // ─── Register migrations in order ────────────────────────────────────────────
 // Add new entries here — order matters, earlier entries run first.
-const migrations = [m001];
+const migrations = [m001, m002];
 
 // ─── Runner ──────────────────────────────────────────────────────────────────
 

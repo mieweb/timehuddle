@@ -18,6 +18,7 @@ import {
   faGauge,
   faGear,
   faListCheck,
+  faStopwatch,
   faTable,
   faUsers,
 } from '@fortawesome/free-solid-svg-icons';
@@ -62,6 +63,7 @@ const NAV: NavSection[] = [
       { icon: faGauge, label: 'Dashboard', href: '/app/dashboard' },
       { icon: faClock, label: 'Clock In/Out', href: '/app/clock' },
       { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
+      { icon: faStopwatch, label: 'Timers', href: '/app/timers' },
       { icon: faTable, label: 'Timesheet', href: '/app/timesheet' },
     ],
   },

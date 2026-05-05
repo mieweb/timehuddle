@@ -4,24 +4,6 @@ import { clockService, toPublicClockEvent, subscribeSse } from "../services/cloc
 
 // ─── Public shape schema ──────────────────────────────────────────────────────
 
-const ticketSessionShape = {
-  type: "object",
-  properties: {
-    startTimestamp: { type: "number" },
-    endTimestamp: { type: "number", nullable: true },
-  },
-};
-
-const clockTicketShape = {
-  type: "object",
-  properties: {
-    ticketId: { type: "string" },
-    startTimestamp: { type: "number", nullable: true },
-    accumulatedTime: { type: "number" },
-    sessions: { type: "array", items: ticketSessionShape },
-  },
-};
-
 const clockEventShape = {
   type: "object",
   properties: {
@@ -30,7 +12,6 @@ const clockEventShape = {
     teamId: { type: "string" },
     startTime: { type: "number" },
     accumulatedTime: { type: "number" },
-    tickets: { type: "array", items: clockTicketShape },
     endTime: { type: "number", nullable: true },
   },
 };
@@ -85,67 +66,6 @@ export async function clockRoutes(app: FastifyInstance) {
       const result = await clockService.stop(userId, teamId);
       if (result === "not-found")
         return (reply as any).status(404).send({ error: "No active clock event" });
-      return { event: result };
-    }
-  );
-
-  // POST /v1/clock/:id/ticket/start
-  app.post(
-    "/clock/:id/ticket/start",
-    {
-      onRequest: [requireAuth],
-      schema: {
-        tags: ["Clock"],
-        params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
-        body: {
-          type: "object",
-          required: ["ticketId", "now"],
-          properties: {
-            ticketId: { type: "string" },
-            now: { type: "number" },
-          },
-        },
-        response: { 200: { type: "object", properties: { event: clockEventShape } } },
-      },
-    },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { id: clockEventId } = req.params as { id: string };
-      const { ticketId, now } = req.body as { ticketId: string; now: number };
-      const result = await clockService.addTicket(userId, clockEventId, ticketId, now);
-      if (result === "not-found")
-        return (reply as any).status(404).send({ error: "Clock event not found" });
-      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
-      return { event: result };
-    }
-  );
-
-  // POST /v1/clock/:id/ticket/stop
-  app.post(
-    "/clock/:id/ticket/stop",
-    {
-      onRequest: [requireAuth],
-      schema: {
-        tags: ["Clock"],
-        params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
-        body: {
-          type: "object",
-          required: ["ticketId", "now"],
-          properties: {
-            ticketId: { type: "string" },
-            now: { type: "number" },
-          },
-        },
-        response: { 200: { type: "object", properties: { event: clockEventShape } } },
-      },
-    },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { id: clockEventId } = req.params as { id: string };
-      const { ticketId, now } = req.body as { ticketId: string; now: number };
-      const result = await clockService.stopTicket(userId, clockEventId, ticketId, now);
-      if (result === "not-found")
-        return (reply as any).status(404).send({ error: "Clock event not found" });
       return { event: result };
     }
   );

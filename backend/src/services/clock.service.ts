@@ -1,11 +1,7 @@
 import { ObjectId } from "mongodb";
-import {
-  clockEventsCollection,
-  teamsCollection,
-  ticketsCollection,
-  usersCollection,
-} from "../models/index.js";
-import type { ClockEvent, ClockEventTicket } from "../models/clock.model.js";
+import { clockEventsCollection, teamsCollection, usersCollection } from "../models/index.js";
+import type { ClockEvent } from "../models/clock.model.js";
+import { timerService } from "./timer.service.js";
 import { notificationService } from "./notification.service.js";
 import { pushService } from "./push.service.js";
 
@@ -55,51 +51,11 @@ export function toPublicClockEvent(e: ClockEvent) {
     teamId: e.teamId,
     startTime,
     accumulatedTime: e.accumulatedTime,
-    tickets: (e.tickets ?? []).map((t) => ({
-      ticketId: t.ticketId,
-      startTimestamp: t.startTimestamp ?? null,
-      accumulatedTime: t.accumulatedTime,
-      sessions: (t.sessions ?? []).map((s) => ({
-        startTimestamp: s.startTimestamp,
-        endTimestamp: s.endTimestamp,
-      })),
-    })),
     endTime,
   };
 }
 
 export type PublicClockEvent = ReturnType<typeof toPublicClockEvent>;
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-async function stopTicketInEvent(
-  clockEventId: ObjectId,
-  ticketId: string,
-  now: number
-): Promise<void> {
-  const coll = clockEventsCollection();
-  const event = await coll.findOne({ _id: clockEventId });
-  if (!event) return;
-  const entry = event.tickets?.find((t) => t.ticketId === ticketId);
-  if (!entry?.startTimestamp) return;
-
-  const elapsed = Math.floor((now - entry.startTimestamp) / 1000);
-  const prev = entry.accumulatedTime ?? 0;
-  const updatedSessions = (entry.sessions ?? []).map((s) =>
-    s.endTimestamp === null ? { ...s, endTimestamp: now } : s
-  );
-
-  await coll.updateOne(
-    { _id: clockEventId, "tickets.ticketId": ticketId },
-    {
-      $set: {
-        "tickets.$.accumulatedTime": prev + elapsed,
-        "tickets.$.sessions": updatedSessions,
-      },
-      $unset: { "tickets.$.startTimestamp": "" },
-    }
-  );
-}
 
 // ─── ClockService ─────────────────────────────────────────────────────────────
 
@@ -213,24 +169,8 @@ export class ClockService {
     const elapsed = Math.floor((now - event.startTime) / 1000);
     const prev = event.accumulatedTime ?? 0;
 
-    // Stop all running ticket timers inside the event
-    for (const t of (event.tickets ?? []).filter((t) => t.startTimestamp)) {
-      await stopTicketInEvent(event._id, t.ticketId, now);
-    }
-
-    // Also stop any free-running ticket timers in the tickets collection
-    const tColl = ticketsCollection();
-    const running = await tColl
-      .find({ teamId, createdBy: userId, startTimestamp: { $exists: true } })
-      .toArray();
-    for (const ticket of running) {
-      const telapsed = Math.floor((now - (ticket.startTimestamp ?? 0)) / 1000);
-      const tprev = ticket.accumulatedTime ?? 0;
-      await tColl.updateOne(
-        { _id: ticket._id },
-        { $set: { accumulatedTime: tprev + telapsed }, $unset: { startTimestamp: "" } }
-      );
-    }
+    // Close all open timer sessions for this user in a single updateMany
+    await timerService.closeAllForUser(userId, now);
 
     const $set: Record<string, unknown> = {
       endTime: now,
@@ -288,181 +228,6 @@ export class ClockService {
                   teamId,
                   duration: durationText,
                   url: `/app/clock`,
-                },
-              })
-              .catch(() => {}),
-          ])
-        )
-      );
-    }
-
-    return pub;
-  }
-
-  async addTicket(
-    userId: string,
-    clockEventId: string,
-    ticketId: string,
-    now: number
-  ): Promise<PublicClockEvent | "not-found" | "forbidden"> {
-    if (!isValidId(clockEventId)) return "not-found";
-    const coll = clockEventsCollection();
-    const event = await coll.findOne({
-      _id: new ObjectId(clockEventId),
-      userId,
-      endTime: null,
-    });
-    if (!event) return "not-found";
-
-    const existing = event.tickets?.find((t) => t.ticketId === ticketId);
-    if (existing) {
-      await coll.updateOne(
-        { _id: event._id, "tickets.ticketId": ticketId },
-        {
-          $set: { "tickets.$.startTimestamp": now },
-          $push: { "tickets.$.sessions": { startTimestamp: now, endTimestamp: null } } as any,
-        }
-      );
-    } else {
-      // Grab accumulated time from the tickets collection
-      const ticket = isValidId(ticketId)
-        ? await ticketsCollection().findOne({ _id: new ObjectId(ticketId) })
-        : null;
-      const initialTime = ticket?.accumulatedTime ?? 0;
-      const entry: ClockEventTicket = {
-        ticketId,
-        startTimestamp: now,
-        accumulatedTime: initialTime,
-        sessions: [{ startTimestamp: now, endTimestamp: null }],
-      };
-      await coll.updateOne({ _id: event._id }, { $push: { tickets: entry } } as any);
-    }
-
-    const updated = await coll.findOne({ _id: event._id });
-    if (!updated) return "not-found";
-    const pub = toPublicClockEvent(updated);
-    broadcast(event.teamId, pub);
-
-    // Notify team admins of ticket timer start
-    const [team, user] = await Promise.all([
-      teamsCollection().findOne({ _id: new ObjectId(event.teamId) }),
-      usersCollection().findOne({ _id: new ObjectId(event.userId) }),
-    ]);
-    if (team) {
-      const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
-      const ticket = isValidId(ticketId)
-        ? await ticketsCollection().findOne({ _id: new ObjectId(ticketId) })
-        : null;
-      const ticketTitle = ticket?.title ?? ticketId;
-      const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
-      await Promise.all(
-        notifyAdmins.map((adminId) =>
-          Promise.all([
-            notificationService
-              .create({
-                userId: adminId,
-                title: "TiméHuddle",
-                body: `${userName} started a timer on "${ticketTitle}"`,
-                notificationData: {
-                  type: "ticket-timer-start",
-                  userId,
-                  userName,
-                  ticketId,
-                  ticketTitle,
-                  teamId: event.teamId,
-                  url: `/app/tickets`,
-                },
-              })
-              .catch(() => {}),
-            pushService
-              .sendPush(adminId, {
-                title: `${userName} started "${ticketTitle}"`,
-                body: `${userName} started a timer on "${ticketTitle}"`,
-                tag: `ticket-start-${clockEventId}-${ticketId}`,
-                data: {
-                  type: "ticket-timer-start",
-                  userId,
-                  userName,
-                  ticketId,
-                  ticketTitle,
-                  teamId: event.teamId,
-                  url: `/app/tickets`,
-                },
-              })
-              .catch(() => {}),
-          ])
-        )
-      );
-    }
-
-    return pub;
-  }
-
-  async stopTicket(
-    userId: string,
-    clockEventId: string,
-    ticketId: string,
-    now: number
-  ): Promise<PublicClockEvent | "not-found"> {
-    if (!isValidId(clockEventId)) return "not-found";
-    const coll = clockEventsCollection();
-    const event = await coll.findOne({
-      _id: new ObjectId(clockEventId),
-      userId,
-    });
-    if (!event) return "not-found";
-
-    await stopTicketInEvent(event._id, ticketId, now);
-
-    const updated = await coll.findOne({ _id: event._id });
-    if (!updated) return "not-found";
-    const pub = toPublicClockEvent(updated);
-    broadcast(event.teamId, pub);
-
-    // Notify team admins of ticket timer stop
-    const [team, user] = await Promise.all([
-      teamsCollection().findOne({ _id: new ObjectId(event.teamId) }),
-      usersCollection().findOne({ _id: new ObjectId(event.userId) }),
-    ]);
-    if (team) {
-      const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
-      const ticket = isValidId(ticketId)
-        ? await ticketsCollection().findOne({ _id: new ObjectId(ticketId) })
-        : null;
-      const ticketTitle = ticket?.title ?? ticketId;
-      const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
-      await Promise.all(
-        notifyAdmins.map((adminId) =>
-          Promise.all([
-            notificationService
-              .create({
-                userId: adminId,
-                title: "TiméHuddle",
-                body: `${userName} stopped the timer on "${ticketTitle}"`,
-                notificationData: {
-                  type: "ticket-timer-stop",
-                  userId,
-                  userName,
-                  ticketId,
-                  ticketTitle,
-                  teamId: event.teamId,
-                  url: `/app/tickets`,
-                },
-              })
-              .catch(() => {}),
-            pushService
-              .sendPush(adminId, {
-                title: `${userName} stopped "${ticketTitle}"`,
-                body: `${userName} stopped the timer on "${ticketTitle}"`,
-                tag: `ticket-stop-${clockEventId}-${ticketId}`,
-                data: {
-                  type: "ticket-timer-stop",
-                  userId,
-                  userName,
-                  ticketId,
-                  ticketTitle,
-                  teamId: event.teamId,
-                  url: `/app/tickets`,
                 },
               })
               .catch(() => {}),

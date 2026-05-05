@@ -301,8 +301,6 @@ export interface Ticket {
   title: string;
   description: string | null;
   github: string;
-  accumulatedTime: number;
-  startTimestamp: number | null;
   status: string;
   priority: string | null;
   createdBy: string;
@@ -319,21 +317,13 @@ export const ticketApi = {
       (r) => r.tickets,
     ),
 
-  createTicket: (data: {
-    teamId: string;
-    title: string;
-    github?: string;
-    accumulatedTime?: number;
-  }) =>
+  createTicket: (data: { teamId: string; title: string; github?: string }) =>
     request<{ ticket: Ticket }>('/v1/tickets', {
       method: 'POST',
       body: JSON.stringify(data),
     }).then((r) => r.ticket),
 
-  updateTicket: (
-    id: string,
-    updates: { title?: string; github?: string; accumulatedTime?: number; description?: string },
-  ) =>
+  updateTicket: (id: string, updates: { title?: string; github?: string; description?: string }) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
@@ -348,21 +338,6 @@ export const ticketApi = {
   deleteTicket: (id: string) =>
     request<{ ok: boolean }>(`/v1/tickets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
-  startTimer: (id: string, now: number) =>
-    request<{ ticket: Ticket; stoppedTickets: Ticket[] }>(
-      `/v1/tickets/${encodeURIComponent(id)}/start`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ now }),
-      },
-    ),
-
-  stopTimer: (id: string, now: number) =>
-    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/stop`, {
-      method: 'POST',
-      body: JSON.stringify({ now }),
-    }).then((r) => r.ticket),
-
   batchUpdateStatus: (data: { ticketIds: string[]; status: string; teamId: string }) =>
     request<{ modified: number }>('/v1/tickets/batch-status', {
       method: 'POST',
@@ -374,6 +349,12 @@ export const ticketApi = {
       method: 'PUT',
       body: JSON.stringify({ assignedToUserId }),
     }).then((r) => r.ticket),
+
+  /** Get total accumulated seconds for a ticket from TimerSessions. */
+  getTotal: (ticketId: string) =>
+    request<{ totalSeconds: number }>(
+      `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
+    ).then((r) => r.totalSeconds),
 };
 
 // ─── Team API ─────────────────────────────────────────────────────────────────
@@ -456,25 +437,12 @@ export const teamApi = {
 
 // ─── Clock API ────────────────────────────────────────────────────────────────
 
-export interface ClockTicketSession {
-  startTimestamp: number;
-  endTimestamp: number | null;
-}
-
-export interface ClockEventTicket {
-  ticketId: string;
-  startTimestamp: number | null;
-  accumulatedTime: number;
-  sessions: ClockTicketSession[];
-}
-
 export interface ClockEvent {
   id: string;
   userId: string;
   teamId: string;
   startTime: number;
   accumulatedTime: number;
-  tickets: ClockEventTicket[];
   endTime: number | null;
 }
 
@@ -491,20 +459,6 @@ export const clockApi = {
     request<{ event: ClockEvent }>('/v1/clock/stop', {
       method: 'POST',
       body: JSON.stringify({ teamId }),
-    }).then((r) => r.event),
-
-  /** Start a ticket timer inside an active clock event. */
-  addTicket: (clockEventId: string, ticketId: string, now: number) =>
-    request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/ticket/start`, {
-      method: 'POST',
-      body: JSON.stringify({ ticketId, now }),
-    }).then((r) => r.event),
-
-  /** Stop a ticket timer inside a clock event. */
-  stopTicket: (clockEventId: string, ticketId: string, now: number) =>
-    request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/ticket/stop`, {
-      method: 'POST',
-      body: JSON.stringify({ ticketId, now }),
     }).then((r) => r.event),
 
   /** Get the current user's active clock event (any team), or null. */
@@ -683,4 +637,94 @@ export const attachmentApi = {
     request<{ ok: boolean }>(`/v1/attachments/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }),
+};
+
+// ─── Timer API ────────────────────────────────────────────────────────────────
+
+/** A TimeEntry is the per-user per-ticket per-day timesheet row. */
+export interface TimeEntry {
+  id: string;
+  userId: string;
+  ticketId: string;
+  date: string; // UTC "YYYY-MM-DD"
+  note?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+/** A TimerSession is one start–stop interval inside a TimeEntry. */
+export interface TimerSession {
+  id: string;
+  timeEntryId: string;
+  userId: string;
+  teamId: string;
+  ticketId: string;
+  date: string;
+  clockEventId?: string;
+  startTime: number; // epoch ms
+  endTime: number | null;
+  durationSeconds?: number;
+  createdAt: string;
+}
+
+export interface DayEntry {
+  entry: TimeEntry;
+  sessions: TimerSession[];
+}
+
+export interface WeekDay {
+  date: string;
+  totalSeconds: number;
+}
+
+export const timerApi = {
+  /** Create (or upsert) a TimeEntry for the given ticket + date. */
+  createEntry: (data: { ticketId: string; date: string; note?: string }) =>
+    request<{ entry: TimeEntry }>('/v1/timers/entries', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.entry),
+
+  /** Start a timer session for a TimeEntry. Closes any open session first. */
+  startSession: (entryId: string, now?: number) =>
+    request<{ session: TimerSession; closedSessionId?: string }>(
+      `/v1/timers/entries/${encodeURIComponent(entryId)}/start`,
+      { method: 'POST', body: JSON.stringify({ now: now ?? Date.now() }) },
+    ),
+
+  /** Stop a running timer session. */
+  stopSession: (sessionId: string, now?: number) =>
+    request<{ session: TimerSession }>(
+      `/v1/timers/sessions/${encodeURIComponent(sessionId)}/stop`,
+      { method: 'POST', body: JSON.stringify({ now: now ?? Date.now() }) },
+    ).then((r) => r.session),
+
+  /** Get the currently running session for the authenticated user, or null. */
+  getRunning: () =>
+    request<{ session: TimerSession | null }>('/v1/timers/running').then((r) => r.session),
+
+  /** Get all entries + sessions for a local day (YYYY-MM-DD). */
+  getDay: (date: string) =>
+    request<{ entries: DayEntry[] }>(`/v1/timers/day?date=${encodeURIComponent(date)}`).then(
+      (r) => r.entries,
+    ),
+
+  /** Get 7-day totals for the week starting at the given date (YYYY-MM-DD). */
+  getWeek: (date: string) =>
+    request<{ days: WeekDay[] }>(`/v1/timers/week?date=${encodeURIComponent(date)}`).then(
+      (r) => r.days,
+    ),
+
+  /** Get total seconds for a ticket from all closed TimerSessions. */
+  getTicketTotal: (ticketId: string) =>
+    request<{ totalSeconds: number }>(
+      `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
+    ).then((r) => r.totalSeconds),
+
+  /** Copy entries from the most recent previous day into toDate. Skips existing rows. */
+  copyPrevious: (toDate: string) =>
+    request<{ created: number }>('/v1/timers/copy-previous', {
+      method: 'POST',
+      body: JSON.stringify({ toDate }),
+    }).then((r) => r.created),
 };

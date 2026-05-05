@@ -12,8 +12,6 @@ function toPublicTicket(t: Ticket) {
     title: t.title,
     description: t.description ?? null,
     github: t.github,
-    accumulatedTime: t.accumulatedTime,
-    startTimestamp: t.startTimestamp ?? null,
     status: t.status,
     priority: t.priority ?? null,
     createdBy: t.createdBy,
@@ -38,8 +36,6 @@ const ticketShape = {
     title: { type: "string" },
     description: { type: "string", nullable: true },
     github: { type: "string" },
-    accumulatedTime: { type: "number" },
-    startTimestamp: { type: "number", nullable: true },
     status: { type: "string", enum: ALL_STATUSES },
     priority: { type: "string", enum: ALL_PRIORITIES, nullable: true },
     createdBy: { type: "string" },
@@ -111,7 +107,6 @@ export async function ticketRoutes(app: FastifyInstance) {
             teamId: { type: "string" },
             title: { type: "string", minLength: 1, maxLength: 500 },
             github: { type: "string", maxLength: 1000, default: "" },
-            accumulatedTime: { type: "number", minimum: 0, default: 0 },
           },
         },
         response: {
@@ -126,13 +121,11 @@ export async function ticketRoutes(app: FastifyInstance) {
         teamId: string;
         title: string;
         github: string;
-        accumulatedTime: number;
       };
       const result = await ticketService.create({
         teamId: body.teamId,
         title: body.title,
         github: body.github ?? "",
-        accumulatedTime: body.accumulatedTime ?? 0,
         createdBy: req.user!.id,
       });
       if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
@@ -157,7 +150,6 @@ export async function ticketRoutes(app: FastifyInstance) {
             title: { type: "string", minLength: 1, maxLength: 500 },
             description: { type: "string", maxLength: 5000 },
             github: { type: "string", maxLength: 1000 },
-            accumulatedTime: { type: "number", minimum: 0 },
           },
         },
         response: {
@@ -174,7 +166,6 @@ export async function ticketRoutes(app: FastifyInstance) {
         title: string;
         description: string;
         github: string;
-        accumulatedTime: number;
       }>;
       const result = await ticketService.update(id, req.user!.id, body);
       if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
@@ -277,86 +268,6 @@ export async function ticketRoutes(app: FastifyInstance) {
       const result = await ticketService.updateStatusPriority(id, req.user!.id, body);
       if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
-      return reply.send({ ticket: toPublicTicket(result) });
-    }
-  );
-
-  // POST /v1/tickets/:id/start
-  app.post(
-    "/tickets/:id/start",
-    {
-      preHandler: [requireAuth],
-      schema: {
-        tags: ["Tickets"],
-        summary: "Start ticket timer (owner only)",
-        params: idParam,
-        body: {
-          type: "object",
-          required: ["now"],
-          additionalProperties: false,
-          properties: { now: { type: "number" } },
-        },
-        response: {
-          200: {
-            type: "object",
-            properties: {
-              ticket: ticketShape,
-              stoppedTickets: { type: "array", items: ticketShape },
-            },
-          },
-          ...unauth,
-          403: err("Not your ticket"),
-          404: err("Ticket not found"),
-        },
-      },
-    },
-    async (req, reply) => {
-      const { id } = req.params as { id: string };
-      const { now } = req.body as { now: number };
-      req.log.info({ ticketId: id, userId: req.user!.id }, "[timer] startTimer called");
-      const result = await ticketService.startTimer(id, req.user!.id, now);
-      if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Not your ticket" });
-      req.log.info(
-        { ticketId: id, stoppedCount: result.stoppedTickets.length },
-        "[timer] startTimer result"
-      );
-      return reply.send({
-        ticket: toPublicTicket(result.ticket),
-        stoppedTickets: result.stoppedTickets.map(toPublicTicket),
-      });
-    }
-  );
-
-  // POST /v1/tickets/:id/stop
-  app.post(
-    "/tickets/:id/stop",
-    {
-      preHandler: [requireAuth],
-      schema: {
-        tags: ["Tickets"],
-        summary: "Stop ticket timer and accumulate elapsed time (owner only)",
-        params: idParam,
-        body: {
-          type: "object",
-          required: ["now"],
-          additionalProperties: false,
-          properties: { now: { type: "number" } },
-        },
-        response: {
-          200: { type: "object", properties: { ticket: ticketShape } },
-          ...unauth,
-          403: err("Not your ticket"),
-          404: err("Ticket not found"),
-        },
-      },
-    },
-    async (req, reply) => {
-      const { id } = req.params as { id: string };
-      const { now } = req.body as { now: number };
-      const result = await ticketService.stopTimer(id, req.user!.id, now);
-      if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Not your ticket" });
       return reply.send({ ticket: toPublicTicket(result) });
     }
   );
