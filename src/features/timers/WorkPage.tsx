@@ -1,5 +1,5 @@
 /**
- * TimersPage — Week strip + Day view timesheet.
+ * WorkPage — Week strip + Day view timesheet.
  *
  * Features:
  *   • 7-day week strip (Mon–Sun) with local-day totals
@@ -101,9 +101,9 @@ function entryTotalSeconds(sessions: TimerSession[], now: number): number {
   return sessions.reduce((sum, s) => sum + runningSeconds(s, now), 0);
 }
 
-// ─── TimersPage ───────────────────────────────────────────────────────────────
+// ─── WorkPage ─────────────────────────────────────────────────────────────────
 
-export const TimersPage: React.FC = () => {
+export const WorkPage: React.FC = () => {
   const { teams, selectedTeamId, teamsReady, currentTime } = useTeam();
 
   // Selected day (local YYYY-MM-DD)
@@ -561,7 +561,7 @@ export const TimersPage: React.FC = () => {
             })}
           </Text>
         </ModalHeader>
-        <ModalBody>
+        <ModalBody className="flex flex-col gap-4">
           <Select
             label="Ticket"
             searchable
@@ -762,7 +762,7 @@ export const TimersPage: React.FC = () => {
               </ModalHeader>
               <ModalBody className="flex flex-col gap-4">
                 <Select
-                  label="Project / Task"
+                  label="Ticket"
                   searchable
                   searchPlaceholder="Search tickets…"
                   options={allTickets

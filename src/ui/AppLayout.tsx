@@ -23,7 +23,7 @@ import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
-import { TimersPage } from '../features/timers/TimersPage';
+import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
 import { SIDEBAR_KEY } from '../lib/constants';
 import { TeamProvider } from '../lib/TeamContext';
@@ -51,7 +51,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/clock': { title: 'Clock In/Out', component: ClockPage },
   '/app/tickets': { title: 'Tickets', component: TicketsPage },
-  '/app/timers': { title: 'Timers', component: TimersPage },
+  '/app/timers': { title: 'Work', component: WorkPage },
   '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
   '/app/teams': { title: 'Teams', component: TeamsPage },
   '/app/messages': { title: 'Messages', component: MessagesPage },
