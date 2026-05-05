@@ -8,7 +8,7 @@
  *   • Search/filter
  *   • Status badge display
  *
- * Ticket-level timer tracking has moved to the Timers page (/app/timers).
+ * Ticket-level timer tracking has moved to the Timers page (/app/work).
  */
 import {
   faEllipsisVertical,

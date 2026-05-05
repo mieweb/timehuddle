@@ -51,7 +51,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/clock': { title: 'Clock In/Out', component: ClockPage },
   '/app/tickets': { title: 'Tickets', component: TicketsPage },
-  '/app/timers': { title: 'Work', component: WorkPage },
+  '/app/work': { title: 'Work', component: WorkPage },
   '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
   '/app/teams': { title: 'Teams', component: TeamsPage },
   '/app/messages': { title: 'Messages', component: MessagesPage },

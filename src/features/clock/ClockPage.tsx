@@ -7,7 +7,7 @@
  *   • Media attachments (links) on clock entries
  *   • Create new tickets from here
  *
- * Ticket-level timer management has moved to the Timers page (/app/timers).
+ * Ticket-level timer management has moved to the Timers page (/app/work).
  */
 import { faCircleStop, faPlus, faStopwatch, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -172,7 +172,7 @@ export const ClockPage: React.FC = () => {
             <div className="px-5 py-4 text-center">
               <Text variant="muted" size="xs">
                 Track time on tickets in the{' '}
-                <a href="/app/timers" className="text-blue-500 hover:underline">
+                <a href="/app/work" className="text-blue-500 hover:underline">
                   Timers
                 </a>{' '}
                 page.

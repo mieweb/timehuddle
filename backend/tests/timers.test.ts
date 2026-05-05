@@ -505,18 +505,14 @@ describe("clock-out closes all open timer sessions", () => {
     await inject("POST", `/v1/timers/entries/${eId}/start`, cookieA, { now: Date.now() });
 
     // Verify the timer is running
-    const runningBefore = await db
-      .collection("timers")
-      .findOne({ userId: userAId, endTime: null });
+    const runningBefore = await db.collection("timers").findOne({ userId: userAId, endTime: null });
     expect(runningBefore).not.toBeNull();
 
     // Clock out — this should close all timers
     await inject("POST", "/v1/clock/stop", cookieA, { teamId });
 
     // Verify no timers are running for this user
-    const runningAfter = await db
-      .collection("timers")
-      .findOne({ userId: userAId, endTime: null });
+    const runningAfter = await db.collection("timers").findOne({ userId: userAId, endTime: null });
     expect(runningAfter).toBeNull();
   });
 });

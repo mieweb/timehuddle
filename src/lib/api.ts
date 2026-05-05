@@ -692,10 +692,10 @@ export const timerApi = {
 
   /** Stop a running timer. */
   stopSession: (sessionId: string, now?: number) =>
-    request<{ session: Timer }>(
-      `/v1/timers/sessions/${encodeURIComponent(sessionId)}/stop`,
-      { method: 'POST', body: JSON.stringify({ now: now ?? Date.now() }) },
-    ).then((r) => r.session),
+    request<{ session: Timer }>(`/v1/timers/sessions/${encodeURIComponent(sessionId)}/stop`, {
+      method: 'POST',
+      body: JSON.stringify({ now: now ?? Date.now() }),
+    }).then((r) => r.session),
 
   /** Update a WorkItem's note, duration, and/or ticket (duration ignored while running). */
   updateEntry: (
@@ -715,8 +715,7 @@ export const timerApi = {
     ),
 
   /** Get the currently running timer for the authenticated user, or null. */
-  getRunning: () =>
-    request<{ session: Timer | null }>('/v1/timers/running').then((r) => r.session),
+  getRunning: () => request<{ session: Timer | null }>('/v1/timers/running').then((r) => r.session),
 
   /** Get all entries + sessions for a local day (YYYY-MM-DD). */
   getDay: (date: string) =>

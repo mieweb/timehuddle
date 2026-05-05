@@ -12,6 +12,10 @@ export async function ensureIndexes() {
   await encryptedOpLogs.createIndex({ userId: 1, deviceId: 1, hlc: 1 });
 
   // ── WorkItem indexes ───────────────────────────────────────────────────────
+  // Ensure collection exists before reading indexes (fresh DBs have no namespace yet).
+  await db.createCollection("workitems").catch((err: unknown) => {
+    if ((err as { code?: number }).code !== 48) throw err; // NamespaceExists
+  });
   const workItems = db.collection("workitems");
   // 1. Lookup index for user × ticket × day (duplicates are allowed)
   const workItemIndexes = await workItems.indexes();

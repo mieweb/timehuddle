@@ -258,9 +258,7 @@ export class TimerService {
     userId: string,
     entryId: string,
     now: number
-  ): Promise<
-    { session: Timer; closedSessionId: string | null } | "not-found" | "forbidden"
-  > {
+  ): Promise<{ session: Timer; closedSessionId: string | null } | "not-found" | "forbidden"> {
     if (!isValidId(entryId)) return "not-found";
     const entry = await workItemsCollection().findOne({ _id: new ObjectId(entryId) });
     if (!entry) return "not-found";
