@@ -1,6 +1,11 @@
 import { ObjectId } from "mongodb";
 
-import { clockEventsCollection, teamsCollection, usersCollection } from "../models/index.js";
+import {
+  attachmentsCollection,
+  clockEventsCollection,
+  teamsCollection,
+  usersCollection,
+} from "../models/index.js";
 import type { ClockEvent } from "../models/clock.model.js";
 import { timerService } from "./timer.service.js";
 import { ActivityType } from "../models/activity.model.js";
@@ -272,12 +277,15 @@ export class ClockService {
     const event = await coll.findOne({ _id: new ObjectId(clockEventId) });
     if (!event) return "not-found";
 
-    // Must be a team admin
-    const team = await teamsCollection().findOne({
-      _id: new ObjectId(event.teamId),
-      admins: requesterId,
-    });
-    if (!team) return "forbidden";
+    // Allow self-service edits for the event owner. Admins can also edit.
+    // Future timesheet submission/locking should gate edits at this layer.
+    if (event.userId !== requesterId) {
+      const adminTeam = await teamsCollection().findOne({
+        _id: new ObjectId(event.teamId),
+        admins: requesterId,
+      });
+      if (!adminTeam) return "forbidden";
+    }
 
     // Resolve the effective start/end after the partial update to validate the range.
     const effectiveStart = typeof data.startTime === "number" ? data.startTime : event.startTime;
@@ -300,6 +308,37 @@ export class ClockService {
 
     const updated = await coll.findOne({ _id: event._id });
     return updated ? toPublicClockEvent(updated) : "not-found";
+  }
+
+  async deleteEvent(
+    requesterId: string,
+    clockEventId: string
+  ): Promise<"ok" | "not-found" | "forbidden"> {
+    if (!isValidId(clockEventId)) return "not-found";
+
+    const coll = clockEventsCollection();
+    const event = await coll.findOne({ _id: new ObjectId(clockEventId) });
+    if (!event) return "not-found";
+
+    if (event.userId !== requesterId) {
+      const adminTeam = await teamsCollection().findOne({
+        _id: new ObjectId(event.teamId),
+        admins: requesterId,
+      });
+      if (!adminTeam) return "forbidden";
+    }
+
+    await coll.deleteOne({ _id: event._id });
+    await attachmentsCollection().deleteMany({
+      "attachedTo.kind": "clock",
+      "attachedTo.id": clockEventId,
+    });
+
+    if (event.endTime === null) {
+      broadcast(event.teamId, null);
+    }
+
+    return "ok";
   }
 
   async getTimesheet(

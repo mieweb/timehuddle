@@ -104,6 +104,28 @@ export async function clockRoutes(app: FastifyInstance) {
     }
   );
 
+  // DELETE /v1/clock/:id
+  app.delete(
+    "/clock/:id",
+    {
+      onRequest: [requireAuth],
+      schema: {
+        tags: ["Clock"],
+        params: { type: "object", required: ["id"], properties: { id: { type: "string" } } },
+        response: { 200: { type: "object", properties: { ok: { type: "boolean" } } } },
+      },
+    },
+    async (req, reply) => {
+      const { id: userId } = (req as any).user;
+      const { id: clockEventId } = req.params as { id: string };
+      const result = await clockService.deleteEvent(userId, clockEventId);
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "Clock event not found" });
+      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
+      return { ok: true };
+    }
+  );
+
   // GET /v1/clock/timesheet
   app.get(
     "/clock/timesheet",

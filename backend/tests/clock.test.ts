@@ -253,8 +253,17 @@ describe("PUT /v1/clock/:id/times", () => {
     expect(res.json().event.startTime).toBe(newStart);
   });
 
-  it("non-admin returns 403", async () => {
+  it("event owner can adjust times — 200", async () => {
+    const base = Date.now() - 120_000;
     const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, workerCookie, {
+      startTime: base,
+      endTime: base + 60_000,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("non-owner non-admin returns 403", async () => {
+    const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, otherCookie, {
       startTime: Date.now(),
     });
     expect(res.statusCode).toBe(403);
@@ -303,6 +312,42 @@ describe("PUT /v1/clock/:id/times", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().event.endTime).toBeNull();
+  });
+});
+
+// ─── DELETE /v1/clock/:id ───────────────────────────────────────────────────
+
+describe("DELETE /v1/clock/:id", () => {
+  it("event owner can delete a clock event — 200", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const ownedEventId = startRes.json().event.id as string;
+
+    const deleteRes = await inject("DELETE", `/v1/clock/${ownedEventId}`, workerCookie);
+    expect(deleteRes.statusCode).toBe(200);
+    expect(deleteRes.json().ok).toBe(true);
+  });
+
+  it("team admin can delete another member's clock event — 200", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const targetEventId = startRes.json().event.id as string;
+
+    const deleteRes = await inject("DELETE", `/v1/clock/${targetEventId}`, adminCookie);
+    expect(deleteRes.statusCode).toBe(200);
+    expect(deleteRes.json().ok).toBe(true);
+  });
+
+  it("non-owner non-admin returns 403", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const targetEventId = startRes.json().event.id as string;
+
+    const forbiddenRes = await inject("DELETE", `/v1/clock/${targetEventId}`, otherCookie);
+    expect(forbiddenRes.statusCode).toBe(403);
+
+    // Cleanup to keep test data stable for later assertions.
+    await inject("DELETE", `/v1/clock/${targetEventId}`, workerCookie);
   });
 });
 

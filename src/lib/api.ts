@@ -482,6 +482,19 @@ export const clockApi = {
       `/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startMs=${startMs}&endMs=${endMs}`,
     ),
 
+  /** Update a clock event's start/end timestamps. */
+  updateTimes: (clockEventId: string, data: { startTime?: number; endTime?: number | null }) =>
+    request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/times`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }).then((r) => r.event),
+
+  /** Delete a clock event. */
+  deleteEvent: (clockEventId: string) =>
+    request<{ ok: boolean }>(`/v1/clock/${encodeURIComponent(clockEventId)}`, {
+      method: 'DELETE',
+    }).then((r) => r.ok),
+
   /** Open an SSE connection for live team clock state. Returns an EventSource. */
   openLiveStream: (teamIds: string[]): EventSource =>
     new EventSource(
