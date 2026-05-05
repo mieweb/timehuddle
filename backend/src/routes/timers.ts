@@ -1,5 +1,7 @@
 import { FastifyInstance } from "fastify";
+import { ObjectId } from "mongodb";
 import { requireAuth } from "../middleware/require-auth.js";
+import { ticketsCollection } from "../models/index.js";
 import {
   timerService,
   toPublicEntry,
@@ -15,6 +17,7 @@ const entryShape = {
     id: { type: "string" },
     userId: { type: "string" },
     ticketId: { type: "string" },
+    ticketTitle: { type: "string", nullable: true },
     date: { type: "string" },
     note: { type: "string", nullable: true },
     sortOrder: { type: "number", nullable: true },
@@ -81,9 +84,20 @@ export async function timerRoutes(app: FastifyInstance) {
       const { id: userId } = (req as any).user;
       const { date, tz = "UTC" } = req.query as { date: string; tz?: string };
       const entries = await timerService.getDayEntries(userId, date, tz);
+
+      const ticketIds = [...new Set(entries.map(({ entry }) => entry.ticketId))]
+        .filter((id) => /^[0-9a-f]{24}$/i.test(id))
+        .map((id) => new ObjectId(id));
+      const tickets = ticketIds.length
+        ? await ticketsCollection()
+            .find({ _id: { $in: ticketIds } }, { projection: { _id: 1, title: 1 } })
+            .toArray()
+        : [];
+      const ticketTitleMap = new Map(tickets.map((t) => [t._id.toHexString(), t.title]));
+
       return reply.send({
         entries: entries.map(({ entry, sessions }) => ({
-          entry: toPublicEntry(entry),
+          entry: toPublicEntry(entry, ticketTitleMap.get(entry.ticketId) ?? null),
           sessions: sessions.map(toPublicSession),
         })),
       });
@@ -202,7 +216,14 @@ export async function timerRoutes(app: FastifyInstance) {
         }
       }
 
-      return reply.status(201).send({ entry: toPublicEntry(entryResult), session });
+      const createdTicket = await ticketsCollection().findOne(
+        { _id: new ObjectId(entryResult.ticketId) },
+        { projection: { _id: 0, title: 1 } }
+      );
+
+      return reply
+        .status(201)
+        .send({ entry: toPublicEntry(entryResult, createdTicket?.title ?? null), session });
     }
   );
 
@@ -441,9 +462,20 @@ export async function timerRoutes(app: FastifyInstance) {
       const { tz = "UTC" } = req.query as { tz?: string };
       const today = toUtcDateKey(Date.now());
       const entries = await timerService.getDayEntries(userId, today, tz);
+
+      const ticketIds = [...new Set(entries.map(({ entry }) => entry.ticketId))]
+        .filter((id) => /^[0-9a-f]{24}$/i.test(id))
+        .map((id) => new ObjectId(id));
+      const tickets = ticketIds.length
+        ? await ticketsCollection()
+            .find({ _id: { $in: ticketIds } }, { projection: { _id: 1, title: 1 } })
+            .toArray()
+        : [];
+      const ticketTitleMap = new Map(tickets.map((t) => [t._id.toHexString(), t.title]));
+
       return reply.send({
         entries: entries.map(({ entry, sessions }) => ({
-          entry: toPublicEntry(entry),
+          entry: toPublicEntry(entry, ticketTitleMap.get(entry.ticketId) ?? null),
           sessions: sessions.map(toPublicSession),
         })),
       });

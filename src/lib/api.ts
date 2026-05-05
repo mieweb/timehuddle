@@ -646,6 +646,7 @@ export interface TimeEntry {
   id: string;
   userId: string;
   ticketId: string;
+  ticketTitle: string | null;
   date: string; // UTC "YYYY-MM-DD"
   note?: string;
   createdAt: string;

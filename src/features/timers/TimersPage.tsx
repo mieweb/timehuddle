@@ -97,9 +97,6 @@ export const TimersPage: React.FC = () => {
   // Running session (for live display)
   const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
 
-  // Ticket cache for title lookup
-  const [ticketCache, setTicketCache] = useState<Record<string, Ticket | null>>({});
-
   // Team tickets for the "new entry" picker
   const [teamTickets, setTeamTickets] = useState<Ticket[]>([]);
   const [showNewEntry, setShowNewEntry] = useState(false);
@@ -164,30 +161,6 @@ export const TimersPage: React.FC = () => {
   useEffect(() => {
     void fetchDay();
   }, [fetchDay]);
-
-  // Populate ticket cache from day entries whenever entries or team tickets change
-  useEffect(() => {
-    if (dayEntries.length === 0) return;
-    setTicketCache((prev) => {
-      const next = { ...prev };
-      for (const de of dayEntries) {
-        const id = de.entry.ticketId;
-        const fromTeam = teamTickets.find((t) => t.id === id);
-
-        // If we can resolve from the latest team ticket list, always refresh cache.
-        if (fromTeam) {
-          next[id] = fromTeam;
-          continue;
-        }
-
-        // Only mark as null (deleted/unassociated) once we have a loaded list.
-        if (teamTickets.length > 0 && !(id in next)) {
-          next[id] = null;
-        }
-      }
-      return next;
-    });
-  }, [dayEntries, teamTickets]);
 
   // ── Handlers ──
 
@@ -468,9 +441,7 @@ export const TimersPage: React.FC = () => {
         <Card padding="none">
           <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {dayEntries.map((de) => {
-              const ticket = ticketCache[de.entry.ticketId];
-              const isDeleted = ticket === null;
-              const title = ticket ? ticket.title : isDeleted ? 'Unassociated Timer' : 'Timer';
+              const title = de.entry.note?.trim() || '(untitled)';
               const total = entryTotalSeconds(de.sessions, currentTime);
               const runningSess = de.sessions.find((s) => s.endTime === null);
               const isRunning = !!runningSess;
@@ -499,15 +470,15 @@ export const TimersPage: React.FC = () => {
 
                   {/* Title + badges */}
                   <div className="min-w-0 flex-1">
-                    <Text
-                      size="sm"
-                      weight="medium"
-                      truncate
-                      variant={isDeleted ? 'muted' : 'default'}
-                    >
+                    <Text size="sm" weight="medium" truncate>
                       {title}
                     </Text>
                     <div className="mt-0.5 flex flex-wrap gap-1">
+                      {de.entry.ticketTitle && (
+                        <Badge variant="neutral" size="sm">
+                          {de.entry.ticketTitle}
+                        </Badge>
+                      )}
                       {isRunning && (
                         <Badge variant="success" size="sm">
                           <FontAwesomeIcon

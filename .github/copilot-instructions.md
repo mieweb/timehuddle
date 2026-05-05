@@ -165,6 +165,12 @@ src/
 - **Small functions**: Break down complex functions into smaller, focused ones
 - **Readable code**: Code should be obvious to understand at first glance
 
+### Core Model Data Discipline
+
+- **Persist domain data only**: Core persistence models should store canonical business data, not UI convenience values.
+- **No display-only fallbacks in model shape**: Do not add fields that exist only as presentation fallbacks (for example, duplicated title snapshots) to core database models.
+- **Resolve presentation at read time**: Compute or join display-friendly values in service/response layers rather than persisting redundant fallback fields.
+
 ### Folder Philosophy
 
 - **Clear purpose**: Every folder should have a main thing that anchors its contents.
