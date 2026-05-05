@@ -26,6 +26,7 @@
     "@noble/ciphers": "^2.2.0",
     "@parse/node-apn": "^7.1.0",
     "@timehuddle/youtube": "*",
+    "firebase-admin": "^13.0.0",
     "bcrypt": "^6.0.0",
     "better-auth": "^1.2.8",
     "dotenv": "^17.3.1",

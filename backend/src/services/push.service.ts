@@ -1,5 +1,7 @@
 import webpush from "web-push";
 import apn from "@parse/node-apn";
+import { initializeApp, getApps, cert } from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
 import { ObjectId } from "mongodb";
 import { pushSubscriptionsCollection, deviceTokensCollection } from "../models/index.js";
 import type { PushSubscription } from "../models/push-subscription.model.js";
@@ -31,6 +33,26 @@ function ensureApns(): apn.Provider | null {
   } catch (err: any) {
     console.warn("[push] APNs init failed:", err.message);
     return null;
+  }
+}
+
+// ─── FCM init ────────────────────────────────────────────────────────────────
+
+function ensureFcm(): boolean {
+  const encoded = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!encoded) {
+    console.warn("[push] FIREBASE_SERVICE_ACCOUNT not set — Android FCM disabled");
+    return false;
+  }
+  if (getApps().length > 0) return true;
+  try {
+    const json = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
+    initializeApp({ credential: cert(json) });
+    console.log("[push] Firebase Admin initialized ok");
+    return true;
+  } catch (err: any) {
+    console.warn("[push] Firebase Admin init failed:", err.message);
+    return false;
   }
 }
 
@@ -181,10 +203,8 @@ class PushService {
     for (const entry of tokens) {
       if (entry.platform === "ios") {
         tasks.push(this._sendApns(provider, userId, entry.token, payload));
-      } else {
-        console.warn(
-          `[push] Android push not yet implemented — skipping token ${entry.token.slice(0, 16)}…`
-        );
+      } else if (entry.platform === "android") {
+        tasks.push(this._sendFcm(userId, entry.token, payload));
       }
     }
 
@@ -204,6 +224,43 @@ class PushService {
   /** @deprecated Use sendToUser — kept for backwards compat with existing call sites. */
   async sendPush(userId: string, payload: PushPayload): Promise<void> {
     return this.sendToUser(userId, payload);
+  }
+
+  private async _sendFcm(
+    userId: string,
+    token: string,
+    payload: PushPayload
+  ): Promise<void> {
+    if (!ensureFcm()) return;
+    try {
+      console.log(`[push] sending FCM to token ${token.slice(0, 16)}…`);
+      await getMessaging().send({
+        token,
+        notification: { title: payload.title, body: payload.body },
+        android: {
+          notification: {
+            sound: "default",
+            ...(payload.tag ? { tag: payload.tag } : {}),
+          },
+        },
+        data: payload.data
+          ? Object.fromEntries(
+              Object.entries(payload.data).map(([k, v]) => [k, String(v)])
+            )
+          : undefined,
+      });
+      console.log("[push] FCM sent ok");
+    } catch (err: any) {
+      const code = err?.errorInfo?.code ?? err?.code ?? "";
+      console.error(`[push] FCM error code=${code} message=${err.message}`);
+      if (
+        code === "messaging/registration-token-not-registered" ||
+        code === "messaging/invalid-registration-token"
+      ) {
+        await this.removeDeviceToken(userId, token);
+        console.log("[push] removed stale FCM token");
+      }
+    }
   }
 
   private async _sendApns(
