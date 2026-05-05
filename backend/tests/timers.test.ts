@@ -276,6 +276,21 @@ describe("POST /v1/timers/entries/:id/start", () => {
     expect(res.json().session).not.toBeNull();
     expect(res.json().session.endTime).toBeNull();
   });
+
+  it("keeps timer.date aligned with the parent WorkItem date", async () => {
+    const fixedDate = "2099-03-01";
+    const createRes = await inject("POST", "/v1/timers/entries", cookieA, {
+      ticketId,
+      date: fixedDate,
+    });
+    const fixedEntryId = createRes.json().entry.id;
+
+    const startRes = await inject("POST", `/v1/timers/entries/${fixedEntryId}/start`, cookieA, {
+      now: Date.now(),
+    });
+    expect(startRes.statusCode).toBe(200);
+    expect(startRes.json().session.date).toBe(fixedDate);
+  });
 });
 
 // ─── Stop timer session ───────────────────────────────────────────────────────
@@ -486,6 +501,22 @@ describe("POST /v1/timers/copy-previous", () => {
     expect(res.statusCode).toBe(200);
     // May or may not be 0 depending on how many prior entries exist, but it must succeed
     expect(typeof res.json().created).toBe("number");
+  });
+
+  it("is idempotent for tickets already copied to the target day", async () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yDate = yesterday.toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+
+    await inject("POST", "/v1/timers/entries", cookieA, { ticketId: ticketBId, date: yDate });
+
+    const first = await inject("POST", "/v1/timers/copy-previous", cookieA, { toDate: today });
+    const second = await inject("POST", "/v1/timers/copy-previous", cookieA, { toDate: today });
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(second.json().created).toBe(0);
   });
 });
 

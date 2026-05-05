@@ -255,7 +255,6 @@ export async function timerRoutes(app: FastifyInstance) {
           },
           404: err("WorkItem not found"),
           403: err("Forbidden"),
-          409: err("Timer already running"),
         },
       },
     },

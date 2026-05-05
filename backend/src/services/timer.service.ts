@@ -272,7 +272,8 @@ export class TimerService {
       _id: new ObjectId(),
       workItemId: entryId,
       userId,
-      date: toUtcDateKey(now),
+      // Keep timer date aligned with the parent WorkItem date invariant.
+      date: entry.date,
       startTime: now,
       endTime: null,
       createdAt: new Date(),
@@ -567,8 +568,8 @@ export class TimerService {
 
   /**
    * Copy WorkItem rows from the most recent previous day that has entries
-   * to `toDate`. Skips entries where { userId, ticketId, date: toDate } already
-   * exists. Returns the number of new work items created.
+   * to `toDate`. Skips rows for tickets that already have at least one
+   * WorkItem on `toDate` for this user. Returns the number of new rows created.
    */
   async copyFromPrevious(
     userId: string,
@@ -585,8 +586,17 @@ export class TimerService {
     const prevEntries = await workItemsCollection().find({ userId, date: prevDate }).toArray();
     if (prevEntries.length === 0) return 0;
 
+    const existingOnTargetDate = await workItemsCollection()
+      .find({ userId, date: toDate }, { projection: { ticketId: 1 } })
+      .toArray();
+    const existingTicketIds = new Set(existingOnTargetDate.map((e) => e.ticketId));
+
     let created = 0;
     for (const e of prevEntries) {
+      if (existingTicketIds.has(e.ticketId)) {
+        continue;
+      }
+
       const doc: WorkItem = {
         _id: new ObjectId(),
         userId,
@@ -596,13 +606,9 @@ export class TimerService {
         ...(e.sortOrder !== undefined ? { sortOrder: e.sortOrder } : {}),
         createdAt: new Date(),
       };
-      try {
-        await workItemsCollection().insertOne(doc);
-        created++;
-      } catch (err: unknown) {
-        // E11000 — work item already exists for this { userId, ticketId, date }. Skip.
-        if ((err as { code?: number }).code !== 11000) throw err;
-      }
+      await workItemsCollection().insertOne(doc);
+      existingTicketIds.add(e.ticketId);
+      created++;
     }
 
     return created;

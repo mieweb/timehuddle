@@ -676,7 +676,7 @@ export interface WeekDay {
 }
 
 export const timerApi = {
-  /** Create (or upsert) a WorkItem for the given ticket + date. */
+  /** Create a WorkItem for the given ticket + date. */
   createEntry: (data: { ticketId: string; date: string; note?: string }) =>
     request<{ entry: WorkItem }>('/v1/timers/entries', {
       method: 'POST',
@@ -735,7 +735,10 @@ export const timerApi = {
       `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
     ).then((r) => r.totalSeconds),
 
-  /** Copy entries from the most recent previous day into toDate. Skips existing rows. */
+  /**
+   * Copy entries from the most recent previous day into toDate.
+   * Skips tickets that already have at least one WorkItem row on toDate.
+   */
   copyPrevious: (toDate: string) =>
     request<{ created: number }>('/v1/timers/copy-previous', {
       method: 'POST',
