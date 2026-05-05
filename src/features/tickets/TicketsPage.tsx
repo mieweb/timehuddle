@@ -137,12 +137,12 @@ const TicketRow: React.FC<TicketRowProps> = ({
   const dotColor = priorityDotColor(ticket.priority);
 
   return (
-    <li className="px-5 py-3">
+    <li className="px-5 py-2">
       <div className="flex items-start gap-3">
         {/* Content */}
-        <div className="min-w-0 flex-1 space-y-1">
+        <div className="min-w-0 flex-1 space-y-0.5">
           {/* Title row: priority dot + title + 3-dot menu */}
-          <div className="flex items-start gap-1.5">
+          <div className="flex items-center gap-1.5">
             {dotColor && (
               <span
                 className={`mt-1 inline-block h-2 w-2 shrink-0 rounded-full ${dotColor}`}
@@ -158,7 +158,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
                   variant="ghost"
                   size="icon"
                   aria-label="Ticket options"
-                  className="-mt-1 -mr-2 shrink-0"
+                  className="-mt-0.5 -mr-2 shrink-0"
                 >
                   <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
                 </Button>
@@ -209,7 +209,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
           )}
 
           {/* Footer: github, assignee, status */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             {ticket.github && (
               <a
                 href={ticket.github}
