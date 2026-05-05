@@ -40,12 +40,9 @@ GET /v1/activity/feed?userId=&limit=50&before=<cursor>
 
 Cursor-based pagination over `{ occurredAt: -1 }`. Scoped by user or team.
 
-## Real-time
-
-MongoDB change stream on the `activities` collection → SSE channel `GET /v1/activity/stream`, consistent with existing SSE patterns in the codebase (messages, notifications, clock).
-
 ## Out of scope
 
+- Real-time feed.
 - External ingestion.
 - Per-event privacy controls / visibility rules
 - Email digest or push notification fan-out from events
