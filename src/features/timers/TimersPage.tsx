@@ -25,8 +25,6 @@ import {
   Button,
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
   Input,
   Modal,
   ModalBody,
@@ -34,6 +32,12 @@ import {
   ModalHeader,
   Select,
   Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
   Text,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -105,6 +109,9 @@ export const TimersPage: React.FC = () => {
   // Selected day (local YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState<string>(toLocalDateStr(new Date()));
 
+  // Whether the selected day is today (updates reactively at midnight via currentTime)
+  const isToday = selectedDate === toLocalDateStr(new Date(currentTime));
+
   // Week days derived from selectedDate
   const weekDays = useMemo(() => {
     const base = new Date(selectedDate + 'T00:00:00');
@@ -128,6 +135,7 @@ export const TimersPage: React.FC = () => {
   const [teamTickets, setTeamTickets] = useState<Ticket[]>([]);
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [newEntryTicketId, setNewEntryTicketId] = useState('');
+  const [newEntryNote, setNewEntryNote] = useState('');
   const [newEntryLoading, setNewEntryLoading] = useState(false);
 
   // Copy state
@@ -278,9 +286,14 @@ export const TimersPage: React.FC = () => {
     if (!newEntryTicketId) return;
     setNewEntryLoading(true);
     try {
-      await timerApi.createEntry({ ticketId: newEntryTicketId, date: selectedDate });
+      await timerApi.createEntry({
+        ticketId: newEntryTicketId,
+        date: selectedDate,
+        note: newEntryNote.trim() ? newEntryNote.trim() : undefined,
+      });
       setShowNewEntry(false);
       setNewEntryTicketId('');
+      setNewEntryNote('');
       void fetchDay();
     } catch {
       // ignore duplicates (entry already exists)
@@ -288,7 +301,7 @@ export const TimersPage: React.FC = () => {
     } finally {
       setNewEntryLoading(false);
     }
-  }, [newEntryTicketId, selectedDate, fetchDay]);
+  }, [newEntryTicketId, newEntryNote, selectedDate, fetchDay]);
 
   const handleDeleteEntry = useCallback(
     async (entryId: string, isRunning: boolean) => {
@@ -383,6 +396,28 @@ export const TimersPage: React.FC = () => {
     [teamTickets],
   );
 
+  const ticketsById = useMemo(() => {
+    const map = new Map<string, Ticket>();
+    for (const ticket of allTickets) map.set(ticket.id, ticket);
+    return map;
+  }, [allTickets]);
+
+  const teamNamesById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const team of teams) map.set(team.id, team.name);
+    return map;
+  }, [teams]);
+
+  const getWorkItemLabel = useCallback(
+    (entry: DayEntry['entry']) => {
+      const ticket = ticketsById.get(entry.ticketId);
+      const baseTitle = entry.displayTitle || ticket?.title || '(untitled)';
+      const teamName = ticket ? teamNamesById.get(ticket.teamId) : undefined;
+      return teamName ? `${baseTitle} - ${teamName}` : baseTitle;
+    },
+    [ticketsById, teamNamesById],
+  );
+
   const selectedDayLabel = useMemo(
     () =>
       new Date(selectedDate + 'T00:00:00').toLocaleDateString(undefined, {
@@ -413,115 +448,159 @@ export const TimersPage: React.FC = () => {
   }
 
   return (
-    <AppPage subtitle={weekRangeLabel}>
-      {/* ── Week Strip ── */}
-      <Card padding="sm">
-        <CardContent>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={handlePrevWeek}
-              aria-label="Previous week"
-              className="rounded-lg p-2 hover:bg-muted transition-colors flex-shrink-0"
-            >
-              <FontAwesomeIcon icon={faChevronLeft} className="text-xs" />
-            </button>
-            <div className="grid grid-cols-7 gap-1 flex-1" role="tablist" aria-label="Select day">
-              {weekDays.map((day) => {
-                const dateStr = toLocalDateStr(day);
-                const total = weekTotals[dateStr] ?? 0;
-                const isSelected = dateStr === selectedDate;
-                const isToday = dateStr === toLocalDateStr(new Date());
-                return (
-                  <button
-                    key={dateStr}
-                    role="tab"
-                    aria-selected={isSelected}
-                    onClick={() => setSelectedDate(dateStr)}
-                    className={`flex flex-col items-center rounded-lg p-2 text-xs transition-colors ${
-                      isSelected
-                        ? 'bg-primary text-primary-foreground'
-                        : isToday
-                          ? 'bg-primary/10 text-primary'
-                          : 'hover:bg-muted'
-                    }`}
-                  >
-                    <span className="font-medium">{fmtShortDate(day)}</span>
-                    <span className={`mt-0.5 font-mono ${total > 0 ? '' : 'opacity-40'}`}>
-                      {weekTotalsLoading ? '…' : formatDuration(total)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              onClick={handleNextWeek}
-              aria-label="Next week"
-              className="rounded-lg p-2 hover:bg-muted transition-colors flex-shrink-0"
-            >
-              <FontAwesomeIcon icon={faChevronRight} className="text-xs" />
-            </button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── Day Header ── */}
-      <div className="flex items-center justify-between">
-        <Text weight="semibold">{selectedDayLabel}</Text>
-        <div className="flex gap-2">
+    <AppPage>
+      {/* ── Page Header: week nav + today + week range ── */}
+      <div className="flex items-center justify-between gap-3">
+        <Text weight="semibold" className="truncate">
+          {weekRangeLabel}
+        </Text>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            onClick={handlePrevWeek}
+            aria-label="Previous week"
+            className="rounded-lg p-2 hover:bg-muted transition-colors flex-shrink-0"
+          >
+            <FontAwesomeIcon icon={faChevronLeft} className="text-xs" />
+          </button>
           <Button variant="ghost" size="sm" onClick={handleGoToToday} aria-label="Go to today">
             Today
           </Button>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => setShowNewEntry(true)}
-            aria-label="Add work item"
+          <button
+            onClick={handleNextWeek}
+            aria-label="Next week"
+            className="rounded-lg p-2 hover:bg-muted transition-colors flex-shrink-0"
           >
-            +
-          </Button>
+            <FontAwesomeIcon icon={faChevronRight} className="text-xs" />
+          </button>
         </div>
       </div>
 
-      {/* ── New Entry Form ── */}
-      {showNewEntry && (
-        <Card padding="md">
-          <CardHeader>
-            <CardTitle className="text-sm">New Work Item</CardTitle>
-          </CardHeader>
-          <CardContent className="flex gap-2">
-            <div className="flex-1">
-              <Select
-                label="Ticket"
-                hideLabel
-                options={ticketOptions}
-                value={newEntryTicketId}
-                onValueChange={(v) => setNewEntryTicketId(v)}
-                placeholder="Select a ticket…"
-                size="sm"
-              />
+      {/* ── Week Strip + Add Button ── */}
+      <div className="flex flex-col gap-2 sm:gap-0">
+        {/* On small screens: full-width add button above the strip */}
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => setShowNewEntry(true)}
+          aria-label="Add work item"
+          className="w-full sm:hidden"
+        >
+          + Add Work Item
+        </Button>
+
+        <Card padding="sm">
+          <CardContent>
+            <div className="flex items-center gap-1">
+              {/* On wider screens: + button sits left of the day selectors */}
+              <Button
+                variant="primary"
+                size="icon"
+                onClick={() => setShowNewEntry(true)}
+                aria-label="Add work item"
+                className="hidden sm:flex flex-shrink-0 mr-1"
+              >
+                +
+              </Button>
+              <div className="grid grid-cols-7 gap-1 flex-1" role="tablist" aria-label="Select day">
+                {weekDays.map((day) => {
+                  const dateStr = toLocalDateStr(day);
+                  const total = weekTotals[dateStr] ?? 0;
+                  const isSelected = dateStr === selectedDate;
+                  const isToday = dateStr === toLocalDateStr(new Date());
+                  return (
+                    <button
+                      key={dateStr}
+                      role="tab"
+                      aria-selected={isSelected}
+                      onClick={() => setSelectedDate(dateStr)}
+                      className={`flex flex-col items-center rounded-lg p-2 text-xs transition-colors ${
+                        isSelected
+                          ? 'bg-primary text-primary-foreground'
+                          : isToday
+                            ? 'bg-primary/10 text-primary'
+                            : 'hover:bg-muted'
+                      }`}
+                    >
+                      <span className="font-medium">{fmtShortDate(day)}</span>
+                      <span className={`mt-0.5 font-mono ${total > 0 ? '' : 'opacity-40'}`}>
+                        {weekTotalsLoading ? '…' : formatDuration(total)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Day Header ── */}
+      <div className="flex items-center">
+        <Text weight="semibold">{selectedDayLabel}</Text>
+      </div>
+
+      {/* ── New Entry Modal ── */}
+      <Modal
+        open={showNewEntry}
+        onOpenChange={(o) => {
+          setShowNewEntry(o);
+          if (!o) {
+            setNewEntryTicketId('');
+            setNewEntryNote('');
+          }
+        }}
+        aria-labelledby="new-entry-title"
+      >
+        <ModalHeader>
+          <Text weight="semibold" id="new-entry-title">
+            Add work item for{' '}
+            {new Date(selectedDate + 'T00:00:00').toLocaleDateString(undefined, {
+              weekday: 'long',
+              day: 'numeric',
+              month: 'long',
+            })}
+          </Text>
+        </ModalHeader>
+        <ModalBody>
+          <Select
+            label="Ticket"
+            searchable
+            searchPlaceholder="Search tickets…"
+            options={ticketOptions}
+            value={newEntryTicketId}
+            onValueChange={(v) => setNewEntryTicketId(v)}
+            placeholder="Select a ticket…"
+          />
+          <Input
+            label="Note (optional)"
+            value={newEntryNote}
+            onChange={(e) => setNewEntryNote(e.target.value)}
+            placeholder="Note (optional)"
+          />
+        </ModalBody>
+        <ModalFooter>
+          <div className="flex gap-2">
             <Button
               variant="primary"
-              size="sm"
               onClick={handleCreateEntry}
               isLoading={newEntryLoading}
               disabled={!newEntryTicketId}
             >
-              Add
+              Add work item
             </Button>
             <Button
               variant="ghost"
-              size="sm"
               onClick={() => {
                 setShowNewEntry(false);
                 setNewEntryTicketId('');
+                setNewEntryNote('');
               }}
             >
               Cancel
             </Button>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        </ModalFooter>
+      </Modal>
 
       {/* ── Day View ── */}
       {dayLoading ? (
@@ -536,90 +615,113 @@ export const TimersPage: React.FC = () => {
         </div>
       ) : (
         <Card padding="none">
-          <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-            {dayEntries.map((de) => {
-              const title = de.entry.displayTitle || '(untitled)';
-              const total = entryTotalSeconds(de.sessions, currentTime);
-              const runningSess = de.sessions.find((s) => s.endTime === null);
-              const isRunning = !!runningSess;
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-10" />
+                <TableHead>Work Item</TableHead>
+                <TableHead className="text-right">Time</TableHead>
+                <TableHead className="w-20" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {dayEntries.map((de) => {
+                const title = getWorkItemLabel(de.entry);
+                const total = entryTotalSeconds(de.sessions, currentTime);
+                const runningSess = de.sessions.find((s) => s.endTime === null);
+                const isRunning = !!runningSess;
 
-              return (
-                <li key={de.entry.id} className="flex items-center gap-3 px-4 py-3">
-                  {/* Start / Stop button */}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() =>
-                      isRunning && runningSess
-                        ? handleStop(runningSess.id)
-                        : handleStart(de.entry.id)
-                    }
-                    disabled={!isRunning && !!runningSessionId}
-                    className={`shrink-0 rounded-full ${
-                      isRunning
-                        ? 'bg-amber-100 text-amber-600 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-400'
-                        : 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-400'
-                    }`}
-                    aria-label={isRunning ? 'Stop timer' : 'Start timer'}
-                  >
-                    <FontAwesomeIcon icon={isRunning ? faPause : faPlay} className="text-xs" />
-                  </Button>
+                return (
+                  <TableRow key={de.entry.id}>
+                    {/* Start / Stop */}
+                    <TableCell className="py-2 pr-0">
+                      <span
+                        title={!isRunning && !isToday ? 'Timers can only run on the current day — editing this entry is still available.' : undefined}
+                        style={{ cursor: !isRunning && !isToday ? 'not-allowed' : undefined }}
+                      >
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() =>
+                            isRunning && runningSess
+                              ? handleStop(runningSess.id)
+                              : handleStart(de.entry.id)
+                          }
+                          disabled={!isRunning && (!!runningSessionId || !isToday)}
+                          style={!isRunning && !isToday ? { pointerEvents: 'none' } : undefined}
+                          className={`rounded-full ${
+                            isRunning
+                              ? 'bg-amber-100 text-amber-600 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-400'
+                              : 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-400'
+                          }`}
+                          aria-label={isRunning ? 'Stop timer' : 'Start timer'}
+                        >
+                          <FontAwesomeIcon icon={isRunning ? faPause : faPlay} className="text-xs" />
+                        </Button>
+                      </span>
+                    </TableCell>
 
-                  {/* Title + badges */}
-                  <div className="min-w-0 flex-1">
-                    <Text size="sm" weight="medium" truncate>
-                      {title}
-                    </Text>
-                    {de.entry.note?.trim() && (
-                      <Text size="xs" variant="muted" truncate>
-                        {de.entry.note.trim()}
+                    {/* Title + note + running badge */}
+                    <TableCell className="py-2">
+                      <div className="flex items-center gap-2">
+                        <div className="min-w-0">
+                          <Text size="sm" weight="medium" truncate>
+                            {title}
+                          </Text>
+                          {de.entry.note?.trim() && (
+                            <Text size="xs" variant="muted" truncate>
+                              {de.entry.note.trim()}
+                            </Text>
+                          )}
+                        </div>
+                        {isRunning && (
+                          <Badge variant="success" size="sm">
+                            <FontAwesomeIcon
+                              icon={faSpinner}
+                              className="mr-1 animate-spin text-[10px]"
+                            />
+                            Running
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
+
+                    {/* Duration */}
+                    <TableCell className="py-2 text-right font-mono">
+                      <Text size="sm" variant={total > 0 ? 'default' : 'muted'}>
+                        {formatDuration(total)}
                       </Text>
-                    )}
-                    <div className="mt-0.5 flex flex-wrap gap-1">
-                      {isRunning && (
-                        <Badge variant="success" size="sm">
-                          <FontAwesomeIcon
-                            icon={faSpinner}
-                            className="mr-1 animate-spin text-[10px]"
-                          />
-                          Running
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
+                    </TableCell>
 
-                  {/* Total duration */}
-                  <Text
-                    size="sm"
-                    className="font-mono shrink-0"
-                    variant={total > 0 ? 'default' : 'muted'}
-                  >
-                    {formatDuration(total)}
-                  </Text>
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleOpenEdit(de)}
-                    aria-label="Edit work item"
-                    className="shrink-0 text-muted-foreground hover:text-foreground"
-                  >
-                    <FontAwesomeIcon icon={faPen} className="text-xs" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleDeleteEntry(de.entry.id, isRunning)}
-                    disabled={deletingEntryId === de.entry.id}
-                    aria-label="Delete work item"
-                    className="shrink-0 text-muted-foreground hover:text-danger"
-                  >
-                    <FontAwesomeIcon icon={faTrash} className="text-xs" />
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
+                    {/* Actions */}
+                    <TableCell className="py-2">
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenEdit(de)}
+                          aria-label="Edit work item"
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          <FontAwesomeIcon icon={faPen} className="text-xs" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteEntry(de.entry.id, isRunning)}
+                          disabled={deletingEntryId === de.entry.id}
+                          aria-label="Delete work item"
+                          className="text-muted-foreground hover:text-danger"
+                        >
+                          <FontAwesomeIcon icon={faTrash} className="text-xs" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         </Card>
       )}
 
@@ -671,10 +773,10 @@ export const TimersPage: React.FC = () => {
                   placeholder="Select a ticket…"
                 />
                 <Input
-                  label="Notes (optional)"
+                  label="Note (optional)"
                   value={editNote}
                   onChange={(e) => setEditNote(e.target.value)}
-                  placeholder="Notes (optional)"
+                  placeholder="Note (optional)"
                 />
                 <Input
                   label="Duration"

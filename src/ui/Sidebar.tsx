@@ -62,9 +62,8 @@ const NAV: NavSection[] = [
     heading: 'Workspace',
     items: [
       { icon: faGauge, label: 'Dashboard', href: '/app/dashboard' },
-      { icon: faClock, label: 'Clock In/Out', href: '/app/clock' },
+      { icon: faStopwatch, label: 'Work', href: '/app/timers' },
       { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
-      { icon: faStopwatch, label: 'Timers', href: '/app/timers' },
       { icon: faTable, label: 'Timesheet', href: '/app/timesheet' },
     ],
   },
@@ -79,7 +78,10 @@ const NAV: NavSection[] = [
   },
   {
     heading: 'System',
-    items: [{ icon: faGear, label: 'Settings', href: '/app/settings' }],
+    
+    items: [
+      { icon: faClock, label: 'Clock', href: '/app/clock' },
+      { icon: faGear, label: 'Settings', href: '/app/settings' }],
   },
 ];
 
