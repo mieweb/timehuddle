@@ -19,6 +19,14 @@ export interface TicketCreatedPayload {
   teamId: string;
 }
 
+// ─── Activity type constants ──────────────────────────────────────────────────
+
+export const ActivityType = {
+  ClockIn: "clock.in",
+  ClockOut: "clock.out",
+  TicketCreated: "ticket.created",
+} as const;
+
 // ─── Discriminated union ──────────────────────────────────────────────────────
 
 interface ActivityBase {
