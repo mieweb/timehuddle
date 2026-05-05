@@ -503,7 +503,7 @@ export const WorkPage: React.FC = () => {
           size="sm"
           onClick={() => setShowNewEntry(true)}
           aria-label="Add work item"
-          className="w-full sm:hidden"
+          className="w-full sm:hidden min-h-12"
         >
           + Add Work Item
         </Button>

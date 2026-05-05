@@ -566,6 +566,112 @@ describe("POST /v1/timers/copy-previous", () => {
     expect(second.statusCode).toBe(200);
     expect(second.json().created).toBe(0);
   });
+
+  it("copies multiple rows for the same ticket when note/sortOrder differ", async () => {
+    const db = client.db();
+    const prevDate = "2099-06-01";
+    const toDate = "2099-06-02";
+
+    await db
+      .collection("workitems")
+      .deleteMany({ userId: userAId, date: { $in: [prevDate, toDate] } });
+
+    await db.collection("workitems").insertMany([
+      {
+        _id: new ObjectId(),
+        userId: userAId,
+        ticketId,
+        date: prevDate,
+        note: "Morning pass",
+        sortOrder: 1,
+        createdAt: new Date(),
+      },
+      {
+        _id: new ObjectId(),
+        userId: userAId,
+        ticketId,
+        date: prevDate,
+        note: "Afternoon pass",
+        sortOrder: 2,
+        createdAt: new Date(),
+      },
+      {
+        _id: new ObjectId(),
+        userId: userAId,
+        ticketId,
+        date: prevDate,
+        note: "Wrap-up",
+        sortOrder: 3,
+        createdAt: new Date(),
+      },
+    ]);
+
+    const res = await inject("POST", "/v1/timers/copy-previous", cookieA, { toDate });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().created).toBe(3);
+
+    const copied = await db
+      .collection("workitems")
+      .find({ userId: userAId, date: toDate, ticketId })
+      .sort({ sortOrder: 1 })
+      .toArray();
+
+    expect(copied).toHaveLength(3);
+    expect(copied.map((entry) => entry.note)).toEqual([
+      "Morning pass",
+      "Afternoon pass",
+      "Wrap-up",
+    ]);
+  });
+
+  it("preserves duplicate identical rows from previous day", async () => {
+    const db = client.db();
+    const prevDate = "2099-06-03";
+    const toDate = "2099-06-04";
+
+    await db
+      .collection("workitems")
+      .deleteMany({ userId: userAId, date: { $in: [prevDate, toDate] } });
+
+    await db.collection("workitems").insertMany([
+      {
+        _id: new ObjectId(),
+        userId: userAId,
+        ticketId,
+        date: prevDate,
+        note: "Note",
+        createdAt: new Date(),
+      },
+      {
+        _id: new ObjectId(),
+        userId: userAId,
+        ticketId,
+        date: prevDate,
+        createdAt: new Date(),
+      },
+      {
+        _id: new ObjectId(),
+        userId: userAId,
+        ticketId,
+        date: prevDate,
+        createdAt: new Date(),
+      },
+    ]);
+
+    const res = await inject("POST", "/v1/timers/copy-previous", cookieA, { toDate });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().created).toBe(3);
+
+    const copied = await db
+      .collection("workitems")
+      .find({ userId: userAId, date: toDate, ticketId })
+      .toArray();
+    expect(copied).toHaveLength(3);
+
+    const notes = copied.map((entry) => entry.note ?? null);
+    expect(notes.filter((n) => n === "Note")).toHaveLength(1);
+    expect(notes.filter((n) => n === null)).toHaveLength(2);
+  });
 });
 
 // ─── Clock-out closes all sessions via single updateMany ──────────────────────

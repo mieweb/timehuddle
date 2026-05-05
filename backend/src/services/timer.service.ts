@@ -568,8 +568,9 @@ export class TimerService {
 
   /**
    * Copy WorkItem rows from the most recent previous day that has entries
-   * to `toDate`. Skips rows for tickets that already have at least one
-   * WorkItem on `toDate` for this user. Returns the number of new rows created.
+   * to `toDate`. Skips rows that already exist on `toDate` with the same
+   * ticketId + note + sortOrder signature, while preserving duplicate rows
+   * from the source day. Returns the number of new rows created.
    */
   async copyFromPrevious(
     userId: string,
@@ -586,14 +587,27 @@ export class TimerService {
     const prevEntries = await workItemsCollection().find({ userId, date: prevDate }).toArray();
     if (prevEntries.length === 0) return 0;
 
+    const signature = (entry: Pick<WorkItem, "ticketId" | "note" | "sortOrder">) =>
+      `${entry.ticketId}::${entry.note ?? ""}::${entry.sortOrder ?? ""}`;
+
     const existingOnTargetDate = await workItemsCollection()
-      .find({ userId, date: toDate }, { projection: { ticketId: 1 } })
+      .find({ userId, date: toDate }, { projection: { ticketId: 1, note: 1, sortOrder: 1 } })
       .toArray();
-    const existingTicketIds = new Set(existingOnTargetDate.map((e) => e.ticketId));
+
+    // Track how many existing rows already occupy each signature on the target day.
+    // This lets us preserve duplicate rows from prevDate instead of collapsing them.
+    const existingSignatureCounts = new Map<string, number>();
+    for (const entry of existingOnTargetDate) {
+      const key = signature(entry);
+      existingSignatureCounts.set(key, (existingSignatureCounts.get(key) ?? 0) + 1);
+    }
 
     let created = 0;
     for (const e of prevEntries) {
-      if (existingTicketIds.has(e.ticketId)) {
+      const key = signature(e);
+      const remainingExisting = existingSignatureCounts.get(key) ?? 0;
+      if (remainingExisting > 0) {
+        existingSignatureCounts.set(key, remainingExisting - 1);
         continue;
       }
 
@@ -607,7 +621,6 @@ export class TimerService {
         createdAt: new Date(),
       };
       await workItemsCollection().insertOne(doc);
-      existingTicketIds.add(e.ticketId);
       created++;
     }
 

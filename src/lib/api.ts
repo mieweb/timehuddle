@@ -737,7 +737,7 @@ export const timerApi = {
 
   /**
    * Copy entries from the most recent previous day into toDate.
-   * Skips tickets that already have at least one WorkItem row on toDate.
+   * Skips rows that already exist with the same ticket + note + sortOrder signature.
    */
   copyPrevious: (toDate: string) =>
     request<{ created: number }>('/v1/timers/copy-previous', {

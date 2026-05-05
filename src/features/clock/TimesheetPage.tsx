@@ -252,7 +252,7 @@ export const TimesheetPage: React.FC = () => {
       {data && data.sessions.length > 0 && (
         <Card padding="none">
           <CardHeader className="px-5 py-3">
-            <CardTitle className="text-sm">Clock Events ({data.sessions.length})</CardTitle>
+            <CardTitle className="text-sm">Sessions ({data.sessions.length})</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table responsive>
