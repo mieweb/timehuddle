@@ -70,7 +70,6 @@ The UI calls `TimeEntry` a "timer" throughout. The distinction is only in code, 
 interface TimeEntry {
   _id: ObjectId;
   userId: string;
-  teamId: string;
   ticketId: string;         // the work item being tracked
   date: string;             // ISO date string: "YYYY-MM-DD" in UTC (canonical storage key)
   note?: string;            // optional per-entry note (like Harvest's "notes" field)
@@ -80,7 +79,7 @@ interface TimeEntry {
 }
 ```
 
-Natural key: `{ userId, teamId, ticketId, date }` — unique per user per ticket per day.
+Natural key: `{ userId, ticketId, date }` — unique per user per ticket per day. Team association is derived via `ticketId → Ticket.teamId` and is not stored here.
 
 Date policy for MVP:
 
@@ -193,7 +192,7 @@ The embedded `tickets[]` array is removed. A query like "what tickets did the us
 
 Create these indexes when introducing `TimeEntry` and `TimerSession`:
 
-1. `TimeEntry`: unique `{ userId: 1, teamId: 1, ticketId: 1, date: 1 }` (one entry per user per ticket per day).
+1. `TimeEntry`: unique `{ userId: 1, ticketId: 1, date: 1 }` (one entry per user per ticket per day).
 2. `TimeEntry`: `{ userId: 1, date: 1 }` (load all entries for a user on a given day — primary timesheet query).
 3. `TimerSession`: unique partial `{ userId: 1 }` where `endTime: null` (at most one running session per user).
 4. `TimerSession`: `{ timeEntryId: 1, startTime: 1 }` (all sessions for a given entry, in order).
@@ -331,13 +330,14 @@ Build a Harvest-inspired timesheet surface on top of the new `TimeEntry`/`TimerS
 3. A day starts **empty** unless the user creates entries or copies from a previous day. There are no phantom entries from prior days.
 4. A primary `+` action creates a `TimeEntry` for the selected day:
   - prompt for ticket selection,
-  - insert `TimeEntry { userId, teamId, ticketId, date }`,
+  - insert `TimeEntry { userId, ticketId, date }`,
+  - team association is resolved from the ticket, not stored on the entry,
   - optionally start immediately (open a `TimerSession`).
 5. If a user is clocked in but has no `TimeEntry` rows for today, show an empty state that still allows timer creation.
 6. Include a **"Copy rows from most recent timesheet"** action:
   - find the most recent `date < today` where this user has at least one `TimeEntry`,
   - duplicate those rows as new `TimeEntry` records for today (with zero sessions),
-  - if a row already exists for `{ userId, teamId, ticketId, date=today }`, skip it (no duplicate, no error),
+  - if a row already exists for `{ userId, ticketId, date=today }`, skip it (no duplicate, no error),
   - do not copy sessions — today starts at 0:00 for each entry.
 
 ### Data contract for UI
@@ -364,7 +364,7 @@ Post-MVP, introduce a projection document/table for cached rollups while keeping
 - **Decision**: Yes, add a projection layer after MVP.
 - **Purpose**: Serve dashboard/reporting reads without expensive live aggregation on every request.
 - **Source of truth**: `TimerSession` remains authoritative; projection data is derived and rebuildable.
-- **Suggested shape**: Daily rollups keyed by `{ userId, teamId, ticketId, date }` plus higher-level weekly/monthly materializations as needed.
+- **Suggested shape**: Daily rollups keyed by `{ userId, ticketId, date }` plus higher-level weekly/monthly materializations as needed.
 - **Update strategy**: Event-driven incremental updates on session close/edit, with periodic reconciliation/rebuild jobs.
 - **Failure mode**: If projection lags, reads can fall back to live aggregation for correctness-critical paths.
 
@@ -378,8 +378,9 @@ MVP favors direct edits on closed sessions with audit logs. Post-MVP, consider m
 
 ## Resolved Decisions
 
-- ~~**Multiple users per timer**~~ **Resolved**: Each user owns their own `TimeEntry` per ticket per day. Natural key `{ userId, teamId, ticketId, date }`.
+- ~~**Multiple users per timer**~~ **Resolved**: Each user owns their own `TimeEntry` per ticket per day. Natural key `{ userId, ticketId, date }`. `teamId` is not stored on `TimeEntry` — it is derived from the ticket.
 - ~~**Timer pinning / reuse across days**~~ **Resolved**: Per-day model — entries are created fresh each day. "Copy from previous timesheet" is the reuse mechanism. No `isPinned` field needed.
+- ~~**`teamId` on `TimeEntry`**~~ **Resolved**: Dropped. A ticket already belongs to exactly one team — the association is derived via `ticketId → Ticket.teamId`. Storing it on `TimeEntry` would be redundant coupling that complicates a future Project/Task generalization. `TimerSession` retains `teamId` for team-level reporting queries.
 - ~~**Persistent vs per-day timer**~~ **Resolved**: Per-day (Harvest-style). `TimeEntry` with a `date` field. UI calls them "timers."
 - ~~**Ticket soft-delete visibility**~~ **Resolved (MVP)**: `TimeEntry` rows remain visible in reporting and timesheet totals. In MVP UI, if the ticket is soft-deleted, show the row as an **Unassociated Timer** rather than hiding historical time.
 - ~~**Timezone handling**~~ **Resolved (MVP)**: Persist `TimeEntry.date`/`TimerSession.date` as UTC (`YYYY-MM-DD`) for canonical storage and reporting. Display dates/times in the user's local timezone in the UI.
