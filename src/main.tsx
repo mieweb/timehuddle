@@ -42,6 +42,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { InboxPage } from './features/inbox/InboxPage';
+import { notificationApi } from './lib/api';
 import { autoRegisterNativePush } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
 import { AppLayout } from './ui/AppLayout';
@@ -121,9 +122,33 @@ _log('App component defined — modules loaded');
 const App: React.FC = () => {
   const { user, loading, needsUsernameClaim } = useSession();
 
-  // Auto-register FCM token on native as soon as the user is authenticated.
+  // Auto-register push on native (APNs/FCM) and web (VAPID) after login.
   React.useEffect(() => {
     if (user) void autoRegisterNativePush(user.id);
+  }, [user]);
+
+  // SSE fallback: show a browser Notification for every incoming SSE event.
+  // This fires even when FCM/VAPID push delivery is unreliable (e.g. localhost).
+  // Skipped on native Capacitor (APNs handles it) and when permission not granted.
+  React.useEffect(() => {
+    if (!user || Capacitor.isNativePlatform()) return;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+
+    const es = notificationApi.openStream();
+    es.onmessage = (e) => {
+      try {
+        const n = JSON.parse(e.data) as { title: string; body: string; data?: Record<string, unknown> };
+        new Notification(n.title, {
+          body: n.body,
+          icon: '/timehuddle-icon.svg',
+          tag: (n.data?.type as string | undefined) ?? 'timehuddle',
+          silent: false,
+        });
+      } catch {
+        /* ignore parse errors */
+      }
+    };
+    return () => es.close();
   }, [user]);
 
   // Reset token: check URL params (web) or deep link (native).

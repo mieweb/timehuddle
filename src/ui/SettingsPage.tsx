@@ -37,7 +37,7 @@ import {
   subscribeToPush,
   unsubscribeFromPush,
 } from '../lib/nativePush';
-import { authApi, userApi } from '../lib/api';
+import { authApi, userApi, TIMECORE_BASE_URL, sessionToken } from '../lib/api';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useBrand, BRANDS } from '../lib/useBrand';
@@ -195,6 +195,25 @@ const PushNotificationsSettings: React.FC = () => {
     }
   };
 
+  const handleTestPush = async () => {
+    setLoading(true);
+    try {
+      const token = sessionToken.get();
+      const res = await fetch(`${TIMECORE_BASE_URL}/v1/notifications/test-push`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      window.alert('Test push sent! You should see a browser notification within a few seconds.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      window.alert(`Failed to send test push: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-3 px-5 py-4">
       {serverHasVapid === false && (
@@ -213,15 +232,26 @@ const PushNotificationsSettings: React.FC = () => {
           <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200">
             Notifications are enabled. You will receive alerts when team members clock in or out.
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleDisable}
-            disabled={loading}
-            isLoading={loading}
-          >
-            Disable notifications
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleTestPush}
+              disabled={loading}
+              isLoading={loading}
+            >
+              Send test push
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDisable}
+              disabled={loading}
+              isLoading={loading}
+            >
+              Disable notifications
+            </Button>
+          </div>
         </>
       ) : (
         <>

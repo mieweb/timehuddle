@@ -109,7 +109,7 @@ class PushService {
     await deviceTokensCollection().updateOne({ userId }, { $pull: { tokens: { token } } });
   }
 
-  /** Upsert a web push (VAPID) subscription for a user. */
+  /** Replace all web push (VAPID) subscriptions for a user with the new one. */
   async saveWebPush(
     userId: string,
     sub: {
@@ -123,6 +123,11 @@ class PushService {
 
     // Remove this endpoint from any other user first (browser account-switch safety).
     await col.deleteMany({ userId: { $ne: userId }, type: "webpush", endpoint: sub.endpoint });
+
+    // Replace all previous web subscriptions for this user with the new endpoint.
+    // Each call to subscribeToWebPush() creates a new browser endpoint — keeping
+    // stale ones causes batches of 410 errors on every push send.
+    await col.deleteMany({ userId, type: "webpush", endpoint: { $ne: sub.endpoint } });
 
     await col.updateOne(
       { userId, type: "webpush", endpoint: sub.endpoint },
