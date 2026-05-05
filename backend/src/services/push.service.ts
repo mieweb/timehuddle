@@ -226,11 +226,7 @@ class PushService {
     return this.sendToUser(userId, payload);
   }
 
-  private async _sendFcm(
-    userId: string,
-    token: string,
-    payload: PushPayload
-  ): Promise<void> {
+  private async _sendFcm(userId: string, token: string, payload: PushPayload): Promise<void> {
     if (!ensureFcm()) return;
     try {
       console.log(`[push] sending FCM to token ${token.slice(0, 16)}…`);
@@ -244,9 +240,7 @@ class PushService {
           },
         },
         data: payload.data
-          ? Object.fromEntries(
-              Object.entries(payload.data).map(([k, v]) => [k, String(v)])
-            )
+          ? Object.fromEntries(Object.entries(payload.data).map(([k, v]) => [k, String(v)]))
           : undefined,
       });
       console.log("[push] FCM sent ok");

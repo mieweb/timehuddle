@@ -137,7 +137,11 @@ const App: React.FC = () => {
     const es = notificationApi.openStream();
     es.onmessage = (e) => {
       try {
-        const n = JSON.parse(e.data) as { title: string; body: string; data?: Record<string, unknown> };
+        const n = JSON.parse(e.data) as {
+          title: string;
+          body: string;
+          data?: Record<string, unknown>;
+        };
         new Notification(n.title, {
           body: n.body,
           icon: '/timehuddle-icon.svg',
