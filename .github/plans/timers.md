@@ -287,46 +287,18 @@ The application should **never block or warn on this divergence** at the data la
 
 ## Migration Path
 
-The migration can run in three phases without requiring downtime.
+> **Pre-launch note**: The app has not launched yet — only local dev data exists. No backfill of historical sessions is needed. The migration is a clean field removal.
 
-### Phase 1 — Backfill TimeEntries and Sessions from existing clock events
+1. Drop legacy fields from the database:
+   ```js
+   db.tickets.updateMany({}, { $unset: { accumulatedTime: "", startTimestamp: "" } })
+   db.clockevents.updateMany({}, { $unset: { tickets: "" } })
+   ```
+2. Remove `accumulatedTime` and `startTimestamp` from the `Ticket` TypeScript model.
+3. Remove the `tickets[]` embedded array from the `ClockEvent` TypeScript model.
+4. Update all services, routes, and frontend types to use `TimeEntry`/`TimerSession`.
 
-For every `ClockEvent`, iterate over `ClockEvent.tickets[]`:
-
-1. Determine the calendar date from the clock event's `startTime` using UTC day boundaries.
-2. Find or create a `TimeEntry` with `{ userId, teamId, ticketId, date }`.
-3. For every `ClockTicketSession` in that embedded array, create a `TimerSession` with:
-   - `timeEntryId` referencing the `TimeEntry`,
-   - `clockEventId` set to the parent clock event,
-   - `date` matching the `TimeEntry`.
-4. Mark the `ClockEvent.tickets[]` entry as migrated (add a `_migrated: true` flag).
-
-This step is read-heavy and additive. Nothing is deleted yet.
-
-### Phase 2 — Backfill from free-running ticket state
-
-For every `Ticket` with `accumulatedTime > 0` that does **not** already have sessions from Phase 1:
-
-1. If a reliable source timestamp exists, derive `startTime`/`endTime` and `date` from it; otherwise use a synthetic fallback (`endTime = migration run time`, `startTime = endTime - accumulatedTime`) and mark the session as approximate backfill.
-2. Create a `TimeEntry` with `{ userId: createdBy, teamId, ticketId, date }`.
-3. Create one synthetic `TimerSession` where:
-  - `endTime`/`startTime` follow step 1,
-  - `durationSeconds = accumulatedTime`,
-  - and include migration metadata (for example `isBackfilledApproximate: true`) when timestamps are synthetic.
-
-For every `Ticket` with `startTimestamp` still set (actively running):
-
-1. Create a `TimeEntry` for today's date.
-2. Create an open `TimerSession` (`endTime = null`).
-3. Remove `startTimestamp` from the ticket immediately after creating the session to prevent double-counting.
-
-### Phase 3 — Remove legacy fields
-
-Once all services have been updated to read/write `TimerSession`:
-
-1. Drop `accumulatedTime` and `startTimestamp` from `Ticket`.
-2. Drop the embedded `tickets[]` array from `ClockEvent`.
-3. Update all queries, routes, and frontend types.
+> **Post-launch note**: If this refactor is ever needed after real users exist, the full phased backfill approach (iterating `ClockEvent.tickets[]` and synthesising `TimerSession` rows) should be revisited and planned separately.
 
 ## Timesheet UI (MVP)
 
