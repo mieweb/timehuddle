@@ -128,7 +128,7 @@ afterAll(async () => {
   await db.collection("teams").deleteOne({ code: "TIMERTEAM1" });
   await db.collection("tickets").deleteMany({ teamId });
   await db.collection("timeentries").deleteMany({ userId: userAId });
-  await db.collection("timersessions").deleteMany({ teamId });
+  await db.collection("timersessions").deleteMany({ userId: userAId });
   await Promise.all([purgeUser(USER_A.email), purgeUser(USER_B.email)]);
   await app.close();
 });
@@ -307,6 +307,42 @@ describe("POST /v1/timers/sessions/:id/stop", () => {
       now: Date.now(),
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+// ─── Delete TimeEntry ────────────────────────────────────────────────────────
+
+describe("DELETE /v1/timers/entries/:id", () => {
+  it("deletes an entry and all associated sessions", async () => {
+    const db = client.db();
+    const today = new Date().toISOString().slice(0, 10);
+
+    const entryRes = await inject("POST", "/v1/timers/entries", cookieA, { ticketId, date: today });
+    const eId = entryRes.json().entry.id;
+
+    await inject("POST", `/v1/timers/entries/${eId}/start`, cookieA, { now: Date.now() - 3000 });
+
+    const before = await db.collection("timersessions").countDocuments({ timeEntryId: eId });
+    expect(before).toBeGreaterThan(0);
+
+    const delRes = await inject("DELETE", `/v1/timers/entries/${eId}`, cookieA);
+    expect(delRes.statusCode).toBe(200);
+    expect(delRes.json().deletedEntry).toBe(true);
+    expect(delRes.json().deletedSessions).toBeGreaterThan(0);
+
+    const entryAfter = await db.collection("timeentries").findOne({ _id: new ObjectId(eId) });
+    expect(entryAfter).toBeNull();
+    const sessionsAfter = await db.collection("timersessions").countDocuments({ timeEntryId: eId });
+    expect(sessionsAfter).toBe(0);
+  });
+
+  it("returns 403 when deleting another user's entry", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const entryRes = await inject("POST", "/v1/timers/entries", cookieA, { ticketId, date: today });
+    const eId = entryRes.json().entry.id;
+
+    const delRes = await inject("DELETE", `/v1/timers/entries/${eId}`, cookieB);
+    expect(delRes.statusCode).toBe(403);
   });
 });
 

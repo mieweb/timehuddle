@@ -382,6 +382,29 @@ export class TimerService {
   }
 
   /**
+   * Delete a TimeEntry and all of its TimerSessions for the owning user.
+   */
+  async deleteEntry(
+    userId: string,
+    entryId: string
+  ): Promise<{ deletedEntry: boolean; deletedSessions: number } | "not-found" | "forbidden"> {
+    if (!isValidId(entryId)) return "not-found";
+
+    const entryObjectId = new ObjectId(entryId);
+    const entry = await timeEntriesCollection().findOne({ _id: entryObjectId });
+    if (!entry) return "not-found";
+    if (entry.userId !== userId) return "forbidden";
+
+    const sessionsResult = await timerSessionsCollection().deleteMany({ timeEntryId: entryId });
+    const entryResult = await timeEntriesCollection().deleteOne({ _id: entryObjectId, userId });
+
+    return {
+      deletedEntry: entryResult.deletedCount === 1,
+      deletedSessions: sessionsResult.deletedCount,
+    };
+  }
+
+  /**
    * Copy TimeEntry rows from the most recent previous day that has entries
    * to `toDate`. Skips entries where { userId, ticketId, date: toDate } already
    * exists. Returns the number of new entries created.

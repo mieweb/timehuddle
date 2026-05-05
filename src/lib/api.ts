@@ -696,6 +696,13 @@ export const timerApi = {
       { method: 'POST', body: JSON.stringify({ now: now ?? Date.now() }) },
     ).then((r) => r.session),
 
+  /** Delete a TimeEntry and all of its sessions. */
+  deleteEntry: (entryId: string) =>
+    request<{ deletedEntry: boolean; deletedSessions: number }>(
+      `/v1/timers/entries/${encodeURIComponent(entryId)}`,
+      { method: 'DELETE' },
+    ),
+
   /** Get the currently running session for the authenticated user, or null. */
   getRunning: () =>
     request<{ session: TimerSession | null }>('/v1/timers/running').then((r) => r.session),

@@ -306,6 +306,44 @@ export async function timerRoutes(app: FastifyInstance) {
     }
   );
 
+  // DELETE /v1/timers/entries/:id — delete a TimeEntry and all its sessions
+  app.delete(
+    "/timers/entries/:id",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Timers"],
+        summary: "Delete a TimeEntry and all associated TimerSessions",
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string" } },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              deletedEntry: { type: "boolean" },
+              deletedSessions: { type: "number" },
+            },
+          },
+          404: err("TimeEntry not found"),
+          403: err("Forbidden"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id: userId } = (req as any).user;
+      const { id: entryId } = req.params as { id: string };
+
+      const result = await timerService.deleteEntry(userId, entryId);
+      if (result === "not-found") return reply.status(404).send({ error: "TimeEntry not found" });
+      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+
+      return reply.send(result);
+    }
+  );
+
   // POST /v1/timers/copy-previous — copy entries from most recent previous day
   app.post(
     "/timers/copy-previous",

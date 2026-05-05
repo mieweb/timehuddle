@@ -16,6 +16,7 @@ import {
   faPause,
   faPlay,
   faSpinner,
+  faTrash,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -91,6 +92,7 @@ export const TimersPage: React.FC = () => {
   // Day entries
   const [dayEntries, setDayEntries] = useState<DayEntry[]>([]);
   const [dayLoading, setDayLoading] = useState(false);
+  const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
 
   // Running session (for live display)
   const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
@@ -255,6 +257,23 @@ export const TimersPage: React.FC = () => {
       setNewEntryLoading(false);
     }
   }, [newEntryTicketId, selectedDate, fetchDay]);
+
+  const handleDeleteEntry = useCallback(
+    async (entryId: string, isRunning: boolean) => {
+      setDeletingEntryId(entryId);
+      try {
+        await timerApi.deleteEntry(entryId);
+        setDayEntries((prev) => prev.filter((de) => de.entry.id !== entryId));
+        if (isRunning) setRunningSessionId(null);
+        void fetchWeekTotals();
+      } catch {
+        void fetchDay();
+      } finally {
+        setDeletingEntryId(null);
+      }
+    },
+    [fetchDay, fetchWeekTotals],
+  );
 
   const handlePrevWeek = useCallback(() => {
     const base = new Date(selectedDate + 'T00:00:00');
@@ -509,6 +528,17 @@ export const TimersPage: React.FC = () => {
                   >
                     {formatDuration(total)}
                   </Text>
+
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleDeleteEntry(de.entry.id, isRunning)}
+                    disabled={deletingEntryId === de.entry.id}
+                    aria-label="Delete timer entry"
+                    className="shrink-0 text-muted-foreground hover:text-danger"
+                  >
+                    <FontAwesomeIcon icon={faTrash} className="text-xs" />
+                  </Button>
                 </li>
               );
             })}
