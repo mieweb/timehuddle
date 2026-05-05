@@ -104,7 +104,7 @@ function entryTotalSeconds(sessions: TimerSession[], now: number): number {
 // ─── WorkPage ─────────────────────────────────────────────────────────────────
 
 export const WorkPage: React.FC = () => {
-  const { teams, selectedTeamId, teamsReady, currentTime } = useTeam();
+  const { teams, teamsReady, currentTime } = useTeam();
 
   // Selected day (local YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState<string>(toLocalDateStr(new Date()));
@@ -131,8 +131,6 @@ export const WorkPage: React.FC = () => {
   // Running session (for live display)
   const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
 
-  // Team tickets for the "new entry" picker
-  const [teamTickets, setTeamTickets] = useState<Ticket[]>([]);
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [newEntryTicketId, setNewEntryTicketId] = useState('');
   const [newEntryNote, setNewEntryNote] = useState('');
@@ -153,20 +151,7 @@ export const WorkPage: React.FC = () => {
   const [editError, setEditError] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState(false);
 
-  // ── Fetch team tickets for new entry picker ──
-
-  useEffect(() => {
-    if (!selectedTeamId) {
-      setTeamTickets([]);
-      return;
-    }
-    ticketApi
-      .getTickets(selectedTeamId)
-      .then(setTeamTickets)
-      .catch(() => {});
-  }, [selectedTeamId]);
-
-  // ── Fetch all tickets across all teams (for edit modal picker) ──
+  // ── Fetch all tickets across all teams (for both pickers) ──
 
   useEffect(() => {
     if (teams.length === 0) return;
@@ -387,10 +372,10 @@ export const WorkPage: React.FC = () => {
 
   const ticketOptions = useMemo(
     () =>
-      teamTickets
+      allTickets
         .filter((t) => t.status !== 'deleted')
         .map((t) => ({ value: t.id, label: t.title })),
-    [teamTickets],
+    [allTickets],
   );
 
   const ticketsById = useMemo(() => {
