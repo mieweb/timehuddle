@@ -1,78 +1,51 @@
 /**
- * ProfilePage — Public profile view + own-profile edit form.
+ * ProfilePage — Read-only profile view (used within the authenticated app shell).
  *
- * • Any authenticated user can view any profile by userId
- * • The profile owner sees an inline edit form (displayName, bio, website)
- * • Data fetched from timecore GET /v1/users/:id and PUT /v1/me/profile
+ * • Teammates can view each other's profiles (enforced server-side).
+ * • 403 → graceful "profile unavailable" fallback.
+ * • Shared team context shown when viewing a teammate's profile.
+ * • Owner sees a link to /app/settings to edit their profile.
+ * • All editing is handled in SettingsPage — no inline edit form here.
  */
-import { faGlobe, faPen } from '@fortawesome/free-solid-svg-icons';
+import { faCrown, faGear, faGlobe, faUsers } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Avatar, Button, Card, Input, Spinner, Text } from '@mieweb/ui';
+import { Avatar, Badge, Button, Card, Spinner, Text } from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
 
-import {
-  PROFILE_BIO_MAX,
-  PROFILE_DISPLAY_NAME_MAX,
-  PROFILE_WEBSITE_MAX,
-} from '../../lib/constants';
-import { userApi, type PublicUser } from '../../lib/api';
+import { ApiError, userApi, type PublicUser } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
-import { ProfileNotices } from './ProfileNotices';
+import { AppPage } from '../../ui/AppPage';
+import { useRouter } from '../../ui/router';
 
-interface ProfilePageProps {
-  userId: string;
-}
+type ProfilePageProps = { userId: string; username?: never } | { username: string; userId?: never };
 
-export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
-  const { user: sessionUser, refetch: refetchSession } = useSession();
-  const isOwn = sessionUser?.id === userId;
+export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) => {
+  const { user: sessionUser } = useSession();
+  const { navigate } = useRouter();
+  const isOwn = userId ? sessionUser?.id === userId : sessionUser?.username === username;
 
   const [profile, setProfile] = useState<PublicUser | null>(null);
   const [isReady, setIsReady] = useState(false);
+  const [isForbidden, setIsForbidden] = useState(false);
+  const [isNotFound, setIsNotFound] = useState(false);
 
   useEffect(() => {
     setIsReady(false);
-    userApi
-      .getUser(userId)
+    setIsForbidden(false);
+    setIsNotFound(false);
+    const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
+    fetch
       .then((p) => setProfile(p))
-      .catch(() => setProfile(null))
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 403) {
+          setIsForbidden(true);
+        } else if (err instanceof ApiError && err.status === 404) {
+          setIsNotFound(true);
+        }
+        setProfile(null);
+      })
       .finally(() => setIsReady(true));
-  }, [userId]);
-
-  const [editing, setEditing] = useState(false);
-  const [displayName, setDisplayName] = useState('');
-  const [bio, setBio] = useState('');
-  const [website, setWebsite] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-
-  const startEdit = () => {
-    setDisplayName(profile?.name ?? '');
-    setBio(profile?.bio ?? '');
-    setWebsite(profile?.website ?? '');
-    setSaveError(null);
-    setEditing(true);
-  };
-
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const updated = await userApi.updateProfile({
-        name: displayName.trim() || undefined,
-        bio: bio.trim(),
-        website: website.trim(),
-      });
-      setProfile(updated);
-      await refetchSession();
-      setEditing(false);
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Something went wrong');
-    } finally {
-      setSaving(false);
-    }
-  };
+  }, [userId, username]);
 
   if (!isReady) {
     return (
@@ -82,11 +55,46 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
     );
   }
 
+  // 404 — user does not exist
+  if (isNotFound) {
+    return (
+      <div className="w-full space-y-6 p-6">
+        <Card padding="lg" className="flex flex-col items-center gap-4 text-center">
+          <Avatar name="?" size="xl" />
+          <Text as="h1" size="xl" weight="bold">
+            User Not Found
+          </Text>
+          <Text variant="muted" size="sm">
+            This profile does not exist or the username may have changed.
+          </Text>
+        </Card>
+      </div>
+    );
+  }
+
+  // 403 — not a teammate
+  if (isForbidden) {
+    return (
+      <div className="w-full space-y-6 p-6">
+        <Card padding="lg" className="flex flex-col items-center gap-4 text-center">
+          <Avatar name="?" size="xl" />
+          <Text as="h1" size="xl" weight="bold">
+            Profile Unavailable
+          </Text>
+          <Text variant="muted" size="sm">
+            You can only view profiles of people who share a team with you.
+          </Text>
+        </Card>
+      </div>
+    );
+  }
+
   const nameText = profile?.name || sessionUser?.email?.split('@')[0] || 'Unknown user';
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
-      <ProfileNotices notices={[ { type: 'coming-soon' }]} />
+    <AppPage>
+      {/* FUTURE: Show notices if any need to be shown */}
+      {/* <ProfileNotices notices={[{ type: 'coming-soon' }]} /> */}
 
       {/* Profile header card */}
       <Card padding="lg" className="flex items-start gap-5">
@@ -96,6 +104,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
           <Text as="h1" size="xl" weight="bold">
             {nameText}
           </Text>
+
+          {profile?.username && (
+            <Text variant="muted" size="sm" className="mt-0.5">
+              @{profile.username}
+            </Text>
+          )}
 
           {isOwn && sessionUser?.email && (
             <Text variant="muted" size="sm" className="mt-0.5">
@@ -121,76 +135,49 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId }) => {
             </a>
           )}
 
-          {isOwn && !profile?.name && !profile?.bio && !editing && (
+          {isOwn && !profile?.name && !profile?.bio && (
             <Text variant="muted" size="xs" className="mt-2">
-              Your profile is empty. Click edit to add a display name and bio.
+              Your profile is empty. Go to Settings to add a display name and bio.
             </Text>
           )}
         </div>
 
-        {isOwn && !editing && (
-          <Button variant="outline" size="icon" onClick={startEdit} aria-label="Edit profile">
-            <FontAwesomeIcon icon={faPen} className="text-xs" />
+        {isOwn && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/app/settings')}
+            aria-label="Edit profile in Settings"
+            leftIcon={<FontAwesomeIcon icon={faGear} className="text-xs" />}
+          >
+            Edit
           </Button>
         )}
       </Card>
 
-      {/* Edit form — own profile only */}
-      {isOwn && editing && (
+      {/* Shared teams — shown when viewing a teammate's profile */}
+      {!isOwn && profile?.sharedTeams && profile.sharedTeams.length > 0 && (
         <Card padding="lg">
-          <form onSubmit={save} className="space-y-4">
-            <Text as="h2" size="sm" weight="semibold">
-              Edit Profile
+          <div className="flex items-center gap-2 mb-3">
+            <FontAwesomeIcon icon={faUsers} className="text-neutral-500" aria-hidden="true" />
+            <Text size="sm" weight="semibold">
+              Shared Teams
             </Text>
-
-            <Input
-              label="Display name"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              maxLength={PROFILE_DISPLAY_NAME_MAX}
-              placeholder="Your name"
-            />
-
-            <div className="space-y-1">
-              <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400">
-                Bio
-              </label>
-              <textarea
-                value={bio}
-                onChange={(e) => setBio(e.target.value)}
-                maxLength={PROFILE_BIO_MAX}
-                rows={3}
-                placeholder="A short bio…"
-                className="w-full resize-none rounded-lg border border-neutral-200 bg-transparent px-3 py-2 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-neutral-700 dark:text-neutral-100"
-              />
-            </div>
-
-            <Input
-              label="Website"
-              value={website}
-              onChange={(e) => setWebsite(e.target.value)}
-              maxLength={PROFILE_WEBSITE_MAX}
-              placeholder="https://yoursite.com"
-              type="url"
-            />
-
-            {saveError && (
-              <Text variant="destructive" size="xs">
-                {saveError}
-              </Text>
-            )}
-
-            <div className="flex justify-end gap-2 pt-1">
-              <Button variant="ghost" onClick={() => setEditing(false)}>
-                Cancel
-              </Button>
-              <Button variant="primary" type="submit" isLoading={saving} loadingText="Saving…">
-                Save
-              </Button>
-            </div>
-          </form>
+          </div>
+          <ul className="space-y-2">
+            {profile.sharedTeams.map((team) => (
+              <li key={team.id} className="flex items-center gap-2">
+                <Text size="sm">{team.name}</Text>
+                {team.isAdmin && (
+                  <Badge variant="warning" size="sm" icon={<FontAwesomeIcon icon={faCrown} />}>
+                    Admin
+                  </Badge>
+                )}
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
-    </div>
+    </AppPage>
   );
 };

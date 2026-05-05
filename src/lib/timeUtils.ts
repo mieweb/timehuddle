@@ -1,6 +1,6 @@
 /** Format seconds into "Xh Ym" or "Ym" or "0m" */
 export function formatDuration(totalSeconds: number): string {
-  if (totalSeconds <= 0) return '0m';
+  if (!totalSeconds || totalSeconds <= 0) return '0m';
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   if (h > 0) return `${h}h ${m}m`;
@@ -42,7 +42,10 @@ export function endOfDay(date: Date): Date {
   return d;
 }
 
-/** Get YYYY-MM-DD string from Date */
+/** Get YYYY-MM-DD string from Date (uses local time, not UTC) */
 export function toDateString(date: Date): string {
-  return date.toISOString().split('T')[0]!;
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }

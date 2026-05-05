@@ -64,7 +64,10 @@ jobs:
             echo "⚙️  Installing dependencies..."
             sudo npm install --no-audit --no-fund
 
-            echo "🚀 Restarting PM2 backend..."
+            echo "� Writing Firebase service account..."
+            echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}' > "$REPO_DIR/firebase-service-account.json"
+
+            echo "�🚀 Restarting PM2 backend..."
             sudo pm2 restart all
             sudo pm2 save
 

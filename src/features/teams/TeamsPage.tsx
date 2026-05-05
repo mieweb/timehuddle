@@ -37,15 +37,17 @@ import {
   ModalFooter,
   ModalHeader,
   ModalTitle,
-  Select,
   Spinner,
   Text,
+  Textarea,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { teamApi, type TeamMember } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
+import { useRouter } from '../../ui/router';
+import { AppPage } from '../../ui/AppPage';
 const TeamChart = React.lazy(() => import('./TeamChart').then((m) => ({ default: m.TeamChart })));
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
@@ -53,6 +55,7 @@ const TeamChart = React.lazy(() => import('./TeamChart').then((m) => ({ default:
 export const TeamsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
+  const { navigate } = useRouter();
   const { teams, teamsReady, selectedTeamId, setSelectedTeamId, isAdmin, refetchTeams } = useTeam();
 
   // Fetch members for selected team
@@ -108,15 +111,6 @@ export const TeamsPage: React.FC = () => {
     setCreateDescription('');
     setFormError(null);
   };
-
-  const teamOptions = useMemo(
-    () =>
-      teams.map((t) => ({
-        value: t.id,
-        label: t.isPersonal ? 'Personal Workspace' : t.name,
-      })),
-    [teams],
-  );
 
   const membersById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
 
@@ -248,7 +242,7 @@ export const TeamsPage: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4 px-3 py-3">
+    <AppPage>
       {/* Header actions */}
       <div className="space-y-3">
         <div className="flex gap-3">
@@ -269,16 +263,6 @@ export const TeamsPage: React.FC = () => {
             Join Team
           </Button>
         </div>
-        {/* Team switcher — full width below buttons on mobile */}
-        {teams.length > 1 && (
-          <Select
-            label="Switch team"
-            hideLabel={false}
-            options={teamOptions}
-            value={selectedTeamId ?? ''}
-            onValueChange={setSelectedTeamId}
-          />
-        )}
       </div>
 
       {/* Current team card */}
@@ -354,29 +338,44 @@ export const TeamsPage: React.FC = () => {
               {selectedTeam.members.map((memberId) => {
                 const m = membersById.get(memberId);
                 const name = m?.name ?? memberId;
+                const username = m?.username ?? null;
                 const email = m?.email ?? '';
                 const isMemberAdmin = selectedTeam.admins.includes(memberId);
                 const isMe = memberId === userId;
 
                 return (
                   <li key={memberId} className="flex items-center gap-3 py-2.5">
-                    <Avatar name={name} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <Text size="sm" weight="medium">
-                        {name}
-                        {isMe && (
-                          <Text as="span" variant="muted" size="xs">
-                            {' '}
-                            (you)
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(username ? `/${username}` : `/app/profile/${memberId}`)
+                      }
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                      aria-label={`View ${name}'s profile`}
+                    >
+                      <Avatar name={name} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <Text size="sm" weight="medium">
+                          {name}
+                          {isMe && (
+                            <Text as="span" variant="muted" size="xs">
+                              {' '}
+                              (you)
+                            </Text>
+                          )}
+                        </Text>
+                        {username && (
+                          <Text variant="muted" size="xs">
+                            @{username}
                           </Text>
                         )}
-                      </Text>
-                      {email && (
-                        <Text variant="muted" size="xs">
-                          {email}
-                        </Text>
-                      )}
-                    </div>
+                        {email && (
+                          <Text variant="muted" size="xs">
+                            {email}
+                          </Text>
+                        )}
+                      </div>
+                    </button>
                     {isMemberAdmin && (
                       <Badge variant="warning" size="sm" icon={<FontAwesomeIcon icon={faCrown} />}>
                         Admin
@@ -494,14 +493,13 @@ export const TeamsPage: React.FC = () => {
               error={formError ?? undefined}
               autoFocus
             />
-            <textarea
+            <Textarea
               aria-label="Team description"
               placeholder="Team description (optional)"
               value={createDescription}
               onChange={(e) => setCreateDescription(e.target.value)}
               rows={4}
               maxLength={500}
-              className="w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 outline-none transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/30 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
             />
           </div>
         </ModalBody>
@@ -745,6 +743,6 @@ export const TeamsPage: React.FC = () => {
           </Button>
         </ModalFooter>
       </Modal>
-    </div>
+    </AppPage>
   );
 };

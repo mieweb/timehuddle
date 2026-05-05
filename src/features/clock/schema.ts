@@ -19,8 +19,8 @@ export const clockEventTicketSchema = z.object({
 
 export const updateClockEventTimesSchema = z.object({
   clockEventId: z.string().min(1),
-  startTimestamp: z.number().optional(),
-  endTimestamp: z.number().nullable().optional(),
+  startTime: z.number().optional(),
+  endTime: z.number().nullable().optional(),
 });
 
 export const updateYoutubeLinkSchema = z.object({
@@ -58,10 +58,10 @@ export interface ClockEventDoc {
   _id?: string;
   userId: string;
   teamId: string;
-  startTimestamp: number;
+  startTime: number;
   accumulatedTime: number;
   tickets: ClockEventTicket[];
-  endTime: Date | null;
+  endTime: number | null;
   youtubeShortLink?: string;
 }
 

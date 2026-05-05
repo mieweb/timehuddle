@@ -15,9 +15,7 @@ const config: CapacitorConfig = {
     // iosScheme must NOT be 'http' or 'https' — WKWebView handles those
     // natively as real network requests, causing 19s+ networking process
     // launch times and watchdog kills. Default ('capacitor') is correct.
-    ...(liveReloadUrl
-      ? { url: liveReloadUrl, cleartext: true }
-      : {}),
+    ...(liveReloadUrl ? { url: liveReloadUrl, cleartext: true } : {}),
   },
 
   plugins: {

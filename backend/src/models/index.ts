@@ -6,6 +6,11 @@ import type { ClockEvent } from "./clock.model.js";
 import type { Message } from "./message.model.js";
 import type { Notification } from "./notification.model.js";
 import type { Attachment } from "./attachment.model.js";
+import type { Profile } from "./profile.model.js";
+import type { EncryptedOpLogBatch } from "./encrypted-oplog.model.js";
+import type { RecoveryKeyStatus } from "./recovery-key-status.model.js";
+import type { PushSubscription } from "./push-subscription.model.js";
+import type { UserDeviceTokens } from "./device-token.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
 export function usersCollection() {
@@ -40,4 +45,29 @@ export function notificationsCollection() {
 // Attachments
 export function attachmentsCollection() {
   return getDB().collection<Attachment>("attachments");
+}
+
+// Profiles
+export function profilesCollection() {
+  return getDB().collection<Profile>("profiles");
+}
+
+// Encrypted op-log batches
+export function encryptedOpLogsCollection() {
+  return getDB().collection<EncryptedOpLogBatch>("encryptedOpLogs");
+}
+
+// Recovery key save-status
+export function recoveryKeyStatusCollection() {
+  return getDB().collection<RecoveryKeyStatus>("recoveryKeyStatus");
+}
+
+// Push subscriptions
+export function pushSubscriptionsCollection() {
+  return getDB().collection<PushSubscription>("pushsubscriptions");
+}
+
+// Device push tokens (one doc per user, tokens stored as array)
+export function deviceTokensCollection() {
+  return getDB().collection<UserDeviceTokens>("devicetokens");
 }

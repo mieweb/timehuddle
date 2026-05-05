@@ -159,7 +159,7 @@ describe("POST /v1/clock/start", () => {
     expect(event.userId).toBe(workerId);
     expect(event.teamId).toBe(teamId);
     expect(event.endTime).toBeNull();
-    expect(typeof event.startTimestamp).toBe("number");
+    expect(typeof event.startTime).toBe("number");
     clockEventId = event.id;
   });
 
@@ -301,26 +301,62 @@ describe("PUT /v1/clock/:id/times", () => {
   it("admin can adjust start time — 200", async () => {
     const newStart = Date.now() - 3600_000; // 1 hour ago
     const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
-      startTimestamp: newStart,
+      startTime: newStart,
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().event.startTimestamp).toBe(newStart);
+    expect(res.json().event.startTime).toBe(newStart);
   });
 
   it("non-admin returns 403", async () => {
     const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, workerCookie, {
-      startTimestamp: Date.now(),
+      startTime: Date.now(),
     });
     expect(res.statusCode).toBe(403);
   });
 
-  it("returns 422 if endTimestamp < startTimestamp", async () => {
+  it("returns 422 if endTime < startTime", async () => {
     const now = Date.now();
     const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
-      startTimestamp: now,
-      endTimestamp: now - 1000,
+      startTime: now,
+      endTime: now - 1000,
     });
     expect(res.statusCode).toBe(422);
+  });
+
+  it("returns 422 when only startTime is moved past existing endTime", async () => {
+    // First set a known startTime + endTime pair
+    const base = Date.now() - 3600_000;
+    await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
+      startTime: base,
+      endTime: base + 1000,
+    });
+    // Now move startTime past the stored endTime
+    const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
+      startTime: base + 5000,
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it("returns 422 when only endTime is set before existing startTime", async () => {
+    // First set a known startTime
+    const base = Date.now() - 3600_000;
+    await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
+      startTime: base,
+      endTime: base + 10_000,
+    });
+    // Now move endTime before the stored startTime
+    const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
+      endTime: base - 1000,
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it("clearing endTime (null) always succeeds regardless of startTime", async () => {
+    const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, adminCookie, {
+      endTime: null,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().event.endTime).toBeNull();
   });
 });
 
@@ -328,10 +364,20 @@ describe("PUT /v1/clock/:id/times", () => {
 
 describe("GET /v1/clock/timesheet", () => {
   it("worker can view their own timesheet — 200", async () => {
-    const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const endMs = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+      999
+    ).getTime();
     const res = await inject(
       "GET",
-      `/v1/clock/timesheet?userId=${workerId}&startDate=${today}&endDate=${today}`,
+      `/v1/clock/timesheet?userId=${workerId}&startMs=${startMs}&endMs=${endMs}`,
       workerCookie
     );
     expect(res.statusCode).toBe(200);
@@ -342,20 +388,40 @@ describe("GET /v1/clock/timesheet", () => {
   });
 
   it("admin can view worker timesheet (shared team) — 200", async () => {
-    const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const endMs = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+      999
+    ).getTime();
     const res = await inject(
       "GET",
-      `/v1/clock/timesheet?userId=${workerId}&startDate=${today}&endDate=${today}`,
+      `/v1/clock/timesheet?userId=${workerId}&startMs=${startMs}&endMs=${endMs}`,
       adminCookie
     );
     expect(res.statusCode).toBe(200);
   });
 
   it("other user gets 403", async () => {
-    const today = new Date().toISOString().split("T")[0];
+    const now = new Date();
+    const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const endMs = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+      999
+    ).getTime();
     const res = await inject(
       "GET",
-      `/v1/clock/timesheet?userId=${workerId}&startDate=${today}&endDate=${today}`,
+      `/v1/clock/timesheet?userId=${workerId}&startMs=${startMs}&endMs=${endMs}`,
       otherCookie
     );
     expect(res.statusCode).toBe(403);
