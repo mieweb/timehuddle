@@ -13,6 +13,7 @@ import type { PushSubscription } from "./push-subscription.model.js";
 import type { UserDeviceTokens } from "./device-token.model.js";
 import type { TimeEntry } from "./time-entry.model.js";
 import type { TimerSession } from "./timer-session.model.js";
+import type { ActivityEvent } from "./activity.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
 export function usersCollection() {
@@ -82,4 +83,9 @@ export function timeEntriesCollection() {
 // Timer sessions — the canonical ledger of work segments
 export function timerSessionsCollection() {
   return getDB().collection<TimerSession>("timersessions");
+}
+
+// Activity log
+export function activitiesCollection() {
+  return getDB().collection<ActivityEvent>("activities");
 }

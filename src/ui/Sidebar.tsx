@@ -21,6 +21,7 @@ import {
   faStopwatch,
   faTable,
   faUsers,
+  faClockRotateLeft,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button } from '@mieweb/ui';
@@ -73,6 +74,7 @@ const NAV: NavSection[] = [
       { icon: faUsers, label: 'Teams', href: '/app/teams' },
       { icon: faEnvelope, label: 'Messages', href: '/app/messages' },
       { icon: faBell, label: 'Notifications', href: '/app/notifications' },
+      { icon: faClockRotateLeft, label: 'Activity Log', href: '/app/activity' },
     ],
   },
   {

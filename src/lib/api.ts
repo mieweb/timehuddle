@@ -728,3 +728,34 @@ export const timerApi = {
       body: JSON.stringify({ toDate }),
     }).then((r) => r.created),
 };
+
+// ─── Activity Log ─────────────────────────────────────────────────────────────
+
+export interface ActivityLogItem {
+  id: string;
+  userId: string;
+  teamId?: string;
+  type: string;
+  actor: { id: string; name: string; avatar?: string };
+  payload: Record<string, unknown>;
+  occurredAt: string; // ISO 8601
+  source: string;
+}
+
+export const activityApi = {
+  /**
+   * Fetch a page of activity log events for the current user, newest first.
+   *
+   * @param limit  - Max items per page (1–100, default 50).
+   * @param before - Cursor: ISO timestamp; fetch events older than this.
+   */
+  getLog: (params: { limit?: number; before?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.before) qs.set('before', params.before);
+    const query = qs.toString();
+    return request<{ events: ActivityLogItem[]; nextCursor: string | null }>(
+      `/v1/activity/log${query ? `?${query}` : ''}`,
+    );
+  },
+};

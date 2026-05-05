@@ -1,9 +1,13 @@
 import { ObjectId } from "mongodb";
+
 import { clockEventsCollection, teamsCollection, usersCollection } from "../models/index.js";
 import type { ClockEvent } from "../models/clock.model.js";
 import { timerService } from "./timer.service.js";
+import { ActivityType } from "../models/activity.model.js";
+
 import { notificationService } from "./notification.service.js";
 import { pushService } from "./push.service.js";
+import { emitActivity } from "./activity.service.js";
 
 function isValidId(id: string): boolean {
   return /^[0-9a-f]{24}$/i.test(id);
@@ -155,6 +159,14 @@ export class ClockService {
       )
     );
 
+    void emitActivity({
+      userId,
+      teamId,
+      type: ActivityType.ClockIn,
+      actor: { id: userId, name: userName },
+      payload: { teamId, teamName: team.name },
+    });
+
     return pub;
   }
 
@@ -234,6 +246,18 @@ export class ClockService {
           ])
         )
       );
+
+      void emitActivity({
+        userId,
+        teamId,
+        type: ActivityType.ClockOut,
+        actor: { id: userId, name: userName },
+        payload: {
+          teamId,
+          teamName: team.name,
+          durationSeconds: pub.accumulatedTime ?? undefined,
+        },
+      });
     }
 
     return pub;
