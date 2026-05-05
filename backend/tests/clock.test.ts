@@ -216,6 +216,12 @@ describe("POST /v1/clock/stop", () => {
     expect(event.accumulatedTime).toBeGreaterThanOrEqual(0);
   });
 
+  it("active event is null after clocking out", async () => {
+    const res = await inject("GET", "/v1/clock/active", workerCookie);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().event).toBeNull();
+  });
+
   it("returns 404 when already clocked out", async () => {
     const res = await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
     expect(res.statusCode).toBe(404);

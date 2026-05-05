@@ -291,6 +291,27 @@ describe("POST /v1/timers/entries/:id/start", () => {
     expect(startRes.statusCode).toBe(200);
     expect(startRes.json().session.date).toBe(fixedDate);
   });
+
+  it("returns 403 when starting another user's WorkItem", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const createRes = await inject("POST", "/v1/timers/entries", cookieA, {
+      ticketId,
+      date: today,
+    });
+    const foreignEntryId = createRes.json().entry.id;
+
+    const res = await inject("POST", `/v1/timers/entries/${foreignEntryId}/start`, cookieB, {
+      now: Date.now(),
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("returns 404 for a malformed WorkItem id", async () => {
+    const res = await inject("POST", "/v1/timers/entries/not-an-object-id/start", cookieA, {
+      now: Date.now(),
+    });
+    expect(res.statusCode).toBe(404);
+  });
 });
 
 // ─── Stop timer session ───────────────────────────────────────────────────────
@@ -413,6 +434,33 @@ describe("PATCH /v1/timers/entries/:id", () => {
 
     expect(patchRes.statusCode).toBe(200);
     expect(patchRes.json().entry.ticketId).toBe(ticketId);
+  });
+
+  it("does not mutate running timer duration when durationSeconds is patched", async () => {
+    const db = client.db();
+    const testDate = new Date().toISOString().slice(0, 10);
+
+    const createRes = await inject("POST", "/v1/timers/entries", cookieA, {
+      ticketId,
+      date: testDate,
+    });
+    const runningEntryId = createRes.json().entry.id as string;
+
+    const startRes = await inject("POST", `/v1/timers/entries/${runningEntryId}/start`, cookieA, {
+      now: Date.now() - 30_000,
+    });
+    expect(startRes.statusCode).toBe(200);
+
+    const patchRes = await inject("PATCH", `/v1/timers/entries/${runningEntryId}`, cookieA, {
+      durationSeconds: 5,
+    });
+    expect(patchRes.statusCode).toBe(200);
+
+    const runningDoc = await db
+      .collection("timers")
+      .findOne({ workItemId: runningEntryId, endTime: null });
+    expect(runningDoc).not.toBeNull();
+    expect(runningDoc?.durationSeconds).toBeUndefined();
   });
 });
 
