@@ -111,6 +111,7 @@ export const WorkPage: React.FC = () => {
 
   // Whether the selected day is today (updates reactively at midnight via currentTime)
   const isToday = selectedDate === toLocalDateStr(new Date(currentTime));
+  const isFuture = selectedDate > toLocalDateStr(new Date(currentTime));
 
   // Week days derived from selectedDate
   const weekDays = useMemo(() => {
@@ -125,7 +126,6 @@ export const WorkPage: React.FC = () => {
 
   // Day entries
   const [dayEntries, setDayEntries] = useState<DayEntry[]>([]);
-  const [dayLoading, setDayLoading] = useState(false);
   const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
 
   // Running session (for live display)
@@ -210,7 +210,6 @@ export const WorkPage: React.FC = () => {
   // ── Fetch day entries ──
 
   const fetchDay = useCallback(async () => {
-    setDayLoading(true);
     try {
       const entries = await timerApi.getDay(selectedDate);
       setDayEntries(entries);
@@ -220,8 +219,6 @@ export const WorkPage: React.FC = () => {
       setRunningSessionId(running?.id ?? null);
     } catch {
       // keep previous
-    } finally {
-      setDayLoading(false);
     }
   }, [selectedDate]);
 
@@ -603,11 +600,7 @@ export const WorkPage: React.FC = () => {
       </Modal>
 
       {/* ── Day View ── */}
-      {dayLoading ? (
-        <div className="flex justify-center py-8">
-          <Spinner size="md" label="Loading timers…" />
-        </div>
-      ) : dayEntries.length === 0 ? (
+      {dayEntries.length === 0 ? (
         <div className="py-10 text-center">
           <Text variant="muted" size="sm">
             No timers for this day. Create one with "+".
@@ -636,7 +629,11 @@ export const WorkPage: React.FC = () => {
                     {/* Start / Stop */}
                     <TableCell className="py-2 pr-0">
                       <span
-                        title={!isRunning && !isToday ? 'Timers can only run on the current day — editing this entry is still available.' : undefined}
+                        title={
+                          !isRunning && !isToday
+                            ? 'Timers can only run on the current day — editing this entry is still available.'
+                            : undefined
+                        }
                         style={{ cursor: !isRunning && !isToday ? 'not-allowed' : undefined }}
                       >
                         <Button
@@ -656,7 +653,10 @@ export const WorkPage: React.FC = () => {
                           }`}
                           aria-label={isRunning ? 'Stop timer' : 'Start timer'}
                         >
-                          <FontAwesomeIcon icon={isRunning ? faPause : faPlay} className="text-xs" />
+                          <FontAwesomeIcon
+                            icon={isRunning ? faPause : faPlay}
+                            className="text-xs"
+                          />
                         </Button>
                       </span>
                     </TableCell>
@@ -725,18 +725,22 @@ export const WorkPage: React.FC = () => {
         </Card>
       )}
 
-      <div className="flex justify-start">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleCopyPrevious}
-          isLoading={copyLoading}
-          aria-label="Copy entries from previous day"
-        >
-          <FontAwesomeIcon icon={copyDone ? faCheck : faCopy} className="mr-1" />
-          {copyDone ? 'Copied entries from previous day!' : 'Copy entries from previous day'}
-        </Button>
-      </div>
+      {isFuture && dayEntries.length === 0 && (
+        <div className="flex justify-start">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleCopyPrevious}
+            isLoading={copyLoading}
+            aria-label="Copy entries from previous day"
+          >
+            <FontAwesomeIcon icon={copyDone ? faCheck : faCopy} className="mr-1" />
+            {copyDone
+              ? 'Copied entries from most recent timesheet!'
+              : 'Copy entries from most recent timesheet'}
+          </Button>
+        </div>
+      )}
 
       {/* ── Edit Modal ── */}
       {editEntry &&

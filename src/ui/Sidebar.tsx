@@ -78,10 +78,11 @@ const NAV: NavSection[] = [
   },
   {
     heading: 'System',
-    
+
     items: [
       { icon: faClock, label: 'Clock', href: '/app/clock' },
-      { icon: faGear, label: 'Settings', href: '/app/settings' }],
+      { icon: faGear, label: 'Settings', href: '/app/settings' },
+    ],
   },
 ];
 
