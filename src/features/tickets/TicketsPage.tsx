@@ -795,7 +795,7 @@ export const TicketsPage: React.FC = () => {
             loadingText="Saving…"
             disabled={!editTitle.trim()}
           >
-            Save Changes
+            Save
           </Button>
         </ModalFooter>
       </Modal>
