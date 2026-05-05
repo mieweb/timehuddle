@@ -167,13 +167,19 @@ describe("POST /v1/timers/entries", () => {
     expect(entry.userId).toBe(userAId);
   });
 
-  it("creates the same entry again returns existing (idempotent) — 201", async () => {
+  it("creates the same ticket/date again as a distinct entry — 201", async () => {
     const today = new Date().toISOString().slice(0, 10);
-    const res = await inject("POST", "/v1/timers/entries", cookieA, {
+    const first = await inject("POST", "/v1/timers/entries", cookieA, {
       ticketId,
       date: today,
     });
-    expect(res.statusCode).toBe(201);
+    const second = await inject("POST", "/v1/timers/entries", cookieA, {
+      ticketId,
+      date: today,
+    });
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+    expect(first.json().entry.id).not.toBe(second.json().entry.id);
   });
 
   it("returns 404 for a non-existent ticket", async () => {
@@ -343,6 +349,55 @@ describe("DELETE /v1/timers/entries/:id", () => {
 
     const delRes = await inject("DELETE", `/v1/timers/entries/${eId}`, cookieB);
     expect(delRes.statusCode).toBe(403);
+  });
+});
+
+// ─── Update TimeEntry ────────────────────────────────────────────────────────
+
+describe("PATCH /v1/timers/entries/:id", () => {
+  it("updates ticket even when note is cleared", async () => {
+    const testDate = "2099-02-01";
+
+    const createRes = await inject("POST", "/v1/timers/entries", cookieA, {
+      ticketId,
+      date: testDate,
+      note: "temp note",
+    });
+    const entryIdToMove = createRes.json().entry.id as string;
+
+    const patchRes = await inject("PATCH", `/v1/timers/entries/${entryIdToMove}`, cookieA, {
+      ticketId: ticketBId,
+      note: null,
+    });
+
+    expect(patchRes.statusCode).toBe(200);
+    expect(patchRes.json().entry.ticketId).toBe(ticketBId);
+    expect(patchRes.json().entry.note).toBeNull();
+  });
+
+  it("allows moving to a ticket that already has an entry that day", async () => {
+    const testDate = "2099-02-02";
+
+    const existingRes = await inject("POST", "/v1/timers/entries", cookieA, {
+      ticketId,
+      date: testDate,
+    });
+    const keepId = existingRes.json().entry.id as string;
+
+    const moveSourceRes = await inject("POST", "/v1/timers/entries", cookieA, {
+      ticketId: ticketBId,
+      date: testDate,
+    });
+    const moveSourceId = moveSourceRes.json().entry.id as string;
+
+    expect(keepId).not.toBe(moveSourceId);
+
+    const patchRes = await inject("PATCH", `/v1/timers/entries/${moveSourceId}`, cookieA, {
+      ticketId,
+    });
+
+    expect(patchRes.statusCode).toBe(200);
+    expect(patchRes.json().entry.ticketId).toBe(ticketId);
   });
 });
 

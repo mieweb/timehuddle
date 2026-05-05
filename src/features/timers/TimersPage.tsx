@@ -3,8 +3,8 @@
  *
  * Features:
  *   • 7-day week strip (Mon–Sun) with local-day totals
- *   • Day view: list of TimeEntry rows with start/stop controls
- *   • "+" action: create a new TimeEntry for the selected day
+ *   • Day view: list of work item rows with start/stop controls
+ *   • "+" action: create a new work item for the selected day
  *   • Copy from previous day
  *   • Soft-deleted ticket rows render as "Unassociated Timer"
  */
@@ -14,6 +14,7 @@ import {
   faChevronRight,
   faCopy,
   faPause,
+  faPen,
   faPlay,
   faSpinner,
   faTrash,
@@ -26,13 +27,25 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  Input,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
   Select,
   Spinner,
   Text,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { timerApi, ticketApi, type DayEntry, type TimerSession, type Ticket } from '../../lib/api';
+import {
+  ApiError,
+  timerApi,
+  ticketApi,
+  type DayEntry,
+  type TimerSession,
+  type Ticket,
+} from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration } from '../../lib/timeUtils';
 import { AppPage } from '../../ui/AppPage';
@@ -41,6 +54,20 @@ import { AppPage } from '../../ui/AppPage';
 
 function toLocalDateStr(d: Date): string {
   return d.toLocaleDateString('en-CA'); // "YYYY-MM-DD" in local time
+}
+
+/** Format total seconds as "H:MM" for the duration input field. */
+function secondsToHHMM(secs: number): string {
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  return `${h}:${String(m).padStart(2, '0')}`;
+}
+
+/** Parse "H:MM" or "HH:MM" to seconds. Returns null if invalid. */
+function hhmmToSeconds(value: string): number | null {
+  const match = value.trim().match(/^(\d+):([0-5]\d)$/);
+  if (!match) return null;
+  return parseInt(match[1], 10) * 3600 + parseInt(match[2], 10) * 60;
 }
 
 function getWeekStart(d: Date): Date {
@@ -73,7 +100,7 @@ function entryTotalSeconds(sessions: TimerSession[], now: number): number {
 // ─── TimersPage ───────────────────────────────────────────────────────────────
 
 export const TimersPage: React.FC = () => {
-  const { selectedTeamId, teamsReady, currentTime } = useTeam();
+  const { teams, selectedTeamId, teamsReady, currentTime } = useTeam();
 
   // Selected day (local YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState<string>(toLocalDateStr(new Date()));
@@ -107,6 +134,17 @@ export const TimersPage: React.FC = () => {
   const [copyLoading, setCopyLoading] = useState(false);
   const [copyDone, setCopyDone] = useState(false);
 
+  // All tickets across all user teams (for edit modal)
+  const [allTickets, setAllTickets] = useState<Ticket[]>([]);
+
+  // Edit modal state
+  const [editEntry, setEditEntry] = useState<DayEntry | null>(null);
+  const [editNote, setEditNote] = useState('');
+  const [editDuration, setEditDuration] = useState('');
+  const [editTicketId, setEditTicketId] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
+
   // ── Fetch team tickets for new entry picker ──
 
   useEffect(() => {
@@ -119,6 +157,27 @@ export const TimersPage: React.FC = () => {
       .then(setTeamTickets)
       .catch(() => {});
   }, [selectedTeamId]);
+
+  // ── Fetch all tickets across all teams (for edit modal picker) ──
+
+  useEffect(() => {
+    if (teams.length === 0) return;
+    Promise.all(teams.map((t) => ticketApi.getTickets(t.id).catch(() => [] as Ticket[])))
+      .then((results) => {
+        const seen = new Set<string>();
+        const merged: Ticket[] = [];
+        for (const batch of results) {
+          for (const ticket of batch) {
+            if (!seen.has(ticket.id)) {
+              seen.add(ticket.id);
+              merged.push(ticket);
+            }
+          }
+        }
+        setAllTickets(merged);
+      })
+      .catch(() => {});
+  }, [teams]);
 
   // ── Fetch week totals ──
 
@@ -262,6 +321,44 @@ export const TimersPage: React.FC = () => {
     setSelectedDate(toLocalDateStr(new Date()));
   }, []);
 
+  const handleOpenEdit = useCallback((de: DayEntry) => {
+    const total = entryTotalSeconds(de.sessions, Date.now());
+    setEditEntry(de);
+    setEditNote(de.entry.note ?? '');
+    setEditDuration(secondsToHHMM(total));
+    setEditTicketId(de.entry.ticketId);
+    setEditError(null);
+  }, []);
+
+  const handleUpdateEntry = useCallback(async () => {
+    if (!editEntry) return;
+    const parsedSeconds = hhmmToSeconds(editDuration);
+    const isRunning = !!editEntry.sessions.find((s) => s.endTime === null);
+    const ticketChanged = editTicketId !== editEntry.entry.ticketId;
+    setEditLoading(true);
+    setEditError(null);
+    try {
+      const updated = await timerApi.updateEntry(editEntry.entry.id, {
+        note: editNote || null,
+        ...(!isRunning && parsedSeconds !== null ? { durationSeconds: parsedSeconds } : {}),
+        ...(ticketChanged ? { ticketId: editTicketId } : {}),
+      });
+      setDayEntries((prev) =>
+        prev.map((de) => (de.entry.id === updated.id ? { ...de, entry: updated } : de)),
+      );
+      if (!isRunning && parsedSeconds !== null) void fetchDay();
+      setEditEntry(null);
+    } catch (error) {
+      if (error instanceof ApiError) {
+        setEditError(error.message);
+      } else {
+        setEditError('Unable to update work item. Please try again.');
+      }
+    } finally {
+      setEditLoading(false);
+    }
+  }, [editEntry, editNote, editDuration, editTicketId, fetchDay]);
+
   const handleCopyPrevious = useCallback(async () => {
     setCopyLoading(true);
     try {
@@ -378,7 +475,7 @@ export const TimersPage: React.FC = () => {
             variant="primary"
             size="sm"
             onClick={() => setShowNewEntry(true)}
-            aria-label="Add timer entry"
+            aria-label="Add work item"
           >
             +
           </Button>
@@ -389,7 +486,7 @@ export const TimersPage: React.FC = () => {
       {showNewEntry && (
         <Card padding="md">
           <CardHeader>
-            <CardTitle className="text-sm">New Timer Entry</CardTitle>
+            <CardTitle className="text-sm">New Work Item</CardTitle>
           </CardHeader>
           <CardContent className="flex gap-2">
             <div className="flex-1">
@@ -503,9 +600,18 @@ export const TimersPage: React.FC = () => {
                   <Button
                     variant="ghost"
                     size="icon"
+                    onClick={() => handleOpenEdit(de)}
+                    aria-label="Edit work item"
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                  >
+                    <FontAwesomeIcon icon={faPen} className="text-xs" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={() => handleDeleteEntry(de.entry.id, isRunning)}
                     disabled={deletingEntryId === de.entry.id}
-                    aria-label="Delete timer entry"
+                    aria-label="Delete work item"
                     className="shrink-0 text-muted-foreground hover:text-danger"
                   >
                     <FontAwesomeIcon icon={faTrash} className="text-xs" />
@@ -529,6 +635,95 @@ export const TimersPage: React.FC = () => {
           {copyDone ? 'Copied entries from previous day!' : 'Copy entries from previous day'}
         </Button>
       </div>
+
+      {/* ── Edit Modal ── */}
+      {editEntry &&
+        (() => {
+          const isRunning = !!editEntry.sessions.find((s) => s.endTime === null);
+          return (
+            <Modal
+              open
+              onOpenChange={(o) => {
+                if (!o) setEditEntry(null);
+              }}
+              aria-labelledby="edit-entry-title"
+            >
+              <ModalHeader>
+                <Text weight="semibold" id="edit-entry-title">
+                  Edit work item for{' '}
+                  {new Date(editEntry.entry.date + 'T00:00:00').toLocaleDateString(undefined, {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                  })}
+                </Text>
+              </ModalHeader>
+              <ModalBody className="flex flex-col gap-4">
+                <Select
+                  label="Project / Task"
+                  searchable
+                  searchPlaceholder="Search tickets…"
+                  options={allTickets
+                    .filter((t) => t.status !== 'deleted')
+                    .map((t) => ({ value: t.id, label: t.title }))}
+                  value={editTicketId}
+                  onValueChange={(v) => setEditTicketId(v)}
+                  placeholder="Select a ticket…"
+                />
+                <Input
+                  label="Notes (optional)"
+                  value={editNote}
+                  onChange={(e) => setEditNote(e.target.value)}
+                  placeholder="Notes (optional)"
+                />
+                <Input
+                  label="Duration"
+                  value={editDuration}
+                  onChange={(e) => setEditDuration(e.target.value)}
+                  placeholder="H:MM"
+                  disabled={isRunning}
+                  aria-describedby={isRunning ? 'duration-running-hint' : undefined}
+                />
+                {isRunning && (
+                  <Text size="xs" variant="muted" id="duration-running-hint">
+                    Duration cannot be edited while the timer is running.
+                  </Text>
+                )}
+                {editError && (
+                  <Text size="xs" className="text-danger">
+                    {editError}
+                  </Text>
+                )}
+              </ModalBody>
+              <ModalFooter className="flex items-center justify-between">
+                <div className="flex gap-2">
+                  <Button
+                    variant="primary"
+                    onClick={handleUpdateEntry}
+                    isLoading={editLoading}
+                    disabled={!isRunning && hhmmToSeconds(editDuration) === null}
+                  >
+                    Update work item
+                  </Button>
+                  <Button variant="ghost" onClick={() => setEditEntry(null)}>
+                    Cancel
+                  </Button>
+                </div>
+                <Button
+                  variant="ghost"
+                  onClick={() => {
+                    void handleDeleteEntry(editEntry.entry.id, isRunning);
+                    setEditEntry(null);
+                  }}
+                  className="text-danger hover:text-danger"
+                  aria-label="Delete work item"
+                >
+                  Delete
+                </Button>
+              </ModalFooter>
+            </Modal>
+          );
+        })()}
     </AppPage>
   );
 };

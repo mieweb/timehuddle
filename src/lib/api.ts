@@ -697,6 +697,16 @@ export const timerApi = {
       { method: 'POST', body: JSON.stringify({ now: now ?? Date.now() }) },
     ).then((r) => r.session),
 
+  /** Update a TimeEntry's note, duration, and/or ticket (duration ignored while running). */
+  updateEntry: (
+    entryId: string,
+    data: { note?: string | null; durationSeconds?: number; ticketId?: string },
+  ) =>
+    request<{ entry: TimeEntry }>(`/v1/timers/entries/${encodeURIComponent(entryId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }).then((r) => r.entry),
+
   /** Delete a TimeEntry and all of its sessions. */
   deleteEntry: (entryId: string) =>
     request<{ deletedEntry: boolean; deletedSessions: number }>(

@@ -96,6 +96,40 @@ export function toUtcDateKey(epochMs: number): string {
 
 export class TimerService {
   /**
+   * Create a new TimeEntry for { userId, ticketId, date }.
+   * Returns "not-found" if the ticket does not exist or "forbidden" if the
+   * user is not a member of the ticket's team.
+   */
+  async createEntry(
+    userId: string,
+    ticketId: string,
+    date: string // UTC "YYYY-MM-DD"
+  ): Promise<TimeEntry | "not-found" | "forbidden"> {
+    if (!isValidId(ticketId)) return "not-found";
+    const ticket = await ticketsCollection().findOne({ _id: new ObjectId(ticketId) });
+    if (!ticket) return "not-found";
+
+    // Verify user belongs to the ticket's team
+    if (isValidId(ticket.teamId)) {
+      const team = await teamsCollection().findOne({
+        _id: new ObjectId(ticket.teamId),
+        $or: [{ members: userId }, { admins: userId }],
+      });
+      if (!team) return "forbidden";
+    }
+
+    const doc: TimeEntry = {
+      _id: new ObjectId(),
+      userId,
+      ticketId,
+      date,
+      createdAt: new Date(),
+    };
+    await timeEntriesCollection().insertOne(doc);
+    return doc;
+  }
+
+  /**
    * Find or create a TimeEntry for { userId, ticketId, date }.
    * Returns "not-found" if the ticket does not exist or "forbidden" if the user
    * is not a member of the ticket's team.
@@ -199,6 +233,58 @@ export class TimerService {
       // E11000 — unique partial index violation (another running session exists)
       if ((err as { code?: number }).code === 11000) {
         // Retry: close the running session and insert again
+        const retryClose = await this._closeRunningSession(userId, now);
+        if (retryClose) closedSessionId = retryClose;
+        const session2: TimerSession = {
+          ...session,
+          _id: new ObjectId(),
+          createdAt: new Date(),
+        };
+        await timerSessionsCollection().insertOne(session2);
+        return { session: session2, closedSessionId };
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Start a timer for a specific TimeEntry.
+   *
+   * - Validates ownership of the entry.
+   * - Closes any currently running session for the user.
+   * - Inserts a new open TimerSession bound to this exact entry.
+   */
+  async startTimerForEntry(
+    userId: string,
+    entryId: string,
+    now: number
+  ): Promise<
+    { session: TimerSession; closedSessionId: string | null } | "not-found" | "forbidden"
+  > {
+    if (!isValidId(entryId)) return "not-found";
+    const entry = await timeEntriesCollection().findOne({ _id: new ObjectId(entryId) });
+    if (!entry) return "not-found";
+    if (entry.userId !== userId) return "forbidden";
+
+    let closedSessionId: string | null = null;
+    const closeResult = await this._closeRunningSession(userId, now);
+    if (closeResult) closedSessionId = closeResult;
+
+    const session: TimerSession = {
+      _id: new ObjectId(),
+      timeEntryId: entryId,
+      userId,
+      date: toUtcDateKey(now),
+      startTime: now,
+      endTime: null,
+      createdAt: new Date(),
+    };
+
+    try {
+      await timerSessionsCollection().insertOne(session);
+      return { session, closedSessionId };
+    } catch (err: unknown) {
+      if ((err as { code?: number }).code === 11000) {
         const retryClose = await this._closeRunningSession(userId, now);
         if (retryClose) closedSessionId = retryClose;
         const session2: TimerSession = {
@@ -403,6 +489,82 @@ export class TimerService {
       deletedEntry: entryResult.deletedCount === 1,
       deletedSessions: sessionsResult.deletedCount,
     };
+  }
+
+  /**
+   * Update a TimeEntry's note and/or duration.
+   *
+   * Duration adjustment (when timer is not running):
+   * Scales the last closed session's durationSeconds so the entry total
+   * matches the requested value. Ignored if a session is currently running.
+   */
+  async updateEntry(
+    userId: string,
+    entryId: string,
+    updates: { note?: string | null; durationSeconds?: number; ticketId?: string }
+  ): Promise<TimeEntry | "not-found" | "forbidden" | "ticket-not-found"> {
+    if (!isValidId(entryId)) return "not-found";
+    const entryOid = new ObjectId(entryId);
+    const entry = await timeEntriesCollection().findOne({ _id: entryOid });
+    if (!entry) return "not-found";
+    if (entry.userId !== userId) return "forbidden";
+
+    // Validate and authorise new ticket if provided
+    if (updates.ticketId && updates.ticketId !== entry.ticketId) {
+      if (!isValidId(updates.ticketId)) return "ticket-not-found";
+      const ticket = await ticketsCollection().findOne({ _id: new ObjectId(updates.ticketId) });
+      if (!ticket) return "ticket-not-found";
+      if (isValidId(ticket.teamId)) {
+        const team = await teamsCollection().findOne({
+          _id: new ObjectId(ticket.teamId),
+          $or: [{ members: userId }, { admins: userId }],
+        });
+        if (!team) return "forbidden";
+      }
+    }
+
+    // Update note and/or ticket on the TimeEntry document in a single write.
+    const $set: Record<string, unknown> = { updatedAt: new Date() };
+    const $unset: Record<string, ""> = {};
+    if (updates.ticketId && updates.ticketId !== entry.ticketId) {
+      $set.ticketId = updates.ticketId;
+    }
+    if (updates.note !== undefined) {
+      if (updates.note === null || updates.note === "") {
+        $unset.note = "";
+      } else {
+        $set.note = updates.note;
+      }
+    }
+    const updateDoc: { $set: Record<string, unknown>; $unset?: Record<string, ""> } = { $set };
+    if (Object.keys($unset).length > 0) updateDoc.$unset = $unset;
+    await timeEntriesCollection().updateOne({ _id: entryOid }, updateDoc);
+
+    // Adjust duration when timer is not running
+    if (updates.durationSeconds !== undefined) {
+      const isRunning = await timerSessionsCollection().findOne({
+        timeEntryId: entryId,
+        endTime: null,
+      });
+      if (!isRunning) {
+        const sessions = await timerSessionsCollection()
+          .find({ timeEntryId: entryId, endTime: { $ne: null } })
+          .sort({ startTime: -1 })
+          .toArray();
+        if (sessions.length > 0) {
+          const otherTotal = sessions
+            .slice(1)
+            .reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
+          const lastDuration = Math.max(0, updates.durationSeconds - otherTotal);
+          await timerSessionsCollection().updateOne(
+            { _id: sessions[0]._id },
+            { $set: { durationSeconds: lastDuration } }
+          );
+        }
+      }
+    }
+
+    return (await timeEntriesCollection().findOne({ _id: entryOid }))!;
   }
 
   /**

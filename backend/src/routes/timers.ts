@@ -189,7 +189,7 @@ export async function timerRoutes(app: FastifyInstance) {
         startNow?: boolean;
       };
 
-      const entryResult = await timerService.getOrCreateEntry(userId, ticketId, date);
+      const entryResult = await timerService.createEntry(userId, ticketId, date);
       if (entryResult === "not-found") return reply.status(404).send({ error: "Ticket not found" });
       if (entryResult === "forbidden") return reply.status(403).send({ error: "Forbidden" });
 
@@ -264,20 +264,9 @@ export async function timerRoutes(app: FastifyInstance) {
       const { id: entryId } = req.params as { id: string };
       const { now = Date.now() } = req.body as { now?: number };
 
-      // Look up the TimeEntry to get ticketId
-      const { timeEntriesCollection } = await import("../models/index.js");
-      const { ObjectId } = await import("mongodb");
-      if (!/^[0-9a-f]{24}$/i.test(entryId))
-        return reply.status(404).send({ error: "TimeEntry not found" });
-      const entry = await timeEntriesCollection().findOne({ _id: new ObjectId(entryId) });
-      if (!entry) return reply.status(404).send({ error: "TimeEntry not found" });
-      if (entry.userId !== userId) return reply.status(403).send({ error: "Forbidden" });
-
-      const result = await timerService.startTimer(userId, entry.ticketId, now);
-      if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
+      const result = await timerService.startTimerForEntry(userId, entryId, now);
+      if (result === "not-found") return reply.status(404).send({ error: "TimeEntry not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
-      if (result === "already-running")
-        return reply.status(409).send({ error: "Timer already running" });
 
       return reply.send({
         session: toPublicSession(result.session),
@@ -479,6 +468,61 @@ export async function timerRoutes(app: FastifyInstance) {
           sessions: sessions.map(toPublicSession),
         })),
       });
+    }
+  );
+
+  // PATCH /v1/timers/entries/:id — update note, duration, and/or ticket
+  app.patch(
+    "/timers/entries/:id",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Timers"],
+        summary: "Update a TimeEntry's note, duration, and/or ticket",
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string" } },
+        },
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            note: { type: "string", nullable: true },
+            durationSeconds: { type: "number", minimum: 0 },
+            ticketId: { type: "string" },
+          },
+        },
+        response: {
+          200: { type: "object", properties: { entry: entryShape } },
+          403: err("Forbidden"),
+          404: err("TimeEntry not found"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id: userId } = (req as any).user;
+      const { id: entryId } = req.params as { id: string };
+      const { note, durationSeconds, ticketId } = req.body as {
+        note?: string | null;
+        durationSeconds?: number;
+        ticketId?: string;
+      };
+
+      const result = await timerService.updateEntry(userId, entryId, {
+        note,
+        durationSeconds,
+        ticketId,
+      });
+      if (result === "not-found" || result === "ticket-not-found")
+        return reply.status(404).send({ error: "TimeEntry not found" });
+      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+
+      const updatedTicket = await ticketsCollection().findOne(
+        { _id: new ObjectId(result.ticketId) },
+        { projection: { _id: 0, title: 1 } }
+      );
+      return reply.send({ entry: toPublicEntry(result, updatedTicket?.title ?? null) });
     }
   );
 }

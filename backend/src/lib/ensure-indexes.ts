@@ -13,8 +13,16 @@ export async function ensureIndexes() {
 
   // ── TimeEntry indexes ──────────────────────────────────────────────────────
   const timeEntries = db.collection("timeentries");
-  // 1. Natural key — unique per user × ticket × day
-  await timeEntries.createIndex({ userId: 1, ticketId: 1, date: 1 }, { unique: true });
+  // 1. Lookup index for user × ticket × day (duplicates are allowed)
+  const timeEntryIndexes = await timeEntries.indexes();
+  const legacyNaturalKey = timeEntryIndexes.find(
+    (idx) =>
+      idx.unique === true && idx.key?.userId === 1 && idx.key?.ticketId === 1 && idx.key?.date === 1
+  );
+  if (legacyNaturalKey?.name) {
+    await timeEntries.dropIndex(legacyNaturalKey.name);
+  }
+  await timeEntries.createIndex({ userId: 1, ticketId: 1, date: 1 });
   // 2. Day view — all entries for a user on a given UTC date
   await timeEntries.createIndex({ userId: 1, date: 1 });
 
