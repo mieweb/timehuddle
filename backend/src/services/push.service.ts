@@ -106,10 +106,7 @@ class PushService {
 
   /** Remove a specific device token for a user (e.g. on logout or stale token). */
   async removeDeviceToken(userId: string, token: string): Promise<void> {
-    await deviceTokensCollection().updateOne(
-      { userId },
-      { $pull: { tokens: { token } } }
-    );
+    await deviceTokensCollection().updateOne({ userId }, { $pull: { tokens: { token } } });
   }
 
   /** Upsert a web push (VAPID) subscription for a user. */

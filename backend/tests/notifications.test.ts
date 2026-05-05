@@ -12,7 +12,11 @@ import { ObjectId } from "mongodb";
 import { buildApp } from "../src/server.js";
 import { connectDB, client } from "../src/lib/db.js";
 import { auth } from "../src/lib/auth.js";
-import { notificationsCollection, pushSubscriptionsCollection, deviceTokensCollection } from "../src/models/index.js";
+import {
+  notificationsCollection,
+  pushSubscriptionsCollection,
+  deviceTokensCollection,
+} from "../src/models/index.js";
 import type { Notification } from "../src/models/notification.model.js";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -338,7 +342,10 @@ describe("POST /v1/notifications/push-subscribe", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().ok).toBe(true);
-    const stored = await pushSubscriptionsCollection().findOne({ userId: userAId, type: "webpush" });
+    const stored = await pushSubscriptionsCollection().findOne({
+      userId: userAId,
+      type: "webpush",
+    });
     expect(stored?.endpoint).toBe("https://push.example.com/sub-test");
   });
 
@@ -409,9 +416,7 @@ describe("POST /v1/notifications/push-unsubscribe", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().ok).toBe(true);
 
-    const remaining = await pushSubscriptionsCollection()
-      .find({ userId: userAId })
-      .toArray();
+    const remaining = await pushSubscriptionsCollection().find({ userId: userAId }).toArray();
     expect(remaining).toHaveLength(0);
   });
 

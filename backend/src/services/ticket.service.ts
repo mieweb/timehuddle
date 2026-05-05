@@ -176,34 +176,38 @@ export class TicketService {
         await Promise.all(
           notifyAdmins.map((adminId) =>
             Promise.all([
-              notificationService.create({
-                userId: adminId,
-                title: "TiméHuddle",
-                body: `${userName} started a timer on "${ticket.title}"`,
-                notificationData: {
-                  type: "ticket-timer-start",
-                  userId,
-                  userName,
-                  ticketId: id,
-                  ticketTitle: ticket.title,
-                  teamId: ticket.teamId,
-                  url: `/app/tickets`,
-                },
-              }).catch(() => {}),
-              pushService.sendPush(adminId, {
-                title: `${userName} started "${ticket.title}"`,
-                body: `${userName} started a timer on "${ticket.title}"`,
-                tag: `ticket-start-${id}`,
-                data: {
-                  type: "ticket-timer-start",
-                  userId,
-                  userName,
-                  ticketId: id,
-                  ticketTitle: ticket.title,
-                  teamId: ticket.teamId,
-                  url: `/app/tickets`,
-                },
-              }).catch(() => {}),
+              notificationService
+                .create({
+                  userId: adminId,
+                  title: "TiméHuddle",
+                  body: `${userName} started a timer on "${ticket.title}"`,
+                  notificationData: {
+                    type: "ticket-timer-start",
+                    userId,
+                    userName,
+                    ticketId: id,
+                    ticketTitle: ticket.title,
+                    teamId: ticket.teamId,
+                    url: `/app/tickets`,
+                  },
+                })
+                .catch(() => {}),
+              pushService
+                .sendPush(adminId, {
+                  title: `${userName} started "${ticket.title}"`,
+                  body: `${userName} started a timer on "${ticket.title}"`,
+                  tag: `ticket-start-${id}`,
+                  data: {
+                    type: "ticket-timer-start",
+                    userId,
+                    userName,
+                    ticketId: id,
+                    ticketTitle: ticket.title,
+                    teamId: ticket.teamId,
+                    url: `/app/tickets`,
+                  },
+                })
+                .catch(() => {}),
             ])
           )
         );
@@ -241,34 +245,38 @@ export class TicketService {
         await Promise.all(
           notifyAdmins.map((adminId) =>
             Promise.all([
-              notificationService.create({
-                userId: adminId,
-                title: "TiméHuddle",
-                body: `${userName} stopped the timer on "${ticket.title}"`,
-                notificationData: {
-                  type: "ticket-timer-stop",
-                  userId,
-                  userName,
-                  ticketId: id,
-                  ticketTitle: ticket.title,
-                  teamId: ticket.teamId,
-                  url: `/app/tickets`,
-                },
-              }).catch(() => {}),
-              pushService.sendPush(adminId, {
-                title: `${userName} stopped "${ticket.title}"`,
-                body: `${userName} stopped the timer on "${ticket.title}"`,
-                tag: `ticket-stop-${id}`,
-                data: {
-                  type: "ticket-timer-stop",
-                  userId,
-                  userName,
-                  ticketId: id,
-                  ticketTitle: ticket.title,
-                  teamId: ticket.teamId,
-                  url: `/app/tickets`,
-                },
-              }).catch(() => {}),
+              notificationService
+                .create({
+                  userId: adminId,
+                  title: "TiméHuddle",
+                  body: `${userName} stopped the timer on "${ticket.title}"`,
+                  notificationData: {
+                    type: "ticket-timer-stop",
+                    userId,
+                    userName,
+                    ticketId: id,
+                    ticketTitle: ticket.title,
+                    teamId: ticket.teamId,
+                    url: `/app/tickets`,
+                  },
+                })
+                .catch(() => {}),
+              pushService
+                .sendPush(adminId, {
+                  title: `${userName} stopped "${ticket.title}"`,
+                  body: `${userName} stopped the timer on "${ticket.title}"`,
+                  tag: `ticket-stop-${id}`,
+                  data: {
+                    type: "ticket-timer-stop",
+                    userId,
+                    userName,
+                    ticketId: id,
+                    ticketTitle: ticket.title,
+                    teamId: ticket.teamId,
+                    url: `/app/tickets`,
+                  },
+                })
+                .catch(() => {}),
             ])
           )
         );
@@ -336,34 +344,38 @@ export class TicketService {
       const requester = await usersCollection().findOne({ _id: new ObjectId(requesterId) });
       const requesterName = requester?.name ?? requester?.email?.split("@")[0] ?? "Someone";
       await Promise.all([
-        notificationService.create({
-          userId: assignedToUserId,
-          title: "TiméHuddle",
-          body: `${requesterName} assigned you "${ticket.title}"`,
-          notificationData: {
-            type: "ticket-assigned",
-            assignedBy: requesterId,
-            assignedByName: requesterName,
-            ticketId: id,
-            ticketTitle: ticket.title,
-            teamId: ticket.teamId,
-            url: `/app/tickets`,
-          },
-        }).catch(() => {}),
-        pushService.sendPush(assignedToUserId, {
-          title: `Ticket assigned to you`,
-          body: `${requesterName} assigned you "${ticket.title}"`,
-          tag: `ticket-assigned-${id}`,
-          data: {
-            type: "ticket-assigned",
-            assignedBy: requesterId,
-            assignedByName: requesterName,
-            ticketId: id,
-            ticketTitle: ticket.title,
-            teamId: ticket.teamId,
-            url: `/app/tickets`,
-          },
-        }).catch(() => {}),
+        notificationService
+          .create({
+            userId: assignedToUserId,
+            title: "TiméHuddle",
+            body: `${requesterName} assigned you "${ticket.title}"`,
+            notificationData: {
+              type: "ticket-assigned",
+              assignedBy: requesterId,
+              assignedByName: requesterName,
+              ticketId: id,
+              ticketTitle: ticket.title,
+              teamId: ticket.teamId,
+              url: `/app/tickets`,
+            },
+          })
+          .catch(() => {}),
+        pushService
+          .sendPush(assignedToUserId, {
+            title: `Ticket assigned to you`,
+            body: `${requesterName} assigned you "${ticket.title}"`,
+            tag: `ticket-assigned-${id}`,
+            data: {
+              type: "ticket-assigned",
+              assignedBy: requesterId,
+              assignedByName: requesterName,
+              ticketId: id,
+              ticketTitle: ticket.title,
+              teamId: ticket.teamId,
+              url: `/app/tickets`,
+            },
+          })
+          .catch(() => {}),
       ]);
     }
 

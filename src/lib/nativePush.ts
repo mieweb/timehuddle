@@ -39,26 +39,32 @@ export async function subscribeToPush(): Promise<void> {
     throw new Error('Notification permission denied');
   }
 
-  const token = await new Promise<string>(async (resolve, reject) => {
+  const token = await new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error('Timed out waiting for push registration token'));
     }, 15_000);
 
-    const successHandle = await PushNotifications.addListener('registration', ({ value }) => {
+    let handles: Array<{ remove: () => void }> = [];
+    const cleanup = () => {
       clearTimeout(timeout);
-      successHandle.remove();
-      errorHandle.remove();
-      resolve(value);
-    });
+      handles.forEach((h) => h.remove());
+    };
 
-    const errorHandle = await PushNotifications.addListener('registrationError', ({ error }) => {
-      clearTimeout(timeout);
-      successHandle.remove();
-      errorHandle.remove();
-      reject(new Error(String(error)));
-    });
-
-    await PushNotifications.register();
+    Promise.all([
+      PushNotifications.addListener('registration', ({ value }) => {
+        cleanup();
+        resolve(value);
+      }),
+      PushNotifications.addListener('registrationError', ({ error }) => {
+        cleanup();
+        reject(new Error(String(error)));
+      }),
+    ])
+      .then((hs) => {
+        handles = hs;
+        return PushNotifications.register();
+      })
+      .catch(reject);
   });
 
   const platform = Capacitor.getPlatform() as 'ios' | 'android';
@@ -119,24 +125,33 @@ export async function autoRegisterNativePush(userId: string): Promise<void> {
 }
 
 async function _registerAndSaveToken(): Promise<void> {
-  const token = await new Promise<string>(async (resolve, reject) => {
+  const token = await new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(
       () => reject(new Error('Timed out waiting for push token')),
       15_000,
     );
-    const successHandle = await PushNotifications.addListener('registration', ({ value }) => {
+
+    let handles: Array<{ remove: () => void }> = [];
+    const cleanup = () => {
       clearTimeout(timeout);
-      successHandle.remove();
-      errorHandle.remove();
-      resolve(value);
-    });
-    const errorHandle = await PushNotifications.addListener('registrationError', ({ error }) => {
-      clearTimeout(timeout);
-      successHandle.remove();
-      errorHandle.remove();
-      reject(new Error(String(error)));
-    });
-    await PushNotifications.register();
+      handles.forEach((h) => h.remove());
+    };
+
+    Promise.all([
+      PushNotifications.addListener('registration', ({ value }) => {
+        cleanup();
+        resolve(value);
+      }),
+      PushNotifications.addListener('registrationError', ({ error }) => {
+        cleanup();
+        reject(new Error(String(error)));
+      }),
+    ])
+      .then((hs) => {
+        handles = hs;
+        return PushNotifications.register();
+      })
+      .catch(reject);
   });
 
   const platform = Capacitor.getPlatform() as 'ios' | 'android';
