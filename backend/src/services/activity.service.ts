@@ -34,13 +34,15 @@ function toPublic(doc: ActivityEvent): PublicActivityEvent {
  */
 export async function emitActivity(input: EmitActivityInput): Promise<void> {
   try {
+    // The spread of a discriminated union cannot be narrowed by TypeScript,
+    // so we cast through unknown to satisfy the collection's generic constraint.
     const doc = {
       _id: new ObjectId(),
       occurredAt: input.occurredAt ?? new Date(),
       source: input.source ?? "timehuddle",
       ...input,
-    } as ActivityEvent;
-    await activitiesCollection().insertOne(doc as any);
+    } as unknown as ActivityEvent;
+    await activitiesCollection().insertOne(doc);
   } catch {
     // intentionally silent — activity logging must never break callers
   }

@@ -66,6 +66,7 @@ export async function activityRoutes(app: FastifyInstance) {
       },
     },
     async (req) => {
+      // requireAuth attaches .user to the request — established pattern across all routes.
       const { id: userId } = (req as any).user;
       const { limit, before } = req.query as { limit?: number; before?: string };
       return activityService.getLog(userId, limit, before);
