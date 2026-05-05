@@ -152,40 +152,31 @@ export const TimersPage: React.FC = () => {
       // Resolve any running session
       const running = entries.flatMap((e) => e.sessions).find((s) => s.endTime === null);
       setRunningSessionId(running?.id ?? null);
-
-      // Fetch missing ticket titles
-      const missingIds = entries.map((e) => e.entry.ticketId).filter((id) => !(id in ticketCache));
-      if (missingIds.length > 0) {
-        // Batch from team tickets or individual fetches
-        const newCache: Record<string, Ticket | null> = {};
-        for (const id of missingIds) {
-          const found = teamTickets.find((t) => t.id === id) ?? null;
-          newCache[id] = found;
-        }
-        setTicketCache((prev) => ({ ...prev, ...newCache }));
-      }
     } catch {
       // keep previous
     } finally {
       setDayLoading(false);
     }
-  }, [selectedDate, ticketCache, teamTickets]);
+  }, [selectedDate]);
 
   useEffect(() => {
     void fetchDay();
-  }, [selectedDate]); // intentionally only re-fetch on date change; fetchDay is stable via useCallback
+  }, [fetchDay]);
 
-  // Update ticket cache when team tickets load
+  // Populate ticket cache from day entries whenever entries or team tickets change
   useEffect(() => {
-    if (teamTickets.length === 0) return;
+    if (dayEntries.length === 0) return;
     setTicketCache((prev) => {
       const next = { ...prev };
-      for (const t of teamTickets) {
-        next[t.id] = t;
+      for (const de of dayEntries) {
+        const id = de.entry.ticketId;
+        if (!(id in next)) {
+          next[id] = teamTickets.find((t) => t.id === id) ?? null;
+        }
       }
       return next;
     });
-  }, [teamTickets]);
+  }, [dayEntries, teamTickets]);
 
   // ── Handlers ──
 

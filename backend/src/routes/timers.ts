@@ -253,11 +253,10 @@ export async function timerRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id: userId } = (req as any).user;
       const { id: entryId } = req.params as { id: string };
-      const { now = Date.now(), clockEventId } =
-        (req.body as {
-          now?: number;
-          clockEventId?: string;
-        }) ?? {};
+      const { now = Date.now(), clockEventId } = req.body as {
+        now?: number;
+        clockEventId?: string;
+      };
 
       // Look up the TimeEntry to get ticketId
       const { timeEntriesCollection } = await import("../models/index.js");
@@ -310,7 +309,7 @@ export async function timerRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id: userId } = (req as any).user;
       const { id: sessionId } = req.params as { id: string };
-      const { now = Date.now() } = (req.body as { now?: number }) ?? {};
+      const { now = Date.now() } = req.body as { now?: number };
 
       const result = await timerService.stopTimer(userId, sessionId, now);
       if (result === "not-found") return reply.status(404).send({ error: "Session not found" });

@@ -330,6 +330,7 @@ export class TimerService {
   ): Promise<Array<{ date: string; totalSeconds: number }>> {
     const [year, month, day] = weekStartDate.split("-").map(Number);
     const results: Array<{ date: string; totalSeconds: number }> = [];
+    const now = Date.now(); // capture once for consistent week totals
 
     for (let i = 0; i < 7; i++) {
       const d = new Date(Date.UTC(year!, month! - 1, day! + i));
@@ -354,7 +355,7 @@ export class TimerService {
       const running = await timerSessionsCollection().findOne({ userId, endTime: null });
       const runningSeconds =
         running && running.startTime >= start && running.startTime < end
-          ? Math.floor((Date.now() - running.startTime) / 1000)
+          ? Math.floor((now - running.startTime) / 1000)
           : 0;
 
       results.push({
