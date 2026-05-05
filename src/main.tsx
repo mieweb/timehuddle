@@ -123,7 +123,7 @@ const App: React.FC = () => {
 
   // Auto-register FCM token on native as soon as the user is authenticated.
   React.useEffect(() => {
-    if (user) void autoRegisterNativePush();
+    if (user) void autoRegisterNativePush(user.id);
   }, [user]);
 
   // Reset token: check URL params (web) or deep link (native).

@@ -85,8 +85,11 @@ const PUSH_PROMPTED_KEY = 'timehuddle_push_prompted_v1';
  * - If permission already granted: silently re-register (handles token refresh).
  * - If not yet asked: request once, then silently register.
  * - If denied: do nothing.
+ *
+ * @param userId The signed-in user's ID — the prompted flag is scoped per-user
+ *   so each account on a shared device gets its own opt-in chance.
  */
-export async function autoRegisterNativePush(): Promise<void> {
+export async function autoRegisterNativePush(userId: string): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
 
   try {
@@ -100,11 +103,12 @@ export async function autoRegisterNativePush(): Promise<void> {
 
     if (receive === 'denied') return;
 
-    // 'prompt' or 'prompt-with-rationale': ask once
-    const alreadyPrompted = localStorage.getItem(PUSH_PROMPTED_KEY) === '1';
+    // 'prompt' or 'prompt-with-rationale': ask once per user
+    const promptedKey = `${PUSH_PROMPTED_KEY}:${userId}`;
+    const alreadyPrompted = localStorage.getItem(promptedKey) === '1';
     if (alreadyPrompted) return;
 
-    localStorage.setItem(PUSH_PROMPTED_KEY, '1');
+    localStorage.setItem(promptedKey, '1');
     const { receive: granted } = await PushNotifications.requestPermissions();
     if (granted !== 'granted') return;
 

@@ -12,7 +12,7 @@ import { ObjectId } from "mongodb";
 import { buildApp } from "../src/server.js";
 import { connectDB, client } from "../src/lib/db.js";
 import { auth } from "../src/lib/auth.js";
-import { notificationsCollection } from "../src/models/index.js";
+import { notificationsCollection, pushSubscriptionsCollection, deviceTokensCollection } from "../src/models/index.js";
 import type { Notification } from "../src/models/notification.model.js";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -293,5 +293,146 @@ describe("POST /v1/notifications/:id/invite-respond", () => {
     expect(res.statusCode).toBe(200);
     const still = await notificationsCollection().findOne({ _id: n._id });
     expect(still).toBeNull();
+  });
+});
+
+// ─── POST /v1/notifications/push-subscribe ────────────────────────────────────
+
+describe("POST /v1/notifications/push-subscribe", () => {
+  afterAll(async () => {
+    // Cleanup any push data created during these tests
+    await pushSubscriptionsCollection().deleteMany({ userId: userAId });
+    await deviceTokensCollection().deleteOne({ userId: userAId });
+  });
+
+  it("401 without auth", async () => {
+    const res = await inject("POST", "/v1/notifications/push-subscribe", "", {
+      type: "webpush",
+      endpoint: "https://push.example.com/sub1",
+      keys: { p256dh: "a".repeat(10), auth: "b".repeat(10) },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("400 for webpush missing endpoint", async () => {
+    const res = await inject("POST", "/v1/notifications/push-subscribe", cookieA, {
+      type: "webpush",
+      keys: { p256dh: "a".repeat(10), auth: "b".repeat(10) },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("400 for webpush missing keys", async () => {
+    const res = await inject("POST", "/v1/notifications/push-subscribe", cookieA, {
+      type: "webpush",
+      endpoint: "https://push.example.com/sub1",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("stores a valid webpush subscription — 200", async () => {
+    const res = await inject("POST", "/v1/notifications/push-subscribe", cookieA, {
+      type: "webpush",
+      endpoint: "https://push.example.com/sub-test",
+      keys: { p256dh: "a".repeat(10), auth: "b".repeat(10) },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+    const stored = await pushSubscriptionsCollection().findOne({ userId: userAId, type: "webpush" });
+    expect(stored?.endpoint).toBe("https://push.example.com/sub-test");
+  });
+
+  it("400 for native missing token", async () => {
+    const res = await inject("POST", "/v1/notifications/push-subscribe", cookieA, {
+      type: "native",
+      platform: "ios",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("400 for native invalid platform", async () => {
+    const res = await inject("POST", "/v1/notifications/push-subscribe", cookieA, {
+      type: "native",
+      token: "device-token-abc",
+      platform: "windows",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("stores a valid native token — 200", async () => {
+    const res = await inject("POST", "/v1/notifications/push-subscribe", cookieA, {
+      type: "native",
+      token: "test-device-token-ios",
+      platform: "ios",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+    const stored = await deviceTokensCollection().findOne({ userId: userAId });
+    expect(stored?.tokens.some((t) => t.token === "test-device-token-ios")).toBe(true);
+  });
+
+  it("registering the same token again does not create a duplicate", async () => {
+    // Subscribe twice with the same token
+    await inject("POST", "/v1/notifications/push-subscribe", cookieA, {
+      type: "native",
+      token: "test-device-token-dedup",
+      platform: "ios",
+    });
+    await inject("POST", "/v1/notifications/push-subscribe", cookieA, {
+      type: "native",
+      token: "test-device-token-dedup",
+      platform: "ios",
+    });
+    const stored = await deviceTokensCollection().findOne({ userId: userAId });
+    const dupes = stored?.tokens.filter((t) => t.token === "test-device-token-dedup") ?? [];
+    expect(dupes).toHaveLength(1);
+  });
+});
+
+// ─── POST /v1/notifications/push-unsubscribe ──────────────────────────────────
+
+describe("POST /v1/notifications/push-unsubscribe", () => {
+  it("401 without auth", async () => {
+    const res = await inject("POST", "/v1/notifications/push-unsubscribe", "");
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("removes all push subscriptions for the user — 200", async () => {
+    // Seed a subscription
+    await inject("POST", "/v1/notifications/push-subscribe", cookieA, {
+      type: "webpush",
+      endpoint: "https://push.example.com/unsub-test",
+      keys: { p256dh: "a".repeat(10), auth: "b".repeat(10) },
+    });
+
+    const res = await inject("POST", "/v1/notifications/push-unsubscribe", cookieA);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+
+    const remaining = await pushSubscriptionsCollection()
+      .find({ userId: userAId })
+      .toArray();
+    expect(remaining).toHaveLength(0);
+  });
+
+  it("does not affect another user's subscriptions", async () => {
+    // Give user B a subscription
+    await inject("POST", "/v1/notifications/push-subscribe", cookieB, {
+      type: "webpush",
+      endpoint: "https://push.example.com/userb-sub",
+      keys: { p256dh: "a".repeat(10), auth: "b".repeat(10) },
+    });
+
+    // User A unsubscribes
+    await inject("POST", "/v1/notifications/push-unsubscribe", cookieA);
+
+    const db = client.db();
+    const userB = await db.collection("user").findOne({ email: USER_B.email });
+    const userBId = String(userB!._id);
+    const bSubs = await pushSubscriptionsCollection().find({ userId: userBId }).toArray();
+    expect(bSubs.length).toBeGreaterThan(0);
+
+    // Cleanup
+    await pushSubscriptionsCollection().deleteMany({ userId: userBId });
   });
 });

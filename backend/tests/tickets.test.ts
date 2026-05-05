@@ -565,3 +565,123 @@ describe("PUT /v1/tickets/:id/assign", () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+// ─── Timer permission model: assignee-aware access control ───────────────────
+//
+// New rule: if a ticket has an assignee, only that assignee can start/stop the
+// timer. If it has no assignee, only the creator can.
+
+describe("ticket timer — assignee permission model", () => {
+  // Ticket created by owner, then assigned to member
+  let assignedTicketId: string;
+  // Ticket created by owner with no assignee
+  let unassignedTicketId: string;
+
+  beforeAll(async () => {
+    // Create two tickets owned by the owner
+    const [rAssigned, rUnassigned] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: "/v1/tickets",
+        headers: { cookie: ownerCookie },
+        payload: { teamId, title: "Assigned timer ticket" },
+      }),
+      app.inject({
+        method: "POST",
+        url: "/v1/tickets",
+        headers: { cookie: ownerCookie },
+        payload: { teamId, title: "Unassigned timer ticket" },
+      }),
+    ]);
+    assignedTicketId = rAssigned.json().ticket.id;
+    unassignedTicketId = rUnassigned.json().ticket.id;
+
+    // Assign the first ticket to the member
+    await app.inject({
+      method: "PUT",
+      url: `/v1/tickets/${assignedTicketId}/assign`,
+      headers: { cookie: ownerCookie },
+      payload: { assignedToUserId: memberId },
+    });
+  });
+
+  // ── Assigned ticket ──────────────────────────────────────────────────────────
+
+  it("assigned member can start timer on assigned ticket — 200", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${assignedTicketId}/start`,
+      headers: { cookie: memberCookie },
+      payload: { now: Date.now() },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ticket.startTimestamp).toBeDefined();
+  });
+
+  it("assigned member can stop timer on assigned ticket — 200", async () => {
+    const now = Date.now();
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${assignedTicketId}/stop`,
+      headers: { cookie: memberCookie },
+      payload: { now },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ticket.startTimestamp).toBeNull();
+  });
+
+  it("non-assignee (creator/owner) cannot start timer on assigned ticket — 403", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${assignedTicketId}/start`,
+      headers: { cookie: ownerCookie },
+      payload: { now: Date.now() },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("outsider cannot start timer on assigned ticket — 403", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${assignedTicketId}/start`,
+      headers: { cookie: outsiderCookie },
+      payload: { now: Date.now() },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  // ── Unassigned ticket ────────────────────────────────────────────────────────
+
+  it("creator can start timer on unassigned ticket — 200", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${unassignedTicketId}/start`,
+      headers: { cookie: ownerCookie },
+      payload: { now: Date.now() },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ticket.startTimestamp).toBeDefined();
+  });
+
+  it("non-creator member cannot start timer on unassigned ticket — 403", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${unassignedTicketId}/start`,
+      headers: { cookie: memberCookie },
+      payload: { now: Date.now() },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("creator can stop timer on unassigned ticket — 200", async () => {
+    const now = Date.now();
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/tickets/${unassignedTicketId}/stop`,
+      headers: { cookie: ownerCookie },
+      payload: { now },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ticket.startTimestamp).toBeNull();
+  });
+});

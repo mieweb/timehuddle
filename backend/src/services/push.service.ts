@@ -66,9 +66,9 @@ export interface PushPayload {
 class PushService {
   /**
    * Upsert a device token for a user.
-   * If the token already exists for this user, its updatedAt is refreshed.
-   * Otherwise a new entry is appended to the tokens array.
-   * One document per user in the `devicetokens` collection.
+   * - Removes the token from any other user first (handles device account switching).
+   * - Uses a single atomic `updateOne` with `$addToSet` + `arrayFilters` to avoid
+   *   duplicate entries under concurrent registration calls.
    */
   async registerDeviceToken(
     userId: string,
@@ -78,14 +78,21 @@ class PushService {
     const now = new Date();
     const col = deviceTokensCollection();
 
-    // Try to update an existing token entry in the array
-    const updated = await col.updateOne(
-      { userId, "tokens.token": token },
-      { $set: { "tokens.$.updatedAt": now, "tokens.$.platform": platform } }
+    // Remove this token from any other user's document (device account-switch safety).
+    await col.updateMany(
+      { userId: { $ne: userId }, "tokens.token": token },
+      { $pull: { tokens: { token } } }
     );
 
-    if (updated.matchedCount === 0) {
-      // Token not yet in the array — push it (create doc if needed)
+    // Atomically refresh if already present, otherwise append — one round-trip.
+    const result = await col.updateOne(
+      { userId, "tokens.token": token },
+      { $set: { "tokens.$[entry].updatedAt": now, "tokens.$[entry].platform": platform } },
+      { arrayFilters: [{ "entry.token": token }] }
+    );
+
+    if (result.matchedCount === 0) {
+      // Token not yet in the array — append it atomically (upsert creates doc if needed).
       await col.updateOne(
         { userId },
         {
@@ -115,7 +122,12 @@ class PushService {
     }
   ): Promise<void> {
     const now = new Date();
-    await pushSubscriptionsCollection().updateOne(
+    const col = pushSubscriptionsCollection();
+
+    // Remove this endpoint from any other user first (browser account-switch safety).
+    await col.deleteMany({ userId: { $ne: userId }, type: "webpush", endpoint: sub.endpoint });
+
+    await col.updateOne(
       { userId, type: "webpush", endpoint: sub.endpoint },
       {
         $set: {
