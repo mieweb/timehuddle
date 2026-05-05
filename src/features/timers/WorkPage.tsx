@@ -13,11 +13,10 @@ import {
   faChevronLeft,
   faChevronRight,
   faCopy,
+  faEllipsisVertical,
   faPause,
-  faPen,
   faPlay,
   faSpinner,
-  faTrash,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -52,6 +51,7 @@ import {
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration } from '../../lib/timeUtils';
+import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -104,7 +104,8 @@ function entryTotalSeconds(sessions: Timer[], now: number): number {
 // ─── WorkPage ─────────────────────────────────────────────────────────────────
 
 export const WorkPage: React.FC = () => {
-  const { teams, teamsReady, currentTime } = useTeam();
+  const { teams, teamsReady, currentTime, selectedTeamId } = useTeam();
+  const { isClockedIn, clockIn, clockInLoading } = useClockToggle();
 
   // Selected day (local YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState<string>(toLocalDateStr(new Date()));
@@ -135,6 +136,11 @@ export const WorkPage: React.FC = () => {
   const [newEntryTicketId, setNewEntryTicketId] = useState('');
   const [newEntryNote, setNewEntryNote] = useState('');
   const [newEntryLoading, setNewEntryLoading] = useState(false);
+
+  // Clock-in confirmation before starting timer
+  const [showClockInPrompt, setShowClockInPrompt] = useState(false);
+  const [pendingStartEntryId, setPendingStartEntryId] = useState<string | null>(null);
+  const [clockInPromptError, setClockInPromptError] = useState<string | null>(null);
 
   // Copy state
   const [copyLoading, setCopyLoading] = useState(false);
@@ -213,7 +219,7 @@ export const WorkPage: React.FC = () => {
 
   // ── Handlers ──
 
-  const handleStart = useCallback(
+  const startTimerForEntry = useCallback(
     async (entryId: string) => {
       try {
         const { session, closedSessionId } = await timerApi.startSession(entryId, Date.now());
@@ -244,6 +250,38 @@ export const WorkPage: React.FC = () => {
     },
     [fetchDay],
   );
+
+  const handleStart = useCallback(
+    async (entryId: string) => {
+      if (!isClockedIn) {
+        setPendingStartEntryId(entryId);
+        setClockInPromptError(null);
+        setShowClockInPrompt(true);
+        return;
+      }
+
+      await startTimerForEntry(entryId);
+    },
+    [isClockedIn, startTimerForEntry],
+  );
+
+  const handleClockInAndStart = useCallback(async () => {
+    if (!pendingStartEntryId) return;
+
+    if (!selectedTeamId) {
+      setClockInPromptError('Select a team before clocking in.');
+      return;
+    }
+
+    setClockInPromptError(null);
+    await clockIn();
+
+    const entryId = pendingStartEntryId;
+    setShowClockInPrompt(false);
+    setPendingStartEntryId(null);
+
+    await startTimerForEntry(entryId);
+  }, [pendingStartEntryId, selectedTeamId, clockIn, startTimerForEntry]);
 
   const handleStop = useCallback(
     async (sessionId: string) => {
@@ -584,6 +622,52 @@ export const WorkPage: React.FC = () => {
         </ModalFooter>
       </Modal>
 
+      {/* ── Clock-In Prompt Modal ── */}
+      <Modal
+        open={showClockInPrompt}
+        onOpenChange={(open) => {
+          setShowClockInPrompt(open);
+          if (!open) {
+            setPendingStartEntryId(null);
+            setClockInPromptError(null);
+          }
+        }}
+        aria-labelledby="clock-in-prompt-title"
+      >
+        <ModalHeader>
+          <Text weight="semibold" id="clock-in-prompt-title">
+            Clock In Required
+          </Text>
+        </ModalHeader>
+        <ModalBody className="flex flex-col gap-2">
+          <Text size="sm">
+            You must be clocked in before starting a timer. Do you want to clock in now?
+          </Text>
+          {clockInPromptError && (
+            <Text size="xs" className="text-danger">
+              {clockInPromptError}
+            </Text>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={handleClockInAndStart} isLoading={clockInLoading}>
+              Clock In Now
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowClockInPrompt(false);
+                setPendingStartEntryId(null);
+                setClockInPromptError(null);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </ModalFooter>
+      </Modal>
+
       {/* ── Day View ── */}
       {dayEntries.length === 0 ? (
         <div className="py-10 text-center">
@@ -611,7 +695,6 @@ export const WorkPage: React.FC = () => {
 
                 return (
                   <TableRow key={de.entry.id}>
-                    {/* Start / Stop */}
                     <TableCell className="py-2 pr-0">
                       <span
                         title={
@@ -646,7 +729,6 @@ export const WorkPage: React.FC = () => {
                       </span>
                     </TableCell>
 
-                    {/* Title + note + running badge */}
                     <TableCell className="py-2">
                       <div className="flex items-center gap-2">
                         <div className="min-w-0">
@@ -671,36 +753,22 @@ export const WorkPage: React.FC = () => {
                       </div>
                     </TableCell>
 
-                    {/* Duration */}
                     <TableCell className="py-2 text-right font-mono">
                       <Text size="sm" variant={total > 0 ? 'default' : 'muted'}>
                         {formatDuration(total)}
                       </Text>
                     </TableCell>
 
-                    {/* Actions */}
-                    <TableCell className="py-2">
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleOpenEdit(de)}
-                          aria-label="Edit work item"
-                          className="text-muted-foreground hover:text-foreground"
-                        >
-                          <FontAwesomeIcon icon={faPen} className="text-xs" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDeleteEntry(de.entry.id, isRunning)}
-                          disabled={deletingEntryId === de.entry.id}
-                          aria-label="Delete work item"
-                          className="text-muted-foreground hover:text-danger"
-                        >
-                          <FontAwesomeIcon icon={faTrash} className="text-xs" />
-                        </Button>
-                      </div>
+                    <TableCell className="py-2 text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleOpenEdit(de)}
+                        aria-label="Edit work item"
+                        disabled={deletingEntryId === de.entry.id}
+                      >
+                        <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 );
@@ -794,19 +862,18 @@ export const WorkPage: React.FC = () => {
                     isLoading={editLoading}
                     disabled={!isRunning && hhmmToSeconds(editDuration) === null}
                   >
-                    Update work item
+                    Update
                   </Button>
                   <Button variant="ghost" onClick={() => setEditEntry(null)}>
                     Cancel
                   </Button>
                 </div>
                 <Button
-                  variant="ghost"
+                  variant="danger"
                   onClick={() => {
                     void handleDeleteEntry(editEntry.entry.id, isRunning);
                     setEditEntry(null);
                   }}
-                  className="text-danger hover:text-danger"
                   aria-label="Delete work item"
                 >
                   Delete
