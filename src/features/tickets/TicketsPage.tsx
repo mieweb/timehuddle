@@ -118,6 +118,7 @@ async function fetchIssueTitle(url: string): Promise<string | null> {
 interface TicketRowProps {
   ticket: Ticket;
   isCreator: boolean;
+  isAssignee: boolean;
   currentTime: number;
   assigneeName: string | null;
   onStartStop: (ticket: Ticket) => Promise<void>;
@@ -130,6 +131,7 @@ interface TicketRowProps {
 const TicketRow: React.FC<TicketRowProps> = ({
   ticket,
   isCreator,
+  isAssignee,
   currentTime,
   assigneeName,
   onStartStop,
@@ -150,8 +152,8 @@ const TicketRow: React.FC<TicketRowProps> = ({
   return (
     <li className="px-5 py-3">
       <div className="flex items-start gap-3">
-        {/* Play/Pause — creator only */}
-        {isCreator && (
+        {/* Play/Pause — assignee if assigned, otherwise creator */}
+        {(ticket.assignedTo ? isAssignee : isCreator) && (
           <Button
             variant="ghost"
             size="icon"
@@ -698,6 +700,7 @@ export const TicketsPage: React.FC = () => {
                   key={t.id}
                   ticket={t}
                   isCreator={true}
+                  isAssignee={t.assignedTo === userId}
                   currentTime={currentTime}
                   assigneeName={getAssigneeName(t.assignedTo)}
                   onStartStop={handleStartStop}
@@ -731,6 +734,7 @@ export const TicketsPage: React.FC = () => {
                   key={t.id}
                   ticket={t}
                   isCreator={false}
+                  isAssignee={t.assignedTo === userId}
                   currentTime={currentTime}
                   assigneeName={getAssigneeName(t.assignedTo)}
                   onStartStop={handleStartStop}
@@ -960,6 +964,28 @@ export const TicketsPage: React.FC = () => {
                   </a>
                 </div>
               )}
+              <div className="flex gap-6">
+                <div>
+                  <Text size="xs" variant="muted" weight="medium">
+                    Created By
+                  </Text>
+                  <Text size="sm">
+                    {getAssigneeName(detailsTicket.createdBy) ?? detailsTicket.createdBy}
+                  </Text>
+                </div>
+                <div>
+                  <Text size="xs" variant="muted" weight="medium">
+                    Created At
+                  </Text>
+                  <Text size="sm">
+                    {new Date(detailsTicket.createdAt).toLocaleDateString(undefined, {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                  </Text>
+                </div>
+              </div>
               {detailsTicket.assignedTo && (
                 <div>
                   <Text size="xs" variant="muted" weight="medium">

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { auth } from "../lib/auth.js";
 import { notificationService, subscribeSse } from "../services/notification.service.js";
+import { pushService } from "../services/push.service.js";
 
 const deleteSchema = z.object({
   ids: z.array(z.string().min(1)).min(1),
@@ -93,7 +94,10 @@ export async function notificationRoutes(app: FastifyInstance) {
 
   // GET /v1/notifications/stream — SSE (new notifications pushed in real-time)
   app.get("/notifications/stream", async (req, reply) => {
-    const session = await auth.api.getSession({ headers: req.headers as any });
+    const { token: queryToken } = req.query as { token?: string };
+    const headers: Record<string, string> = { ...(req.headers as any) };
+    if (queryToken) headers["authorization"] = `Bearer ${queryToken}`;
+    const session = await auth.api.getSession({ headers });
     if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
 
     const userId = session.user.id;
@@ -127,5 +131,51 @@ export async function notificationRoutes(app: FastifyInstance) {
       clearInterval(ping);
       unsub();
     });
+  });
+
+  // POST /v1/notifications/push-subscribe — register a push subscription
+  app.post("/notifications/push-subscribe", async (req, reply) => {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
+
+    const body = req.body as {
+      type?: string;
+      endpoint?: string;
+      keys?: { p256dh?: string; auth?: string };
+      expirationTime?: number | null;
+      token?: string;
+      platform?: string;
+    };
+
+    if (body.type === "native") {
+      if (!body.token || !body.platform) {
+        return reply.status(400).send({ error: "token and platform required for native" });
+      }
+      if (body.platform !== "ios" && body.platform !== "android") {
+        return reply.status(400).send({ error: "platform must be ios or android" });
+      }
+      await pushService.registerDeviceToken(session.user.id, body.token, body.platform);
+      return reply.send({ ok: true });
+    }
+
+    // Default: webpush
+    if (!body.endpoint || !body.keys?.p256dh || !body.keys?.auth) {
+      return reply.status(400).send({ error: "endpoint and keys required for webpush" });
+    }
+    await pushService.saveWebPush(session.user.id, {
+      endpoint: body.endpoint,
+      keys: { p256dh: body.keys.p256dh, auth: body.keys.auth },
+      expirationTime: body.expirationTime,
+    });
+    return reply.send({ ok: true });
+  });
+
+  // POST /v1/notifications/push-unsubscribe — remove all push subscriptions for the user
+  app.post("/notifications/push-unsubscribe", async (req, reply) => {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
+
+    await pushService.removeAll(session.user.id);
+    return reply.send({ ok: true });
   });
 }

@@ -536,6 +536,18 @@ export const clockApi = {
     ),
 };
 
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+export interface Notification {
+  id: string;
+  userId: string;
+  title: string;
+  body: string;
+  data?: Record<string, unknown>;
+  read: boolean;
+  createdAt: string; // ISO
+}
+
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
 export interface Message {
@@ -579,18 +591,6 @@ export const messageApi = {
       { withCredentials: true },
     ),
 };
-
-// ─── Notifications ────────────────────────────────────────────────────────────
-
-export interface Notification {
-  id: string;
-  userId: string;
-  title: string;
-  body: string;
-  data?: Record<string, unknown>;
-  read: boolean;
-  createdAt: string; // ISO
-}
 
 export type TeamInvitePreview = {
   notificationId: string;
@@ -636,13 +636,15 @@ export const notificationApi = {
     }),
 
   /** Open an SSE stream for new notifications. */
-  openStream: (): EventSource =>
-    new EventSource(`${TIMECORE_BASE_URL}/v1/notifications/stream`, {
-      withCredentials: true,
-    }),
+  openStream: (): EventSource => {
+    const token = sessionToken.get();
+    const url = new URL(`${TIMECORE_BASE_URL}/v1/notifications/stream`);
+    if (token) url.searchParams.set('token', token);
+    return new EventSource(url.toString(), { withCredentials: true });
+  },
 };
-// ─── Attachments ──────────────────────────────────────────────────────────────
 
+// ─── Attachments ──────────────────────────────────────────────────────────────
 export type AttachmentKind = 'clock' | 'ticket';
 export type AttachmentType = 'video' | 'image' | 'link';
 

@@ -12,9 +12,9 @@ import { userRoutes } from "./routes/users.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { teamRoutes } from "./routes/teams.js";
 import { clockRoutes } from "./routes/clock.js";
-import { messageRoutes } from "./routes/messages.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { attachmentRoutes } from "./routes/attachments.js";
+import { messageRoutes } from "./routes/messages.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? true });
@@ -44,7 +44,6 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
           name: "Clock",
           description: "Clock in/out, ticket timers, timesheet, and SSE live stream",
         },
-        { name: "Messages", description: "Admin-member threaded messaging and SSE stream" },
         {
           name: "Notifications",
           description: "User notification inbox, mark-read, delete, and SSE stream",
@@ -53,6 +52,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
           name: "Attachments",
           description: "Generic media attachments for clock entries and tickets",
         },
+        { name: "Messages", description: "Admin-member threaded messaging and SSE stream" },
       ],
     },
   });
@@ -398,9 +398,9 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(teamRoutes, { prefix: "/v1" });
   await app.register(ticketRoutes, { prefix: "/v1" });
   await app.register(clockRoutes, { prefix: "/v1" });
-  await app.register(messageRoutes, { prefix: "/v1" });
   await app.register(notificationRoutes, { prefix: "/v1" });
   await app.register(attachmentRoutes, { prefix: "/v1" });
+  await app.register(messageRoutes, { prefix: "/v1" });
 
   return app;
 }

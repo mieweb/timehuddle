@@ -26,7 +26,6 @@ import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { messageApi, userApi, type Message } from '../../lib/api';
-import { AppPage } from '../../ui/AppPage';
 
 // ─── MessagesPage ─────────────────────────────────────────────────────────────
 
@@ -203,7 +202,7 @@ export const MessagesPage: React.FC = () => {
   }
 
   return (
-    <AppPage className="flex h-full flex-col overflow-hidden">
+    <div className="mx-auto flex h-[calc(100vh-4rem)] max-w-4xl flex-col p-4 md:p-6">
       {/* Team selector */}
       {teams.length > 1 && (
         <div className="mb-4 flex items-center gap-3">
@@ -374,6 +373,6 @@ export const MessagesPage: React.FC = () => {
           )}
         </Card>
       </div>
-    </AppPage>
+    </div>
   );
 };
