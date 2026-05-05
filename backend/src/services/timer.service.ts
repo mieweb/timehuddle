@@ -1,12 +1,12 @@
 import { ObjectId } from "mongodb";
 import {
-  timeEntriesCollection,
-  timerSessionsCollection,
+  workItemsCollection,
+  timersCollection,
   ticketsCollection,
   teamsCollection,
 } from "../models/index.js";
-import type { TimeEntry } from "../models/time-entry.model.js";
-import type { TimerSession } from "../models/timer-session.model.js";
+import type { WorkItem } from "../models/work-item.model.js";
+import type { Timer } from "../models/timer.model.js";
 
 function isValidId(id: string): boolean {
   return /^[0-9a-f]{24}$/i.test(id);
@@ -14,7 +14,7 @@ function isValidId(id: string): boolean {
 
 // ─── Public shapes ────────────────────────────────────────────────────────────
 
-export function toPublicEntry(e: TimeEntry, ticketTitle?: string | null) {
+export function toPublicEntry(e: WorkItem, ticketTitle?: string | null) {
   return {
     id: e._id.toHexString(),
     userId: e.userId,
@@ -28,10 +28,10 @@ export function toPublicEntry(e: TimeEntry, ticketTitle?: string | null) {
   };
 }
 
-export function toPublicSession(s: TimerSession) {
+export function toPublicSession(s: Timer) {
   return {
     id: s._id.toHexString(),
-    timeEntryId: s.timeEntryId,
+    workItemId: s.workItemId,
     userId: s.userId,
     date: s.date,
     startTime: s.startTime,
@@ -96,7 +96,7 @@ export function toUtcDateKey(epochMs: number): string {
 
 export class TimerService {
   /**
-   * Create a new TimeEntry for { userId, ticketId, date }.
+   * Create a new WorkItem for { userId, ticketId, date }.
    * Returns "not-found" if the ticket does not exist or "forbidden" if the
    * user is not a member of the ticket's team.
    */
@@ -104,7 +104,7 @@ export class TimerService {
     userId: string,
     ticketId: string,
     date: string // UTC "YYYY-MM-DD"
-  ): Promise<TimeEntry | "not-found" | "forbidden"> {
+  ): Promise<WorkItem | "not-found" | "forbidden"> {
     if (!isValidId(ticketId)) return "not-found";
     const ticket = await ticketsCollection().findOne({ _id: new ObjectId(ticketId) });
     if (!ticket) return "not-found";
@@ -118,19 +118,19 @@ export class TimerService {
       if (!team) return "forbidden";
     }
 
-    const doc: TimeEntry = {
+    const doc: WorkItem = {
       _id: new ObjectId(),
       userId,
       ticketId,
       date,
       createdAt: new Date(),
     };
-    await timeEntriesCollection().insertOne(doc);
+    await workItemsCollection().insertOne(doc);
     return doc;
   }
 
   /**
-   * Find or create a TimeEntry for { userId, ticketId, date }.
+   * Find or create a WorkItem for { userId, ticketId, date }.
    * Returns "not-found" if the ticket does not exist or "forbidden" if the user
    * is not a member of the ticket's team.
    */
@@ -138,7 +138,7 @@ export class TimerService {
     userId: string,
     ticketId: string,
     date: string // UTC "YYYY-MM-DD"
-  ): Promise<TimeEntry | "not-found" | "forbidden"> {
+  ): Promise<WorkItem | "not-found" | "forbidden"> {
     if (!isValidId(ticketId)) return "not-found";
     const ticket = await ticketsCollection().findOne({ _id: new ObjectId(ticketId) });
     if (!ticket) return "not-found";
@@ -152,10 +152,10 @@ export class TimerService {
       if (!team) return "forbidden";
     }
 
-    const existing = await timeEntriesCollection().findOne({ userId, ticketId, date });
+    const existing = await workItemsCollection().findOne({ userId, ticketId, date });
     if (existing) return existing;
 
-    const doc: TimeEntry = {
+    const doc: WorkItem = {
       _id: new ObjectId(),
       userId,
       ticketId,
@@ -163,12 +163,12 @@ export class TimerService {
       createdAt: new Date(),
     };
     try {
-      await timeEntriesCollection().insertOne(doc);
+      await workItemsCollection().insertOne(doc);
       return doc;
     } catch (err: unknown) {
       // E11000 — race condition: another request created it first
       if ((err as { code?: number }).code === 11000) {
-        const found = await timeEntriesCollection().findOne({ userId, ticketId, date });
+        const found = await workItemsCollection().findOne({ userId, ticketId, date });
         if (found) return found;
       }
       throw err;
@@ -178,8 +178,8 @@ export class TimerService {
   /**
    * Start a timer for a ticket.
    *
-   * - Closes any running session for this user (compare-and-set, one retry).
-   * - Inserts a new open TimerSession.
+   * - Closes any running timer for this user (compare-and-set, one retry).
+   * - Inserts a new open Timer.
    * - Enforced at DB level: unique partial index on { userId } where endTime=null.
    */
   async startTimer(
@@ -187,7 +187,7 @@ export class TimerService {
     ticketId: string,
     now: number
   ): Promise<
-    | { session: TimerSession; closedSessionId: string | null }
+    | { session: Timer; closedSessionId: string | null }
     | "not-found"
     | "forbidden"
     | "already-running"
@@ -206,7 +206,7 @@ export class TimerService {
 
     const date = toUtcDateKey(now);
 
-    // Ensure TimeEntry exists
+    // Ensure WorkItem exists
     const entryResult = await this.getOrCreateEntry(userId, ticketId, date);
     if (entryResult === "not-found" || entryResult === "forbidden") return entryResult;
 
@@ -215,10 +215,10 @@ export class TimerService {
     const closeResult = await this._closeRunningSession(userId, now);
     if (closeResult) closedSessionId = closeResult;
 
-    // Insert new open session
-    const session: TimerSession = {
+    // Insert new open timer
+    const session: Timer = {
       _id: new ObjectId(),
-      timeEntryId: entryResult._id.toHexString(),
+      workItemId: entryResult._id.toHexString(),
       userId,
       date,
       startTime: now,
@@ -227,20 +227,20 @@ export class TimerService {
     };
 
     try {
-      await timerSessionsCollection().insertOne(session);
+      await timersCollection().insertOne(session);
       return { session, closedSessionId };
     } catch (err: unknown) {
-      // E11000 — unique partial index violation (another running session exists)
+      // E11000 — unique partial index violation (another running timer exists)
       if ((err as { code?: number }).code === 11000) {
-        // Retry: close the running session and insert again
+        // Retry: close the running timer and insert again
         const retryClose = await this._closeRunningSession(userId, now);
         if (retryClose) closedSessionId = retryClose;
-        const session2: TimerSession = {
+        const session2: Timer = {
           ...session,
           _id: new ObjectId(),
           createdAt: new Date(),
         };
-        await timerSessionsCollection().insertOne(session2);
+        await timersCollection().insertOne(session2);
         return { session: session2, closedSessionId };
       }
       throw err;
@@ -248,21 +248,21 @@ export class TimerService {
   }
 
   /**
-   * Start a timer for a specific TimeEntry.
+   * Start a timer for a specific WorkItem.
    *
-   * - Validates ownership of the entry.
-   * - Closes any currently running session for the user.
-   * - Inserts a new open TimerSession bound to this exact entry.
+   * - Validates ownership of the work item.
+   * - Closes any currently running timer for the user.
+   * - Inserts a new open Timer bound to this exact work item.
    */
   async startTimerForEntry(
     userId: string,
     entryId: string,
     now: number
   ): Promise<
-    { session: TimerSession; closedSessionId: string | null } | "not-found" | "forbidden"
+    { session: Timer; closedSessionId: string | null } | "not-found" | "forbidden"
   > {
     if (!isValidId(entryId)) return "not-found";
-    const entry = await timeEntriesCollection().findOne({ _id: new ObjectId(entryId) });
+    const entry = await workItemsCollection().findOne({ _id: new ObjectId(entryId) });
     if (!entry) return "not-found";
     if (entry.userId !== userId) return "forbidden";
 
@@ -270,9 +270,9 @@ export class TimerService {
     const closeResult = await this._closeRunningSession(userId, now);
     if (closeResult) closedSessionId = closeResult;
 
-    const session: TimerSession = {
+    const session: Timer = {
       _id: new ObjectId(),
-      timeEntryId: entryId,
+      workItemId: entryId,
       userId,
       date: toUtcDateKey(now),
       startTime: now,
@@ -281,18 +281,18 @@ export class TimerService {
     };
 
     try {
-      await timerSessionsCollection().insertOne(session);
+      await timersCollection().insertOne(session);
       return { session, closedSessionId };
     } catch (err: unknown) {
       if ((err as { code?: number }).code === 11000) {
         const retryClose = await this._closeRunningSession(userId, now);
         if (retryClose) closedSessionId = retryClose;
-        const session2: TimerSession = {
+        const session2: Timer = {
           ...session,
           _id: new ObjectId(),
           createdAt: new Date(),
         };
-        await timerSessionsCollection().insertOne(session2);
+        await timersCollection().insertOne(session2);
         return { session: session2, closedSessionId };
       }
       throw err;
@@ -309,9 +309,9 @@ export class TimerService {
     userId: string,
     sessionId: string,
     now: number
-  ): Promise<TimerSession | "not-found" | "forbidden" | "already-stopped"> {
+  ): Promise<Timer | "not-found" | "forbidden" | "already-stopped"> {
     if (!isValidId(sessionId)) return "not-found";
-    const coll = timerSessionsCollection();
+    const coll = timersCollection();
     const session = await coll.findOne({ _id: new ObjectId(sessionId) });
     if (!session) return "not-found";
     if (session.userId !== userId) return "forbidden";
@@ -342,7 +342,7 @@ export class TimerService {
    * Called during clock-out — no multi-collection scan needed.
    */
   async closeAllForUser(userId: string, now: number): Promise<number> {
-    const coll = timerSessionsCollection();
+    const coll = timersCollection();
 
     // First collect the running sessions to compute durationSeconds for each
     const running = await coll.find({ userId, endTime: null }).toArray();
@@ -365,7 +365,7 @@ export class TimerService {
   }
 
   /**
-   * List TimeEntries with their sessions for a user on a local calendar day.
+   * List WorkItems with their timers for a user on a local calendar day.
    *
    * @param dateStr  Local day in "YYYY-MM-DD"
    * @param tz       IANA timezone string (e.g. "America/New_York")
@@ -374,18 +374,18 @@ export class TimerService {
     userId: string,
     dateStr: string,
     tz: string
-  ): Promise<Array<{ entry: TimeEntry; sessions: TimerSession[] }>> {
+  ): Promise<Array<{ entry: WorkItem; sessions: Timer[] }>> {
     const { start, end } = localDayBounds(dateStr, tz);
 
     // Use UTC date as a prefilter, then refine with timezone-aware boundaries
-    const entries = await timeEntriesCollection().find({ userId, date: dateStr }).toArray();
+    const entries = await workItemsCollection().find({ userId, date: dateStr }).toArray();
 
-    const results: Array<{ entry: TimeEntry; sessions: TimerSession[] }> = [];
+    const results: Array<{ entry: WorkItem; sessions: Timer[] }> = [];
 
     for (const entry of entries) {
-      const sessions = await timerSessionsCollection()
+      const sessions = await timersCollection()
         .find({
-          timeEntryId: entry._id.toHexString(),
+          workItemId: entry._id.toHexString(),
           startTime: { $gte: start, $lt: end },
         })
         .sort({ startTime: 1 })
@@ -417,8 +417,8 @@ export class TimerService {
       const dateStr = d.toISOString().slice(0, 10);
       const { start, end } = localDayBounds(dateStr, tz);
 
-      // Sum closed sessions for this user in this local day
-      const agg = await timerSessionsCollection()
+      // Sum closed timers for this user in this local day
+      const agg = await timersCollection()
         .aggregate<{ total: number }>([
           {
             $match: {
@@ -431,8 +431,8 @@ export class TimerService {
         ])
         .toArray();
 
-      // Add running session time if any
-      const running = await timerSessionsCollection().findOne({ userId, endTime: null });
+      // Add running timer time if any
+      const running = await timersCollection().findOne({ userId, endTime: null });
       const runningSeconds =
         running && running.startTime >= start && running.startTime < end
           ? Math.floor((now - running.startTime) / 1000)
@@ -452,16 +452,16 @@ export class TimerService {
    */
   async getTicketTotal(ticketId: string): Promise<number> {
     const entryIds = (
-      await timeEntriesCollection()
+      await workItemsCollection()
         .find({ ticketId }, { projection: { _id: 1 } })
         .toArray()
     ).map((e) => e._id.toHexString());
 
     if (entryIds.length === 0) return 0;
 
-    const agg = await timerSessionsCollection()
+    const agg = await timersCollection()
       .aggregate<{ total: number }>([
-        { $match: { timeEntryId: { $in: entryIds }, endTime: { $ne: null } } },
+        { $match: { workItemId: { $in: entryIds }, endTime: { $ne: null } } },
         { $group: { _id: null, total: { $sum: "$durationSeconds" } } },
       ])
       .toArray();
@@ -469,7 +469,7 @@ export class TimerService {
   }
 
   /**
-   * Delete a TimeEntry and all of its TimerSessions for the owning user.
+   * Delete a WorkItem and all of its Timers for the owning user.
    */
   async deleteEntry(
     userId: string,
@@ -478,12 +478,12 @@ export class TimerService {
     if (!isValidId(entryId)) return "not-found";
 
     const entryObjectId = new ObjectId(entryId);
-    const entry = await timeEntriesCollection().findOne({ _id: entryObjectId });
+    const entry = await workItemsCollection().findOne({ _id: entryObjectId });
     if (!entry) return "not-found";
     if (entry.userId !== userId) return "forbidden";
 
-    const sessionsResult = await timerSessionsCollection().deleteMany({ timeEntryId: entryId });
-    const entryResult = await timeEntriesCollection().deleteOne({ _id: entryObjectId, userId });
+    const sessionsResult = await timersCollection().deleteMany({ workItemId: entryId });
+    const entryResult = await workItemsCollection().deleteOne({ _id: entryObjectId, userId });
 
     return {
       deletedEntry: entryResult.deletedCount === 1,
@@ -492,20 +492,20 @@ export class TimerService {
   }
 
   /**
-   * Update a TimeEntry's note and/or duration.
+   * Update a WorkItem's note and/or duration.
    *
    * Duration adjustment (when timer is not running):
-   * Scales the last closed session's durationSeconds so the entry total
-   * matches the requested value. Ignored if a session is currently running.
+   * Scales the last closed timer's durationSeconds so the work item total
+   * matches the requested value. Ignored if a timer is currently running.
    */
   async updateEntry(
     userId: string,
     entryId: string,
     updates: { note?: string | null; durationSeconds?: number; ticketId?: string }
-  ): Promise<TimeEntry | "not-found" | "forbidden" | "ticket-not-found"> {
+  ): Promise<WorkItem | "not-found" | "forbidden" | "ticket-not-found"> {
     if (!isValidId(entryId)) return "not-found";
     const entryOid = new ObjectId(entryId);
-    const entry = await timeEntriesCollection().findOne({ _id: entryOid });
+    const entry = await workItemsCollection().findOne({ _id: entryOid });
     if (!entry) return "not-found";
     if (entry.userId !== userId) return "forbidden";
 
@@ -523,7 +523,7 @@ export class TimerService {
       }
     }
 
-    // Update note and/or ticket on the TimeEntry document in a single write.
+    // Update note and/or ticket on the WorkItem document in a single write.
     const $set: Record<string, unknown> = { updatedAt: new Date() };
     const $unset: Record<string, ""> = {};
     if (updates.ticketId && updates.ticketId !== entry.ticketId) {
@@ -538,17 +538,17 @@ export class TimerService {
     }
     const updateDoc: { $set: Record<string, unknown>; $unset?: Record<string, ""> } = { $set };
     if (Object.keys($unset).length > 0) updateDoc.$unset = $unset;
-    await timeEntriesCollection().updateOne({ _id: entryOid }, updateDoc);
+    await workItemsCollection().updateOne({ _id: entryOid }, updateDoc);
 
     // Adjust duration when timer is not running
     if (updates.durationSeconds !== undefined) {
-      const isRunning = await timerSessionsCollection().findOne({
-        timeEntryId: entryId,
+      const isRunning = await timersCollection().findOne({
+        workItemId: entryId,
         endTime: null,
       });
       if (!isRunning) {
-        const sessions = await timerSessionsCollection()
-          .find({ timeEntryId: entryId, endTime: { $ne: null } })
+        const sessions = await timersCollection()
+          .find({ workItemId: entryId, endTime: { $ne: null } })
           .sort({ startTime: -1 })
           .toArray();
         if (sessions.length > 0) {
@@ -556,7 +556,7 @@ export class TimerService {
             .slice(1)
             .reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
           const lastDuration = Math.max(0, updates.durationSeconds - otherTotal);
-          await timerSessionsCollection().updateOne(
+          await timersCollection().updateOne(
             { _id: sessions[0]._id },
             { $set: { durationSeconds: lastDuration } }
           );
@@ -564,32 +564,32 @@ export class TimerService {
       }
     }
 
-    return (await timeEntriesCollection().findOne({ _id: entryOid }))!;
+    return (await workItemsCollection().findOne({ _id: entryOid }))!;
   }
 
   /**
-   * Copy TimeEntry rows from the most recent previous day that has entries
+   * Copy WorkItem rows from the most recent previous day that has entries
    * to `toDate`. Skips entries where { userId, ticketId, date: toDate } already
-   * exists. Returns the number of new entries created.
+   * exists. Returns the number of new work items created.
    */
   async copyFromPrevious(
     userId: string,
     toDate: string // UTC "YYYY-MM-DD"
   ): Promise<number> {
-    // Find the most recent date before toDate that has entries for this user
-    const prev = await timeEntriesCollection().findOne(
+    // Find the most recent date before toDate that has work items for this user
+    const prev = await workItemsCollection().findOne(
       { userId, date: { $lt: toDate } },
       { sort: { date: -1 } }
     );
     if (!prev) return 0;
 
     const prevDate = prev.date;
-    const prevEntries = await timeEntriesCollection().find({ userId, date: prevDate }).toArray();
+    const prevEntries = await workItemsCollection().find({ userId, date: prevDate }).toArray();
     if (prevEntries.length === 0) return 0;
 
     let created = 0;
     for (const e of prevEntries) {
-      const doc: TimeEntry = {
+      const doc: WorkItem = {
         _id: new ObjectId(),
         userId,
         ticketId: e.ticketId,
@@ -599,10 +599,10 @@ export class TimerService {
         createdAt: new Date(),
       };
       try {
-        await timeEntriesCollection().insertOne(doc);
+        await workItemsCollection().insertOne(doc);
         created++;
       } catch (err: unknown) {
-        // E11000 — entry already exists for this { userId, ticketId, date }. Skip.
+        // E11000 — work item already exists for this { userId, ticketId, date }. Skip.
         if ((err as { code?: number }).code !== 11000) throw err;
       }
     }
@@ -612,9 +612,9 @@ export class TimerService {
 
   // ─── Private helpers ────────────────────────────────────────────────────────
 
-  /** Close the running session for a user (if any). Returns the closed session _id hex or null. */
+  /** Close the running timer for a user (if any). Returns the closed timer _id hex or null. */
   private async _closeRunningSession(userId: string, now: number): Promise<string | null> {
-    const coll = timerSessionsCollection();
+    const coll = timersCollection();
     const running = await coll.findOne({ userId, endTime: null });
     if (!running) return null;
 

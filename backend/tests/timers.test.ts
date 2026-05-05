@@ -1,12 +1,12 @@
 /**
  * Timer routes — integration tests.
  *
- * Tests for the new TimeEntry + TimerSession model.
+ * Tests for the new WorkItem + Timer model.
  * Verifies:
- *  - At most one running session per user (unique partial index)
+ *  - At most one running timer per user (unique partial index)
  *  - Start/stop compare-and-set semantics
- *  - Clock-out closes all open sessions via single updateMany
- *  - Ticket total derived from TimerSession, not Ticket
+ *  - Clock-out closes all open timers via single updateMany
+ *  - Ticket total derived from Timer, not Ticket
  *  - Day view and week totals
  *  - Copy-from-previous
  */
@@ -127,8 +127,8 @@ afterAll(async () => {
   const db = client.db();
   await db.collection("teams").deleteOne({ code: "TIMERTEAM1" });
   await db.collection("tickets").deleteMany({ teamId });
-  await db.collection("timeentries").deleteMany({ userId: userAId });
-  await db.collection("timersessions").deleteMany({ userId: userAId });
+  await db.collection("workitems").deleteMany({ userId: userAId });
+  await db.collection("timers").deleteMany({ userId: userAId });
   await Promise.all([purgeUser(USER_A.email), purgeUser(USER_B.email)]);
   await app.close();
 });
@@ -151,10 +151,10 @@ describe("auth gates", () => {
   });
 });
 
-// ─── Create TimeEntry ─────────────────────────────────────────────────────────
+// ─── Create WorkItem ─────────────────────────────────────────────────────────────
 
 describe("POST /v1/timers/entries", () => {
-  it("creates a TimeEntry for a team ticket — 201", async () => {
+  it("creates a WorkItem for a team ticket — 201", async () => {
     const today = new Date().toISOString().slice(0, 10);
     const res = await inject("POST", "/v1/timers/entries", cookieA, {
       ticketId,
@@ -245,7 +245,7 @@ describe("POST /v1/timers/entries/:id/start", () => {
     const res = await inject("POST", `/v1/timers/entries/${entryId}/start`, cookieA, { now });
     expect(res.statusCode).toBe(200);
     const { session } = res.json();
-    expect(session.timeEntryId).toBe(entryId);
+    expect(session.workItemId).toBe(entryId);
     expect(session.startTime).toBe(now);
     expect(session.endTime).toBeNull();
     _sessionId = session.id;
@@ -316,7 +316,7 @@ describe("POST /v1/timers/sessions/:id/stop", () => {
   });
 });
 
-// ─── Delete TimeEntry ────────────────────────────────────────────────────────
+// ─── Delete WorkItem ────────────────────────────────────────────────────────────
 
 describe("DELETE /v1/timers/entries/:id", () => {
   it("deletes an entry and all associated sessions", async () => {
@@ -328,7 +328,7 @@ describe("DELETE /v1/timers/entries/:id", () => {
 
     await inject("POST", `/v1/timers/entries/${eId}/start`, cookieA, { now: Date.now() - 3000 });
 
-    const before = await db.collection("timersessions").countDocuments({ timeEntryId: eId });
+    const before = await db.collection("timers").countDocuments({ workItemId: eId });
     expect(before).toBeGreaterThan(0);
 
     const delRes = await inject("DELETE", `/v1/timers/entries/${eId}`, cookieA);
@@ -336,9 +336,9 @@ describe("DELETE /v1/timers/entries/:id", () => {
     expect(delRes.json().deletedEntry).toBe(true);
     expect(delRes.json().deletedSessions).toBeGreaterThan(0);
 
-    const entryAfter = await db.collection("timeentries").findOne({ _id: new ObjectId(eId) });
+    const entryAfter = await db.collection("workitems").findOne({ _id: new ObjectId(eId) });
     expect(entryAfter).toBeNull();
-    const sessionsAfter = await db.collection("timersessions").countDocuments({ timeEntryId: eId });
+    const sessionsAfter = await db.collection("timers").countDocuments({ workItemId: eId });
     expect(sessionsAfter).toBe(0);
   });
 
@@ -352,7 +352,7 @@ describe("DELETE /v1/timers/entries/:id", () => {
   });
 });
 
-// ─── Update TimeEntry ────────────────────────────────────────────────────────
+// ─── Update WorkItem ────────────────────────────────────────────────────────────
 
 describe("PATCH /v1/timers/entries/:id", () => {
   it("updates ticket even when note is cleared", async () => {
@@ -401,7 +401,7 @@ describe("PATCH /v1/timers/entries/:id", () => {
   });
 });
 
-// ─── Ticket total from TimerSessions ─────────────────────────────────────────
+// ─── Ticket total from Timers ─────────────────────────────────────────────────
 
 describe("GET /v1/timers/tickets/:ticketId/total", () => {
   it("returns the sum of durationSeconds for all closed sessions", async () => {
@@ -504,18 +504,18 @@ describe("clock-out closes all open timer sessions", () => {
     const eId = entryRes.json().entry.id;
     await inject("POST", `/v1/timers/entries/${eId}/start`, cookieA, { now: Date.now() });
 
-    // Verify the session is running
+    // Verify the timer is running
     const runningBefore = await db
-      .collection("timersessions")
+      .collection("timers")
       .findOne({ userId: userAId, endTime: null });
     expect(runningBefore).not.toBeNull();
 
-    // Clock out — this should close all sessions
+    // Clock out — this should close all timers
     await inject("POST", "/v1/clock/stop", cookieA, { teamId });
 
-    // Verify no sessions are running for this user
+    // Verify no timers are running for this user
     const runningAfter = await db
-      .collection("timersessions")
+      .collection("timers")
       .findOne({ userId: userAId, endTime: null });
     expect(runningAfter).toBeNull();
   });

@@ -47,7 +47,7 @@ import {
   timerApi,
   ticketApi,
   type DayEntry,
-  type TimerSession,
+  type Timer,
   type Ticket,
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
@@ -92,12 +92,12 @@ function fmtShortDate(d: Date): string {
   return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
 }
 
-function runningSeconds(session: TimerSession, now: number): number {
+function runningSeconds(session: Timer, now: number): number {
   if (session.endTime !== null) return session.durationSeconds ?? 0;
   return Math.max(0, Math.floor((now - session.startTime) / 1000));
 }
 
-function entryTotalSeconds(sessions: TimerSession[], now: number): number {
+function entryTotalSeconds(sessions: Timer[], now: number): number {
   return sessions.reduce((sum, s) => sum + runningSeconds(s, now), 0);
 }
 

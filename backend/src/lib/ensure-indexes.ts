@@ -11,32 +11,32 @@ export async function ensureIndexes() {
   await encryptedOpLogs.createIndex({ userId: 1, hlc: 1 });
   await encryptedOpLogs.createIndex({ userId: 1, deviceId: 1, hlc: 1 });
 
-  // ── TimeEntry indexes ──────────────────────────────────────────────────────
-  const timeEntries = db.collection("timeentries");
+  // ── WorkItem indexes ───────────────────────────────────────────────────────
+  const workItems = db.collection("workitems");
   // 1. Lookup index for user × ticket × day (duplicates are allowed)
-  const timeEntryIndexes = await timeEntries.indexes();
-  const legacyNaturalKey = timeEntryIndexes.find(
+  const workItemIndexes = await workItems.indexes();
+  const legacyNaturalKey = workItemIndexes.find(
     (idx) =>
       idx.unique === true && idx.key?.userId === 1 && idx.key?.ticketId === 1 && idx.key?.date === 1
   );
   if (legacyNaturalKey?.name) {
-    await timeEntries.dropIndex(legacyNaturalKey.name);
+    await workItems.dropIndex(legacyNaturalKey.name);
   }
-  await timeEntries.createIndex({ userId: 1, ticketId: 1, date: 1 });
-  // 2. Day view — all entries for a user on a given UTC date
-  await timeEntries.createIndex({ userId: 1, date: 1 });
+  await workItems.createIndex({ userId: 1, ticketId: 1, date: 1 });
+  // 2. Day view — all work items for a user on a given UTC date
+  await workItems.createIndex({ userId: 1, date: 1 });
 
-  // ── TimerSession indexes ───────────────────────────────────────────────────
-  const timerSessions = db.collection("timersessions");
-  // 3. At most one running session per user (unique partial index)
-  await timerSessions.createIndex(
+  // ── Timer indexes ───────────────────────────────────────────────────────────
+  const timers = db.collection("timers");
+  // 3. At most one running timer per user (unique partial index)
+  await timers.createIndex(
     { userId: 1 },
     { unique: true, partialFilterExpression: { endTime: null }, name: "one_running_per_user" }
   );
-  // 4. Sessions within a TimeEntry, ordered by start time
-  await timerSessions.createIndex({ timeEntryId: 1, startTime: 1 });
-  // 5. Sessions for a user on a given UTC date
-  await timerSessions.createIndex({ userId: 1, date: 1 });
+  // 4. Timers within a WorkItem, ordered by start time
+  await timers.createIndex({ workItemId: 1, startTime: 1 });
+  // 5. Timers for a user on a given UTC date
+  await timers.createIndex({ userId: 1, date: 1 });
 
   console.log("MongoDB indexes ensured");
 }

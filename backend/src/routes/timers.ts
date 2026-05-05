@@ -30,7 +30,7 @@ const sessionShape = {
   type: "object",
   properties: {
     id: { type: "string" },
-    timeEntryId: { type: "string" },
+    workItemId: { type: "string" },
     userId: { type: "string" },
     date: { type: "string" },
     startTime: { type: "number" },
@@ -63,7 +63,7 @@ export async function timerRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Timers"],
-        summary: "List TimeEntries with sessions for a local calendar day",
+        summary: "List WorkItems with timers for a local calendar day",
         querystring: {
           type: "object",
           required: ["date"],
@@ -148,14 +148,14 @@ export async function timerRoutes(app: FastifyInstance) {
     }
   );
 
-  // POST /v1/timers/entries — create a TimeEntry (and optionally start a session)
+  // POST /v1/timers/entries — create a WorkItem (and optionally start a timer)
   app.post(
     "/timers/entries",
     {
       preHandler: [requireAuth],
       schema: {
         tags: ["Timers"],
-        summary: "Create a TimeEntry for a ticket on a given date",
+        summary: "Create a WorkItem for a ticket on a given date",
         body: {
           type: "object",
           required: ["ticketId", "date"],
@@ -194,10 +194,10 @@ export async function timerRoutes(app: FastifyInstance) {
       if (entryResult === "forbidden") return reply.status(403).send({ error: "Forbidden" });
 
       if (note) {
-        // Patch note onto entry (best-effort, non-critical)
-        const { timeEntriesCollection } = await import("../models/index.js");
+        // Patch note onto work item (best-effort, non-critical)
+        const { workItemsCollection } = await import("../models/index.js");
         const { ObjectId } = await import("mongodb");
-        await timeEntriesCollection().updateOne(
+        await workItemsCollection().updateOne(
           { _id: new ObjectId(entryResult._id) },
           { $set: { note, updatedAt: new Date() } }
         );
@@ -227,14 +227,14 @@ export async function timerRoutes(app: FastifyInstance) {
     }
   );
 
-  // POST /v1/timers/entries/:id/start — start a timer session for a TimeEntry
+  // POST /v1/timers/entries/:id/start — start a timer for a WorkItem
   app.post(
     "/timers/entries/:id/start",
     {
       preHandler: [requireAuth],
       schema: {
         tags: ["Timers"],
-        summary: "Start a timer session for a TimeEntry",
+        summary: "Start a timer for a WorkItem",
         params: {
           type: "object",
           required: ["id"],
@@ -253,7 +253,7 @@ export async function timerRoutes(app: FastifyInstance) {
               closedSessionId: { type: "string", nullable: true },
             },
           },
-          404: err("TimeEntry not found"),
+          404: err("WorkItem not found"),
           403: err("Forbidden"),
           409: err("Timer already running"),
         },
@@ -265,7 +265,7 @@ export async function timerRoutes(app: FastifyInstance) {
       const { now = Date.now() } = req.body as { now?: number };
 
       const result = await timerService.startTimerForEntry(userId, entryId, now);
-      if (result === "not-found") return reply.status(404).send({ error: "TimeEntry not found" });
+      if (result === "not-found") return reply.status(404).send({ error: "WorkItem not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
 
       return reply.send({
@@ -275,7 +275,7 @@ export async function timerRoutes(app: FastifyInstance) {
     }
   );
 
-  // POST /v1/timers/sessions/:id/stop — stop a running timer session
+  // POST /v1/timers/sessions/:id/stop — stop a running timer
   app.post(
     "/timers/sessions/:id/stop",
     {
@@ -316,14 +316,14 @@ export async function timerRoutes(app: FastifyInstance) {
     }
   );
 
-  // DELETE /v1/timers/entries/:id — delete a TimeEntry and all its sessions
+  // DELETE /v1/timers/entries/:id — delete a WorkItem and all its timers
   app.delete(
     "/timers/entries/:id",
     {
       preHandler: [requireAuth],
       schema: {
         tags: ["Timers"],
-        summary: "Delete a TimeEntry and all associated TimerSessions",
+        summary: "Delete a WorkItem and all associated Timers",
         params: {
           type: "object",
           required: ["id"],
@@ -337,7 +337,7 @@ export async function timerRoutes(app: FastifyInstance) {
               deletedSessions: { type: "number" },
             },
           },
-          404: err("TimeEntry not found"),
+          404: err("WorkItem not found"),
           403: err("Forbidden"),
         },
       },
@@ -347,7 +347,7 @@ export async function timerRoutes(app: FastifyInstance) {
       const { id: entryId } = req.params as { id: string };
 
       const result = await timerService.deleteEntry(userId, entryId);
-      if (result === "not-found") return reply.status(404).send({ error: "TimeEntry not found" });
+      if (result === "not-found") return reply.status(404).send({ error: "WorkItem not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
 
       return reply.send(result);
@@ -361,7 +361,7 @@ export async function timerRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Timers"],
-        summary: "Copy TimeEntry rows from the most recent previous day to today",
+        summary: "Copy WorkItem rows from the most recent previous day to today",
         body: {
           type: "object",
           required: ["toDate"],
@@ -415,7 +415,7 @@ export async function timerRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Timers"],
-        summary: "Get the current user's running timer session, or null",
+        summary: "Get the current user's running timer, or null",
         response: {
           200: {
             type: "object",
@@ -426,8 +426,8 @@ export async function timerRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { id: userId } = (req as any).user;
-      const { timerSessionsCollection } = await import("../models/index.js");
-      const session = await timerSessionsCollection().findOne({ userId, endTime: null });
+      const { timersCollection } = await import("../models/index.js");
+      const session = await timersCollection().findOne({ userId, endTime: null });
       return reply.send({ session: session ? toPublicSession(session) : null });
     }
   );
@@ -439,7 +439,7 @@ export async function timerRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Timers"],
-        summary: "List TimeEntries for today (local time)",
+        summary: "List WorkItems for today (local time)",
         querystring: {
           type: "object",
           properties: { tz: { type: "string", default: "UTC" } },
@@ -478,7 +478,7 @@ export async function timerRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Timers"],
-        summary: "Update a TimeEntry's note, duration, and/or ticket",
+        summary: "Update a WorkItem's note, duration, and/or ticket",
         params: {
           type: "object",
           required: ["id"],
@@ -496,7 +496,7 @@ export async function timerRoutes(app: FastifyInstance) {
         response: {
           200: { type: "object", properties: { entry: entryShape } },
           403: err("Forbidden"),
-          404: err("TimeEntry not found"),
+          404: err("WorkItem not found"),
         },
       },
     },
@@ -515,7 +515,7 @@ export async function timerRoutes(app: FastifyInstance) {
         ticketId,
       });
       if (result === "not-found" || result === "ticket-not-found")
-        return reply.status(404).send({ error: "TimeEntry not found" });
+        return reply.status(404).send({ error: "WorkItem not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
 
       const updatedTicket = await ticketsCollection().findOne(

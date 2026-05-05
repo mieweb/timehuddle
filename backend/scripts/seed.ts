@@ -7,8 +7,8 @@ import {
   usersCollection,
   ticketsCollection,
   clockEventsCollection,
-  timeEntriesCollection,
-  timerSessionsCollection,
+  workItemsCollection,
+  timersCollection,
 } from "../src/models/index.js";
 
 const SEED_USERS = [
@@ -488,7 +488,7 @@ const TIMER_SEEDS_BASE: TimerSeed[] = [
     "alice@example.com",
     4,
     "Refactor timer state models",
-    "TimeEntry model draft",
+    "WorkItem model draft",
     [
       [11, 0, 12, 30],
       [13, 30, 15, 0],
@@ -498,7 +498,7 @@ const TIMER_SEEDS_BASE: TimerSeed[] = [
     "alice@example.com",
     3,
     "Refactor timer state models",
-    "TimerSession model + migration script",
+    "Timer model + migration script",
     [[9, 0, 11, 30]],
   ],
   [
@@ -542,7 +542,7 @@ const TIMER_SEEDS_BASE: TimerSeed[] = [
     "carol@example.com",
     3,
     "Refactor timer state models",
-    "Unit tests for TimeEntry service",
+    "Unit tests for WorkItem service",
     [[9, 30, 12, 0]],
   ],
   [
@@ -1000,10 +1000,10 @@ async function seedTimers(
     const ticketId = ticketIdsByTitle.get(ticketTitle);
     if (!userId || !ticketId) continue;
     const date = dateStr(daysAgo);
-    const existing = await timeEntriesCollection().findOne({ userId, ticketId, date, note });
+    const existing = await workItemsCollection().findOne({ userId, ticketId, date, note });
     if (existing) continue;
     const entryId = new ObjectId();
-    await timeEntriesCollection().insertOne({
+    await workItemsCollection().insertOne({
       _id: entryId,
       userId,
       ticketId,
@@ -1015,9 +1015,9 @@ async function seedTimers(
       const startTime = dayMs(daysAgo, startH, startM);
       const endTime = dayMs(daysAgo, endH, endM);
       const durationSeconds = Math.round((endTime - startTime) / 1000);
-      await timerSessionsCollection().insertOne({
+      await timersCollection().insertOne({
         _id: new ObjectId(),
-        timeEntryId: entryId.toHexString(),
+        workItemId: entryId.toHexString(),
         userId,
         date,
         startTime,
@@ -1027,7 +1027,7 @@ async function seedTimers(
       });
     }
   }
-  console.log("✓ Time entries + sessions seeded");
+  console.log("✓ Work items + timers seeded");
 }
 
 async function seed() {

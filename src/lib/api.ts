@@ -350,7 +350,7 @@ export const ticketApi = {
       body: JSON.stringify({ assignedToUserId }),
     }).then((r) => r.ticket),
 
-  /** Get total accumulated seconds for a ticket from TimerSessions. */
+  /** Get total accumulated seconds for a ticket from Timers. */
   getTotal: (ticketId: string) =>
     request<{ totalSeconds: number }>(
       `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
@@ -641,8 +641,8 @@ export const attachmentApi = {
 
 // ─── Timer API ────────────────────────────────────────────────────────────────
 
-/** A TimeEntry is the per-user per-ticket per-day timesheet row. */
-export interface TimeEntry {
+/** A WorkItem is the per-user per-ticket per-day timesheet row. */
+export interface WorkItem {
   id: string;
   userId: string;
   ticketId: string;
@@ -653,10 +653,10 @@ export interface TimeEntry {
   updatedAt?: string;
 }
 
-/** A TimerSession is one start–stop interval inside a TimeEntry. */
-export interface TimerSession {
+/** A Timer is one start–stop interval inside a WorkItem. */
+export interface Timer {
   id: string;
-  timeEntryId: string;
+  workItemId: string;
   userId: string;
   date: string;
   startTime: number; // epoch ms
@@ -666,8 +666,8 @@ export interface TimerSession {
 }
 
 export interface DayEntry {
-  entry: TimeEntry;
-  sessions: TimerSession[];
+  entry: WorkItem;
+  sessions: Timer[];
 }
 
 export interface WeekDay {
@@ -676,47 +676,47 @@ export interface WeekDay {
 }
 
 export const timerApi = {
-  /** Create (or upsert) a TimeEntry for the given ticket + date. */
+  /** Create (or upsert) a WorkItem for the given ticket + date. */
   createEntry: (data: { ticketId: string; date: string; note?: string }) =>
-    request<{ entry: TimeEntry }>('/v1/timers/entries', {
+    request<{ entry: WorkItem }>('/v1/timers/entries', {
       method: 'POST',
       body: JSON.stringify(data),
     }).then((r) => r.entry),
 
-  /** Start a timer session for a TimeEntry. Closes any open session first. */
+  /** Start a timer for a WorkItem. Closes any open timer first. */
   startSession: (entryId: string, now?: number) =>
-    request<{ session: TimerSession; closedSessionId?: string }>(
+    request<{ session: Timer; closedSessionId?: string }>(
       `/v1/timers/entries/${encodeURIComponent(entryId)}/start`,
       { method: 'POST', body: JSON.stringify({ now: now ?? Date.now() }) },
     ),
 
-  /** Stop a running timer session. */
+  /** Stop a running timer. */
   stopSession: (sessionId: string, now?: number) =>
-    request<{ session: TimerSession }>(
+    request<{ session: Timer }>(
       `/v1/timers/sessions/${encodeURIComponent(sessionId)}/stop`,
       { method: 'POST', body: JSON.stringify({ now: now ?? Date.now() }) },
     ).then((r) => r.session),
 
-  /** Update a TimeEntry's note, duration, and/or ticket (duration ignored while running). */
+  /** Update a WorkItem's note, duration, and/or ticket (duration ignored while running). */
   updateEntry: (
     entryId: string,
     data: { note?: string | null; durationSeconds?: number; ticketId?: string },
   ) =>
-    request<{ entry: TimeEntry }>(`/v1/timers/entries/${encodeURIComponent(entryId)}`, {
+    request<{ entry: WorkItem }>(`/v1/timers/entries/${encodeURIComponent(entryId)}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     }).then((r) => r.entry),
 
-  /** Delete a TimeEntry and all of its sessions. */
+  /** Delete a WorkItem and all of its timers. */
   deleteEntry: (entryId: string) =>
     request<{ deletedEntry: boolean; deletedSessions: number }>(
       `/v1/timers/entries/${encodeURIComponent(entryId)}`,
       { method: 'DELETE' },
     ),
 
-  /** Get the currently running session for the authenticated user, or null. */
+  /** Get the currently running timer for the authenticated user, or null. */
   getRunning: () =>
-    request<{ session: TimerSession | null }>('/v1/timers/running').then((r) => r.session),
+    request<{ session: Timer | null }>('/v1/timers/running').then((r) => r.session),
 
   /** Get all entries + sessions for a local day (YYYY-MM-DD). */
   getDay: (date: string) =>
@@ -730,7 +730,7 @@ export const timerApi = {
       (r) => r.days,
     ),
 
-  /** Get total seconds for a ticket from all closed TimerSessions. */
+  /** Get total seconds for a ticket from all closed Timers. */
   getTicketTotal: (ticketId: string) =>
     request<{ totalSeconds: number }>(
       `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
