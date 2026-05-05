@@ -176,7 +176,7 @@ The embedded `tickets[]` array is removed. A query like "what tickets did the us
 
 1. **At most one running session per user at a time.** Enforced by a unique partial index on `TimerSession`: `{ userId: 1 }` where `endTime = null`. Starting a new session must close any existing open one first — one place, one operation.
 
-2. **MVP session mutation policy is pragmatic.** Running sessions are immutable except close; closed sessions may be edited in MVP for product simplicity. Every closed-session edit should emit a lightweight audit record (`who`, `when`, `before`, `after`) so changes remain traceable.
+2. **MVP session mutation policy is pragmatic.** Running sessions are immutable except close; closed sessions may be edited in MVP for product simplicity.
 
 3. **Ticket total time is derived.** Nothing writes `accumulatedTime` onto Ticket. The displayed total is `SUM(durationSeconds) FROM TimerSession WHERE ticketId = ?`.
 
@@ -370,11 +370,10 @@ Post-MVP, introduce a projection document/table for cached rollups while keeping
 
 ### Post-MVP Append-Only Time Corrections
 
-MVP favors direct edits on closed sessions with audit logs. Post-MVP, consider moving to strict append-only corrections if payroll/compliance needs increase.
+MVP favors direct edits on closed sessions. Post-MVP, consider moving to strict append-only corrections if payroll/compliance needs increase and/or audit activity logs.
 
 - **MVP posture**: closed sessions are editable; running sessions are not editable.
 - **Post-MVP option**: disallow in-place duration updates and model edits as correction/revision records.
-- **Compatibility path**: keep audit events in MVP so historical edits can be migrated into append-only correction streams later.
 
 ## Resolved Decisions
 
@@ -384,7 +383,7 @@ MVP favors direct edits on closed sessions with audit logs. Post-MVP, consider m
 - ~~**Persistent vs per-day timer**~~ **Resolved**: Per-day (Harvest-style). `TimeEntry` with a `date` field. UI calls them "timers."
 - ~~**Ticket soft-delete visibility**~~ **Resolved (MVP)**: `TimeEntry` rows remain visible in reporting and timesheet totals. In MVP UI, if the ticket is soft-deleted, show the row as an **Unassociated Timer** rather than hiding historical time.
 - ~~**Timezone handling**~~ **Resolved (MVP)**: Persist `TimeEntry.date`/`TimerSession.date` as UTC (`YYYY-MM-DD`) for canonical storage and reporting. Display dates/times in the user's local timezone in the UI.
-- ~~**Session editing UI**~~ **Resolved (MVP)**: Running timers are not editable in MVP. Users must stop the timer first; closed sessions may be edited in MVP with lightweight audit logging.
+- ~~**Session editing UI**~~ **Resolved (MVP)**: Running timers are not editable in MVP. Users must stop the timer first; closed sessions may be edited in MVP.
 
 ---
 
