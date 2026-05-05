@@ -1,6 +1,6 @@
 /** Format seconds into "Xh Ym" or "Ym" or "0m" */
 export function formatDuration(totalSeconds: number): string {
-  if (totalSeconds <= 0) return '0m';
+  if (!totalSeconds || totalSeconds <= 0) return '0m';
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
   if (h > 0) return `${h}h ${m}m`;

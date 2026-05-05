@@ -30,11 +30,30 @@ function broadcast(teamId: string, event: PublicClockEvent | null) {
 // ─── Public shape ─────────────────────────────────────────────────────────────
 
 export function toPublicClockEvent(e: ClockEvent) {
+  // Backwards-compat: documents created before the startTimestamp→startTime
+  // rename (commit 31ce962) still have the old field name in MongoDB.
+  const raw = e as unknown as Record<string, unknown>;
+  const startTime =
+    typeof e.startTime === "number"
+      ? e.startTime
+      : typeof raw["startTimestamp"] === "number"
+        ? (raw["startTimestamp"] as number)
+        : 0;
+
+  // endTime was previously stored as a Date; coerce to epoch ms if needed.
+  const rawEndTime = raw["endTime"];
+  const endTime =
+    rawEndTime instanceof Date
+      ? rawEndTime.getTime()
+      : typeof rawEndTime === "number"
+        ? rawEndTime
+        : null;
+
   return {
     id: e._id.toHexString(),
     userId: e.userId,
     teamId: e.teamId,
-    startTime: e.startTime,
+    startTime,
     accumulatedTime: e.accumulatedTime,
     tickets: (e.tickets ?? []).map((t) => ({
       ticketId: t.ticketId,
@@ -45,7 +64,7 @@ export function toPublicClockEvent(e: ClockEvent) {
         endTimestamp: s.endTimestamp,
       })),
     })),
-    endTime: e.endTime,
+    endTime,
   };
 }
 
