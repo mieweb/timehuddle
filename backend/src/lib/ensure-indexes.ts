@@ -27,14 +27,8 @@ export async function ensureIndexes() {
   );
   // 4. Sessions within a TimeEntry, ordered by start time
   await timerSessions.createIndex({ timeEntryId: 1, startTime: 1 });
-  // 5. Sessions for a ticket on a given UTC date
-  await timerSessions.createIndex({ ticketId: 1, date: 1 });
-  // 6. Sessions for a user on a given UTC date
+  // 5. Sessions for a user on a given UTC date
   await timerSessions.createIndex({ userId: 1, date: 1 });
-  // 7. Sessions for a team on a given UTC date
-  await timerSessions.createIndex({ teamId: 1, date: 1 });
-  // 8. Sessions associated with a clock event
-  await timerSessions.createIndex({ clockEventId: 1, startTime: 1 });
 
   console.log("MongoDB indexes ensured");
 }

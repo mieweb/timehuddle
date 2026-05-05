@@ -11,10 +11,7 @@ export interface TimerSession {
   _id: ObjectId;
   timeEntryId: string; // parent TimeEntry
   userId: string; // denormalized
-  teamId: string; // denormalized
-  ticketId: string; // denormalized
   date: string; // denormalized UTC "YYYY-MM-DD" — same as parent TimeEntry.date
-  clockEventId?: string; // undefined for manual entries (not null)
   startTime: number; // epoch ms
   endTime: number | null; // null = running
   durationSeconds?: number; // cached on close only — never write on open

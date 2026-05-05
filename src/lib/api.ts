@@ -657,10 +657,7 @@ export interface TimerSession {
   id: string;
   timeEntryId: string;
   userId: string;
-  teamId: string;
-  ticketId: string;
   date: string;
-  clockEventId?: string;
   startTime: number; // epoch ms
   endTime: number | null;
   durationSeconds?: number;

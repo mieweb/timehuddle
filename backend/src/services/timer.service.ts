@@ -32,10 +32,7 @@ export function toPublicSession(s: TimerSession) {
     id: s._id.toHexString(),
     timeEntryId: s.timeEntryId,
     userId: s.userId,
-    teamId: s.teamId,
-    ticketId: s.ticketId,
     date: s.date,
-    clockEventId: s.clockEventId ?? null,
     startTime: s.startTime,
     endTime: s.endTime,
     durationSeconds: s.durationSeconds ?? null,
@@ -153,8 +150,7 @@ export class TimerService {
   async startTimer(
     userId: string,
     ticketId: string,
-    now: number,
-    clockEventId?: string
+    now: number
   ): Promise<
     | { session: TimerSession; closedSessionId: string | null }
     | "not-found"
@@ -189,13 +185,10 @@ export class TimerService {
       _id: new ObjectId(),
       timeEntryId: entryResult._id.toHexString(),
       userId,
-      teamId: ticket.teamId,
-      ticketId,
       date,
       startTime: now,
       endTime: null,
       createdAt: new Date(),
-      ...(clockEventId ? { clockEventId } : {}),
     };
 
     try {
@@ -371,9 +364,17 @@ export class TimerService {
    * Get the total accumulated seconds for a ticket across all closed sessions.
    */
   async getTicketTotal(ticketId: string): Promise<number> {
+    const entryIds = (
+      await timeEntriesCollection()
+        .find({ ticketId }, { projection: { _id: 1 } })
+        .toArray()
+    ).map((e) => e._id.toHexString());
+
+    if (entryIds.length === 0) return 0;
+
     const agg = await timerSessionsCollection()
       .aggregate<{ total: number }>([
-        { $match: { ticketId, endTime: { $ne: null } } },
+        { $match: { timeEntryId: { $in: entryIds }, endTime: { $ne: null } } },
         { $group: { _id: null, total: { $sum: "$durationSeconds" } } },
       ])
       .toArray();

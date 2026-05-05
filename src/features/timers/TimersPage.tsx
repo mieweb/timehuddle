@@ -7,14 +7,14 @@
  *   • "+" action: create a new TimeEntry for the selected day
  *   • Copy from previous day
  *   • Soft-deleted ticket rows render as "Unassociated Timer"
- *   • Manual sessions (no clockEventId) show a "manual" badge
  */
 import {
   faCheck,
+  faChevronLeft,
+  faChevronRight,
   faCopy,
   faPause,
   faPlay,
-  faPlus,
   faSpinner,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -170,8 +170,17 @@ export const TimersPage: React.FC = () => {
       const next = { ...prev };
       for (const de of dayEntries) {
         const id = de.entry.ticketId;
-        if (!(id in next)) {
-          next[id] = teamTickets.find((t) => t.id === id) ?? null;
+        const fromTeam = teamTickets.find((t) => t.id === id);
+
+        // If we can resolve from the latest team ticket list, always refresh cache.
+        if (fromTeam) {
+          next[id] = fromTeam;
+          continue;
+        }
+
+        // Only mark as null (deleted/unassociated) once we have a loaded list.
+        if (teamTickets.length > 0 && !(id in next)) {
+          next[id] = null;
         }
       }
       return next;
@@ -247,6 +256,20 @@ export const TimersPage: React.FC = () => {
     }
   }, [newEntryTicketId, selectedDate, fetchDay]);
 
+  const handlePrevWeek = useCallback(() => {
+    const base = new Date(selectedDate + 'T00:00:00');
+    setSelectedDate(toLocalDateStr(addDays(base, -7)));
+  }, [selectedDate]);
+
+  const handleNextWeek = useCallback(() => {
+    const base = new Date(selectedDate + 'T00:00:00');
+    setSelectedDate(toLocalDateStr(addDays(base, 7)));
+  }, [selectedDate]);
+
+  const handleGoToToday = useCallback(() => {
+    setSelectedDate(toLocalDateStr(new Date()));
+  }, []);
+
   const handleCopyPrevious = useCallback(async () => {
     setCopyLoading(true);
     try {
@@ -271,6 +294,27 @@ export const TimersPage: React.FC = () => {
     [teamTickets],
   );
 
+  const selectedDayLabel = useMemo(
+    () =>
+      new Date(selectedDate + 'T00:00:00').toLocaleDateString(undefined, {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      }),
+    [selectedDate],
+  );
+
+  const weekRangeLabel = useMemo(() => {
+    const formatWeekDay = (d: Date) =>
+      d.toLocaleDateString(undefined, {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+      });
+
+    return `${formatWeekDay(weekDays[0])} - ${formatWeekDay(weekDays[6])}`;
+  }, [weekDays]);
+
   if (!teamsReady) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -280,60 +324,63 @@ export const TimersPage: React.FC = () => {
   }
 
   return (
-    <AppPage subtitle="Weekly timesheet">
+    <AppPage subtitle={weekRangeLabel}>
       {/* ── Week Strip ── */}
       <Card padding="sm">
         <CardContent>
-          <div className="grid grid-cols-7 gap-1" role="tablist" aria-label="Select day">
-            {weekDays.map((day) => {
-              const dateStr = toLocalDateStr(day);
-              const total = weekTotals[dateStr] ?? 0;
-              const isSelected = dateStr === selectedDate;
-              const isToday = dateStr === toLocalDateStr(new Date());
-              return (
-                <button
-                  key={dateStr}
-                  role="tab"
-                  aria-selected={isSelected}
-                  onClick={() => setSelectedDate(dateStr)}
-                  className={`flex flex-col items-center rounded-lg p-2 text-xs transition-colors ${
-                    isSelected
-                      ? 'bg-primary text-primary-foreground'
-                      : isToday
-                        ? 'bg-primary/10 text-primary'
-                        : 'hover:bg-muted'
-                  }`}
-                >
-                  <span className="font-medium">{fmtShortDate(day)}</span>
-                  <span className={`mt-0.5 font-mono ${total > 0 ? '' : 'opacity-40'}`}>
-                    {weekTotalsLoading ? '…' : formatDuration(total)}
-                  </span>
-                </button>
-              );
-            })}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handlePrevWeek}
+              aria-label="Previous week"
+              className="rounded-lg p-2 hover:bg-muted transition-colors flex-shrink-0"
+            >
+              <FontAwesomeIcon icon={faChevronLeft} className="text-xs" />
+            </button>
+            <div className="grid grid-cols-7 gap-1 flex-1" role="tablist" aria-label="Select day">
+              {weekDays.map((day) => {
+                const dateStr = toLocalDateStr(day);
+                const total = weekTotals[dateStr] ?? 0;
+                const isSelected = dateStr === selectedDate;
+                const isToday = dateStr === toLocalDateStr(new Date());
+                return (
+                  <button
+                    key={dateStr}
+                    role="tab"
+                    aria-selected={isSelected}
+                    onClick={() => setSelectedDate(dateStr)}
+                    className={`flex flex-col items-center rounded-lg p-2 text-xs transition-colors ${
+                      isSelected
+                        ? 'bg-primary text-primary-foreground'
+                        : isToday
+                          ? 'bg-primary/10 text-primary'
+                          : 'hover:bg-muted'
+                    }`}
+                  >
+                    <span className="font-medium">{fmtShortDate(day)}</span>
+                    <span className={`mt-0.5 font-mono ${total > 0 ? '' : 'opacity-40'}`}>
+                      {weekTotalsLoading ? '…' : formatDuration(total)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              onClick={handleNextWeek}
+              aria-label="Next week"
+              className="rounded-lg p-2 hover:bg-muted transition-colors flex-shrink-0"
+            >
+              <FontAwesomeIcon icon={faChevronRight} className="text-xs" />
+            </button>
           </div>
         </CardContent>
       </Card>
 
       {/* ── Day Header ── */}
       <div className="flex items-center justify-between">
-        <Text weight="semibold">
-          {new Date(selectedDate + 'T00:00:00').toLocaleDateString(undefined, {
-            weekday: 'long',
-            month: 'long',
-            day: 'numeric',
-          })}
-        </Text>
+        <Text weight="semibold">{selectedDayLabel}</Text>
         <div className="flex gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleCopyPrevious}
-            isLoading={copyLoading}
-            aria-label="Copy entries from previous day"
-          >
-            <FontAwesomeIcon icon={copyDone ? faCheck : faCopy} className="mr-1" />
-            {copyDone ? 'Copied!' : 'Copy previous'}
+          <Button variant="ghost" size="sm" onClick={handleGoToToday} aria-label="Go to today">
+            Today
           </Button>
           <Button
             variant="primary"
@@ -341,8 +388,7 @@ export const TimersPage: React.FC = () => {
             onClick={() => setShowNewEntry(true)}
             aria-label="Add timer entry"
           >
-            <FontAwesomeIcon icon={faPlus} className="mr-1" />
-            New entry
+            +
           </Button>
         </div>
       </div>
@@ -396,7 +442,7 @@ export const TimersPage: React.FC = () => {
       ) : dayEntries.length === 0 ? (
         <div className="py-10 text-center">
           <Text variant="muted" size="sm">
-            No timers for this day. Create one with "+ New entry".
+            No timers for this day. Create one with "+".
           </Text>
         </div>
       ) : (
@@ -404,8 +450,8 @@ export const TimersPage: React.FC = () => {
           <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {dayEntries.map((de) => {
               const ticket = ticketCache[de.entry.ticketId];
-              const title = ticket ? ticket.title : 'Unassociated Timer';
               const isDeleted = ticket === null;
+              const title = ticket ? ticket.title : isDeleted ? 'Unassociated Timer' : 'Timer';
               const total = entryTotalSeconds(de.sessions, currentTime);
               const runningSess = de.sessions.find((s) => s.endTime === null);
               const isRunning = !!runningSess;
@@ -452,11 +498,6 @@ export const TimersPage: React.FC = () => {
                           Running
                         </Badge>
                       )}
-                      {de.sessions.some((s) => !s.clockEventId) && (
-                        <Badge variant="secondary" size="sm">
-                          manual
-                        </Badge>
-                      )}
                     </div>
                   </div>
 
@@ -474,6 +515,19 @@ export const TimersPage: React.FC = () => {
           </ul>
         </Card>
       )}
+
+      <div className="flex justify-start">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleCopyPrevious}
+          isLoading={copyLoading}
+          aria-label="Copy entries from previous day"
+        >
+          <FontAwesomeIcon icon={copyDone ? faCheck : faCopy} className="mr-1" />
+          {copyDone ? 'Copied entries from previous day!' : 'Copy entries from previous day'}
+        </Button>
+      </div>
     </AppPage>
   );
 };

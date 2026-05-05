@@ -107,7 +107,6 @@ export class ClockService {
       teamId,
       startTime: now,
       accumulatedTime: 0,
-      tickets: [],
       endTime: null,
     });
 

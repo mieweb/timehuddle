@@ -29,10 +29,7 @@ const sessionShape = {
     id: { type: "string" },
     timeEntryId: { type: "string" },
     userId: { type: "string" },
-    teamId: { type: "string" },
-    ticketId: { type: "string" },
     date: { type: "string" },
-    clockEventId: { type: "string", nullable: true },
     startTime: { type: "number" },
     endTime: { type: "number", nullable: true },
     durationSeconds: { type: "number", nullable: true },
@@ -154,7 +151,6 @@ export async function timerRoutes(app: FastifyInstance) {
             date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
             note: { type: "string" },
             startNow: { type: "boolean", default: false },
-            clockEventId: { type: "string" },
           },
         },
         response: {
@@ -172,12 +168,11 @@ export async function timerRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { id: userId } = (req as any).user;
-      const { ticketId, date, note, startNow, clockEventId } = req.body as {
+      const { ticketId, date, note, startNow } = req.body as {
         ticketId: string;
         date: string;
         note?: string;
         startNow?: boolean;
-        clockEventId?: string;
       };
 
       const entryResult = await timerService.getOrCreateEntry(userId, ticketId, date);
@@ -197,12 +192,7 @@ export async function timerRoutes(app: FastifyInstance) {
 
       let session = null;
       if (startNow) {
-        const startResult = await timerService.startTimer(
-          userId,
-          ticketId,
-          Date.now(),
-          clockEventId
-        );
+        const startResult = await timerService.startTimer(userId, ticketId, Date.now());
         if (
           startResult !== "not-found" &&
           startResult !== "forbidden" &&
@@ -232,10 +222,7 @@ export async function timerRoutes(app: FastifyInstance) {
         body: {
           type: "object",
           additionalProperties: false,
-          properties: {
-            now: { type: "number" },
-            clockEventId: { type: "string" },
-          },
+          properties: { now: { type: "number" } },
         },
         response: {
           200: {
@@ -247,16 +234,14 @@ export async function timerRoutes(app: FastifyInstance) {
           },
           404: err("TimeEntry not found"),
           403: err("Forbidden"),
+          409: err("Timer already running"),
         },
       },
     },
     async (req, reply) => {
       const { id: userId } = (req as any).user;
       const { id: entryId } = req.params as { id: string };
-      const { now = Date.now(), clockEventId } = req.body as {
-        now?: number;
-        clockEventId?: string;
-      };
+      const { now = Date.now() } = req.body as { now?: number };
 
       // Look up the TimeEntry to get ticketId
       const { timeEntriesCollection } = await import("../models/index.js");
@@ -267,7 +252,7 @@ export async function timerRoutes(app: FastifyInstance) {
       if (!entry) return reply.status(404).send({ error: "TimeEntry not found" });
       if (entry.userId !== userId) return reply.status(403).send({ error: "Forbidden" });
 
-      const result = await timerService.startTimer(userId, entry.ticketId, now, clockEventId);
+      const result = await timerService.startTimer(userId, entry.ticketId, now);
       if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
       if (result === "already-running")
