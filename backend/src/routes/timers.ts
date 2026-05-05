@@ -17,7 +17,7 @@ const entryShape = {
     id: { type: "string" },
     userId: { type: "string" },
     ticketId: { type: "string" },
-    ticketTitle: { type: "string", nullable: true },
+    displayTitle: { type: "string", nullable: true },
     date: { type: "string" },
     note: { type: "string", nullable: true },
     sortOrder: { type: "number", nullable: true },

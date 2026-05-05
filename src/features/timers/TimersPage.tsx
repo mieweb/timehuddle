@@ -441,7 +441,7 @@ export const TimersPage: React.FC = () => {
         <Card padding="none">
           <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {dayEntries.map((de) => {
-              const title = de.entry.note?.trim() || '(untitled)';
+              const title = de.entry.displayTitle || '(untitled)';
               const total = entryTotalSeconds(de.sessions, currentTime);
               const runningSess = de.sessions.find((s) => s.endTime === null);
               const isRunning = !!runningSess;
@@ -473,12 +473,12 @@ export const TimersPage: React.FC = () => {
                     <Text size="sm" weight="medium" truncate>
                       {title}
                     </Text>
+                    {de.entry.note?.trim() && (
+                      <Text size="xs" variant="muted" truncate>
+                        {de.entry.note.trim()}
+                      </Text>
+                    )}
                     <div className="mt-0.5 flex flex-wrap gap-1">
-                      {de.entry.ticketTitle && (
-                        <Badge variant="neutral" size="sm">
-                          {de.entry.ticketTitle}
-                        </Badge>
-                      )}
                       {isRunning && (
                         <Badge variant="success" size="sm">
                           <FontAwesomeIcon

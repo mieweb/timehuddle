@@ -19,7 +19,7 @@ export function toPublicEntry(e: TimeEntry, ticketTitle?: string | null) {
     id: e._id.toHexString(),
     userId: e.userId,
     ticketId: e.ticketId,
-    ticketTitle: ticketTitle ?? null,
+    displayTitle: ticketTitle ?? null,
     date: e.date,
     note: e.note ?? null,
     sortOrder: e.sortOrder ?? null,
