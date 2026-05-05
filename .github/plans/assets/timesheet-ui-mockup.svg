@@ -1,0 +1,121 @@
+<svg width="1728" height="768" viewBox="0 0 1728 768" xmlns="http://www.w3.org/2000/svg" fill="none">
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="768" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F5F6F8"/>
+      <stop offset="1" stop-color="#ECEEF2"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="200%" height="200%" color-interpolation-filters="sRGB">
+      <feOffset dy="1"/>
+      <feGaussianBlur stdDeviation="2"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.09 0 0 0 0 0.1 0 0 0 0 0.12 0 0 0 0.12 0"/>
+      <feBlend in="SourceGraphic"/>
+    </filter>
+    <style>
+      .sans { font-family: "Avenir Next", "SF Pro Text", "Segoe UI", Helvetica, Arial, sans-serif; }
+      .title { font-size: 56px; font-weight: 650; fill: #1F2328; }
+      .h2 { font-size: 44px; font-weight: 600; fill: #1F2328; }
+      .day { font-size: 38px; font-weight: 650; fill: #1F2328; }
+      .sub { font-size: 36px; fill: #5B6472; }
+      .meta { font-size: 32px; fill: #374151; }
+      .btn { font-size: 36px; font-weight: 650; fill: #2B3038; }
+      .smallbtn { font-size: 30px; font-weight: 650; fill: #2B3038; }
+      .list { font-size: 34px; fill: #111827; }
+      .quote { font-size: 54px; fill: #6B7280; }
+      .quote2 { font-size: 50px; fill: #6B7280; }
+    </style>
+  </defs>
+
+  <rect width="1728" height="768" fill="url(#page)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="130" y="80" width="92" height="52" rx="12" fill="#FFFFFF" stroke="#D0D5DD"/>
+    <text class="sans h2" x="164" y="118">←</text>
+    <rect x="228" y="80" width="92" height="52" rx="12" fill="#FFFFFF" stroke="#D0D5DD"/>
+    <text class="sans h2" x="262" y="118">→</text>
+  </g>
+
+  <text class="sans title" x="336" y="121">Today: Monday, 04 May</text>
+
+  <g filter="url(#shadow)">
+    <rect x="1448" y="80" width="58" height="52" rx="12" fill="#FFFFFF" stroke="#D0D5DD"/>
+    <text class="sans meta" x="1464" y="114">📅</text>
+
+    <rect x="1516" y="80" width="176" height="52" rx="13" fill="#FFFFFF" stroke="#D0D5DD"/>
+    <rect x="1516" y="80" width="88" height="52" rx="13" fill="#FFF7ED" stroke="#F97316"/>
+    <line x1="1604" y1="80" x2="1604" y2="132" stroke="#D0D5DD"/>
+    <text class="sans btn" x="1540" y="116">Day</text>
+    <text class="sans btn" x="1624" y="116" fill="#5B6472">Week</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="20" y="126" width="92" height="92" rx="18" fill="#178A38"/>
+    <text class="sans" x="46" y="190" font-size="78" fill="#FFFFFF">+</text>
+  </g>
+  <text class="sans btn" x="20" y="252">Track time</text>
+
+  <line x1="132" y1="206" x2="1692" y2="206" stroke="#C9CED6" stroke-width="2"/>
+  <line x1="132" y1="206" x2="322" y2="206" stroke="#F97316" stroke-width="4"/>
+
+  <text class="sans day" x="132" y="160">Mon</text>
+  <text class="sans sub" x="132" y="186">6:15</text>
+
+  <text class="sans day" x="328" y="160" fill="#616A78">Tue</text>
+  <text class="sans sub" x="328" y="186">4:30</text>
+
+  <text class="sans day" x="524" y="160" fill="#616A78">Wed</text>
+  <text class="sans sub" x="524" y="186">0:00</text>
+
+  <text class="sans day" x="720" y="160" fill="#616A78">Thu</text>
+  <text class="sans sub" x="720" y="186">0:00</text>
+
+  <text class="sans day" x="916" y="160" fill="#616A78">Fri</text>
+  <text class="sans sub" x="916" y="186">0:00</text>
+
+  <text class="sans day" x="1112" y="160" fill="#616A78">Sat</text>
+  <text class="sans sub" x="1112" y="186">0:00</text>
+
+  <text class="sans day" x="1308" y="160" fill="#616A78">Sun</text>
+  <text class="sans sub" x="1308" y="186">0:00</text>
+
+  <text class="sans day" x="1690" y="160" text-anchor="end">Week total</text>
+  <text class="sans sub" x="1690" y="186" text-anchor="end">10:45</text>
+
+  <rect x="132" y="230" width="1560" height="430" rx="22" fill="#E5E7EB"/>
+
+  <g filter="url(#shadow)">
+    <rect x="164" y="266" width="1496" height="76" rx="14" fill="#FFFFFF" stroke="#D0D5DD"/>
+    <circle cx="194" cy="304" r="9" fill="#16A34A"/>
+    <text class="sans list" x="216" y="315">TH-171 Docs Cleanup</text>
+    <text class="sans list" x="1036" y="315" fill="#374151">2:20</text>
+    <rect x="1208" y="281" width="150" height="46" rx="10" fill="#15803D"/>
+    <text class="sans smallbtn" x="1240" y="312" fill="#FFFFFF">Running</text>
+    <rect x="1372" y="281" width="260" height="46" rx="10" fill="#F9FAFB" stroke="#D0D5DD"/>
+    <text class="sans smallbtn" x="1480" y="312">Stop Timer</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="164" y="354" width="1496" height="76" rx="14" fill="#FFFFFF" stroke="#D0D5DD"/>
+    <circle cx="194" cy="392" r="9" fill="#9CA3AF"/>
+    <text class="sans list" x="216" y="403">TH-123 API Refactor</text>
+    <text class="sans list" x="1036" y="403" fill="#374151">2:10</text>
+    <rect x="1372" y="369" width="260" height="46" rx="10" fill="#FFFFFF" stroke="#D0D5DD"/>
+    <text class="sans smallbtn" x="1476" y="400">Start Timer</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="164" y="442" width="1496" height="76" rx="14" fill="#FFFFFF" stroke="#D0D5DD"/>
+    <circle cx="194" cy="480" r="9" fill="#9CA3AF"/>
+    <text class="sans list" x="216" y="491">TH-144 Mobile QA</text>
+    <text class="sans list" x="1036" y="491" fill="#374151">1:45</text>
+    <rect x="1372" y="457" width="260" height="46" rx="10" fill="#FFFFFF" stroke="#D0D5DD"/>
+    <text class="sans smallbtn" x="1476" y="488">Start Timer</text>
+  </g>
+
+  <text class="sans quote" x="912" y="590" text-anchor="middle">“Time doth flit...”</text>
+  <text class="sans quote2" x="912" y="640" text-anchor="middle">– Dorothy Parker</text>
+
+  <g filter="url(#shadow)">
+    <rect x="132" y="684" width="620" height="56" rx="12" fill="#F8FAFC" stroke="#AEB6C2"/>
+    <text class="sans btn" x="156" y="722">Copy rows from most recent timesheet</text>
+  </g>
+</svg>
