@@ -45,9 +45,10 @@ self.addEventListener('push', function (event) {
     };
 
     event.waitUntil(
-      self.registration.showNotification(data.title, options)
+      self.registration
+        .showNotification(data.title, options)
         .then(() => console.log('[SW] showNotification ok'))
-        .catch(err => console.error('[SW] showNotification error:', err))
+        .catch((err) => console.error('[SW] showNotification error:', err)),
     );
   } catch (error) {
     console.error('[Service Worker] Error processing push:', error);

@@ -126,10 +126,7 @@ export async function autoRegisterNativePush(userId: string): Promise<void> {
 
 async function _registerAndSaveToken(): Promise<void> {
   const token = await new Promise<string>((resolve, reject) => {
-    const timeout = setTimeout(
-      () => reject(new Error('Timed out waiting for push token')),
-      15_000,
-    );
+    const timeout = setTimeout(() => reject(new Error('Timed out waiting for push token')), 15_000);
 
     let handles: Array<{ remove: () => void }> = [];
     const cleanup = () => {
