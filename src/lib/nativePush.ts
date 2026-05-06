@@ -87,16 +87,23 @@ export async function subscribeToPush(): Promise<void> {
 const PUSH_PROMPTED_KEY = 'timehuddle_push_prompted_v1';
 
 /**
- * Call once after login on native platforms.
- * - If permission already granted: silently re-register (handles token refresh).
- * - If not yet asked: request once, then silently register.
- * - If denied: do nothing.
+ * Call once after login on any platform.
+ * - Native (iOS/Android): uses APNs/FCM device token via Capacitor.
+ * - Web: uses VAPID Web Push — same prompt-once-per-user behaviour.
+ *
+ * For both paths:
+ * - Permission already granted → silently re-register (handles token refresh).
+ * - Not yet asked → prompt once per user, then register.
+ * - Denied → do nothing.
  *
  * @param userId The signed-in user's ID — the prompted flag is scoped per-user
  *   so each account on a shared device gets its own opt-in chance.
  */
-export async function autoRegisterNativePush(userId: string): Promise<void> {
-  if (!Capacitor.isNativePlatform()) return;
+export async function autoRegisterPush(userId: string): Promise<void> {
+  if (!Capacitor.isNativePlatform()) {
+    await _autoRegisterWeb(userId);
+    return;
+  }
 
   try {
     const { receive } = await PushNotifications.checkPermissions();
@@ -121,6 +128,44 @@ export async function autoRegisterNativePush(userId: string): Promise<void> {
     await _registerAndSaveToken();
   } catch (err) {
     console.warn('[nativePush] autoRegister failed:', err);
+  }
+}
+
+async function _autoRegisterWeb(userId: string): Promise<void> {
+  if (!isPushNotificationSupported()) return;
+
+  const vapidKey =
+    (typeof import.meta !== 'undefined' &&
+      (import.meta as { env?: Record<string, string> }).env?.VITE_VAPID_PUBLIC_KEY) ||
+    '';
+  if (!vapidKey) return;
+
+  try {
+    const permission = Notification.permission;
+
+    if (permission === 'granted') {
+      // Check if there's already an active subscription — if so, nothing to do.
+      const status = await checkPushNotificationStatus();
+      if (status.subscribed) return;
+      // No active subscription (e.g. SW was cleared) — re-subscribe silently.
+      await subscribeToWebPush();
+      return;
+    }
+
+    if (permission === 'denied') return;
+
+    // 'default': prompt once per user
+    const promptedKey = `${PUSH_PROMPTED_KEY}:${userId}`;
+    const alreadyPrompted = localStorage.getItem(promptedKey) === '1';
+    if (alreadyPrompted) return;
+
+    localStorage.setItem(promptedKey, '1');
+    const granted = await Notification.requestPermission();
+    if (granted !== 'granted') return;
+
+    await subscribeToWebPush();
+  } catch (err) {
+    console.warn('[nativePush] autoRegisterWeb failed:', err);
   }
 }
 

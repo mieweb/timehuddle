@@ -178,4 +178,18 @@ export async function notificationRoutes(app: FastifyInstance) {
     await pushService.removeAll(session.user.id);
     return reply.send({ ok: true });
   });
+
+  // POST /v1/notifications/test-push — send a test push to the requesting user
+  app.post("/notifications/test-push", async (req, reply) => {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
+
+    await pushService.sendToUser(session.user.id, {
+      title: "TimeHuddle Test",
+      body: "Push notifications are working!",
+      tag: "test-push",
+      data: { type: "test", url: "/app/notifications" },
+    });
+    return reply.send({ ok: true });
+  });
 }
