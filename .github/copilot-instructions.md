@@ -8,7 +8,7 @@ This is a React 19 + Vite + Tailwind CSS 4 + TypeScript frontend application. Th
 
 ### Node Version
 
-This project pins Node via `.nvmrc`. **Always run `nvm use` before any terminal commands** to ensure the correct Node version is active. Using the wrong version causes `package-lock.json` drift and CI failures.
+This project pins Node via `.nvmrc`. **Run `nvm use` before Node-related terminal commands (`node`, `npm`, `npx`, `pnpm`, `yarn`)** to ensure the correct Node version is active. Using the wrong version causes `package-lock.json` drift and CI failures.
 
 ```bash
 nvm use          # activate the pinned version
@@ -164,6 +164,12 @@ src/
 - **Clear naming**: Functions and variables should be self-documenting
 - **Small functions**: Break down complex functions into smaller, focused ones
 - **Readable code**: Code should be obvious to understand at first glance
+
+### Core Model Data Discipline
+
+- **Persist domain data only**: Core persistence models should store canonical business data, not UI convenience values.
+- **No display-only fallbacks in model shape**: Do not add fields that exist only as presentation fallbacks (for example, duplicated title snapshots) to core database models.
+- **Resolve presentation at read time**: Compute or join display-friendly values in service/response layers rather than persisting redundant fallback fields.
 
 ### Folder Philosophy
 

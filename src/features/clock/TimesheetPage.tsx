@@ -7,6 +7,7 @@
  *   • Summary stats (total hours, sessions, avg, working days)
  */
 import { faCalendar } from '@fortawesome/free-solid-svg-icons';
+import { faEllipsisVertical } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
@@ -18,6 +19,10 @@ import {
   CardHeader,
   CardTitle,
   Input,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
   Spinner,
   Table,
   TableBody,
@@ -31,7 +36,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration, formatTime, formatDate } from '../../lib/timeUtils';
-import { clockApi, type ClockEvent } from '../../lib/api';
+import { ApiError, clockApi, type ClockEvent } from '../../lib/api';
 import { AppPage } from '../../ui/AppPage';
 import { useSession } from '../../lib/useSession';
 import { AttachmentsPanel } from './AttachmentsPanel';
@@ -81,6 +86,22 @@ function getDateRange(preset: Preset): [Date, Date] {
   }
 }
 
+function toLocalDateTimeInputValue(epochMs: number): string {
+  const d = new Date(epochMs);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+}
+
+function fromLocalDateTimeInputValue(value: string): number | null {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
 export const TimesheetPage: React.FC = () => {
   const { user } = useSession();
   const { teamsReady, teams } = useTeam();
@@ -91,7 +112,13 @@ export const TimesheetPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<TimesheetData | null>(null);
-  const [attachmentsOpenForSession, setAttachmentsOpenForSession] = useState<string | null>(null);
+  const [activeSession, setActiveSession] = useState<ClockEvent | null>(null);
+  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
+  const [editClockIn, setEditClockIn] = useState('');
+  const [editClockOut, setEditClockOut] = useState('');
+  const [sessionSaveLoading, setSessionSaveLoading] = useState(false);
+  const [sessionDeleteLoading, setSessionDeleteLoading] = useState(false);
+  const [sessionSaveError, setSessionSaveError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!user?.id) return;
@@ -123,6 +150,74 @@ export const TimesheetPage: React.FC = () => {
   useEffect(() => {
     void fetchData();
   }, [preset]);
+
+  const openSessionDialog = useCallback((session: ClockEvent) => {
+    setActiveSession(session);
+    setEditClockIn(toLocalDateTimeInputValue(session.startTime));
+    setEditClockOut(session.endTime ? toLocalDateTimeInputValue(session.endTime) : '');
+    setSessionSaveError(null);
+    setSessionDialogOpen(true);
+  }, []);
+
+  const handleSaveSession = useCallback(async () => {
+    if (!activeSession) return;
+
+    const parsedStart = fromLocalDateTimeInputValue(editClockIn);
+    if (parsedStart === null) {
+      setSessionSaveError('Enter a valid clock-in date and time.');
+      return;
+    }
+
+    let parsedEnd: number | null = null;
+    if (editClockOut.trim()) {
+      parsedEnd = fromLocalDateTimeInputValue(editClockOut);
+      if (parsedEnd === null) {
+        setSessionSaveError('Enter a valid clock-out date and time, or leave it blank.');
+        return;
+      }
+    }
+
+    setSessionSaveLoading(true);
+    setSessionSaveError(null);
+    try {
+      await clockApi.updateTimes(activeSession.id, {
+        startTime: parsedStart,
+        endTime: parsedEnd,
+      });
+      setSessionDialogOpen(false);
+      setActiveSession(null);
+      await fetchData();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setSessionSaveError(e.message);
+      } else {
+        setSessionSaveError('Unable to update session times.');
+      }
+    } finally {
+      setSessionSaveLoading(false);
+    }
+  }, [activeSession, editClockIn, editClockOut, fetchData]);
+
+  const handleDeleteSession = useCallback(async () => {
+    if (!activeSession) return;
+
+    setSessionDeleteLoading(true);
+    setSessionSaveError(null);
+    try {
+      await clockApi.deleteEvent(activeSession.id);
+      setSessionDialogOpen(false);
+      setActiveSession(null);
+      await fetchData();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setSessionSaveError(e.message);
+      } else {
+        setSessionSaveError('Unable to delete session.');
+      }
+    } finally {
+      setSessionDeleteLoading(false);
+    }
+  }, [activeSession, fetchData]);
 
   const presets: { key: Preset; label: string }[] = [
     { key: 'today', label: 'Today' },
@@ -252,7 +347,7 @@ export const TimesheetPage: React.FC = () => {
       {data && data.sessions.length > 0 && (
         <Card padding="none">
           <CardHeader className="px-5 py-3">
-            <CardTitle className="text-sm">Clock Events ({data.sessions.length})</CardTitle>
+            <CardTitle className="text-sm">Sessions ({data.sessions.length})</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table responsive>
@@ -264,7 +359,7 @@ export const TimesheetPage: React.FC = () => {
                   <TableHead>Duration</TableHead>
                   <TableHead>Team</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Attachments</TableHead>
+                  <TableHead className="w-16 text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -276,61 +371,38 @@ export const TimesheetPage: React.FC = () => {
                     : null;
                   const isActive = !s.endTime;
                   const teamName = teams.find((t) => t.id === s.teamId)?.name ?? s.teamId;
-                  const isAttachmentsOpen = attachmentsOpenForSession === s.id;
                   return (
-                    <React.Fragment key={s.id}>
-                      <TableRow>
-                        <TableCell>{formatDate(startTime, true)}</TableCell>
-                        <TableCell>{formatTime(startTime)}</TableCell>
-                        <TableCell>{endTime ? formatTime(endTime) : '—'}</TableCell>
-                        <TableCell className="font-mono">
-                          {duration ? formatDuration(duration) : '—'}
-                        </TableCell>
-                        <TableCell>{teamName}</TableCell>
-                        <TableCell>
-                          {isActive ? (
-                            <Badge variant="success" size="sm">
-                              <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                              Active
-                            </Badge>
-                          ) : (
-                            <Text variant="muted" size="xs">
-                              Completed
-                            </Text>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {isActive ? (
-                            <Text variant="muted" size="xs">
-                              —
-                            </Text>
-                          ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                setAttachmentsOpenForSession((prev) =>
-                                  prev === s.id ? null : s.id,
-                                )
-                              }
-                            >
-                              {isAttachmentsOpen ? 'Hide' : 'Manage'}
-                            </Button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                      {!isActive && isAttachmentsOpen && (
-                        <TableRow>
-                          <TableCell colSpan={7}>
-                            <AttachmentsPanel
-                              kind="clock"
-                              entityId={s.id}
-                              currentUserId={user?.id}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </React.Fragment>
+                    <TableRow key={s.id}>
+                      <TableCell>{formatDate(startTime, true)}</TableCell>
+                      <TableCell>{formatTime(startTime)}</TableCell>
+                      <TableCell>{endTime ? formatTime(endTime) : '—'}</TableCell>
+                      <TableCell className="font-mono">
+                        {duration ? formatDuration(duration) : '—'}
+                      </TableCell>
+                      <TableCell>{teamName}</TableCell>
+                      <TableCell>
+                        {isActive ? (
+                          <Badge variant="success" size="sm">
+                            <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+                            Active
+                          </Badge>
+                        ) : (
+                          <Text variant="muted" size="xs">
+                            Completed
+                          </Text>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Edit session"
+                          onClick={() => openSessionDialog(s)}
+                        >
+                          <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
               </TableBody>
@@ -338,6 +410,77 @@ export const TimesheetPage: React.FC = () => {
           </CardContent>
         </Card>
       )}
+
+      <Modal
+        open={sessionDialogOpen}
+        onOpenChange={(open) => {
+          setSessionDialogOpen(open);
+          if (!open) {
+            setActiveSession(null);
+            setSessionSaveError(null);
+          }
+        }}
+        aria-labelledby="edit-session-title"
+      >
+        <ModalHeader>
+          <Text weight="semibold" id="edit-session-title">
+            Edit Session
+          </Text>
+        </ModalHeader>
+        <ModalBody className="space-y-4">
+          <Input
+            label="Clock In"
+            type="datetime-local"
+            value={editClockIn}
+            onChange={(e) => setEditClockIn(e.target.value)}
+          />
+          <Input
+            label="Clock Out"
+            type="datetime-local"
+            value={editClockOut}
+            onChange={(e) => setEditClockOut(e.target.value)}
+            placeholder="Leave blank to keep active"
+          />
+          {sessionSaveError && (
+            <Text size="xs" className="text-danger">
+              {sessionSaveError}
+            </Text>
+          )}
+          {activeSession && (
+            <AttachmentsPanel kind="clock" entityId={activeSession.id} currentUserId={user?.id} />
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              onClick={handleSaveSession}
+              isLoading={sessionSaveLoading}
+              disabled={sessionDeleteLoading}
+            >
+              Save
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setSessionDialogOpen(false)}
+              disabled={sessionSaveLoading || sessionDeleteLoading}
+            >
+              Cancel
+            </Button>
+            {activeSession?.endTime !== null && (
+              <Button
+                variant="danger"
+                className="ml-auto"
+                onClick={handleDeleteSession}
+                isLoading={sessionDeleteLoading}
+                disabled={sessionSaveLoading}
+              >
+                Delete
+              </Button>
+            )}
+          </div>
+        </ModalFooter>
+      </Modal>
 
       {data && data.sessions.length === 0 && !loading && (
         <Card variant="outlined" padding="lg" className="border-dashed text-center">

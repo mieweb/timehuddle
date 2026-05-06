@@ -136,7 +136,7 @@ test.describe('Tickets', () => {
     await page.waitForTimeout(200);
 
     // Save
-    await page.locator('[role="dialog"]').getByRole('button', { name: 'Save Changes' }).click();
+    await page.locator('[role="dialog"]').getByRole('button', { name: 'Save' }).click();
     await page.waitForTimeout(1000);
 
     // Updated title should be visible

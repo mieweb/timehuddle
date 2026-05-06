@@ -1,21 +1,20 @@
 /**
- * TicketsPage — CRUD ticket management with time tracking.
+ * TicketsPage — CRUD ticket management.
  *
  * Features:
  *   • Create ticket (title + optional GitHub URL)
- *   • Start/stop timer per ticket
  *   • Edit title/GitHub link
  *   • Delete tickets
  *   • Search/filter
- *   • Accumulated time display
+ *   • Status badge display
+ *
+ * Ticket-level timer tracking has moved to the Timers page (/app/work).
  */
 import {
   faEllipsisVertical,
   faExternalLink,
   faEye,
-  faPause,
   faPen,
-  faPlay,
   faPlus,
   faRightLeft,
   faSearch,
@@ -50,9 +49,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { teamApi, ticketApi, type TeamMember, type Ticket } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
-import { formatDuration } from '../../lib/timeUtils';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
+import { AttachmentsPanel } from '../clock/AttachmentsPanel';
+import { VideoUploadButton } from './VideoUploadButton';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -118,10 +118,7 @@ async function fetchIssueTitle(url: string): Promise<string | null> {
 interface TicketRowProps {
   ticket: Ticket;
   isCreator: boolean;
-  isAssignee: boolean;
-  currentTime: number;
   assigneeName: string | null;
-  onStartStop: (ticket: Ticket) => Promise<void>;
   onEditRequest: (ticket: Ticket) => void;
   onDeleteRequest: (id: string) => void;
   onChangeStatusRequest: (ticket: Ticket) => void;
@@ -131,48 +128,23 @@ interface TicketRowProps {
 const TicketRow: React.FC<TicketRowProps> = ({
   ticket,
   isCreator,
-  isAssignee,
-  currentTime,
   assigneeName,
-  onStartStop,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
   onDetailsRequest,
 }) => {
-  const isRunning = !!ticket.startTimestamp;
-  const elapsed = isRunning
-    ? (ticket.accumulatedTime || 0) + Math.floor((currentTime - ticket.startTimestamp!) / 1000)
-    : ticket.accumulatedTime || 0;
-
   const statusLabel =
     STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label ?? ticket.status ?? 'Open';
   const dotColor = priorityDotColor(ticket.priority);
 
   return (
-    <li className="px-5 py-3">
+    <li className="px-5 py-2">
       <div className="flex items-start gap-3">
-        {/* Play/Pause — assignee if assigned, otherwise creator */}
-        {(ticket.assignedTo ? isAssignee : isCreator) && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => onStartStop(ticket)}
-            className={`shrink-0 rounded-full ${
-              isRunning
-                ? 'bg-amber-100 text-amber-600 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-400'
-                : 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-400'
-            }`}
-            aria-label={isRunning ? 'Pause ticket' : 'Start ticket'}
-          >
-            <FontAwesomeIcon icon={isRunning ? faPause : faPlay} className="text-xs" />
-          </Button>
-        )}
-
         {/* Content */}
-        <div className="min-w-0 flex-1 space-y-1">
+        <div className="min-w-0 flex-1 space-y-0.5">
           {/* Title row: priority dot + title + 3-dot menu */}
-          <div className="flex items-start gap-1.5">
+          <div className="flex items-center gap-1.5">
             {dotColor && (
               <span
                 className={`mt-1 inline-block h-2 w-2 shrink-0 rounded-full ${dotColor}`}
@@ -188,7 +160,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
                   variant="ghost"
                   size="icon"
                   aria-label="Ticket options"
-                  className="-mt-1 -mr-2 shrink-0"
+                  className="-mt-0.5 -mr-2 shrink-0"
                 >
                   <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
                 </Button>
@@ -238,8 +210,8 @@ const TicketRow: React.FC<TicketRowProps> = ({
             </p>
           )}
 
-          {/* Footer: github, assignee, time, status */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Footer: github, assignee, status */}
+          <div className="flex flex-wrap items-center gap-1.5">
             {ticket.github && (
               <a
                 href={ticket.github}
@@ -256,9 +228,6 @@ const TicketRow: React.FC<TicketRowProps> = ({
                 {assigneeName}
               </span>
             )}
-            <Badge variant={isRunning ? 'success' : 'secondary'} size="sm" className="font-mono">
-              {formatDuration(elapsed)}
-            </Badge>
             <Badge variant="secondary" size="sm">
               {statusLabel}
             </Badge>
@@ -272,7 +241,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { selectedTeamId, teamsReady, currentTime } = useTeam();
+  const { selectedTeamId, teamsReady } = useTeam();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -342,6 +311,7 @@ export const TicketsPage: React.FC = () => {
 
   // Ticket details modal (read-only)
   const [detailsTicket, setDetailsTicket] = useState<Ticket | null>(null);
+  const [attachmentRefresh, setAttachmentRefresh] = useState(0);
 
   // Status filter
   type StatusFilter = 'all' | 'open' | 'inprogress' | 'done';
@@ -368,7 +338,7 @@ export const TicketsPage: React.FC = () => {
     if (statusFilter === 'open')
       return searchFilteredTickets.filter((t) => !t.status || t.status === 'open');
     if (statusFilter === 'inprogress')
-      return searchFilteredTickets.filter((t) => t.status === 'in-progress' || !!t.startTimestamp);
+      return searchFilteredTickets.filter((t) => t.status === 'in-progress');
     if (statusFilter === 'done')
       return searchFilteredTickets.filter((t) => t.status === 'closed' || t.status === 'reviewed');
     return searchFilteredTickets;
@@ -422,24 +392,6 @@ export const TicketsPage: React.FC = () => {
       setCreateLoading(false);
     }
   }, [createTitle, createGithub, selectedTeamId, refetch]);
-
-  const handleStartStop = useCallback(async (ticket: Ticket) => {
-    const now = Date.now();
-    if (ticket.startTimestamp) {
-      const updated = await ticketApi.stopTimer(ticket.id, now);
-      setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-    } else {
-      const result = await ticketApi.startTimer(ticket.id, now);
-      // Immediately reconcile local state: update the started ticket and any auto-stopped ones.
-      const stoppedById = new Map(result.stoppedTickets.map((s) => [s.id, s]));
-      setTickets((prev) =>
-        prev.map((t) => {
-          if (t.id === result.ticket.id) return result.ticket;
-          return stoppedById.get(t.id) ?? t;
-        }),
-      );
-    }
-  }, []);
 
   const openEditModal = (ticket: Ticket) => {
     setEditTicket(ticket);
@@ -700,10 +652,7 @@ export const TicketsPage: React.FC = () => {
                   key={t.id}
                   ticket={t}
                   isCreator={true}
-                  isAssignee={t.assignedTo === userId}
-                  currentTime={currentTime}
                   assigneeName={getAssigneeName(t.assignedTo)}
-                  onStartStop={handleStartStop}
                   onEditRequest={openEditModal}
                   onDeleteRequest={setDeleteId}
                   onChangeStatusRequest={(ticket) => {
@@ -734,10 +683,7 @@ export const TicketsPage: React.FC = () => {
                   key={t.id}
                   ticket={t}
                   isCreator={false}
-                  isAssignee={t.assignedTo === userId}
-                  currentTime={currentTime}
                   assigneeName={getAssigneeName(t.assignedTo)}
-                  onStartStop={handleStartStop}
                   onEditRequest={openEditModal}
                   onDeleteRequest={setDeleteId}
                   onChangeStatusRequest={(ticket) => {
@@ -852,7 +798,7 @@ export const TicketsPage: React.FC = () => {
             loadingText="Saving…"
             disabled={!editTitle.trim()}
           >
-            Save Changes
+            Save
           </Button>
         </ModalFooter>
       </Modal>
@@ -940,14 +886,6 @@ export const TicketsPage: React.FC = () => {
                     </div>
                   </div>
                 )}
-                <div>
-                  <Text size="xs" variant="muted" weight="medium">
-                    Time Tracked
-                  </Text>
-                  <Text size="sm" className="font-mono">
-                    {formatDuration(detailsTicket.accumulatedTime || 0)}
-                  </Text>
-                </div>
               </div>
               {detailsTicket.github && (
                 <div>
@@ -996,6 +934,16 @@ export const TicketsPage: React.FC = () => {
                   </Text>
                 </div>
               )}
+              <AttachmentsPanel
+                key={attachmentRefresh}
+                kind="ticket"
+                entityId={detailsTicket.id}
+                currentUserId={userId ?? undefined}
+              />
+              <VideoUploadButton
+                ticketId={detailsTicket.id}
+                onUploadComplete={() => setAttachmentRefresh((n) => n + 1)}
+              />
             </div>
           </ModalBody>
           <ModalFooter>

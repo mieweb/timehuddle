@@ -132,7 +132,7 @@ describe("POST /v1/tickets", () => {
       method: "POST",
       url: "/v1/tickets",
       headers: { cookie: ownerCookie },
-      payload: { teamId, title: "My first ticket", github: "", accumulatedTime: 0 },
+      payload: { teamId, title: "My first ticket", github: "" },
     });
     expect(res.statusCode).toBe(201);
     const { ticket } = res.json();
@@ -142,6 +142,9 @@ describe("POST /v1/tickets", () => {
     expect(ticket.createdBy).toBe(ownerId);
     expect(ticket.assignedTo).toBe(ownerId);
     expect(ticket.teamId).toBe(teamId);
+    // Timer fields must NOT be present on ticket
+    expect(ticket.accumulatedTime).toBeUndefined();
+    expect(ticket.startTimestamp).toBeUndefined();
   });
 
   it("creates a ticket as a regular member (not admin) — 201", async () => {
@@ -313,137 +316,6 @@ describe("DELETE /v1/tickets/:id", () => {
   });
 });
 
-// ─── Timer ────────────────────────────────────────────────────────────────────
-
-describe("ticket timer (start / stop)", () => {
-  let ticketId: string;
-
-  beforeAll(async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/v1/tickets",
-      headers: { cookie: ownerCookie },
-      payload: { teamId, title: "Timer ticket", accumulatedTime: 10 },
-    });
-    ticketId = res.json().ticket.id;
-  });
-
-  it("start sets startTimestamp — 200", async () => {
-    const now = Date.now();
-    const res = await app.inject({
-      method: "POST",
-      url: `/v1/tickets/${ticketId}/start`,
-      headers: { cookie: ownerCookie },
-      payload: { now },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ticket.startTimestamp).toBe(now);
-    expect(Array.isArray(res.json().stoppedTickets)).toBe(true);
-  });
-
-  it("non-owner cannot start timer — 403", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: `/v1/tickets/${ticketId}/start`,
-      headers: { cookie: memberCookie },
-      payload: { now: Date.now() },
-    });
-    expect(res.statusCode).toBe(403);
-  });
-
-  it("stop accumulates elapsed time and clears startTimestamp — 200", async () => {
-    // Simulate 30 seconds passing
-    const startNow = Date.now() - 30_000;
-    await app.inject({
-      method: "POST",
-      url: `/v1/tickets/${ticketId}/start`,
-      headers: { cookie: ownerCookie },
-      payload: { now: startNow },
-    });
-
-    const stopNow = startNow + 30_000;
-    const res = await app.inject({
-      method: "POST",
-      url: `/v1/tickets/${ticketId}/stop`,
-      headers: { cookie: ownerCookie },
-      payload: { now: stopNow },
-    });
-    expect(res.statusCode).toBe(200);
-    const { ticket } = res.json();
-    // initial 10s + 30s elapsed = 40s
-    expect(ticket.accumulatedTime).toBe(40);
-    expect(ticket.startTimestamp).toBeNull();
-  });
-});
-
-// ─── Auto-stop: only one timer at a time ──────────────────────────────────────
-
-describe("starting a timer auto-stops any other running timer (owner)", () => {
-  let timerA: string;
-  let timerB: string;
-
-  beforeAll(async () => {
-    const [rA, rB] = await Promise.all([
-      app.inject({
-        method: "POST",
-        url: "/v1/tickets",
-        headers: { cookie: ownerCookie },
-        payload: { teamId, title: "Auto-stop A", accumulatedTime: 5 },
-      }),
-      app.inject({
-        method: "POST",
-        url: "/v1/tickets",
-        headers: { cookie: ownerCookie },
-        payload: { teamId, title: "Auto-stop B", accumulatedTime: 0 },
-      }),
-    ]);
-    timerA = rA.json().ticket.id;
-    timerB = rB.json().ticket.id;
-  });
-
-  it("starting B auto-stops A and returns stoppedTickets", async () => {
-    // Start A first
-    const startA = Date.now() - 10_000;
-    await app.inject({
-      method: "POST",
-      url: `/v1/tickets/${timerA}/start`,
-      headers: { cookie: ownerCookie },
-      payload: { now: startA },
-    });
-
-    // Now start B — should auto-stop A
-    const startB = startA + 10_000;
-    const res = await app.inject({
-      method: "POST",
-      url: `/v1/tickets/${timerB}/start`,
-      headers: { cookie: ownerCookie },
-      payload: { now: startB },
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = res.json();
-
-    // B is now running
-    expect(body.ticket.id).toBe(timerB);
-    expect(body.ticket.startTimestamp).toBe(startB);
-
-    // A was auto-stopped and returned in stoppedTickets
-    expect(body.stoppedTickets).toHaveLength(1);
-    const stoppedA = body.stoppedTickets[0];
-    expect(stoppedA.id).toBe(timerA);
-    expect(stoppedA.startTimestamp).toBeNull();
-    // initial 5s + 10s elapsed = 15s
-    expect(stoppedA.accumulatedTime).toBe(15);
-  });
-
-  it("only one timer running after start — A has no startTimestamp", async () => {
-    const db = client.db();
-    const { ObjectId: ObjId } = await import("mongodb");
-    const docA = await db.collection("tickets").findOne({ _id: new ObjId(timerA) });
-    expect(docA?.startTimestamp).toBeUndefined();
-  });
-});
-
 // ─── Batch Status ─────────────────────────────────────────────────────────────
 
 describe("POST /v1/tickets/batch-status", () => {
@@ -563,125 +435,5 @@ describe("PUT /v1/tickets/:id/assign", () => {
       payload: { assignedToUserId: memberId },
     });
     expect(res.statusCode).toBe(403);
-  });
-});
-
-// ─── Timer permission model: assignee-aware access control ───────────────────
-//
-// New rule: if a ticket has an assignee, only that assignee can start/stop the
-// timer. If it has no assignee, only the creator can.
-
-describe("ticket timer — assignee permission model", () => {
-  // Ticket created by owner, then assigned to member
-  let assignedTicketId: string;
-  // Ticket created by owner with no assignee
-  let unassignedTicketId: string;
-
-  beforeAll(async () => {
-    // Create two tickets owned by the owner
-    const [rAssigned, rUnassigned] = await Promise.all([
-      app.inject({
-        method: "POST",
-        url: "/v1/tickets",
-        headers: { cookie: ownerCookie },
-        payload: { teamId, title: "Assigned timer ticket" },
-      }),
-      app.inject({
-        method: "POST",
-        url: "/v1/tickets",
-        headers: { cookie: ownerCookie },
-        payload: { teamId, title: "Unassigned timer ticket" },
-      }),
-    ]);
-    assignedTicketId = rAssigned.json().ticket.id;
-    unassignedTicketId = rUnassigned.json().ticket.id;
-
-    // Assign the first ticket to the member
-    await app.inject({
-      method: "PUT",
-      url: `/v1/tickets/${assignedTicketId}/assign`,
-      headers: { cookie: ownerCookie },
-      payload: { assignedToUserId: memberId },
-    });
-  });
-
-  // ── Assigned ticket ──────────────────────────────────────────────────────────
-
-  it("assigned member can start timer on assigned ticket — 200", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: `/v1/tickets/${assignedTicketId}/start`,
-      headers: { cookie: memberCookie },
-      payload: { now: Date.now() },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ticket.startTimestamp).toBeDefined();
-  });
-
-  it("assigned member can stop timer on assigned ticket — 200", async () => {
-    const now = Date.now();
-    const res = await app.inject({
-      method: "POST",
-      url: `/v1/tickets/${assignedTicketId}/stop`,
-      headers: { cookie: memberCookie },
-      payload: { now },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ticket.startTimestamp).toBeNull();
-  });
-
-  it("non-assignee (creator/owner) cannot start timer on assigned ticket — 403", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: `/v1/tickets/${assignedTicketId}/start`,
-      headers: { cookie: ownerCookie },
-      payload: { now: Date.now() },
-    });
-    expect(res.statusCode).toBe(403);
-  });
-
-  it("outsider cannot start timer on assigned ticket — 403", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: `/v1/tickets/${assignedTicketId}/start`,
-      headers: { cookie: outsiderCookie },
-      payload: { now: Date.now() },
-    });
-    expect(res.statusCode).toBe(403);
-  });
-
-  // ── Unassigned ticket ────────────────────────────────────────────────────────
-
-  it("creator can start timer on unassigned ticket — 200", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: `/v1/tickets/${unassignedTicketId}/start`,
-      headers: { cookie: ownerCookie },
-      payload: { now: Date.now() },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ticket.startTimestamp).toBeDefined();
-  });
-
-  it("non-creator member cannot start timer on unassigned ticket — 403", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: `/v1/tickets/${unassignedTicketId}/start`,
-      headers: { cookie: memberCookie },
-      payload: { now: Date.now() },
-    });
-    expect(res.statusCode).toBe(403);
-  });
-
-  it("creator can stop timer on unassigned ticket — 200", async () => {
-    const now = Date.now();
-    const res = await app.inject({
-      method: "POST",
-      url: `/v1/tickets/${unassignedTicketId}/stop`,
-      headers: { cookie: ownerCookie },
-      payload: { now },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ticket.startTimestamp).toBeNull();
   });
 });

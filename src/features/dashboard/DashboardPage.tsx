@@ -255,7 +255,6 @@ export const DashboardPage: React.FC = () => {
                       </Text>
                       <Text variant="muted" size="xs" className="mt-0.5">
                         {team?.isPersonal ? 'Personal' : (team?.name ?? 'Unknown')}
-                        {event.tickets.length > 0 && ` • ${event.tickets.length} ticket(s)`}
                       </Text>
                     </div>
                     <Badge variant="secondary" size="sm">

@@ -6,17 +6,11 @@ export const createTicketSchema = z.object({
   teamId: z.string().min(1),
   title: z.string().trim().min(1, 'Title is required').max(500, 'Title too long'),
   github: z.string().max(1000).default(''),
-  accumulatedTime: z.number().min(0).default(0),
 });
 
 export const updateTicketSchema = z.object({
   ticketId: z.string().min(1),
   updates: z.record(z.string(), z.unknown()),
-});
-
-export const ticketTimerSchema = z.object({
-  ticketId: z.string().min(1),
-  now: z.number(),
 });
 
 export const batchUpdateStatusSchema = z.object({
@@ -32,7 +26,6 @@ export const assignTicketSchema = z.object({
 
 export type CreateTicketInput = z.infer<typeof createTicketSchema>;
 export type UpdateTicketInput = z.infer<typeof updateTicketSchema>;
-export type TicketTimerInput = z.infer<typeof ticketTimerSchema>;
 export type BatchUpdateStatusInput = z.infer<typeof batchUpdateStatusSchema>;
 export type AssignTicketInput = z.infer<typeof assignTicketSchema>;
 
@@ -43,8 +36,6 @@ export interface TicketDoc {
   teamId: string;
   title: string;
   github: string;
-  accumulatedTime: number;
-  startTimestamp?: number;
   createdBy: string;
   assignedTo: string | null;
   status?: string;

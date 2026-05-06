@@ -5,6 +5,7 @@ import cors from "@fastify/cors";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { connectDB } from "./lib/db.js";
+import { ensureIndexes } from "./lib/ensure-indexes.js";
 import { auth } from "./lib/auth.js";
 import { appContext } from "./middleware/app-context.js";
 import { healthRoutes } from "./routes/health.js";
@@ -12,10 +13,12 @@ import { userRoutes } from "./routes/users.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { teamRoutes } from "./routes/teams.js";
 import { clockRoutes } from "./routes/clock.js";
+import { timerRoutes } from "./routes/timers.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { attachmentRoutes } from "./routes/attachments.js";
 import { messageRoutes } from "./routes/messages.js";
 import { activityRoutes } from "./routes/activity.js";
+import { pulseVaultRoutes, pulseVaultCompatRoutes } from "./routes/pulsevault.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? true });
@@ -400,16 +403,23 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(teamRoutes, { prefix: "/v1" });
   await app.register(ticketRoutes, { prefix: "/v1" });
   await app.register(clockRoutes, { prefix: "/v1" });
+  await app.register(timerRoutes, { prefix: "/v1" });
   await app.register(notificationRoutes, { prefix: "/v1" });
   await app.register(attachmentRoutes, { prefix: "/v1" });
+  await app.register(pulseVaultRoutes, { prefix: "/v1" });
   await app.register(messageRoutes, { prefix: "/v1" });
   await app.register(activityRoutes, { prefix: "/v1" });
+
+  // Compat: old Pulse Cam configs saved the bare server URL (http://host:4000) and call
+  // POST /reserve, POST /upload, PATCH /upload/:id etc. at root level.
+  await app.register(pulseVaultCompatRoutes);
 
   return app;
 }
 
 async function bootstrap() {
   await connectDB();
+  await ensureIndexes();
   const app = await buildApp();
   const port = Number(process.env.PORT) || 4000;
   await app.listen({ port, host: "0.0.0.0" });
