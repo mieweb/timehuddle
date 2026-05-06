@@ -691,6 +691,11 @@ export interface WeekDay {
   totalSeconds: number;
 }
 
+/** Returns the browser's IANA timezone string (e.g. "America/New_York"). */
+function clientTz(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
 export const timerApi = {
   /** Create a WorkItem for the given ticket + date. */
   createEntry: (data: { ticketId: string; date: string; note?: string }) =>
@@ -734,16 +739,20 @@ export const timerApi = {
   getRunning: () => request<{ session: Timer | null }>('/v1/timers/running').then((r) => r.session),
 
   /** Get all entries + sessions for a local day (YYYY-MM-DD). */
-  getDay: (date: string) =>
-    request<{ entries: DayEntry[] }>(`/v1/timers/day?date=${encodeURIComponent(date)}`).then(
-      (r) => r.entries,
-    ),
+  getDay: (date: string) => {
+    const tz = clientTz();
+    return request<{ entries: DayEntry[] }>(
+      `/v1/timers/day?date=${encodeURIComponent(date)}&tz=${encodeURIComponent(tz)}`,
+    ).then((r) => r.entries);
+  },
 
   /** Get 7-day totals for the week starting at the given date (YYYY-MM-DD). */
-  getWeek: (date: string) =>
-    request<{ days: WeekDay[] }>(`/v1/timers/week?date=${encodeURIComponent(date)}`).then(
-      (r) => r.days,
-    ),
+  getWeek: (date: string) => {
+    const tz = clientTz();
+    return request<{ days: WeekDay[] }>(
+      `/v1/timers/week?date=${encodeURIComponent(date)}&tz=${encodeURIComponent(tz)}`,
+    ).then((r) => r.days);
+  },
 
   /** Get total seconds for a ticket from all closed Timers. */
   getTicketTotal: (ticketId: string) =>
