@@ -27,9 +27,17 @@ export function pulseServerBase(): string {
   return `${TIMECORE_BASE_URL.replace(/\/$/, '')}/v1/video`;
 }
 
-/** Build the pulsecam:// deep link entirely client-side from the configured backend URL. */
-function buildUploadDeepLink(videoid: string): string {
-  const params = new URLSearchParams({ mode: 'upload', videoid, server: pulseServerBase() });
+/** Build the pulsecam:// deep link entirely client-side from the configured backend URL.
+ * The token is forwarded by Pulse Cam as Authorization: Bearer, allowing the
+ * upload to pass the server's authorize hook without a session cookie.
+ */
+function buildUploadDeepLink(videoid: string, token: string): string {
+  const params = new URLSearchParams({
+    mode: 'upload',
+    videoid,
+    server: pulseServerBase(),
+    token,
+  });
   return `pulsecam://?${params.toString()}`;
 }
 
@@ -101,10 +109,10 @@ export const VideoUploadButton: React.FC<VideoUploadButtonProps> = ({
     setReserving(true);
     setError(null);
     try {
-      const { videoid } = await videoApi.reserve(ticketId);
+      const { videoid, token } = await videoApi.reserve(ticketId);
       // Build deep link client-side so it always uses TIMECORE_BASE_URL
       // (the same URL the Capacitor app already talks to).
-      const link = buildUploadDeepLink(videoid);
+      const link = buildUploadDeepLink(videoid, token);
       setVideoid(videoid);
       setUploadLink(link);
       return { videoid, uploadLink: link };

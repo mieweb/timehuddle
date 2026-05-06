@@ -8,7 +8,11 @@ import { requireAuth } from "../middleware/require-auth.js";
 import { auth } from "../lib/auth.js";
 import { ticketService } from "../services/ticket.service.js";
 import { attachmentService } from "../services/attachment.service.js";
-import { reserveVideo, consumeReservation } from "../services/video-reserve.service.js";
+import {
+  reserveVideo,
+  consumeReservation,
+  verifyReservationToken,
+} from "../services/video-reserve.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.resolve(__dirname, "../../data/videos");
@@ -19,6 +23,16 @@ const storage = createLocalStorage({ workspaceDir: dataDir });
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function authorizeHandler(request: any, ctx: any) {
   if (ctx.phase === "resolve") return;
+
+  // Pulse Cam forwards the deep-link token as Authorization: Bearer <token>.
+  // Accept it if it matches the one-time token stored with the reservation.
+  const bearer = (request.headers["authorization"] as string | undefined)
+    ?.replace(/^Bearer\s+/i, "")
+    .trim();
+  if (bearer && verifyReservationToken(ctx.videoid, bearer)) {
+    return;
+  }
+
   const session = await auth.api.getSession({
     headers: fromNodeHeaders(request.headers as Record<string, string | string[]>),
   });
@@ -95,6 +109,7 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
             type: "object",
             properties: {
               videoid: { type: "string" },
+              token: { type: "string" },
             },
           },
           404: {
@@ -114,8 +129,8 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
       }
 
       const videoid = randomUUID();
-      reserveVideo(videoid, ticketId, userId);
-      return reply.status(201).send({ videoid });
+      const token = reserveVideo(videoid, ticketId, userId);
+      return reply.status(201).send({ videoid, token });
     }
   );
 
