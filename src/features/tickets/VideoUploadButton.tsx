@@ -10,6 +10,7 @@ import {
   ModalTitle,
   Text,
 } from '@mieweb/ui';
+import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import { QRCodeSVG } from 'qrcode.react';
 import * as tus from 'tus-js-client';
@@ -52,27 +53,49 @@ export const VideoUploadButton: React.FC<VideoUploadButtonProps> = ({
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reserving, setReserving] = useState(false);
+  // Native-only: true while polling for an upload that was kicked off via deep link.
+  const [nativePolling, setNativePolling] = useState(false);
 
-  // Poll every 3 s while QR modal is open to detect uploads from the phone.
+  // Poll every 3 s while the QR modal is open (web) OR while waiting for Pulse
+  // Cam to finish on native.  On native we also fire an immediate check when the
+  // app returns to the foreground via Capacitor's appStateChange event.
   useEffect(() => {
-    if (!modalOpen) return;
-    const interval = setInterval(async () => {
+    const active = modalOpen || nativePolling;
+    if (!active) return;
+
+    const checkForNewUpload = async () => {
       try {
         const attachments = await attachmentApi.list('ticket', ticketId);
         const hasNew = attachments.some(
           (a) => a.type === 'video' && !knownAttachmentIds.current.has(a.id),
         );
         if (hasNew) {
-          clearInterval(interval);
           setModalOpen(false);
+          setNativePolling(false);
           onUploadComplete();
         }
       } catch {
         // ignore transient polling errors
       }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [modalOpen, ticketId, onUploadComplete]);
+    };
+
+    const interval = setInterval(checkForNewUpload, 3000);
+
+    // On native, also fire immediately when the user switches back from Pulse Cam.
+    let appListener: Awaited<ReturnType<typeof App.addListener>> | null = null;
+    if (nativePolling) {
+      App.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) checkForNewUpload();
+      }).then((l) => {
+        appListener = l;
+      });
+    }
+
+    return () => {
+      clearInterval(interval);
+      appListener?.remove();
+    };
+  }, [modalOpen, nativePolling, ticketId, onUploadComplete]);
 
   const doReserve = async (): Promise<{ videoid: string; uploadLink: string } | null> => {
     setReserving(true);
@@ -98,9 +121,16 @@ export const VideoUploadButton: React.FC<VideoUploadButtonProps> = ({
     if (!res) return;
 
     if (isNative) {
-      // On native Capacitor: open the Pulse deep link directly.
-      // Pulse is sideloaded via EAS — must be installed first.
+      // On native Capacitor: seed known IDs, open Pulse Cam via deep link,
+      // then start polling so we detect the upload when the user returns.
+      try {
+        const existing = await attachmentApi.list('ticket', ticketId);
+        knownAttachmentIds.current = new Set(existing.map((a) => a.id));
+      } catch {
+        knownAttachmentIds.current = new Set();
+      }
       window.open(res.uploadLink, '_system');
+      setNativePolling(true);
     } else {
       // On web: seed known attachment IDs, then show QR modal.
       try {
