@@ -12,7 +12,6 @@ import { Capacitor } from '@capacitor/core';
 import { QRCodeSVG } from 'qrcode.react';
 import React from 'react';
 
-import { TIMECORE_BASE_URL } from '../../lib/api';
 import { pulseServerBase } from './VideoUploadButton';
 
 function buildConfigureLink(): string {
@@ -27,7 +26,7 @@ function buildConfigureLink(): string {
 export const PulseSetup: React.FC = () => {
   const isNative = Capacitor.isNativePlatform();
   const deepLink = buildConfigureLink();
-  const serverBase = `${TIMECORE_BASE_URL.replace(/\/$/, '')}/v1/video`;
+  const serverBase = pulseServerBase();
 
   const handleOpen = () => {
     window.open(deepLink, '_system');

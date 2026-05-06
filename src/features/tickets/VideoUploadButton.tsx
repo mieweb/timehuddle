@@ -19,11 +19,12 @@ import { attachmentApi, TIMECORE_BASE_URL, sessionToken, videoApi } from '../../
 
 /**
  * The Pulse Cam server base for deep links.
- * Pulse Cam appends /upload to this URL for TUS uploads, so we point it at
- * the pulsevault plugin prefix (/v1/video) rather than the API root.
+ * Points at the API root so Pulse Cam uses the unauthenticated compat TUS
+ * path (/reserve, /upload) — Pulse Cam has no session token to authenticate
+ * with the versioned /v1/video path.
  */
 export function pulseServerBase(): string {
-  return `${TIMECORE_BASE_URL.replace(/\/$/, '')}/v1/video`;
+  return TIMECORE_BASE_URL.replace(/\/$/, '');
 }
 
 /** Build the pulsecam:// deep link entirely client-side from the configured backend URL. */
