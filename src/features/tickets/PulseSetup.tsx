@@ -36,8 +36,9 @@ export const PulseSetup: React.FC = () => {
   return (
     <div className="pulse-setup flex flex-col gap-4 px-5 py-4">
       <Text size="sm" className="text-muted-foreground">
-        Scan with your phone camera or tap <strong className="text-foreground">Open in Pulse App</strong> to
-        add <strong className="text-foreground">TimeHuddle</strong> as an upload server. After
+        Scan with your phone camera or tap{' '}
+        <strong className="text-foreground">Open in Pulse App</strong> to add{' '}
+        <strong className="text-foreground">TimeHuddle</strong> as an upload server. After
         configuring, scan any ticket&apos;s upload QR to record and upload directly.
       </Text>
 
@@ -81,8 +82,8 @@ export const PulseSetup: React.FC = () => {
       <div className="pulse-setup-hint flex items-start gap-2">
         <FontAwesomeIcon icon={faQrcode} className="mt-0.5 shrink-0 text-muted-foreground" />
         <Text size="xs" className="text-muted-foreground">
-          After saving the server, go to a ticket and tap <strong className="text-foreground">Upload Video</strong> to
-          get a per-ticket QR code.
+          After saving the server, go to a ticket and tap{' '}
+          <strong className="text-foreground">Upload Video</strong> to get a per-ticket QR code.
         </Text>
       </div>
     </div>
