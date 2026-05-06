@@ -1,5 +1,7 @@
 import webpush from "web-push";
 import apn from "@parse/node-apn";
+import { initializeApp, getApps, cert } from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
 import { ObjectId } from "mongodb";
 import { pushSubscriptionsCollection, deviceTokensCollection } from "../models/index.js";
 import type { PushSubscription } from "../models/push-subscription.model.js";
@@ -31,6 +33,37 @@ function ensureApns(): apn.Provider | null {
   } catch (err: any) {
     console.warn("[push] APNs init failed:", err.message);
     return null;
+  }
+}
+
+// ─── FCM init ────────────────────────────────────────────────────────────────
+
+// Module-level promise so concurrent callers share a single initialization
+// attempt and cannot race initializeApp() (which throws on duplicate default apps).
+let _fcmInitPromise: Promise<boolean> | null = null;
+
+function ensureFcm(): Promise<boolean> {
+  if (!_fcmInitPromise) _fcmInitPromise = _initFcm();
+  return _fcmInitPromise;
+}
+
+async function _initFcm(): Promise<boolean> {
+  const encoded = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!encoded) {
+    console.warn("[push] FIREBASE_SERVICE_ACCOUNT not set — Android FCM disabled");
+    return false;
+  }
+  if (getApps().length > 0) return true;
+  try {
+    const json = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
+    initializeApp({ credential: cert(json) });
+    console.log("[push] Firebase Admin initialized ok");
+    return true;
+  } catch (err: any) {
+    console.warn("[push] Firebase Admin init failed:", err.message);
+    // Reset so a misconfiguration fix (e.g. env var update + restart) can retry.
+    _fcmInitPromise = null;
+    return false;
   }
 }
 
@@ -109,7 +142,7 @@ class PushService {
     await deviceTokensCollection().updateOne({ userId }, { $pull: { tokens: { token } } });
   }
 
-  /** Upsert a web push (VAPID) subscription for a user. */
+  /** Replace all web push (VAPID) subscriptions for a user with the new one. */
   async saveWebPush(
     userId: string,
     sub: {
@@ -123,6 +156,11 @@ class PushService {
 
     // Remove this endpoint from any other user first (browser account-switch safety).
     await col.deleteMany({ userId: { $ne: userId }, type: "webpush", endpoint: sub.endpoint });
+
+    // Replace all previous web subscriptions for this user with the new endpoint.
+    // Each call to subscribeToWebPush() creates a new browser endpoint — keeping
+    // stale ones causes batches of 410 errors on every push send.
+    await col.deleteMany({ userId, type: "webpush", endpoint: { $ne: sub.endpoint } });
 
     await col.updateOne(
       { userId, type: "webpush", endpoint: sub.endpoint },
@@ -152,7 +190,7 @@ class PushService {
   /**
    * Send a push notification to all of a user's devices.
    * - iOS device tokens → APNs directly
-   * - Android device tokens → not yet implemented (logged, skipped)
+   * - Android device tokens → FCM via Firebase Admin
    * - Web push subscriptions → VAPID
    */
   async sendToUser(userId: string, payload: PushPayload): Promise<void> {
@@ -176,10 +214,8 @@ class PushService {
     for (const entry of tokens) {
       if (entry.platform === "ios") {
         tasks.push(this._sendApns(provider, userId, entry.token, payload));
-      } else {
-        console.warn(
-          `[push] Android push not yet implemented — skipping token ${entry.token.slice(0, 16)}…`
-        );
+      } else if (entry.platform === "android") {
+        tasks.push(this._sendFcm(userId, entry.token, payload));
       }
     }
 
@@ -199,6 +235,37 @@ class PushService {
   /** @deprecated Use sendToUser — kept for backwards compat with existing call sites. */
   async sendPush(userId: string, payload: PushPayload): Promise<void> {
     return this.sendToUser(userId, payload);
+  }
+
+  private async _sendFcm(userId: string, token: string, payload: PushPayload): Promise<void> {
+    if (!(await ensureFcm())) return;
+    try {
+      console.log(`[push] sending FCM to token ${token.slice(0, 16)}…`);
+      await getMessaging().send({
+        token,
+        notification: { title: payload.title, body: payload.body },
+        android: {
+          notification: {
+            sound: "default",
+            ...(payload.tag ? { tag: payload.tag } : {}),
+          },
+        },
+        data: payload.data
+          ? Object.fromEntries(Object.entries(payload.data).map(([k, v]) => [k, String(v)]))
+          : undefined,
+      });
+      console.log("[push] FCM sent ok");
+    } catch (err: any) {
+      const code = err?.errorInfo?.code ?? err?.code ?? "";
+      console.error(`[push] FCM error code=${code} message=${err.message}`);
+      if (
+        code === "messaging/registration-token-not-registered" ||
+        code === "messaging/invalid-registration-token"
+      ) {
+        await this.removeDeviceToken(userId, token);
+        console.log("[push] removed stale FCM token");
+      }
+    }
   }
 
   private async _sendApns(

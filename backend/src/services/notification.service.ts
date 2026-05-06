@@ -1,6 +1,7 @@
 import { ObjectId } from "mongodb";
 import { notificationsCollection, teamsCollection, usersCollection } from "../models/index.js";
 import type { Notification, PublicNotification } from "../models/notification.model.js";
+import { pushService } from "./push.service.js";
 
 // ─── SSE pub/sub ──────────────────────────────────────────────────────────────
 
@@ -66,6 +67,14 @@ class NotificationService {
     await notificationsCollection().insertOne(doc);
     const pub = toPublic(doc);
     broadcastToUser(data.userId, pub);
+    pushService
+      .sendToUser(data.userId, {
+        title: data.title,
+        body: data.body,
+        tag: data.notificationData?.type as string | undefined,
+        data: data.notificationData,
+      })
+      .catch((err) => console.error("[push] sendToUser failed:", err));
     return pub;
   }
 
