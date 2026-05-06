@@ -154,9 +154,11 @@ test.describe('PulseVault — Settings QR', () => {
     const qr = page.locator('[aria-label="QR code to configure Pulse Cam with TimeHuddle"]');
     await expect(qr).toBeVisible();
 
-    // The server URL code element should show /v1/video in the server base
+    // The server URL code element must show the backend root URL (no /v1/video path).
+    // PulseCam uses the unauthenticated /reserve and /upload routes at root level.
     const serverCode = page.locator('.pulse-setup-meta code').first();
-    await expect(serverCode).toContainText('/v1/video');
+    await expect(serverCode).toContainText('http');
+    await expect(serverCode).not.toContainText('/v1/video');
   });
 
   test('Deep link shown in settings encodes correct mode and server', async ({ page }) => {
@@ -164,7 +166,8 @@ test.describe('PulseVault — Settings QR', () => {
     const deepLinkCode = page.locator('.pulse-setup-meta code').nth(1);
     const deepLink = await deepLinkCode.textContent();
     expect(deepLink).toContain('mode=configure_destination');
-    expect(deepLink).toContain('v1%2Fvideo'); // URL-encoded /v1/video
+    // server param must be the backend root — NOT /v1/video (that path requires auth)
+    expect(deepLink).not.toContain('v1%2Fvideo');
     expect(deepLink).toContain('name=TimeHuddle');
   });
 
