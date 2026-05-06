@@ -37,7 +37,7 @@ import {
   subscribeToPush,
   unsubscribeFromPush,
 } from '../lib/nativePush';
-import { authApi, userApi, TIMECORE_BASE_URL, sessionToken } from '../lib/api';
+import { authApi, userApi, notificationApi } from '../lib/api';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useBrand, BRANDS } from '../lib/useBrand';
@@ -198,14 +198,11 @@ const PushNotificationsSettings: React.FC = () => {
   const handleTestPush = async () => {
     setLoading(true);
     try {
-      const token = sessionToken.get();
-      const res = await fetch(`${TIMECORE_BASE_URL}/v1/notifications/test-push`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      window.alert('Test push sent! You should see a browser notification within a few seconds.');
+      await notificationApi.testPush();
+      const successMsg = isNative
+        ? 'Test push sent! You should receive a notification on this device.'
+        : 'Test push sent! You should see a browser notification within a few seconds.';
+      window.alert(successMsg);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       window.alert(`Failed to send test push: ${msg}`);

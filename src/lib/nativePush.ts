@@ -99,7 +99,7 @@ const PUSH_PROMPTED_KEY = 'timehuddle_push_prompted_v1';
  * @param userId The signed-in user's ID — the prompted flag is scoped per-user
  *   so each account on a shared device gets its own opt-in chance.
  */
-export async function autoRegisterNativePush(userId: string): Promise<void> {
+export async function autoRegisterPush(userId: string): Promise<void> {
   if (!Capacitor.isNativePlatform()) {
     await _autoRegisterWeb(userId);
     return;

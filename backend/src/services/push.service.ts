@@ -38,7 +38,16 @@ function ensureApns(): apn.Provider | null {
 
 // ─── FCM init ────────────────────────────────────────────────────────────────
 
-function ensureFcm(): boolean {
+// Module-level promise so concurrent callers share a single initialization
+// attempt and cannot race initializeApp() (which throws on duplicate default apps).
+let _fcmInitPromise: Promise<boolean> | null = null;
+
+function ensureFcm(): Promise<boolean> {
+  if (!_fcmInitPromise) _fcmInitPromise = _initFcm();
+  return _fcmInitPromise;
+}
+
+async function _initFcm(): Promise<boolean> {
   const encoded = process.env.FIREBASE_SERVICE_ACCOUNT;
   if (!encoded) {
     console.warn("[push] FIREBASE_SERVICE_ACCOUNT not set — Android FCM disabled");
@@ -52,6 +61,8 @@ function ensureFcm(): boolean {
     return true;
   } catch (err: any) {
     console.warn("[push] Firebase Admin init failed:", err.message);
+    // Reset so a misconfiguration fix (e.g. env var update + restart) can retry.
+    _fcmInitPromise = null;
     return false;
   }
 }
@@ -179,7 +190,7 @@ class PushService {
   /**
    * Send a push notification to all of a user's devices.
    * - iOS device tokens → APNs directly
-   * - Android device tokens → not yet implemented (logged, skipped)
+   * - Android device tokens → FCM via Firebase Admin
    * - Web push subscriptions → VAPID
    */
   async sendToUser(userId: string, payload: PushPayload): Promise<void> {
@@ -227,7 +238,7 @@ class PushService {
   }
 
   private async _sendFcm(userId: string, token: string, payload: PushPayload): Promise<void> {
-    if (!ensureFcm()) return;
+    if (!await ensureFcm()) return;
     try {
       console.log(`[push] sending FCM to token ${token.slice(0, 16)}…`);
       await getMessaging().send({

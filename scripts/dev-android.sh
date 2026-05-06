@@ -21,18 +21,31 @@ BACKEND_PORT=4000
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ── 1. Detect LAN IP ──────────────────────────────────────────────────────────
-IP=""
-for iface in en0 en1 en2; do
-  CANDIDATE=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
-  if [[ -n "$CANDIDATE" ]]; then
-    IP="$CANDIDATE"
-    break
-  fi
-done
+IP="${DEV_LAN_IP:-}"
+
+# macOS: try en0/en1/en2 via ipconfig
+if [[ -z "$IP" ]] && command -v ipconfig >/dev/null 2>&1; then
+  for iface in en0 en1 en2; do
+    CANDIDATE=$(ipconfig getifaddr "$iface" 2>/dev/null || true)
+    if [[ -n "$CANDIDATE" ]]; then
+      IP="$CANDIDATE"
+      break
+    fi
+  done
+fi
+
+# Linux: try ip route, then hostname -I
+if [[ -z "$IP" ]] && command -v ip >/dev/null 2>&1; then
+  IP=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ { for(i=1;i<=NF;i++) if($i=="src") { print $(i+1); exit } }' || true)
+fi
+
+if [[ -z "$IP" ]] && command -v hostname >/dev/null 2>&1; then
+  IP=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
+fi
 
 if [[ -z "$IP" ]]; then
   echo "ERROR: Could not detect a LAN IP address." >&2
-  echo "       Make sure you are connected to Wi-Fi and try again." >&2
+  echo "       Set DEV_LAN_IP=<your-ip> to override, or ensure Wi-Fi is connected." >&2
   exit 1
 fi
 
