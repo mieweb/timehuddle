@@ -771,6 +771,18 @@ export const timerApi = {
     }).then((r) => r.created),
 };
 
+
+// ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
+
+export const videoApi = {
+  /** Reserve a videoid on the server before starting a TUS upload. */
+  reserve: (ticketId: string) =>
+    request<{ videoid: string }>('/v1/pulsevault/reserve', {
+      method: 'POST',
+      body: JSON.stringify({ ticketId }),
+    }),
+};
+
 // ─── Activity Log ─────────────────────────────────────────────────────────────
 
 export interface ActivityLogItem {
