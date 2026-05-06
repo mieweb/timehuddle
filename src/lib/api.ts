@@ -776,7 +776,7 @@ export const timerApi = {
 export const videoApi = {
   /** Reserve a videoid on the server before starting a TUS upload. */
   reserve: (ticketId: string) =>
-    request<{ videoid: string }>('/v1/pulsevault/reserve', {
+    request<{ videoid: string; token: string }>('/v1/pulsevault/reserve', {
       method: 'POST',
       body: JSON.stringify({ ticketId }),
     }),
