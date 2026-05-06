@@ -54,6 +54,8 @@ import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { AttachmentsPanel } from '../clock/AttachmentsPanel';
+import { VideoUploadButton } from './VideoUploadButton';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -441,6 +443,7 @@ export const TicketsPage: React.FC = () => {
 
   // Ticket details modal (read-only)
   const [detailsTicket, setDetailsTicket] = useState<Ticket | null>(null);
+  const [attachmentRefresh, setAttachmentRefresh] = useState(0);
 
   // Status filter: open vs closed (GitHub style)
   type StatusFilter = 'open' | 'closed';
@@ -1069,6 +1072,16 @@ export const TicketsPage: React.FC = () => {
                   </Text>
                 </div>
               )}
+              <AttachmentsPanel
+                key={attachmentRefresh}
+                kind="ticket"
+                entityId={detailsTicket.id}
+                currentUserId={userId ?? undefined}
+              />
+              <VideoUploadButton
+                ticketId={detailsTicket.id}
+                onUploadComplete={() => setAttachmentRefresh((n) => n + 1)}
+              />
             </div>
           </ModalBody>
           <ModalFooter>

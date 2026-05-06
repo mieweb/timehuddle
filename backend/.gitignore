@@ -33,3 +33,6 @@ logs/
 # Coverage & test artifacts
 coverage/
 .nyc_output/
+
+# Uploaded video files
+data/videos/
