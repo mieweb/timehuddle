@@ -238,7 +238,7 @@ class PushService {
   }
 
   private async _sendFcm(userId: string, token: string, payload: PushPayload): Promise<void> {
-    if (!await ensureFcm()) return;
+    if (!(await ensureFcm())) return;
     try {
       console.log(`[push] sending FCM to token ${token.slice(0, 16)}…`);
       await getMessaging().send({
