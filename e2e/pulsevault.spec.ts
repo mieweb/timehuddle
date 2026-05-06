@@ -67,11 +67,26 @@ async function deleteTicket(page: Page, title: string) {
 function makeDemoMp4(): Buffer {
   // ftyp box: size=20, type="ftyp", brand="mp42", version=0, compat="mp42"
   const ftyp = Buffer.from([
-    0x00, 0x00, 0x00, 0x14, // box size = 20
-    0x66, 0x74, 0x79, 0x70, // "ftyp"
-    0x6d, 0x70, 0x34, 0x32, // major brand "mp42"
-    0x00, 0x00, 0x00, 0x00, // minor version
-    0x6d, 0x70, 0x34, 0x32, // compatible brand "mp42"
+    0x00,
+    0x00,
+    0x00,
+    0x14, // box size = 20
+    0x66,
+    0x74,
+    0x79,
+    0x70, // "ftyp"
+    0x6d,
+    0x70,
+    0x34,
+    0x32, // major brand "mp42"
+    0x00,
+    0x00,
+    0x00,
+    0x00, // minor version
+    0x6d,
+    0x70,
+    0x34,
+    0x32, // compatible brand "mp42"
   ]);
   // mdat box: size=8, type="mdat", empty payload
   const mdat = Buffer.from([0x00, 0x00, 0x00, 0x08, 0x6d, 0x64, 0x61, 0x74]);
@@ -149,15 +164,13 @@ test.describe('PulseVault — Settings QR', () => {
     const deepLinkCode = page.locator('.pulse-setup-meta code').nth(1);
     const deepLink = await deepLinkCode.textContent();
     expect(deepLink).toContain('mode=configure_destination');
-    expect(deepLink).toContain('v1%2Fvideo');   // URL-encoded /v1/video
+    expect(deepLink).toContain('v1%2Fvideo'); // URL-encoded /v1/video
     expect(deepLink).toContain('name=TimeHuddle');
   });
 
   test('"Open in Pulse App" button is present', async ({ page }) => {
     // Match by aria-label since the text also appears in the description <strong>.
-    await expect(
-      page.getByRole('button', { name: /open pulse cam.*configure/i }),
-    ).toBeVisible();
+    await expect(page.getByRole('button', { name: /open pulse cam.*configure/i })).toBeVisible();
   });
 });
 
@@ -239,18 +252,14 @@ test.describe('PulseVault — Ticket video upload', () => {
 
     // "Upload from this device" button should be present as fallback
     // aria-label is "Upload video from this device instead"; match by text content.
-    await expect(
-      page.locator('button', { hasText: 'Upload from this device' }),
-    ).toBeVisible();
+    await expect(page.locator('button', { hasText: 'Upload from this device' })).toBeVisible();
 
     // Verify the /v1/pulsevault/reserve endpoint was called by checking the
     // reserve endpoint returns a UUID (api health check)
     const res = await request.post(`${BACKEND_URL}/v1/video/reserve`);
     expect(res.status()).toBe(200);
     const { videoid } = await res.json();
-    expect(videoid).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
+    expect(videoid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 
   test('direct MP4 upload from device completes and creates attachment', async ({ page }) => {

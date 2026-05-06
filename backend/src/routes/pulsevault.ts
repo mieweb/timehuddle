@@ -2,10 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import pulseVault, {
-  createLocalStorage,
-  createMp4Sniffer,
-} from "@mieweb/pulsevault";
+import pulseVault, { createLocalStorage, createMp4Sniffer } from "@mieweb/pulsevault";
 import { fromNodeHeaders } from "better-auth/node";
 import { requireAuth } from "../middleware/require-auth.js";
 import { auth } from "../lib/auth.js";
@@ -78,7 +75,6 @@ export async function pulseVaultCompatRoutes(app: FastifyInstance) {
 }
 
 export async function pulseVaultRoutes(app: FastifyInstance) {
-
   // POST /v1/pulsevault/reserve — authenticated users reserve a videoid for a ticket.
   app.post(
     "/pulsevault/reserve",
