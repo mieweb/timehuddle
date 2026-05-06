@@ -425,15 +425,13 @@ export class TimerService {
     for (let i = 0; i < 7; i++) {
       const d = new Date(Date.UTC(year!, month! - 1, day! + i));
       const dateStr = d.toISOString().slice(0, 10);
-      const { start, end } = localDayBounds(dateStr, tz);
-
-      // Sum closed timers for this user in this local day
+      // Sum closed timers for this user on this local calendar day (matched by date field)
       const agg = await timersCollection()
         .aggregate<{ total: number }>([
           {
             $match: {
               userId,
-              startTime: { $gte: start, $lt: end },
+              date: dateStr,
               endTime: { $ne: null },
             },
           },
@@ -441,12 +439,9 @@ export class TimerService {
         ])
         .toArray();
 
-      // Add running timer time if any
-      const running = await timersCollection().findOne({ userId, endTime: null });
-      const runningSeconds =
-        running && running.startTime >= start && running.startTime < end
-          ? Math.floor((now - running.startTime) / 1000)
-          : 0;
+      // Add running timer time if any — match by date field, not epoch bounds
+      const running = await timersCollection().findOne({ userId, date: dateStr, endTime: null });
+      const runningSeconds = running ? Math.floor((now - running.startTime) / 1000) : 0;
 
       results.push({
         date: dateStr,

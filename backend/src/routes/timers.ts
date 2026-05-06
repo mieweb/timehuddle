@@ -206,12 +206,12 @@ export async function timerRoutes(app: FastifyInstance) {
 
       let session = null;
       if (startNow) {
-        const startResult = await timerService.startTimer(userId, ticketId, Date.now());
-        if (
-          startResult !== "not-found" &&
-          startResult !== "forbidden" &&
-          startResult !== "already-running"
-        ) {
+        const startResult = await timerService.startTimerForEntry(
+          userId,
+          entryResult._id.toHexString(),
+          Date.now()
+        );
+        if (startResult !== "not-found" && startResult !== "forbidden") {
           session = toPublicSession(startResult.session);
         }
       }
@@ -514,8 +514,7 @@ export async function timerRoutes(app: FastifyInstance) {
         durationSeconds,
         ticketId,
       });
-      if (result === "not-found")
-        return reply.status(404).send({ error: "WorkItem not found" });
+      if (result === "not-found") return reply.status(404).send({ error: "WorkItem not found" });
       if (result === "ticket-not-found")
         return reply.status(422).send({ error: "Ticket not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
