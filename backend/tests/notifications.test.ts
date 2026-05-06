@@ -441,3 +441,49 @@ describe("POST /v1/notifications/push-unsubscribe", () => {
     await pushSubscriptionsCollection().deleteMany({ userId: userBId });
   });
 });
+
+// ─── POST /v1/notifications/push-subscribe — re-subscribe replaces stale endpoint ──
+
+describe("POST /v1/notifications/push-subscribe — endpoint replacement", () => {
+  afterAll(async () => {
+    await pushSubscriptionsCollection().deleteMany({ userId: userAId });
+  });
+
+  it("re-subscribing with a new endpoint removes the old one (prevents stale 410s)", async () => {
+    // Register first endpoint
+    await inject("POST", "/v1/notifications/push-subscribe", cookieA, {
+      type: "webpush",
+      endpoint: "https://push.example.com/old-endpoint",
+      keys: { p256dh: "a".repeat(10), auth: "b".repeat(10) },
+    });
+
+    // Register a new endpoint — the old one should be deleted
+    await inject("POST", "/v1/notifications/push-subscribe", cookieA, {
+      type: "webpush",
+      endpoint: "https://push.example.com/new-endpoint",
+      keys: { p256dh: "c".repeat(10), auth: "d".repeat(10) },
+    });
+
+    const subs = await pushSubscriptionsCollection()
+      .find({ userId: userAId, type: "webpush" })
+      .toArray();
+
+    expect(subs).toHaveLength(1);
+    expect(subs[0].endpoint).toBe("https://push.example.com/new-endpoint");
+  });
+});
+
+// ─── POST /v1/notifications/test-push ────────────────────────────────────────
+
+describe("POST /v1/notifications/test-push", () => {
+  it("401 without auth", async () => {
+    const res = await inject("POST", "/v1/notifications/test-push", "");
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("200 for authenticated user", async () => {
+    const res = await inject("POST", "/v1/notifications/test-push", cookieA);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+  });
+});
