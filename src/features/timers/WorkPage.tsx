@@ -39,7 +39,7 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ApiError,
@@ -106,6 +106,7 @@ function entryTotalSeconds(sessions: Timer[], now: number): number {
 export const WorkPage: React.FC = () => {
   const { teams, teamsReady, currentTime, selectedTeamId } = useTeam();
   const { isClockedIn, clockIn, clockInLoading } = useClockToggle();
+  const previousClockedInRef = useRef(isClockedIn);
 
   // Selected day (local YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState<string>(toLocalDateStr(new Date()));
@@ -216,6 +217,16 @@ export const WorkPage: React.FC = () => {
   useEffect(() => {
     void fetchDay();
   }, [fetchDay]);
+
+  useEffect(() => {
+    const previousClockedIn = previousClockedInRef.current;
+    previousClockedInRef.current = isClockedIn;
+
+    if (previousClockedIn === isClockedIn || !isToday) return;
+
+    void fetchDay();
+    void fetchWeekTotals();
+  }, [fetchDay, fetchWeekTotals, isClockedIn, isToday]);
 
   // ── Handlers ──
 
