@@ -778,7 +778,7 @@ export const WorkPage: React.FC = () => {
         </Card>
       )}
 
-      {isFuture && dayEntries.length === 0 && (
+      {(isToday || isFuture) && dayEntries.length === 0 && (
         <div className="flex justify-start">
           <Button
             variant="ghost"
