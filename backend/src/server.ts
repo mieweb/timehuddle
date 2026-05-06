@@ -5,6 +5,7 @@ import cors from "@fastify/cors";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { connectDB } from "./lib/db.js";
+import { ensureIndexes } from "./lib/ensure-indexes.js";
 import { auth } from "./lib/auth.js";
 import { appContext } from "./middleware/app-context.js";
 import { healthRoutes } from "./routes/health.js";
@@ -12,9 +13,11 @@ import { userRoutes } from "./routes/users.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { teamRoutes } from "./routes/teams.js";
 import { clockRoutes } from "./routes/clock.js";
-import { messageRoutes } from "./routes/messages.js";
+import { timerRoutes } from "./routes/timers.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { attachmentRoutes } from "./routes/attachments.js";
+import { messageRoutes } from "./routes/messages.js";
+import { activityRoutes } from "./routes/activity.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? true });
@@ -44,7 +47,6 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
           name: "Clock",
           description: "Clock in/out, ticket timers, timesheet, and SSE live stream",
         },
-        { name: "Messages", description: "Admin-member threaded messaging and SSE stream" },
         {
           name: "Notifications",
           description: "User notification inbox, mark-read, delete, and SSE stream",
@@ -53,6 +55,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
           name: "Attachments",
           description: "Generic media attachments for clock entries and tickets",
         },
+        { name: "Messages", description: "Admin-member threaded messaging and SSE stream" },
+        { name: "Activity", description: "Unified activity log for user and team events" },
       ],
     },
   });
@@ -398,15 +402,18 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(teamRoutes, { prefix: "/v1" });
   await app.register(ticketRoutes, { prefix: "/v1" });
   await app.register(clockRoutes, { prefix: "/v1" });
-  await app.register(messageRoutes, { prefix: "/v1" });
+  await app.register(timerRoutes, { prefix: "/v1" });
   await app.register(notificationRoutes, { prefix: "/v1" });
   await app.register(attachmentRoutes, { prefix: "/v1" });
+  await app.register(messageRoutes, { prefix: "/v1" });
+  await app.register(activityRoutes, { prefix: "/v1" });
 
   return app;
 }
 
 async function bootstrap() {
   await connectDB();
+  await ensureIndexes();
   const app = await buildApp();
   const port = Number(process.env.PORT) || 4000;
   await app.listen({ port, host: "0.0.0.0" });

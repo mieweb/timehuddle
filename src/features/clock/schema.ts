@@ -11,12 +11,6 @@ export const clockEventStopSchema = z.object({
   youtubeShortLink: z.string().optional(),
 });
 
-export const clockEventTicketSchema = z.object({
-  clockEventId: z.string().min(1),
-  ticketId: z.string().min(1),
-  now: z.number(),
-});
-
 export const updateClockEventTimesSchema = z.object({
   clockEventId: z.string().min(1),
   startTime: z.number().optional(),
@@ -36,23 +30,10 @@ export const timesheetQuerySchema = z.object({
 
 export type ClockEventStartInput = z.infer<typeof clockEventStartSchema>;
 export type ClockEventStopInput = z.infer<typeof clockEventStopSchema>;
-export type ClockEventTicketInput = z.infer<typeof clockEventTicketSchema>;
 export type UpdateClockEventTimesInput = z.infer<typeof updateClockEventTimesSchema>;
 export type TimesheetQueryInput = z.infer<typeof timesheetQuerySchema>;
 
 // ─── Document types ───────────────────────────────────────────────────────────
-
-export interface TicketSession {
-  startTimestamp: number;
-  endTimestamp: number | null;
-}
-
-export interface ClockEventTicket {
-  ticketId: string;
-  startTimestamp?: number;
-  accumulatedTime: number;
-  sessions?: TicketSession[];
-}
 
 export interface ClockEventDoc {
   _id?: string;
@@ -60,7 +41,6 @@ export interface ClockEventDoc {
   teamId: string;
   startTime: number;
   accumulatedTime: number;
-  tickets: ClockEventTicket[];
   endTime: number | null;
   youtubeShortLink?: string;
 }

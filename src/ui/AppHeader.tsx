@@ -44,8 +44,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ title }) => {
 
         {/* ── Right ── */}
         <div className="flex items-center gap-2">
-          <UserDropdown />
           <TeamSelector />
+          <UserDropdown />
         </div>
       </div>
     </header>

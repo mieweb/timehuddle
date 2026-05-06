@@ -1,6 +1,8 @@
 import { ObjectId } from "mongodb";
-import { teamsCollection, ticketsCollection } from "../models/index.js";
+import { teamsCollection, ticketsCollection, usersCollection } from "../models/index.js";
 import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
+import { notificationService } from "./notification.service.js";
+import { pushService } from "./push.service.js";
 
 type OwnerError = "not-found" | "forbidden";
 type AssignError = "not-found" | "forbidden" | "bad-assignee";
@@ -32,7 +34,6 @@ export class TicketService {
     teamId: string;
     title: string;
     github: string;
-    accumulatedTime: number;
     createdBy: string;
   }): Promise<{ id: string } | "forbidden"> {
     if (!isValidId(data.teamId)) return "forbidden";
@@ -46,7 +47,6 @@ export class TicketService {
       teamId: data.teamId,
       title: data.title,
       github: data.github,
-      accumulatedTime: data.accumulatedTime,
       status: "open",
       createdBy: data.createdBy,
       assignedTo: data.createdBy,
@@ -58,7 +58,7 @@ export class TicketService {
   async update(
     id: string,
     userId: string,
-    updates: Partial<Pick<Ticket, "title" | "github" | "accumulatedTime" | "description">>
+    updates: Partial<Pick<Ticket, "title" | "github" | "description">>
   ): Promise<Ticket | OwnerError> {
     const ticket = await this.findById(id);
     if (!ticket) return "not-found";
@@ -103,78 +103,6 @@ export class TicketService {
       { $set: { status: "deleted" as TicketStatus, updatedAt: new Date() } }
     );
     return "ok";
-  }
-
-  async startTimer(
-    id: string,
-    userId: string,
-    now: number
-  ): Promise<{ ticket: Ticket; stoppedTickets: Ticket[] } | OwnerError> {
-    const ticket = await this.findById(id);
-    if (!ticket) return "not-found";
-    if (ticket.createdBy !== userId) return "forbidden";
-
-    // Stop any other running timers owned by this user before starting the new one.
-    const running = await ticketsCollection()
-      .find({
-        createdBy: userId,
-        startTimestamp: { $exists: true },
-        _id: { $ne: new ObjectId(id) },
-      })
-      .toArray();
-
-    const stoppedTickets: Ticket[] = [];
-    if (running.length > 0) {
-      // Batch all stops into a single bulkWrite round-trip.
-      const bulkOps = running.map((other) => {
-        const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
-        const newAccumulatedTime = (other.accumulatedTime ?? 0) + elapsed;
-        return {
-          updateOne: {
-            filter: { _id: other._id },
-            update: {
-              $set: { accumulatedTime: newAccumulatedTime },
-              $unset: { startTimestamp: 1 as const },
-            },
-          },
-        };
-      });
-      await ticketsCollection().bulkWrite(bulkOps);
-
-      // Build stopped-ticket objects from in-memory data to avoid extra DB reads.
-      for (const other of running) {
-        const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
-        const stopped: Ticket = {
-          ...other,
-          accumulatedTime: (other.accumulatedTime ?? 0) + elapsed,
-        };
-        delete stopped.startTimestamp;
-        stoppedTickets.push(stopped);
-      }
-    }
-
-    const started = await ticketsCollection().findOneAndUpdate(
-      { _id: new ObjectId(id) },
-      { $set: { startTimestamp: now } },
-      { returnDocument: "after" }
-    );
-    if (!started) return "not-found";
-    return { ticket: started, stoppedTickets };
-  }
-
-  async stopTimer(id: string, userId: string, now: number): Promise<Ticket | OwnerError> {
-    const ticket = await this.findById(id);
-    if (!ticket) return "not-found";
-    if (ticket.createdBy !== userId) return "forbidden";
-    if (ticket.startTimestamp != null) {
-      const elapsed = Math.floor((now - ticket.startTimestamp) / 1000);
-      const prev = ticket.accumulatedTime ?? 0;
-      await ticketsCollection().updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { accumulatedTime: prev + elapsed }, $unset: { startTimestamp: "" } }
-      );
-    }
-    return (await this.findById(id))!;
   }
 
   async batchUpdateStatus(
@@ -228,7 +156,49 @@ export class TicketService {
       { _id: new ObjectId(id) },
       { $set: { assignedTo: assignedToUserId, updatedAt: new Date(), updatedBy: requesterId } }
     );
-    return (await this.findById(id))!;
+    const updated = (await this.findById(id))!;
+
+    // Notify the assignee (skip if unassigning or assigning to self)
+    if (assignedToUserId && assignedToUserId !== requesterId) {
+      const requester = await usersCollection().findOne({ _id: new ObjectId(requesterId) });
+      const requesterName = requester?.name ?? requester?.email?.split("@")[0] ?? "Someone";
+      await Promise.all([
+        notificationService
+          .create({
+            userId: assignedToUserId,
+            title: "TiméHuddle",
+            body: `${requesterName} assigned you "${ticket.title}"`,
+            notificationData: {
+              type: "ticket-assigned",
+              assignedBy: requesterId,
+              assignedByName: requesterName,
+              ticketId: id,
+              ticketTitle: ticket.title,
+              teamId: ticket.teamId,
+              url: `/app/tickets`,
+            },
+          })
+          .catch(() => {}),
+        pushService
+          .sendPush(assignedToUserId, {
+            title: `Ticket assigned to you`,
+            body: `${requesterName} assigned you "${ticket.title}"`,
+            tag: `ticket-assigned-${id}`,
+            data: {
+              type: "ticket-assigned",
+              assignedBy: requesterId,
+              assignedByName: requesterName,
+              ticketId: id,
+              ticketTitle: ticket.title,
+              teamId: ticket.teamId,
+              url: `/app/tickets`,
+            },
+          })
+          .catch(() => {}),
+      ]);
+    }
+
+    return updated;
   }
 }
 

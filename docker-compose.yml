@@ -11,6 +11,19 @@ services:
       timeout: 5s
       retries: 5
 
+  mongo-express:
+    image: mongo-express:latest
+    ports:
+      - '8081:8081'
+    environment:
+      - ME_CONFIG_MONGODB_SERVER=mongodb
+      - ME_CONFIG_MONGODB_PORT=27017
+      - ME_CONFIG_BASICAUTH=false
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
   mailpit:
     image: axllent/mailpit:latest
     ports:

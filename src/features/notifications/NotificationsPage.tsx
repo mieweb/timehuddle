@@ -18,7 +18,6 @@ import {
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { notificationApi, type Notification, type TeamInvitePreview } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
@@ -50,10 +49,9 @@ function normalizeAppPath(path: string): string {
     '/teams': '/app/teams',
     '/tickets': '/app/tickets',
     '/notifications': '/app/notifications',
-    '/messages': '/app/messages',
   };
   if (direct[path]) return direct[path];
-  if (path.startsWith('/member/')) return '/app/messages';
+  if (path.startsWith('/member/')) return '/app/clock';
   return `/app${path}`;
 }
 
@@ -81,25 +79,6 @@ function resolveNotificationTarget(
   if (data.type === 'auto-clock-out') {
     navigate('/app/tickets');
     return;
-  }
-  if (data.type === 'message') {
-    if (typeof data.threadId === 'string') {
-      const parts = (data.threadId as string).split(':');
-      if (parts.length >= 3) {
-        const teamId = parts[0]!;
-        const adminId = parts[1]!;
-        const memberId = parts[2]!;
-        try {
-          sessionStorage.setItem(
-            MESSAGES_PENDING_THREAD_KEY,
-            JSON.stringify({ teamId, adminId, memberId }),
-          );
-        } catch {
-          /* ignore quota */
-        }
-      }
-    }
-    navigate('/app/messages');
   }
 }
 
