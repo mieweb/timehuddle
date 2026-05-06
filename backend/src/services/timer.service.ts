@@ -416,7 +416,7 @@ export class TimerService {
   async getWeekTotals(
     userId: string,
     weekStartDate: string,
-    tz: string
+    _tz: string
   ): Promise<Array<{ date: string; totalSeconds: number }>> {
     const [year, month, day] = weekStartDate.split("-").map(Number);
     const results: Array<{ date: string; totalSeconds: number }> = [];
