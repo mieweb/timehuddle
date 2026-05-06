@@ -1,6 +1,6 @@
 import type { Db } from "mongodb";
 
-export const name = "002-remove-legacy-timer-fields";
+export const name = "003-remove-legacy-timer-fields";
 
 export async function up(db: Db): Promise<void> {
   // Remove accumulatedTime and startTimestamp from all ticket documents
