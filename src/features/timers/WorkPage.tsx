@@ -475,23 +475,27 @@ export const WorkPage: React.FC = () => {
           {weekRangeLabel}
         </Text>
         <div className="flex items-center gap-1 flex-shrink-0">
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={handlePrevWeek}
             aria-label="Previous week"
-            className="rounded-lg p-2 hover:bg-muted transition-colors flex-shrink-0"
+            className="flex-shrink-0"
           >
             <FontAwesomeIcon icon={faChevronLeft} className="text-xs" />
-          </button>
+          </Button>
           <Button variant="ghost" size="sm" onClick={handleGoToToday} aria-label="Go to today">
             Today
           </Button>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={handleNextWeek}
             aria-label="Next week"
-            className="rounded-lg p-2 hover:bg-muted transition-colors flex-shrink-0"
+            className="flex-shrink-0"
           >
             <FontAwesomeIcon icon={faChevronRight} className="text-xs" />
-          </button>
+          </Button>
         </div>
       </div>
 
