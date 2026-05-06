@@ -11,6 +11,8 @@ import type { EncryptedOpLogBatch } from "./encrypted-oplog.model.js";
 import type { RecoveryKeyStatus } from "./recovery-key-status.model.js";
 import type { PushSubscription } from "./push-subscription.model.js";
 import type { UserDeviceTokens } from "./device-token.model.js";
+import type { WorkItem } from "./work-item.model.js";
+import type { Timer } from "./timer.model.js";
 import type { ActivityEvent } from "./activity.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
@@ -71,6 +73,16 @@ export function pushSubscriptionsCollection() {
 // Device push tokens (one doc per user, tokens stored as array)
 export function deviceTokensCollection() {
   return getDB().collection<UserDeviceTokens>("devicetokens");
+}
+
+// Work items — one row per user × ticket × calendar day
+export function workItemsCollection() {
+  return getDB().collection<WorkItem>("workitems");
+}
+
+// Timers — the canonical ledger of work segments
+export function timersCollection() {
+  return getDB().collection<Timer>("timers");
 }
 
 // Activity log
