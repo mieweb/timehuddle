@@ -378,21 +378,32 @@ export class TimerService {
 
     // Use UTC date as a prefilter, then refine with timezone-aware boundaries
     const entries = await workItemsCollection().find({ userId, date: dateStr }).toArray();
+    if (entries.length === 0) return [];
 
-    const results: Array<{ entry: WorkItem; sessions: Timer[] }> = [];
+    const entryIds = entries.map((entry) => entry._id.toHexString());
+    const sessions = await timersCollection()
+      .find({
+        userId,
+        workItemId: { $in: entryIds },
+        startTime: { $gte: start, $lt: end },
+      })
+      .sort({ startTime: 1 })
+      .toArray();
 
-    for (const entry of entries) {
-      const sessions = await timersCollection()
-        .find({
-          workItemId: entry._id.toHexString(),
-          startTime: { $gte: start, $lt: end },
-        })
-        .sort({ startTime: 1 })
-        .toArray();
-      results.push({ entry, sessions });
+    const sessionsByWorkItemId = new Map<string, Timer[]>();
+    for (const session of sessions) {
+      const workItemSessions = sessionsByWorkItemId.get(session.workItemId);
+      if (workItemSessions) {
+        workItemSessions.push(session);
+      } else {
+        sessionsByWorkItemId.set(session.workItemId, [session]);
+      }
     }
 
-    return results;
+    return entries.map((entry) => ({
+      entry,
+      sessions: sessionsByWorkItemId.get(entry._id.toHexString()) ?? [],
+    }));
   }
 
   /**
