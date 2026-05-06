@@ -496,6 +496,7 @@ export async function timerRoutes(app: FastifyInstance) {
           200: { type: "object", properties: { entry: entryShape } },
           403: err("Forbidden"),
           404: err("WorkItem not found"),
+          422: err("Ticket not found"),
         },
       },
     },
@@ -513,8 +514,10 @@ export async function timerRoutes(app: FastifyInstance) {
         durationSeconds,
         ticketId,
       });
-      if (result === "not-found" || result === "ticket-not-found")
+      if (result === "not-found")
         return reply.status(404).send({ error: "WorkItem not found" });
+      if (result === "ticket-not-found")
+        return reply.status(422).send({ error: "Ticket not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
 
       const updatedTicket = await ticketsCollection().findOne(
