@@ -8,11 +8,7 @@ import { requireAuth } from "../middleware/require-auth.js";
 import { auth } from "../lib/auth.js";
 import { ticketService } from "../services/ticket.service.js";
 import { attachmentService } from "../services/attachment.service.js";
-import {
-  reserveVideo,
-  consumeReservation,
-  verifyReservationToken,
-} from "../services/video-reserve.service.js";
+import { reserveVideo, consumeReservation } from "../services/video-reserve.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.resolve(__dirname, "../../data/videos");
@@ -23,16 +19,6 @@ const storage = createLocalStorage({ workspaceDir: dataDir });
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function authorizeHandler(request: any, ctx: any) {
   if (ctx.phase === "resolve") return;
-
-  // Pulse Cam forwards the deep-link token as Authorization: Bearer <token>.
-  // Accept it if it matches the one-time token stored with the reservation.
-  const bearer = (request.headers["authorization"] as string | undefined)
-    ?.replace(/^Bearer\s+/i, "")
-    .trim();
-  if (bearer && verifyReservationToken(ctx.videoid, bearer)) {
-    return;
-  }
-
   const session = await auth.api.getSession({
     headers: fromNodeHeaders(request.headers as Record<string, string | string[]>),
   });
@@ -102,6 +88,12 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
           required: ["ticketId"],
           properties: {
             ticketId: { type: "string", pattern: "^[0-9a-f]{24}$" },
+            // Optional: client passes an existing videoid to re-register an in-progress
+            // recording session (e.g. after PulseCam is closed and reopened).
+            videoid: {
+              type: "string",
+              pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            },
           },
         },
         response: {
@@ -109,7 +101,6 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
             type: "object",
             properties: {
               videoid: { type: "string" },
-              token: { type: "string" },
             },
           },
           404: {
@@ -120,7 +111,10 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const { ticketId } = req.body as { ticketId: string };
+      const { ticketId, videoid: existingVideoid } = req.body as {
+        ticketId: string;
+        videoid?: string;
+      };
       const userId = req.user!.id;
 
       const ticket = await ticketService.findById(ticketId);
@@ -128,9 +122,12 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
         return reply.status(404).send({ error: "Ticket not found" });
       }
 
-      const videoid = randomUUID();
-      const token = reserveVideo(videoid, ticketId, userId);
-      return reply.status(201).send({ videoid, token });
+      // Re-use a client-supplied videoid when the user is resuming a recording session
+      // (e.g. PulseCam was closed before uploading and is now being reopened).
+      // This keeps PulseCam's local segments associated with the same ticket.
+      const videoid = existingVideoid ?? randomUUID();
+      reserveVideo(videoid, ticketId, userId);
+      return reply.status(201).send({ videoid });
     }
   );
 

@@ -10,7 +10,6 @@ import {
   ModalTitle,
   Text,
 } from '@mieweb/ui';
-import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import { QRCodeSVG } from 'qrcode.react';
 import * as tus from 'tus-js-client';
@@ -27,18 +26,42 @@ export function pulseServerBase(): string {
   return `${TIMECORE_BASE_URL.replace(/\/$/, '')}/v1/video`;
 }
 
-/** Build the pulsecam:// deep link entirely client-side from the configured backend URL.
- * The token is forwarded by Pulse Cam as Authorization: Bearer, allowing the
- * upload to pass the server's authorize hook without a session cookie.
- */
-function buildUploadDeepLink(videoid: string, token: string): string {
-  const params = new URLSearchParams({
-    mode: 'upload',
-    videoid,
-    server: pulseServerBase(),
-    token,
-  });
+/** Build the pulsecam:// deep link entirely client-side from the configured backend URL. */
+function buildUploadDeepLink(videoid: string): string {
+  const params = new URLSearchParams({ mode: 'upload', videoid, server: pulseServerBase() });
   return `pulsecam://?${params.toString()}`;
+}
+
+// ─── Per-ticket videoid persistence ──────────────────────────────────────────
+// Persisting the videoid in localStorage means that if the user closes PulseCam
+// before uploading and then reopens it from the same ticket, the exact same
+// videoid (and therefore the same PulseCam session with its recorded segments)
+// is reused rather than starting fresh.
+
+const PULSEVAULT_STORAGE_PREFIX = 'pulsevault:ticket:';
+
+function getStoredVideoid(ticketId: string): string | null {
+  try {
+    return localStorage.getItem(`${PULSEVAULT_STORAGE_PREFIX}${ticketId}`);
+  } catch {
+    return null;
+  }
+}
+
+function setStoredVideoid(ticketId: string, videoid: string): void {
+  try {
+    localStorage.setItem(`${PULSEVAULT_STORAGE_PREFIX}${ticketId}`, videoid);
+  } catch {
+    // localStorage may be unavailable in some native contexts — degrade gracefully.
+  }
+}
+
+function clearStoredVideoid(ticketId: string): void {
+  try {
+    localStorage.removeItem(`${PULSEVAULT_STORAGE_PREFIX}${ticketId}`);
+  } catch {
+    // ignore
+  }
 }
 
 interface VideoUploadButtonProps {
@@ -61,58 +84,41 @@ export const VideoUploadButton: React.FC<VideoUploadButtonProps> = ({
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reserving, setReserving] = useState(false);
-  // Native-only: true while polling for an upload that was kicked off via deep link.
-  const [nativePolling, setNativePolling] = useState(false);
 
-  // Poll every 3 s while the QR modal is open (web) OR while waiting for Pulse
-  // Cam to finish on native.  On native we also fire an immediate check when the
-  // app returns to the foreground via Capacitor's appStateChange event.
+  // Poll every 3 s while QR modal is open to detect uploads from the phone.
   useEffect(() => {
-    const active = modalOpen || nativePolling;
-    if (!active) return;
-
-    const checkForNewUpload = async () => {
+    if (!modalOpen) return;
+    const interval = setInterval(async () => {
       try {
         const attachments = await attachmentApi.list('ticket', ticketId);
         const hasNew = attachments.some(
           (a) => a.type === 'video' && !knownAttachmentIds.current.has(a.id),
         );
         if (hasNew) {
+          clearInterval(interval);
+          clearStoredVideoid(ticketId);
           setModalOpen(false);
-          setNativePolling(false);
           onUploadComplete();
         }
       } catch {
         // ignore transient polling errors
       }
-    };
-
-    const interval = setInterval(checkForNewUpload, 3000);
-
-    // On native, also fire immediately when the user switches back from Pulse Cam.
-    let appListener: Awaited<ReturnType<typeof App.addListener>> | null = null;
-    if (nativePolling) {
-      App.addListener('appStateChange', ({ isActive }) => {
-        if (isActive) checkForNewUpload();
-      }).then((l) => {
-        appListener = l;
-      });
-    }
-
-    return () => {
-      clearInterval(interval);
-      appListener?.remove();
-    };
-  }, [modalOpen, nativePolling, ticketId, onUploadComplete]);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [modalOpen, ticketId, onUploadComplete]);
 
   const doReserve = async (): Promise<{ videoid: string; uploadLink: string } | null> => {
     setReserving(true);
     setError(null);
     try {
-      const { videoid, token } = await videoApi.reserve(ticketId);
+      // Re-use any videoid already stored for this ticket so PulseCam can resume
+      // a recording session that was interrupted before uploading.
+      const existingVideoid = getStoredVideoid(ticketId) ?? undefined;
+      const { videoid } = await videoApi.reserve(ticketId, existingVideoid);
+      setStoredVideoid(ticketId, videoid);
       // Build deep link client-side so it always uses TIMECORE_BASE_URL
       // (the same URL the Capacitor app already talks to).
-      const link = buildUploadDeepLink(videoid, token);
+      const link = buildUploadDeepLink(videoid);
       setVideoid(videoid);
       setUploadLink(link);
       return { videoid, uploadLink: link };
@@ -129,16 +135,9 @@ export const VideoUploadButton: React.FC<VideoUploadButtonProps> = ({
     if (!res) return;
 
     if (isNative) {
-      // On native Capacitor: seed known IDs, open Pulse Cam via deep link,
-      // then start polling so we detect the upload when the user returns.
-      try {
-        const existing = await attachmentApi.list('ticket', ticketId);
-        knownAttachmentIds.current = new Set(existing.map((a) => a.id));
-      } catch {
-        knownAttachmentIds.current = new Set();
-      }
+      // On native Capacitor: open the Pulse deep link directly.
+      // Pulse is sideloaded via EAS — must be installed first.
       window.open(res.uploadLink, '_system');
-      setNativePolling(true);
     } else {
       // On web: seed known attachment IDs, then show QR modal.
       try {
@@ -169,6 +168,7 @@ export const VideoUploadButton: React.FC<VideoUploadButtonProps> = ({
         setProgress(Math.round((bytesUploaded / bytesTotal) * 100));
       },
       onSuccess() {
+        clearStoredVideoid(ticketId);
         setProgress(null);
         onUploadComplete();
       },
