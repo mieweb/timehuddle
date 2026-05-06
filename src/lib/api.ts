@@ -774,11 +774,14 @@ export const timerApi = {
 // ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
 
 export const videoApi = {
-  /** Reserve a videoid on the server before starting a TUS upload. */
-  reserve: (ticketId: string) =>
-    request<{ videoid: string; token: string }>('/v1/pulsevault/reserve', {
+  /** Reserve a videoid on the server before starting a TUS upload.
+   *  Pass `existingVideoid` when resuming a recording session so the backend
+   *  re-registers the same id instead of creating a new one.
+   */
+  reserve: (ticketId: string, existingVideoid?: string) =>
+    request<{ videoid: string }>('/v1/pulsevault/reserve', {
       method: 'POST',
-      body: JSON.stringify({ ticketId }),
+      body: JSON.stringify(existingVideoid ? { ticketId, videoid: existingVideoid } : { ticketId }),
     }),
 };
 
