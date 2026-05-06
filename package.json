@@ -28,8 +28,9 @@
     "dev:ios": "bash scripts/dev-ios.sh",
     "testflight:ios": "vite build --mode testflight && npx cap sync ios && npx cap open ios",
     "prod:ios": "vite build --mode production && npx cap sync ios && npx cap open ios",
-    "dev:android": "vite build --mode capacitor.dev && npx cap sync && npx cap open android",
-    "prod:android": "vite build --mode production && npx cap sync && npx cap open android"
+    "dev:android": "bash scripts/dev-android.sh",
+    "testflight:android": "vite build --mode testflight && npx cap sync android && npx cap open android",
+    "prod:android": "vite build --mode production && npx cap sync android && npx cap open android"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.4",

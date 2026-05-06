@@ -635,6 +635,9 @@ export const notificationApi = {
       body: JSON.stringify({ action }),
     }),
 
+  /** Send a test push notification to the requesting user's devices. */
+  testPush: () => request<{ ok: boolean }>('/v1/notifications/test-push', { method: 'POST' }),
+
   /** Open an SSE stream for new notifications. */
   openStream: (): EventSource => {
     const token = sessionToken.get();
