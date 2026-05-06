@@ -715,3 +715,170 @@ describe("ClockEvent no longer has tickets[]", () => {
     await inject("POST", "/v1/clock/stop", cookieA, { teamId });
   });
 });
+
+// ─── Timezone pitfalls: local date vs UTC epoch ───────────────────────────────
+//
+// These tests guard against the class of bug where a timer's `date` field
+// (local calendar day string used by getDayEntries) diverges from the
+// startTime epoch window used by getWeekTotals, causing entries to appear
+// in the week strip but be invisible in the day view (or vice-versa).
+
+describe("timezone: timer date field stays consistent with WorkItem date", () => {
+  it("timer inherits the WorkItem date, not a UTC-derived date from startTime", async () => {
+    const db = client.db();
+
+    // Use a fixed date string that simulates a "local" date
+    const localDate = "2099-07-15";
+    const createRes = await inject("POST", "/v1/timers/entries", cookieA, {
+      ticketId,
+      date: localDate,
+    });
+    expect(createRes.statusCode).toBe(201);
+    const eId = createRes.json().entry.id;
+
+    // Start a timer with a `now` that in UTC maps to the *previous* calendar day
+    // (e.g. 23:00 UTC = 00:00 local UTC+1 — the WorkItem date is correct, timer must match)
+    const startRes = await inject("POST", `/v1/timers/entries/${eId}/start`, cookieA, {
+      now: Date.now(),
+    });
+    expect(startRes.statusCode).toBe(200);
+
+    const timer = await db.collection("timers").findOne({ workItemId: eId, endTime: null });
+    expect(timer).not.toBeNull();
+    // Critical: timer.date must match the WorkItem's local date, not a UTC-derived key
+    expect(timer!.date).toBe(localDate);
+  });
+
+  it("week totals for a date match the timer date field, not startTime epoch", async () => {
+    const db = client.db();
+
+    // Directly insert a WorkItem + Timer simulating what would be stored when
+    // a user's local date is "2099-08-01" but startTime epoch resolves to
+    // "2099-07-31" in UTC (late-night local time ahead of UTC).
+    const localDate = "2099-08-01";
+    const utcPrevDate = "2099-07-31";
+
+    // Build a startTime that is in UTC on utcPrevDate (22:00 UTC on Jul 31 = just-after-midnight local UTC+2)
+    const startTime = new Date(`${utcPrevDate}T22:00:00.000Z`).getTime();
+    const endTime = startTime + 3600_000; // 1 hour later
+    const durationSeconds = 3600;
+
+    const entryId2 = new ObjectId();
+    await db.collection("workitems").insertOne({
+      _id: entryId2,
+      userId: userAId,
+      ticketId,
+      date: localDate,
+      createdAt: new Date(),
+    });
+    await db.collection("timers").insertOne({
+      _id: new ObjectId(),
+      workItemId: entryId2.toHexString(),
+      userId: userAId,
+      date: localDate, // local date — the key that getWeekTotals must query by
+      startTime, // UTC epoch falls on utcPrevDate
+      endTime,
+      durationSeconds,
+      createdAt: new Date(),
+    });
+
+    // Week query with the local Monday that contains localDate (2099-08-01 = Monday)
+    const weekStart = localDate;
+    // Use UTC tz so localDayBounds would differ from the date field for non-UTC users
+    const res = await inject(
+      "GET",
+      `/v1/timers/week?date=${weekStart}&tz=America/New_York`,
+      cookieA
+    );
+    expect(res.statusCode).toBe(200);
+    const { days } = res.json();
+    const aug1 = days.find((d: { date: string }) => d.date === localDate);
+    expect(aug1).toBeDefined();
+
+    // The timer must appear under localDate (2099-08-01), NOT under utcPrevDate (2099-07-31)
+    expect(aug1!.totalSeconds).toBeGreaterThanOrEqual(durationSeconds);
+
+    const jul31 = days.find((d: { date: string }) => d.date === utcPrevDate);
+    // utcPrevDate may not be in this week range at all — only assert if present
+    if (jul31) {
+      expect(jul31.totalSeconds).toBe(0);
+    }
+
+    // Cleanup
+    await db.collection("workitems").deleteOne({ _id: entryId2 });
+    await db.collection("timers").deleteMany({ workItemId: entryId2.toHexString() });
+  });
+
+  it("day view returns timers stored under date field regardless of startTime epoch", async () => {
+    const db = client.db();
+
+    // Same setup: local date "2099-09-01", startTime epoch is on "2099-08-31" UTC
+    const localDate = "2099-09-01";
+    const startTime = new Date("2099-08-31T22:30:00.000Z").getTime();
+    const endTime = startTime + 1800_000;
+    const durationSeconds = 1800;
+
+    const entryId3 = new ObjectId();
+    await db.collection("workitems").insertOne({
+      _id: entryId3,
+      userId: userAId,
+      ticketId,
+      date: localDate,
+      createdAt: new Date(),
+    });
+    await db.collection("timers").insertOne({
+      _id: new ObjectId(),
+      workItemId: entryId3.toHexString(),
+      userId: userAId,
+      date: localDate,
+      startTime,
+      endTime,
+      durationSeconds,
+      createdAt: new Date(),
+    });
+
+    const res = await inject(
+      "GET",
+      `/v1/timers/day?date=${localDate}&tz=America/New_York`,
+      cookieA
+    );
+    expect(res.statusCode).toBe(200);
+    const { entries } = res.json();
+    const match = entries.find(
+      (e: { entry: { id: string } }) => e.entry.id === entryId3.toHexString()
+    );
+    expect(match).toBeDefined();
+    expect(match!.sessions).toHaveLength(1);
+    expect(match!.sessions[0].durationSeconds).toBe(durationSeconds);
+
+    // Cleanup
+    await db.collection("workitems").deleteOne({ _id: entryId3 });
+    await db.collection("timers").deleteMany({ workItemId: entryId3.toHexString() });
+  });
+
+  it("startNow creates timer with WorkItem's date, not a UTC-derived date key", async () => {
+    const db = client.db();
+
+    // A date that diverges from UTC midnight — far future to avoid collisions
+    const localDate = "2099-10-15";
+    const res = await inject("POST", "/v1/timers/entries", cookieA, {
+      ticketId,
+      date: localDate,
+      startNow: true,
+    });
+    expect(res.statusCode).toBe(201);
+
+    const { entry, session } = res.json();
+    // The timer returned must share the WorkItem's date, not a UTC-derived one
+    expect(session).not.toBeNull();
+    expect(session.date).toBe(localDate);
+
+    // Also verify in the DB directly
+    const timer = await db.collection("timers").findOne({ workItemId: entry.id, endTime: null });
+    expect(timer).not.toBeNull();
+    expect(timer!.date).toBe(localDate);
+
+    // Stop the running timer to leave state clean
+    await inject("POST", `/v1/timers/sessions/${session.id}/stop`, cookieA, { now: Date.now() });
+  });
+});
