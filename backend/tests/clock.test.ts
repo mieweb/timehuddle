@@ -385,10 +385,12 @@ describe("GET /v1/clock/timesheet", () => {
 
     const db = client.db();
     const twoMinutesAgo = Date.now() - 120_000;
-    await db.collection("clockevents").updateOne(
-      { _id: new ObjectId(activeEventId) },
-      { $set: { startTime: twoMinutesAgo, accumulatedTime: 30 } }
-    );
+    await db
+      .collection("clockevents")
+      .updateOne(
+        { _id: new ObjectId(activeEventId) },
+        { $set: { startTime: twoMinutesAgo, accumulatedTime: 30 } }
+      );
 
     const startMs = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
     const endMs = new Date(new Date().setHours(23, 59, 59, 999)).getTime();

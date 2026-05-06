@@ -503,14 +503,55 @@ describe("ticket activity log emission", () => {
 
     const activities = await db
       .collection("activities")
-      .find({ userId: ownerId, teamId, "payload.ticketId": { $in: [activityTicketId, batchTicketId] } })
+      .find({
+        userId: ownerId,
+        teamId,
+        "payload.ticketId": { $in: [activityTicketId, batchTicketId] },
+      })
       .toArray();
 
-    expect(activities.some((a) => a.type === "ticket.created" && a.payload.ticketId === activityTicketId)).toBe(true);
-    expect(activities.some((a) => a.type === "ticket.updated" && a.payload.action === "edited" && a.payload.ticketId === activityTicketId)).toBe(true);
-    expect(activities.some((a) => a.type === "ticket.updated" && a.payload.action === "status-priority-changed" && a.payload.ticketId === activityTicketId)).toBe(true);
-    expect(activities.some((a) => a.type === "ticket.updated" && a.payload.action === "assigned" && a.payload.ticketId === activityTicketId)).toBe(true);
-    expect(activities.some((a) => a.type === "ticket.updated" && a.payload.action === "deleted" && a.payload.ticketId === activityTicketId)).toBe(true);
-    expect(activities.some((a) => a.type === "ticket.updated" && a.payload.action === "batch-status-changed" && a.payload.ticketId === batchTicketId)).toBe(true);
+    expect(
+      activities.some((a) => a.type === "ticket.created" && a.payload.ticketId === activityTicketId)
+    ).toBe(true);
+    expect(
+      activities.some(
+        (a) =>
+          a.type === "ticket.updated" &&
+          a.payload.action === "edited" &&
+          a.payload.ticketId === activityTicketId
+      )
+    ).toBe(true);
+    expect(
+      activities.some(
+        (a) =>
+          a.type === "ticket.updated" &&
+          a.payload.action === "status-priority-changed" &&
+          a.payload.ticketId === activityTicketId
+      )
+    ).toBe(true);
+    expect(
+      activities.some(
+        (a) =>
+          a.type === "ticket.updated" &&
+          a.payload.action === "assigned" &&
+          a.payload.ticketId === activityTicketId
+      )
+    ).toBe(true);
+    expect(
+      activities.some(
+        (a) =>
+          a.type === "ticket.updated" &&
+          a.payload.action === "deleted" &&
+          a.payload.ticketId === activityTicketId
+      )
+    ).toBe(true);
+    expect(
+      activities.some(
+        (a) =>
+          a.type === "ticket.updated" &&
+          a.payload.action === "batch-status-changed" &&
+          a.payload.ticketId === batchTicketId
+      )
+    ).toBe(true);
   });
 });

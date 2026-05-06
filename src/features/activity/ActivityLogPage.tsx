@@ -48,7 +48,11 @@ function metaForItem(item: ActivityLogItem): ActivityMeta {
       case 'batch-status-changed':
         return { icon: faListCheck, iconClass: 'text-amber-500', label: 'Changed ticket status' };
       case 'priority-changed':
-        return { icon: faListCheck, iconClass: 'text-orange-500', label: 'Changed ticket priority' };
+        return {
+          icon: faListCheck,
+          iconClass: 'text-orange-500',
+          label: 'Changed ticket priority',
+        };
       default:
         return { icon: faListCheck, iconClass: 'text-blue-500', label: 'Updated ticket' };
     }
@@ -93,7 +97,8 @@ function activitySummary(item: ActivityLogItem): string {
       const action = p.action as string | undefined;
       const status = p.status as string | undefined;
       const priority = p.priority as string | undefined;
-      const assigneeName = (p.assigneeName as string | undefined) ?? (p.assigneeId as string | undefined);
+      const assigneeName =
+        (p.assigneeName as string | undefined) ?? (p.assigneeId as string | undefined);
       const details =
         action === 'assigned'
           ? assigneeName
@@ -108,7 +113,9 @@ function activitySummary(item: ActivityLogItem): string {
                 ? `to ${priority}`
                 : ''
               : action === 'status-priority-changed'
-                ? [status && `to ${status}`, priority && `priority ${priority}`].filter(Boolean).join(' · ')
+                ? [status && `to ${status}`, priority && `priority ${priority}`]
+                    .filter(Boolean)
+                    .join(' · ')
                 : '';
       return [title, details].filter(Boolean).join(' ');
     }
