@@ -341,15 +341,18 @@ export const MessagesPage: React.FC = () => {
               {/* Compose */}
               <div className="border-t border-neutral-100 p-3 dark:border-neutral-800">
                 <div className="flex gap-2">
-                  <Input
-                    label="Message"
-                    hideLabel
-                    placeholder="Type a message…"
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                    size="sm"
-                  />
+                  <div className="flex-1">
+                    <Input
+                      label="Message"
+                      hideLabel
+                      placeholder="Type a message…"
+                      value={messageText}
+                      onChange={(e) => setMessageText(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                      size="sm"
+                      className="w-full"
+                    />
+                  </div>
                   <Button
                     variant="primary"
                     size="icon"

@@ -34,8 +34,27 @@ interface ActivityMeta {
   label: string;
 }
 
-function metaForType(type: string): ActivityMeta {
-  switch (type) {
+function metaForItem(item: ActivityLogItem): ActivityMeta {
+  if (item.type === 'ticket.updated') {
+    const action = item.payload.action as string | undefined;
+    switch (action) {
+      case 'assigned':
+        return { icon: faListCheck, iconClass: 'text-sky-500', label: 'Assigned ticket' };
+      case 'unassigned':
+        return { icon: faListCheck, iconClass: 'text-slate-500', label: 'Unassigned ticket' };
+      case 'deleted':
+        return { icon: faListCheck, iconClass: 'text-red-400', label: 'Deleted ticket' };
+      case 'status-changed':
+      case 'batch-status-changed':
+        return { icon: faListCheck, iconClass: 'text-amber-500', label: 'Changed ticket status' };
+      case 'priority-changed':
+        return { icon: faListCheck, iconClass: 'text-orange-500', label: 'Changed ticket priority' };
+      default:
+        return { icon: faListCheck, iconClass: 'text-blue-500', label: 'Updated ticket' };
+    }
+  }
+
+  switch (item.type) {
     case 'clock.in':
       return { icon: faClockRotateLeft, iconClass: 'text-green-500', label: 'Clocked in' };
     case 'clock.out':
@@ -43,7 +62,7 @@ function metaForType(type: string): ActivityMeta {
     case 'ticket.created':
       return { icon: faListCheck, iconClass: 'text-blue-500', label: 'Created ticket' };
     default:
-      return { icon: faStar, iconClass: 'text-neutral-400', label: type };
+      return { icon: faStar, iconClass: 'text-neutral-400', label: item.type };
   }
 }
 
@@ -69,6 +88,30 @@ function activitySummary(item: ActivityLogItem): string {
     }
     case 'ticket.created':
       return (p.ticketTitle as string | undefined) ?? '';
+    case 'ticket.updated': {
+      const title = (p.ticketTitle as string | undefined) ?? '';
+      const action = p.action as string | undefined;
+      const status = p.status as string | undefined;
+      const priority = p.priority as string | undefined;
+      const assigneeName = (p.assigneeName as string | undefined) ?? (p.assigneeId as string | undefined);
+      const details =
+        action === 'assigned'
+          ? assigneeName
+            ? `to ${assigneeName}`
+            : ''
+          : action === 'status-changed' || action === 'batch-status-changed'
+            ? status
+              ? `to ${status}`
+              : ''
+            : action === 'priority-changed'
+              ? priority
+                ? `to ${priority}`
+                : ''
+              : action === 'status-priority-changed'
+                ? [status && `to ${status}`, priority && `priority ${priority}`].filter(Boolean).join(' · ')
+                : '';
+      return [title, details].filter(Boolean).join(' ');
+    }
     default:
       return '';
   }
@@ -77,7 +120,7 @@ function activitySummary(item: ActivityLogItem): string {
 // ─── ActivityRow ──────────────────────────────────────────────────────────────
 
 const ActivityRow: React.FC<{ item: ActivityLogItem }> = ({ item }) => {
-  const { icon, iconClass, label } = metaForType(item.type);
+  const { icon, iconClass, label } = metaForItem(item);
   const summary = activitySummary(item);
 
   return (
