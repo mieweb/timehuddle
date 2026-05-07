@@ -39,7 +39,7 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ApiError,
@@ -106,6 +106,12 @@ function entryTotalSeconds(sessions: Timer[], now: number): number {
 export const WorkPage: React.FC = () => {
   const { teams, teamsReady, currentTime, selectedTeamId } = useTeam();
   const { isClockedIn, clockIn, clockInLoading } = useClockToggle();
+  const previousClockedInRef = useRef(isClockedIn);
+  // When clock-in is immediately followed by startTimerForEntry, suppress the
+  // auto-fetchDay triggered by the isClockedIn change to avoid a race where
+  // the fetch response (stale — before the session started) overwrites the
+  // optimistic update made by startTimerForEntry.
+  const skipNextClockInFetchRef = useRef(false);
 
   // Selected day (local YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState<string>(toLocalDateStr(new Date()));
@@ -217,6 +223,21 @@ export const WorkPage: React.FC = () => {
     void fetchDay();
   }, [fetchDay]);
 
+  useEffect(() => {
+    const previousClockedIn = previousClockedInRef.current;
+    previousClockedInRef.current = isClockedIn;
+
+    if (previousClockedIn === isClockedIn || !isToday) return;
+
+    if (skipNextClockInFetchRef.current) {
+      skipNextClockInFetchRef.current = false;
+      return;
+    }
+
+    void fetchDay();
+    void fetchWeekTotals();
+  }, [fetchDay, fetchWeekTotals, isClockedIn, isToday]);
+
   // ── Handlers ──
 
   const startTimerForEntry = useCallback(
@@ -274,6 +295,7 @@ export const WorkPage: React.FC = () => {
     }
 
     setClockInPromptError(null);
+    skipNextClockInFetchRef.current = true;
     await clockIn();
 
     const entryId = pendingStartEntryId;

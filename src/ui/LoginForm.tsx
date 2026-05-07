@@ -13,7 +13,6 @@ import React, { useState } from 'react';
 import { authApi } from '../lib/api';
 import { useSession } from '../lib/useSession';
 import { Button, Input, Text } from '@mieweb/ui';
-import { ThemeToggle } from './ThemeToggle';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -205,7 +204,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   // ── Marketing panel (left) ──────────────────────────────────────────────────
 
   const MarketingPanel = () => (
-    <div className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-blue-600 to-indigo-700 p-10 text-white md:flex md:w-1/2 lg:p-14">
+    <div className="relative hidden flex-col justify-between overflow-hidden bg-gradient-to-br from-primary-700 via-primary-600 to-primary-800 p-10 text-primary-foreground md:flex md:w-1/2 lg:p-14">
       <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10" />
       <div className="pointer-events-none absolute -bottom-16 -left-16 h-56 w-56 rounded-full bg-white/10" />
 
@@ -218,7 +217,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                 ? 'Reset your password'
                 : 'Welcome back'}
           </h1>
-          <p className="mt-3 max-w-sm text-base leading-relaxed text-blue-100 lg:text-lg">
+          <p className="mt-3 max-w-sm text-base leading-relaxed text-primary-foreground/90 lg:text-lg">
             {isSignup
               ? 'Create your account and start tracking time with your team — real-time collaboration built in.'
               : isForgot || isResetConfirm
@@ -229,7 +228,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
 
         <ul className="space-y-3">
           {FEATURES.map(({ icon, text }) => (
-            <li key={text} className="flex items-center gap-3 text-sm text-blue-100">
+            <li key={text} className="flex items-center gap-3 text-sm text-primary-foreground/90">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15">
                 <FontAwesomeIcon icon={icon} className="text-sm" />
               </span>
@@ -245,7 +244,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
         </div>
         <div>
           <p className="text-sm font-semibold">TimeHuddle</p>
-          <p className="text-xs text-blue-200">Real-time Team Collaboration</p>
+          <p className="text-xs text-primary-foreground/75">Real-time Team Collaboration</p>
         </div>
       </div>
     </div>
@@ -258,11 +257,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       <MarketingPanel />
 
       <div className="relative flex w-full flex-col items-center justify-center px-6 py-12 md:w-1/2 md:px-12 lg:px-20">
-        {/* Top bar */}
-        <div className="absolute right-4 top-4 flex items-center gap-2">
-          <ThemeToggle />
-        </div>
-
         <div className="w-full max-w-sm">
           {/* Mobile-only branding */}
           <div className="mb-8 md:hidden">

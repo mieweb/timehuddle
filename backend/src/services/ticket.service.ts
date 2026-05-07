@@ -1,6 +1,12 @@
 import { ObjectId } from "mongodb";
 import { teamsCollection, ticketsCollection, usersCollection } from "../models/index.js";
 import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
+import {
+  ActivityType,
+  type TicketCreatedPayload,
+  type TicketUpdatedPayload,
+} from "../models/activity.model.js";
+import { emitActivity } from "./activity.service.js";
 import { notificationService } from "./notification.service.js";
 import { pushService } from "./push.service.js";
 
@@ -12,6 +18,46 @@ function isValidId(id: string): boolean {
 }
 
 export class TicketService {
+  private async getActor(userId: string): Promise<{ id: string; name: string }> {
+    const user = isValidId(userId)
+      ? await usersCollection().findOne({ _id: new ObjectId(userId) })
+      : null;
+    return {
+      id: userId,
+      name: user?.name ?? user?.email?.split("@")[0] ?? "Someone",
+    };
+  }
+
+  private async emitTicketCreatedActivity(
+    userId: string,
+    teamId: string,
+    payload: TicketCreatedPayload
+  ): Promise<void> {
+    const actor = await this.getActor(userId);
+    await emitActivity({
+      userId,
+      teamId,
+      type: ActivityType.TicketCreated,
+      actor,
+      payload,
+    });
+  }
+
+  private async emitTicketUpdatedActivity(
+    userId: string,
+    teamId: string,
+    payload: TicketUpdatedPayload
+  ): Promise<void> {
+    const actor = await this.getActor(userId);
+    await emitActivity({
+      userId,
+      teamId,
+      type: ActivityType.TicketUpdated,
+      actor,
+      payload,
+    });
+  }
+
   async findById(id: string): Promise<Ticket | null> {
     if (!isValidId(id)) return null;
     return ticketsCollection().findOne({ _id: new ObjectId(id) });
@@ -52,6 +98,11 @@ export class TicketService {
       assignedTo: data.createdBy,
       createdAt: new Date(),
     });
+    await this.emitTicketCreatedActivity(data.createdBy, data.teamId, {
+      ticketId: result.insertedId.toHexString(),
+      ticketTitle: data.title,
+      teamId: data.teamId,
+    });
     return { id: result.insertedId.toHexString() };
   }
 
@@ -67,7 +118,14 @@ export class TicketService {
       { _id: new ObjectId(id) },
       { $set: { ...updates, updatedAt: new Date(), updatedBy: userId } }
     );
-    return (await this.findById(id))!;
+    const updated = (await this.findById(id))!;
+    await this.emitTicketUpdatedActivity(userId, updated.teamId, {
+      ticketId: updated._id.toHexString(),
+      ticketTitle: updated.title,
+      teamId: updated.teamId,
+      action: "edited",
+    });
+    return updated;
   }
 
   // Any team member can update status and/or priority.
@@ -90,7 +148,22 @@ export class TicketService {
       $set.reviewedAt = new Date();
     }
     await ticketsCollection().updateOne({ _id: new ObjectId(id) }, { $set });
-    return (await this.findById(id))!;
+    const updated = (await this.findById(id))!;
+    const action =
+      updates.status && updates.priority
+        ? "status-priority-changed"
+        : updates.status
+          ? "status-changed"
+          : "priority-changed";
+    await this.emitTicketUpdatedActivity(userId, updated.teamId, {
+      ticketId: updated._id.toHexString(),
+      ticketTitle: updated.title,
+      teamId: updated.teamId,
+      action,
+      status: updates.status,
+      priority: updates.priority,
+    });
+    return updated;
   }
 
   // Soft-delete so Phase 5 clock event cleanup can reference the ID.
@@ -102,6 +175,12 @@ export class TicketService {
       { _id: new ObjectId(id) },
       { $set: { status: "deleted" as TicketStatus, updatedAt: new Date() } }
     );
+    await this.emitTicketUpdatedActivity(userId, ticket.teamId, {
+      ticketId: ticket._id.toHexString(),
+      ticketTitle: ticket.title,
+      teamId: ticket.teamId,
+      action: "deleted",
+    });
     return "ok";
   }
 
@@ -127,6 +206,20 @@ export class TicketService {
     const result = await ticketsCollection().updateMany(
       { _id: { $in: validIds }, teamId },
       { $set }
+    );
+    const updatedTickets = await ticketsCollection()
+      .find({ _id: { $in: validIds }, teamId })
+      .toArray();
+    await Promise.all(
+      updatedTickets.map((ticket) =>
+        this.emitTicketUpdatedActivity(adminId, teamId, {
+          ticketId: ticket._id.toHexString(),
+          ticketTitle: ticket.title,
+          teamId,
+          action: "batch-status-changed",
+          status,
+        })
+      )
     );
     return result.modifiedCount;
   }
@@ -157,6 +250,18 @@ export class TicketService {
       { $set: { assignedTo: assignedToUserId, updatedAt: new Date(), updatedBy: requesterId } }
     );
     const updated = (await this.findById(id))!;
+    const assignee =
+      assignedToUserId && isValidId(assignedToUserId)
+        ? await usersCollection().findOne({ _id: new ObjectId(assignedToUserId) })
+        : null;
+    await this.emitTicketUpdatedActivity(requesterId, updated.teamId, {
+      ticketId: updated._id.toHexString(),
+      ticketTitle: updated.title,
+      teamId: updated.teamId,
+      action: assignedToUserId ? "assigned" : "unassigned",
+      assigneeId: assignedToUserId,
+      assigneeName: assignee?.name ?? assignee?.email?.split("@")[0],
+    });
 
     // Notify the assignee (skip if unassigning or assigning to self)
     if (assignedToUserId && assignedToUserId !== requesterId) {

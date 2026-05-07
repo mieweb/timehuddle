@@ -6,7 +6,7 @@
 import { faCircleUser, faRightFromBracket } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Avatar, Dropdown, DropdownItem, DropdownSeparator, Text } from '@mieweb/ui';
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 
 import { useSession } from '../lib/useSession';
 import { useRouter } from './router';
@@ -16,14 +16,17 @@ import { useRouter } from './router';
 export const UserDropdown: React.FC = () => {
   const { user, signOut } = useSession();
   const email = user?.email;
+  const [open, setOpen] = useState(false);
 
   const { navigate } = useRouter();
 
   const handleLogout = useCallback(() => {
+    setOpen(false);
     void signOut();
   }, [signOut]);
 
   const handleProfile = useCallback(() => {
+    setOpen(false);
     if (user?.username) {
       navigate(`/${user.username}`);
     } else {
@@ -36,6 +39,8 @@ export const UserDropdown: React.FC = () => {
 
   return (
     <Dropdown
+      open={open}
+      onOpenChange={setOpen}
       trigger={
         <button
           type="button"

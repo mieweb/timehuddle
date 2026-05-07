@@ -100,6 +100,7 @@ beforeAll(async () => {
 afterAll(async () => {
   const db = client.db();
   // Clean up all test data
+  await db.collection("activities").deleteMany({ teamId });
   await db.collection("tickets").deleteMany({ teamId });
   await db.collection("teams").deleteOne({ _id: new ObjectId(teamId) });
   await Promise.all([purgeUser(OWNER.email), purgeUser(MEMBER.email), purgeUser(OUTSIDER.email)]);
@@ -435,5 +436,122 @@ describe("PUT /v1/tickets/:id/assign", () => {
       payload: { assignedToUserId: memberId },
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("ticket activity log emission", () => {
+  it("records create, update, status, assign, delete, and batch status actions", async () => {
+    const db = client.db();
+    await db.collection("activities").deleteMany({ userId: ownerId, teamId });
+
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/v1/tickets",
+      headers: { cookie: ownerCookie },
+      payload: { teamId, title: "Activity ticket" },
+    });
+    expect(createRes.statusCode).toBe(201);
+    const activityTicketId = createRes.json().ticket.id as string;
+
+    const updateRes = await app.inject({
+      method: "PUT",
+      url: `/v1/tickets/${activityTicketId}`,
+      headers: { cookie: ownerCookie },
+      payload: { title: "Activity ticket updated" },
+    });
+    expect(updateRes.statusCode).toBe(200);
+
+    const statusRes = await app.inject({
+      method: "PATCH",
+      url: `/v1/tickets/${activityTicketId}/status-priority`,
+      headers: { cookie: ownerCookie },
+      payload: { status: "reviewed", priority: "high" },
+    });
+    expect(statusRes.statusCode).toBe(200);
+
+    const assignRes = await app.inject({
+      method: "PUT",
+      url: `/v1/tickets/${activityTicketId}/assign`,
+      headers: { cookie: ownerCookie },
+      payload: { assignedToUserId: memberId },
+    });
+    expect(assignRes.statusCode).toBe(200);
+
+    const batchCreateRes = await app.inject({
+      method: "POST",
+      url: "/v1/tickets",
+      headers: { cookie: ownerCookie },
+      payload: { teamId, title: "Batch activity ticket" },
+    });
+    expect(batchCreateRes.statusCode).toBe(201);
+    const batchTicketId = batchCreateRes.json().ticket.id as string;
+
+    const batchStatusRes = await app.inject({
+      method: "POST",
+      url: "/v1/tickets/batch-status",
+      headers: { cookie: ownerCookie },
+      payload: { ticketIds: [batchTicketId], status: "closed", teamId },
+    });
+    expect(batchStatusRes.statusCode).toBe(200);
+
+    const deleteRes = await app.inject({
+      method: "DELETE",
+      url: `/v1/tickets/${activityTicketId}`,
+      headers: { cookie: ownerCookie },
+    });
+    expect(deleteRes.statusCode).toBe(200);
+
+    const activities = await db
+      .collection("activities")
+      .find({
+        userId: ownerId,
+        teamId,
+        "payload.ticketId": { $in: [activityTicketId, batchTicketId] },
+      })
+      .toArray();
+
+    expect(
+      activities.some((a) => a.type === "ticket.created" && a.payload.ticketId === activityTicketId)
+    ).toBe(true);
+    expect(
+      activities.some(
+        (a) =>
+          a.type === "ticket.updated" &&
+          a.payload.action === "edited" &&
+          a.payload.ticketId === activityTicketId
+      )
+    ).toBe(true);
+    expect(
+      activities.some(
+        (a) =>
+          a.type === "ticket.updated" &&
+          a.payload.action === "status-priority-changed" &&
+          a.payload.ticketId === activityTicketId
+      )
+    ).toBe(true);
+    expect(
+      activities.some(
+        (a) =>
+          a.type === "ticket.updated" &&
+          a.payload.action === "assigned" &&
+          a.payload.ticketId === activityTicketId
+      )
+    ).toBe(true);
+    expect(
+      activities.some(
+        (a) =>
+          a.type === "ticket.updated" &&
+          a.payload.action === "deleted" &&
+          a.payload.ticketId === activityTicketId
+      )
+    ).toBe(true);
+    expect(
+      activities.some(
+        (a) =>
+          a.type === "ticket.updated" &&
+          a.payload.action === "batch-status-changed" &&
+          a.payload.ticketId === batchTicketId
+      )
+    ).toBe(true);
   });
 });
