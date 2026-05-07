@@ -1072,16 +1072,18 @@ export const TicketsPage: React.FC = () => {
                   </Text>
                 </div>
               )}
-              <AttachmentsPanel
-                key={attachmentRefresh}
-                kind="ticket"
-                entityId={detailsTicket.id}
-                currentUserId={userId ?? undefined}
-              />
-              <VideoUploadButton
-                ticketId={detailsTicket.id}
-                onUploadComplete={() => setAttachmentRefresh((n) => n + 1)}
-              />
+              <div className="space-y-1">
+                <AttachmentsPanel
+                  key={attachmentRefresh}
+                  kind="ticket"
+                  entityId={detailsTicket.id}
+                  currentUserId={userId ?? undefined}
+                />
+                <VideoUploadButton
+                  ticketId={detailsTicket.id}
+                  onUploadComplete={() => setAttachmentRefresh((n) => n + 1)}
+                />
+              </div>
             </div>
           </ModalBody>
           <ModalFooter>
