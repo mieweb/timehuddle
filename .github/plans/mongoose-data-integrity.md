@@ -1,417 +1,334 @@
-# Mongoose Schema Migration Planning Document
+# Data Integrity with Mongoose and Migrations
 
-## Overview
+> **STATUS: READY** — Ready for implementation.
 
-This document outlines a recommended strategy for handling schema migrations in a Node.js application using MongoDB and Mongoose.
+## Current State
 
-Unlike traditional SQL ORMs, Mongoose does not provide built-in automatic schema migrations. MongoDB is schema-flexible, which means documents may exist in multiple schema versions simultaneously. Because of this, applications using Mongoose should adopt a deliberate migration strategy to ensure long-term maintainability and data consistency.
+TimeHuddle does **not** currently use Mongoose.
 
----
+The backend uses:
 
-# Goals
+- the MongoDB Node driver directly
+- collection helpers and service-layer validation
+- a small custom migration runner in `backend/scripts/migrate.ts`
+- numbered migration files in `backend/scripts/migrations/`
+- a `_migrations` collection to record which migrations have run
 
-* Establish a safe and maintainable schema evolution process
-* Avoid breaking changes when schemas change
-* Support both lightweight and production-grade migration workflows
-* Ensure backward compatibility where possible
-* Create a scalable migration architecture for future growth
+That current setup is simple and functional. It already supports forward-only, idempotent migrations such as:
 
----
+- normalizing clock event timestamps
+- creating indexes needed by application queries
+- removing legacy timer fields after the work-item refactor
 
-# Current Limitation
+The existing system works, but it has clear limits:
 
-Mongoose does **not** automatically migrate existing MongoDB documents when schemas change.
-
-For example:
-
-## Initial Schema
-
-```js
-const UserSchema = new mongoose.Schema({
-  name: String
-});
-```
-
-## Updated Schema
-
-```js
-const UserSchema = new mongoose.Schema({
-  name: String,
-  age: Number
-});
-```
-
-Existing documents in MongoDB remain unchanged:
-
-```json
-{
-  "name": "Mike"
-}
-```
-
-Mongoose will not:
-
-* backfill missing fields
-* rewrite documents automatically
-* apply database migrations
-
-The new field only exists for:
-
-* newly created documents
-* documents explicitly updated and saved
+- schema expectations live mostly in TypeScript types and service code
+- document validation is distributed rather than centralized in model definitions
+- migration registration is manual in a single script
+- there is no standard pattern for richer schema-level validation, middleware, or model lifecycle hooks
 
 ---
 
-# Recommended Migration Strategy
+## Why Consider Mongoose
 
-The recommended approach combines:
+Mongoose would not replace MongoDB itself or automatically solve migrations, but it would give TimeHuddle a more explicit application-layer model system.
 
-1. Schema defaults
-2. Backward-compatible schema design
-3. Versioned migration scripts
-4. Optional document schema versioning
+Potential benefits for this codebase:
 
----
+- centralized schema definitions for core collections
+- defaults, validation, and casting in one place
+- clearer model-level invariants for documents like users, teams, tickets, clock events, work items, and timer sessions
+- a consistent place for indexes that are part of the model definition
+- easier mental mapping between domain entities and persistence rules
 
-# Phase 1 — Use Schema Defaults
+This is most valuable if TimeHuddle expects the data model to keep growing in complexity.
 
-For simple schema additions, defaults are often sufficient.
-
-## Example
-
-```js
-const UserSchema = new mongoose.Schema({
-  name: String,
-  age: {
-    type: Number,
-    default: 0
-  }
-});
-```
-
-Benefits:
-
-* Existing documents continue functioning
-* Missing fields resolve safely in application code
-* No immediate database migration required
-
-Recommended for:
-
-* optional fields
-* non-critical fields
-* incremental feature additions
+Mongoose should be treated as an application modeling layer, not as a migration tool.
 
 ---
 
-# Phase 2 — Introduce Explicit Migrations
+## Why Consider `migrate-mongo`
 
-As the application grows, manual migration scripts should be introduced.
+TimeHuddle already has a homegrown migration runner. It is adequate today, but `migrate-mongo` would add a more standardized migration workflow.
 
-## Recommended Tool
+Potential benefits:
 
-### migrate-mongo
+- conventional migration file generation and ordering
+- built-in migration state tracking
+- a more familiar developer workflow for MongoDB schema/data changes
+- less manual bookkeeping than updating one central migration runner file
+- easier long-term scaling as the number of migrations grows
 
-This is one of the most widely used MongoDB migration frameworks for Node.js applications.
+This would not replace Mongoose. These solve different problems:
 
-## Installation
+- **Mongoose**: schema modeling, validation, defaults, and model APIs
+- **`migrate-mongo`**: ordered database migrations and migration bookkeeping
+
+---
+
+## The Core Problem
+
+MongoDB allows multiple document shapes to coexist. That flexibility is useful, but it creates risk when code assumes one canonical shape while stored data still reflects older versions.
+
+For TimeHuddle, the real data-integrity problems are:
+
+- old documents can silently remain in outdated shapes
+- cleanup work can be skipped when feature work moves quickly
+- invariants are easy to scatter across services instead of enforcing them consistently
+- indexes that matter to correctness or scale can become implicit rather than deliberate
+
+Introducing Mongoose and a more standard migration tool would be a way to tighten discipline around those problems, not an end in itself.
+
+---
+
+## Recommended Direction
+
+If TimeHuddle wants to strengthen data integrity, the recommended target architecture is:
+
+- use **Mongoose** for model definitions, schema validation, defaults, and model-level indexes
+- use **`migrate-mongo`** for forward-only database migrations
+- keep business rules in services where they involve cross-document workflows
+- phase out the custom migration runner only after the replacement path is proven
+
+This should be an incremental migration, not a big-bang rewrite.
+
+---
+
+## Proposed Architecture
+
+### Persistence Layer
+
+Use Mongoose schemas and models for the collections that carry the most business complexity, such as:
+
+- users
+- teams
+- tickets
+- clock events
+- work items / time entries
+- timer sessions
+- notifications or other high-value domain records
+
+Each schema should define:
+
+- required and optional fields
+- enums and defaults
+- indexes that are part of the model contract
+- timestamp behavior where appropriate
+
+### Migration Layer
+
+Use `migrate-mongo` for explicit database changes such as:
+
+- backfilling newly required fields
+- renaming fields
+- converting data types
+- creating or dropping indexes
+- removing obsolete fields after a model transition
+
+Schema definitions should not be relied on to mutate existing documents. That remains migration work.
+
+---
+
+## What We Have Today vs. What This Plan Adds
+
+### Today
+
+- raw MongoDB driver access
+- hand-written collection access patterns
+- custom migration runner with ordered imports
+- `_migrations` collection already in place
+- good enough for current scale, but largely convention-driven
+
+### With Mongoose + `migrate-mongo`
+
+- explicit schemas for document shape and validation
+- a standard model layer instead of ad hoc collection helpers
+- a standard migration CLI and file structure
+- less manual coordination when creating future migrations
+- clearer separation between runtime validation and persisted-data transformation
+
+---
+
+## Phased Adoption Plan
+
+### Phase 1: Document and Stabilize the Current System
+
+Before adding any new dependency, make the current approach explicit.
+
+Actions:
+
+1. Document the current migration contract in the backend README or ops notes.
+2. Confirm that all existing migrations are idempotent.
+3. Define what belongs in service validation versus migration logic.
+4. Treat `_migrations` as the current source of truth until a replacement is active.
+
+Outcome:
+
+The current system becomes deliberate rather than accidental.
+
+### Phase 2: Introduce `migrate-mongo`
+
+Adopt a standard migration tool first, before introducing Mongoose models.
+
+Actions:
+
+1. Add `migrate-mongo` to the backend.
+2. Create a migration configuration scoped to the backend environment.
+3. Decide whether the existing `_migrations` collection should be reused or whether a new migration-state collection is acceptable.
+4. Port the current custom migrations into the new format, or freeze old migrations in place and use `migrate-mongo` only for new ones.
+5. Add scripts for creating and running migrations.
+
+Likely scripts:
 
 ```bash
-npm install migrate-mongo
+npm run migrate:create -- add-work-item-index
+npm run migrate:up
+npm run migrate:down
 ```
 
----
+Outcome:
 
-# Migration Workflow
+Migration workflow becomes standardized without changing the domain model layer yet.
 
-## Create a Migration
+### Phase 3: Introduce Mongoose Gradually
 
-```bash
-npx migrate-mongo create add-age-field
-```
+Add Mongoose one collection at a time rather than replacing all persistence code at once.
 
-## Example Migration
+Suggested order:
 
-```js
-module.exports = {
-  async up(db) {
-    await db.collection('users').updateMany(
-      { age: { $exists: false } },
-      { $set: { age: 0 } }
-    );
-  },
+1. start with a lower-risk collection that has obvious schema value
+2. validate that connection management and model loading work cleanly with the current backend
+3. move higher-complexity collections only after the first model proves the pattern
 
-  async down(db) {
-    await db.collection('users').updateMany(
-      {},
-      { $unset: { age: "" } }
-    );
-  }
-};
-```
+Practical candidates depend on the desired payoff, but tickets, clock events, and timer-related collections are likely strong contenders because they carry more business rules.
 
-## Run Migrations
+Outcome:
 
-```bash
-npx migrate-mongo up
-```
+TimeHuddle gains model-level validation without forcing an all-at-once persistence rewrite.
+
+### Phase 4: Consolidate
+
+Once enough of the backend has moved over:
+
+1. retire redundant collection helpers
+2. remove the custom migration runner if `migrate-mongo` fully replaces it
+3. standardize backend write paths around model and service boundaries
+4. document the final conventions clearly
+
+Outcome:
+
+The backend ends up with a coherent model and migration story instead of two half-systems living forever.
 
 ---
 
-# Recommended Project Structure
+## Setup Outline
 
-```text
-project-root/
-├── migrations/
-├── models/
-├── services/
-├── scripts/
-├── src/
-└── package.json
-```
+### Mongoose Setup
 
----
+At a high level, setup would require:
 
-# Deployment Integration
+1. install `mongoose` in `backend/`
+2. add a shared connection module
+3. create model files for chosen collections
+4. define schema validation and indexes in those model files
+5. update selected services to use models instead of raw collection helpers
 
-Migrations should run during deployment before the application starts serving traffic.
+Important constraint:
 
-## Recommended Deployment Order
+This should not blur the frontend/backend boundary or introduce duplicate model definitions across layers. Persistence models remain backend-only.
 
-1. Deploy new code
-2. Run migrations
-3. Start/restart application
-4. Monitor logs and database health
+### `migrate-mongo` Setup
 
----
+At a high level, setup would require:
 
-# Backward Compatibility Guidelines
+1. install `migrate-mongo` in `backend/`
+2. create its config file with the correct MongoDB URI handling
+3. choose a migration directory
+4. wire package scripts for create/apply/status operations
+5. decide how to transition from the current custom runner
 
-MongoDB applications should tolerate documents existing in multiple versions temporarily.
-
-Recommended practices:
-
-## Prefer Optional Fields
-
-```js
-email: {
-  type: String,
-  required: false
-}
-```
-
-## Avoid Breaking Renames
-
-Instead of immediately renaming:
-
-```js
-fullName
-```
-
-to:
-
-```js
-displayName
-```
-
-Prefer a staged rollout:
-
-1. Add new field
-2. Populate new field
-3. Update application usage
-4. Remove old field later
+The key design decision is transition strategy, not package installation.
 
 ---
 
-# Schema Versioning Strategy
+## Transition Options for Existing Migrations
 
-For larger applications, document-level schema versioning is recommended.
+There are two realistic ways to handle the current homegrown migration system.
 
-## Example
+### Option A: Freeze Old Migrations, Use `migrate-mongo` for New Ones
 
-```js
-const UserSchema = new mongoose.Schema({
-  schemaVersion: {
-    type: Number,
-    default: 2
-  }
-});
-```
+Pros:
 
-Benefits:
+- lowest-risk transition
+- no need to rewrite already-applied migration history
+- fast adoption path
 
-* Enables lazy migrations
-* Allows rolling upgrades
-* Simplifies long-term compatibility
+Cons:
 
----
+- two migration systems exist temporarily
+- conventions must be clearly documented to avoid confusion
 
-# Lazy Migration Pattern
+### Option B: Port Existing Migrations into `migrate-mongo`
 
-Documents can be upgraded during read operations.
+Pros:
 
-## Example
+- cleaner long-term migration story
+- one tool and one workflow
 
-```js
-async function upgradeUser(user) {
-  if (!user.schemaVersion || user.schemaVersion < 2) {
-    user.age = 0;
-    user.schemaVersion = 2;
+Cons:
 
-    await user.save();
-  }
+- more setup work now
+- higher risk of migration bookkeeping mistakes
 
-  return user;
-}
-```
+Recommended default:
 
-Recommended for:
-
-* large collections
-* high-availability systems
-* applications where full migrations are expensive
+Start with **Option A**, then collapse to one system later if the tooling proves worthwhile.
 
 ---
 
-# Production Best Practices
+## Data Integrity Principles Regardless of Tooling
 
-## Always Backup Before Migrations
+Even after adding Mongoose and `migrate-mongo`, the core rules should stay the same.
 
-Especially before:
+### Canonical data should exist in one place
 
-* destructive updates
-* field removals
-* data transformations
+Do not store the same business truth in multiple places unless there is a deliberate projection strategy.
 
----
+### Runtime validation and migration work are different concerns
 
-## Write Idempotent Migrations
+Mongoose can validate new writes. It does not automatically rewrite old records. Existing persisted data changes still require migrations.
 
-Migrations should be safe to run multiple times.
+### Cross-document invariants still belong in services
 
-Good example:
+Rules like "only one active timer session per user" are larger than a single document schema and should continue to live in service logic plus indexes where needed.
 
-```js
-{ age: { $exists: false } }
-```
+### Indexes are part of integrity
 
-Bad example:
-
-```js
-{ $set: { age: 0 } }
-```
-
-without filtering.
+Indexes that support uniqueness or correctness should be treated as part of the model contract and migration plan, not as optional optimizations.
 
 ---
 
-## Avoid Blocking Operations
+## Risks
 
-Large `updateMany()` operations may:
+- introducing Mongoose can create churn if applied across the whole backend too quickly
+- dual-running the old and new migration systems can confuse developers if undocumented
+- model hooks and abstraction layers can overcomplicate a codebase that is currently straightforward
+- schema strictness can surface existing data-quality issues that were previously hidden
 
-* lock resources
-* increase load
-* impact performance
-
-For large datasets:
-
-* batch updates
-* use queues
-* migrate incrementally
+These are manageable risks if adoption is incremental.
 
 ---
 
-## Keep Migrations in Source Control
+## Recommendation
 
-Migration files should:
+TimeHuddle should not jump straight from the current raw-driver setup to a full Mongoose rewrite.
 
-* live alongside application code
-* be versioned in Git
-* deploy consistently across environments
+The better plan is:
 
----
+1. acknowledge and document the current custom migration system
+2. introduce `migrate-mongo` first to standardize migration workflow
+3. introduce Mongoose selectively where schema-level validation adds real value
+4. keep service-layer business rules for multi-document behavior
+5. remove the old migration runner only when the replacement path is proven
 
-# Recommended Architecture
-
-## Small Applications
-
-Use:
-
-* schema defaults
-* optional fields
-* occasional manual scripts
-
-Avoid:
-
-* unnecessary migration complexity
-
----
-
-## Medium to Large Applications
-
-Use:
-
-* `migrate-mongo`
-* versioned migrations
-* schema versioning
-* backward compatibility policies
-
----
-
-# Risks and Considerations
-
-| Risk                                   | Mitigation                         |
-| -------------------------------------- | ---------------------------------- |
-| Old documents missing fields           | Use defaults and optional fields   |
-| Breaking schema changes                | Use staged rollouts                |
-| Large migrations impacting performance | Batch or lazy migrate              |
-| Data inconsistency                     | Use schema versions and validation |
-| Deployment failures                    | Run migrations before app startup  |
-
----
-
-# Recommended Initial Action Plan
-
-## Immediate
-
-* Add defaults to new schema fields
-* Make new fields backward compatible
-* Create `/migrations` directory
-
-## Short-Term
-
-* Install and configure `migrate-mongo`
-* Add migration execution to deployment pipeline
-* Create migration naming conventions
-
-## Long-Term
-
-* Introduce document schema versioning
-* Build internal migration guidelines
-* Standardize migration testing procedures
-
----
-
-# Final Recommendation
-
-For this application, the recommended long-term approach is:
-
-## Use Mongoose for:
-
-* schema validation
-* models
-* middleware
-* application-level structure
-
-## Use migrate-mongo for:
-
-* database migrations
-* schema evolution
-* deployment-safe updates
-
-## Use defaults and backward compatibility for:
-
-* lightweight schema changes
-* gradual upgrades
-* operational stability
-
-This approach provides a scalable, production-friendly foundation while remaining aligned with MongoDB’s flexible document model.
+That gives TimeHuddle a realistic upgrade path: stronger data integrity, more standardized migrations, and no need for a risky all-at-once backend rewrite.
