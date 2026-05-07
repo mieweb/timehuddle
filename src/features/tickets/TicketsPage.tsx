@@ -952,7 +952,6 @@ export const TicketsPage: React.FC = () => {
                   </Text>
                 </div>
               )}
-
             </div>
           </ModalBody>
           <ModalFooter>
