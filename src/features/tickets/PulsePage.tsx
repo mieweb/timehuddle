@@ -163,22 +163,22 @@ export const PulsePage: React.FC = () => {
             const attachments = await attachmentApi.list('ticket', ticket.id);
             return attachments
               .filter((a: Attachment) => a.type === 'video')
-              .map((a: Attachment): TicketVideo => ({
-                id: a.id,
-                url: a.url,
-                title: a.title ?? 'Pulse Video',
-                ticketTitle: ticket.title,
-                date: a.addedAt,
-              }));
+              .map(
+                (a: Attachment): TicketVideo => ({
+                  id: a.id,
+                  url: a.url,
+                  title: a.title ?? 'Pulse Video',
+                  ticketTitle: ticket.title,
+                  date: a.addedAt,
+                }),
+              );
           } catch {
             return [];
           }
         }),
       );
       setItems(
-        results
-          .flat()
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+        results.flat().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
       );
     } finally {
       setLoading(false);
@@ -211,7 +211,11 @@ export const PulsePage: React.FC = () => {
           </Text>
         </div>
       ) : (
-        <div className="pulse-gallery grid grid-cols-3 gap-0.5" role="list" aria-label="Pulse videos">
+        <div
+          className="pulse-gallery grid grid-cols-3 gap-0.5"
+          role="list"
+          aria-label="Pulse videos"
+        >
           {items.map((item) => (
             <div key={item.id} role="listitem">
               <Thumbnail item={item} onClick={() => setActive(item)} />
