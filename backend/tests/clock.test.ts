@@ -378,6 +378,34 @@ describe("GET /v1/clock/timesheet", () => {
     expect(body.summary.totalSessions).toBeGreaterThan(0);
   });
 
+  it("includes live elapsed time for an active session in summary totals", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const activeEventId = startRes.json().event.id as string;
+
+    const db = client.db();
+    const twoMinutesAgo = Date.now() - 120_000;
+    await db
+      .collection("clockevents")
+      .updateOne(
+        { _id: new ObjectId(activeEventId) },
+        { $set: { startTime: twoMinutesAgo, accumulatedTime: 30 } }
+      );
+
+    const startMs = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
+    const endMs = new Date(new Date().setHours(23, 59, 59, 999)).getTime();
+    const res = await inject(
+      "GET",
+      `/v1/clock/timesheet?userId=${workerId}&startMs=${startMs}&endMs=${endMs}`,
+      workerCookie
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().summary.totalSeconds).toBeGreaterThanOrEqual(150);
+
+    await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
+  });
+
   it("admin can view worker timesheet (shared team) — 200", async () => {
     const now = new Date();
     const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
