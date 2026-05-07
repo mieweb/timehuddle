@@ -119,6 +119,7 @@ interface TicketRowProps {
   ticket: Ticket;
   isCreator: boolean;
   assigneeName: string | null;
+  currentUserId?: string;
   onEditRequest: (ticket: Ticket) => void;
   onDeleteRequest: (id: string) => void;
   onChangeStatusRequest: (ticket: Ticket) => void;
@@ -129,11 +130,13 @@ const TicketRow: React.FC<TicketRowProps> = ({
   ticket,
   isCreator,
   assigneeName,
+  currentUserId,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
   onDetailsRequest,
 }) => {
+  const [attachmentRefresh, setAttachmentRefresh] = useState(0);
   const statusLabel =
     STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label ?? ticket.status ?? 'Open';
   const dotColor = priorityDotColor(ticket.priority);
@@ -232,6 +235,20 @@ const TicketRow: React.FC<TicketRowProps> = ({
               {statusLabel}
             </Badge>
           </div>
+
+          {/* Inline attachments + upload */}
+          <div className="mt-2 space-y-1">
+            <AttachmentsPanel
+              key={attachmentRefresh}
+              kind="ticket"
+              entityId={ticket.id}
+              currentUserId={currentUserId}
+            />
+            <VideoUploadButton
+              ticketId={ticket.id}
+              onUploadComplete={() => setAttachmentRefresh((n) => n + 1)}
+            />
+          </div>
         </div>
       </div>
     </li>
@@ -311,7 +328,6 @@ export const TicketsPage: React.FC = () => {
 
   // Ticket details modal (read-only)
   const [detailsTicket, setDetailsTicket] = useState<Ticket | null>(null);
-  const [attachmentRefresh, setAttachmentRefresh] = useState(0);
 
   // Status filter
   type StatusFilter = 'all' | 'open' | 'inprogress' | 'done';
@@ -653,6 +669,7 @@ export const TicketsPage: React.FC = () => {
                   ticket={t}
                   isCreator={true}
                   assigneeName={getAssigneeName(t.assignedTo)}
+                  currentUserId={userId ?? undefined}
                   onEditRequest={openEditModal}
                   onDeleteRequest={setDeleteId}
                   onChangeStatusRequest={(ticket) => {
@@ -684,6 +701,7 @@ export const TicketsPage: React.FC = () => {
                   ticket={t}
                   isCreator={false}
                   assigneeName={getAssigneeName(t.assignedTo)}
+                  currentUserId={userId ?? undefined}
                   onEditRequest={openEditModal}
                   onDeleteRequest={setDeleteId}
                   onChangeStatusRequest={(ticket) => {
@@ -934,16 +952,6 @@ export const TicketsPage: React.FC = () => {
                   </Text>
                 </div>
               )}
-              <AttachmentsPanel
-                key={attachmentRefresh}
-                kind="ticket"
-                entityId={detailsTicket.id}
-                currentUserId={userId ?? undefined}
-              />
-              <VideoUploadButton
-                ticketId={detailsTicket.id}
-                onUploadComplete={() => setAttachmentRefresh((n) => n + 1)}
-              />
             </div>
           </ModalBody>
           <ModalFooter>
