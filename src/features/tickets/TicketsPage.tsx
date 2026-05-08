@@ -433,6 +433,7 @@ export const TicketsPage: React.FC = () => {
 
   // Ticket details modal (read-only)
   const [detailsTicket, setDetailsTicket] = useState<Ticket | null>(null);
+  const [detailsAttachmentRefresh, setDetailsAttachmentRefresh] = useState(0);
 
   // Status filter: All / Open / In Progress / Done
   type StatusFilter = 'all' | 'open' | 'inprogress' | 'done';
@@ -1063,6 +1064,18 @@ export const TicketsPage: React.FC = () => {
                   </Text>
                 </div>
               )}
+              <div className="space-y-1 pt-1">
+                <AttachmentsPanel
+                  key={detailsAttachmentRefresh}
+                  kind="ticket"
+                  entityId={detailsTicket.id}
+                  currentUserId={userId ?? undefined}
+                />
+                <VideoUploadButton
+                  ticketId={detailsTicket.id}
+                  onUploadComplete={() => setDetailsAttachmentRefresh((n) => n + 1)}
+                />
+              </div>
             </div>
           </ModalBody>
           <ModalFooter>
