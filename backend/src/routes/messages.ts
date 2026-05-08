@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { auth } from "../lib/auth.js";
-import { messageService, subscribeSse } from "../services/message.service.js";
+import { messageService, subscribe } from "../services/message.service.js";
 
 const sendSchema = z.object({
   teamId: z.string().min(1),
@@ -17,14 +17,22 @@ export async function messageRoutes(app: FastifyInstance) {
     const session = await auth.api.getSession({ headers: req.headers as any });
     if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
 
-    const { teamId, adminId, memberId } = req.query as Record<string, string>;
+    const { teamId, adminId, memberId, before, limit } = req.query as Record<string, string>;
     if (!teamId || !adminId || !memberId) {
       return reply.status(400).send({ error: "teamId, adminId, memberId required" });
     }
 
-    const result = await messageService.getThread(session.user.id, teamId, adminId, memberId);
+    const beforeDate = before ? new Date(before) : undefined;
+    if (beforeDate !== undefined && isNaN(beforeDate.getTime())) {
+      return reply.status(400).send({ error: "Invalid 'before' date" });
+    }
+    const parsedLimit = limit ? Math.min(parseInt(limit, 10) || 50, 100) : 50;
+    const result = await messageService.getThread(session.user.id, teamId, adminId, memberId, {
+      before: beforeDate,
+      limit: parsedLimit,
+    });
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
-    return reply.send({ messages: result });
+    return reply.send({ messages: result.messages, hasMore: result.hasMore });
   });
 
   // POST /v1/messages
@@ -43,46 +51,38 @@ export async function messageRoutes(app: FastifyInstance) {
     return reply.send({ message: result });
   });
 
-  // GET /v1/messages/stream?threadId=  (SSE)
-  app.get("/messages/stream", async (req, reply) => {
-    const session = await auth.api.getSession({ headers: req.headers as any });
-    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
+  // GET /v1/messages/ws?threadId=  (WebSocket)
+  app.get("/messages/ws", { websocket: true }, async (socket, req) => {
+    const { token: queryToken, threadId } = req.query as {
+      token?: string;
+      threadId?: string;
+    };
+    const headers: Record<string, string> = { ...(req.headers as any) };
+    if (queryToken) headers["authorization"] = `Bearer ${queryToken}`;
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user) {
+      socket.close(4001, "Unauthorized");
+      return;
+    }
 
-    const { threadId } = req.query as { threadId?: string };
-    if (!threadId) return reply.status(400).send({ error: "threadId required" });
+    if (!threadId) {
+      socket.close(4000, "threadId required");
+      return;
+    }
 
     // threadId = "teamId:adminId:memberId" — validate participant
     const parts = threadId.split(":");
     const adminId = parts[1];
     const memberId = parts[2];
     if (session.user.id !== adminId && session.user.id !== memberId) {
-      return reply.status(403).send({ error: "Forbidden" });
+      socket.close(4003, "Forbidden");
+      return;
     }
 
-    // Hijack the response — prevents Fastify from finalizing/closing it.
-    // Because hijack() bypasses @fastify/cors hooks, we must set CORS headers manually.
-    reply.hijack();
-
-    const allowOrigin = req.headers.origin ?? "*";
-
-    reply.raw.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-      "Access-Control-Allow-Origin": allowOrigin,
-      "Access-Control-Allow-Credentials": "true",
+    const unsub = subscribe(threadId, (msg) => {
+      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg));
     });
-    reply.raw.flushHeaders();
 
-    const unsub = subscribeSse(threadId, (msg) => {
-      reply.raw.write(`data: ${JSON.stringify(msg)}\n\n`);
-    });
-    const ping = setInterval(() => reply.raw.write(": ping\n\n"), 25_000);
-
-    req.raw.on("close", () => {
-      clearInterval(ping);
-      unsub();
-    });
+    socket.on("close", unsub);
   });
 }

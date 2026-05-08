@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { auth } from "../lib/auth.js";
-import { notificationService, subscribeSse } from "../services/notification.service.js";
+import { notificationService, subscribe } from "../services/notification.service.js";
 import { pushService } from "../services/push.service.js";
 
 const deleteSchema = z.object({
@@ -92,45 +92,23 @@ export async function notificationRoutes(app: FastifyInstance) {
     return reply.send({ ok: true });
   });
 
-  // GET /v1/notifications/stream — SSE (new notifications pushed in real-time)
-  app.get("/notifications/stream", async (req, reply) => {
+  // GET /v1/notifications/ws — WebSocket (new notifications pushed in real-time)
+  app.get("/notifications/ws", { websocket: true }, async (socket, req) => {
     const { token: queryToken } = req.query as { token?: string };
     const headers: Record<string, string> = { ...(req.headers as any) };
     if (queryToken) headers["authorization"] = `Bearer ${queryToken}`;
     const session = await auth.api.getSession({ headers });
-    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
+    if (!session?.user) {
+      socket.close(4001, "Unauthorized");
+      return;
+    }
 
     const userId = session.user.id;
-
-    reply.hijack();
-
-    const trustedOrigins = process.env.TRUSTED_ORIGINS
-      ? process.env.TRUSTED_ORIGINS.split(",").map((o) => o.trim())
-      : [];
-    const requestOrigin = req.headers.origin ?? "";
-    const allowOrigin = trustedOrigins.includes(requestOrigin) ? requestOrigin : "";
-
-    reply.raw.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-      ...(allowOrigin && {
-        "Access-Control-Allow-Origin": allowOrigin,
-        "Access-Control-Allow-Credentials": "true",
-      }),
+    const unsub = subscribe(userId, (n) => {
+      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(n));
     });
-    reply.raw.flushHeaders();
 
-    const unsub = subscribeSse(userId, (n) => {
-      reply.raw.write(`data: ${JSON.stringify(n)}\n\n`);
-    });
-    const ping = setInterval(() => reply.raw.write(": ping\n\n"), 25_000);
-
-    req.raw.on("close", () => {
-      clearInterval(ping);
-      unsub();
-    });
+    socket.on("close", unsub);
   });
 
   // POST /v1/notifications/push-subscribe — register a push subscription
