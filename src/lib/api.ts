@@ -503,9 +503,11 @@ export const clockApi = {
 
   /** Open a WebSocket connection for live team clock state. Auto-reconnects on drop. */
   openLiveStream: (teamIds: string[]): AutoReconnectWs =>
-    autoReconnectWs(
-      () => `${WS_BASE_URL}/v1/clock/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`,
-    ),
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/clock/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`;
+      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+    }),
 };
 
 // ─── Notifications ────────────────────────────────────────────────────────────

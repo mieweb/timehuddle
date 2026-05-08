@@ -23,6 +23,9 @@ export async function messageRoutes(app: FastifyInstance) {
     }
 
     const beforeDate = before ? new Date(before) : undefined;
+    if (beforeDate !== undefined && isNaN(beforeDate.getTime())) {
+      return reply.status(400).send({ error: "Invalid 'before' date" });
+    }
     const parsedLimit = limit ? Math.min(parseInt(limit, 10) || 50, 100) : 50;
     const result = await messageService.getThread(session.user.id, teamId, adminId, memberId, {
       before: beforeDate,

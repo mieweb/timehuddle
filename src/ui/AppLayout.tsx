@@ -147,7 +147,10 @@ export const AppLayout: React.FC = () => {
         );
         navigate('/app/messages');
       } else if (data.url) {
-        navigate(data.url.split('?')[0]);
+        const safePath = data.url.split('?')[0];
+        if (safePath.startsWith('/app/')) {
+          navigate(safePath);
+        }
       }
     })
       .then((h) => {

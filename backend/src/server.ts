@@ -403,6 +403,28 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // Health check
   await app.register(healthRoutes);
 
+  // Validate WebSocket upgrade Origin to prevent cross-origin socket hijacking.
+  // Capacitor native (capacitor://localhost) and local dev (null origin) are allowed.
+  // TRUSTED_ORIGINS env var may include additional allowed origins (comma-separated).
+  const trustedWsOrigins = new Set([
+    "capacitor://localhost",
+    ...(process.env.TRUSTED_ORIGINS
+      ? process.env.TRUSTED_ORIGINS.split(",").map((o) => o.trim())
+      : []),
+    ...(process.env.APP_URL ? [new URL(process.env.APP_URL).origin] : []),
+    `http://localhost:3000`,
+    `http://localhost:${process.env.PORT || 4000}`,
+  ]);
+  app.addHook("preValidation", (req, reply, done) => {
+    const upgrade = req.headers["upgrade"];
+    if (!upgrade || upgrade.toLowerCase() !== "websocket") return done();
+    const origin = req.headers["origin"];
+    // Allow missing origin (same-origin Capacitor native, Vitest inject)
+    if (!origin || origin === "null") return done();
+    if (trustedWsOrigins.has(origin)) return done();
+    reply.status(403).send({ error: "Forbidden origin" });
+  });
+
   // App routes
   await app.register(userRoutes, { prefix: "/v1" });
   await app.register(teamRoutes, { prefix: "/v1" });

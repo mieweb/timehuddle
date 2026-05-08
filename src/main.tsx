@@ -185,8 +185,10 @@ const App: React.FC = () => {
               const url = nData.url as string | undefined;
               if (url) {
                 const path = url.split('?')[0];
-                window.history.pushState(null, '', path);
-                window.dispatchEvent(new PopStateEvent('popstate'));
+                if (path.startsWith('/app/')) {
+                  window.history.pushState(null, '', path);
+                  window.dispatchEvent(new PopStateEvent('popstate'));
+                }
               }
             };
           }

@@ -1,6 +1,9 @@
 import { FastifyInstance } from "fastify";
+import { ObjectId } from "mongodb";
+import { auth } from "../lib/auth.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { clockService, toPublicClockEvent, subscribe } from "../services/clock.service.js";
+import { teamsCollection } from "../models/index.js";
 
 // ─── Public shape schema ──────────────────────────────────────────────────────
 
@@ -195,15 +198,55 @@ export async function clockRoutes(app: FastifyInstance) {
 
   // GET /v1/clock/ws?teamIds=id1,id2 — WebSocket stream for live team clock state
   app.get("/clock/ws", { websocket: true }, async (socket, req) => {
-    const { teamIds: teamIdsParam } = req.query as { teamIds?: string };
+    const { token: queryToken, teamIds: teamIdsParam } = req.query as {
+      token?: string;
+      teamIds?: string;
+    };
+
+    // Auth: accept Bearer token from query param (Capacitor) or cookie
+    const headers: Record<string, string> = { ...(req.headers as any) };
+    if (queryToken) headers["authorization"] = `Bearer ${queryToken}`;
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user) {
+      socket.close(4001, "Unauthorized");
+      return;
+    }
+
     if (!teamIdsParam) {
       socket.close(4000, "teamIds required");
       return;
     }
-    const teamIds = teamIdsParam
+    const requestedIds = teamIdsParam
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
+
+    // Validate the requester is a member or admin of every requested team
+    const objectIds = requestedIds.flatMap((id) => {
+      try {
+        return [new ObjectId(id)];
+      } catch {
+        return [];
+      }
+    });
+    const allTeams = await teamsCollection()
+      .find({ _id: { $in: objectIds } })
+      .toArray();
+
+    const userId = session.user.id;
+    const teamIds = allTeams
+      .filter((t) => {
+        const tid = t._id.toHexString();
+        return (
+          requestedIds.includes(tid) && (t.members?.includes(userId) || t.admins?.includes(userId))
+        );
+      })
+      .map((t) => t._id.toHexString());
+
+    if (teamIds.length === 0) {
+      socket.close(4003, "Forbidden");
+      return;
+    }
 
     // Send initial snapshot
     const initial = await clockService.getLiveForTeams(teamIds);

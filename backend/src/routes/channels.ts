@@ -30,7 +30,7 @@ export async function channelRoutes(app: FastifyInstance) {
     return reply.send({ channels: result });
   });
 
-  // POST /v1/channels — create a channel (admin only)
+  // POST /v1/channels — create a channel (any team member)
   app.post("/channels", async (req, reply) => {
     const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
     if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
@@ -65,6 +65,9 @@ export async function channelRoutes(app: FastifyInstance) {
     if (!teamId) return reply.status(400).send({ error: "teamId required" });
 
     const beforeDate = before ? new Date(before) : undefined;
+    if (beforeDate !== undefined && isNaN(beforeDate.getTime())) {
+      return reply.status(400).send({ error: "Invalid 'before' date" });
+    }
     const parsedLimit = limit ? Math.min(parseInt(limit, 10) || 50, 100) : 50;
 
     const result = await channelService.getMessages(id, teamId, session.user.id, {
