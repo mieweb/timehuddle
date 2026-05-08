@@ -848,3 +848,87 @@ export const presenceApi = {
     });
   },
 };
+
+// ─── Channel types ────────────────────────────────────────────────────────────
+
+export interface Channel {
+  id: string;
+  teamId: string;
+  name: string;
+  description?: string;
+  isDefault: boolean;
+  /** userIds who can access this channel; empty array means team-wide */
+  members: string[];
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface ChannelMessage {
+  id: string;
+  channelId: string;
+  teamId: string;
+  fromUserId: string;
+  senderName: string;
+  text: string;
+  createdAt: string;
+}
+
+// ─── Channel API ──────────────────────────────────────────────────────────────
+
+export const channelApi = {
+  getChannels: (teamId: string): Promise<Channel[]> =>
+    request<{ channels: Channel[] }>(`/v1/channels?teamId=${encodeURIComponent(teamId)}`).then(
+      (r) => r.channels
+    ),
+
+  createChannel: (data: {
+    teamId: string;
+    name: string;
+    description?: string;
+    members?: string[];
+  }): Promise<Channel> =>
+    request<{ channel: Channel }>('/v1/channels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then((r) => r.channel),
+
+  getMessages: (
+    channelId: string,
+    teamId: string,
+    before?: string
+  ): Promise<{ messages: ChannelMessage[]; hasMore: boolean }> => {
+    const url = new URL(
+      `/v1/channels/${encodeURIComponent(channelId)}/messages`,
+      TIMECORE_BASE_URL
+    );
+    url.searchParams.set('teamId', teamId);
+    if (before) url.searchParams.set('before', before);
+    return request<{ messages: ChannelMessage[]; hasMore: boolean }>(
+      url.pathname + url.search
+    );
+  },
+
+  sendMessage: (
+    channelId: string,
+    data: { teamId: string; text: string }
+  ): Promise<ChannelMessage> =>
+    request<{ message: ChannelMessage }>(
+      `/v1/channels/${encodeURIComponent(channelId)}/messages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      }
+    ).then((r) => r.message),
+
+  openStream: (channelId: string, teamId: string): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const url = new URL(`${WS_BASE_URL}/v1/channels/ws`);
+      url.searchParams.set('channelId', channelId);
+      url.searchParams.set('teamId', teamId);
+      const token = sessionToken.get();
+      if (token) url.searchParams.set('token', token);
+      return url.toString();
+    }),
+};
