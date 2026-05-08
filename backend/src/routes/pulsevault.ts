@@ -133,7 +133,7 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
         } else {
           // No sidecar or a stale "uploading" entry — clear leftover partial
           // data so the TUS server can accept a new POST without 409.
-          await storage.remove(existingVideoid);
+          await storage.remove?.(existingVideoid);
         }
       }
 
