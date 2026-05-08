@@ -32,7 +32,7 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration, formatTime, formatDate } from '../../lib/timeUtils';
@@ -104,7 +104,7 @@ function fromLocalDateTimeInputValue(value: string): number | null {
 
 export const TimesheetPage: React.FC = () => {
   const { user } = useSession();
-  const { teamsReady, teams } = useTeam();
+  const { teamsReady, teams, selectedTeamId } = useTeam();
 
   const [preset, setPreset] = useState<Preset>('week');
   const [customStart, setCustomStart] = useState('');
@@ -228,6 +228,31 @@ export const TimesheetPage: React.FC = () => {
     { key: 'custom', label: 'Custom' },
   ];
 
+  // Filter sessions by selected team
+  const filteredSessions = useMemo(() => {
+    if (!data) return [];
+    return selectedTeamId ? data.sessions.filter((s) => s.teamId === selectedTeamId) : data.sessions;
+  }, [data, selectedTeamId]);
+
+  // Recompute summary from filtered sessions
+  const filteredSummary = useMemo(() => {
+    const completed = filteredSessions.filter((s) => s.endTime !== null);
+    const totalSeconds = filteredSessions.reduce((sum, s) => {
+      if (s.endTime === null) return sum;
+      return sum + Math.floor((s.endTime - s.startTime) / 1000);
+    }, 0);
+    const workingDays = new Set(
+      filteredSessions.map((s) => new Date(s.startTime).toISOString().slice(0, 10)),
+    ).size;
+    return {
+      totalSeconds,
+      totalSessions: filteredSessions.length,
+      completedSessions: completed.length,
+      averageSessionSeconds: completed.length > 0 ? Math.floor(totalSeconds / completed.length) : 0,
+      workingDays,
+    };
+  }, [filteredSessions]);
+
   if (!teamsReady) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -292,7 +317,7 @@ export const TimesheetPage: React.FC = () => {
                 Total Hours
               </Text>
               <Text size="lg" weight="semibold">
-                {formatDuration(data.summary.totalSeconds)}
+                {formatDuration(filteredSummary.totalSeconds)}
               </Text>
             </CardContent>
           </Card>
@@ -302,7 +327,7 @@ export const TimesheetPage: React.FC = () => {
                 Sessions
               </Text>
               <Text size="lg" weight="semibold">
-                {data.summary.totalSessions}
+                {filteredSummary.totalSessions}
               </Text>
             </CardContent>
           </Card>
@@ -312,7 +337,7 @@ export const TimesheetPage: React.FC = () => {
                 Avg Session
               </Text>
               <Text size="lg" weight="semibold">
-                {formatDuration(data.summary.averageSessionSeconds)}
+                {formatDuration(filteredSummary.averageSessionSeconds)}
               </Text>
             </CardContent>
           </Card>
@@ -322,7 +347,7 @@ export const TimesheetPage: React.FC = () => {
                 Working Days
               </Text>
               <Text size="lg" weight="semibold">
-                {data.summary.workingDays}
+                {filteredSummary.workingDays}
               </Text>
             </CardContent>
           </Card>
@@ -344,10 +369,10 @@ export const TimesheetPage: React.FC = () => {
       )}
 
       {/* Sessions list */}
-      {data && data.sessions.length > 0 && (
+      {data && filteredSessions.length > 0 && (
         <Card padding="none">
           <CardHeader className="px-5 py-3">
-            <CardTitle className="text-sm">Sessions ({data.sessions.length})</CardTitle>
+            <CardTitle className="text-sm">Sessions ({filteredSessions.length})</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table responsive>
@@ -363,7 +388,7 @@ export const TimesheetPage: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.sessions.map((s) => {
+                {filteredSessions.map((s) => {
                   const startTime = new Date(s.startTime);
                   const endTime = s.endTime ? new Date(s.endTime) : null;
                   const duration = endTime
@@ -482,7 +507,7 @@ export const TimesheetPage: React.FC = () => {
         </ModalFooter>
       </Modal>
 
-      {data && data.sessions.length === 0 && !loading && (
+      {data && filteredSessions.length === 0 && !loading && (
         <Card variant="outlined" padding="lg" className="border-dashed text-center">
           <CardContent>
             <FontAwesomeIcon

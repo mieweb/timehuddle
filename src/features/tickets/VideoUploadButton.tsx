@@ -208,9 +208,10 @@ export const VideoUploadButton: React.FC<VideoUploadButtonProps> = ({
         disabled={isUploading || reserving}
         onClick={handleClick}
         aria-label="Upload video to this ticket"
+        className="px-2 py-0.5 text-xs"
       >
-        <FontAwesomeIcon icon={isNative ? faVideo : faQrcode} className="mr-1.5" />
-        {reserving ? 'Preparing…' : isUploading ? `Uploading… ${progress}%` : 'Upload Video'}
+        <FontAwesomeIcon icon={isNative ? faVideo : faQrcode} className="mr-1" />
+        {reserving ? 'Preparing…' : isUploading ? `${progress}%` : 'Pulse'}
       </Button>
 
       {/* Device upload progress bar */}

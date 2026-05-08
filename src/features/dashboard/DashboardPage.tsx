@@ -57,7 +57,7 @@ function computeHours(events: ClockEvent[], after: number, now: number): number 
 export const DashboardPage: React.FC = () => {
   const { user } = useSession();
   const { navigate } = useRouter();
-  const { teams, teamsReady, activeClockEvent, currentTime } = useTeam();
+  const { teams, teamsReady, activeClockEvent, currentTime, selectedTeamId } = useTeam();
 
   // All user clock events (from timecore REST)
   const [allEvents, setAllEvents] = useState<ClockEvent[]>([]);
@@ -69,6 +69,12 @@ export const DashboardPage: React.FC = () => {
       .catch(() => setAllEvents([]));
   }, [user]);
 
+  // Filter events to the selected team
+  const teamEvents = useMemo(
+    () => (selectedTeamId ? allEvents.filter((e) => e.teamId === selectedTeamId) : allEvents),
+    [allEvents, selectedTeamId],
+  );
+
   // Compute stats
   const todayStart = useMemo(() => startOfDay(new Date()).getTime(), []);
   const weekStart = useMemo(() => {
@@ -79,20 +85,20 @@ export const DashboardPage: React.FC = () => {
   }, []);
 
   const todayHours = useMemo(
-    () => computeHours(allEvents, todayStart, currentTime),
-    [allEvents, todayStart, currentTime],
+    () => computeHours(teamEvents, todayStart, currentTime),
+    [teamEvents, todayStart, currentTime],
   );
 
   const weekHours = useMemo(
-    () => computeHours(allEvents, weekStart, currentTime),
-    [allEvents, weekStart, currentTime],
+    () => computeHours(teamEvents, weekStart, currentTime),
+    [teamEvents, weekStart, currentTime],
   );
 
-  const activeSessions = useMemo(() => allEvents.filter((e) => !e.endTime).length, [allEvents]);
+  const activeSessions = useMemo(() => teamEvents.filter((e) => !e.endTime).length, [teamEvents]);
 
-  const recentEvents = useMemo(() => allEvents.filter((e) => e.endTime).slice(0, 5), [allEvents]);
+  const recentEvents = useMemo(() => teamEvents.filter((e) => e.endTime).slice(0, 5), [teamEvents]);
 
-  const isFirstTime = teams.length <= 1 && allEvents.length === 0;
+  const isFirstTime = teams.length <= 1 && teamEvents.length === 0;
 
   if (!teamsReady) {
     return (
