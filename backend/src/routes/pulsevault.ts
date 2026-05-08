@@ -123,7 +123,20 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
       // Re-use a client-supplied videoid when the user is resuming a recording session
       // (e.g. PulseCam was closed before uploading and is now being reopened).
       // This keeps PulseCam's local segments associated with the same ticket.
-      const videoid = existingVideoid ?? randomUUID();
+      let videoid = existingVideoid ?? randomUUID();
+
+      if (existingVideoid) {
+        const alreadyReady = await storage.resolve(existingVideoid);
+        if (alreadyReady) {
+          // The previous upload completed — don't overwrite it; start fresh.
+          videoid = randomUUID();
+        } else {
+          // No sidecar or a stale "uploading" entry — clear leftover partial
+          // data so the TUS server can accept a new POST without 409.
+          await storage.remove(existingVideoid);
+        }
+      }
+
       reserveVideo(videoid, ticketId, userId);
       return reply.status(201).send({ videoid });
     }
