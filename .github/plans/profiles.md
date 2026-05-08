@@ -1,6 +1,6 @@
 # Profiles
 
-> **STATUS: PLANNING** — This document is exploratory and not yet approved for implementation. Nothing here represents a commitment or active development work.
+> **STATUS: READY** — This document is exploratory and not yet approved for implementation. Nothing here represents a commitment or active development work.
 
 ## The Idea
 
@@ -52,6 +52,19 @@ to answer from the profile when that relationship matters.
 
 ---
 
+## Videos and Reels
+
+A profile may surface video content uploaded by or featuring that user — a
+lightweight reel of work-related clips, demo recordings, or standup videos.
+
+- Profile can display a scrollable list of video attachments the user has
+  posted across tickets, standups, and comments.
+- No dedicated video hosting required — this reuses the attachment model from
+  [pulse-video.md](pulse-video.md).
+- The reel is optional and only appears if the user has uploaded videos.
+
+---
+
 ## Why This Matters
 
 The value of a team-facing profile is that it becomes the natural place to
@@ -68,19 +81,6 @@ This is especially useful for:
 - **Scrum masters** who want quick context before or during standups
 - **Managers** who want a concise operational view of recent work and visibility
 - **Leadership** who want a high-level sense of momentum and contribution
-
----
-
-## Videos and Reels
-
-A profile may surface video content uploaded by or featuring that user — a
-lightweight reel of work-related clips, demo recordings, or standup videos.
-
-- Profile can display a scrollable list of video attachments the user has
-  posted across tickets, standups, and comments.
-- No dedicated video hosting required — this reuses the attachment model from
-  [pulse-video.md](pulse-video.md).
-- The reel is optional and only appears if the user has uploaded videos.
 
 ---
 
