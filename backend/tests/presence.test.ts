@@ -113,7 +113,8 @@ describe("GET /v1/presence/ws", () => {
   });
 
   it("sends presence broadcast when a watched user connects", async () => {
-    const broadcasts: string[] = [];
+    // Allow any cleanup from the previous test (markOffline) to settle
+    await new Promise((r) => setTimeout(r, 200));
 
     // USER_B watches USER_A
     const wsWatcher = await app.injectWS(
@@ -125,11 +126,9 @@ describe("GET /v1/presence/ws", () => {
       wsWatcher.once("message", () => resolve());
     });
 
-    // Now USER_A connects — should trigger a presence broadcast to USER_B
-    const wsA = await app.injectWS(`/v1/presence/ws?token=${encodeURIComponent(tokenA)}&watch=`);
-
-    const broadcastReceived = await new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), 2000);
+    // Set up listener BEFORE USER_A connects to avoid a race condition
+    const broadcastReceived = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 3000);
       wsWatcher.on("message", (data: Buffer | string) => {
         try {
           const msg = JSON.parse(data.toString());
@@ -143,16 +142,25 @@ describe("GET /v1/presence/ws", () => {
       });
     });
 
+    // Now USER_A connects — should trigger a presence broadcast to USER_B
+    const wsA = await app.injectWS(`/v1/presence/ws?token=${encodeURIComponent(tokenA)}&watch=`);
+
+    const received = await broadcastReceived;
     wsA.close();
     wsWatcher.close();
+    // Allow close events to propagate before the next test
+    await new Promise((r) => setTimeout(r, 200));
 
-    expect(broadcastReceived).toBe(true);
+    expect(received).toBe(true);
   });
 
   it("marks user offline when socket closes", async () => {
+    // Allow any cleanup from the previous test to settle
+    await new Promise((r) => setTimeout(r, 200));
+
     const wsA = await app.injectWS(`/v1/presence/ws?token=${encodeURIComponent(tokenA)}&watch=`);
 
-    // Wait for snapshot
+    // Wait for snapshot (confirms connection is established)
     await new Promise<void>((resolve) => {
       wsA.once("message", () => resolve());
     });
@@ -165,11 +173,9 @@ describe("GET /v1/presence/ws", () => {
       wsWatcher.once("message", () => resolve());
     });
 
-    // Close USER_A — should broadcast offline
-    wsA.close();
-
-    const offlineReceived = await new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), 2000);
+    // Set up listener BEFORE closing to avoid a race condition
+    const offlineReceived = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 3000);
       wsWatcher.on("message", (data: Buffer | string) => {
         try {
           const msg = JSON.parse(data.toString());
@@ -183,7 +189,12 @@ describe("GET /v1/presence/ws", () => {
       });
     });
 
+    // Close USER_A — should broadcast offline to USER_B
+    wsA.close();
+
+    const received = await offlineReceived;
     wsWatcher.close();
-    expect(offlineReceived).toBe(true);
+
+    expect(received).toBe(true);
   });
 });

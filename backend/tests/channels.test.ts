@@ -24,7 +24,7 @@ let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
 let outsiderCookie: string;
-let adminToken: string;
+let _adminToken: string;
 let memberToken: string;
 let adminId: string;
 let memberId: string;
@@ -100,7 +100,7 @@ beforeAll(async () => {
   adminCookie = await getSessionCookie(ADMIN.email, ADMIN.password);
   memberCookie = await getSessionCookie(MEMBER.email, MEMBER.password);
   outsiderCookie = await getSessionCookie(OUTSIDER.email, OUTSIDER.password);
-  adminToken = await getSessionToken(ADMIN.email, ADMIN.password);
+  _adminToken = await getSessionToken(ADMIN.email, ADMIN.password);
   memberToken = await getSessionToken(MEMBER.email, MEMBER.password);
 
   // Create a team with admin + member
@@ -288,8 +288,6 @@ describe("GET /v1/channels/ws", () => {
   });
 
   it("connects and receives messages as team member", async () => {
-    const messages: string[] = [];
-
     const ws = await app.injectWS(
       `/v1/channels/ws?channelId=${generalChannelId}&teamId=${teamId}&token=${encodeURIComponent(memberToken)}`
     );
