@@ -46,6 +46,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { teamApi, type TeamMember } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
+import { usePresence } from '../../lib/usePresence';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 const TeamChart = React.lazy(() => import('./TeamChart').then((m) => ({ default: m.TeamChart })));
@@ -78,6 +79,10 @@ export const TeamsPage: React.FC = () => {
   }, [selectedTeamId, fetchMembers]);
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId) ?? null;
+
+  // Real-time online/offline presence for team members
+  const memberIds = useMemo(() => members.map((m) => m.id), [members]);
+  const onlineUsers = usePresence(memberIds);
 
   // Loading states for mutations
   const [createLoading, setCreateLoading] = useState(false);
@@ -353,7 +358,15 @@ export const TeamsPage: React.FC = () => {
                       className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
                       aria-label={`View ${name}'s profile`}
                     >
-                      <Avatar name={name} size="sm" />
+                      <div className="relative shrink-0">
+                        <Avatar name={name} size="sm" />
+                        {onlineUsers.has(memberId) && (
+                          <span
+                            className="absolute right-0 bottom-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
+                            aria-label={`${name} is online`}
+                          />
+                        )}
+                      </div>
                       <div className="min-w-0 flex-1">
                         <Text size="sm" weight="medium">
                           {name}

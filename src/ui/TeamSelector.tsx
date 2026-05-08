@@ -1,4 +1,4 @@
-import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
+import { faCheck, faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Dropdown, DropdownItem, Text } from '@mieweb/ui';
 import React, { useCallback, useState } from 'react';
@@ -40,7 +40,15 @@ export const TeamSelector: React.FC = () => {
     >
       {teams.map((team) => (
         <DropdownItem key={team.id} onClick={() => handleSelectTeam(team.id)}>
-          {team.id === selectedTeam?.id ? `✓ ${team.name}` : team.name}
+          <span className="flex items-center gap-2">
+            <FontAwesomeIcon
+              icon={faCheck}
+              className={`text-xs text-blue-600 transition-opacity ${
+                team.id === selectedTeam?.id ? 'opacity-100' : 'opacity-0'
+              }`}
+            />
+            <span>{team.name}</span>
+          </span>
         </DropdownItem>
       ))}
     </Dropdown>

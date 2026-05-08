@@ -2,6 +2,7 @@ import "dotenv/config";
 import { fileURLToPath } from "url";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import websocket from "@fastify/websocket";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { connectDB } from "./lib/db.js";
@@ -19,6 +20,8 @@ import { attachmentRoutes } from "./routes/attachments.js";
 import { messageRoutes } from "./routes/messages.js";
 import { activityRoutes } from "./routes/activity.js";
 import { pulseVaultRoutes, pulseVaultCompatRoutes } from "./routes/pulsevault.js";
+import { presenceRoutes } from "./routes/presence.js";
+import { channelRoutes } from "./routes/channels.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? true });
@@ -73,6 +76,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     // Expose the bearer token header so Capacitor WebViews can read it after sign-in.
     exposedHeaders: ["set-auth-token"],
   });
+
+  await app.register(websocket);
 
   // Attach X-App-Id (timeharbor | timehuddle) to every request
   app.addHook("preHandler", appContext);
@@ -398,6 +403,28 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // Health check
   await app.register(healthRoutes);
 
+  // Validate WebSocket upgrade Origin to prevent cross-origin socket hijacking.
+  // Capacitor native (capacitor://localhost) and local dev (null origin) are allowed.
+  // TRUSTED_ORIGINS env var may include additional allowed origins (comma-separated).
+  const trustedWsOrigins = new Set([
+    "capacitor://localhost",
+    ...(process.env.TRUSTED_ORIGINS
+      ? process.env.TRUSTED_ORIGINS.split(",").map((o) => o.trim())
+      : []),
+    ...(process.env.APP_URL ? [new URL(process.env.APP_URL).origin] : []),
+    `http://localhost:3000`,
+    `http://localhost:${process.env.PORT || 4000}`,
+  ]);
+  app.addHook("preValidation", (req, reply, done) => {
+    const upgrade = req.headers["upgrade"];
+    if (!upgrade || upgrade.toLowerCase() !== "websocket") return done();
+    const origin = req.headers["origin"];
+    // Allow missing origin (same-origin Capacitor native, Vitest inject)
+    if (!origin || origin === "null") return done();
+    if (trustedWsOrigins.has(origin)) return done();
+    reply.status(403).send({ error: "Forbidden origin" });
+  });
+
   // App routes
   await app.register(userRoutes, { prefix: "/v1" });
   await app.register(teamRoutes, { prefix: "/v1" });
@@ -409,6 +436,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(pulseVaultRoutes, { prefix: "/v1" });
   await app.register(messageRoutes, { prefix: "/v1" });
   await app.register(activityRoutes, { prefix: "/v1" });
+  await app.register(presenceRoutes, { prefix: "/v1" });
+  await app.register(channelRoutes, { prefix: "/v1" });
 
   // Compat: old Pulse Cam configs saved the bare server URL (http://host:4000) and call
   // POST /reserve, POST /upload, PATCH /upload/:id etc. at root level.
