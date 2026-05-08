@@ -20,6 +20,7 @@ import { attachmentRoutes } from "./routes/attachments.js";
 import { messageRoutes } from "./routes/messages.js";
 import { activityRoutes } from "./routes/activity.js";
 import { pulseVaultRoutes, pulseVaultCompatRoutes } from "./routes/pulsevault.js";
+import { presenceRoutes } from "./routes/presence.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? true });
@@ -412,6 +413,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(pulseVaultRoutes, { prefix: "/v1" });
   await app.register(messageRoutes, { prefix: "/v1" });
   await app.register(activityRoutes, { prefix: "/v1" });
+  await app.register(presenceRoutes, { prefix: "/v1" });
 
   // Compat: old Pulse Cam configs saved the bare server URL (http://host:4000) and call
   // POST /reserve, POST /upload, PATCH /upload/:id etc. at root level.

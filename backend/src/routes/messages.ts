@@ -17,14 +17,19 @@ export async function messageRoutes(app: FastifyInstance) {
     const session = await auth.api.getSession({ headers: req.headers as any });
     if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
 
-    const { teamId, adminId, memberId } = req.query as Record<string, string>;
+    const { teamId, adminId, memberId, before, limit } = req.query as Record<string, string>;
     if (!teamId || !adminId || !memberId) {
       return reply.status(400).send({ error: "teamId, adminId, memberId required" });
     }
 
-    const result = await messageService.getThread(session.user.id, teamId, adminId, memberId);
+    const beforeDate = before ? new Date(before) : undefined;
+    const parsedLimit = limit ? Math.min(parseInt(limit, 10) || 50, 100) : 50;
+    const result = await messageService.getThread(session.user.id, teamId, adminId, memberId, {
+      before: beforeDate,
+      limit: parsedLimit,
+    });
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
-    return reply.send({ messages: result });
+    return reply.send({ messages: result.messages, hasMore: result.hasMore });
   });
 
   // POST /v1/messages

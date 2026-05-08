@@ -535,11 +535,16 @@ export interface Message {
 }
 
 export const messageApi = {
-  /** Fetch a thread's message history. */
-  getThread: (teamId: string, adminId: string, memberId: string) =>
-    request<{ messages: Message[] }>(
-      `/v1/messages?teamId=${encodeURIComponent(teamId)}&adminId=${encodeURIComponent(adminId)}&memberId=${encodeURIComponent(memberId)}`,
-    ).then((r) => r.messages),
+  /** Fetch a thread's message history. Pass `before` ISO string for cursor-based pagination. */
+  getThread: (teamId: string, adminId: string, memberId: string, before?: string) => {
+    const qs = new URLSearchParams({
+      teamId,
+      adminId,
+      memberId,
+    });
+    if (before) qs.set('before', before);
+    return request<{ messages: Message[]; hasMore: boolean }>(`/v1/messages?${qs.toString()}`);
+  },
 
   /** Send a message. */
   send: (data: {
@@ -821,5 +826,25 @@ export const activityApi = {
     return request<{ events: ActivityLogItem[]; nextCursor: string | null }>(
       `/v1/activity/log${query ? `?${query}` : ''}`,
     );
+  },
+};
+
+// ─── Presence ─────────────────────────────────────────────────────────────────
+
+export const presenceApi = {
+  /**
+   * Open a WebSocket presence stream.
+   * Sends periodic { type: "ping" } heartbeats to stay marked online.
+   * Receives { type: "snapshot", online: string[] } on connect,
+   * then { type: "presence", userId: string, online: boolean } on changes.
+   */
+  openStream: (watchIds: string[]): AutoReconnectWs => {
+    const token = sessionToken.get();
+    return autoReconnectWs(() => {
+      const url = new URL(`${WS_BASE_URL}/v1/presence/ws`);
+      if (token) url.searchParams.set('token', token);
+      if (watchIds.length > 0) url.searchParams.set('watch', watchIds.join(','));
+      return url.toString();
+    });
   },
 };

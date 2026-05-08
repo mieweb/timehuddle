@@ -50,16 +50,23 @@ class MessageService {
     requesterId: string,
     teamId: string,
     adminId: string,
-    memberId: string
-  ): Promise<PublicMessage[] | "forbidden"> {
+    memberId: string,
+    options: { before?: Date; limit?: number } = {}
+  ): Promise<{ messages: PublicMessage[]; hasMore: boolean } | "forbidden"> {
     if (requesterId !== adminId && requesterId !== memberId) return "forbidden";
     const threadId = buildThreadId(teamId, adminId, memberId);
+    const limit = options.limit ?? 50;
+    const filter: Record<string, unknown> = { threadId };
+    if (options.before) filter.createdAt = { $lt: options.before };
     const messages = await messagesCollection()
-      .find({ threadId })
-      .sort({ createdAt: 1 })
-      .limit(500)
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit + 1)
       .toArray();
-    return messages.map(toPublicMessage);
+    const hasMore = messages.length > limit;
+    if (hasMore) messages.pop();
+    messages.reverse();
+    return { messages: messages.map(toPublicMessage), hasMore };
   }
 
   async send(

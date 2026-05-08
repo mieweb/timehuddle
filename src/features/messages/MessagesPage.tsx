@@ -16,7 +16,6 @@ import {
   CardHeader,
   CardTitle,
   Input,
-  Select,
   Spinner,
   Text,
 } from '@mieweb/ui';
@@ -32,11 +31,12 @@ import { messageApi, userApi, type Message } from '../../lib/api';
 export const MessagesPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? '';
-  const { teams, selectedTeamId, setSelectedTeamId, teamsReady, isAdmin, selectedTeam } = useTeam();
+  const { selectedTeamId, setSelectedTeamId, teamsReady, isAdmin, selectedTeam } = useTeam();
 
   // Thread selection
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [memberNames, setMemberNames] = useState<Record<string, string>>({});
+  const [memberNamesLoaded, setMemberNamesLoaded] = useState(false);
 
   // For non-admins, they need to pick an admin to message
   const [selectedAdminId, setSelectedAdminId] = useState<string | null>(null);
@@ -45,7 +45,11 @@ export const MessagesPage: React.FC = () => {
 
   // Messages state
   const [messages, setMessages] = useState<Message[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [sendLoading, setSendLoading] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const topSentinelRef = useRef<HTMLDivElement>(null);
 
   /** From push notification URL: /app/messages?openTeam=&openPeer= */
   const pendingOpenPeerRef = useRef<string | null>(null);
@@ -111,27 +115,30 @@ export const MessagesPage: React.FC = () => {
     return () => window.removeEventListener('timehuddle:openThread', handler);
   }, [userId]);
 
-  // Fetch thread history + open SSE when thread is selected
+  // Fetch thread history + open WebSocket when thread is selected
   useEffect(() => {
     if (!selectedTeamId || !effectiveAdminId || !effectiveMemberId) {
       setMessages([]);
+      setHasMore(false);
       return;
     }
     const threadId = `${selectedTeamId}:${effectiveAdminId}:${effectiveMemberId}`;
 
-    // Initial fetch
+    // Initial fetch — most recent page
     messageApi
       .getThread(selectedTeamId, effectiveAdminId, effectiveMemberId)
-      .then(setMessages)
+      .then(({ messages: msgs, hasMore: more }) => {
+        setMessages(msgs);
+        setHasMore(more);
+      })
       .catch(() => {});
 
-    // SSE for real-time updates
+    // WebSocket for real-time updates
     const es = messageApi.openStream(threadId);
     es.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data) as Message;
         setMessages((prev) => {
-          // Deduplicate by id
           if (prev.some((m) => m.id === msg.id)) return prev;
           return [...prev, msg];
         });
@@ -142,9 +149,50 @@ export const MessagesPage: React.FC = () => {
     return () => es.close();
   }, [selectedTeamId, effectiveAdminId, effectiveMemberId]);
 
+  // Load older messages when top sentinel enters viewport
+  const oldestCreatedAt = messages.length > 0 ? messages[0].createdAt : undefined;
+  useEffect(() => {
+    const sentinel = topSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting) return;
+        if (!hasMore || loadingMore) return;
+        if (!selectedTeamId || !effectiveAdminId || !effectiveMemberId || !oldestCreatedAt) return;
+
+        setLoadingMore(true);
+        const container = scrollContainerRef.current;
+        const prevScrollHeight = container?.scrollHeight ?? 0;
+
+        messageApi
+          .getThread(selectedTeamId, effectiveAdminId, effectiveMemberId, oldestCreatedAt)
+          .then(({ messages: older, hasMore: more }) => {
+            setMessages((prev) => [...older, ...prev]);
+            setHasMore(more);
+            requestAnimationFrame(() => {
+              if (container) {
+                container.scrollTop = container.scrollHeight - prevScrollHeight;
+              }
+            });
+          })
+          .catch(() => {})
+          .finally(() => setLoadingMore(false));
+      },
+      { threshold: 0.1 },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadingMore, selectedTeamId, effectiveAdminId, effectiveMemberId, oldestCreatedAt]);
+
   // Fetch team member names via REST
   useEffect(() => {
-    if (!selectedTeam) return;
+    if (!selectedTeam) {
+      setMemberNamesLoaded(false);
+      return;
+    }
+    setMemberNamesLoaded(false);
     const ids = [...new Set([...selectedTeam.members, ...selectedTeam.admins])];
     userApi
       .getUsers(ids)
@@ -152,17 +200,30 @@ export const MessagesPage: React.FC = () => {
         const names: Record<string, string> = {};
         for (const u of users) names[u.id] = u.name;
         setMemberNames(names);
+        setMemberNamesLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => { setMemberNamesLoaded(true); });
   }, [selectedTeam]);
 
   const [messageText, setMessageText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const prevMessageCountRef = useRef(0);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom only when new messages arrive (not on prepend from lazy load)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
+    const prev = prevMessageCountRef.current;
+    const curr = messages.length;
+    // A prepend increases count but the first message changes — skip scroll
+    // A new incoming message appends — scroll to bottom
+    if (curr > prev && messages[curr - 1]?.createdAt !== messages[prev - 1]?.createdAt) {
+      // count went up and last message changed → new message at the bottom
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    } else if (curr > 0 && prev === 0) {
+      // initial load — jump to bottom instantly
+      messagesEndRef.current?.scrollIntoView({ behavior: 'instant' });
+    }
+    prevMessageCountRef.current = curr;
+  }, [messages]);
 
   const handleSend = useCallback(async () => {
     if (!messageText.trim() || !selectedTeamId || !effectiveAdminId || !effectiveMemberId) return;
@@ -204,11 +265,6 @@ export const MessagesPage: React.FC = () => {
     else setSelectedAdminId(null);
   }, [isAdmin]);
 
-  const teamOptions = useMemo(
-    () => teams.filter((t) => !t.isPersonal).map((t) => ({ value: t.id, label: t.name })),
-    [teams],
-  );
-
   if (!teamsReady) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -219,24 +275,6 @@ export const MessagesPage: React.FC = () => {
 
   return (
     <div className="mx-auto flex h-[calc(100vh-4rem)] max-w-4xl flex-col p-4 md:p-6">
-      {/* Team selector */}
-      {teams.length > 1 && (
-        <div className="mb-4 flex items-center gap-3">
-          <Select
-            label="Team"
-            hideLabel
-            size="sm"
-            options={teamOptions}
-            value={selectedTeamId ?? ''}
-            onValueChange={(v) => {
-              setSelectedTeamId(v);
-              setSelectedMemberId(null);
-              setSelectedAdminId(null);
-            }}
-          />
-        </div>
-      )}
-
       <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
         {/* Thread list — full width on mobile, sidebar on desktop */}
         <Card
@@ -255,6 +293,11 @@ export const MessagesPage: React.FC = () => {
             </Text>
           </CardHeader>
           <CardContent className="p-0">
+            {!memberNamesLoaded ? (
+              <div className="flex items-center justify-center py-8">
+                <Spinner size="sm" label="Loading…" />
+              </div>
+            ) : (
             <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {threadMembers.map((m) => {
                 const isSelected = isAdmin ? selectedMemberId === m.id : selectedAdminId === m.id;
@@ -286,6 +329,7 @@ export const MessagesPage: React.FC = () => {
                 </li>
               )}
             </ul>
+            )}
           </CardContent>
         </Card>
 
@@ -314,7 +358,11 @@ export const MessagesPage: React.FC = () => {
               </CardHeader>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto px-5 py-4">
+              <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-5 py-4">
+                {/* Top sentinel — triggers loading older messages */}
+                <div ref={topSentinelRef} className="flex justify-center py-2">
+                  {loadingMore && <Spinner size="sm" label="Loading older messages…" />}
+                </div>
                 {messages.length === 0 && (
                   <div className="flex h-full items-center justify-center">
                     <Text variant="muted" size="sm">

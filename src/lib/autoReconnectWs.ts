@@ -11,6 +11,8 @@ const BASE_DELAY_MS = 1_000;
 export interface AutoReconnectWs {
   onmessage: ((event: MessageEvent) => void) | null;
   close(): void;
+  /** Send a message if the socket is currently open. No-op otherwise. */
+  send(data: string): void;
   /** Returns true if the socket is currently connected. */
   readonly connected: boolean;
 }
@@ -30,6 +32,9 @@ export function autoReconnectWs(buildUrl: () => string): AutoReconnectWs {
       closed = true;
       if (retryTimer !== null) clearTimeout(retryTimer);
       ws?.close();
+    },
+    send(data: string) {
+      if (ws?.readyState === WebSocket.OPEN) ws.send(data);
     },
   };
 
