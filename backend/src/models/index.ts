@@ -14,6 +14,8 @@ import type { UserDeviceTokens } from "./device-token.model.js";
 import type { WorkItem } from "./work-item.model.js";
 import type { Timer } from "./timer.model.js";
 import type { ActivityEvent } from "./activity.model.js";
+import type { Channel } from "./channel.model.js";
+import type { ChannelMessage } from "./channel-message.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
 export function usersCollection() {
@@ -88,4 +90,14 @@ export function timersCollection() {
 // Activity log
 export function activitiesCollection() {
   return getDB().collection<ActivityEvent>("activities");
+}
+
+// Channels — team-scoped group chat
+export function channelsCollection() {
+  return getDB().collection<Channel>("channels");
+}
+
+// Channel messages
+export function channelMessagesCollection() {
+  return getDB().collection<ChannelMessage>("channelmessages");
 }
