@@ -231,7 +231,9 @@ export const TimesheetPage: React.FC = () => {
   // Filter sessions by selected team
   const filteredSessions = useMemo(() => {
     if (!data) return [];
-    return selectedTeamId ? data.sessions.filter((s) => s.teamId === selectedTeamId) : data.sessions;
+    return selectedTeamId
+      ? data.sessions.filter((s) => s.teamId === selectedTeamId)
+      : data.sessions;
   }, [data, selectedTeamId]);
 
   // Recompute summary from filtered sessions

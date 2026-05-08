@@ -351,7 +351,7 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({ label, activeLabel, chi
 );
 
 export const TicketsPage: React.FC = () => {
-  const { user } = useSession();  
+  const { user } = useSession();
   const userId = user?.id ?? null;
   const { selectedTeamId, teamsReady } = useTeam();
 
@@ -377,8 +377,14 @@ export const TicketsPage: React.FC = () => {
 
   // Fetch members for the selected team
   useEffect(() => {
-    if (!selectedTeamId) { setTeamMembers([]); return; }
-    void teamApi.getMembers(selectedTeamId).then(setTeamMembers).catch(() => setTeamMembers([]));
+    if (!selectedTeamId) {
+      setTeamMembers([]);
+      return;
+    }
+    void teamApi
+      .getMembers(selectedTeamId)
+      .then(setTeamMembers)
+      .catch(() => setTeamMembers([]));
   }, [selectedTeamId]);
 
   // Assignee name resolver
@@ -457,9 +463,8 @@ export const TicketsPage: React.FC = () => {
   );
   const inProgressCount = useMemo(
     () =>
-      searchFilteredTickets.filter(
-        (t) => t.status === 'in-progress' || t.status === 'blocked',
-      ).length,
+      searchFilteredTickets.filter((t) => t.status === 'in-progress' || t.status === 'blocked')
+        .length,
     [searchFilteredTickets],
   );
   const doneCount = useMemo(
@@ -470,9 +475,14 @@ export const TicketsPage: React.FC = () => {
 
   // Filter tickets by status tab
   const filteredTickets = useMemo(() => {
-    if (statusFilter === 'open') return searchFilteredTickets.filter((t) => !t.status || t.status === 'open');
-    if (statusFilter === 'inprogress') return searchFilteredTickets.filter((t) => t.status === 'in-progress' || t.status === 'blocked');
-    if (statusFilter === 'done') return searchFilteredTickets.filter((t) => t.status === 'closed' || t.status === 'reviewed');
+    if (statusFilter === 'open')
+      return searchFilteredTickets.filter((t) => !t.status || t.status === 'open');
+    if (statusFilter === 'inprogress')
+      return searchFilteredTickets.filter(
+        (t) => t.status === 'in-progress' || t.status === 'blocked',
+      );
+    if (statusFilter === 'done')
+      return searchFilteredTickets.filter((t) => t.status === 'closed' || t.status === 'reviewed');
     return searchFilteredTickets; // 'all'
   }, [searchFilteredTickets, statusFilter]);
 

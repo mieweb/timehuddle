@@ -166,8 +166,12 @@ export const WorkPage: React.FC = () => {
   // ── Fetch tickets for the selected team (for both pickers) ──
 
   useEffect(() => {
-    if (!selectedTeamId) { setAllTickets([]); return; }
-    ticketApi.getTickets(selectedTeamId)
+    if (!selectedTeamId) {
+      setAllTickets([]);
+      return;
+    }
+    ticketApi
+      .getTickets(selectedTeamId)
       .then(setAllTickets)
       .catch(() => setAllTickets([]));
   }, [selectedTeamId]);
