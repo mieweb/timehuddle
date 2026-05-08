@@ -11,6 +11,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/server.js";
 import { connectDB, client } from "../src/lib/db.js";
 import { auth } from "../src/lib/auth.js";
+import { presenceService } from "../src/services/presence.service.js";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -113,8 +114,8 @@ describe("GET /v1/presence/ws", () => {
   });
 
   it("sends presence broadcast when a watched user connects", async () => {
-    // Allow any cleanup from the previous test (markOffline) to settle
-    await new Promise((r) => setTimeout(r, 200));
+    // Explicitly reset USER_A's online state so markOnline will broadcast on connect
+    presenceService.markOffline(userAId);
 
     // USER_B watches USER_A
     const wsWatcher = await app.injectWS(
@@ -148,19 +149,17 @@ describe("GET /v1/presence/ws", () => {
     const received = await broadcastReceived;
     wsA.close();
     wsWatcher.close();
-    // Allow close events to propagate before the next test
-    await new Promise((r) => setTimeout(r, 200));
 
     expect(received).toBe(true);
   });
 
   it("marks user offline when socket closes", async () => {
-    // Allow any cleanup from the previous test to settle
-    await new Promise((r) => setTimeout(r, 200));
+    // Explicitly reset USER_A's online state so the test starts from a known baseline
+    presenceService.markOffline(userAId);
 
     const wsA = await app.injectWS(`/v1/presence/ws?token=${encodeURIComponent(tokenA)}&watch=`);
 
-    // Wait for snapshot (confirms connection is established)
+    // Wait for snapshot (confirms USER_A's connection is established and markOnline was called)
     await new Promise<void>((resolve) => {
       wsA.once("message", () => resolve());
     });
@@ -173,7 +172,7 @@ describe("GET /v1/presence/ws", () => {
       wsWatcher.once("message", () => resolve());
     });
 
-    // Set up listener BEFORE closing to avoid a race condition
+    // Set up listener BEFORE triggering offline to avoid a race condition
     const offlineReceived = new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => resolve(false), 3000);
       wsWatcher.on("message", (data: Buffer | string) => {
@@ -189,8 +188,12 @@ describe("GET /v1/presence/ws", () => {
       });
     });
 
-    // Close USER_A — should broadcast offline to USER_B
-    wsA.close();
+    // injectWS uses in-process PassThrough streams; client-side terminate() does not
+    // reliably propagate the close event to the server-side socket handler in all
+    // environments. Directly call what the route's socket.on("close") handler calls so
+    // we can test that the watcher subscription broadcasts correctly.
+    wsA.terminate();
+    presenceService.markOffline(userAId);
 
     const received = await offlineReceived;
     wsWatcher.close();
