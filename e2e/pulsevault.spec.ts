@@ -282,8 +282,8 @@ test.describe('PulseVault — Ticket video upload', () => {
     // aria-label is "Upload video from this device instead"; match by text content.
     await page.locator('button', { hasText: 'Upload from this device' }).click();
 
-    // Intercept the hidden file input and inject a minimal MP4
-    const fileInput = page.locator('input[type="file"][accept=".mp4,video/mp4"]');
+    // Intercept the hidden file input and inject a minimal MP4 — scope to qrModal to avoid ambiguity
+    const fileInput = qrModal.locator('input[type="file"][accept=".mp4,video/mp4"]');
     await fileInput.setInputFiles({
       name: 'demo.mp4',
       mimeType: 'video/mp4',
