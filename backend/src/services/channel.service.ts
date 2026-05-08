@@ -7,6 +7,7 @@ import {
 } from "../models/index.js";
 import type { Channel, PublicChannel } from "../models/channel.model.js";
 import type { ChannelMessage, PublicChannelMessage } from "../models/channel-message.model.js";
+import { notificationService } from "./notification.service.js";
 
 // ─── In-memory pub/sub ────────────────────────────────────────────────────────
 
@@ -219,6 +220,32 @@ class ChannelService {
     await channelMessagesCollection().insertOne(doc);
     const pub = toPublicChannelMessage(doc);
     broadcast(channelId, pub);
+
+    // Push notifications to all channel recipients except the sender
+    const recipientIds = (channel.members && channel.members.length > 0
+      ? channel.members
+      : allTeamMembers
+    ).filter((id) => id !== senderId);
+
+    const truncatedText = text.length > 200 ? text.slice(0, 197) + "…" : text;
+    const notifyUrl = `/app/messages`;
+    recipientIds.forEach((recipientId) => {
+      notificationService
+        .create({
+          userId: recipientId,
+          title: `${senderName} in #${channel.name}`,
+          body: truncatedText,
+          notificationData: {
+            type: "channel_message",
+            teamId,
+            channelId,
+            senderName,
+            url: notifyUrl,
+          },
+        })
+        .catch((err) => console.error("[channel] push notification failed:", err));
+    });
+
     return pub;
   }
 }

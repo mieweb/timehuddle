@@ -28,6 +28,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
+import { MessagesActiveChatContext } from '../../ui/AppLayout';
 import {
   channelApi,
   messageApi,
@@ -43,6 +44,7 @@ export const MessagesPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? '';
   const { selectedTeamId, setSelectedTeamId, teamsReady, isAdmin, selectedTeam } = useTeam();
+  const { setHasActiveChat } = React.useContext(MessagesActiveChatContext);
 
   // ── View mode ───────────────────────────────────────────────────────────────
   const [activeView, setActiveView] = useState<'channel' | 'dm'>('channel');
@@ -59,6 +61,16 @@ export const MessagesPage: React.FC = () => {
   const channelTopSentinelRef = useRef<HTMLDivElement>(null);
   const channelEndRef = useRef<HTMLDivElement>(null);
   const prevChannelMsgCountRef = useRef(0);
+
+  // Unread counts — keyed by channelId / peer userId
+  const [channelUnread, setChannelUnread] = useState<Record<string, number>>({});
+  const [dmUnread, setDmUnread] = useState<Record<string, number>>({});
+  // Refs so async WS/SSE handlers can read current selection without stale closure
+  const activeViewRef = useRef(activeView);
+  const selectedChannelIdRef = useRef(selectedChannelId);
+  const selectedPeerIdRef = useRef<string | null>(null);
+  useEffect(() => { activeViewRef.current = activeView; }, [activeView]);
+  useEffect(() => { selectedChannelIdRef.current = selectedChannelId; }, [selectedChannelId]);
 
   // Create channel modal
   const [showCreateChannel, setShowCreateChannel] = useState(false);
@@ -194,7 +206,7 @@ export const MessagesPage: React.FC = () => {
       .catch(() => {});
   }, [selectedTeamId]);
 
-  // ── Channel messages + WS ─────────────────────────────────────────────────────
+  // ── Channel messages (load on select) ────────────────────────────────────────
   useEffect(() => {
     if (!selectedChannelId || !selectedTeamId) {
       setChannelMessages([]);
@@ -208,20 +220,44 @@ export const MessagesPage: React.FC = () => {
         setChannelHasMore(more);
       })
       .catch(() => {});
-
-    const ws = channelApi.openStream(selectedChannelId, selectedTeamId);
-    ws.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data) as ChannelMessage;
-        setChannelMessages((prev) =>
-          prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]
-        );
-      } catch {
-        /* ignore */
-      }
-    };
-    return () => ws.close();
   }, [selectedChannelId, selectedTeamId]);
+
+  // Clear unread when a channel is opened
+  useEffect(() => {
+    if (!selectedChannelId) return;
+    setChannelUnread((prev) => {
+      if (!prev[selectedChannelId]) return prev;
+      const next = { ...prev };
+      delete next[selectedChannelId];
+      return next;
+    });
+  }, [selectedChannelId]);
+
+  // ── All-channels WS — real-time messages + unread tracking ───────────────────
+  useEffect(() => {
+    if (!selectedTeamId || channels.length === 0) return;
+    const wsList = channels.map((ch) => {
+      const ws = channelApi.openStream(ch.id, selectedTeamId);
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data) as ChannelMessage;
+          const isActive =
+            activeViewRef.current === 'channel' && selectedChannelIdRef.current === ch.id;
+          if (isActive) {
+            setChannelMessages((prev) =>
+              prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]
+            );
+          } else {
+            setChannelUnread((prev) => ({ ...prev, [ch.id]: (prev[ch.id] ?? 0) + 1 }));
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      return ws;
+    });
+    return () => { wsList.forEach((ws) => ws.close()); };
+  }, [channels, selectedTeamId]);
 
   // ── Channel lazy-load older messages ─────────────────────────────────────────
   const oldestChannelCreatedAt =
@@ -321,14 +357,13 @@ export const MessagesPage: React.FC = () => {
     }
   }, [newChannelName, newChannelDesc, newChannelMembers, selectedTeamId]);
 
-  // ── DM thread logic ───────────────────────────────────────────────────────────
+  // ── DM thread logic (load messages on select) ───────────────────────────────
   useEffect(() => {
     if (!selectedTeamId || !effectiveAdminId || !effectiveMemberId) {
       setMessages([]);
       setHasMore(false);
       return;
     }
-    const threadId = `${selectedTeamId}:${effectiveAdminId}:${effectiveMemberId}`;
 
     messageApi
       .getThread(selectedTeamId, effectiveAdminId, effectiveMemberId)
@@ -337,17 +372,6 @@ export const MessagesPage: React.FC = () => {
         setHasMore(more);
       })
       .catch(() => {});
-
-    const es = messageApi.openStream(threadId);
-    es.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data) as Message;
-        setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
-      } catch {
-        /* ignore */
-      }
-    };
-    return () => es.close();
   }, [selectedTeamId, effectiveAdminId, effectiveMemberId]);
 
   const oldestCreatedAt = messages.length > 0 ? messages[0].createdAt : undefined;
@@ -426,8 +450,58 @@ export const MessagesPage: React.FC = () => {
     }
   }, [selectedTeam, isAdmin, userId, memberNames]);
 
+  // Sync selected peer ref for WS/SSE handlers
+  useEffect(() => {
+    selectedPeerIdRef.current = isAdmin ? selectedMemberId : selectedAdminId;
+  }, [isAdmin, selectedMemberId, selectedAdminId]);
+
+  // Clear DM unread when a peer is opened
+  useEffect(() => {
+    const peerId = isAdmin ? selectedMemberId : selectedAdminId;
+    if (!peerId) return;
+    setDmUnread((prev) => {
+      if (!prev[peerId]) return prev;
+      const next = { ...prev };
+      delete next[peerId];
+      return next;
+    });
+  }, [isAdmin, selectedMemberId, selectedAdminId]);
+
+  // ── All-DM-threads SSE — real-time messages + unread tracking ────────────────
+  useEffect(() => {
+    if (!selectedTeamId || threadMembers.length === 0) return;
+    const esList = threadMembers.map((m) => {
+      const threadId = isAdmin
+        ? `${selectedTeamId}:${userId}:${m.id}`
+        : `${selectedTeamId}:${m.id}:${userId}`;
+      const es = messageApi.openStream(threadId);
+      es.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data) as Message;
+          const isActive =
+            activeViewRef.current === 'dm' && selectedPeerIdRef.current === m.id;
+          if (isActive) {
+            setMessages((prev) => (prev.some((msg2) => msg2.id === msg.id) ? prev : [...prev, msg]));
+          } else {
+            setDmUnread((prev) => ({ ...prev, [m.id]: (prev[m.id] ?? 0) + 1 }));
+          }
+        } catch {
+          /* ignore */
+        }
+      };
+      return es;
+    });
+    return () => { esList.forEach((es) => es.close()); };
+  }, [threadMembers, selectedTeamId, userId, isAdmin]);
+
   const hasThread = isAdmin ? !!selectedMemberId : !!selectedAdminId;
   const hasActiveChat = activeView === 'channel' ? !!selectedChannelId : hasThread;
+
+  // Sync active-chat state up to AppLayout so it can show/hide BottomNav
+  useEffect(() => {
+    setHasActiveChat(hasActiveChat);
+    return () => setHasActiveChat(false);
+  }, [hasActiveChat, setHasActiveChat]);
 
   const handleBack = useCallback(() => {
     if (activeView === 'channel') {
@@ -450,12 +524,12 @@ export const MessagesPage: React.FC = () => {
   const selectedChannel = channels.find((c) => c.id === selectedChannelId);
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-4rem)] max-w-4xl flex-col p-4 md:p-6">
-      <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
+    <div className="flex h-full w-full flex-col md:mx-auto md:max-w-4xl md:p-6">
+      <div className="flex min-h-0 flex-1 gap-0 overflow-hidden md:gap-4">
         {/* ── Sidebar ─────────────────────────────────────────────────────── */}
         <Card
           padding="none"
-          className={`overflow-y-auto md:block md:w-56 md:shrink-0 ${
+          className={`overflow-y-auto rounded-none border-0 shadow-none md:block md:w-56 md:shrink-0 md:rounded-lg md:border md:shadow ${
             hasActiveChat ? 'hidden' : 'w-full'
           }`}
         >
@@ -488,6 +562,7 @@ export const MessagesPage: React.FC = () => {
               <ul>
                 {channels.map((ch) => {
                   const isSel = selectedChannelId === ch.id && activeView === 'channel';
+                  const unread = channelUnread[ch.id] ?? 0;
                   return (
                     <li key={ch.id}>
                       <button
@@ -498,10 +573,15 @@ export const MessagesPage: React.FC = () => {
                             ? 'bg-blue-50 font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
                             : 'text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800'
                         }`}
-                        aria-label={`Channel ${ch.name}`}
+                        aria-label={`Channel ${ch.name}${unread > 0 ? `, ${unread} unread` : ''}`}
                       >
                         <FontAwesomeIcon icon={faHashtag} className="shrink-0 text-xs text-neutral-400" />
-                        <span className="truncate">{ch.name}</span>
+                        <span className="flex-1 truncate">{ch.name}</span>
+                        {unread > 0 && (
+                          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
+                            {unread > 99 ? '99+' : unread}
+                          </span>
+                        )}
                       </button>
                     </li>
                   );
@@ -548,10 +628,15 @@ export const MessagesPage: React.FC = () => {
                             ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
                             : 'text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800'
                         }`}
-                        aria-label={`Direct message ${m.name}`}
+                        aria-label={`Direct message ${m.name}${dmUnread[m.id] ? `, ${dmUnread[m.id]} unread` : ''}`}
                       >
                         <Avatar name={m.name} size="sm" />
-                        <span className="truncate font-medium">{m.name}</span>
+                        <span className="flex-1 truncate font-medium">{m.name}</span>
+                        {(dmUnread[m.id] ?? 0) > 0 && (
+                          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
+                            {(dmUnread[m.id] ?? 0) > 99 ? '99+' : dmUnread[m.id]}
+                          </span>
+                        )}
                       </button>
                     </li>
                   );
@@ -571,12 +656,12 @@ export const MessagesPage: React.FC = () => {
         {/* ── Chat area ────────────────────────────────────────────────────── */}
         <Card
           padding="none"
-          className={`flex min-w-0 flex-col md:flex-1 ${hasActiveChat ? 'flex-1' : 'hidden md:flex'}`}
+          className={`flex min-w-0 flex-col rounded-none border-0 shadow-none md:flex-1 md:rounded-lg md:border md:shadow ${hasActiveChat ? 'flex-1' : 'hidden md:flex'}`}
         >
           {activeView === 'channel' && selectedChannel ? (
             <>
-              {/* Channel header */}
-              <CardHeader className="flex-row items-center gap-2 px-4 py-3">
+              {/* Channel header — sticky */}
+              <CardHeader className="sticky top-0 z-10 flex-row items-center gap-2 bg-white px-4 py-3 dark:bg-neutral-900">
                 <button
                   type="button"
                   onClick={handleBack}
@@ -597,7 +682,7 @@ export const MessagesPage: React.FC = () => {
               </CardHeader>
 
               {/* Channel messages — Slack-style */}
-              <div ref={channelScrollRef} className="flex-1 overflow-y-auto px-4 py-3">
+              <div ref={channelScrollRef} className="flex-1 overflow-y-auto px-4 pb-[96px] pt-3 md:pb-3">
                 <div ref={channelTopSentinelRef} className="flex justify-center py-1">
                   {channelLoadingMore && <Spinner size="sm" label="Loading older messages…" />}
                 </div>
@@ -643,8 +728,8 @@ export const MessagesPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Channel compose */}
-              <div className="border-t border-neutral-100 p-3 dark:border-neutral-800">
+              {/* Channel compose — fixed bottom on mobile */}
+              <div className="fixed bottom-0 left-0 right-0 border-t border-neutral-100 bg-white px-3 pb-[env(safe-area-inset-bottom,16px)] pt-3 dark:border-neutral-800 dark:bg-neutral-900 md:relative md:bottom-auto md:left-auto md:right-auto md:px-3 md:pb-3">
                 {channelSendError && (
                   <p className="mb-2 text-xs text-red-500">{channelSendError}</p>
                 )}
@@ -676,8 +761,8 @@ export const MessagesPage: React.FC = () => {
             </>
           ) : activeView === 'dm' && hasThread ? (
             <>
-              {/* DM header */}
-              <CardHeader className="px-4 py-3">
+              {/* DM header — sticky */}
+              <CardHeader className="sticky top-0 z-10 bg-white px-4 py-3 dark:bg-neutral-900">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -694,7 +779,7 @@ export const MessagesPage: React.FC = () => {
               </CardHeader>
 
               {/* DM messages */}
-              <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-5 py-4">
+              <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-5 pb-[96px] pt-4 md:pb-4">
                 <div ref={topSentinelRef} className="flex justify-center py-2">
                   {loadingMore && <Spinner size="sm" label="Loading older messages…" />}
                 </div>
@@ -732,8 +817,8 @@ export const MessagesPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* DM compose */}
-              <div className="border-t border-neutral-100 p-3 dark:border-neutral-800">
+              {/* DM compose — fixed bottom on mobile */}
+              <div className="fixed bottom-0 left-0 right-0 border-t border-neutral-100 bg-white px-3 pb-[env(safe-area-inset-bottom,16px)] pt-3 dark:border-neutral-800 dark:bg-neutral-900 md:relative md:bottom-auto md:left-auto md:right-auto md:px-3 md:pb-3">
                 <div className="flex gap-2">
                   <div className="flex-1">
                     <Input

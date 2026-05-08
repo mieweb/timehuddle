@@ -90,6 +90,13 @@ export const SidebarContext = createContext<SidebarCtx>({
 
 export const useSidebar = () => useContext(SidebarContext);
 
+// ─── Messages active-chat context ─────────────────────────────────────────────
+// MessagesPage calls setHasActiveChat(true/false) so AppLayout knows whether
+// a channel/DM is open — hiding BottomNav only while chatting.
+export const MessagesActiveChatContext = createContext<{
+  setHasActiveChat: (v: boolean) => void;
+}>({ setHasActiveChat: () => {} });
+
 // ─── AppLayout ────────────────────────────────────────────────────────────────
 
 export const AppLayout: React.FC = () => {
@@ -157,6 +164,10 @@ export const AppLayout: React.FC = () => {
 
   const route = profileUserId || profileUsername ? null : match(pathname);
   const pageTitle = profileUserId || profileUsername ? 'Profile' : (route?.title ?? 'App');
+  const isMessagesPage = pathname === '/app/messages';
+
+  // ── Messages active-chat state (set by MessagesPage via context) ──
+  const [messagesHasActiveChat, setMessagesHasActiveChat] = useState(false);
 
   // ── Sidebar ──
   const [isExpanded, setIsExpanded] = useState(() => {
@@ -187,6 +198,7 @@ export const AppLayout: React.FC = () => {
   return (
     <RouterContext.Provider value={{ pathname, navigate }}>
       <TeamProvider>
+        <MessagesActiveChatContext.Provider value={{ setHasActiveChat: setMessagesHasActiveChat }}>
         <SidebarContext.Provider
           value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
         >
@@ -207,7 +219,7 @@ export const AppLayout: React.FC = () => {
             {/* Content column */}
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
               <AppHeader title={pageTitle} />
-              <main className="flex-1 overflow-auto pb-20 md:pb-0">
+              <main className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'pb-20'}` : 'pb-20'} md:pb-0`}>
                 {profileUserId ? (
                   <ProfilePage userId={profileUserId} />
                 ) : profileUsername ? (
@@ -218,9 +230,10 @@ export const AppLayout: React.FC = () => {
               </main>
             </div>
 
-            <BottomNav />
+            {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
           </div>
         </SidebarContext.Provider>
+        </MessagesActiveChatContext.Provider>
       </TeamProvider>
     </RouterContext.Provider>
   );
