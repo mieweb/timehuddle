@@ -8,9 +8,10 @@
 import { faClockRotateLeft, faListCheck, faStar } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Spinner, Text } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { activityApi, type ActivityLogItem } from '../../lib/api';
+import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 
@@ -34,8 +35,31 @@ interface ActivityMeta {
   label: string;
 }
 
-function metaForType(type: string): ActivityMeta {
-  switch (type) {
+function metaForItem(item: ActivityLogItem): ActivityMeta {
+  if (item.type === 'ticket.updated') {
+    const action = item.payload.action as string | undefined;
+    switch (action) {
+      case 'assigned':
+        return { icon: faListCheck, iconClass: 'text-sky-500', label: 'Assigned ticket' };
+      case 'unassigned':
+        return { icon: faListCheck, iconClass: 'text-slate-500', label: 'Unassigned ticket' };
+      case 'deleted':
+        return { icon: faListCheck, iconClass: 'text-red-400', label: 'Deleted ticket' };
+      case 'status-changed':
+      case 'batch-status-changed':
+        return { icon: faListCheck, iconClass: 'text-amber-500', label: 'Changed ticket status' };
+      case 'priority-changed':
+        return {
+          icon: faListCheck,
+          iconClass: 'text-orange-500',
+          label: 'Changed ticket priority',
+        };
+      default:
+        return { icon: faListCheck, iconClass: 'text-blue-500', label: 'Updated ticket' };
+    }
+  }
+
+  switch (item.type) {
     case 'clock.in':
       return { icon: faClockRotateLeft, iconClass: 'text-green-500', label: 'Clocked in' };
     case 'clock.out':
@@ -43,7 +67,7 @@ function metaForType(type: string): ActivityMeta {
     case 'ticket.created':
       return { icon: faListCheck, iconClass: 'text-blue-500', label: 'Created ticket' };
     default:
-      return { icon: faStar, iconClass: 'text-neutral-400', label: type };
+      return { icon: faStar, iconClass: 'text-neutral-400', label: item.type };
   }
 }
 
@@ -69,6 +93,33 @@ function activitySummary(item: ActivityLogItem): string {
     }
     case 'ticket.created':
       return (p.ticketTitle as string | undefined) ?? '';
+    case 'ticket.updated': {
+      const title = (p.ticketTitle as string | undefined) ?? '';
+      const action = p.action as string | undefined;
+      const status = p.status as string | undefined;
+      const priority = p.priority as string | undefined;
+      const assigneeName =
+        (p.assigneeName as string | undefined) ?? (p.assigneeId as string | undefined);
+      const details =
+        action === 'assigned'
+          ? assigneeName
+            ? `to ${assigneeName}`
+            : ''
+          : action === 'status-changed' || action === 'batch-status-changed'
+            ? status
+              ? `to ${status}`
+              : ''
+            : action === 'priority-changed'
+              ? priority
+                ? `to ${priority}`
+                : ''
+              : action === 'status-priority-changed'
+                ? [status && `to ${status}`, priority && `priority ${priority}`]
+                    .filter(Boolean)
+                    .join(' · ')
+                : '';
+      return [title, details].filter(Boolean).join(' ');
+    }
     default:
       return '';
   }
@@ -77,7 +128,7 @@ function activitySummary(item: ActivityLogItem): string {
 // ─── ActivityRow ──────────────────────────────────────────────────────────────
 
 const ActivityRow: React.FC<{ item: ActivityLogItem }> = ({ item }) => {
-  const { icon, iconClass, label } = metaForType(item.type);
+  const { icon, iconClass, label } = metaForItem(item);
   const summary = activitySummary(item);
 
   return (
@@ -113,6 +164,7 @@ const ActivityRow: React.FC<{ item: ActivityLogItem }> = ({ item }) => {
 
 export const ActivityLogPage: React.FC = () => {
   const { user } = useSession();
+  const { selectedTeamId } = useTeam();
 
   const [items, setItems] = useState<ActivityLogItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -151,6 +203,14 @@ export const ActivityLogPage: React.FC = () => {
     }
   }, [nextCursor, loadingMore]);
 
+  const filteredItems = useMemo(
+    () =>
+      selectedTeamId
+        ? items.filter((item) => !item.teamId || item.teamId === selectedTeamId)
+        : items,
+    [items, selectedTeamId],
+  );
+
   return (
     <AppPage subtitle="A chronological log of your activity in TimeHuddle.">
       {loading ? (
@@ -163,7 +223,7 @@ export const ActivityLogPage: React.FC = () => {
             {error}
           </Text>
         </div>
-      ) : items.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <div className="py-16 text-center">
           <div className="mb-4 text-4xl" aria-hidden>
             📋
@@ -180,7 +240,7 @@ export const ActivityLogPage: React.FC = () => {
             aria-label="Activity log"
             role="list"
           >
-            {items.map((item) => (
+            {filteredItems.map((item) => (
               <ActivityRow key={item.id} item={item} />
             ))}
           </ul>

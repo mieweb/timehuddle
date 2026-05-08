@@ -337,8 +337,12 @@ export class ClockService {
 
     const sessions = events.map(toPublicClockEvent);
     const completed = sessions.filter((s) => s.endTime !== null);
+    const now = Date.now();
     const totalSeconds = sessions.reduce((sum, s) => {
-      if (!s.endTime) return sum + s.accumulatedTime;
+      if (!s.endTime) {
+        const liveElapsedSeconds = Math.max(0, Math.floor((now - s.startTime) / 1000));
+        return sum + (s.accumulatedTime ?? 0) + liveElapsedSeconds;
+      }
       return sum + Math.floor((s.endTime - s.startTime) / 1000);
     }, 0);
     const avgSeconds = completed.length > 0 ? totalSeconds / completed.length : 0;

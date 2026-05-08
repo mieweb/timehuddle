@@ -26,6 +26,7 @@ import {
   CardTitle,
   Input,
   Select,
+  Switch,
   Text,
   Textarea,
 } from '@mieweb/ui';
@@ -44,6 +45,7 @@ import { PulseSetup } from '../features/tickets/PulseSetup';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
+import { useTheme } from '../lib/useTheme';
 import { AppPage } from './AppPage';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
@@ -93,6 +95,17 @@ const Row: React.FC<{ label: string; hint?: string; children: React.ReactNode }>
     <div className="shrink-0">{children}</div>
   </div>
 );
+
+// ─── Dark mode row ─────────────────────────────────────────────────────────────
+
+const DarkModeRow: React.FC = () => {
+  const { theme, toggle } = useTheme();
+  return (
+    <Row label="Dark mode" hint="Use a dark colour scheme across the app">
+      <Switch checked={theme === 'dark'} onCheckedChange={toggle} aria-label="Toggle dark mode" />
+    </Row>
+  );
+};
 
 // ─── Brand selector ────────────────────────────────────────────────────────────────────
 
@@ -439,6 +452,7 @@ export const SettingsPage: React.FC = () => {
         title="Appearance"
         description="Control how the application looks on this device."
       >
+        <DarkModeRow />
         <Row label="Brand theme" hint="Switch between brand themes">
           <BrandSelector />
         </Row>

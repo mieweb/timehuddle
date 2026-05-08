@@ -16,7 +16,6 @@ const dataDir = path.resolve(__dirname, "../../data/videos");
 // Shared storage instance — used by both the versioned and compat registrations.
 const storage = createLocalStorage({ workspaceDir: dataDir });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function authorizeHandler(request: any, ctx: any) {
   if (ctx.phase === "resolve") return;
   const session = await auth.api.getSession({
@@ -27,7 +26,6 @@ async function authorizeHandler(request: any, ctx: any) {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function onUploadCompleteHandler(request: any, ctx: any) {
   const reservation = consumeReservation(ctx.videoid);
   if (!reservation) return;
@@ -51,7 +49,7 @@ async function onUploadCompleteHandler(request: any, ctx: any) {
 // Compat: old Pulse Cam configs that saved the bare server URL (http://host:4000) call
 // POST /reserve, POST /upload, PATCH /upload/:id etc. at root level.
 // Pulse Cam has no session — uploads at the compat path are unauthenticated.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 async function openAuthorizeHandler(_request: any, ctx: any) {
   if (ctx.phase === "resolve") return; // playback always open
   // Allow unauthenticated uploads from Pulse Cam on the compat (root) path.

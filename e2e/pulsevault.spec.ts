@@ -224,10 +224,11 @@ test.describe('PulseVault — Ticket video upload', () => {
     // Open ticket details
     await openTicketMenu(page, TICKET_TITLE);
     await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
-    await expect(page.locator('[role="dialog"]')).toBeVisible();
+    const detailsDialog = page.locator('[role="dialog"]').first();
+    await expect(detailsDialog).toBeVisible();
 
-    // Click "Upload Video"
-    await page.getByRole('button', { name: 'Upload Video' }).click();
+    // Click "Upload Video" scoped to the details dialog
+    await detailsDialog.getByRole('button', { name: /upload video/i }).click();
 
     // QR modal should open
     const qrModal = page.locator('[aria-label="Upload video with the Pulse app"]');
@@ -242,9 +243,10 @@ test.describe('PulseVault — Ticket video upload', () => {
     // Directly hit the reserve endpoint to get a reference videoid
     await openTicketMenu(page, TICKET_TITLE);
     await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
-    await expect(page.locator('[role="dialog"]')).toBeVisible();
+    const detailsDialog = page.locator('[role="dialog"]').first();
+    await expect(detailsDialog).toBeVisible();
 
-    await page.getByRole('button', { name: 'Upload Video' }).click();
+    await detailsDialog.getByRole('button', { name: /upload video/i }).click();
 
     const qrModal = page.locator('[aria-label="Upload video with the Pulse app"]');
     await expect(qrModal).toBeVisible({ timeout: 8000 });
@@ -268,9 +270,10 @@ test.describe('PulseVault — Ticket video upload', () => {
   test('direct MP4 upload from device completes and creates attachment', async ({ page }) => {
     await openTicketMenu(page, TICKET_TITLE);
     await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
-    await expect(page.locator('[role="dialog"]')).toBeVisible();
+    const detailsDialog = page.locator('[role="dialog"]').first();
+    await expect(detailsDialog).toBeVisible();
 
-    await page.getByRole('button', { name: 'Upload Video' }).click();
+    await detailsDialog.getByRole('button', { name: /upload video/i }).click();
 
     const qrModal = page.locator('[aria-label="Upload video with the Pulse app"]');
     await expect(qrModal).toBeVisible({ timeout: 8000 });
@@ -279,8 +282,9 @@ test.describe('PulseVault — Ticket video upload', () => {
     // aria-label is "Upload video from this device instead"; match by text content.
     await page.locator('button', { hasText: 'Upload from this device' }).click();
 
-    // Intercept the hidden file input and inject a minimal MP4
-    const fileInput = page.locator('input[type="file"][accept=".mp4,video/mp4"]');
+    // Intercept the hidden file input and inject a minimal MP4 — scope to detailsDialog.
+    // The file input lives in video-upload-wrapper (outside the QR modal), but inside the details dialog.
+    const fileInput = detailsDialog.locator('input[type="file"][accept=".mp4,video/mp4"]');
     await fileInput.setInputFiles({
       name: 'demo.mp4',
       mimeType: 'video/mp4',
@@ -291,7 +295,7 @@ test.describe('PulseVault — Ticket video upload', () => {
     // (the mp4 sniffer may reject the minimal file; we check for either success or a descriptive error)
     await page.waitForTimeout(5000);
 
-    const uploadBtn = page.getByRole('button', { name: 'Upload Video' });
+    const uploadBtn = detailsDialog.getByRole('button', { name: /upload video/i });
     const errorAlert = page.locator('[role="alert"]');
 
     const uploadBtnText = await uploadBtn.textContent();
@@ -303,8 +307,8 @@ test.describe('PulseVault — Ticket video upload', () => {
       expect(errorText).toBeTruthy();
       console.info('Upload rejected (expected for minimal MP4):', errorText);
     } else {
-      // Upload completed — button should be back to normal state
-      expect(uploadBtnText).toContain('Upload Video');
+      // Upload completed — button should be back to idle state (showing "Pulse", not a percentage)
+      expect(uploadBtnText).not.toMatch(/\d+%/);
     }
   });
 });

@@ -39,7 +39,7 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ApiError,
@@ -106,6 +106,12 @@ function entryTotalSeconds(sessions: Timer[], now: number): number {
 export const WorkPage: React.FC = () => {
   const { teams, teamsReady, currentTime, selectedTeamId } = useTeam();
   const { isClockedIn, clockIn, clockInLoading } = useClockToggle();
+  const previousClockedInRef = useRef(isClockedIn);
+  // When clock-in is immediately followed by startTimerForEntry, suppress the
+  // auto-fetchDay triggered by the isClockedIn change to avoid a race where
+  // the fetch response (stale — before the session started) overwrites the
+  // optimistic update made by startTimerForEntry.
+  const skipNextClockInFetchRef = useRef(false);
 
   // Selected day (local YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState<string>(toLocalDateStr(new Date()));
@@ -146,7 +152,7 @@ export const WorkPage: React.FC = () => {
   const [copyLoading, setCopyLoading] = useState(false);
   const [copyDone, setCopyDone] = useState(false);
 
-  // All tickets across all user teams (for edit modal)
+  // All tickets for the selected team (for edit modal)
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
 
   // Edit modal state
@@ -157,26 +163,18 @@ export const WorkPage: React.FC = () => {
   const [editError, setEditError] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState(false);
 
-  // ── Fetch all tickets across all teams (for both pickers) ──
+  // ── Fetch tickets for the selected team (for both pickers) ──
 
   useEffect(() => {
-    if (teams.length === 0) return;
-    Promise.all(teams.map((t) => ticketApi.getTickets(t.id).catch(() => [] as Ticket[])))
-      .then((results) => {
-        const seen = new Set<string>();
-        const merged: Ticket[] = [];
-        for (const batch of results) {
-          for (const ticket of batch) {
-            if (!seen.has(ticket.id)) {
-              seen.add(ticket.id);
-              merged.push(ticket);
-            }
-          }
-        }
-        setAllTickets(merged);
-      })
-      .catch(() => {});
-  }, [teams]);
+    if (!selectedTeamId) {
+      setAllTickets([]);
+      return;
+    }
+    ticketApi
+      .getTickets(selectedTeamId)
+      .then(setAllTickets)
+      .catch(() => setAllTickets([]));
+  }, [selectedTeamId]);
 
   // ── Fetch week totals ──
 
@@ -216,6 +214,21 @@ export const WorkPage: React.FC = () => {
   useEffect(() => {
     void fetchDay();
   }, [fetchDay]);
+
+  useEffect(() => {
+    const previousClockedIn = previousClockedInRef.current;
+    previousClockedInRef.current = isClockedIn;
+
+    if (previousClockedIn === isClockedIn || !isToday) return;
+
+    if (skipNextClockInFetchRef.current) {
+      skipNextClockInFetchRef.current = false;
+      return;
+    }
+
+    void fetchDay();
+    void fetchWeekTotals();
+  }, [fetchDay, fetchWeekTotals, isClockedIn, isToday]);
 
   // ── Handlers ──
 
@@ -274,6 +287,7 @@ export const WorkPage: React.FC = () => {
     }
 
     setClockInPromptError(null);
+    skipNextClockInFetchRef.current = true;
     await clockIn();
 
     const entryId = pendingStartEntryId;
@@ -427,6 +441,13 @@ export const WorkPage: React.FC = () => {
     for (const team of teams) map.set(team.id, team.name);
     return map;
   }, [teams]);
+
+  // Filter day entries to only those belonging to the selected team's tickets
+  const teamTicketIds = useMemo(() => new Set(allTickets.map((t) => t.id)), [allTickets]);
+  const filteredDayEntries = useMemo(
+    () => dayEntries.filter((de) => teamTicketIds.has(de.entry.ticketId)),
+    [dayEntries, teamTicketIds],
+  );
 
   const getWorkItemLabel = useCallback(
     (entry: DayEntry['entry']) => {
@@ -673,7 +694,7 @@ export const WorkPage: React.FC = () => {
       </Modal>
 
       {/* ── Day View ── */}
-      {dayEntries.length === 0 ? (
+      {filteredDayEntries.length === 0 ? (
         <div className="py-10 text-center">
           <Text variant="muted" size="sm">
             No timers for this day. Create one with "+".
@@ -691,7 +712,7 @@ export const WorkPage: React.FC = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {dayEntries.map((de) => {
+              {filteredDayEntries.map((de) => {
                 const title = getWorkItemLabel(de.entry);
                 const total = entryTotalSeconds(de.sessions, currentTime);
                 const runningSess = de.sessions.find((s) => s.endTime === null);
@@ -782,7 +803,7 @@ export const WorkPage: React.FC = () => {
         </Card>
       )}
 
-      {(isToday || isFuture) && dayEntries.length === 0 && (
+      {(isToday || isFuture) && filteredDayEntries.length === 0 && (
         <div className="flex justify-start">
           <Button
             variant="ghost"
