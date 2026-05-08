@@ -137,7 +137,9 @@ export const AppLayout: React.FC = () => {
             MESSAGES_PENDING_THREAD_KEY,
             JSON.stringify({ teamId: data.teamId, adminId: data.adminId, memberId: data.memberId }),
           );
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
         window.dispatchEvent(
           new CustomEvent('timehuddle:openThread', {
             detail: { teamId: data.teamId, adminId: data.adminId, memberId: data.memberId },
@@ -147,8 +149,16 @@ export const AppLayout: React.FC = () => {
       } else if (data.url) {
         navigate(data.url.split('?')[0]);
       }
-    }).then((h) => { handle = h; }).catch(() => { /* PushNotifications unavailable */ });
-    return () => { handle?.remove(); };
+    })
+      .then((h) => {
+        handle = h;
+      })
+      .catch(() => {
+        /* PushNotifications unavailable */
+      });
+    return () => {
+      handle?.remove();
+    };
   }, [navigate]);
 
   // Parameterized profile route — /app/profile/:userId
@@ -199,40 +209,42 @@ export const AppLayout: React.FC = () => {
     <RouterContext.Provider value={{ pathname, navigate }}>
       <TeamProvider>
         <MessagesActiveChatContext.Provider value={{ setHasActiveChat: setMessagesHasActiveChat }}>
-        <SidebarContext.Provider
-          value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
-        >
-          <div className="flex h-screen overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-            {/* Mobile backdrop — rendered via portal to escape overflow-hidden */}
-            {isMobileOpen &&
-              createPortal(
-                <div
-                  className="fixed inset-0 z-[45] bg-black/50 backdrop-blur-sm md:hidden"
-                  onClick={closeMobile}
-                  aria-hidden
-                />,
-                document.body,
-              )}
-
-            <Sidebar />
-
-            {/* Content column */}
-            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-              <AppHeader title={pageTitle} />
-              <main className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'pb-20'}` : 'pb-20'} md:pb-0`}>
-                {profileUserId ? (
-                  <ProfilePage userId={profileUserId} />
-                ) : profileUsername ? (
-                  <ProfilePage username={profileUsername} />
-                ) : (
-                  route && React.createElement(route.component)
+          <SidebarContext.Provider
+            value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+          >
+            <div className="flex h-screen overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+              {/* Mobile backdrop — rendered via portal to escape overflow-hidden */}
+              {isMobileOpen &&
+                createPortal(
+                  <div
+                    className="fixed inset-0 z-[45] bg-black/50 backdrop-blur-sm md:hidden"
+                    onClick={closeMobile}
+                    aria-hidden
+                  />,
+                  document.body,
                 )}
-              </main>
-            </div>
 
-            {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
-          </div>
-        </SidebarContext.Provider>
+              <Sidebar />
+
+              {/* Content column */}
+              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                <AppHeader title={pageTitle} />
+                <main
+                  className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'pb-20'}` : 'pb-20'} md:pb-0`}
+                >
+                  {profileUserId ? (
+                    <ProfilePage userId={profileUserId} />
+                  ) : profileUsername ? (
+                    <ProfilePage username={profileUsername} />
+                  ) : (
+                    route && React.createElement(route.component)
+                  )}
+                </main>
+              </div>
+
+              {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
+            </div>
+          </SidebarContext.Provider>
         </MessagesActiveChatContext.Provider>
       </TeamProvider>
     </RouterContext.Provider>

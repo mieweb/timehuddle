@@ -7,7 +7,13 @@
  *   • Real-time updates via WebSocket streams
  *   • Scroll-up lazy loading (cursor-based pagination)
  */
-import { faArrowLeft, faEnvelope, faHashtag, faPaperPlane, faPlus } from '@fortawesome/free-solid-svg-icons';
+import {
+  faArrowLeft,
+  faEnvelope,
+  faHashtag,
+  faPaperPlane,
+  faPlus,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Avatar,
@@ -69,8 +75,12 @@ export const MessagesPage: React.FC = () => {
   const activeViewRef = useRef(activeView);
   const selectedChannelIdRef = useRef(selectedChannelId);
   const selectedPeerIdRef = useRef<string | null>(null);
-  useEffect(() => { activeViewRef.current = activeView; }, [activeView]);
-  useEffect(() => { selectedChannelIdRef.current = selectedChannelId; }, [selectedChannelId]);
+  useEffect(() => {
+    activeViewRef.current = activeView;
+  }, [activeView]);
+  useEffect(() => {
+    selectedChannelIdRef.current = selectedChannelId;
+  }, [selectedChannelId]);
 
   // Create channel modal
   const [showCreateChannel, setShowCreateChannel] = useState(false);
@@ -151,9 +161,11 @@ export const MessagesPage: React.FC = () => {
 
   useEffect(() => {
     const handler = (e: Event) => {
-      const { teamId: tId, adminId: aId, memberId: mId } = (
-        e as CustomEvent<{ teamId: string; adminId: string; memberId: string }>
-      ).detail;
+      const {
+        teamId: tId,
+        adminId: aId,
+        memberId: mId,
+      } = (e as CustomEvent<{ teamId: string; adminId: string; memberId: string }>).detail;
       if (tId) setSelectedTeamId(tId);
       if (aId && mId && userId) {
         if (userId === aId) setSelectedMemberId(mId);
@@ -181,7 +193,9 @@ export const MessagesPage: React.FC = () => {
         setMemberNames(names);
         setMemberNamesLoaded(true);
       })
-      .catch(() => { setMemberNamesLoaded(true); });
+      .catch(() => {
+        setMemberNamesLoaded(true);
+      });
   }, [selectedTeam]);
 
   // ── Fetch channels when team changes ─────────────────────────────────────────
@@ -245,7 +259,7 @@ export const MessagesPage: React.FC = () => {
             activeViewRef.current === 'channel' && selectedChannelIdRef.current === ch.id;
           if (isActive) {
             setChannelMessages((prev) =>
-              prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]
+              prev.some((m) => m.id === msg.id) ? prev : [...prev, msg],
             );
           } else {
             setChannelUnread((prev) => ({ ...prev, [ch.id]: (prev[ch.id] ?? 0) + 1 }));
@@ -256,7 +270,9 @@ export const MessagesPage: React.FC = () => {
       };
       return ws;
     });
-    return () => { wsList.forEach((ws) => ws.close()); };
+    return () => {
+      wsList.forEach((ws) => ws.close());
+    };
   }, [channels, selectedTeamId]);
 
   // ── Channel lazy-load older messages ─────────────────────────────────────────
@@ -295,13 +311,22 @@ export const MessagesPage: React.FC = () => {
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [channelHasMore, channelLoadingMore, selectedChannelId, selectedTeamId, oldestChannelCreatedAt]);
+  }, [
+    channelHasMore,
+    channelLoadingMore,
+    selectedChannelId,
+    selectedTeamId,
+    oldestChannelCreatedAt,
+  ]);
 
   // ── Channel auto-scroll ───────────────────────────────────────────────────────
   useEffect(() => {
     const prev = prevChannelMsgCountRef.current;
     const curr = channelMessages.length;
-    if (curr > prev && channelMessages[curr - 1]?.createdAt !== channelMessages[prev - 1]?.createdAt) {
+    if (
+      curr > prev &&
+      channelMessages[curr - 1]?.createdAt !== channelMessages[prev - 1]?.createdAt
+    ) {
       channelEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     } else if (curr > 0 && prev === 0) {
       channelEndRef.current?.scrollIntoView({ behavior: 'instant' });
@@ -319,9 +344,7 @@ export const MessagesPage: React.FC = () => {
         teamId: selectedTeamId,
         text: channelMessageText.trim(),
       });
-      setChannelMessages((prev) =>
-        prev.some((m) => m.id === sent.id) ? prev : [...prev, sent]
-      );
+      setChannelMessages((prev) => (prev.some((m) => m.id === sent.id) ? prev : [...prev, sent]));
       setChannelMessageText('');
     } catch (err) {
       setChannelSendError(err instanceof Error ? err.message : 'Failed to send');
@@ -478,10 +501,11 @@ export const MessagesPage: React.FC = () => {
       es.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data) as Message;
-          const isActive =
-            activeViewRef.current === 'dm' && selectedPeerIdRef.current === m.id;
+          const isActive = activeViewRef.current === 'dm' && selectedPeerIdRef.current === m.id;
           if (isActive) {
-            setMessages((prev) => (prev.some((msg2) => msg2.id === msg.id) ? prev : [...prev, msg]));
+            setMessages((prev) =>
+              prev.some((msg2) => msg2.id === msg.id) ? prev : [...prev, msg],
+            );
           } else {
             setDmUnread((prev) => ({ ...prev, [m.id]: (prev[m.id] ?? 0) + 1 }));
           }
@@ -491,7 +515,9 @@ export const MessagesPage: React.FC = () => {
       };
       return es;
     });
-    return () => { esList.forEach((es) => es.close()); };
+    return () => {
+      esList.forEach((es) => es.close());
+    };
   }, [threadMembers, selectedTeamId, userId, isAdmin]);
 
   const hasThread = isAdmin ? !!selectedMemberId : !!selectedAdminId;
@@ -556,7 +582,9 @@ export const MessagesPage: React.FC = () => {
           <CardContent className="p-0">
             {channels.length === 0 ? (
               <div className="px-4 py-3">
-                <Text variant="muted" size="xs">No channels yet.</Text>
+                <Text variant="muted" size="xs">
+                  No channels yet.
+                </Text>
               </div>
             ) : (
               <ul>
@@ -567,7 +595,10 @@ export const MessagesPage: React.FC = () => {
                     <li key={ch.id}>
                       <button
                         type="button"
-                        onClick={() => { setSelectedChannelId(ch.id); setActiveView('channel'); }}
+                        onClick={() => {
+                          setSelectedChannelId(ch.id);
+                          setActiveView('channel');
+                        }}
                         className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm transition-colors ${
                           isSel
                             ? 'bg-blue-50 font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
@@ -575,7 +606,10 @@ export const MessagesPage: React.FC = () => {
                         }`}
                         aria-label={`Channel ${ch.name}${unread > 0 ? `, ${unread} unread` : ''}`}
                       >
-                        <FontAwesomeIcon icon={faHashtag} className="shrink-0 text-xs text-neutral-400" />
+                        <FontAwesomeIcon
+                          icon={faHashtag}
+                          className="shrink-0 text-xs text-neutral-400"
+                        />
                         <span className="flex-1 truncate">{ch.name}</span>
                         {unread > 0 && (
                           <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
@@ -682,7 +716,10 @@ export const MessagesPage: React.FC = () => {
               </CardHeader>
 
               {/* Channel messages — Slack-style */}
-              <div ref={channelScrollRef} className="flex-1 overflow-y-auto px-4 pb-[96px] pt-3 md:pb-3">
+              <div
+                ref={channelScrollRef}
+                className="flex-1 overflow-y-auto px-4 pb-[96px] pt-3 md:pb-3"
+              >
                 <div ref={channelTopSentinelRef} className="flex justify-center py-1">
                   {channelLoadingMore && <Spinner size="sm" label="Loading older messages…" />}
                 </div>
@@ -699,7 +736,8 @@ export const MessagesPage: React.FC = () => {
                     const showHeader =
                       !prev ||
                       prev.fromUserId !== msg.fromUserId ||
-                      new Date(msg.createdAt).getTime() - new Date(prev.createdAt).getTime() > 5 * 60 * 1000;
+                      new Date(msg.createdAt).getTime() - new Date(prev.createdAt).getTime() >
+                        5 * 60 * 1000;
                     return (
                       <div key={msg.id} className={`flex gap-3 ${showHeader ? 'mt-4' : 'mt-0.5'}`}>
                         <div className="w-8 shrink-0">
@@ -719,7 +757,9 @@ export const MessagesPage: React.FC = () => {
                               </span>
                             </div>
                           )}
-                          <p className="text-sm text-neutral-800 dark:text-neutral-200">{msg.text}</p>
+                          <p className="text-sm text-neutral-800 dark:text-neutral-200">
+                            {msg.text}
+                          </p>
                         </div>
                       </div>
                     );
@@ -740,7 +780,10 @@ export const MessagesPage: React.FC = () => {
                       hideLabel
                       placeholder={`Message #${selectedChannel.name}`}
                       value={channelMessageText}
-                      onChange={(e) => { setChannelMessageText(e.target.value); setChannelSendError(null); }}
+                      onChange={(e) => {
+                        setChannelMessageText(e.target.value);
+                        setChannelSendError(null);
+                      }}
                       onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleChannelSend()}
                       size="sm"
                       className="w-full"
@@ -779,7 +822,10 @@ export const MessagesPage: React.FC = () => {
               </CardHeader>
 
               {/* DM messages */}
-              <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-5 pb-[96px] pt-4 md:pb-4">
+              <div
+                ref={scrollContainerRef}
+                className="flex-1 overflow-y-auto px-5 pb-[96px] pt-4 md:pb-4"
+              >
                 <div ref={topSentinelRef} className="flex justify-center py-2">
                   {loadingMore && <Spinner size="sm" label="Loading older messages…" />}
                 </div>
@@ -794,7 +840,10 @@ export const MessagesPage: React.FC = () => {
                   {messages.map((msg) => {
                     const isMe = msg.fromUserId === userId;
                     return (
-                      <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                      <div
+                        key={msg.id}
+                        className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
+                      >
                         <div
                           className={`max-w-[75%] rounded-xl px-3 py-2 text-sm ${
                             isMe
@@ -803,7 +852,9 @@ export const MessagesPage: React.FC = () => {
                           }`}
                         >
                           <p>{msg.text}</p>
-                          <p className={`mt-1 text-[10px] ${isMe ? 'text-blue-200' : 'text-neutral-400'}`}>
+                          <p
+                            className={`mt-1 text-[10px] ${isMe ? 'text-blue-200' : 'text-neutral-400'}`}
+                          >
                             {new Date(msg.createdAt).toLocaleTimeString('en-US', {
                               hour: 'numeric',
                               minute: '2-digit',
@@ -859,7 +910,13 @@ export const MessagesPage: React.FC = () => {
       {/* Create channel modal */}
       <Modal
         open={showCreateChannel}
-        onOpenChange={(open) => { if (!open) { setShowCreateChannel(false); setCreateChannelError(null); setNewChannelMembers([]); } }}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowCreateChannel(false);
+            setCreateChannelError(null);
+            setNewChannelMembers([]);
+          }
+        }}
         aria-label="Create channel"
       >
         <ModalHeader>Create Channel</ModalHeader>
@@ -874,7 +931,10 @@ export const MessagesPage: React.FC = () => {
               label="Channel name"
               placeholder="e.g. engineering"
               value={newChannelName}
-              onChange={(e) => { setNewChannelName(e.target.value); setCreateChannelError(null); }}
+              onChange={(e) => {
+                setNewChannelName(e.target.value);
+                setCreateChannelError(null);
+              }}
               onKeyDown={(e) => e.key === 'Enter' && handleCreateChannel()}
             />
             <Input
@@ -902,9 +962,7 @@ export const MessagesPage: React.FC = () => {
                           checked={newChannelMembers.includes(m.id)}
                           onChange={(e) =>
                             setNewChannelMembers((prev) =>
-                              e.target.checked
-                                ? [...prev, m.id]
-                                : prev.filter((id) => id !== m.id)
+                              e.target.checked ? [...prev, m.id] : prev.filter((id) => id !== m.id),
                             )
                           }
                         />
@@ -916,7 +974,8 @@ export const MessagesPage: React.FC = () => {
                 </ul>
                 {newChannelMembers.length > 0 && (
                   <Text size="xs" variant="muted" className="mt-1">
-                    {newChannelMembers.length} member{newChannelMembers.length > 1 ? 's' : ''} selected
+                    {newChannelMembers.length} member{newChannelMembers.length > 1 ? 's' : ''}{' '}
+                    selected
                   </Text>
                 )}
               </div>
@@ -924,7 +983,13 @@ export const MessagesPage: React.FC = () => {
           </div>
         </ModalBody>
         <ModalFooter>
-          <Button variant="ghost" onClick={() => { setShowCreateChannel(false); setNewChannelMembers([]); }}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setShowCreateChannel(false);
+              setNewChannelMembers([]);
+            }}
+          >
             Cancel
           </Button>
           <Button

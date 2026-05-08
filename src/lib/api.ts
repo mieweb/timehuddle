@@ -504,8 +504,7 @@ export const clockApi = {
   /** Open a WebSocket connection for live team clock state. Auto-reconnects on drop. */
   openLiveStream: (teamIds: string[]): AutoReconnectWs =>
     autoReconnectWs(
-      () =>
-        `${WS_BASE_URL}/v1/clock/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`,
+      () => `${WS_BASE_URL}/v1/clock/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`,
     ),
 };
 
@@ -881,7 +880,7 @@ export interface ChannelMessage {
 export const channelApi = {
   getChannels: (teamId: string): Promise<Channel[]> =>
     request<{ channels: Channel[] }>(`/v1/channels?teamId=${encodeURIComponent(teamId)}`).then(
-      (r) => r.channels
+      (r) => r.channels,
     ),
 
   createChannel: (data: {
@@ -899,31 +898,26 @@ export const channelApi = {
   getMessages: (
     channelId: string,
     teamId: string,
-    before?: string
+    before?: string,
   ): Promise<{ messages: ChannelMessage[]; hasMore: boolean }> => {
     const url = new URL(
       `/v1/channels/${encodeURIComponent(channelId)}/messages`,
-      TIMECORE_BASE_URL
+      TIMECORE_BASE_URL,
     );
     url.searchParams.set('teamId', teamId);
     if (before) url.searchParams.set('before', before);
-    return request<{ messages: ChannelMessage[]; hasMore: boolean }>(
-      url.pathname + url.search
-    );
+    return request<{ messages: ChannelMessage[]; hasMore: boolean }>(url.pathname + url.search);
   },
 
   sendMessage: (
     channelId: string,
-    data: { teamId: string; text: string }
+    data: { teamId: string; text: string },
   ): Promise<ChannelMessage> =>
-    request<{ message: ChannelMessage }>(
-      `/v1/channels/${encodeURIComponent(channelId)}/messages`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      }
-    ).then((r) => r.message),
+    request<{ message: ChannelMessage }>(`/v1/channels/${encodeURIComponent(channelId)}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then((r) => r.message),
 
   openStream: (channelId: string, teamId: string): AutoReconnectWs =>
     autoReconnectWs(() => {

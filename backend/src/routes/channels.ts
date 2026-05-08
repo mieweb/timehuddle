@@ -41,10 +41,17 @@ export async function channelRoutes(app: FastifyInstance) {
     }
 
     const { teamId, name, description, members } = parsed.data;
-    const result = await channelService.createChannel(teamId, session.user.id, name, description, members);
+    const result = await channelService.createChannel(
+      teamId,
+      session.user.id,
+      name,
+      description,
+      members
+    );
     if (result === "not-found") return reply.status(404).send({ error: "Team not found" });
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
-    if (result === "duplicate") return reply.status(409).send({ error: "Channel name already exists" });
+    if (result === "duplicate")
+      return reply.status(409).send({ error: "Channel name already exists" });
     return reply.status(201).send({ channel: result });
   });
 
@@ -88,7 +95,11 @@ export async function channelRoutes(app: FastifyInstance) {
 
   // GET /v1/channels/ws?channelId=&teamId=&token= — WebSocket stream
   app.get("/channels/ws", { websocket: true }, async (socket, req) => {
-    const { token: queryToken, channelId, teamId } = req.query as {
+    const {
+      token: queryToken,
+      channelId,
+      teamId,
+    } = req.query as {
       token?: string;
       channelId?: string;
       teamId?: string;

@@ -74,10 +74,7 @@ class ChannelService {
   }
 
   /** List all channels the user can see for a team. */
-  async getChannels(
-    teamId: string,
-    userId: string
-  ): Promise<PublicChannel[] | "forbidden"> {
+  async getChannels(teamId: string, userId: string): Promise<PublicChannel[] | "forbidden"> {
     const team = await teamsCollection().findOne({ _id: new ObjectId(teamId) });
     if (!team) return "forbidden";
     const allTeamMembers = [...team.members, ...team.admins];
@@ -118,7 +115,11 @@ class ChannelService {
     const allTeamMembers = [...team.members, ...team.admins];
     if (!allTeamMembers.includes(creatorId)) return "forbidden";
 
-    const cleanName = name.trim().toLowerCase().replace(/[^a-z0-9-_]/g, "-").slice(0, 50);
+    const cleanName = name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]/g, "-")
+      .slice(0, 50);
     const existing = await channelsCollection().findOne({ teamId, name: cleanName });
     if (existing) return "duplicate";
 
@@ -222,9 +223,8 @@ class ChannelService {
     broadcast(channelId, pub);
 
     // Push notifications to all channel recipients except the sender
-    const recipientIds = (channel.members && channel.members.length > 0
-      ? channel.members
-      : allTeamMembers
+    const recipientIds = (
+      channel.members && channel.members.length > 0 ? channel.members : allTeamMembers
     ).filter((id) => id !== senderId);
 
     const truncatedText = text.length > 200 ? text.slice(0, 197) + "…" : text;

@@ -169,7 +169,9 @@ const App: React.FC = () => {
                       memberId: String(nData.memberId),
                     }),
                   );
-                } catch { /* ignore */ }
+                } catch {
+                  /* ignore */
+                }
                 window.dispatchEvent(
                   new CustomEvent('timehuddle:openThread', {
                     detail: {
