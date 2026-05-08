@@ -228,7 +228,7 @@ test.describe('PulseVault — Ticket video upload', () => {
     await expect(detailsDialog).toBeVisible();
 
     // Click "Upload Video" scoped to the details dialog
-    await detailsDialog.getByRole('button', { name: 'Upload Video' }).click();
+    await detailsDialog.getByRole('button', { name: /upload video/i }).click();
 
     // QR modal should open
     const qrModal = page.locator('[aria-label="Upload video with the Pulse app"]');
@@ -246,7 +246,7 @@ test.describe('PulseVault — Ticket video upload', () => {
     const detailsDialog = page.locator('[role="dialog"]').first();
     await expect(detailsDialog).toBeVisible();
 
-    await detailsDialog.getByRole('button', { name: 'Upload Video' }).click();
+    await detailsDialog.getByRole('button', { name: /upload video/i }).click();
 
     const qrModal = page.locator('[aria-label="Upload video with the Pulse app"]');
     await expect(qrModal).toBeVisible({ timeout: 8000 });
@@ -273,7 +273,7 @@ test.describe('PulseVault — Ticket video upload', () => {
     const detailsDialog = page.locator('[role="dialog"]').first();
     await expect(detailsDialog).toBeVisible();
 
-    await detailsDialog.getByRole('button', { name: 'Upload Video' }).click();
+    await detailsDialog.getByRole('button', { name: /upload video/i }).click();
 
     const qrModal = page.locator('[aria-label="Upload video with the Pulse app"]');
     await expect(qrModal).toBeVisible({ timeout: 8000 });
@@ -294,7 +294,7 @@ test.describe('PulseVault — Ticket video upload', () => {
     // (the mp4 sniffer may reject the minimal file; we check for either success or a descriptive error)
     await page.waitForTimeout(5000);
 
-    const uploadBtn = detailsDialog.getByRole('button', { name: 'Upload Video' });
+    const uploadBtn = detailsDialog.getByRole('button', { name: /upload video/i });
     const errorAlert = page.locator('[role="alert"]');
 
     const uploadBtnText = await uploadBtn.textContent();
@@ -307,7 +307,7 @@ test.describe('PulseVault — Ticket video upload', () => {
       console.info('Upload rejected (expected for minimal MP4):', errorText);
     } else {
       // Upload completed — button should be back to normal state
-      expect(uploadBtnText).toContain('Upload Video');
+      expect(uploadBtnText?.toLowerCase()).toContain('upload video');
     }
   });
 });
