@@ -2,9 +2,30 @@
 
 > **STATUS: PLANNING** — This document is exploratory and not yet approved for implementation. Nothing here represents a commitment or active development work.
 
-> **NAMESPACE NOTE (PENDING):** Profile and org URL namespacing is intentionally not finalized yet. This plan should stay at a product/data-shape level until that decision is made.
+> **NAMESPACE NOTE (PARTLY DECIDED):** Profiles are already namespaced by canonical username. The remaining open namespace question is org URL strategy, so this plan should stay focused on product and data shape until that decision is finalized.
 
 > **CURRENT PRODUCT REALITY:** TimeHuddle now has canonical user handles and an auto-provisioned personal workspace. Any org plan has to fit around that existing user namespace rather than assuming orgs own the entire top-level URL space.
+
+## Near-Term Principle: Add The Org Layer Early, Keep It Minimal
+
+If TimeHuddle is going to support organizations at all, the cheapest moment to
+introduce the org layer is early, before team-scoped assumptions harden across
+every query, permission check, report, and relationship.
+
+The important idea is not "ship full org management now." The important idea is
+"put the smallest viable org boundary in the data model early so the rest of
+the system does not have to be retrofitted later."
+
+In practice, that could mean:
+
+- `Organization` exists in the DB before a full org UI exists
+- teams gain an `orgId` early
+- memberships and API scoping can grow around that boundary over time
+- the first org shape may be little more than a hidden or lightweight personal
+  org plus a path for collaborative orgs later
+
+This is a data-shape and scoping decision first, not a commitment to build all
+org-facing product surface immediately.
 
 ## Namespace Decisions (Pending)
 
@@ -287,9 +308,6 @@ ships first. Full multi-org capability can come later.
 - **Reserved and blocked names**: what baseline deny-list should apply to both
   user handles and org slugs (for example system routes, trademark-sensitive
   terms, and profanity/abuse patterns), and what moderation process updates it?
-- **When to add it?**: adding orgs early is less painful than retrofitting.
-  Even a minimal org layer (org exists, teams belong to org, no extra UI) would
-  future-proof the data model without requiring a full org management UI upfront.
 
 ---
 
@@ -311,7 +329,8 @@ ships first. Full multi-org capability can come later.
   GitHub/Google), claim canonical handle and ensure a personal workspace exists;
   keep scope minimal and onboarding-focused
 2. **Baseline org model** — add `Organization` + `OrgMembership`, add `orgId`
-  to `Team`, and backfill existing users/teams into personal org defaults
+  to `Team`, and backfill existing users/teams into personal org defaults;
+  keep this intentionally minimal so the data boundary lands before the full UI
 3. **Org context in API** — all queries implicitly scope to the user's current
   org; enforced at middleware level
 4. **Org settings page** — name, logo, member list, invite by email

@@ -1,410 +1,378 @@
-# Meetings Standups Basics
+# Standup Doc Replacement Plan
 
 > **STATUS: PLANNING** — This document is exploratory and not yet approved for implementation. Nothing here represents a commitment or active development work.
 
 ## The Problem
 
-TimeHuddle has tickets, time tracking, team membership, messages, and activity,
-but it has no structured way for a team to run recurring ceremonies inside the
-product.
+The current standup process lives in a Google Doc instead of in TimeHuddle.
+That creates a split workflow:
 
-Today that means teams run standups, check-ins, and similar meetings in Google
-Docs, Slack threads, or outside tools. The context for those meetings lives in
-TimeHuddle, but the meeting itself does not.
+- TimeHuddle holds the work context: tickets, time, activity, team membership
+- the Google Doc holds the meeting flow, prompts, and notes
+- the facilitator has to bridge those two systems manually during the meeting
 
-The first obvious use case is the daily standup. But the better mental model is
-not "build a standup feature". The better model is "build a dynamic meeting
-system" where a standup is the first meeting type.
+That is the wrong first problem to solve with a generic "meetings platform."
+The right first problem is narrower: **replace the existing standup Google Doc
+with a TimeHuddle flow that preserves how the team already runs standup while
+reducing manual work.**
 
-That keeps us from hardcoding one ceremony and then rebuilding the same system
-again later for retrospectives, sprint planning, weekly check-ins, or incident
-reviews.
+If that replacement works, the underlying model can later expand to support
+other ceremonies. But the first version should be judged on one question:
 
----
-
-## Core Concept
-
-A **Meeting Type** defines the structure of a recurring team ceremony.
-
-A **Meeting** is one dated instance of that type for a specific team.
-
-A **Meeting Entry** is one participant's response/context inside that meeting.
-
-For the first rollout, the only meeting type exposed in the UI is `standup`.
-
-```text
-MeetingType (team-scoped template)
-  ├── name / slug
-  ├── agenda structure
-  ├── field schema
-  ├── permissions
-  └── prefill rules
-
-Meeting (one dated occurrence)
-  └── MeetingEntry (one per participant)
-        ├── participant identity
-        ├── fixed context blocks
-        ├── custom field responses
-        ├── attachments
-        └── completion / status metadata
-```
-
-Under this model:
-
-- a **standup** is a meeting type with one entry per team member,
-- each entry asks structured questions like yesterday / today / blockers,
-- the entry can also surface TimeHuddle context like current tickets or recent
-  work,
-- future meeting types can reuse the same machinery without inventing a second
-  subsystem.
+**Can the team stop using the Google Doc for standups without losing the parts
+of the workflow that already work well?**
 
 ---
 
-## Why This Model Is Better Than "Standup" As the Root Concept
+## Product Principle
 
-If we make standup the top-level abstraction, we will likely hardcode:
+The first implementation should mirror the current standup workflow as closely
+as possible.
 
-- standup-specific fields,
-- standup-specific permissions,
-- standup-specific summaries,
-- standup-specific data structures.
+That means:
 
-That is fine for a quick prototype, but it creates a dead-end model.
+- preserve the familiar sequence of the meeting
+- preserve the current prompts or sections from the Google Doc
+- preserve the facilitator's ability to run the meeting quickly
+- pull in TimeHuddle data where it removes effort, not where it changes the
+  ritual unexpectedly
+- defer broader meeting-type abstraction until the standup replacement is
+  proven useful
 
-If we instead treat standup as the first **meeting type**, then we can keep the
-first shipped experience very standup-specific while still designing storage and
-workflow around a more durable concept.
-
-This gives us room for future types like:
-
-- retrospectives,
-- sprint planning,
-- weekly check-ins,
-- incident reviews,
-- one-on-ones.
-
-The key discipline is: **generalize the model, not the first UI**.
+The mistake to avoid is over-generalizing too early and shipping a flexible
+system that does not actually replace the team's current standup habit.
 
 ---
 
-## Standup as the First Meeting Type
+## Current Workflow to Capture
 
-The first concrete meeting type should be a daily standup.
+Before implementation, the standup plan should be grounded in the actual Google
+Doc workflow. These are the concrete questions that still need to be pinned
+down:
 
-Its shape would be:
+1. Who runs the meeting?
+2. Who participates?
+3. What does the Google Doc look like today?
+4. What sections or prompts do people fill out?
+5. What gets prepared before the meeting versus during it?
+6. What pain points are you trying to eliminate?
+7. What absolutely must stay the same in a first version?
 
-- team-scoped
-- date-stamped
-- created by a team admin or scrum master
-- one entry per active team member
-- a fixed question flow like:
-  - what did you do yesterday?
-  - what are you doing today?
-  - any blockers?
-- optional prefilled context from TimeHuddle data
-- a lock/archive state after the meeting completes
-
-So while the data model says "meeting", the first user-facing experience still
-looks and feels like a standup.
+Those answers matter more than any abstract standup best practice. The first UI,
+permissions, and data model should be derived from them.
 
 ---
 
-## User Experience Model
+## Working Assumption for Planning
 
-### Meeting Type
+Until the exact workflow is documented, the safest planning assumption is:
 
-A team can define one or more meeting types in the future, but initially only
-the built-in `standup` type matters.
+- there is one recurring standup per team
+- a facilitator runs through the team in a predictable order
+- each participant has a small, repeated set of prompts in the Google Doc
+- some information is prepared before the meeting
+- some notes are updated live during the meeting
+- the biggest win is moving that process into the same place as tickets, time,
+  and activity
 
-Over time a meeting type could define:
-
-- display name
-- cadence or scheduling defaults
-- participant selection rules
-- field schema
-- fixed context blocks
-- summary behavior
-- permissions for creation, editing, locking, and archiving
-
-### Meeting Instance
-
-A meeting instance is one occurrence, for example:
-
-- Daily Standup for Team Alpha on 2026-05-07
-- Sprint Retro for Team Alpha on 2026-05-14
-
-For standups, the meeting instance should pre-create one participant entry per
-active team member so the facilitator can move through the meeting quickly.
-
-### Participant Entry
-
-Each participant entry is the unit that holds:
-
-- identity of the participant
-- structured responses
-- auto-pulled context
-- attachments
-- completion state
-- absence state if relevant
-
-This is the practical replacement for the current plan's "member tab" concept.
-The tab is a presentation detail; the durable concept is a participant entry.
+This is intentionally conservative. The design should fit the real workflow once
+it is written down, not force the workflow to fit a preconceived standup model.
 
 ---
 
-## What a Standup Entry Shows
+## Replacement Goal
 
-Each standup entry should have two layers.
+The first TimeHuddle standup experience should act like a structured in-product
+version of the Google Doc.
 
-### Fixed Context Layer
+In practical terms, that means:
 
-Always-present TimeHuddle context that helps the person speak without hunting
-through other screens.
+- one team-level standup template that matches the current doc structure
+- one dated standup instance for each meeting
+- one participant entry per person in the meeting
+- a facilitator view for moving through the standup in order
+- a participant view for reviewing or editing their own section if that is part
+  of the current workflow
+- read-only history after the standup is complete
 
-Examples:
-
-- participant name, avatar, and team role
-- recent work items or assigned open tickets
-- recent logged time or work summaries
-- recent activity context if useful
-- attachments or linked references
-
-### Structured Response Layer
-
-Questions defined by the meeting type.
-
-For standups, that likely starts with a fixed built-in structure rather than a
-fully dynamic custom-field system on day one:
-
-- yesterday
-- today
-- blockers
-
-Later, that can evolve to use a reusable field-schema system if and when the
-custom-fields platform exists.
+The first success state is not "we built a meeting system." The first success
+state is "we no longer need the Google Doc for the daily standup."
 
 ---
 
-## Facilitator Controls
+## First-Version Workflow in TimeHuddle
 
-For the standup meeting type, the facilitator or admin likely needs to:
+### 1. Standup Template
 
-- create a meeting for a date
-- open the meeting and step through participants
-- reorder participants for presentation flow
-- mark someone absent
-- edit or review participant entries
-- lock the meeting after completion
-- view a summary or archive view
+Each team has one standup template that represents the existing Google Doc
+format.
 
-These controls are specific to the standup experience, but they should be built
-on top of generic meeting and participant-entry concepts.
+It defines:
 
----
+- standup name
+- participant order rules or default order
+- the prompt list shown for each participant
+- any fixed facilitator-only sections
+- whether members can pre-fill their own responses before the meeting
 
-## Pre-Population Strategy
+For v1, the prompt list should come directly from the current Google Doc rather
+than from a generalized custom-fields system unless the current schema work is
+already ready and low-risk to reuse.
 
-The biggest product win is not the form itself. The win is reducing meeting
-friction by pre-populating context.
+### 2. Standup Instance
 
-For standups, useful prefill candidates are:
+Each meeting creates one dated standup instance for the team.
 
-- recently worked tickets
+It should:
+
+- snapshot the participant list for that day
+- snapshot the prompt structure used for that run
+- pre-create one participant entry per attendee
+- support `open`, `in_progress`, `locked`, and `archived` states
+
+This protects historical standups from later template edits.
+
+### 3. Before the Meeting
+
+Before the standup starts, the system should reduce prep work by surfacing
+helpful context next to each participant entry.
+
+Candidate context:
+
 - current assigned tickets
-- recent logged time
+- recently updated tickets
+- recent time logged
 - recent activity feed items
-- recent messages or notes if they later become relevant
+- current capacity or time-off indicators when available
 
-Important constraint:
+This context should support the meeting, not overwrite the person's actual
+update.
 
-Pre-populated context should be treated as supporting material, not silent truth
-that overwrites what a person wants to say.
+### 4. During the Meeting
 
-The user should review, trim, or replace it.
+The facilitator opens the standup instance and steps through participants in the
+same order the Google Doc would normally be used.
+
+The UI should make it fast to:
+
+- move to the next person
+- view their prepared or drafted notes
+- capture live edits
+- mark someone absent
+- mark an entry complete
+- flag blockers or follow-up items
+
+The facilitator experience matters more than configurability in v1.
+
+### 5. After the Meeting
+
+Once the standup is complete, the meeting should become a stable record.
+
+That record should support:
+
+- read-only review
+- recent history by date
+- quick scanning for blockers and follow-ups
+- later reporting on patterns once enough data exists
+
+---
+
+## Must-Stay-The-Same Rules for V1
+
+The first version should intentionally keep these areas stable unless the real
+workflow says otherwise:
+
+- the prompt wording and structure from the current Google Doc
+- the facilitator-led order of the meeting
+- the ability to scan the whole team quickly
+- the ability to edit notes during the meeting
+- the ability to distinguish prepared notes from live discussion updates
+
+If a proposed feature makes the flow more elegant in theory but harder to use
+than the current doc in practice, it should not be in v1.
 
 ---
 
 ## Data Model (Rough)
 
 ```typescript
-interface MeetingType {
+interface StandupTemplate {
   id: string;
   teamId: string;
-  key: string; // e.g. 'standup', 'retro'
   name: string;
-  description?: string;
-  status: 'active' | 'archived';
-  fieldSchemaId?: string;
-  settings?: Record<string, unknown>;
+  promptDefinitions: StandupPromptDefinition[];
+  defaultParticipantOrder: string[];
+  allowParticipantPrefill: boolean;
   createdAt: Date;
   updatedAt?: Date;
 }
 
-interface Meeting {
+interface StandupRun {
   id: string;
   teamId: string;
-  meetingTypeId: string;
-  createdBy: string;
+  standupTemplateId: string;
   date: string; // YYYY-MM-DD
-  label?: string;
-  status: 'open' | 'locked' | 'archived';
+  createdBy: string;
+  status: 'open' | 'in_progress' | 'locked' | 'archived';
+  participantSnapshot: StandupParticipantSnapshot[];
+  promptSnapshot: StandupPromptDefinition[];
   createdAt: Date;
   updatedAt?: Date;
 }
 
-interface MeetingEntry {
+interface StandupParticipantEntry {
   id: string;
-  meetingId: string;
+  standupRunId: string;
   userId: string;
+  position: number;
   absent: boolean;
-  position?: number;
-  fieldValues: Record<string, unknown>;
-  attachments: Attachment[];
-  submittedAt?: Date;
+  completionState: 'not_started' | 'in_progress' | 'complete';
+  responses: Record<string, unknown>;
+  blockerFlags?: string[];
+  facilitatorNotes?: string;
   updatedAt?: Date;
 }
 ```
 
-For the first release, this would still effectively behave like:
+This is deliberately standup-specific. If the feature later expands to other
+meeting types, that can happen after the workflow proves out.
 
-- one built-in `MeetingType` with `key = 'standup'`
-- one `MeetingEntry` per active team member
-- a standup-focused UI that does not expose arbitrary meeting-type creation yet
+---
+
+## UI Shape
+
+The most likely first UI is a standup page with three layers:
+
+### Team-Level Header
+
+- standup date
+- team name
+- meeting status
+- progress across participants
+- start, lock, and archive controls
+
+### Participant List or Navigator
+
+- ordered list of participants
+- completion state per person
+- absent indicator
+- blocker indicator
+- quick jump between people
+
+### Participant Detail Panel
+
+- participant identity
+- prompt responses matching the Google Doc structure
+- recent TimeHuddle context
+- facilitator notes or live edits
+
+This can be tabs, cards, or a master-detail layout. The key is that it should
+feel faster than scrolling a shared document.
+
+---
+
+## Scope Boundaries
+
+The first version should not try to solve all meeting-related needs.
+
+Out of scope for v1:
+
+- retrospectives, sprint planning, one-on-ones, or other ceremony types
+- broad meeting-builder functionality
+- AI-generated summaries or AI-written responses
+- deep comments or discussion threads on each entry
+- heavy attachment workflows
+- complex recurring scheduling rules beyond what is necessary to replace the
+  current standup habit
+
+This is a replacement-flow feature, not a full collaboration suite.
 
 ---
 
 ## Relationship to Other Features
 
-| Feature | Relationship |
-|---------|-------------|
-| **Tickets / work items** | Surface recent or assigned work as standup context |
-| **Work / timers / timesheet** | Provide recent time context for participant entries |
-| **Activity log** | Source for pre-filled recent activity and later summaries |
-| **Messages** | Potential future source for blockers or discussion context |
-| **Custom fields** | Later path to reusable dynamic meeting questions |
-| **Notifications** | Reminders before a meeting starts or before entries are due |
-| **Dashboard** | Future widget for latest standup / meeting summary |
+| Feature | How it helps the standup replacement |
+|---------|-------------------------------------|
+| **Tickets** | Surface current work so people do not have to manually copy it into the doc |
+| **Timers / time data** | Provide recent effort context before the meeting starts |
+| **Activity feed** | Supply a compact narrative of recent work updates |
+| **Team capacity** | Show OOO or limited availability on the standup view |
+| **Notifications** | Remind people to pre-fill before the meeting, if that matches the workflow |
+| **Reporting** | Later aggregate blockers, trends, and attendance patterns |
 
 ---
 
-## AI Component (Future Only)
+## Open Product Decisions
 
-This model also gives AI a cleaner place to plug in later, but AI should not be
-part of the first implementation.
+These decisions should be made from the current Google Doc workflow, not from a
+generic agile template:
 
-Possible future uses:
-
-- draft standup responses from recent activity
-- detect likely blockers from work patterns or messages
-- summarize a completed meeting
-- synthesize patterns across multiple meetings in a sprint
-
-Architectural note:
-
-Keep meeting entries structured and typed so AI features can read good input.
-Do not bury important signals in unstructured blobs if we expect later
-automation.
-
----
-
-## Open Questions
-
-- who can create a meeting instance for the standup type?
-- should standups be manually created or scheduled automatically?
-- can participants fill out their own entries before the meeting starts?
-- do we support only one built-in meeting type at first, or store the generic
-  model from day one but hide everything except standups?
-- do participant entries need comments/discussion, or only structured responses?
-- when the custom-fields system arrives, do standups stay partly fixed and
-  partly dynamic, or become fully schema-driven?
+- Is the standup primarily facilitator-driven, participant-driven, or mixed?
+- Do participants edit before the meeting, during the meeting, or both?
+- Does every person get the same prompts, or are there special sections for
+  roles like lead, scrum master, or QA?
+- Is the record mostly for live facilitation, later accountability, or both?
+- Do blockers need a special field or just plain text in v1?
+- Should entries freeze immediately at the end of the meeting or remain editable
+  for a short window?
+- Does the team need a daily history view, a weekly rollup, or both?
 
 ---
 
 ## Recommended Rollout Sequence
 
-1. **Generic data model, standup-only product surface**
-   - Introduce `Meeting`, `MeetingEntry`, and either a built-in or implicit
-     `standup` meeting type.
-   - Ship only the standup experience in the UI.
+1. **Capture the real workflow**
+   - Document the current Google Doc structure, participant roles, prompts, and
+     prep and live steps.
 
-2. **Minimal standup flow**
-   - Create standup meeting
-   - Pre-create participant entries
-   - Step through participants
-   - Record responses
-   - Lock and archive
+2. **Define the standup template model**
+   - Build the minimum data model needed to mirror that structure inside
+     TimeHuddle.
 
-3. **Context prefill**
-   - Pull in work items, recent time, and relevant activity context.
+3. **Build the standup run workflow**
+   - Create a dated standup, snapshot participants and prompts, and support live
+     entry updates.
 
-4. **Summary and archive views**
-   - Read-only summary after the meeting closes.
+4. **Add facilitator-first UI**
+   - Optimize for stepping through the meeting faster than the Google Doc.
 
-5. **Custom schema support**
-   - Integrate with a future field-schema system if that platform is built.
+5. **Add pre-meeting context**
+   - Pull in ticket, time, and activity context where it reduces prep work.
 
-6. **Additional meeting types**
-   - Only after the standup pattern proves itself.
+6. **Add archive and history**
+   - Keep completed standups readable and searchable enough to replace old docs.
 
-7. **AI assistance**
-   - Drafting, blocker detection, and summaries later.
+7. **Evaluate expansion only after adoption**
+   - If the team fully abandons the Google Doc and the flow works, then consider
+     broader meeting abstractions.
+
+---
+
+## Acceptance Criteria for the Plan
+
+- The documented TimeHuddle flow clearly maps to the current Google Doc process.
+- The first version preserves the existing prompts and facilitator workflow.
+- The plan identifies exactly what gets prepared before the meeting and what is
+  edited live.
+- The plan defines a clear replacement path so the Google Doc is no longer
+  required for daily standups.
+- The scope is intentionally narrow enough to ship without inventing a generic
+  meeting platform first.
 
 ---
 
 ## Recommendation
 
-Standup should be treated as the **first dynamic team meeting type**, not as a
-one-off standalone subsystem.
+The next correct step is not to design a generalized standup engine. The next
+correct step is to capture the real standup workflow from the current Google Doc
+and let that drive the first product slice.
 
-That gives TimeHuddle the right long-term shape:
+TimeHuddle should replace the existing standup document directly:
 
-- generic enough to support future ceremonies
-- concrete enough to ship a focused standup first
-- structurally aligned with the rest of the product's team/work/activity model
+- same meeting rhythm
+- same prompt structure
+- less manual copy and paste
+- richer live context from tickets, time, and activity
 
-The implementation bar should be: **generalize the storage model just enough,
-but keep the first UX unapologetically standup-specific.**
-
----
-
-## High-Level Task Breakdown
-
-To gauge the work, the feature likely breaks down into these major tasks:
-
-1. **Finalize product rules**
-  - Decide who can create standups, whether entries are self-editable, and when a meeting becomes locked.
-
-2. **Define the backend model**
-  - Introduce the meeting, meeting entry, and standup-type persistence model with clear status rules.
-
-3. **Add backend APIs**
-  - Create endpoints for creating a standup, listing standups, loading one standup, updating entries, reordering entries, marking absences, and locking/archive flows.
-
-4. **Wire standup context sources**
-  - Decide what ticket, work, timesheet, and activity data gets surfaced in each entry and how it is queried efficiently.
-
-5. **Build the standup UI shell**
-  - Add the standup route/page, team-scoped meeting list, standup detail view, and participant-entry presentation flow.
-
-6. **Build facilitator controls**
-  - Support creation, participant ordering, absent toggles, locking, and archive/summary access.
-
-7. **Build participant entry editing**
-  - Support structured responses, save/update behavior, and any lightweight attachment/reference handling chosen for MVP.
-
-8. **Add summary and archive views**
-  - Provide a completed-meeting read-only summary and a way to revisit past standups.
-
-9. **Add permissions and validation**
-  - Enforce team membership, creator/admin rules, edit windows, and backend validation for meeting state transitions.
-
-10. **Add notification hooks**
-  - If included in MVP, wire reminder and meeting-start notifications.
-
-11. **Test the feature end to end**
-  - Cover backend behavior, UI workflows, locking rules, absent flows, and summary/archive paths.
-
-12. **Plan the next layer deliberately**
-  - Decide whether the next increment is context prefill depth, custom-field integration, recurring scheduling, or broader meeting types.
-
-At a rough level, this feels like a **large feature** rather than a small add-on because it touches data model, backend APIs, permissions, UI flow, and cross-feature integrations.
+Only after that replacement works should the product generalize toward broader
+meeting types.

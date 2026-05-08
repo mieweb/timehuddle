@@ -27,6 +27,12 @@ layers.
 - This setting should inform how dates and times are displayed in the UI while canonical storage remains UTC.
 - Show basic team-facing identity and context such as role, team membership,
 	and timezone.
+- Add a lightweight **Reports To** field or relationship so teammates can see
+	who a person's manager or direct lead is.
+
+This does not need to become a full org-chart feature in the first version. The
+main value is quick clarity: "Who does this person report to?" should be easy
+to answer from the profile when that relationship matters.
 
 ### Current Work Snapshot
 
@@ -54,6 +60,7 @@ answer questions like:
 - who is this person in the team?
 - what are they focused on right now?
 - what have they been doing recently?
+- who do they report to?
 - are they blocked, overloaded, or inactive?
 
 This is especially useful for:
