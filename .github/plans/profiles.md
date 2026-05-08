@@ -71,6 +71,19 @@ This is especially useful for:
 
 ---
 
+## Videos and Reels
+
+A profile may surface video content uploaded by or featuring that user — a
+lightweight reel of work-related clips, demo recordings, or standup videos.
+
+- Profile can display a scrollable list of video attachments the user has
+  posted across tickets, standups, and comments.
+- No dedicated video hosting required — this reuses the attachment model from
+  [pulse-video.md](pulse-video.md).
+- The reel is optional and only appears if the user has uploaded videos.
+
+---
+
 ## Relationship to Other Plans
 
 - **Activity feed** provides the underlying event stream for the richer profile
@@ -78,6 +91,8 @@ This is especially useful for:
 - **Meetings / standups** can contribute recent responses, blockers, and
 	participation context.
 - **Team capacity** can later contribute availability and workload signals.
+- **Pulse Video** ([pulse-video.md](pulse-video.md)) provides the video upload
+  and playback foundation that the profile reel depends on.
 - **Reporting** remains separate; profiles should summarize a person, not become
 	a generic analytics dashboard.
 
