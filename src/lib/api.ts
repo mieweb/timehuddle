@@ -4,6 +4,7 @@
  * Base URL is read from the VITE_TIMECORE_URL env var (set in .env),
  * falling back to localhost:4000 for local development.
  */
+import { autoReconnectWs, type AutoReconnectWs } from './autoReconnectWs.js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -11,6 +12,8 @@ export const TIMECORE_BASE_URL: string =
   (typeof import.meta !== 'undefined' &&
     (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
   'http://localhost:4000';
+
+const WS_BASE_URL = TIMECORE_BASE_URL.replace(/^http/, 'ws');
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -495,11 +498,11 @@ export const clockApi = {
       method: 'DELETE',
     }).then((r) => r.ok),
 
-  /** Open an SSE connection for live team clock state. Returns an EventSource. */
-  openLiveStream: (teamIds: string[]): EventSource =>
-    new EventSource(
-      `${TIMECORE_BASE_URL}/v1/clock/live?teamIds=${teamIds.map(encodeURIComponent).join(',')}`,
-      { withCredentials: true },
+  /** Open a WebSocket connection for live team clock state. Auto-reconnects on drop. */
+  openLiveStream: (teamIds: string[]): AutoReconnectWs =>
+    autoReconnectWs(
+      () =>
+        `${WS_BASE_URL}/v1/clock/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`,
     ),
 };
 
@@ -551,12 +554,15 @@ export const messageApi = {
       body: JSON.stringify(data),
     }).then((r) => r.message),
 
-  /** Open an SSE stream for a thread. Returns an EventSource. */
-  openStream: (threadId: string): EventSource =>
-    new EventSource(
-      `${TIMECORE_BASE_URL}/v1/messages/stream?threadId=${encodeURIComponent(threadId)}`,
-      { withCredentials: true },
-    ),
+  /** Open a WebSocket stream for a thread. Auto-reconnects on drop. */
+  openStream: (threadId: string): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const url = new URL(`${WS_BASE_URL}/v1/messages/ws`);
+      url.searchParams.set('threadId', threadId);
+      if (token) url.searchParams.set('token', token);
+      return url.toString();
+    }),
 };
 
 export type TeamInvitePreview = {
@@ -605,12 +611,14 @@ export const notificationApi = {
   /** Send a test push notification to the requesting user's devices. */
   testPush: () => request<{ ok: boolean }>('/v1/notifications/test-push', { method: 'POST' }),
 
-  /** Open an SSE stream for new notifications. */
-  openStream: (): EventSource => {
+  /** Open a WebSocket stream for new notifications. Auto-reconnects on drop. */
+  openStream: (): AutoReconnectWs => {
     const token = sessionToken.get();
-    const url = new URL(`${TIMECORE_BASE_URL}/v1/notifications/stream`);
-    if (token) url.searchParams.set('token', token);
-    return new EventSource(url.toString(), { withCredentials: true });
+    return autoReconnectWs(() => {
+      const url = new URL(`${WS_BASE_URL}/v1/notifications/ws`);
+      if (token) url.searchParams.set('token', token);
+      return url.toString();
+    });
   },
 };
 

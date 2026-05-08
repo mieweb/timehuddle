@@ -95,6 +95,22 @@ export const MessagesPage: React.FC = () => {
     }
   }, [userId]);
 
+  // Handle in-app "open this thread" events (fired by notification tap when already mounted)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { teamId: tId, adminId: aId, memberId: mId } = (
+        e as CustomEvent<{ teamId: string; adminId: string; memberId: string }>
+      ).detail;
+      if (tId) setSelectedTeamId(tId);
+      if (aId && mId && userId) {
+        if (userId === aId) setSelectedMemberId(mId);
+        else if (userId === mId) setSelectedAdminId(aId);
+      }
+    };
+    window.addEventListener('timehuddle:openThread', handler);
+    return () => window.removeEventListener('timehuddle:openThread', handler);
+  }, [userId]);
+
   // Fetch thread history + open SSE when thread is selected
   useEffect(() => {
     if (!selectedTeamId || !effectiveAdminId || !effectiveMemberId) {

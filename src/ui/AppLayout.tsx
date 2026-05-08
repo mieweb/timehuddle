@@ -14,6 +14,8 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 
 import { ClockPage } from '../features/clock/ClockPage';
 import { TimesheetPage } from '../features/clock/TimesheetPage';
@@ -26,7 +28,7 @@ import { TicketsPage } from '../features/tickets/TicketsPage';
 import { PulsePage } from '../features/tickets/PulsePage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
-import { SIDEBAR_KEY } from '../lib/constants';
+import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
 import { TeamProvider } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
 import { AppHeader } from './AppHeader';
@@ -115,6 +117,32 @@ export const AppLayout: React.FC = () => {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
+
+  // Native push notification tap → navigate to the relevant page
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let handle: { remove: () => void } | null = null;
+    PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+      const data = (action.notification.data ?? {}) as Record<string, string>;
+      if (data.type === 'message' && data.teamId && data.adminId && data.memberId) {
+        try {
+          sessionStorage.setItem(
+            MESSAGES_PENDING_THREAD_KEY,
+            JSON.stringify({ teamId: data.teamId, adminId: data.adminId, memberId: data.memberId }),
+          );
+        } catch { /* ignore */ }
+        window.dispatchEvent(
+          new CustomEvent('timehuddle:openThread', {
+            detail: { teamId: data.teamId, adminId: data.adminId, memberId: data.memberId },
+          }),
+        );
+        navigate('/app/messages');
+      } else if (data.url) {
+        navigate(data.url.split('?')[0]);
+      }
+    }).then((h) => { handle = h; }).catch(() => { /* PushNotifications unavailable */ });
+    return () => { handle?.remove(); };
+  }, [navigate]);
 
   // Parameterized profile route — /app/profile/:userId
   const profileUserId = pathname.startsWith('/app/profile/')

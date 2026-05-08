@@ -22,7 +22,7 @@ function isValidId(id: string): boolean {
 type SseListener = (teamId: string, event: PublicClockEvent | null) => void;
 const sseListeners = new Set<SseListener>();
 
-export function subscribeSse(fn: SseListener): () => void {
+export function subscribe(fn: SseListener): () => void {
   sseListeners.add(fn);
   return () => sseListeners.delete(fn);
 }

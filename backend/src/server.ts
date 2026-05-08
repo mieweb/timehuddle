@@ -2,6 +2,7 @@ import "dotenv/config";
 import { fileURLToPath } from "url";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import websocket from "@fastify/websocket";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { connectDB } from "./lib/db.js";
@@ -73,6 +74,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     // Expose the bearer token header so Capacitor WebViews can read it after sign-in.
     exposedHeaders: ["set-auth-token"],
   });
+
+  await app.register(websocket);
 
   // Attach X-App-Id (timeharbor | timehuddle) to every request
   app.addHook("preHandler", appContext);
