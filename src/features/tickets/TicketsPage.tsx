@@ -47,6 +47,7 @@ import {
   Text,
   Textarea,
 } from '@mieweb/ui';
+import { Capacitor } from '@capacitor/core';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { teamApi, ticketApi, type TeamMember, type Ticket } from '../../lib/api';
@@ -711,9 +712,9 @@ export const TicketsPage: React.FC = () => {
       )}
 
       {/* ── Unified ticket list (GitHub style) ── */}
-      <Card padding="none" style={{ overflow: 'visible' }}>
+      <Card padding="none" style={{ overflow: 'visible' }} className={Capacitor.isNativePlatform() ? 'border-0 shadow-none bg-transparent' : ''}>
         {/* GitHub-style header: Open / Closed tabs + filter dropdowns */}
-        <div className="flex items-center justify-between gap-2 rounded-t-xl border-b border-neutral-200 bg-neutral-50 px-4 py-2.5 dark:border-neutral-700 dark:bg-neutral-800/60">
+        <div className={`flex items-center justify-between gap-2 px-4 py-2.5 ${Capacitor.isNativePlatform() ? 'border-b border-neutral-200 dark:border-neutral-700' : 'rounded-t-xl border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/60'}`}>
           {/* Left: status tabs */}
           <div className="flex items-center gap-4">
             <button
