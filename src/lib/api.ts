@@ -78,6 +78,9 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
   const token = sessionToken.get();
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
+  // Destructure headers out of options so that ...restOptions below does not
+  // overwrite the merged headers object (which would drop Authorization).
+  const { headers: optHeaders, ...restOptions } = options;
   try {
     const res = await fetch(`${TIMECORE_BASE_URL}${path}`, {
       credentials: 'include',
@@ -85,9 +88,9 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
       headers: {
         ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...options.headers,
+        ...optHeaders,
       },
-      ...options,
+      ...restOptions,
     });
 
     if (!res.ok) {

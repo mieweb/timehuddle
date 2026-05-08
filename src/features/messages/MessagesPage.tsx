@@ -66,6 +66,7 @@ export const MessagesPage: React.FC = () => {
   const [newChannelDesc, setNewChannelDesc] = useState('');
   const [newChannelMembers, setNewChannelMembers] = useState<string[]>([]);
   const [createChannelLoading, setCreateChannelLoading] = useState(false);
+  const [createChannelError, setCreateChannelError] = useState<string | null>(null);
   const [channelSendError, setChannelSendError] = useState<string | null>(null);
 
   // ── DM state ─────────────────────────────────────────────────────────────────
@@ -297,6 +298,7 @@ export const MessagesPage: React.FC = () => {
   const handleCreateChannel = useCallback(async () => {
     if (!newChannelName.trim() || !selectedTeamId) return;
     setCreateChannelLoading(true);
+    setCreateChannelError(null);
     try {
       const ch = await channelApi.createChannel({
         teamId: selectedTeamId,
@@ -311,8 +313,9 @@ export const MessagesPage: React.FC = () => {
       setNewChannelName('');
       setNewChannelDesc('');
       setNewChannelMembers([]);
-    } catch {
-      /* ignore, user can retry */
+      setCreateChannelError(null);
+    } catch (err) {
+      setCreateChannelError(err instanceof Error ? err.message : 'Failed to create channel');
     } finally {
       setCreateChannelLoading(false);
     }
@@ -771,17 +774,22 @@ export const MessagesPage: React.FC = () => {
       {/* Create channel modal */}
       <Modal
         open={showCreateChannel}
-        onOpenChange={(open) => !open && setShowCreateChannel(false)}
+        onOpenChange={(open) => { if (!open) { setShowCreateChannel(false); setCreateChannelError(null); setNewChannelMembers([]); } }}
         aria-label="Create channel"
       >
         <ModalHeader>Create Channel</ModalHeader>
         <ModalBody>
           <div className="flex flex-col gap-4">
+            {createChannelError && (
+              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950 dark:text-red-400">
+                {createChannelError}
+              </p>
+            )}
             <Input
               label="Channel name"
               placeholder="e.g. engineering"
               value={newChannelName}
-              onChange={(e) => setNewChannelName(e.target.value)}
+              onChange={(e) => { setNewChannelName(e.target.value); setCreateChannelError(null); }}
               onKeyDown={(e) => e.key === 'Enter' && handleCreateChannel()}
             />
             <Input

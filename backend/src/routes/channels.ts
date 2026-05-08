@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { fromNodeHeaders } from "better-auth/node";
 import { auth } from "../lib/auth.js";
 import { channelService, subscribeChannel } from "../services/channel.service.js";
 
@@ -18,7 +19,7 @@ const sendMessageSchema = z.object({
 export async function channelRoutes(app: FastifyInstance) {
   // GET /v1/channels?teamId= — list channels for a team
   app.get("/channels", async (req, reply) => {
-    const session = await auth.api.getSession({ headers: req.headers as any });
+    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
     if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
 
     const { teamId } = req.query as Record<string, string>;
@@ -31,7 +32,7 @@ export async function channelRoutes(app: FastifyInstance) {
 
   // POST /v1/channels — create a channel (admin only)
   app.post("/channels", async (req, reply) => {
-    const session = await auth.api.getSession({ headers: req.headers as any });
+    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
     if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
 
     const parsed = createChannelSchema.safeParse(req.body);
@@ -49,7 +50,7 @@ export async function channelRoutes(app: FastifyInstance) {
 
   // GET /v1/channels/:id/messages?teamId=&before=&limit=
   app.get("/channels/:id/messages", async (req, reply) => {
-    const session = await auth.api.getSession({ headers: req.headers as any });
+    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
     if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
 
     const { id } = req.params as { id: string };
@@ -69,7 +70,7 @@ export async function channelRoutes(app: FastifyInstance) {
 
   // POST /v1/channels/:id/messages — send a message
   app.post("/channels/:id/messages", async (req, reply) => {
-    const session = await auth.api.getSession({ headers: req.headers as any });
+    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
     if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
 
     const { id } = req.params as { id: string };
