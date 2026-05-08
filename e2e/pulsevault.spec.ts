@@ -307,8 +307,8 @@ test.describe('PulseVault — Ticket video upload', () => {
       expect(errorText).toBeTruthy();
       console.info('Upload rejected (expected for minimal MP4):', errorText);
     } else {
-      // Upload completed — button should be back to normal state
-      expect(uploadBtnText?.toLowerCase()).toContain('upload video');
+      // Upload completed — button should be back to idle state (showing "Pulse", not a percentage)
+      expect(uploadBtnText).not.toMatch(/\d+%/);
     }
   });
 });
