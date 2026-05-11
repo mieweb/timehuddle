@@ -7,12 +7,10 @@
  *   • Summary stats (total hours, sessions, avg, working days)
  */
 import { faCalendar } from '@fortawesome/free-solid-svg-icons';
-import { faEllipsisVertical } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
   AlertDescription,
-  Badge,
   Button,
   Card,
   CardContent,
@@ -26,7 +24,6 @@ import {
   Spinner,
   Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
@@ -35,11 +32,12 @@ import {
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
-import { formatDuration, formatTime, formatDate } from '../../lib/timeUtils';
+import { formatDuration } from '../../lib/timeUtils';
 import { ApiError, clockApi, type ClockEvent } from '../../lib/api';
 import { AppPage } from '../../ui/AppPage';
 import { useSession } from '../../lib/useSession';
 import { AttachmentsPanel } from './AttachmentsPanel';
+import { TimesheetRow } from './TimesheetRow';
 
 interface TimesheetData {
   sessions: ClockEvent[];
@@ -390,48 +388,9 @@ export const TimesheetPage: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSessions.map((s) => {
-                  const startTime = new Date(s.startTime);
-                  const endTime = s.endTime ? new Date(s.endTime) : null;
-                  const duration = endTime
-                    ? Math.floor((endTime.getTime() - startTime.getTime()) / 1000)
-                    : null;
-                  const isActive = !s.endTime;
-                  const teamName = teams.find((t) => t.id === s.teamId)?.name ?? s.teamId;
-                  return (
-                    <TableRow key={s.id}>
-                      <TableCell>{formatDate(startTime, true)}</TableCell>
-                      <TableCell>{formatTime(startTime)}</TableCell>
-                      <TableCell>{endTime ? formatTime(endTime) : '—'}</TableCell>
-                      <TableCell className="font-mono">
-                        {duration ? formatDuration(duration) : '—'}
-                      </TableCell>
-                      <TableCell>{teamName}</TableCell>
-                      <TableCell>
-                        {isActive ? (
-                          <Badge variant="success" size="sm">
-                            <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                            Active
-                          </Badge>
-                        ) : (
-                          <Text variant="muted" size="xs">
-                            Completed
-                          </Text>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label="Edit session"
-                          onClick={() => openSessionDialog(s)}
-                        >
-                          <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
+                {filteredSessions.map((s) => (
+                  <TimesheetRow key={s.id} session={s} teams={teams} onEdit={openSessionDialog} />
+                ))}
               </TableBody>
             </Table>
           </CardContent>
