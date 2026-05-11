@@ -137,9 +137,11 @@ Underneath all of these plans, a few structural decisions show up repeatedly:
 | File | What it covers |
 |------|---------------|
 | [organizations.md](./organizations.md) | Org hierarchy, SSO, Google Workspace, billing |
-| [meetings-standups-basics.md](./meetings-standups-basics.md) | Dynamic team meetings model, with standups as the first meeting type |
+| [meetings-standups-basics.md](./meetings-standups-basics.md) | Google Doc standup replacement flow grounded in the team's current daily ritual |
 | [team-capacity.md](./team-capacity.md) | Availability, time off, blocked time, timeline view |
 | [custom-fields.md](./custom-fields.md) | Flexible data model for standups, tickets, and beyond |
+| [workflows.md](./workflows.md) | Lightweight future plan for event-triggered automation around existing product behavior |
+| [ticket-view.md](./ticket-view.md) | Reusable board/list presentation layer for tickets, attachable to standups or usable standalone |
 | [projects.md](./projects.md) | Higher-level containers for grouping work, reporting, and timer rollups |
 | [tasks.md](./tasks.md) | Smaller work units that can sit alongside or beneath tickets and projects |
 | [reporting.md](./reporting.md) | Report definitions, UI, dashboard widgets, AI summaries |

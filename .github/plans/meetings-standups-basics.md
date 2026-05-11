@@ -44,39 +44,99 @@ system that does not actually replace the team's current standup habit.
 
 ---
 
-## Current Workflow to Capture
+## Current Workflow Summary
 
-Before implementation, the standup plan should be grounded in the actual Google
-Doc workflow. These are the concrete questions that still need to be pinned
-down:
+The current workflow is now clear enough to ground the plan.
 
-1. Who runs the meeting?
-2. Who participates?
-3. What does the Google Doc look like today?
-4. What sections or prompts do people fill out?
-5. What gets prepared before the meeting versus during it?
-6. What pain points are you trying to eliminate?
-7. What absolutely must stay the same in a first version?
+### Facilitator and Participants
 
-Those answers matter more than any abstract standup best practice. The first UI,
-permissions, and data model should be derived from them.
+- the meeting is run by a scrum master who is not a developer or engineer on
+  the project
+- participants are the scrum master and all developers on the team
+- the company owner occasionally joins
+
+### What the Google Doc Contains
+
+The current Google Doc is not only a daily standup page. It is a broader team
+operations document with:
+
+- an intro page with team information
+- a daily shorts or daily update page
+- sprint planning sections
+- retrospective sections
+- resources tabs
+- team rules
+- bio tabs
+- out-of-office tracking
+- simple team-capacity tracking by percentage
+- meeting notes and transcription notes tied to recordings
+
+Outside the Google Doc, ticket organization also relies on a GitHub project
+board today.
+
+### What People Fill Out
+
+The recurring information currently captured includes:
+
+- daily updates
+- tickets being worked on during sprint planning
+- sprint goal
+- blockers
+- needs from other team members
+- completed tickets
+- personal bio information
+- out-of-office days
+- simple team capacity percentage
+- general meeting notes
+- transcription notes from meeting recordings
+
+### What Happens Before vs During the Meeting
+
+- before the meeting, each team member prepares their daily update
+- during the meeting, everything else is handled live
+
+### Daily Standup Mechanics
+
+- each team member uploads a short video summarizing the previous day and what
+  they are working on today
+- if no video is provided, the update is given live during the meeting
+- the meeting flow is: consume the person's update first, then ask whether they
+  have blockers or need anything from the team
+- the scrum master asks about each team member's open tickets
+- the scrum master asks about blockers
+- the scrum master may also capture needs from other team members
+- a parking-lot section is used for side discussions or follow-up discussion
+
+### Core Replacement Constraint
+
+The pain point is simple: stop using a Google Doc for this workflow.
+
+For v1, the strongest requirement is also simple: preserve most of the current
+workflow if possible.
 
 ---
 
-## Working Assumption for Planning
+## Confirmed Planning Assumptions
 
-Until the exact workflow is documented, the safest planning assumption is:
+The documented workflow supports these assumptions for the first plan:
 
-- there is one recurring standup per team
-- a facilitator runs through the team in a predictable order
-- each participant has a small, repeated set of prompts in the Google Doc
-- some information is prepared before the meeting
-- some notes are updated live during the meeting
-- the biggest win is moving that process into the same place as tickets, time,
-  and activity
+- there is a facilitator-led recurring standup for the team
+- the facilitator moves person by person through the meeting
+- daily updates are prepared before the meeting
+- the prepared update may be a short video rather than only text
+- ticket and blocker review happen live with the scrum master
+- blockers and cross-team needs may be lightweight notes rather than a heavy
+  structured workflow in v1
+- the Google Doc acts as both a live standup tool and a broader team reference
+  space
 
-This is intentionally conservative. The design should fit the real workflow once
-it is written down, not force the workflow to fit a preconceived standup model.
+The workflow also depends on ticket organization that currently lives in a
+GitHub project board. That board context should be available during standup,
+even if board management ships as a separate feature.
+
+That last point matters. Replacing the daily standup page alone may not be
+enough to fully retire the Google Doc if the team still depends on the other
+tabs for related coordination.
 
 ---
 
@@ -87,13 +147,20 @@ version of the Google Doc.
 
 In practical terms, that means:
 
-- one team-level standup template that matches the current doc structure
+- one team-level standup template that matches the current daily shorts
+  structure
 - one dated standup instance for each meeting
 - one participant entry per person in the meeting
 - a facilitator view for moving through the standup in order
 - a participant view for reviewing or editing their own section if that is part
   of the current workflow
 - read-only history after the standup is complete
+
+To fully replace the Google Doc over time, TimeHuddle will likely also need a
+small set of adjacent surfaces beyond the daily standup itself. Based on the
+current workflow, the minimum required follow-on surfaces are retrospectives,
+planning, capacity, and meeting notes. Those should be acknowledged in the plan
+even if the first shipped slice stays focused on the daily standup flow.
 
 The first success state is not "we built a meeting system." The first success
 state is "we no longer need the Google Doc for the daily standup."
@@ -111,13 +178,15 @@ It defines:
 
 - standup name
 - participant order rules or default order
-- the prompt list shown for each participant
+- the update intake shape shown for each participant
 - any fixed facilitator-only sections
 - whether members can pre-fill their own responses before the meeting
+- whether updates can be video, text, spoken, or some combination
+- that blocker and teammate-need capture is notes-first in v1
 
-For v1, the prompt list should come directly from the current Google Doc rather
-than from a generalized custom-fields system unless the current schema work is
-already ready and low-risk to reuse.
+For v1, the per-participant flow should come directly from the current Google
+Doc habit rather than from a generalized custom-fields system unless the current
+schema work is already ready and low-risk to reuse.
 
 ### 2. Standup Instance
 
@@ -139,14 +208,21 @@ helpful context next to each participant entry.
 
 Candidate context:
 
-- current assigned tickets
-- recently updated tickets
+- an attached prepared short video if the member recorded one
+- a prepared written daily update if that is used as fallback or supplement
+- current sprint tickets as the preferred first slice
+- current assigned tickets as the minimum fallback
+- future planned tickets available as secondary context when needed
 - recent time logged
 - recent activity feed items
 - current capacity or time-off indicators when available
 
 This context should support the meeting, not overwrite the person's actual
 update.
+
+The main pre-meeting action in the current workflow is the daily update itself.
+That means v1 should explicitly support "prepared update exists before the
+meeting" rather than assuming all content is entered live.
 
 ### 4. During the Meeting
 
@@ -156,13 +232,24 @@ same order the Google Doc would normally be used.
 The UI should make it fast to:
 
 - move to the next person
-- view their prepared or drafted notes
+- view their prepared video or drafted notes
 - capture live edits
 - mark someone absent
 - mark an entry complete
 - flag blockers or follow-up items
+- capture needs from other team members, likely in notes first
+- keep discussion notes lightweight so parking-lot follow-up can happen in the
+  same call without dedicated UI
 
 The facilitator experience matters more than configurability in v1.
+
+In the current workflow, the scrum master also reviews open tickets and asks
+about blockers while moving through each participant. That should be treated as
+part of the core standup flow, not as an optional enhancement.
+
+For v1, blockers and teammate needs should default to notes-first capture. The
+goal is to preserve the meeting flow, not to force a heavy triage workflow into
+the first release.
 
 ### 5. After the Meeting
 
@@ -173,7 +260,10 @@ That record should support:
 - read-only review
 - recent history by date
 - quick scanning for blockers and follow-ups
-- later reporting on patterns once enough data exists
+- attached videos remaining available in history
+- post-meeting edits only when they are logged via the existing activity feed
+- inline edited markers on changed entries
+- sprint rollups and later reporting on patterns once enough data exists
 
 ---
 
@@ -184,12 +274,21 @@ workflow says otherwise:
 
 - the prompt wording and structure from the current Google Doc
 - the facilitator-led order of the meeting
+- the ability to prepare a daily update before the meeting
+- the ability to attach a short video update with a spoken fallback
 - the ability to scan the whole team quickly
 - the ability to edit notes during the meeting
 - the ability to distinguish prepared notes from live discussion updates
+- the ability to capture blockers and teammate needs without extra ceremony
+- the ability to let parking-lot discussion happen outside the member-by-member
+  flow without dedicated UI
 
 If a proposed feature makes the flow more elegant in theory but harder to use
 than the current doc in practice, it should not be in v1.
+
+"Most of it if possible" is a strong signal that v1 should preserve not only
+the daily update interaction, but also enough surrounding context that the team
+does not need to keep the Google Doc open beside TimeHuddle.
 
 ---
 
@@ -203,6 +302,7 @@ interface StandupTemplate {
   promptDefinitions: StandupPromptDefinition[];
   defaultParticipantOrder: string[];
   allowParticipantPrefill: boolean;
+  updateMode: 'video_or_spoken' | 'text_only' | 'mixed';
   createdAt: Date;
   updatedAt?: Date;
 }
@@ -216,6 +316,7 @@ interface StandupRun {
   status: 'open' | 'in_progress' | 'locked' | 'archived';
   participantSnapshot: StandupParticipantSnapshot[];
   promptSnapshot: StandupPromptDefinition[];
+  lockedAt?: Date;
   createdAt: Date;
   updatedAt?: Date;
 }
@@ -227,12 +328,18 @@ interface StandupParticipantEntry {
   position: number;
   absent: boolean;
   completionState: 'not_started' | 'in_progress' | 'complete';
+  preparedVideoAttachmentId?: string;
+  preparedSummaryText?: string;
   responses: Record<string, unknown>;
   blockerFlags?: string[];
+  blockerAndNeedsNotes?: string;
   facilitatorNotes?: string;
   updatedAt?: Date;
 }
 ```
+
+Post-meeting edits should be emitted to the existing activity log rather than
+stored as a dedicated standup-specific edit collection in v1.
 
 This is deliberately standup-specific. If the feature later expands to other
 meeting types, that can happen after the workflow proves out.
@@ -257,14 +364,31 @@ The most likely first UI is a standup page with three layers:
 - completion state per person
 - absent indicator
 - blocker indicator
+- has-video indicator
 - quick jump between people
 
 ### Participant Detail Panel
 
 - participant identity
+- prepared video or prepared daily update
 - prompt responses matching the Google Doc structure
+- open tickets and blocker review area
+- inline edited marker when post-meeting changes exist
 - recent TimeHuddle context
 - facilitator notes or live edits
+
+### Adjacent Team Reference Surface
+
+To retire the Google Doc completely, the product likely also needs adjacent
+surfaces beyond the standup flow for:
+
+- retrospectives
+- planning
+- capacity
+- meeting notes
+
+These do not all need to be built in the same release, but the replacement plan
+should acknowledge them.
 
 This can be tabs, cards, or a master-detail layout. The key is that it should
 feel faster than scrolling a shared document.
@@ -281,11 +405,19 @@ Out of scope for v1:
 - broad meeting-builder functionality
 - AI-generated summaries or AI-written responses
 - deep comments or discussion threads on each entry
-- heavy attachment workflows
+- heavy attachment workflows beyond attaching the prepared standup video
+- a full dependency or blocker-management system
+- dedicated parking-lot UI or parking-lot-specific data modeling
 - complex recurring scheduling rules beyond what is necessary to replace the
   current standup habit
 
 This is a replacement-flow feature, not a full collaboration suite.
+
+Important nuance: the broader Google Doc contains sprint planning,
+retrospectives, bios, resources, and rules. The minimum adjacent surfaces
+needed to retire the document are planning, retrospectives, capacity, and
+meeting notes. The other sections can stay explicitly deferred unless they turn
+out to be required in practice.
 
 ---
 
@@ -294,68 +426,97 @@ This is a replacement-flow feature, not a full collaboration suite.
 | Feature | How it helps the standup replacement |
 |---------|-------------------------------------|
 | **Tickets** | Surface current work so people do not have to manually copy it into the doc |
+| **TicketView / board view** | Show the GitHub-project-style organization the team already uses while keeping standup focused on meeting flow |
 | **Timers / time data** | Provide recent effort context before the meeting starts |
-| **Activity feed** | Supply a compact narrative of recent work updates |
+| **Activity feed** | Supply a compact narrative of recent work updates and log post-meeting edits without inventing a standup-specific audit subsystem |
+| **Custom fields** | In a later version, allow the scrum master to design standup workflows with basic and advanced fields, and eventually pair those fields with more automatic workflow behavior |
+| **Workflows** | In a future advanced version, event-triggered workflows could automate follow-up behavior around standups and other product surfaces without hardcoding ceremony-specific logic into v1 |
 | **Team capacity** | Show OOO or limited availability on the standup view |
 | **Notifications** | Remind people to pre-fill before the meeting, if that matches the workflow |
 | **Reporting** | Later aggregate blockers, trends, and attendance patterns |
 
 ---
 
-## Open Product Decisions
+## Implementation Notes
 
-These decisions should be made from the current Google Doc workflow, not from a
-generic agile template:
+The remaining work is now mostly implementation detail rather than product
+direction:
 
-- Is the standup primarily facilitator-driven, participant-driven, or mixed?
-- Do participants edit before the meeting, during the meeting, or both?
-- Does every person get the same prompts, or are there special sections for
-  roles like lead, scrum master, or QA?
-- Is the record mostly for live facilitation, later accountability, or both?
-- Do blockers need a special field or just plain text in v1?
-- Should entries freeze immediately at the end of the meeting or remain editable
-  for a short window?
-- Does the team need a daily history view, a weekly rollup, or both?
+- use inline edited markers in the UI and emit post-meeting edit events through
+  the existing activity feed
+- prefer current sprint tickets in the standup view, but allow future planned
+  work to be inspected when needed
+- do not build owner-specific participation UI; treat attendance as ad hoc
+- keep parking-lot behavior inside normal standup notes and conversation flow
+  rather than modeling it as its own feature
 
 ---
 
 ## Recommended Rollout Sequence
 
-1. **Capture the real workflow**
-   - Document the current Google Doc structure, participant roles, prompts, and
-     prep and live steps.
+1. **Lock the daily standup workflow first**
+  - Lock the update-first meeting flow, video behavior, notes-first blocker
+    handling, teammate-need capture, and note-based parking-lot behavior.
 
 2. **Define the standup template model**
-   - Build the minimum data model needed to mirror that structure inside
-     TimeHuddle.
+  - Build the minimum data model needed to mirror that daily workflow inside
+    TimeHuddle.
 
 3. **Build the standup run workflow**
-   - Create a dated standup, snapshot participants and prompts, and support live
-     entry updates.
+  - Create a dated standup, snapshot participants and prompts, support prepared
+    updates, and support live facilitator edits.
 
 4. **Add facilitator-first UI**
-   - Optimize for stepping through the meeting faster than the Google Doc.
+  - Optimize for stepping through the meeting faster than the Google Doc while
+    reviewing open tickets and blockers.
 
 5. **Add pre-meeting context**
-   - Pull in ticket, time, and activity context where it reduces prep work.
+  - Pull in ticket, time, activity, OOO or capacity context, and relevant board
+    state where it reduces prep work, preferring current sprint tickets first.
 
-6. **Add archive and history**
-   - Keep completed standups readable and searchable enough to replace old docs.
+6. **Support attached video updates**
+  - Reuse the existing storage system so members can attach a short video to
+    their prepared daily update.
 
-7. **Evaluate expansion only after adoption**
-   - If the team fully abandons the Google Doc and the flow works, then consider
-     broader meeting abstractions.
+7. **Add archive and notes history**
+  - Keep completed standups readable and useful as a durable record with video
+    retention, inline edited markers, activity-log-backed edit history, and
+    normal standup notes.
+
+8. **Plan the adjacent replacement surfaces deliberately**
+  - Prioritize retrospectives, planning, capacity, and meeting notes as the
+    minimum non-standup surfaces needed to fully retire the document.
+
+9. **Coordinate with a separate TicketView plan**
+  - Keep standup focused on meeting flow while defining how ticket-board
+    context appears beside it.
+
+10. **Evaluate expansion only after adoption**
+  - If the team fully abandons the Google Doc and the flow works, then consider
+    broader meeting abstractions.
 
 ---
 
 ## Acceptance Criteria for the Plan
 
 - The documented TimeHuddle flow clearly maps to the current Google Doc process.
-- The first version preserves the existing prompts and facilitator workflow.
+- The first version preserves the existing update flow, facilitator workflow,
+  and prepared-update behavior.
 - The plan identifies exactly what gets prepared before the meeting and what is
-  edited live.
+  edited live, including video or spoken fallback behavior.
+- The plan supports attaching the prepared short video using the existing
+  storage system.
+- The plan preserves attached standup videos in history.
 - The plan defines a clear replacement path so the Google Doc is no longer
   required for daily standups.
+- The plan explicitly accounts for parking-lot discussion handling.
+- The plan preserves lightweight capture of blockers and teammate needs without
+  forcing a separate workflow system into v1.
+- The plan supports frozen standups with activity-log-backed edits and inline
+  edited markers after the meeting.
+- The plan acknowledges the adjacent non-standup sections the current Google Doc
+  also contains.
+- The plan includes sprint rollups as a required reporting direction.
 - The scope is intentionally narrow enough to ship without inventing a generic
   meeting platform first.
 
@@ -370,9 +531,10 @@ and let that drive the first product slice.
 TimeHuddle should replace the existing standup document directly:
 
 - same meeting rhythm
-- same prompt structure
+- same update-first meeting structure
+- same prepared-update pattern, including attached short video when used
 - less manual copy and paste
-- richer live context from tickets, time, and activity
+- richer live context from tickets, time, activity, and blockers
 
 Only after that replacement works should the product generalize toward broader
 meeting types.
