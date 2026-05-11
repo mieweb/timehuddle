@@ -214,8 +214,8 @@ test.describe('Tickets', () => {
     await page.getByRole('tab', { name: /Open/ }).click();
     await expect(page.getByText('Open filter ticket').first()).toBeVisible();
 
-    // "Done" tab — should NOT show it
-    await page.getByRole('tab', { name: /Done/ }).click();
+    // "Closed" tab — should NOT show it
+    await page.getByRole('tab', { name: /Closed/ }).click();
     await expect(page.getByText('Open filter ticket')).not.toBeVisible();
 
     // Back to "Open"
