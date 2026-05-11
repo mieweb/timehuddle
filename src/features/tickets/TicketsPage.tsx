@@ -50,7 +50,7 @@ import {
 import { Capacitor } from '@capacitor/core';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { teamApi, ticketApi, type TeamMember, type Ticket } from '../../lib/api';
+import { teamApi, ticketApi, type Team, type TeamMember, type Ticket } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
@@ -161,7 +161,6 @@ interface TicketRowProps {
   assigneeName: string | null;
   assigneeId: string | null;
   createdByName: string | null;
-  currentUserId?: string;
   onEditRequest: (ticket: Ticket) => void;
   onDeleteRequest: (id: string) => void;
   onChangeStatusRequest: (ticket: Ticket) => void;
@@ -174,13 +173,11 @@ const TicketRow: React.FC<TicketRowProps> = ({
   assigneeName,
   assigneeId,
   createdByName,
-  currentUserId,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
   onDetailsRequest,
 }) => {
-  const [attachmentRefresh, setAttachmentRefresh] = useState(0);
   const { navigate } = useRouter();
   const { icon, className: iconClass } = statusIconFor(ticket.status);
   const showStatusLabel =
@@ -241,20 +238,6 @@ const TicketRow: React.FC<TicketRowProps> = ({
               {ticket.github.includes('github.com') ? 'GitHub' : 'Issue link'}
             </a>
           )}
-        </div>
-
-        {/* Inline attachments + upload */}
-        <div className="mt-2 space-y-1">
-          <AttachmentsPanel
-            key={attachmentRefresh}
-            kind="ticket"
-            entityId={ticket.id}
-            currentUserId={currentUserId}
-          />
-          <VideoUploadButton
-            ticketId={ticket.id}
-            onUploadComplete={() => setAttachmentRefresh((n) => n + 1)}
-          />
         </div>
       </div>
 
@@ -354,48 +337,78 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({ label, activeLabel, chi
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { selectedTeamId, teamsReady } = useTeam();
+  const { teams, selectedTeamId, teamsReady } = useTeam();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  // Map from teamId → members for cross-team member lookups
+  const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
 
   const refetch = useCallback(async () => {
-    if (!selectedTeamId) {
+    if (!teams.length) {
       setTickets([]);
       return;
     }
     try {
-      const fetched = await ticketApi.getTickets(selectedTeamId);
-      setTickets(fetched);
+      const results = await Promise.all(teams.map((t) => ticketApi.getTickets(t.id)));
+      // Deduplicate by id in case a ticket appears in multiple team responses
+      const seen = new Set<string>();
+      const merged: Ticket[] = [];
+      for (const batch of results) {
+        for (const ticket of batch) {
+          if (!seen.has(ticket.id)) {
+            seen.add(ticket.id);
+            merged.push(ticket);
+          }
+        }
+      }
+      setTickets(merged);
     } catch {
       // keep previous tickets on error
     }
-  }, [selectedTeamId]);
+  }, [teams]);
 
   useEffect(() => {
     void refetch();
   }, [refetch]);
 
-  // Fetch members for the selected team
+  // Fetch members for all teams
   useEffect(() => {
-    if (!selectedTeamId) {
-      setTeamMembers([]);
-      return;
-    }
-    void teamApi
-      .getMembers(selectedTeamId)
-      .then(setTeamMembers)
-      .catch(() => setTeamMembers([]));
-  }, [selectedTeamId]);
+    if (!teams.length) return;
+    void Promise.all(
+      teams.map(async (t) => {
+        try {
+          const members = await teamApi.getMembers(t.id);
+          return [t.id, members] as [string, TeamMember[]];
+        } catch {
+          return [t.id, []] as [string, TeamMember[]];
+        }
+      }),
+    ).then((entries) => setMembersByTeam(new Map(entries)));
+  }, [teams]);
 
-  // Assignee name resolver
+  // Flat deduplicated member list across all teams
+  const allMembers = useMemo(() => {
+    const seen = new Set<string>();
+    const out: TeamMember[] = [];
+    for (const members of membersByTeam.values()) {
+      for (const m of members) {
+        if (!seen.has(m.id)) {
+          seen.add(m.id);
+          out.push(m);
+        }
+      }
+    }
+    return out;
+  }, [membersByTeam]);
+
+  // Assignee name resolver (searches all members)
   const getAssigneeName = useCallback(
     (assignedTo: string | null) => {
       if (!assignedTo) return null;
-      const member = teamMembers.find((m) => m.id === assignedTo);
+      const member = allMembers.find((m) => m.id === assignedTo);
       return member ? member.name || member.email : null;
     },
-    [teamMembers],
+    [allMembers],
   );
 
   // Mutation loading states
@@ -412,7 +425,10 @@ export const TicketsPage: React.FC = () => {
 
   // Search + filter
   const [searchQuery, setSearchQuery] = useState('');
+  const [teamFilter, setTeamFilter] = useState<string | null>(null);
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
+  const [statusDetailFilter, setStatusDetailFilter] = useState<string | null>(null);
+  const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
 
   // Delete state
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -436,11 +452,11 @@ export const TicketsPage: React.FC = () => {
   const [detailsTicket, setDetailsTicket] = useState<Ticket | null>(null);
   const [detailsAttachmentRefresh, setDetailsAttachmentRefresh] = useState(0);
 
-  // Status filter: All / Open / In Progress / Done
-  type StatusFilter = 'all' | 'open' | 'inprogress' | 'done';
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  // Status filter: Open vs Closed (GitHub style)
+  type StatusFilter = 'open' | 'closed';
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
 
-  // Filter tickets by search + assignee
+  // Filter tickets by search + team + assignee
   const searchFilteredTickets = useMemo(() => {
     let result = tickets;
     if (searchQuery.trim()) {
@@ -449,27 +465,32 @@ export const TicketsPage: React.FC = () => {
         (t) => t.title.toLowerCase().includes(q) || t.github?.toLowerCase().includes(q),
       );
     }
+    if (teamFilter) {
+      result = result.filter((t) => t.teamId === teamFilter);
+    }
     if (assigneeFilter === '__unassigned__') {
       result = result.filter((t) => !t.assignedTo);
     } else if (assigneeFilter) {
       result = result.filter((t) => t.assignedTo === assigneeFilter);
     }
+    if (statusDetailFilter) {
+      result = result.filter((t) => (t.status ?? 'open') === statusDetailFilter);
+    }
+    if (priorityFilter) {
+      result = result.filter((t) => (t.priority ?? '') === priorityFilter);
+    }
     return result;
-  }, [tickets, searchQuery, assigneeFilter]);
+  }, [tickets, searchQuery, teamFilter, assigneeFilter, statusDetailFilter, priorityFilter]);
 
-  // Tab counts
-  const allCount = searchFilteredTickets.length;
+  // Open vs closed counts (GitHub-style header tabs)
   const openCount = useMemo(
-    () => searchFilteredTickets.filter((t) => !t.status || t.status === 'open').length,
-    [searchFilteredTickets],
-  );
-  const inProgressCount = useMemo(
     () =>
-      searchFilteredTickets.filter((t) => t.status === 'in-progress' || t.status === 'blocked')
-        .length,
+      searchFilteredTickets.filter(
+        (t) => !t.status || (t.status !== 'closed' && t.status !== 'reviewed'),
+      ).length,
     [searchFilteredTickets],
   );
-  const doneCount = useMemo(
+  const closedCount = useMemo(
     () =>
       searchFilteredTickets.filter((t) => t.status === 'closed' || t.status === 'reviewed').length,
     [searchFilteredTickets],
@@ -477,27 +498,43 @@ export const TicketsPage: React.FC = () => {
 
   // Filter tickets by status tab
   const filteredTickets = useMemo(() => {
-    if (statusFilter === 'open')
-      return searchFilteredTickets.filter((t) => !t.status || t.status === 'open');
-    if (statusFilter === 'inprogress')
-      return searchFilteredTickets.filter(
-        (t) => t.status === 'in-progress' || t.status === 'blocked',
-      );
-    if (statusFilter === 'done')
+    if (statusFilter === 'closed')
       return searchFilteredTickets.filter((t) => t.status === 'closed' || t.status === 'reviewed');
-    return searchFilteredTickets; // 'all'
+    // 'open' = everything that isn't closed
+    return searchFilteredTickets.filter(
+      (t) => !t.status || (t.status !== 'closed' && t.status !== 'reviewed'),
+    );
   }, [searchFilteredTickets, statusFilter]);
 
   // Member options for assignee select in the edit modal
-  const memberOptions = useMemo(
-    () => [
+  const memberOptions = useMemo(() => {
+    const teamId = selectedTeamId ?? teams[0]?.id;
+    const members = teamId ? (membersByTeam.get(teamId) ?? []) : [];
+    return [
       { value: '', label: 'Unassigned' },
-      ...teamMembers.map((m) => ({ value: m.id, label: m.name || m.email })),
-    ],
-    [teamMembers],
-  );
+      ...members.map((m) => ({ value: m.id, label: m.name || m.email })),
+    ];
+  }, [membersByTeam, selectedTeamId, teams]);
 
   // Active filter label helpers
+  const activeTeamLabel = useMemo(
+    () => (teamFilter ? (teams.find((t: Team) => t.id === teamFilter)?.name ?? null) : null),
+    [teamFilter, teams],
+  );
+  const activeStatusDetailLabel = useMemo(
+    () =>
+      statusDetailFilter
+        ? (STATUS_OPTIONS.find((s) => s.value === statusDetailFilter)?.label ?? null)
+        : null,
+    [statusDetailFilter],
+  );
+  const activePriorityLabel = useMemo(
+    () =>
+      priorityFilter
+        ? (PRIORITY_OPTIONS.find((p) => p.value === priorityFilter)?.label ?? null)
+        : null,
+    [priorityFilter],
+  );
   const activeAssigneeLabel = useMemo(() => {
     if (!assigneeFilter) return null;
     if (assigneeFilter === '__unassigned__') return 'Unassigned';
@@ -506,10 +543,10 @@ export const TicketsPage: React.FC = () => {
 
   // Members sorted with current user first
   const sortedMembers = useMemo(() => {
-    const me = teamMembers.find((m) => m.id === userId);
-    const rest = teamMembers.filter((m) => m.id !== userId);
+    const me = allMembers.find((m) => m.id === userId);
+    const rest = allMembers.filter((m) => m.id !== userId);
     return me ? [me, ...rest] : rest;
-  }, [teamMembers, userId]);
+  }, [allMembers, userId]);
 
   // ── Handlers ──
 
@@ -725,21 +762,6 @@ export const TicketsPage: React.FC = () => {
           <div className="flex items-center gap-4">
             <button
               role="tab"
-              aria-selected={statusFilter === 'all'}
-              onClick={() => setStatusFilter('all')}
-              className={`text-sm font-medium transition-colors ${
-                statusFilter === 'all'
-                  ? 'text-neutral-900 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-              }`}
-            >
-              All{' '}
-              <span className="ml-0.5 rounded-full bg-neutral-200 px-1.5 py-px text-xs dark:bg-neutral-700">
-                {allCount}
-              </span>
-            </button>
-            <button
-              role="tab"
               aria-selected={statusFilter === 'open'}
               onClick={() => setStatusFilter('open')}
               className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
@@ -753,34 +775,81 @@ export const TicketsPage: React.FC = () => {
             </button>
             <button
               role="tab"
-              aria-selected={statusFilter === 'inprogress'}
-              onClick={() => setStatusFilter('inprogress')}
+              aria-selected={statusFilter === 'closed'}
+              onClick={() => setStatusFilter('closed')}
               className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                statusFilter === 'inprogress'
-                  ? 'text-neutral-900 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-              }`}
-            >
-              <FontAwesomeIcon icon={faCircleDot} className="text-blue-500" />
-              {inProgressCount} In Progress
-            </button>
-            <button
-              role="tab"
-              aria-selected={statusFilter === 'done'}
-              onClick={() => setStatusFilter('done')}
-              className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                statusFilter === 'done'
+                statusFilter === 'closed'
                   ? 'text-neutral-900 dark:text-neutral-100'
                   : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
               }`}
             >
               <FontAwesomeIcon icon={faCircleCheck} className="text-purple-500" />
-              {doneCount} Done
+              {closedCount} Closed
             </button>
           </div>
 
           {/* Right: filter dropdowns */}
           <div className="flex items-center gap-4">
+            {teams.length > 1 && (
+              <FilterDropdown label="Team" activeLabel={activeTeamLabel}>
+                <DropdownItem
+                  onClick={() => setTeamFilter(null)}
+                  className={!teamFilter ? 'font-semibold' : ''}
+                >
+                  All teams
+                </DropdownItem>
+                <DropdownSeparator />
+                {teams.map((t: Team) => (
+                  <DropdownItem
+                    key={t.id}
+                    onClick={() => setTeamFilter(t.id)}
+                    className={teamFilter === t.id ? 'font-semibold' : ''}
+                  >
+                    {t.name}
+                  </DropdownItem>
+                ))}
+              </FilterDropdown>
+            )}
+            <FilterDropdown label="Priority" activeLabel={activePriorityLabel}>
+              <DropdownItem
+                onClick={() => setPriorityFilter(null)}
+                className={!priorityFilter ? 'font-semibold' : ''}
+              >
+                Any priority
+              </DropdownItem>
+              <DropdownSeparator />
+              {PRIORITY_OPTIONS.map((p) => (
+                <DropdownItem
+                  key={p.value}
+                  onClick={() => setPriorityFilter(priorityFilter === p.value ? null : p.value)}
+                  className={priorityFilter === p.value ? 'font-semibold' : ''}
+                >
+                  {p.label}
+                </DropdownItem>
+              ))}
+            </FilterDropdown>
+            <FilterDropdown label="Status" activeLabel={activeStatusDetailLabel}>
+              <DropdownItem
+                onClick={() => setStatusDetailFilter(null)}
+                className={!statusDetailFilter ? 'font-semibold' : ''}
+              >
+                Any status
+              </DropdownItem>
+              <DropdownSeparator />
+              {STATUS_OPTIONS.filter(
+                (s) => s.value !== 'open' && s.value !== 'closed' && s.value !== 'reviewed',
+              ).map((s) => (
+                <DropdownItem
+                  key={s.value}
+                  onClick={() =>
+                    setStatusDetailFilter(statusDetailFilter === s.value ? null : s.value)
+                  }
+                  className={statusDetailFilter === s.value ? 'font-semibold' : ''}
+                >
+                  {s.label}
+                </DropdownItem>
+              ))}
+            </FilterDropdown>
             <FilterDropdown label="Assignee" activeLabel={activeAssigneeLabel}>
               <DropdownItem
                 onClick={() =>
@@ -809,7 +878,7 @@ export const TicketsPage: React.FC = () => {
           <ul
             className="divide-y divide-neutral-100 dark:divide-neutral-800"
             style={{ overflow: 'visible' }}
-            aria-label="Tickets"
+            aria-label={statusFilter === 'open' ? 'Open tickets' : 'Closed tickets'}
           >
             {filteredTickets.map((t) => (
               <TicketRow
@@ -819,7 +888,6 @@ export const TicketsPage: React.FC = () => {
                 assigneeName={getAssigneeName(t.assignedTo)}
                 assigneeId={t.assignedTo}
                 createdByName={getAssigneeName(t.createdBy)}
-                currentUserId={userId ?? undefined}
                 onEditRequest={openEditModal}
                 onDeleteRequest={setDeleteId}
                 onChangeStatusRequest={(ticket) => {
@@ -836,12 +904,8 @@ export const TicketsPage: React.FC = () => {
               {searchQuery
                 ? 'No tickets match your search.'
                 : statusFilter === 'open'
-                  ? 'No open tickets.'
-                  : statusFilter === 'inprogress'
-                    ? 'No tickets in progress.'
-                    : statusFilter === 'done'
-                      ? 'No completed tickets.'
-                      : 'No tickets yet. Create one to get started!'}
+                  ? 'No open tickets. Create one to get started!'
+                  : 'No closed tickets.'}
             </Text>
           </div>
         )}
