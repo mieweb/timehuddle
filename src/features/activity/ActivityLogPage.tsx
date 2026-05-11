@@ -8,9 +8,10 @@
 import { faClockRotateLeft, faListCheck, faStar } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Spinner, Text } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { activityApi, type ActivityLogItem } from '../../lib/api';
+import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 
@@ -163,6 +164,7 @@ const ActivityRow: React.FC<{ item: ActivityLogItem }> = ({ item }) => {
 
 export const ActivityLogPage: React.FC = () => {
   const { user } = useSession();
+  const { selectedTeamId } = useTeam();
 
   const [items, setItems] = useState<ActivityLogItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -201,6 +203,14 @@ export const ActivityLogPage: React.FC = () => {
     }
   }, [nextCursor, loadingMore]);
 
+  const filteredItems = useMemo(
+    () =>
+      selectedTeamId
+        ? items.filter((item) => !item.teamId || item.teamId === selectedTeamId)
+        : items,
+    [items, selectedTeamId],
+  );
+
   return (
     <AppPage subtitle="A chronological log of your activity in TimeHuddle.">
       {loading ? (
@@ -213,7 +223,7 @@ export const ActivityLogPage: React.FC = () => {
             {error}
           </Text>
         </div>
-      ) : items.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <div className="py-16 text-center">
           <div className="mb-4 text-4xl" aria-hidden>
             📋
@@ -230,7 +240,7 @@ export const ActivityLogPage: React.FC = () => {
             aria-label="Activity log"
             role="list"
           >
-            {items.map((item) => (
+            {filteredItems.map((item) => (
               <ActivityRow key={item.id} item={item} />
             ))}
           </ul>

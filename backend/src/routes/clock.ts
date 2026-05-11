@@ -1,6 +1,9 @@
 import { FastifyInstance } from "fastify";
+import { ObjectId } from "mongodb";
+import { auth } from "../lib/auth.js";
 import { requireAuth } from "../middleware/require-auth.js";
-import { clockService, toPublicClockEvent, subscribeSse } from "../services/clock.service.js";
+import { clockService, toPublicClockEvent, subscribe } from "../services/clock.service.js";
+import { teamsCollection } from "../models/index.js";
 
 // ─── Public shape schema ──────────────────────────────────────────────────────
 
@@ -193,63 +196,73 @@ export async function clockRoutes(app: FastifyInstance) {
     }
   );
 
-  // GET /v1/clock/live?teamIds=id1,id2 — SSE stream for live team clock state
-  app.get(
-    "/clock/live",
-    {
-      onRequest: [requireAuth],
-      schema: {
-        tags: ["Clock"],
-        querystring: {
-          type: "object",
-          required: ["teamIds"],
-          properties: { teamIds: { type: "string" } },
-        },
-      },
-    },
-    async (req, reply) => {
-      const { teamIds: teamIdsParam } = req.query as { teamIds: string };
-      const teamIds = teamIdsParam
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+  // GET /v1/clock/ws?teamIds=id1,id2 — WebSocket stream for live team clock state
+  app.get("/clock/ws", { websocket: true }, async (socket, req) => {
+    const { token: queryToken, teamIds: teamIdsParam } = req.query as {
+      token?: string;
+      teamIds?: string;
+    };
 
-      // Hijack the response — prevents Fastify from finalizing/closing it.
-      // Because hijack() bypasses @fastify/cors hooks, we must set CORS headers manually.
-      reply.hijack();
-
-      const allowOrigin = req.headers.origin ?? "*";
-
-      reply.raw.writeHead(200, {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
-        "Access-Control-Allow-Origin": allowOrigin,
-        "Access-Control-Allow-Credentials": "true",
-      });
-      reply.raw.flushHeaders();
-
-      // Initial snapshot — all currently active events for these teams
-      const initial = await clockService.getLiveForTeams(teamIds);
-      const snapshot = initial.map(toPublicClockEvent);
-      reply.raw.write(`data: ${JSON.stringify({ type: "snapshot", events: snapshot })}\n\n`);
-
-      // Subscribe to future broadcasts
-      const unsub = subscribeSse((teamId, event) => {
-        if (!teamIds.includes(teamId)) return;
-        reply.raw.write(`data: ${JSON.stringify({ type: "update", teamId, event })}\n\n`);
-      });
-
-      // Keepalive ping every 25s
-      const ping = setInterval(() => {
-        reply.raw.write(": ping\n\n");
-      }, 25_000);
-
-      req.raw.on("close", () => {
-        unsub();
-        clearInterval(ping);
-      });
+    // Auth: accept Bearer token from query param (Capacitor) or cookie
+    const headers: Record<string, string> = { ...(req.headers as any) };
+    if (queryToken) headers["authorization"] = `Bearer ${queryToken}`;
+    const session = await auth.api.getSession({ headers });
+    if (!session?.user) {
+      socket.close(4001, "Unauthorized");
+      return;
     }
-  );
+
+    if (!teamIdsParam) {
+      socket.close(4000, "teamIds required");
+      return;
+    }
+    const requestedIds = teamIdsParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    // Validate the requester is a member or admin of every requested team
+    const objectIds = requestedIds.flatMap((id) => {
+      try {
+        return [new ObjectId(id)];
+      } catch {
+        return [];
+      }
+    });
+    const allTeams = await teamsCollection()
+      .find({ _id: { $in: objectIds } })
+      .toArray();
+
+    const userId = session.user.id;
+    const teamIds = allTeams
+      .filter((t) => {
+        const tid = t._id.toHexString();
+        return (
+          requestedIds.includes(tid) && (t.members?.includes(userId) || t.admins?.includes(userId))
+        );
+      })
+      .map((t) => t._id.toHexString());
+
+    if (teamIds.length === 0) {
+      socket.close(4003, "Forbidden");
+      return;
+    }
+
+    // Send initial snapshot
+    const initial = await clockService.getLiveForTeams(teamIds);
+    const snapshot = initial.map(toPublicClockEvent);
+    if (socket.readyState === socket.OPEN) {
+      socket.send(JSON.stringify({ type: "snapshot", events: snapshot }));
+    }
+
+    // Subscribe to future broadcasts
+    const unsub = subscribe((teamId, event) => {
+      if (!teamIds.includes(teamId)) return;
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify({ type: "update", teamId, event }));
+      }
+    });
+
+    socket.on("close", unsub);
+  });
 }

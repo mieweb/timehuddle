@@ -35,6 +35,7 @@ const UNCLAIMED_USERNAME_EMAIL = "olivia@example.com";
 const SEED_TEAMS = [
   {
     name: "Developers",
+    code: "ZDLYFY9T",
     description: "Frontend and backend engineers building TimeHuddle.",
     admins: ["alice@example.com", "carol@example.com"],
     members: [
@@ -48,39 +49,40 @@ const SEED_TEAMS = [
   },
   {
     name: "Accounting",
+    code: "P2SRHYYK",
     description: "Billing, payroll, and financial reporting.",
     admins: ["frank@example.com"],
     members: ["frank@example.com", "grace@example.com", "olivia@example.com"],
   },
   {
     name: "Product",
+    code: "FAKASXQ9",
     description: "Product planning and roadmap prioritization.",
     admins: ["kira@example.com"],
     members: ["kira@example.com", "alice@example.com", "liam@example.com"],
   },
   {
     name: "Design",
+    code: "MHGT2L3Z",
     description: "UX research, visual design, and prototypes.",
     admins: ["liam@example.com"],
     members: ["liam@example.com", "kira@example.com", "maya@example.com"],
   },
   {
     name: "Support",
+    code: "180YR2C3",
     description: "Customer support and escalation management.",
     admins: ["jules@example.com"],
     members: ["jules@example.com", "hannah@example.com", "noah@example.com"],
   },
   {
     name: "Operations",
+    code: "R0VCXWDP",
     description: "Internal IT, onboarding, and environment operations.",
     admins: ["noah@example.com", "ian@example.com"],
     members: ["noah@example.com", "ian@example.com", "hannah@example.com", "maya@example.com"],
   },
 ];
-
-function generateTeamCode(): string {
-  return Math.random().toString(36).slice(2, 10).toUpperCase();
-}
 
 type TeamSeed = (typeof SEED_TEAMS)[number];
 
@@ -110,7 +112,7 @@ async function upsertSeedTeam(team: TeamSeed, userIdsByEmail: Map<string, string
       description: team.description,
       members: memberIds,
       admins: adminIds,
-      code: generateTeamCode(),
+      code: team.code,
       isPersonal: false,
       createdAt: new Date(),
     });
@@ -123,6 +125,7 @@ async function upsertSeedTeam(team: TeamSeed, userIdsByEmail: Map<string, string
     {
       $set: {
         description: team.description,
+        code: team.code,
         updatedAt: new Date(),
       },
       $addToSet: {

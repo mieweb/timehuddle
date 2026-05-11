@@ -14,6 +14,8 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 
 import { ClockPage } from '../features/clock/ClockPage';
 import { TimesheetPage } from '../features/clock/TimesheetPage';
@@ -23,9 +25,10 @@ import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
+import { PulsePage } from '../features/tickets/PulsePage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
-import { SIDEBAR_KEY } from '../lib/constants';
+import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
 import { TeamProvider } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
 import { AppHeader } from './AppHeader';
@@ -51,6 +54,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/clock': { title: 'Clock In/Out', component: ClockPage },
   '/app/tickets': { title: 'Tickets', component: TicketsPage },
+  '/app/pulse': { title: 'Pulse', component: PulsePage },
   '/app/work': { title: 'Work', component: WorkPage },
   '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
   '/app/teams': { title: 'Teams', component: TeamsPage },
@@ -86,6 +90,13 @@ export const SidebarContext = createContext<SidebarCtx>({
 
 export const useSidebar = () => useContext(SidebarContext);
 
+// ─── Messages active-chat context ─────────────────────────────────────────────
+// MessagesPage calls setHasActiveChat(true/false) so AppLayout knows whether
+// a channel/DM is open — hiding BottomNav only while chatting.
+export const MessagesActiveChatContext = createContext<{
+  setHasActiveChat: (v: boolean) => void;
+}>({ setHasActiveChat: () => {} });
+
 // ─── AppLayout ────────────────────────────────────────────────────────────────
 
 export const AppLayout: React.FC = () => {
@@ -114,6 +125,45 @@ export const AppLayout: React.FC = () => {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
+  // Native push notification tap → navigate to the relevant page
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let handle: { remove: () => void } | null = null;
+    PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+      const data = (action.notification.data ?? {}) as Record<string, string>;
+      if (data.type === 'message' && data.teamId && data.adminId && data.memberId) {
+        try {
+          sessionStorage.setItem(
+            MESSAGES_PENDING_THREAD_KEY,
+            JSON.stringify({ teamId: data.teamId, adminId: data.adminId, memberId: data.memberId }),
+          );
+        } catch {
+          /* ignore */
+        }
+        window.dispatchEvent(
+          new CustomEvent('timehuddle:openThread', {
+            detail: { teamId: data.teamId, adminId: data.adminId, memberId: data.memberId },
+          }),
+        );
+        navigate('/app/messages');
+      } else if (data.url) {
+        const safePath = data.url.split('?')[0];
+        if (safePath.startsWith('/app/')) {
+          navigate(safePath);
+        }
+      }
+    })
+      .then((h) => {
+        handle = h;
+      })
+      .catch(() => {
+        /* PushNotifications unavailable */
+      });
+    return () => {
+      handle?.remove();
+    };
+  }, [navigate]);
+
   // Parameterized profile route — /app/profile/:userId
   const profileUserId = pathname.startsWith('/app/profile/')
     ? pathname.slice('/app/profile/'.length)
@@ -127,6 +177,10 @@ export const AppLayout: React.FC = () => {
 
   const route = profileUserId || profileUsername ? null : match(pathname);
   const pageTitle = profileUserId || profileUsername ? 'Profile' : (route?.title ?? 'App');
+  const isMessagesPage = pathname === '/app/messages';
+
+  // ── Messages active-chat state (set by MessagesPage via context) ──
+  const [messagesHasActiveChat, setMessagesHasActiveChat] = useState(false);
 
   // ── Sidebar ──
   const [isExpanded, setIsExpanded] = useState(() => {
@@ -157,40 +211,44 @@ export const AppLayout: React.FC = () => {
   return (
     <RouterContext.Provider value={{ pathname, navigate }}>
       <TeamProvider>
-        <SidebarContext.Provider
-          value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
-        >
-          <div className="flex h-screen overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-            {/* Mobile backdrop — rendered via portal to escape overflow-hidden */}
-            {isMobileOpen &&
-              createPortal(
-                <div
-                  className="fixed inset-0 z-[45] bg-black/50 backdrop-blur-sm md:hidden"
-                  onClick={closeMobile}
-                  aria-hidden
-                />,
-                document.body,
-              )}
-
-            <Sidebar />
-
-            {/* Content column */}
-            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-              <AppHeader title={pageTitle} />
-              <main className="flex-1 overflow-auto pb-20 md:pb-0">
-                {profileUserId ? (
-                  <ProfilePage userId={profileUserId} />
-                ) : profileUsername ? (
-                  <ProfilePage username={profileUsername} />
-                ) : (
-                  route && React.createElement(route.component)
+        <MessagesActiveChatContext.Provider value={{ setHasActiveChat: setMessagesHasActiveChat }}>
+          <SidebarContext.Provider
+            value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+          >
+            <div className="flex h-screen overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+              {/* Mobile backdrop — rendered via portal to escape overflow-hidden */}
+              {isMobileOpen &&
+                createPortal(
+                  <div
+                    className="fixed inset-0 z-[45] bg-black/50 backdrop-blur-sm md:hidden"
+                    onClick={closeMobile}
+                    aria-hidden
+                  />,
+                  document.body,
                 )}
-              </main>
-            </div>
 
-            <BottomNav />
-          </div>
-        </SidebarContext.Provider>
+              <Sidebar />
+
+              {/* Content column */}
+              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                <AppHeader title={pageTitle} />
+                <main
+                  className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'pb-20'}` : 'pb-20'} md:pb-0`}
+                >
+                  {profileUserId ? (
+                    <ProfilePage userId={profileUserId} />
+                  ) : profileUsername ? (
+                    <ProfilePage username={profileUsername} />
+                  ) : (
+                    route && React.createElement(route.component)
+                  )}
+                </main>
+              </div>
+
+              {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
+            </div>
+          </SidebarContext.Provider>
+        </MessagesActiveChatContext.Provider>
       </TeamProvider>
     </RouterContext.Provider>
   );

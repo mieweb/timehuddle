@@ -4,6 +4,7 @@
  * Base URL is read from the VITE_TIMECORE_URL env var (set in .env),
  * falling back to localhost:4000 for local development.
  */
+import { autoReconnectWs, type AutoReconnectWs } from './autoReconnectWs.js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -11,6 +12,8 @@ export const TIMECORE_BASE_URL: string =
   (typeof import.meta !== 'undefined' &&
     (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
   'http://localhost:4000';
+
+const WS_BASE_URL = TIMECORE_BASE_URL.replace(/^http/, 'ws');
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -75,6 +78,9 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
   const token = sessionToken.get();
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
+  // Destructure headers out of options so that ...restOptions below does not
+  // overwrite the merged headers object (which would drop Authorization).
+  const { headers: optHeaders, ...restOptions } = options;
   try {
     const res = await fetch(`${TIMECORE_BASE_URL}${path}`, {
       credentials: 'include',
@@ -82,9 +88,9 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
       headers: {
         ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...options.headers,
+        ...optHeaders,
       },
-      ...options,
+      ...restOptions,
     });
 
     if (!res.ok) {
@@ -495,12 +501,13 @@ export const clockApi = {
       method: 'DELETE',
     }).then((r) => r.ok),
 
-  /** Open an SSE connection for live team clock state. Returns an EventSource. */
-  openLiveStream: (teamIds: string[]): EventSource =>
-    new EventSource(
-      `${TIMECORE_BASE_URL}/v1/clock/live?teamIds=${teamIds.map(encodeURIComponent).join(',')}`,
-      { withCredentials: true },
-    ),
+  /** Open a WebSocket connection for live team clock state. Auto-reconnects on drop. */
+  openLiveStream: (teamIds: string[]): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/clock/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`;
+      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+    }),
 };
 
 // ─── Notifications ────────────────────────────────────────────────────────────
@@ -532,11 +539,16 @@ export interface Message {
 }
 
 export const messageApi = {
-  /** Fetch a thread's message history. */
-  getThread: (teamId: string, adminId: string, memberId: string) =>
-    request<{ messages: Message[] }>(
-      `/v1/messages?teamId=${encodeURIComponent(teamId)}&adminId=${encodeURIComponent(adminId)}&memberId=${encodeURIComponent(memberId)}`,
-    ).then((r) => r.messages),
+  /** Fetch a thread's message history. Pass `before` ISO string for cursor-based pagination. */
+  getThread: (teamId: string, adminId: string, memberId: string, before?: string) => {
+    const qs = new URLSearchParams({
+      teamId,
+      adminId,
+      memberId,
+    });
+    if (before) qs.set('before', before);
+    return request<{ messages: Message[]; hasMore: boolean }>(`/v1/messages?${qs.toString()}`);
+  },
 
   /** Send a message. */
   send: (data: {
@@ -551,12 +563,15 @@ export const messageApi = {
       body: JSON.stringify(data),
     }).then((r) => r.message),
 
-  /** Open an SSE stream for a thread. Returns an EventSource. */
-  openStream: (threadId: string): EventSource =>
-    new EventSource(
-      `${TIMECORE_BASE_URL}/v1/messages/stream?threadId=${encodeURIComponent(threadId)}`,
-      { withCredentials: true },
-    ),
+  /** Open a WebSocket stream for a thread. Auto-reconnects on drop. */
+  openStream: (threadId: string): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const url = new URL(`${WS_BASE_URL}/v1/messages/ws`);
+      url.searchParams.set('threadId', threadId);
+      if (token) url.searchParams.set('token', token);
+      return url.toString();
+    }),
 };
 
 export type TeamInvitePreview = {
@@ -605,12 +620,14 @@ export const notificationApi = {
   /** Send a test push notification to the requesting user's devices. */
   testPush: () => request<{ ok: boolean }>('/v1/notifications/test-push', { method: 'POST' }),
 
-  /** Open an SSE stream for new notifications. */
-  openStream: (): EventSource => {
+  /** Open a WebSocket stream for new notifications. Auto-reconnects on drop. */
+  openStream: (): AutoReconnectWs => {
     const token = sessionToken.get();
-    const url = new URL(`${TIMECORE_BASE_URL}/v1/notifications/stream`);
-    if (token) url.searchParams.set('token', token);
-    return new EventSource(url.toString(), { withCredentials: true });
+    return autoReconnectWs(() => {
+      const url = new URL(`${WS_BASE_URL}/v1/notifications/ws`);
+      if (token) url.searchParams.set('token', token);
+      return url.toString();
+    });
   },
 };
 
@@ -771,6 +788,20 @@ export const timerApi = {
     }).then((r) => r.created),
 };
 
+// ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
+
+export const videoApi = {
+  /** Reserve a videoid on the server before starting a TUS upload.
+   *  Pass `existingVideoid` when resuming a recording session so the backend
+   *  re-registers the same id instead of creating a new one.
+   */
+  reserve: (ticketId: string, existingVideoid?: string) =>
+    request<{ videoid: string }>('/v1/pulsevault/reserve', {
+      method: 'POST',
+      body: JSON.stringify(existingVideoid ? { ticketId, videoid: existingVideoid } : { ticketId }),
+    }),
+};
+
 // ─── Activity Log ─────────────────────────────────────────────────────────────
 
 export interface ActivityLogItem {
@@ -800,4 +831,103 @@ export const activityApi = {
       `/v1/activity/log${query ? `?${query}` : ''}`,
     );
   },
+};
+
+// ─── Presence ─────────────────────────────────────────────────────────────────
+
+export const presenceApi = {
+  /**
+   * Open a WebSocket presence stream.
+   * Sends periodic { type: "ping" } heartbeats to stay marked online.
+   * Receives { type: "snapshot", online: string[] } on connect,
+   * then { type: "presence", userId: string, online: boolean } on changes.
+   */
+  openStream: (watchIds: string[]): AutoReconnectWs => {
+    const token = sessionToken.get();
+    return autoReconnectWs(() => {
+      const url = new URL(`${WS_BASE_URL}/v1/presence/ws`);
+      if (token) url.searchParams.set('token', token);
+      if (watchIds.length > 0) url.searchParams.set('watch', watchIds.join(','));
+      return url.toString();
+    });
+  },
+};
+
+// ─── Channel types ────────────────────────────────────────────────────────────
+
+export interface Channel {
+  id: string;
+  teamId: string;
+  name: string;
+  description?: string;
+  isDefault: boolean;
+  /** userIds who can access this channel; empty array means team-wide */
+  members: string[];
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface ChannelMessage {
+  id: string;
+  channelId: string;
+  teamId: string;
+  fromUserId: string;
+  senderName: string;
+  text: string;
+  createdAt: string;
+}
+
+// ─── Channel API ──────────────────────────────────────────────────────────────
+
+export const channelApi = {
+  getChannels: (teamId: string): Promise<Channel[]> =>
+    request<{ channels: Channel[] }>(`/v1/channels?teamId=${encodeURIComponent(teamId)}`).then(
+      (r) => r.channels,
+    ),
+
+  createChannel: (data: {
+    teamId: string;
+    name: string;
+    description?: string;
+    members?: string[];
+  }): Promise<Channel> =>
+    request<{ channel: Channel }>('/v1/channels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then((r) => r.channel),
+
+  getMessages: (
+    channelId: string,
+    teamId: string,
+    before?: string,
+  ): Promise<{ messages: ChannelMessage[]; hasMore: boolean }> => {
+    const url = new URL(
+      `/v1/channels/${encodeURIComponent(channelId)}/messages`,
+      TIMECORE_BASE_URL,
+    );
+    url.searchParams.set('teamId', teamId);
+    if (before) url.searchParams.set('before', before);
+    return request<{ messages: ChannelMessage[]; hasMore: boolean }>(url.pathname + url.search);
+  },
+
+  sendMessage: (
+    channelId: string,
+    data: { teamId: string; text: string },
+  ): Promise<ChannelMessage> =>
+    request<{ message: ChannelMessage }>(`/v1/channels/${encodeURIComponent(channelId)}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then((r) => r.message),
+
+  openStream: (channelId: string, teamId: string): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const url = new URL(`${WS_BASE_URL}/v1/channels/ws`);
+      url.searchParams.set('channelId', channelId);
+      url.searchParams.set('teamId', teamId);
+      const token = sessionToken.get();
+      if (token) url.searchParams.set('token', token);
+      return url.toString();
+    }),
 };

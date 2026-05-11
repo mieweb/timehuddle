@@ -8,7 +8,7 @@ import { pushService } from "./push.service.js";
 type SseCallback = (n: PublicNotification) => void;
 const sseListeners = new Map<string, Set<SseCallback>>();
 
-export function subscribeSse(userId: string, fn: SseCallback): () => void {
+export function subscribe(userId: string, fn: SseCallback): () => void {
   if (!sseListeners.has(userId)) sseListeners.set(userId, new Set());
   sseListeners.get(userId)!.add(fn);
   return () => {
