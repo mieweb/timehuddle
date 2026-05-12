@@ -7,7 +7,6 @@
  *   • Media attachments (links) on clock entries
  *   • Create new tickets from here
  *
- * Ticket-level timer management has moved to the Timers page (/app/work).
  */
 import { faCircleStop, faPlus, faStopwatch, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -42,6 +41,18 @@ export const ClockPage: React.FC = () => {
     ? Math.floor((currentTime - activeClockEvent.startTime) / 1000)
     : 0;
 
+  // Live wall-clock display
+  const currentTimeDisplay = new Date(currentTime).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const currentDateDisplay = new Date(currentTime).toLocaleDateString([], {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+
   // ── Handlers ──
 
   const handleCreateTicket = useCallback(async () => {
@@ -67,57 +78,63 @@ export const ClockPage: React.FC = () => {
   return (
     <AppPage>
       {/* ── Clock Button ── */}
-      <Card padding="lg" className="flex flex-col items-center gap-4 rounded-2xl">
-        <CardContent className="flex flex-col items-center gap-4">
-          {activeClockEvent ? (
-            <>
-              <div className="text-center">
-                <Text
-                  variant="success"
-                  size="xs"
-                  weight="medium"
-                  className="uppercase tracking-widest"
+      <Card padding="lg" className="rounded-2xl">
+        <CardContent className="flex flex-col-reverse items-center gap-4 sm:flex-row sm:items-center">
+          {/* Clock button — full width on mobile, 1/4 on sm+ */}
+          <div className="flex w-full flex-col items-center gap-2 sm:w-1/4">
+            {activeClockEvent ? (
+              <>
+                <button
+                  type="button"
+                  onClick={clockOut}
+                  disabled={clockOutLoading}
+                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-red-500 py-4 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-red-600 active:scale-95 disabled:opacity-50 sm:h-16 sm:w-16 sm:rounded-full sm:py-0"
+                  aria-label="Clock out"
                 >
-                  Session Active
+                  <FontAwesomeIcon icon={faCircleStop} className="text-2xl" />
+                  <span className="text-sm font-semibold sm:hidden">Clock Out</span>
+                </button>
+                <Text variant="muted" size="xs" className="hidden sm:block">
+                  Tap to clock out
                 </Text>
-                <Text size="3xl" weight="bold" className="mt-2 font-mono">
-                  {formatTimer(sessionSeconds)}
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={clockIn}
+                  disabled={clockInLoading || !selectedTeamId}
+                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-green-500 py-4 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-green-600 active:scale-95 disabled:opacity-50 sm:h-16 sm:w-16 sm:rounded-full sm:py-0"
+                  aria-label="Clock in"
+                >
+                  <FontAwesomeIcon icon={faStopwatch} className="text-2xl" />
+                  <span className="text-sm font-semibold sm:hidden">Clock In</span>
+                </button>
+                <Text variant="muted" size="xs" className="hidden sm:block">
+                  Tap to clock in
                 </Text>
-              </div>
-              {/* Clock Out — keeping custom round button for the unique clock UI */}
-              <button
-                type="button"
-                onClick={clockOut}
-                disabled={clockOutLoading}
-                className="flex h-24 w-24 items-center justify-center rounded-full bg-red-500 text-white shadow-lg transition-transform hover:scale-105 hover:bg-red-600 active:scale-95 disabled:opacity-50"
-                aria-label="Clock out"
-              >
-                <FontAwesomeIcon icon={faCircleStop} className="text-3xl" />
-              </button>
-              <Text variant="muted" size="xs">
-                Tap to clock out
+              </>
+            )}
+          </div>
+
+          {/* Time display — full width on mobile, 3/4 on sm+; border switches from top to left */}
+          <div className="flex w-full flex-col items-center gap-1 border-b border-neutral-200 pb-4 text-center dark:border-neutral-700 sm:w-3/4 sm:items-start sm:border-b-0 sm:border-l sm:pb-0 sm:pl-4 sm:text-left">
+            <div className="font-mono text-4xl font-bold leading-none tabular-nums">
+              {currentTimeDisplay}
+            </div>
+            <Text variant="muted" size="sm">
+              {currentDateDisplay}
+            </Text>
+            {activeClockEvent ? (
+              <Text variant="success" size="xs" weight="medium" className="mt-1 uppercase tracking-widest">
+                Session active — {formatTimer(sessionSeconds)}
               </Text>
-            </>
-          ) : (
-            <>
-              <Text variant="muted" size="xs" weight="medium" className="uppercase tracking-widest">
+            ) : (
+              <Text variant="muted" size="xs" weight="medium" className="mt-1 uppercase tracking-widest">
                 Ready to work
               </Text>
-              {/* Clock In — keeping custom round button for the unique clock UI */}
-              <button
-                type="button"
-                onClick={clockIn}
-                disabled={clockInLoading || !selectedTeamId}
-                className="flex h-24 w-24 items-center justify-center rounded-full bg-green-500 text-white shadow-lg transition-transform hover:scale-105 hover:bg-green-600 active:scale-95 disabled:opacity-50"
-                aria-label="Clock in"
-              >
-                <FontAwesomeIcon icon={faStopwatch} className="text-3xl" />
-              </button>
-              <Text variant="muted" size="xs">
-                Tap to clock in
-              </Text>
-            </>
-          )}
+            )}
+          </div>
         </CardContent>
       </Card>
 
