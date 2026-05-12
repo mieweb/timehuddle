@@ -85,6 +85,25 @@ export class ActivityService {
 
     return { events, nextCursor };
   }
+
+  /**
+   * Fetch activity events related to a specific ticket, newest first.
+   *
+   * @param ticketId - The ticket's ID string.
+   * @param limit    - Max items (1–100, default 50).
+   */
+  async getTicketActivity(
+    ticketId: string,
+    limit = 50
+  ): Promise<{ events: PublicActivityEvent[] }> {
+    const safeLimit = Math.min(Math.max(1, limit), 100);
+    const docs = await activitiesCollection()
+      .find({ "payload.ticketId": ticketId })
+      .sort({ occurredAt: -1 })
+      .limit(safeLimit)
+      .toArray();
+    return { events: docs.map(toPublic) };
+  }
 }
 
 export const activityService = new ActivityService();

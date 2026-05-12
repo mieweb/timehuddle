@@ -125,7 +125,6 @@ export const ProfileWorkSnapshot: React.FC<ProfileWorkSnapshotProps> = ({ userId
       .then((results) => setAllTickets(results.flat()))
       .catch(() => setAllTickets([]))
       .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, teamsKey]);
 
   // Filter to this user's active tickets, sorted by status priority order

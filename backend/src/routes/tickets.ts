@@ -1,6 +1,9 @@
 import { FastifyInstance } from "fastify";
+import { ObjectId } from "mongodb";
 import { requireAuth } from "../middleware/require-auth.js";
 import { ticketService } from "../services/ticket.service.js";
+import { activityService } from "../services/activity.service.js";
+import { teamsCollection } from "../models/index.js";
 import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -88,6 +91,78 @@ export async function ticketRoutes(app: FastifyInstance) {
       const result = await ticketService.findByTeam(teamId, req.user!.id);
       if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
       return reply.send({ tickets: result.map(toPublicTicket) });
+    }
+  );
+
+  // GET /v1/tickets/:id
+  app.get(
+    "/tickets/:id",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Tickets"],
+        summary: "Get a single ticket by ID (team members only)",
+        params: idParam,
+        response: {
+          200: { type: "object", properties: { ticket: ticketShape } },
+          ...unauth,
+          403: err("Not a team member"),
+          404: err("Ticket not found"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const ticket = await ticketService.findById(id);
+      if (!ticket) return reply.status(404).send({ error: "Ticket not found" });
+      const team = await teamsCollection().findOne({
+        _id: new ObjectId(ticket.teamId),
+        members: req.user!.id,
+      });
+      if (!team) return reply.status(403).send({ error: "Not a team member" });
+      return reply.send({ ticket: toPublicTicket(ticket) });
+    }
+  );
+
+  // GET /v1/tickets/:id/activity
+  app.get(
+    "/tickets/:id/activity",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Tickets"],
+        summary: "Get activity events for a ticket (team members only)",
+        params: idParam,
+        querystring: {
+          type: "object",
+          properties: {
+            limit: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              events: { type: "array", items: { type: "object", additionalProperties: true } },
+            },
+          },
+          ...unauth,
+          403: err("Not a team member"),
+          404: err("Ticket not found"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const { limit } = req.query as { limit?: number };
+      const ticket = await ticketService.findById(id);
+      if (!ticket) return reply.status(404).send({ error: "Ticket not found" });
+      const team = await teamsCollection().findOne({
+        _id: new ObjectId(ticket.teamId),
+        members: req.user!.id,
+      });
+      if (!team) return reply.status(403).send({ error: "Not a team member" });
+      return reply.send(await activityService.getTicketActivity(id, limit));
     }
   );
 

@@ -214,13 +214,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
             {workSummary.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {workSummary.map((t) => (
-                  <a
+                  <button
                     key={t.id}
-                    href="/app/tickets"
+                    aria-label={`View ticket: ${t.title}`}
                     className="rounded-md bg-neutral-100 px-2.5 py-1 text-sm font-medium text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                    onClick={() => navigate(`/app/tickets/${t.id}`)}
                   >
                     {t.title}
-                  </a>
+                  </button>
                 ))}
               </div>
             )}

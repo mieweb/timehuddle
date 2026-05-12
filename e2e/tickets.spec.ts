@@ -228,22 +228,22 @@ test.describe('Tickets', () => {
 
   // ── Ticket Details ─────────────────────────────────────────────────────────
 
-  test('view ticket details modal', async ({ page }) => {
+  test('view ticket details page', async ({ page }) => {
     // Create a ticket
     await page.getByRole('button', { name: 'New Ticket' }).click();
     await page.getByPlaceholder('Ticket title').fill('Details modal ticket');
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(1000);
 
-    // Open 3-dot menu → Ticket Details
-    await openTicketMenu(page, 'Details modal ticket');
-    await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
-    await page.waitForTimeout(400);
+    // Click the ticket title to navigate to the detail page
+    await page.getByRole('button', { name: 'Details modal ticket' }).first().click();
+    await page.waitForTimeout(600);
 
-    // Details modal should show the ticket title
-    await expect(page.locator('[role="dialog"]').getByText('Details modal ticket')).toBeVisible();
+    // Detail page should show the ticket title as a heading
+    await expect(page.getByRole('heading', { name: 'Details modal ticket' })).toBeVisible();
 
-    await page.locator('[role="dialog"]').getByText('Close').click();
+    // Navigate back
+    await page.getByRole('button', { name: 'Back to tickets' }).click();
     await page.waitForTimeout(300);
 
     // Cleanup

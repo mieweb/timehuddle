@@ -25,6 +25,7 @@ import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
+import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
 import { PulsePage } from '../features/media/PulsePage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
@@ -66,6 +67,7 @@ const ROUTES: Record<string, RouteConfig> = {
 
 function match(pathname: string): RouteConfig | null {
   if (pathname.startsWith('/app/profile/')) return null; // parameterized — rendered separately
+  if (pathname.startsWith('/app/tickets/')) return null; // parameterized — rendered separately
   if (/^\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/.test(pathname)) return null; // /:username — rendered separately
   return ROUTES[pathname] ?? ROUTES['/app/dashboard'];
 }
@@ -169,14 +171,25 @@ export const AppLayout: React.FC = () => {
     ? pathname.slice('/app/profile/'.length)
     : null;
 
+  // Parameterized ticket detail route — /app/tickets/:id
+  const ticketDetailId =
+    !profileUserId && pathname.startsWith('/app/tickets/')
+      ? pathname.slice('/app/tickets/'.length)
+      : null;
+
   // Public profile route — /:username
   const profileUsername =
     !profileUserId && /^\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/.test(pathname)
       ? pathname.slice(1)
       : null;
 
-  const route = profileUserId || profileUsername ? null : match(pathname);
-  const pageTitle = profileUserId || profileUsername ? 'Profile' : (route?.title ?? 'App');
+  const route = profileUserId || profileUsername || ticketDetailId ? null : match(pathname);
+  const pageTitle =
+    profileUserId || profileUsername
+      ? 'Profile'
+      : ticketDetailId
+        ? 'Ticket'
+        : (route?.title ?? 'App');
   const isMessagesPage = pathname === '/app/messages';
 
   // ── Messages active-chat state (set by MessagesPage via context) ──
@@ -239,6 +252,8 @@ export const AppLayout: React.FC = () => {
                     <ProfilePage userId={profileUserId} />
                   ) : profileUsername ? (
                     <ProfilePage username={profileUsername} />
+                  ) : ticketDetailId ? (
+                    <TicketDetailPage ticketId={ticketDetailId} />
                   ) : (
                     route && React.createElement(route.component)
                   )}

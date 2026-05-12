@@ -164,7 +164,6 @@ interface TicketRowProps {
   onEditRequest: (ticket: Ticket) => void;
   onDeleteRequest: (id: string) => void;
   onChangeStatusRequest: (ticket: Ticket) => void;
-  onDetailsRequest: (ticket: Ticket) => void;
 }
 
 const TicketRow: React.FC<TicketRowProps> = ({
@@ -176,7 +175,6 @@ const TicketRow: React.FC<TicketRowProps> = ({
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
-  onDetailsRequest,
 }) => {
   const { navigate } = useRouter();
   const { icon, className: iconClass } = statusIconFor(ticket.status);
@@ -200,7 +198,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             className="text-left text-sm font-semibold text-neutral-900 hover:text-primary dark:text-neutral-100 dark:hover:text-primary"
-            onClick={() => onDetailsRequest(ticket)}
+            onClick={() => navigate(`/app/tickets/${ticket.id}`)}
           >
             {ticket.title}
           </button>
@@ -269,7 +267,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
           <DropdownContent>
             <DropdownItem
               icon={<FontAwesomeIcon icon={faEye} />}
-              onClick={() => onDetailsRequest(ticket)}
+              onClick={() => navigate(`/app/tickets/${ticket.id}`)}
             >
               Ticket Details
             </DropdownItem>
@@ -901,7 +899,6 @@ export const TicketsPage: React.FC = () => {
                   setChangeStatusTicket(ticket);
                   setChangeStatusValue(ticket.status || 'open');
                 }}
-                onDetailsRequest={setDetailsTicket}
               />
             ))}
           </ul>

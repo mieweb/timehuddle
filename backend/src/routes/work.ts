@@ -79,17 +79,22 @@ export async function workRoutes(app: FastifyInstance) {
 
       if (recentTimers.length === 0) return { items: [] };
 
-      const workItemIds = [...new Set(recentTimers.map((t) => t.workItemId))];
+      const rawWorkItemIds = [...new Set(recentTimers.map((t) => t.workItemId).filter(Boolean))];
+      if (rawWorkItemIds.length === 0) return { items: [] };
 
       const workItems = await workItemsCollection()
-        .find({ _id: { $in: workItemIds.map((id) => new ObjectId(id)) } })
+        .find({ _id: { $in: rawWorkItemIds.map((id) => new ObjectId(id)) } })
         .project<{ ticketId: string }>({ ticketId: 1 })
         .toArray();
 
-      const ticketIds = [...new Set(workItems.map((w) => w.ticketId))];
+      const rawTicketIds = [...new Set(workItems.map((w) => w.ticketId).filter(Boolean))];
+      if (rawTicketIds.length === 0) return { items: [] };
 
       const tickets = await ticketsCollection()
-        .find({ _id: { $in: ticketIds.map((id) => new ObjectId(id)) } })
+        .find({
+          _id: { $in: rawTicketIds.map((id) => new ObjectId(id)) },
+          status: { $ne: "deleted" },
+        })
         .project<{ _id: ObjectId; title: string }>({ _id: 1, title: 1 })
         .toArray();
 

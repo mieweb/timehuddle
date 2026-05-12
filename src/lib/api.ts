@@ -331,6 +331,9 @@ export const ticketApi = {
       (r) => r.tickets,
     ),
 
+  getTicket: (id: string) =>
+    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`).then((r) => r.ticket),
+
   createTicket: (data: { teamId: string; title: string; github?: string }) =>
     request<{ ticket: Ticket }>('/v1/tickets', {
       method: 'POST',
@@ -861,6 +864,12 @@ export const activityApi = {
   getUserWorkSummary: (userId: string) =>
     request<{ items: { id: string; title: string }[] }>(
       `/v1/work/summary/user/${encodeURIComponent(userId)}`,
+    ),
+
+  /** Activity events for a specific ticket (team members only). */
+  getTicketActivity: (ticketId: string, limit = 50) =>
+    request<{ events: ActivityLogItem[] }>(
+      `/v1/tickets/${encodeURIComponent(ticketId)}/activity?limit=${limit}`,
     ),
 };
 
