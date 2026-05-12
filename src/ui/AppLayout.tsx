@@ -25,7 +25,7 @@ import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
-import { PulsePage } from '../features/tickets/PulsePage';
+import { PulsePage } from '../features/media/PulsePage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
 import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';

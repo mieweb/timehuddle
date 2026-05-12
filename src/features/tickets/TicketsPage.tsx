@@ -56,7 +56,7 @@ import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
-import { VideoUploadButton } from './VideoUploadButton';
+import { VideoUploadButton } from '../media/VideoUploadButton';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
