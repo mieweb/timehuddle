@@ -141,7 +141,7 @@ export async function ticketRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Tickets"],
-        summary: "Update a ticket (owner only)",
+        summary: "Update a ticket (any team member)",
         params: idParam,
         body: {
           type: "object",
@@ -155,7 +155,7 @@ export async function ticketRoutes(app: FastifyInstance) {
         response: {
           200: { type: "object", properties: { ticket: ticketShape } },
           ...unauth,
-          403: err("Not your ticket"),
+          403: err("Not a team member"),
           404: err("Ticket not found"),
         },
       },
@@ -169,7 +169,7 @@ export async function ticketRoutes(app: FastifyInstance) {
       }>;
       const result = await ticketService.update(id, req.user!.id, body);
       if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Not your ticket" });
+      if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
       return reply.send({ ticket: toPublicTicket(result) });
     }
   );
@@ -181,12 +181,12 @@ export async function ticketRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Tickets"],
-        summary: "Delete a ticket (owner only, soft-delete)",
+        summary: "Delete a ticket (any team member, soft-delete)",
         params: idParam,
         response: {
           200: { type: "object", properties: { ok: { type: "boolean" } } },
           ...unauth,
-          403: err("Not your ticket"),
+          403: err("Not a team member"),
           404: err("Ticket not found"),
         },
       },
@@ -195,7 +195,7 @@ export async function ticketRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const result = await ticketService.delete(id, req.user!.id);
       if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Not your ticket" });
+      if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
       return reply.send({ ok: true });
     }
   );
@@ -279,7 +279,7 @@ export async function ticketRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Tickets"],
-        summary: "Assign ticket to a team member (ticket creator or team admin)",
+        summary: "Assign ticket to a team member (any team member)",
         params: idParam,
         body: {
           type: "object",

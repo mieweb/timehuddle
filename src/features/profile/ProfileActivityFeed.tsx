@@ -251,7 +251,7 @@ export const ProfileActivityFeed: React.FC<ProfileActivityFeedProps> = ({ userId
           weight="semibold"
           className="uppercase tracking-widest text-neutral-500 dark:text-neutral-400"
         >
-          Recent Activity
+          Activity
         </Text>
       </div>
 

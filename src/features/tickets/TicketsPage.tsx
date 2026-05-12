@@ -852,6 +852,13 @@ export const TicketsPage: React.FC = () => {
             </FilterDropdown>
             <FilterDropdown label="Assignee" activeLabel={activeAssigneeLabel}>
               <DropdownItem
+                onClick={() => setAssigneeFilter(null)}
+                className={assigneeFilter === null ? 'font-semibold' : ''}
+              >
+                Any
+              </DropdownItem>
+              <DropdownSeparator />
+              <DropdownItem
                 onClick={() =>
                   setAssigneeFilter(assigneeFilter === '__unassigned__' ? null : '__unassigned__')
                 }
@@ -1150,6 +1157,18 @@ export const TicketsPage: React.FC = () => {
             </div>
           </ModalBody>
           <ModalFooter>
+            {userId && detailsTicket.assignedTo !== userId && (
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  await ticketApi.assignTicket(detailsTicket.id, userId);
+                  setDetailsTicket((t) => t ? { ...t, assignedTo: userId } : t);
+                  void refetch();
+                }}
+              >
+                Assign to me
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setDetailsTicket(null)}>
               Close
             </Button>

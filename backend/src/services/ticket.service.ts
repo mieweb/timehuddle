@@ -113,7 +113,12 @@ export class TicketService {
   ): Promise<Ticket | OwnerError> {
     const ticket = await this.findById(id);
     if (!ticket) return "not-found";
-    if (ticket.createdBy !== userId) return "forbidden";
+    if (!isValidId(ticket.teamId)) return "forbidden";
+    const team = await teamsCollection().findOne({
+      _id: new ObjectId(ticket.teamId),
+      $or: [{ members: userId }, { admins: userId }],
+    });
+    if (!team) return "forbidden";
     await ticketsCollection().updateOne(
       { _id: new ObjectId(id) },
       { $set: { ...updates, updatedAt: new Date(), updatedBy: userId } }
@@ -170,7 +175,12 @@ export class TicketService {
   async delete(id: string, userId: string): Promise<"ok" | OwnerError> {
     const ticket = await this.findById(id);
     if (!ticket) return "not-found";
-    if (ticket.createdBy !== userId) return "forbidden";
+    if (!isValidId(ticket.teamId)) return "forbidden";
+    const team = await teamsCollection().findOne({
+      _id: new ObjectId(ticket.teamId),
+      $or: [{ members: userId }, { admins: userId }],
+    });
+    if (!team) return "forbidden";
     await ticketsCollection().updateOne(
       { _id: new ObjectId(id) },
       { $set: { status: "deleted" as TicketStatus, updatedAt: new Date() } }
@@ -238,9 +248,6 @@ export class TicketService {
       $or: [{ members: requesterId }, { admins: requesterId }],
     });
     if (!team) return "forbidden";
-    const isCreator = ticket.createdBy === requesterId;
-    const isAdmin = (team.admins ?? []).includes(requesterId);
-    if (!isCreator && !isAdmin) return "forbidden";
     if (assignedToUserId !== null) {
       const allMembers = [...new Set([...(team.members ?? []), ...(team.admins ?? [])])];
       if (!allMembers.includes(assignedToUserId)) return "bad-assignee";
