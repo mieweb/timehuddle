@@ -7,7 +7,7 @@
  * • Owner sees a link to /app/settings to edit their profile.
  * • All editing is handled in SettingsPage — no inline edit form here.
  */
-import { faCrown, faGear, faGlobe, faUser, faUsers } from '@fortawesome/free-solid-svg-icons';
+import { faArrowUpFromBracket, faCrown, faGear, faGlobe, faUser, faUsers } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Avatar, Badge, Button, Card, Spinner, Text } from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
@@ -16,6 +16,7 @@ import { ApiError, userApi, type PublicUser } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
+import { ProfileActivityFeed } from './ProfileActivityFeed';
 
 type ProfilePageProps = { userId: string; username?: never } | { username: string; userId?: never };
 
@@ -165,29 +166,36 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
 
       {profile && (
         <Card padding="lg">
-          <div className="mb-4 flex items-center gap-2">
-            <FontAwesomeIcon icon={faUser} className="text-neutral-500" aria-hidden="true" />
-            <Text size="sm" weight="semibold">
+          {/* Section heading */}
+          <div className="mb-5 flex items-center gap-2 border-b border-neutral-200 pb-3 dark:border-neutral-700">
+            <FontAwesomeIcon icon={faUser} className="text-neutral-400" aria-hidden="true" />
+            <Text size="sm" weight="semibold" className="uppercase tracking-widest text-neutral-500 dark:text-neutral-400">
               Working Context
             </Text>
           </div>
 
-          <div className="grid gap-5 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+          <div className="grid gap-6 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+            {/* Reports To */}
             <div>
-              <Text variant="muted" size="xs" className="mb-1 block uppercase tracking-wide">
+              <Text variant="muted" size="xs" className="mb-2 block uppercase tracking-widest">
                 Reports To
               </Text>
               {profile.reportsTo ? (
-                <>
-                  <Text size="sm" weight="medium">
-                    {profile.reportsTo.name}
-                  </Text>
-                  {profile.reportsTo.username && (
-                    <Text variant="muted" size="xs" className="mt-0.5">
-                      @{profile.reportsTo.username}
+                <div className="flex items-center gap-3 rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-neutral-500 dark:bg-neutral-700">
+                    <FontAwesomeIcon icon={faArrowUpFromBracket} className="text-xs" aria-hidden="true" />
+                  </div>
+                  <div className="min-w-0">
+                    <Text size="sm" weight="medium" className="truncate">
+                      {profile.reportsTo.name}
                     </Text>
-                  )}
-                </>
+                    {profile.reportsTo.username && (
+                      <Text variant="muted" size="xs" className="truncate">
+                        @{profile.reportsTo.username}
+                      </Text>
+                    )}
+                  </div>
+                </div>
               ) : (
                 <Text variant="muted" size="sm">
                   Not set
@@ -195,15 +203,19 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
               )}
             </div>
 
+            {/* Team Memberships */}
             <div>
-              <Text variant="muted" size="xs" className="mb-2 block uppercase tracking-wide">
+              <Text variant="muted" size="xs" className="mb-2 block uppercase tracking-widest">
                 Team Memberships
               </Text>
               {profile.teamMemberships.length > 0 ? (
-                <ul className="space-y-2">
+                <ul className="flex flex-col gap-2">
                   {profile.teamMemberships.map((team) => (
-                    <li key={team.id} className="flex items-center gap-2">
-                      <Text size="sm">{team.name}</Text>
+                    <li
+                      key={team.id}
+                      className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800"
+                    >
+                      <Text size="sm" weight="medium">{team.name}</Text>
                       <Badge variant={team.role === 'admin' ? 'warning' : 'secondary'} size="sm">
                         {team.role === 'admin' ? 'Admin' : 'Member'}
                       </Badge>
@@ -220,19 +232,25 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
         </Card>
       )}
 
+      {/* Activity feed — shown for own profile and teammates */}
+      {profile && <ProfileActivityFeed userId={profile.id} />}
+
       {/* Shared teams — shown when viewing a teammate's profile */}
       {!isOwn && profile?.sharedTeams && profile.sharedTeams.length > 0 && (
         <Card padding="lg">
-          <div className="flex items-center gap-2 mb-3">
-            <FontAwesomeIcon icon={faUsers} className="text-neutral-500" aria-hidden="true" />
-            <Text size="sm" weight="semibold">
+          <div className="mb-5 flex items-center gap-2 border-b border-neutral-200 pb-3 dark:border-neutral-700">
+            <FontAwesomeIcon icon={faUsers} className="text-neutral-400" aria-hidden="true" />
+            <Text size="sm" weight="semibold" className="uppercase tracking-widest text-neutral-500 dark:text-neutral-400">
               Shared Teams
             </Text>
           </div>
-          <ul className="space-y-2">
+          <ul className="flex flex-col gap-2">
             {profile.sharedTeams.map((team) => (
-              <li key={team.id} className="flex items-center gap-2">
-                <Text size="sm">{team.name}</Text>
+              <li
+                key={team.id}
+                className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800"
+              >
+                <Text size="sm" weight="medium">{team.name}</Text>
                 {team.isAdmin && (
                   <Badge variant="warning" size="sm" icon={<FontAwesomeIcon icon={faCrown} />}>
                     Admin

@@ -839,6 +839,23 @@ export const activityApi = {
       `/v1/activity/log${query ? `?${query}` : ''}`,
     );
   },
+
+  /**
+   * Fetch a page of activity log events for a specific user (teammates only).
+   *
+   * @param userId - The target user's ID.
+   * @param limit  - Max items per page (1–50, default 20).
+   * @param before - Cursor: ISO timestamp; fetch events older than this.
+   */
+  getUserActivity: (userId: string, params: { limit?: number; before?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.before) qs.set('before', params.before);
+    const query = qs.toString();
+    return request<{ events: ActivityLogItem[]; nextCursor: string | null }>(
+      `/v1/users/${encodeURIComponent(userId)}/activity${query ? `?${query}` : ''}`,
+    );
+  },
 };
 
 // ─── Presence ─────────────────────────────────────────────────────────────────
