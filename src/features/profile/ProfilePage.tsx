@@ -7,12 +7,30 @@
  * • Owner sees a link to /app/settings to edit their profile.
  * • All editing is handled in SettingsPage — no inline edit form here.
  */
-import { faArrowUpFromBracket, faCrown, faGear, faGlobe, faUser, faUsers } from '@fortawesome/free-solid-svg-icons';
+import {
+  faArrowUpFromBracket,
+  faCrown,
+  faGear,
+  faGlobe,
+  faUser,
+  faUsers,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Avatar, Badge, Button, Card, Spinner, Tabs, TabsContent, TabsList, TabsTrigger, Text } from '@mieweb/ui';
+import {
+  Avatar,
+  Badge,
+  Button,
+  Card,
+  Spinner,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Text,
+} from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
 
-import { ApiError, userApi, type PublicUser } from '../../lib/api';
+import { activityApi, ApiError, userApi, type PublicUser } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
@@ -30,6 +48,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   const [isReady, setIsReady] = useState(false);
   const [isForbidden, setIsForbidden] = useState(false);
   const [isNotFound, setIsNotFound] = useState(false);
+  const [workSummary, setWorkSummary] = useState<{ id: string; title: string }[]>([]);
 
   useEffect(() => {
     setIsReady(false);
@@ -48,6 +67,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
       })
       .finally(() => setIsReady(true));
   }, [userId, username]);
+
+  useEffect(() => {
+    if (!profile) return;
+    activityApi
+      .getUserWorkSummary(profile.id)
+      .then(({ items }) => setWorkSummary(items))
+      .catch(() => setWorkSummary([]));
+  }, [profile?.id]);
 
   if (!isReady) {
     return (
@@ -101,8 +128,14 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
       {/* Hero card */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-neutral-800 to-neutral-950 dark:from-neutral-900 dark:to-black shadow-lg">
         {/* Decorative background circles */}
-        <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/5" aria-hidden />
-        <div className="pointer-events-none absolute -left-10 bottom-0 h-40 w-40 rounded-full bg-white/[0.03]" aria-hidden />
+        <div
+          className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/5"
+          aria-hidden
+        />
+        <div
+          className="pointer-events-none absolute -left-10 bottom-0 h-40 w-40 rounded-full bg-white/[0.03]"
+          aria-hidden
+        />
 
         <div className="relative flex flex-col items-center gap-4 px-6 pb-8 pt-10 text-center sm:flex-row sm:items-end sm:gap-6 sm:px-10 sm:pb-8 sm:pt-10 sm:text-left">
           {/* Avatar */}
@@ -112,9 +145,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
 
           {/* Info */}
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-2xl font-bold text-white">
-              {nameText}
-            </h1>
+            <h1 className="truncate text-2xl font-bold text-white">{nameText}</h1>
 
             {profile?.username && (
               <p className="mt-0.5 text-sm text-neutral-400">@{profile.username}</p>
@@ -169,12 +200,38 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
       {profile && (
         <Tabs defaultValue="work" className="w-full">
           <TabsList className="mb-4 w-full">
-            <TabsTrigger value="work" className="flex-1">Work</TabsTrigger>
-            <TabsTrigger value="activity" className="flex-1">Activity</TabsTrigger>
+            <TabsTrigger value="work" className="flex-1">
+              Work
+            </TabsTrigger>
+            <TabsTrigger value="activity" className="flex-1">
+              Activity
+            </TabsTrigger>
           </TabsList>
 
           {/* Work tab */}
           <TabsContent value="work" className="flex flex-col gap-4">
+            {/* 48 h work summary blurb */}
+            {workSummary.length > 0 && (
+              <p className="text-sm italic text-neutral-500 dark:text-neutral-400">
+                Has been working on{' '}
+                {workSummary.map((t, i) => (
+                  <React.Fragment key={t.id}>
+                    {i > 0 && i < workSummary.length - 1 && ', '}
+                    {i > 0 &&
+                      i === workSummary.length - 1 &&
+                      (workSummary.length > 2 ? ', and ' : ' and ')}
+                    <a
+                      href="/app/tickets"
+                      className="font-bold underline underline-offset-2 hover:opacity-70"
+                    >
+                      {t.title}
+                    </a>
+                  </React.Fragment>
+                ))}
+                .
+              </p>
+            )}
+
             <ProfileWorkSnapshot
               userId={profile.id}
               teams={
@@ -189,44 +246,80 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
               <Card padding="lg">
                 <div className="mb-5 flex items-center gap-2 border-b border-neutral-200 pb-3 dark:border-neutral-700">
                   <FontAwesomeIcon icon={faUser} className="text-neutral-400" aria-hidden="true" />
-                  <Text size="sm" weight="semibold" className="uppercase tracking-widest text-neutral-500 dark:text-neutral-400">
+                  <Text
+                    size="sm"
+                    weight="semibold"
+                    className="uppercase tracking-widest text-neutral-500 dark:text-neutral-400"
+                  >
                     Working Context
                   </Text>
                 </div>
                 <div className="grid gap-6 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
                   <div>
-                    <Text variant="muted" size="xs" className="mb-2 block uppercase tracking-widest">Reports To</Text>
+                    <Text
+                      variant="muted"
+                      size="xs"
+                      className="mb-2 block uppercase tracking-widest"
+                    >
+                      Reports To
+                    </Text>
                     {profile.reportsTo ? (
                       <div className="flex items-center gap-3 rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-200 text-neutral-500 dark:bg-neutral-700">
-                          <FontAwesomeIcon icon={faArrowUpFromBracket} className="text-xs" aria-hidden="true" />
+                          <FontAwesomeIcon
+                            icon={faArrowUpFromBracket}
+                            className="text-xs"
+                            aria-hidden="true"
+                          />
                         </div>
                         <div className="min-w-0">
-                          <Text size="sm" weight="medium" className="truncate">{profile.reportsTo.name}</Text>
+                          <Text size="sm" weight="medium" className="truncate">
+                            {profile.reportsTo.name}
+                          </Text>
                           {profile.reportsTo.username && (
-                            <Text variant="muted" size="xs" className="truncate">@{profile.reportsTo.username}</Text>
+                            <Text variant="muted" size="xs" className="truncate">
+                              @{profile.reportsTo.username}
+                            </Text>
                           )}
                         </div>
                       </div>
                     ) : (
-                      <Text variant="muted" size="sm">Not set</Text>
+                      <Text variant="muted" size="sm">
+                        Not set
+                      </Text>
                     )}
                   </div>
                   <div>
-                    <Text variant="muted" size="xs" className="mb-2 block uppercase tracking-widest">Team Memberships</Text>
+                    <Text
+                      variant="muted"
+                      size="xs"
+                      className="mb-2 block uppercase tracking-widest"
+                    >
+                      Team Memberships
+                    </Text>
                     {profile.teamMemberships.length > 0 ? (
                       <ul className="flex flex-col gap-2">
                         {profile.teamMemberships.map((team) => (
-                          <li key={team.id} className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
-                            <Text size="sm" weight="medium">{team.name}</Text>
-                            <Badge variant={team.role === 'admin' ? 'warning' : 'secondary'} size="sm">
+                          <li
+                            key={team.id}
+                            className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800"
+                          >
+                            <Text size="sm" weight="medium">
+                              {team.name}
+                            </Text>
+                            <Badge
+                              variant={team.role === 'admin' ? 'warning' : 'secondary'}
+                              size="sm"
+                            >
                               {team.role === 'admin' ? 'Admin' : 'Member'}
                             </Badge>
                           </li>
                         ))}
                       </ul>
                     ) : (
-                      <Text variant="muted" size="sm">No team memberships yet.</Text>
+                      <Text variant="muted" size="sm">
+                        No team memberships yet.
+                      </Text>
                     )}
                   </div>
                 </div>
@@ -238,7 +331,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
               <Card padding="lg">
                 <div className="mb-4 flex items-center gap-2 border-b border-neutral-200 pb-3 dark:border-neutral-700">
                   <FontAwesomeIcon icon={faUsers} className="text-neutral-400" aria-hidden="true" />
-                  <Text size="sm" weight="semibold" className="uppercase tracking-widest text-neutral-500 dark:text-neutral-400">
+                  <Text
+                    size="sm"
+                    weight="semibold"
+                    className="uppercase tracking-widest text-neutral-500 dark:text-neutral-400"
+                  >
                     Shared Teams
                   </Text>
                 </div>
@@ -248,9 +345,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
                       key={team.id}
                       className="flex items-center justify-between rounded-lg bg-neutral-50 px-3 py-2 dark:bg-neutral-800"
                     >
-                      <Text size="sm" weight="medium">{team.name}</Text>
+                      <Text size="sm" weight="medium">
+                        {team.name}
+                      </Text>
                       {team.isAdmin && (
-                        <Badge variant="warning" size="sm" icon={<FontAwesomeIcon icon={faCrown} />}>
+                        <Badge
+                          variant="warning"
+                          size="sm"
+                          icon={<FontAwesomeIcon icon={faCrown} />}
+                        >
                           Admin
                         </Badge>
                       )}

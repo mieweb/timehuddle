@@ -1162,7 +1162,7 @@ export const TicketsPage: React.FC = () => {
                 variant="secondary"
                 onClick={async () => {
                   await ticketApi.assignTicket(detailsTicket.id, userId);
-                  setDetailsTicket((t) => t ? { ...t, assignedTo: userId } : t);
+                  setDetailsTicket((t) => (t ? { ...t, assignedTo: userId } : t));
                   void refetch();
                 }}
               >

@@ -185,6 +185,34 @@ src/
 - **The backend owns data**: Persistence, validation, and business rules live in the backend. The frontend only consumes the API.
 - **Public APIs only**: The frontend communicates with the backend exclusively through versioned HTTP endpoints — never by reaching into backend modules directly.
 
+### Backend Architecture: Route → Controller → Service
+
+Every backend feature must follow a strict three-layer separation:
+
+| Layer          | Location                   | Responsibility                                              |
+| -------------- | -------------------------- | ----------------------------------------------------------- |
+| **Route**      | `backend/src/routes/`      | Schema declaration, auth hooks, wires request to controller |
+| **Controller** | `backend/src/controllers/` | Extracts params, calls service(s), formats reply            |
+| **Service**    | `backend/src/services/`    | Business logic and database access — no Fastify types       |
+
+**Rules:**
+
+- **Routes never contain business logic.** They declare the Fastify schema, attach `preHandler`/`onRequest` hooks, and call exactly one controller method.
+- **Controllers never touch the database directly.** They read from `req` (params, query, body, `req.user`), call service methods, and call `reply.send()` or `return`.
+- **Services never import Fastify types.** They are plain async functions or classes that can be unit-tested without an HTTP context.
+- **New routes always get a controller.** Do not add inline handler logic to a route file — extract it to `backend/src/controllers/<feature>.controller.ts` immediately.
+- **Existing inline route handlers should be migrated to controllers** whenever they are touched.
+
+```
+// ✅ Correct
+// routes/work-summary.ts  → calls workSummaryController.getByUser(req, reply)
+// controllers/work-summary.controller.ts → calls workSummaryService.forUser(userId)
+// services/work-summary.service.ts → queries MongoDB, returns data
+
+// ❌ Wrong
+// routes/work-summary.ts  → contains MongoDB queries inline
+```
+
 ### Refactoring Guidelines
 
 - **Continuous improvement**: Refactor as you work, not as a separate task

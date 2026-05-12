@@ -856,6 +856,12 @@ export const activityApi = {
       `/v1/users/${encodeURIComponent(userId)}/activity${query ? `?${query}` : ''}`,
     );
   },
+
+  /** Ticket IDs + titles from the user's last 48 h of timer work. */
+  getUserWorkSummary: (userId: string) =>
+    request<{ items: { id: string; title: string }[] }>(
+      `/v1/work/summary/user/${encodeURIComponent(userId)}`,
+    ),
 };
 
 // ─── Presence ─────────────────────────────────────────────────────────────────

@@ -105,11 +105,17 @@ function summaryForItem(item: ActivityLogItem): string {
       const assigneeName = (p.assigneeName as string | undefined) ?? '';
       const detail =
         action === 'assigned'
-          ? assigneeName ? `to ${assigneeName}` : ''
+          ? assigneeName
+            ? `to ${assigneeName}`
+            : ''
           : action === 'status-changed' || action === 'batch-status-changed'
-            ? status ? `→ ${status}` : ''
+            ? status
+              ? `→ ${status}`
+              : ''
             : action === 'priority-changed'
-              ? priority ? `→ ${priority}` : ''
+              ? priority
+                ? `→ ${priority}`
+                : ''
               : '';
       return [title, detail].filter(Boolean).join(' ');
     }
@@ -235,10 +241,7 @@ export const ProfileActivityFeed: React.FC<ProfileActivityFeedProps> = ({ userId
   }, [items]);
 
   // Surface blocker signals (only when ≥ 2 in recent history for enough signal)
-  const blockerItems = useMemo(
-    () => items.filter(isBlockerSignal).slice(0, 3),
-    [items],
-  );
+  const blockerItems = useMemo(() => items.filter(isBlockerSignal).slice(0, 3), [items]);
   const showBlockers = blockerItems.length >= 2;
 
   return (

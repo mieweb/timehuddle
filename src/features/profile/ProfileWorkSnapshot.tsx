@@ -24,7 +24,10 @@ const DONE_STATUSES = new Set(['closed', 'reviewed', 'deleted']);
 
 const STATUS_ORDER = ['blocked', 'in-progress', 'open'];
 
-const STATUS_META: Record<string, { label: string; iconClass: string; badgeVariant: 'danger' | 'warning' | 'success' | 'secondary' }> = {
+const STATUS_META: Record<
+  string,
+  { label: string; iconClass: string; badgeVariant: 'danger' | 'warning' | 'success' | 'secondary' }
+> = {
   blocked: { label: 'Blocked', iconClass: 'text-amber-500', badgeVariant: 'warning' },
   'in-progress': { label: 'In Progress', iconClass: 'text-blue-500', badgeVariant: 'success' },
   open: { label: 'Open', iconClass: 'text-neutral-400', badgeVariant: 'secondary' },
@@ -122,7 +125,7 @@ export const ProfileWorkSnapshot: React.FC<ProfileWorkSnapshotProps> = ({ userId
       .then((results) => setAllTickets(results.flat()))
       .catch(() => setAllTickets([]))
       .finally(() => setLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, teamsKey]);
 
   // Filter to this user's active tickets, sorted by status priority order
@@ -171,9 +174,7 @@ export const ProfileWorkSnapshot: React.FC<ProfileWorkSnapshotProps> = ({ userId
           <span className="ml-auto text-xs text-neutral-400 dark:text-neutral-500">
             {activeTickets.length} active ticket{activeTickets.length !== 1 ? 's' : ''}
             {blockedCount > 0 && (
-              <span className="ml-2 font-semibold text-amber-500">
-                · {blockedCount} blocked
-              </span>
+              <span className="ml-2 font-semibold text-amber-500">· {blockedCount} blocked</span>
             )}
           </span>
         )}
@@ -185,7 +186,11 @@ export const ProfileWorkSnapshot: React.FC<ProfileWorkSnapshotProps> = ({ userId
         </div>
       ) : activeTickets.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-8 text-center">
-          <FontAwesomeIcon icon={faBoxOpen} className="text-2xl text-neutral-300 dark:text-neutral-600" aria-hidden />
+          <FontAwesomeIcon
+            icon={faBoxOpen}
+            className="text-2xl text-neutral-300 dark:text-neutral-600"
+            aria-hidden
+          />
           <Text variant="muted" size="sm">
             No active tickets assigned.
           </Text>

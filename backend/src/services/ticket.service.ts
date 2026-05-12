@@ -119,6 +119,9 @@ export class TicketService {
       $or: [{ members: userId }, { admins: userId }],
     });
     if (!team) return "forbidden";
+    // Only the ticket creator or a team admin may edit title/github/description.
+    const isAdmin = (team.admins ?? []).includes(userId);
+    if (ticket.createdBy !== userId && !isAdmin) return "forbidden";
     await ticketsCollection().updateOne(
       { _id: new ObjectId(id) },
       { $set: { ...updates, updatedAt: new Date(), updatedBy: userId } }
@@ -181,6 +184,9 @@ export class TicketService {
       $or: [{ members: userId }, { admins: userId }],
     });
     if (!team) return "forbidden";
+    // Only the ticket creator or a team admin may delete.
+    const isAdmin = (team.admins ?? []).includes(userId);
+    if (ticket.createdBy !== userId && !isAdmin) return "forbidden";
     await ticketsCollection().updateOne(
       { _id: new ObjectId(id) },
       { $set: { status: "deleted" as TicketStatus, updatedAt: new Date() } }
@@ -234,7 +240,7 @@ export class TicketService {
     return result.modifiedCount;
   }
 
-  // Assign ticket: allowed for the ticket creator or a team admin.
+  // Assign ticket: allowed for team admins only.
   async assign(
     id: string,
     requesterId: string,
@@ -245,7 +251,7 @@ export class TicketService {
     if (!isValidId(ticket.teamId)) return "forbidden";
     const team = await teamsCollection().findOne({
       _id: new ObjectId(ticket.teamId),
-      $or: [{ members: requesterId }, { admins: requesterId }],
+      admins: requesterId,
     });
     if (!team) return "forbidden";
     if (assignedToUserId !== null) {
