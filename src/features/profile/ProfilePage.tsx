@@ -212,24 +212,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
           <TabsContent value="work" className="flex flex-col gap-4">
             {/* 48 h work summary blurb */}
             {workSummary.length > 0 && (
-              <p className="text-sm italic text-neutral-500 dark:text-neutral-400">
-                Has been working on{' '}
-                {workSummary.map((t, i) => (
-                  <React.Fragment key={t.id}>
-                    {i > 0 && i < workSummary.length - 1 && ', '}
-                    {i > 0 &&
-                      i === workSummary.length - 1 &&
-                      (workSummary.length > 2 ? ', and ' : ' and ')}
-                    <a
-                      href="/app/tickets"
-                      className="font-bold underline underline-offset-2 hover:opacity-70"
-                    >
-                      {t.title}
-                    </a>
-                  </React.Fragment>
+              <div className="flex flex-wrap gap-2">
+                {workSummary.map((t) => (
+                  <a
+                    key={t.id}
+                    href="/app/tickets"
+                    className="rounded-md bg-neutral-100 px-2.5 py-1 text-sm font-medium text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                  >
+                    {t.title}
+                  </a>
                 ))}
-                .
-              </p>
+              </div>
             )}
 
             <ProfileWorkSnapshot
