@@ -64,9 +64,6 @@ export const ClockPage: React.FC = () => {
                   <FontAwesomeIcon icon={faCircleStop} className="text-2xl" />
                   <span className="text-sm font-semibold sm:hidden">Clock Out</span>
                 </button>
-                <Text variant="muted" size="xs" className="hidden sm:block">
-                  Tap to clock out
-                </Text>
               </>
             ) : (
               <>
@@ -80,9 +77,6 @@ export const ClockPage: React.FC = () => {
                   <FontAwesomeIcon icon={faStopwatch} className="text-2xl" />
                   <span className="text-sm font-semibold sm:hidden">Clock In</span>
                 </button>
-                <Text variant="muted" size="xs" className="hidden sm:block">
-                  Tap to clock in
-                </Text>
               </>
             )}
           </div>
