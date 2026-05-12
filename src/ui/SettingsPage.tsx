@@ -41,7 +41,7 @@ import {
 } from '../lib/nativePush';
 import { authApi, userApi, notificationApi } from '../lib/api';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
-import { PulseSetup } from '../features/tickets/PulseSetup';
+import { PulseSetup } from '../features/media/PulseSetup';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';

@@ -15,8 +15,8 @@ async function login(page: import('@playwright/test').Page) {
 async function ensureClockedOut(page: import('@playwright/test').Page) {
   await page.goto('/app/clock');
 
-  const clockInButton = page.getByRole('button', { name: 'Clock in' });
-  const clockOutButton = page.getByRole('button', { name: 'Clock out' });
+  const clockInButton = page.getByRole('button', { name: 'Clock in' }).first();
+  const clockOutButton = page.getByRole('button', { name: 'Clock out' }).first();
   await Promise.race([
     clockInButton.waitFor({ state: 'visible', timeout: 10000 }),
     clockOutButton.waitFor({ state: 'visible', timeout: 10000 }),
@@ -25,9 +25,18 @@ async function ensureClockedOut(page: import('@playwright/test').Page) {
   const isClockedIn = await clockOutButton.isVisible().catch(() => false);
   if (!isClockedIn) return;
 
-  await clockOutButton.click();
-  await expect(clockOutButton).toBeHidden({ timeout: 20000 });
-  await expect(clockInButton).toBeVisible({ timeout: 20000 });
+  // Clock state can lag briefly after the stop API call; verify the stable
+  // post-condition instead of requiring the old button to disappear.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await clockOutButton.click();
+    try {
+      await expect(clockInButton).toBeVisible({ timeout: 15000 });
+      return;
+    } catch {
+      if (attempt === 1) throw new Error('Failed to clock out before test setup.');
+      await page.reload();
+    }
+  }
 }
 
 async function ensureNoRunningTimer(page: import('@playwright/test').Page) {
