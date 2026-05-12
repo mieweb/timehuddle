@@ -39,7 +39,7 @@ import {
   subscribeToPush,
   unsubscribeFromPush,
 } from '../lib/nativePush';
-import { authApi, userApi, notificationApi } from '../lib/api';
+import { authApi, userApi, notificationApi, teamApi } from '../lib/api';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PulseSetup } from '../features/media/PulseSetup';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
@@ -289,28 +289,95 @@ const PushNotificationsSettings: React.FC = () => {
 // ─── Profile editor ───────────────────────────────────────────────────────────
 
 const ProfileEditor: React.FC = () => {
-  const { user } = useSession();
+  const { user, refetch } = useSession();
   const [name, setName] = useState(user?.name ?? '');
   const [bio, setBio] = useState('');
   const [website, setWebsite] = useState('');
+  const [reportsToUserId, setReportsToUserId] = useState('');
+  const [reportsToOptions, setReportsToOptions] = useState<Array<{ value: string; label: string }>>(
+    [{ value: '', label: 'No manager or lead set' }],
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Load current profile values
   useEffect(() => {
     if (!user?.id) return;
-    userApi.getUser(user.id).then((p) => {
+    let cancelled = false;
+
+    void userApi.getUser(user.id).then((p) => {
+      if (cancelled) return;
       setName(p.name ?? '');
       setBio(p.bio ?? '');
       setWebsite(p.website ?? '');
+      setReportsToUserId(p.reportsTo?.id ?? '');
     });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const teams = await teamApi.getTeams();
+        const nonPersonalTeams = teams.filter((team) => !team.isPersonal);
+
+        if (nonPersonalTeams.length === 0) {
+          if (!cancelled) {
+            setReportsToOptions([{ value: '', label: 'No manager or lead set' }]);
+          }
+          return;
+        }
+
+        const memberLists = await Promise.all(
+          nonPersonalTeams.map((team) => teamApi.getMembers(team.id)),
+        );
+        const teammateOptions = new Map<string, { value: string; label: string }>();
+
+        memberLists.flat().forEach((member) => {
+          if (member.id === user.id) return;
+          teammateOptions.set(member.id, {
+            value: member.id,
+            label: member.name || member.email || member.username || member.id,
+          });
+        });
+
+        if (cancelled) return;
+
+        setReportsToOptions([
+          { value: '', label: 'No manager or lead set' },
+          ...Array.from(teammateOptions.values()).sort((left, right) =>
+            left.label.localeCompare(right.label),
+          ),
+        ]);
+      } catch {
+        if (!cancelled) {
+          setReportsToOptions([{ value: '', label: 'No manager or lead set' }]);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id]);
 
   const handleSave = async () => {
     setBusy(true);
     setMessage(null);
     try {
-      await userApi.updateProfile({ name, bio, website });
+      await userApi.updateProfile({
+        name,
+        bio,
+        website,
+        reportsToUserId: reportsToUserId || null,
+      });
+      await refetch();
       setMessage({ ok: true, text: 'Profile saved.' });
     } catch (err: unknown) {
       setMessage({ ok: false, text: err instanceof Error ? err.message : 'Save failed.' });
@@ -399,6 +466,23 @@ const ProfileEditor: React.FC = () => {
           error={websiteError}
         />
       </div>
+      <div>
+        <Text size="xs" weight="medium" className="mb-1 block">
+          Reports To
+        </Text>
+        <Select
+          label="Reports To"
+          hideLabel
+          size="sm"
+          value={reportsToUserId}
+          options={reportsToOptions}
+          onValueChange={setReportsToUserId}
+          aria-label="Select who you report to"
+        />
+        <Text variant="muted" size="xs" className="mt-1">
+          Choose the teammate who manages or leads your work.
+        </Text>
+      </div>
       {message && (
         <Text size="xs" variant={message.ok ? 'success' : 'destructive'}>
           {message.text}
@@ -442,7 +526,11 @@ export const SettingsPage: React.FC = () => {
   return (
     <AppPage>
       {/* Profile */}
-      <Section icon={faUser} title="Profile" description="Your display name, bio, and website.">
+      <Section
+        icon={faUser}
+        title="Profile"
+        description="Your display name, bio, website, and reporting line."
+      >
         <ProfileEditor />
       </Section>
 

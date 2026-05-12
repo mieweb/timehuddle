@@ -46,6 +46,8 @@ export interface PublicUser {
   image: string | null;
   bio: string;
   website: string;
+  reportsTo: { id: string; name: string; username: string | null } | null;
+  teamMemberships: Array<{ id: string; name: string; role: 'admin' | 'member' }>;
   /** Teams shared between the viewer and this user (non-personal). Empty for own profile. */
   sharedTeams?: Array<{ id: string; name: string; isAdmin: boolean }>;
 }
@@ -269,7 +271,13 @@ export const userApi = {
     ),
 
   /** Update the current user's profile fields. */
-  updateProfile: (data: { name?: string; image?: string | null; bio?: string; website?: string }) =>
+  updateProfile: (data: {
+    name?: string;
+    image?: string | null;
+    bio?: string;
+    website?: string;
+    reportsToUserId?: string | null;
+  }) =>
     request<{ user: PublicUser }>('/v1/me/profile', {
       method: 'PUT',
       body: JSON.stringify(data),

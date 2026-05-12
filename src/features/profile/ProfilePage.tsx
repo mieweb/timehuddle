@@ -7,7 +7,7 @@
  * • Owner sees a link to /app/settings to edit their profile.
  * • All editing is handled in SettingsPage — no inline edit form here.
  */
-import { faCrown, faGear, faGlobe, faUsers } from '@fortawesome/free-solid-svg-icons';
+import { faCrown, faGear, faGlobe, faUser, faUsers } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Avatar, Badge, Button, Card, Spinner, Text } from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
@@ -154,6 +154,63 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
           </Button>
         )}
       </Card>
+
+      {profile && (
+        <Card padding="lg">
+          <div className="mb-4 flex items-center gap-2">
+            <FontAwesomeIcon icon={faUser} className="text-neutral-500" aria-hidden="true" />
+            <Text size="sm" weight="semibold">
+              Working Context
+            </Text>
+          </div>
+
+          <div className="grid gap-5 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+            <div>
+              <Text variant="muted" size="xs" className="mb-1 block uppercase tracking-wide">
+                Reports To
+              </Text>
+              {profile.reportsTo ? (
+                <>
+                  <Text size="sm" weight="medium">
+                    {profile.reportsTo.name}
+                  </Text>
+                  {profile.reportsTo.username && (
+                    <Text variant="muted" size="xs" className="mt-0.5">
+                      @{profile.reportsTo.username}
+                    </Text>
+                  )}
+                </>
+              ) : (
+                <Text variant="muted" size="sm">
+                  Not set
+                </Text>
+              )}
+            </div>
+
+            <div>
+              <Text variant="muted" size="xs" className="mb-2 block uppercase tracking-wide">
+                Team Memberships
+              </Text>
+              {profile.teamMemberships.length > 0 ? (
+                <ul className="space-y-2">
+                  {profile.teamMemberships.map((team) => (
+                    <li key={team.id} className="flex items-center gap-2">
+                      <Text size="sm">{team.name}</Text>
+                      <Badge variant={team.role === 'admin' ? 'warning' : 'secondary'} size="sm">
+                        {team.role === 'admin' ? 'Admin' : 'Member'}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <Text variant="muted" size="sm">
+                  No team memberships yet.
+                </Text>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Shared teams — shown when viewing a teammate's profile */}
       {!isOwn && profile?.sharedTeams && profile.sharedTeams.length > 0 && (
