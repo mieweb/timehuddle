@@ -26,6 +26,7 @@ async function ensureClockedOut(page: import('@playwright/test').Page) {
   if (!isClockedIn) return;
 
   await clockOutButton.click();
+  await expect(clockOutButton).toBeHidden({ timeout: 20000 });
   await expect(clockInButton).toBeVisible({ timeout: 20000 });
 }
 
