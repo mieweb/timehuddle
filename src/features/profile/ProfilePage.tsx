@@ -97,28 +97,34 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
       {/* <ProfileNotices notices={[{ type: 'coming-soon' }]} /> */}
 
       {/* Profile header card */}
-      <Card padding="lg" className="flex items-start gap-5">
-        <Avatar name={nameText} size="xl" />
+      <Card padding="lg" className="grid gap-6 md:grid-cols-[120px_1fr_auto] items-start">
+        <div className="flex items-start">
+          <div className="rounded-xl bg-neutral-100 dark:bg-neutral-800 p-2">
+            <Avatar name={nameText} size="xl" />
+          </div>
+        </div>
 
-        <div className="min-w-0 flex-1">
-          <Text as="h1" size="xl" weight="bold">
-            {nameText}
-          </Text>
-
-          {profile?.username && (
-            <Text variant="muted" size="sm" className="mt-0.5">
-              @{profile.username}
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <Text as="h1" size="xl" weight="bold" className="truncate">
+              {nameText}
             </Text>
-          )}
+
+            {profile?.username && (
+              <Text variant="muted" size="xs" className="truncate">
+                @{profile.username}
+              </Text>
+            )}
+          </div>
 
           {isOwn && sessionUser?.email && (
-            <Text variant="muted" size="sm" className="mt-0.5">
+            <Text variant="muted" size="sm" className="mt-1 truncate">
               {sessionUser.email}
             </Text>
           )}
 
           {profile?.bio && (
-            <Text size="sm" className="mt-2">
+            <Text size="sm" className="mt-3 max-w-prose">
               {profile.bio}
             </Text>
           )}
@@ -128,7 +134,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
               href={profile.website}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-blue-600 hover:underline dark:text-blue-400"
+              className="mt-3 inline-flex items-center gap-2 text-sm text-blue-600 hover:underline dark:text-blue-400"
             >
               <FontAwesomeIcon icon={faGlobe} className="shrink-0" />
               {profile.website.replace(/^https?:\/\//, '')}
@@ -136,23 +142,25 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
           )}
 
           {isOwn && !profile?.name && !profile?.bio && (
-            <Text variant="muted" size="xs" className="mt-2">
+            <Text variant="muted" size="xs" className="mt-3">
               Your profile is empty. Go to Settings to add a display name and bio.
             </Text>
           )}
         </div>
 
-        {isOwn && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate('/app/settings')}
-            aria-label="Edit profile in Settings"
-            leftIcon={<FontAwesomeIcon icon={faGear} className="text-xs" />}
-          >
-            Edit
-          </Button>
-        )}
+        <div className="flex items-start md:items-start">
+          {isOwn && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate('/app/settings')}
+              aria-label="Edit profile in Settings"
+              leftIcon={<FontAwesomeIcon icon={faGear} className="text-xs" />}
+            >
+              Edit
+            </Button>
+          )}
+        </div>
       </Card>
 
       {profile && (

@@ -112,7 +112,8 @@ function splitIntoSegments(session: ClockEvent): DaySegment[] {
 
 export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
   const teamName = teams.find((t) => t.id === session.teamId)?.name ?? session.teamId;
-  const segments = splitIntoSegments(session);
+  // clock-in day at bottom) — matching the descending sort of the session list.
+  const segments = splitIntoSegments(session).reverse();
 
   return (
     <>
