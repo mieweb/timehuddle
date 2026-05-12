@@ -1,25 +1,15 @@
 /**
  * ClockPage — Clock in/out with live session timer.
- *
- * Features:
- *   • Big clock in/out button with live session timer
- *   • Team selector
- *   • Media attachments (links) on clock entries
- *   • Create new tickets from here
- *
  */
-import { faCircleStop, faPlus, faStopwatch, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faCircleStop, faStopwatch } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Spinner, Text } from '@mieweb/ui';
-import React, { useCallback, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, Spinner, Text } from '@mieweb/ui';
+import React from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
 import { formatTimer } from '../../lib/timeUtils';
-import { ticketApi } from '../../lib/api';
 import { AppPage } from '../../ui/AppPage';
 import { useClockToggle } from '../../lib/useClockToggle';
-import { useSession } from '../../lib/useSession';
-import { AttachmentsPanel } from './AttachmentsPanel';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
@@ -27,14 +17,6 @@ export const ClockPage: React.FC = () => {
   const { selectedTeamId, activeClockEvent, currentTime, teamsReady } = useTeam();
 
   const { clockIn, clockOut, clockInLoading, clockOutLoading } = useClockToggle();
-  const { user } = useSession();
-
-  // Loading states
-  const [createTicketLoading, setCreateTicketLoading] = useState(false);
-
-  // UI state
-  const [showNewTicket, setShowNewTicket] = useState(false);
-  const [newTicketTitle, setNewTicketTitle] = useState('');
 
   // Session duration
   const sessionSeconds = activeClockEvent
@@ -53,19 +35,7 @@ export const ClockPage: React.FC = () => {
     day: 'numeric',
   });
 
-  // ── Handlers ──
-
-  const handleCreateTicket = useCallback(async () => {
-    if (!newTicketTitle.trim() || !selectedTeamId) return;
-    setCreateTicketLoading(true);
-    try {
-      await ticketApi.createTicket({ teamId: selectedTeamId, title: newTicketTitle.trim() });
-      setNewTicketTitle('');
-      setShowNewTicket(false);
-    } finally {
-      setCreateTicketLoading(false);
-    }
-  }, [newTicketTitle, selectedTeamId]);
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   if (!teamsReady) {
     return (
@@ -78,7 +48,7 @@ export const ClockPage: React.FC = () => {
   return (
     <AppPage>
       {/* ── Clock Button ── */}
-      <Card padding="lg" className="rounded-2xl">
+      <Card padding="lg" className="relative rounded-2xl">
         <CardContent className="flex flex-col-reverse items-center gap-4 sm:flex-row sm:items-center">
           {/* Clock button — full width on mobile, 1/4 on sm+ */}
           <div className="flex w-full flex-col items-center gap-2 sm:w-1/4">
@@ -126,16 +96,29 @@ export const ClockPage: React.FC = () => {
               {currentDateDisplay}
             </Text>
             {activeClockEvent ? (
-              <Text variant="success" size="xs" weight="medium" className="mt-1 uppercase tracking-widest">
+              <Text
+                variant="success"
+                size="xs"
+                weight="medium"
+                className="mt-1 uppercase tracking-widest"
+              >
                 Session active — {formatTimer(sessionSeconds)}
               </Text>
             ) : (
-              <Text variant="muted" size="xs" weight="medium" className="mt-1 uppercase tracking-widest">
+              <Text
+                variant="muted"
+                size="xs"
+                weight="medium"
+                className="mt-1 uppercase tracking-widest"
+              >
                 Ready to work
               </Text>
             )}
           </div>
         </CardContent>
+        <span className="block px-5 pb-3 font-mono text-xs text-neutral-400 text-center dark:text-neutral-500 sm:absolute sm:bottom-3 sm:right-4 sm:px-0 sm:pb-0 sm:text-right">
+          {timeZone}
+        </span>
       </Card>
 
       {/* ── Quick Ticket Creation ── */}
@@ -143,66 +126,20 @@ export const ClockPage: React.FC = () => {
         <Card padding="none">
           <CardHeader className="flex flex-row items-center justify-between px-5 py-3">
             <CardTitle className="text-sm">Quick Actions</CardTitle>
-            <Button variant="link" size="sm" onClick={() => setShowNewTicket(true)}>
-              <FontAwesomeIcon icon={faPlus} className="mr-1" />
-              New Ticket
-            </Button>
           </CardHeader>
-
-          {/* New ticket form */}
-          {showNewTicket && (
-            <div className="flex gap-2 border-b border-neutral-100 px-5 py-3 dark:border-neutral-800">
-              <Input
-                label="Ticket title"
-                hideLabel
-                placeholder="Ticket title"
-                value={newTicketTitle}
-                onChange={(e) => setNewTicketTitle(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateTicket()}
-                size="sm"
-                className="flex-1"
-                autoFocus
-              />
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleCreateTicket}
-                isLoading={createTicketLoading}
-              >
-                Add
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  setShowNewTicket(false);
-                  setNewTicketTitle('');
-                }}
-                aria-label="Cancel"
-              >
-                <FontAwesomeIcon icon={faXmark} />
-              </Button>
-            </div>
-          )}
-
-          {!showNewTicket && (
-            <div className="px-5 py-4 text-center">
-              <Text variant="muted" size="xs">
-                Track time on tickets in the{' '}
-                <a href="/app/work" className="text-blue-500 hover:underline">
-                  Timers
-                </a>{' '}
-                page.
-              </Text>
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* ── Attachments for the active clock entry ── */}
-      {activeClockEvent && (
-        <Card padding="md">
-          <AttachmentsPanel kind="clock" entityId={activeClockEvent.id} currentUserId={user?.id} />
+          <CardContent className="px-5 py-4">
+            <Text variant="muted" size="sm">
+              Coming soon… In the meantime, track your time on the{' '}
+              <a href="/app/work" className="text-blue-500 hover:underline">
+                Work
+              </a>{' '}
+              page or manage your{' '}
+              <a href="/app/tickets" className="text-blue-500 hover:underline">
+                Tickets
+              </a>
+              .
+            </Text>
+          </CardContent>
         </Card>
       )}
     </AppPage>

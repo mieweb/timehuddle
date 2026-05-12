@@ -13,30 +13,15 @@ async function login(page: import('@playwright/test').Page) {
 }
 
 async function ensureClockedOut(page: import('@playwright/test').Page) {
-  await page.goto('/app/clock');
+  // page.request shares the browser's cookie jar. The backend is at port 4000;
+  // localhost cookies are shared across ports so the auth session is included.
+  const activeRes = await page.request.get('http://localhost:4000/v1/clock/active');
+  const { event } = (await activeRes.json()) as { event: { teamId: string } | null };
+  if (!event) return;
 
-  const clockInButton = page.getByRole('button', { name: 'Clock in' }).first();
-  const clockOutButton = page.getByRole('button', { name: 'Clock out' }).first();
-  await Promise.race([
-    clockInButton.waitFor({ state: 'visible', timeout: 10000 }),
-    clockOutButton.waitFor({ state: 'visible', timeout: 10000 }),
-  ]);
-
-  const isClockedIn = await clockOutButton.isVisible().catch(() => false);
-  if (!isClockedIn) return;
-
-  // Clock state can lag briefly after the stop API call; verify the stable
-  // post-condition instead of requiring the old button to disappear.
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await clockOutButton.click();
-    try {
-      await expect(clockInButton).toBeVisible({ timeout: 15000 });
-      return;
-    } catch {
-      if (attempt === 1) throw new Error('Failed to clock out before test setup.');
-      await page.reload();
-    }
-  }
+  await page.request.post('http://localhost:4000/v1/clock/stop', {
+    data: { teamId: event.teamId },
+  });
 }
 
 async function ensureNoRunningTimer(page: import('@playwright/test').Page) {
