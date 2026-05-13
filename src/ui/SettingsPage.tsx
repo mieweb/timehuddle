@@ -14,7 +14,6 @@ import {
   faRotateLeft,
   faRightFromBracket,
   faUser,
-  faVideo,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -41,7 +40,6 @@ import {
 } from '../lib/nativePush';
 import { authApi, userApi, notificationApi } from '../lib/api';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
-import { PulseSetup } from '../features/tickets/PulseSetup';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
@@ -500,15 +498,6 @@ export const SettingsPage: React.FC = () => {
             Sign out
           </Button>
         </Row>
-      </Section>
-
-      {/* Pulse Cam */}
-      <Section
-        icon={faVideo}
-        title="Pulse Cam"
-        description="Connect the Pulse Cam app to upload videos directly to tickets."
-      >
-        <PulseSetup />
       </Section>
 
       {/* About */}
