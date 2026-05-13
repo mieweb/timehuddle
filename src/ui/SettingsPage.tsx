@@ -57,18 +57,18 @@ const Section: React.FC<{
   children: React.ReactNode;
 }> = ({ icon, title, description, children }) => (
   <Card padding="none">
-    <CardHeader className="flex items-start gap-3 px-5 py-4">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-        <FontAwesomeIcon icon={icon} className="text-sm" />
-      </div>
-      <div>
+    <CardHeader className="flex flex-col gap-0 px-5 py-4">
+      <div className="flex flex-row items-center gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+          <FontAwesomeIcon icon={icon} className="text-sm" />
+        </div>
         <CardTitle className="text-sm">{title}</CardTitle>
-        {description && (
-          <Text variant="muted" size="xs" className="mt-0.5">
-            {description}
-          </Text>
-        )}
       </div>
+      {description && (
+        <Text variant="muted" size="xs" className="pl-11">
+          {description}
+        </Text>
+      )}
     </CardHeader>
     <CardContent className="divide-y divide-neutral-100 p-0 dark:divide-neutral-800">
       {children}
