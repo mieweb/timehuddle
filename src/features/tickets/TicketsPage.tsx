@@ -632,7 +632,7 @@ export const TicketsPage: React.FC = () => {
   }
 
   return (
-    <AppPage>
+    <AppPage fullWidth>
       {/* ── Header: New Ticket + Search ── */}
       <div className="flex flex-wrap items-center gap-3">
         <Button
