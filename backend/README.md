@@ -7,7 +7,7 @@ Backend monorepo for [TimeHuddle](../README.md) — a Fastify API server with a 
 | Layer     | Technology                                   |
 | --------- | -------------------------------------------- |
 | Framework | Fastify v5                                   |
-| Database  | MongoDB (native driver, no Mongoose)         |
+| Database  | MongoDB (native driver + Mongoose pilot)     |
 | Auth      | Better Auth with MongoDB adapter             |
 | Real-time | Server-Sent Events (SSE) for live streams    |
 | API docs  | @fastify/swagger (auto-generated at `/docs`) |
@@ -65,3 +65,9 @@ Create a new migration with auto-generated timestamp:
 ```bash
 npx migrate-mongo create -f migrate-mongo-config.cjs "add-users-index"
 ```
+
+## Mongoose Pilot
+
+- Phase-in approach: adopt Mongoose one collection at a time.
+- Current pilot target: `clockevents` read paths.
+- Core route -> controller -> service boundaries remain unchanged.
