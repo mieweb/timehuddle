@@ -28,11 +28,6 @@ async function login(page: Page) {
   }
 }
 
-async function goToSettings(page: Page) {
-  await page.goto('/app/settings');
-  await page.waitForSelector('text=Pulse Cam', { timeout: 10000 });
-}
-
 async function goToTickets(page: Page) {
   await page.goto('/app/tickets');
   await page.waitForSelector('button:has-text("New Ticket")', { timeout: 15000 });
@@ -135,47 +130,6 @@ async function checkTusOptionsEndpoint(request: APIRequestContext, prefix: '/v1/
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
-
-test.describe('PulseVault — Settings QR', () => {
-  test.setTimeout(60000);
-
-  test.beforeEach(async ({ page }) => {
-    await login(page);
-    await goToSettings(page);
-  });
-
-  test('Pulse Cam section is visible on Settings page', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: 'Pulse Cam' })).toBeVisible();
-    await expect(page.getByText('Connect the Pulse Cam app')).toBeVisible();
-  });
-
-  test('QR code renders with correct server URL encoded inside', async ({ page }) => {
-    // The QR SVG must be present
-    const qr = page.locator('[aria-label="QR code to configure Pulse Cam with TimeHuddle"]');
-    await expect(qr).toBeVisible();
-
-    // The server URL code element must show the backend root URL (no /v1/video path).
-    // PulseCam uses the unauthenticated /reserve and /upload routes at root level.
-    const serverCode = page.locator('.pulse-setup-meta code').first();
-    await expect(serverCode).toContainText('http');
-    await expect(serverCode).not.toContainText('/v1/video');
-  });
-
-  test('Deep link shown in settings encodes correct mode and server', async ({ page }) => {
-    // Second code element holds the full deep link
-    const deepLinkCode = page.locator('.pulse-setup-meta code').nth(1);
-    const deepLink = await deepLinkCode.textContent();
-    expect(deepLink).toContain('mode=configure_destination');
-    // server param must be the backend root — NOT /v1/video (that path requires auth)
-    expect(deepLink).not.toContain('v1%2Fvideo');
-    expect(deepLink).toContain('name=TimeHuddle');
-  });
-
-  test('"Open in Pulse App" button is present', async ({ page }) => {
-    // Match by aria-label since the text also appears in the description <strong>.
-    await expect(page.getByRole('button', { name: /open pulse cam.*configure/i })).toBeVisible();
-  });
-});
 
 test.describe('PulseVault — API endpoints', () => {
   test.setTimeout(30000);

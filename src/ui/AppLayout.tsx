@@ -25,7 +25,6 @@ import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
-import { PulsePage } from '../features/tickets/PulsePage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
 import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
@@ -54,7 +53,6 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/clock': { title: 'Clock In/Out', component: ClockPage },
   '/app/tickets': { title: 'Tickets', component: TicketsPage },
-  '/app/pulse': { title: 'Pulse', component: PulsePage },
   '/app/work': { title: 'Work', component: WorkPage },
   '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
   '/app/teams': { title: 'Teams', component: TeamsPage },
