@@ -489,7 +489,7 @@ export const WorkPage: React.FC = () => {
   }
 
   return (
-    <AppPage>
+    <AppPage fullWidth>
       {/* ── Page Header: week nav + today + week range ── */}
       <div className="flex items-center justify-between gap-3">
         <Text weight="semibold" className="truncate">

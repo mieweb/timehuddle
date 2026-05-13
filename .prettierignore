@@ -4,3 +4,6 @@ node_modules
 coverage
 ios
 android
+
+backend/data/videos
+backend/data/videos/**
