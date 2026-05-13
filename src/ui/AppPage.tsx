@@ -25,12 +25,7 @@ interface AppPageProps {
   className?: string;
 }
 
-export const AppPage: React.FC<AppPageProps> = ({
-  subtitle,
-  children,
-  className,
-  fullWidth,
-}) => (
+export const AppPage: React.FC<AppPageProps> = ({ subtitle, children, className, fullWidth }) => (
   <div
     className={`w-full space-y-6 p-4 md:p-6${
       fullWidth ? '' : ' md:mx-auto md:max-w-4xl'
