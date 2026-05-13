@@ -385,6 +385,7 @@ describe("GET /v1/clock/timesheet", () => {
 
     const db = client.db();
     const twoMinutesAgo = Date.now() - 120_000;
+    const eventDate = new Date(twoMinutesAgo);
     await db
       .collection("clockevents")
       .updateOne(
@@ -392,8 +393,9 @@ describe("GET /v1/clock/timesheet", () => {
         { $set: { startTime: twoMinutesAgo, accumulatedTime: 30 } }
       );
 
-    const startMs = new Date(new Date().setHours(0, 0, 0, 0)).getTime();
-    const endMs = new Date(new Date().setHours(23, 59, 59, 999)).getTime();
+    // Anchor the query window to the adjusted startTime day to avoid midnight flakiness in CI.
+    const startMs = new Date(eventDate).setHours(0, 0, 0, 0);
+    const endMs = new Date(eventDate).setHours(23, 59, 59, 999);
     const res = await inject(
       "GET",
       `/v1/clock/timesheet?userId=${workerId}&startMs=${startMs}&endMs=${endMs}`,
@@ -404,6 +406,38 @@ describe("GET /v1/clock/timesheet", () => {
     expect(res.json().summary.totalSeconds).toBeGreaterThanOrEqual(150);
 
     await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
+  });
+
+  it("includes a completed session that spans a midnight boundary", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const crossMidnightEventId = startRes.json().event.id as string;
+
+    const db = client.db();
+    const todayStart = new Date().setHours(0, 0, 0, 0);
+    const yesterdayMidnight = todayStart - 24 * 60 * 60 * 1000;
+    const startTime = yesterdayMidnight - 2 * 60 * 1000;
+    const endTime = yesterdayMidnight + 3 * 60 * 1000;
+
+    await db
+      .collection("clockevents")
+      .updateOne(
+        { _id: new ObjectId(crossMidnightEventId) },
+        { $set: { startTime, endTime, accumulatedTime: 0 } }
+      );
+
+    const startMs = yesterdayMidnight - 60 * 60 * 1000;
+    const endMs = yesterdayMidnight + 60 * 60 * 1000;
+    const res = await inject(
+      "GET",
+      `/v1/clock/timesheet?userId=${workerId}&startMs=${startMs}&endMs=${endMs}`,
+      workerCookie
+    );
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.summary.totalSeconds).toBeGreaterThanOrEqual(300);
+    expect(body.sessions.some((s: { id: string }) => s.id === crossMidnightEventId)).toBe(true);
   });
 
   it("admin can view worker timesheet (shared team) — 200", async () => {

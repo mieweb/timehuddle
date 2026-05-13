@@ -31,6 +31,7 @@ let bobId: string;
 let _carolId: string;
 let sharedTeamId: string;
 let aliceUsername: string;
+let bobUsername: string;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -96,11 +97,10 @@ beforeAll(async () => {
     .collection("user")
     .updateOne({ _id: new ObjectId(aliceId) }, { $set: { username: aliceUsername } });
 
-  // Give Alice a username so /by/username tests can look her up
-  aliceUsername = "users-alice-test";
+  bobUsername = "users-bob-test";
   await db
     .collection("user")
-    .updateOne({ _id: new ObjectId(aliceId) }, { $set: { username: aliceUsername } });
+    .updateOne({ _id: new ObjectId(bobId) }, { $set: { username: bobUsername } });
 }, 20000);
 
 afterAll(async () => {
@@ -189,6 +189,29 @@ describe("PUT /v1/me/profile", () => {
     expect(user.website).toBe("https://example.com");
   });
 
+  it("updates reports-to for a teammate — 200", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/v1/me/profile",
+      headers: { cookie: aliceCookie },
+      payload: { reportsToUserId: bobId },
+    });
+    expect(res.statusCode).toBe(200);
+    const { user } = res.json();
+    expect(user.reportsTo).toEqual({ id: bobId, name: BOB.name, username: bobUsername });
+  });
+
+  it("rejects reports-to for a non-teammate — 400", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/v1/me/profile",
+      headers: { cookie: aliceCookie },
+      payload: { reportsToUserId: _carolId },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("reports-to-not-teammate");
+  });
+
   it("rejects invalid website format — 400", async () => {
     const res = await app.inject({
       method: "PUT",
@@ -265,6 +288,10 @@ describe("GET /v1/users/by/username/:username", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().user.sharedTeams).toEqual([]);
+    expect(res.json().user.teamMemberships).toEqual([
+      { id: sharedTeamId, name: "Users Test Team", role: "admin" },
+    ]);
+    expect(res.json().user.reportsTo).toEqual({ id: bobId, name: BOB.name, username: bobUsername });
   });
 });
 
@@ -337,6 +364,9 @@ describe("GET /v1/users/:id", () => {
     expect(team.name).toBe("Users Test Team");
     // Bob is not an admin of the team
     expect(team.isAdmin).toBe(false);
+    expect(user.teamMemberships).toEqual([
+      { id: sharedTeamId, name: "Users Test Team", role: "member" },
+    ]);
   });
 
   it("non-teammate can view profile — 200", async () => {
