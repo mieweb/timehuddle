@@ -10,11 +10,13 @@ import { useTeam } from '../../lib/TeamContext';
 import { formatTimer } from '../../lib/timeUtils';
 import { AppPage } from '../../ui/AppPage';
 import { useClockToggle } from '../../lib/useClockToggle';
+import { useRouter } from '../../ui/router';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
 export const ClockPage: React.FC = () => {
   const { selectedTeamId, activeClockEvent, currentTime, teamsReady } = useTeam();
+  const { navigate } = useRouter();
 
   const { clockIn, clockOut, clockInLoading, clockOutLoading } = useClockToggle();
 
@@ -124,13 +126,21 @@ export const ClockPage: React.FC = () => {
           <CardContent className="px-5 py-4">
             <Text variant="muted" size="sm">
               Coming soon… In the meantime, track your time on the{' '}
-              <a href="/app/work" className="text-blue-500 hover:underline">
+              <button
+                type="button"
+                onClick={() => navigate('/app/work')}
+                className="text-blue-500 hover:underline"
+              >
                 Work
-              </a>{' '}
+              </button>{' '}
               page or manage your{' '}
-              <a href="/app/tickets" className="text-blue-500 hover:underline">
+              <button
+                type="button"
+                onClick={() => navigate('/app/tickets')}
+                className="text-blue-500 hover:underline"
+              >
                 Tickets
-              </a>
+              </button>
               .
             </Text>
           </CardContent>
