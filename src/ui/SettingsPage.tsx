@@ -10,6 +10,7 @@ import {
   faBell,
   faGear,
   faInfo,
+  faKey,
   faPalette,
   faRotateLeft,
   faRightFromBracket,
@@ -38,7 +39,7 @@ import {
   subscribeToPush,
   unsubscribeFromPush,
 } from '../lib/nativePush';
-import { authApi, userApi, notificationApi, teamApi } from '../lib/api';
+import { authApi, userApi, notificationApi, teamApi, tokenApi, type PersonalAccessToken } from '../lib/api';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useBrand, BRANDS } from '../lib/useBrand';
@@ -502,6 +503,140 @@ const ProfileEditor: React.FC = () => {
 
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
+// ─── API Tokens Manager ───────────────────────────────────────────────────────
+
+const ApiTokensManager: React.FC = () => {
+  const [tokens, setTokens] = useState<PersonalAccessToken[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newTokenName, setNewTokenName] = useState('');
+  const [createdToken, setCreatedToken] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const list = await tokenApi.list();
+      setTokens(list);
+    } catch {
+      // silently ignore — tokens section just shows empty
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const handleCreate = async () => {
+    const name = newTokenName.trim();
+    if (!name) return;
+    setCreating(true);
+    setError(null);
+    setCreatedToken(null);
+    try {
+      const result = await tokenApi.create(name);
+      setCreatedToken(result.token);
+      setNewTokenName('');
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create token');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleRevoke = async (id: string) => {
+    try {
+      await tokenApi.revoke(id);
+      setTokens((prev) => prev.filter((t) => t._id !== id));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke token');
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!createdToken) return;
+    await navigator.clipboard.writeText(createdToken);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+      {/* Create new token */}
+      <div className="flex flex-col gap-3 px-5 py-4">
+        <Text size="xs" weight="medium">Generate new token</Text>
+        <div className="flex gap-2">
+          <Input
+            placeholder="Token name (e.g. TimeHarbor)"
+            value={newTokenName}
+            onChange={(e) => setNewTokenName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate(); }}
+            className="flex-1"
+          />
+          <Button
+            size="sm"
+            onClick={() => void handleCreate()}
+            disabled={!newTokenName.trim() || creating}
+            isLoading={creating}
+            loadingText="Creating…"
+          >
+            Generate
+          </Button>
+        </div>
+        {error && <Text size="xs" className="text-red-500">{error}</Text>}
+      </div>
+
+      {/* One-time token reveal */}
+      {createdToken && (
+        <div className="flex flex-col gap-2 bg-amber-50 px-5 py-4 dark:bg-amber-950/30">
+          <Text size="xs" weight="medium" className="text-amber-700 dark:text-amber-400">
+            Save this token now — it won't be shown again.
+          </Text>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 break-all rounded bg-neutral-100 px-2 py-1 font-mono text-xs dark:bg-neutral-800">
+              {createdToken}
+            </code>
+            <Button size="sm" variant="outline" onClick={() => void handleCopy()}>
+              {copied ? 'Copied!' : 'Copy'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Token list */}
+      {loading ? (
+        <div className="px-5 py-3">
+          <Text variant="muted" size="xs">Loading…</Text>
+        </div>
+      ) : tokens.length === 0 ? (
+        <div className="px-5 py-3">
+          <Text variant="muted" size="xs">No tokens yet.</Text>
+        </div>
+      ) : (
+        tokens.map((t) => (
+          <div key={t._id} className="flex items-center justify-between px-5 py-3">
+            <div className="flex flex-col gap-0.5">
+              <Text size="xs" weight="medium">{t.name}</Text>
+              <Text variant="muted" size="xs">
+                Created {new Date(t.createdAt).toLocaleDateString()}
+                {t.lastUsedAt ? ` · Last used ${new Date(t.lastUsedAt).toLocaleDateString()}` : ' · Never used'}
+              </Text>
+            </div>
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={() => void handleRevoke(t._id)}
+            >
+              Revoke
+            </Button>
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
+
 export const SettingsPage: React.FC = () => {
   const { user, signOut } = useSession();
   const [resetBusy, setResetBusy] = useState(false);
@@ -551,6 +686,15 @@ export const SettingsPage: React.FC = () => {
         description="Browser alerts for team clock in/out (same as Time Harbor)."
       >
         <PushNotificationsSettings />
+      </Section>
+
+      {/* API Tokens */}
+      <Section
+        icon={faKey}
+        title="API Tokens"
+        description="Generate tokens to connect external services like TimeHarbor."
+      >
+        <ApiTokensManager />
       </Section>
 
       {/* Account */}

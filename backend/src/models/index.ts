@@ -16,6 +16,7 @@ import type { Timer } from "./timer.model.js";
 import type { ActivityEvent } from "./activity.model.js";
 import type { Channel } from "./channel.model.js";
 import type { ChannelMessage } from "./channel-message.model.js";
+import type { PersonalAccessToken } from "./personal-access-token.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
 export function usersCollection() {
@@ -100,4 +101,9 @@ export function channelsCollection() {
 // Channel messages
 export function channelMessagesCollection() {
   return getDB().collection<ChannelMessage>("channelmessages");
+}
+
+// Personal access tokens
+export function personalAccessTokensCollection() {
+  return getDB().collection<PersonalAccessToken>("personal_access_tokens");
 }
