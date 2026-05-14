@@ -971,3 +971,29 @@ export const channelApi = {
       return url.toString();
     }),
 };
+
+// ─── Personal Access Tokens ───────────────────────────────────────────────────
+
+export interface PersonalAccessToken {
+  _id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string | null;
+}
+
+export const tokenApi = {
+  list: (): Promise<PersonalAccessToken[]> =>
+    request<{ tokens: PersonalAccessToken[] }>('/v1/me/tokens').then((r) => r.tokens),
+
+  create: (name: string): Promise<{ token: string; name: string }> =>
+    request<{ token: string; name: string }>('/v1/me/tokens', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
+
+  revoke: (id: string): Promise<void> =>
+    request<{ success: boolean }>(`/v1/me/tokens/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }).then(() => undefined),
+};
