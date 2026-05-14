@@ -19,6 +19,15 @@ export interface TicketCreatedPayload {
   teamId: string;
 }
 
+export interface PATCreatedPayload {
+  tokenId: string;
+  name: string;
+}
+
+export interface PATRevokedPayload {
+  tokenId: string;
+}
+
 export interface TicketUpdatedPayload {
   ticketId: string;
   ticketTitle: string;
@@ -45,6 +54,8 @@ export const ActivityType = {
   ClockOut: "clock.out",
   TicketCreated: "ticket.created",
   TicketUpdated: "ticket.updated",
+  PATCreated: "pat.created",
+  PATRevoked: "pat.revoked",
 } as const;
 
 // ─── Discriminated union ──────────────────────────────────────────────────────
@@ -78,12 +89,24 @@ export interface TicketUpdatedActivity extends ActivityBase {
   payload: TicketUpdatedPayload;
 }
 
+export interface PATCreatedActivity extends ActivityBase {
+  type: "pat.created";
+  payload: PATCreatedPayload;
+}
+
+export interface PATRevokedActivity extends ActivityBase {
+  type: "pat.revoked";
+  payload: PATRevokedPayload;
+}
+
 /** Extensible discriminated union — add new variants here as features grow. */
 export type ActivityEvent =
   | ClockInActivity
   | ClockOutActivity
   | TicketCreatedActivity
-  | TicketUpdatedActivity;
+  | TicketUpdatedActivity
+  | PATCreatedActivity
+  | PATRevokedActivity;
 
 // ─── Emit input type ──────────────────────────────────────────────────────────
 
@@ -93,7 +116,9 @@ export type EmitActivityInput =
   | (Omit<ClockInActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
   | (Omit<ClockOutActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
   | (Omit<TicketCreatedActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
-  | (Omit<TicketUpdatedActivity, "_id" | "occurredAt" | "source"> & WithDefaults);
+  | (Omit<TicketUpdatedActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
+  | (Omit<PATCreatedActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
+  | (Omit<PATRevokedActivity, "_id" | "occurredAt" | "source"> & WithDefaults);
 
 // ─── Public (API-facing) shape ────────────────────────────────────────────────
 

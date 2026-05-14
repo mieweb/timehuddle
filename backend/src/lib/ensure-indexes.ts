@@ -42,5 +42,10 @@ export async function ensureIndexes() {
   // 5. Timers for a user on a given UTC date
   await timers.createIndex({ userId: 1, date: 1 });
 
+  // Personal access tokens
+  const pats = db.collection("personal_access_tokens");
+  await pats.createIndex({ tokenHash: 1 }, { unique: true });
+  await pats.createIndex({ userId: 1 });
+
   console.log("MongoDB indexes ensured");
 }

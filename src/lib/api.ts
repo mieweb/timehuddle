@@ -46,6 +46,8 @@ export interface PublicUser {
   image: string | null;
   bio: string;
   website: string;
+  reportsTo: { id: string; name: string; username: string | null } | null;
+  teamMemberships: Array<{ id: string; name: string; role: 'admin' | 'member' }>;
   /** Teams shared between the viewer and this user (non-personal). Empty for own profile. */
   sharedTeams?: Array<{ id: string; name: string; isAdmin: boolean }>;
 }
@@ -269,7 +271,13 @@ export const userApi = {
     ),
 
   /** Update the current user's profile fields. */
-  updateProfile: (data: { name?: string; image?: string | null; bio?: string; website?: string }) =>
+  updateProfile: (data: {
+    name?: string;
+    image?: string | null;
+    bio?: string;
+    website?: string;
+    reportsToUserId?: string | null;
+  }) =>
     request<{ user: PublicUser }>('/v1/me/profile', {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -322,6 +330,9 @@ export const ticketApi = {
     request<{ tickets: Ticket[] }>(`/v1/tickets?teamId=${encodeURIComponent(teamId)}`).then(
       (r) => r.tickets,
     ),
+
+  getTicket: (id: string) =>
+    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`).then((r) => r.ticket),
 
   createTicket: (data: { teamId: string; title: string; github?: string }) =>
     request<{ ticket: Ticket }>('/v1/tickets', {
@@ -831,6 +842,35 @@ export const activityApi = {
       `/v1/activity/log${query ? `?${query}` : ''}`,
     );
   },
+
+  /**
+   * Fetch a page of activity log events for a specific user (teammates only).
+   *
+   * @param userId - The target user's ID.
+   * @param limit  - Max items per page (1–50, default 20).
+   * @param before - Cursor: ISO timestamp; fetch events older than this.
+   */
+  getUserActivity: (userId: string, params: { limit?: number; before?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.before) qs.set('before', params.before);
+    const query = qs.toString();
+    return request<{ events: ActivityLogItem[]; nextCursor: string | null }>(
+      `/v1/users/${encodeURIComponent(userId)}/activity${query ? `?${query}` : ''}`,
+    );
+  },
+
+  /** Ticket IDs + titles from the user's last 48 h of timer work. */
+  getUserWorkSummary: (userId: string) =>
+    request<{ items: { id: string; title: string }[] }>(
+      `/v1/work/summary/user/${encodeURIComponent(userId)}`,
+    ),
+
+  /** Activity events for a specific ticket (team members only). */
+  getTicketActivity: (ticketId: string, limit = 50) =>
+    request<{ events: ActivityLogItem[] }>(
+      `/v1/tickets/${encodeURIComponent(ticketId)}/activity?limit=${limit}`,
+    ),
 };
 
 // ─── Presence ─────────────────────────────────────────────────────────────────
@@ -930,4 +970,30 @@ export const channelApi = {
       if (token) url.searchParams.set('token', token);
       return url.toString();
     }),
+};
+
+// ─── Personal Access Tokens ───────────────────────────────────────────────────
+
+export interface PersonalAccessToken {
+  _id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string | null;
+}
+
+export const tokenApi = {
+  list: (): Promise<PersonalAccessToken[]> =>
+    request<{ tokens: PersonalAccessToken[] }>('/v1/me/tokens').then((r) => r.tokens),
+
+  create: (name: string): Promise<{ token: string; name: string }> =>
+    request<{ token: string; name: string }>('/v1/me/tokens', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
+
+  revoke: (id: string): Promise<void> =>
+    request<{ success: boolean }>(`/v1/me/tokens/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }).then(() => undefined),
 };

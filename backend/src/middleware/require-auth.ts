@@ -1,6 +1,9 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { auth } from "../lib/auth.js";
 import { fromNodeHeaders } from "better-auth/node";
+import { ObjectId } from "mongodb";
+import { patService } from "../services/pat.service.js";
+import { usersCollection } from "../models/index.js";
 
 export type AppUser = {
   id: string;
@@ -9,7 +12,28 @@ export type AppUser = {
   image?: string | null;
 };
 
+const PAT_PREFIX = "th_pat_";
+
 export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
+  // Check for PAT Bearer token first (prefix: th_pat_)
+  // RFC 7235: auth scheme is case-insensitive, so normalise before matching.
+  const authHeader = req.headers["authorization"];
+  const lowerHeader = authHeader?.toLowerCase() ?? "";
+  if (lowerHeader.startsWith("bearer " + PAT_PREFIX)) {
+    const rawToken = authHeader!.slice("bearer ".length);
+    const userId = await patService.validateToken(rawToken);
+    if (!userId) {
+      return reply.status(401).send({ error: "Invalid or expired token" });
+    }
+    const user = await usersCollection().findOne({ _id: new ObjectId(userId) });
+    if (!user) {
+      return reply.status(401).send({ error: "Unauthorized" });
+    }
+    req.user = { id: user._id.toString(), name: user.name, email: user.email, image: user.image };
+    return;
+  }
+
+  // Fall back to Better Auth session (cookie or session Bearer token)
   const session = await auth.api.getSession({
     headers: fromNodeHeaders(req.headers),
   });

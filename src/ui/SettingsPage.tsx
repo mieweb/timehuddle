@@ -10,6 +10,7 @@ import {
   faBell,
   faGear,
   faInfo,
+  faKey,
   faPalette,
   faRotateLeft,
   faRightFromBracket,
@@ -38,7 +39,14 @@ import {
   subscribeToPush,
   unsubscribeFromPush,
 } from '../lib/nativePush';
-import { authApi, userApi, notificationApi } from '../lib/api';
+import {
+  authApi,
+  userApi,
+  notificationApi,
+  teamApi,
+  tokenApi,
+  type PersonalAccessToken,
+} from '../lib/api';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useBrand, BRANDS } from '../lib/useBrand';
@@ -55,18 +63,18 @@ const Section: React.FC<{
   children: React.ReactNode;
 }> = ({ icon, title, description, children }) => (
   <Card padding="none">
-    <CardHeader className="flex items-start gap-3 px-5 py-4">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-        <FontAwesomeIcon icon={icon} className="text-sm" />
-      </div>
-      <div>
+    <CardHeader className="flex flex-col gap-0 px-5 py-4">
+      <div className="flex flex-row items-center gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+          <FontAwesomeIcon icon={icon} className="text-sm" />
+        </div>
         <CardTitle className="text-sm">{title}</CardTitle>
-        {description && (
-          <Text variant="muted" size="xs" className="mt-0.5">
-            {description}
-          </Text>
-        )}
       </div>
+      {description && (
+        <Text variant="muted" size="xs" className="pl-11">
+          {description}
+        </Text>
+      )}
     </CardHeader>
     <CardContent className="divide-y divide-neutral-100 p-0 dark:divide-neutral-800">
       {children}
@@ -287,28 +295,95 @@ const PushNotificationsSettings: React.FC = () => {
 // ─── Profile editor ───────────────────────────────────────────────────────────
 
 const ProfileEditor: React.FC = () => {
-  const { user } = useSession();
+  const { user, refetch } = useSession();
   const [name, setName] = useState(user?.name ?? '');
   const [bio, setBio] = useState('');
   const [website, setWebsite] = useState('');
+  const [reportsToUserId, setReportsToUserId] = useState('');
+  const [reportsToOptions, setReportsToOptions] = useState<Array<{ value: string; label: string }>>(
+    [{ value: '', label: 'No manager or lead set' }],
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Load current profile values
   useEffect(() => {
     if (!user?.id) return;
-    userApi.getUser(user.id).then((p) => {
+    let cancelled = false;
+
+    void userApi.getUser(user.id).then((p) => {
+      if (cancelled) return;
       setName(p.name ?? '');
       setBio(p.bio ?? '');
       setWebsite(p.website ?? '');
+      setReportsToUserId(p.reportsTo?.id ?? '');
     });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const teams = await teamApi.getTeams();
+        const nonPersonalTeams = teams.filter((team) => !team.isPersonal);
+
+        if (nonPersonalTeams.length === 0) {
+          if (!cancelled) {
+            setReportsToOptions([{ value: '', label: 'No manager or lead set' }]);
+          }
+          return;
+        }
+
+        const memberLists = await Promise.all(
+          nonPersonalTeams.map((team) => teamApi.getMembers(team.id)),
+        );
+        const teammateOptions = new Map<string, { value: string; label: string }>();
+
+        memberLists.flat().forEach((member) => {
+          if (member.id === user.id) return;
+          teammateOptions.set(member.id, {
+            value: member.id,
+            label: member.name || member.email || member.username || member.id,
+          });
+        });
+
+        if (cancelled) return;
+
+        setReportsToOptions([
+          { value: '', label: 'No manager or lead set' },
+          ...Array.from(teammateOptions.values()).sort((left, right) =>
+            left.label.localeCompare(right.label),
+          ),
+        ]);
+      } catch {
+        if (!cancelled) {
+          setReportsToOptions([{ value: '', label: 'No manager or lead set' }]);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id]);
 
   const handleSave = async () => {
     setBusy(true);
     setMessage(null);
     try {
-      await userApi.updateProfile({ name, bio, website });
+      await userApi.updateProfile({
+        name,
+        bio,
+        website,
+        reportsToUserId: reportsToUserId || null,
+      });
+      await refetch();
       setMessage({ ok: true, text: 'Profile saved.' });
     } catch (err: unknown) {
       setMessage({ ok: false, text: err instanceof Error ? err.message : 'Save failed.' });
@@ -397,6 +472,23 @@ const ProfileEditor: React.FC = () => {
           error={websiteError}
         />
       </div>
+      <div>
+        <Text size="xs" weight="medium" className="mb-1 block">
+          Reports To
+        </Text>
+        <Select
+          label="Reports To"
+          hideLabel
+          size="sm"
+          value={reportsToUserId}
+          options={reportsToOptions}
+          onValueChange={setReportsToUserId}
+          aria-label="Select who you report to"
+        />
+        <Text variant="muted" size="xs" className="mt-1">
+          Choose the teammate who manages or leads your work.
+        </Text>
+      </div>
       {message && (
         <Text size="xs" variant={message.ok ? 'success' : 'destructive'}>
           {message.text}
@@ -417,6 +509,158 @@ const ProfileEditor: React.FC = () => {
 };
 
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
+
+// ─── API Tokens Manager ───────────────────────────────────────────────────────
+
+const ApiTokensManager: React.FC = () => {
+  const [tokens, setTokens] = useState<PersonalAccessToken[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newTokenName, setNewTokenName] = useState('');
+  const [createdToken, setCreatedToken] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const list = await tokenApi.list();
+      setTokens(list);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load tokens');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const handleCreate = async () => {
+    const name = newTokenName.trim();
+    if (!name) return;
+    setCreating(true);
+    setError(null);
+    setCreatedToken(null);
+    try {
+      const result = await tokenApi.create(name);
+      setCreatedToken(result.token);
+      setNewTokenName('');
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create token');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleRevoke = async (id: string) => {
+    try {
+      await tokenApi.revoke(id);
+      setTokens((prev) => prev.filter((t) => t._id !== id));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke token');
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!createdToken) return;
+    try {
+      await navigator.clipboard.writeText(createdToken);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Failed to copy — please copy the token manually.');
+    }
+  };
+
+  return (
+    <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+      {/* Create new token */}
+      <div className="flex flex-col gap-3 px-5 py-4">
+        <Text size="xs" weight="medium">
+          Generate new token
+        </Text>
+        <div className="flex gap-2">
+          <Input
+            placeholder="Token name (e.g. TimeHarbor)"
+            value={newTokenName}
+            onChange={(e) => setNewTokenName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleCreate();
+            }}
+            className="flex-1"
+          />
+          <Button
+            size="sm"
+            onClick={() => void handleCreate()}
+            disabled={!newTokenName.trim() || creating}
+            isLoading={creating}
+            loadingText="Creating…"
+          >
+            Generate
+          </Button>
+        </div>
+        {error && (
+          <Text size="xs" className="text-red-500">
+            {error}
+          </Text>
+        )}
+      </div>
+
+      {/* One-time token reveal */}
+      {createdToken && (
+        <div className="flex flex-col gap-2 bg-amber-50 px-5 py-4 dark:bg-amber-950/30">
+          <Text size="xs" weight="medium" className="text-amber-700 dark:text-amber-400">
+            Save this token now — it won't be shown again.
+          </Text>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 break-all rounded bg-neutral-100 px-2 py-1 font-mono text-xs dark:bg-neutral-800">
+              {createdToken}
+            </code>
+            <Button size="sm" variant="outline" onClick={() => void handleCopy()}>
+              {copied ? 'Copied!' : 'Copy'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Token list */}
+      {loading ? (
+        <div className="px-5 py-3">
+          <Text variant="muted" size="xs">
+            Loading…
+          </Text>
+        </div>
+      ) : tokens.length === 0 ? (
+        <div className="px-5 py-3">
+          <Text variant="muted" size="xs">
+            No tokens yet.
+          </Text>
+        </div>
+      ) : (
+        tokens.map((t) => (
+          <div key={t._id} className="flex items-center justify-between px-5 py-3">
+            <div className="flex flex-col gap-0.5">
+              <Text size="xs" weight="medium">
+                {t.name}
+              </Text>
+              <Text variant="muted" size="xs">
+                Created {new Date(t.createdAt).toLocaleDateString()}
+                {t.lastUsedAt
+                  ? ` · Last used ${new Date(t.lastUsedAt).toLocaleDateString()}`
+                  : ' · Never used'}
+              </Text>
+            </div>
+            <Button size="sm" variant="danger" onClick={() => void handleRevoke(t._id)}>
+              Revoke
+            </Button>
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
 
 export const SettingsPage: React.FC = () => {
   const { user, signOut } = useSession();
@@ -440,7 +684,11 @@ export const SettingsPage: React.FC = () => {
   return (
     <AppPage>
       {/* Profile */}
-      <Section icon={faUser} title="Profile" description="Your display name, bio, and website.">
+      <Section
+        icon={faUser}
+        title="Profile"
+        description="Your display name, bio, website, and reporting line."
+      >
         <ProfileEditor />
       </Section>
 
@@ -463,6 +711,15 @@ export const SettingsPage: React.FC = () => {
         description="Browser alerts for team clock in/out (same as Time Harbor)."
       >
         <PushNotificationsSettings />
+      </Section>
+
+      {/* API Tokens */}
+      <Section
+        icon={faKey}
+        title="API Tokens"
+        description="Generate tokens to connect external services like TimeHarbor."
+      >
+        <ApiTokensManager />
       </Section>
 
       {/* Account */}
