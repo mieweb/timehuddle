@@ -236,6 +236,61 @@ Every backend feature must follow a strict three-layer separation:
 - **Bundle size**: Avoid importing entire libraries; prefer named imports
 - **Backend queries**: Return only the fields the client needs; avoid over-fetching from the API
 
+### Avoid Repetitive Code: DRY
+
+Do this when it makes sense.
+
+- **For Example**: Never call connection setup per-query.\*\* Guards like `ensureMongooseConnected()` repeated inside model helpers cause redundant readyState checks and risk duplicate connect attempts.
+- Initialize all connections once in `bootstrap()` in `backend/src/server.ts`, before any request can arrive:
+  ```typescript
+  await connectDB(); // native MongoDB driver
+  await ensureMongooseConnected(); // Mongoose (whenever any Mongoose model is in use)
+  ```
+- Model helpers then need no connection guards — queries run unconditionally.
+
+### Mongoose vs Native MongoDB — When to Use Each
+
+- **Mongoose**: Stateful or permissioned models with lifecycle hooks, instance methods, or enum enforcement (e.g. `Ticket`). Use `InferSchemaType` — no separate interface needed.
+- **Native MongoDB driver**: Simple append/query models with no business rules (e.g. `ClockEvent`). Use a typed `interface` + collection accessor from `backend/src/models/index.ts`.
+
+### Mongoose ESM Import Rule (Node 24)
+
+Named imports from `mongoose` crash in ESM under Node 24 / Docker. Always use the default import then destructure:
+
+```typescript
+// ❌ Fails in Node 24 ESM
+import { Schema, model, models } from 'mongoose';
+
+// ✅ Correct
+import mongoose from 'mongoose';
+const { Schema, model, models } = mongoose;
+```
+
+### Mongoose Schema — `_id` Type Pinning
+
+`InferSchemaType` infers `_id` as `mongoose.Types.ObjectId`, which is incompatible with native driver filter types. Pin it explicitly when the model coexists with native driver queries:
+
+```typescript
+import { ObjectId } from 'mongodb';
+export type Ticket = mongoose.InferSchemaType<typeof ticketSchema> & { _id: ObjectId };
+```
+
+### Mongoose Pre-Hook Signature (v8+)
+
+Use `async function` with no `next` parameter — passing `next` causes a type error in Mongoose 8:
+
+```typescript
+// ❌ Type error in Mongoose 8
+ticketSchema.pre('save', function (next) {
+  next();
+});
+
+// ✅ Correct
+ticketSchema.pre('save', async function () {
+  this.updatedAt = new Date();
+});
+```
+
 ## HTML & CSS Guidelines
 
 - **Semantic Naming**: Every `<div>` and other structural element must use a meaningful, semantic class name that clearly indicates its purpose or role within the layout.

@@ -8,6 +8,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.ts\"",
+    "lint:fix": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.ts\"",
     "start": "node dist/server.js",
     "migrate": "npx migrate-mongo up -f migrate-mongo-config.cjs",
     "migrate:status": "npx migrate-mongo status -f migrate-mongo-config.cjs",
