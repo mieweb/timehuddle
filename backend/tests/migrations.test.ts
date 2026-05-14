@@ -1,11 +1,23 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { ObjectId } from "mongodb";
 import { connectDB, getDB } from "../src/lib/db.js";
+import m001Module from "../migrations/20250615_140000_normalize-clock-event-times.cjs";
+import m002Module from "../migrations/20250615_140100_activity-log-index.cjs";
+import m003Module from "../migrations/20250615_140200_remove-legacy-timer-fields.cjs";
 
 // Load migrate-mongo migration modules
-const m001 = require("../migrations/20250615_140000_normalize-clock-event-times.cjs");
-const m002 = require("../migrations/20250615_140100_activity-log-index.cjs");
-const m003 = require("../migrations/20250615_140200_remove-legacy-timer-fields.cjs");
+const m001 = m001Module as {
+  up: (db: ReturnType<typeof getDB>) => Promise<void>;
+  down: (db: ReturnType<typeof getDB>) => Promise<void>;
+};
+const m002 = m002Module as {
+  up: (db: ReturnType<typeof getDB>) => Promise<void>;
+  down: (db: ReturnType<typeof getDB>) => Promise<void>;
+};
+const m003 = m003Module as {
+  up: (db: ReturnType<typeof getDB>) => Promise<void>;
+  down: (db: ReturnType<typeof getDB>) => Promise<void>;
+};
 
 beforeAll(async () => {
   await connectDB();
