@@ -159,7 +159,6 @@ describe("POST /v1/me/tokens", () => {
 
 describe("PAT Bearer auth via requireAuth middleware", () => {
   let rawToken: string;
-  let tokenId: string;
 
   beforeAll(async () => {
     const res = await app.inject({
@@ -176,7 +175,8 @@ describe("PAT Bearer auth via requireAuth middleware", () => {
       headers: { cookie: aliceCookie },
     });
     const tokens = listRes.json().tokens as Array<{ _id: string; name: string }>;
-    tokenId = tokens.find((t) => t.name === "Bearer Test Token")!._id;
+    // Verify the token appears in the list (no-op assignment avoided)
+    expect(tokens.some((t) => t.name === "Bearer Test Token")).toBe(true);
   });
 
   afterAll(async () => {
