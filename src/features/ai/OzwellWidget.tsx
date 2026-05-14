@@ -16,7 +16,7 @@
  */
 import { useCallback, useEffect, useRef } from 'react';
 
-import { clockApi, teamApi, ticketApi } from '../../lib/api';
+import { clockApi, teamApi, ticketApi, timerApi } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import { useRouter } from '../../ui/router';
@@ -49,6 +49,178 @@ interface OzwellToolCallDetail {
 
 const LOADER_URL = 'https://ozwellapi.opensource.mieweb.org/embed/ozwell-loader.js';
 const SCRIPT_ID = 'ozwell-loader';
+const MOBILE_OVERRIDE_STYLE_ID = 'ozwell-mobile-override';
+const JERRY_BUTTON_STYLE_ID = 'ozwell-jerry-button';
+
+/** Inject CSS for the Jerry animated avatar button. */
+function injectJerryButtonStyles() {
+  if (document.getElementById(JERRY_BUTTON_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = JERRY_BUTTON_STYLE_ID;
+  style.textContent = `
+    #ozwell-chat-button {
+      background: #F5A623 !important;
+      border-radius: 14px !important;
+      box-shadow: 0 4px 16px rgba(245, 166, 35, 0.4) !important;
+      flex-direction: column !important;
+      gap: 2px !important;
+      animation: jerry-bob 3.5s ease-in-out infinite !important;
+    }
+    #ozwell-chat-button:hover {
+      box-shadow: 0 6px 22px rgba(245, 166, 35, 0.55) !important;
+    }
+    #ozwell-chat-button.wiggling {
+      animation: ozwell-wiggle 0.8s ease-in-out !important;
+    }
+    @keyframes jerry-bob {
+      0%, 100% { transform: translateY(0px); }
+      50%       { transform: translateY(-5px); }
+    }
+    .jerry-eyes {
+      display: flex;
+      gap: 8px;
+    }
+    .jerry-eye {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #3B2000;
+      animation: jerry-blink 5s ease-in-out infinite;
+      transform-origin: center;
+    }
+    .jerry-eye.r { animation-delay: 0.07s; }
+    @keyframes jerry-blink {
+      0%, 88%, 100% { transform: scaleY(1); }
+      93%           { transform: scaleY(0.08); }
+    }
+    .jerry-j {
+      font-size: 24px;
+      font-weight: 700;
+      line-height: 1;
+      color: #3B2000;
+      font-family: Georgia, 'Times New Roman', serif;
+    }
+    .jerry-wave {
+      position: absolute;
+      top: -8px;
+      right: -10px;
+      font-size: 16px;
+      animation: jerry-wave 2.8s ease-in-out 0.5s both;
+      transform-origin: 70% 80%;
+      z-index: 1;
+      pointer-events: none;
+    }
+    @keyframes jerry-wave {
+      0%   { opacity: 0; transform: rotate(-20deg) scale(0.4); }
+      12%  { opacity: 1; transform: rotate(15deg) scale(1); }
+      28%  { transform: rotate(-10deg); }
+      42%  { transform: rotate(14deg); }
+      56%  { transform: rotate(-8deg); }
+      72%  { transform: rotate(6deg); }
+      88%  { transform: rotate(0deg); }
+      100% { opacity: 1; transform: rotate(0deg); }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+/** Replace the loader's default favicon icon with the Jerry animated avatar. */
+function injectJerryButtonContent() {
+  const button = document.getElementById('ozwell-chat-button');
+  if (!button) return;
+  button.innerHTML = `
+    <div class="jerry-wave">👋</div>
+    <div class="jerry-eyes">
+      <div class="jerry-eye l"></div>
+      <div class="jerry-eye r"></div>
+    </div>
+    <div class="jerry-j">J</div>
+  `;
+}
+
+/** Override the loader's full-screen mobile styles — bottom-sheet pattern. */
+function injectMobileOverride() {
+  if (document.getElementById(MOBILE_OVERRIDE_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = MOBILE_OVERRIDE_STYLE_ID;
+  style.textContent = `
+    @media (max-width: 767px) {
+      /* FAB: sit above the bottom nav bar */
+      #ozwell-chat-button {
+        bottom: calc(72px + env(safe-area-inset-bottom)) !important;
+        right: 20px !important;
+        width: 52px !important;
+        height: 52px !important;
+      }
+
+      /* Backdrop that dims the app when chat is open */
+      #ozwell-chat-wrapper::before {
+        content: '' !important;
+        display: block !important;
+        position: fixed !important;
+        inset: 0 !important;
+        background: rgba(0, 0, 0, 0.45) !important;
+        z-index: -1 !important;
+        transition: opacity 0.3s !important;
+      }
+      #ozwell-chat-wrapper.hidden::before {
+        opacity: 0 !important;
+      }
+      #ozwell-chat-wrapper.visible::before {
+        opacity: 1 !important;
+      }
+
+      /* Bottom sheet: slides up from the bottom */
+      #ozwell-chat-wrapper {
+        position: fixed !important;
+        top: auto !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: 100% !important;
+        height: 72vh !important;
+        max-height: 600px !important;
+        border-radius: 20px 20px 0 0 !important;
+        border: none !important;
+        border-top: 1px solid #e5e7eb !important;
+        box-shadow: 0 -4px 32px rgba(0, 0, 0, 0.18) !important;
+        padding-bottom: env(safe-area-inset-bottom) !important;
+        z-index: 9999 !important;
+      }
+      #ozwell-chat-wrapper.hidden {
+        opacity: 1 !important;
+        transform: translateY(100%) !important;
+        pointer-events: none !important;
+      }
+      #ozwell-chat-wrapper.visible {
+        opacity: 1 !important;
+        transform: translateY(0) !important;
+      }
+
+      /* Drag handle pill at the top of the sheet */
+      .ozwell-chat-header::before {
+        content: '' !important;
+        display: block !important;
+        width: 36px !important;
+        height: 4px !important;
+        background: rgba(255,255,255,0.5) !important;
+        border-radius: 2px !important;
+        margin: 0 auto 10px !important;
+      }
+      .ozwell-chat-header {
+        padding-top: 12px !important;
+        flex-direction: column !important;
+        align-items: stretch !important;
+      }
+      .ozwell-chat-controls {
+        display: flex !important;
+        justify-content: flex-end !important;
+        margin-top: -8px !important;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
 
 export const OzwellWidget: React.FC = () => {
   const { user } = useSession();
@@ -96,6 +268,9 @@ export const OzwellWidget: React.FC = () => {
       debug: Boolean(env?.DEV),
     };
 
+    injectMobileOverride();
+    injectJerryButtonStyles(); // inject before script so button is styled on creation
+
     const script = document.createElement('script');
     script.id = SCRIPT_ID;
     script.src = LOADER_URL;
@@ -104,11 +279,25 @@ export const OzwellWidget: React.FC = () => {
 
     return () => {
       document.getElementById(SCRIPT_ID)?.remove();
+      document.getElementById(MOBILE_OVERRIDE_STYLE_ID)?.remove();
+      document.getElementById(JERRY_BUTTON_STYLE_ID)?.remove();
       delete window.OzwellChatConfig;
     };
   }, []); // intentionally empty — run once
 
-  // ── Effect 2: sync live context to widget ─────────────────────────────────
+  // ── Effect 2: inject Jerry button once widget is ready ────────────────────
+  useEffect(() => {
+    const onReady = () => {
+      injectJerryButtonStyles();
+      injectJerryButtonContent();
+    };
+    document.addEventListener('ozwell-chat-ready', onReady);
+    // Widget may already be ready if this effect runs late
+    if (document.getElementById('ozwell-chat-button')) onReady();
+    return () => document.removeEventListener('ozwell-chat-ready', onReady);
+  }, []);
+
+  // ── Effect 3: sync live context to widget ─────────────────────────────────
   useEffect(() => {
     if (!window.OzwellChat?.updateContext) return;
     window.OzwellChat.updateContext({
@@ -120,7 +309,7 @@ export const OzwellWidget: React.FC = () => {
     });
   }, [user, pathname, selectedTeam, selectedTeamId]);
 
-  // ── Effect 3: tool call handler ───────────────────────────────────────────
+  // ── Effect 4: tool call handler ───────────────────────────────────────────
   const handleToolCall = useCallback((e: Event) => {
     const { name, arguments: args, respond } = (e as CustomEvent<OzwellToolCallDetail>).detail;
     const ctx = ctxRef.current;
@@ -351,6 +540,82 @@ export const OzwellWidget: React.FC = () => {
             }
             await teamApi.deleteTeam(delTeamId);
             respond({ success: true });
+            break;
+          }
+
+          // Work / Timers
+          case 'get_work_items': {
+            const date = String(args.date ?? new Date().toLocaleDateString('en-CA'));
+            const entries = await timerApi.getDay(date);
+            respond({ success: true, data: entries });
+            break;
+          }
+
+          case 'create_work_item': {
+            const ticketId = String(args.ticketId ?? '');
+            if (!ticketId) {
+              respond({ success: false, error: 'Missing required field: ticketId' });
+              return;
+            }
+            const date = String(args.date ?? new Date().toLocaleDateString('en-CA'));
+            const entry = await timerApi.createEntry({ ticketId, date, note: args.note as string | undefined });
+            respond({ success: true, data: entry });
+            break;
+          }
+
+          case 'start_work_timer': {
+            const entryId = String(args.workItemId ?? '');
+            if (!entryId) {
+              respond({ success: false, error: 'Missing required field: workItemId' });
+              return;
+            }
+            const result = await timerApi.startSession(entryId);
+            respond({ success: true, data: result });
+            break;
+          }
+
+          case 'stop_work_timer': {
+            const sessionId = String(args.sessionId ?? '');
+            if (!sessionId) {
+              respond({ success: false, error: 'Missing required field: sessionId' });
+              return;
+            }
+            const stopped = await timerApi.stopSession(sessionId);
+            respond({ success: true, data: stopped });
+            break;
+          }
+
+          case 'get_running_timer': {
+            const running = await timerApi.getRunning();
+            respond({ success: true, data: running ?? null });
+            break;
+          }
+
+          /**
+           * Compound action: create a ticket (if no ticketId provided), create a work item
+           * for today, and immediately start the timer. This is the single tool the AI should
+           * call when the user says "start working on X".
+           */
+          case 'start_ticket_timer': {
+            if (!ctx.selectedTeamId) {
+              respond({ success: false, error: 'No team selected' });
+              return;
+            }
+            // Resolve ticketId — caller may pass an existing id or a title to create
+            let ticketId = String(args.ticketId ?? '');
+            const ticketTitle = String(args.title ?? '');
+            if (!ticketId) {
+              if (!ticketTitle) {
+                respond({ success: false, error: 'Provide ticketId or title' });
+                return;
+              }
+              const newTicket = await ticketApi.createTicket({ teamId: ctx.selectedTeamId, title: ticketTitle });
+              ticketId = newTicket.id;
+            }
+            const today = new Date().toLocaleDateString('en-CA');
+            const entry = await timerApi.createEntry({ ticketId, date: today });
+            const session = await timerApi.startSession(entry.id);
+            respond({ success: true, data: { ticket: { id: ticketId }, workItem: entry, session } });
             break;
           }
 
