@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "crypto";
 import { ObjectId } from "mongodb";
 import { personalAccessTokensCollection } from "../models/index.js";
+import { emitActivity } from "./activity.service.js";
 
 const TOKEN_PREFIX = "th_pat_";
 
@@ -9,16 +10,28 @@ function hashToken(raw: string): string {
 }
 
 export const patService = {
-  async createToken(userId: string, name: string) {
+  async createToken(
+    userId: string,
+    name: string,
+    actor: { id: string; name: string; avatar?: string }
+  ) {
     const rawToken = TOKEN_PREFIX + randomBytes(32).toString("hex");
     const tokenHash = hashToken(rawToken);
+    const tokenId = new ObjectId();
 
     await personalAccessTokensCollection().insertOne({
-      _id: new ObjectId(),
+      _id: tokenId,
       userId,
       tokenHash,
       name,
       createdAt: new Date(),
+    });
+
+    void emitActivity({
+      userId,
+      actor,
+      type: "pat.created",
+      payload: { tokenId: tokenId.toHexString(), name },
     });
 
     return { rawToken };
@@ -26,17 +39,33 @@ export const patService = {
 
   async listTokens(userId: string) {
     return personalAccessTokensCollection()
-      .find({ userId }, { projection: { tokenHash: 0 } })
+      .find({ userId }, { projection: { tokenHash: 0, userId: 0 } })
       .sort({ createdAt: -1 })
       .toArray();
   },
 
-  async revokeToken(userId: string, tokenId: string) {
+  async revokeToken(
+    userId: string,
+    tokenId: string,
+    actor: { id: string; name: string; avatar?: string }
+  ) {
+    if (!ObjectId.isValid(tokenId)) return false;
+
     const result = await personalAccessTokensCollection().deleteOne({
       _id: new ObjectId(tokenId),
       userId,
     });
-    return result.deletedCount === 1;
+
+    if (result.deletedCount === 1) {
+      void emitActivity({
+        userId,
+        actor,
+        type: "pat.revoked",
+        payload: { tokenId },
+      });
+      return true;
+    }
+    return false;
   },
 
   async validateToken(rawToken: string): Promise<string | null> {

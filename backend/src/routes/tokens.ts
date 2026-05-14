@@ -1,9 +1,9 @@
 import { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
-import { patService } from "../services/pat.service.js";
+import { tokensController } from "../controllers/tokens.controller.js";
 
 export async function tokenRoutes(app: FastifyInstance) {
-  // GET /v1/me/tokens — list tokens (no hash)
+  // GET /v1/me/tokens — list tokens (no hash, no userId)
   app.get(
     "/me/tokens",
     {
@@ -33,10 +33,7 @@ export async function tokenRoutes(app: FastifyInstance) {
         },
       },
     },
-    async (req) => {
-      const tokens = await patService.listTokens(req.user!.id);
-      return { tokens };
-    }
+    tokensController.list
   );
 
   // POST /v1/me/tokens — create token, return raw once
@@ -64,11 +61,7 @@ export async function tokenRoutes(app: FastifyInstance) {
         },
       },
     },
-    async (req, reply) => {
-      const { name } = req.body;
-      const { rawToken } = await patService.createToken(req.user!.id, name);
-      return reply.status(201).send({ token: rawToken, name });
-    }
+    tokensController.create
   );
 
   // DELETE /v1/me/tokens/:id — revoke token
@@ -97,12 +90,6 @@ export async function tokenRoutes(app: FastifyInstance) {
         },
       },
     },
-    async (req, reply) => {
-      const deleted = await patService.revokeToken(req.user!.id, req.params.id);
-      if (!deleted) {
-        return reply.status(404).send({ error: "Token not found" });
-      }
-      return { success: true };
-    }
+    tokensController.revoke
   );
 }

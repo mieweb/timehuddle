@@ -16,9 +16,11 @@ const PAT_PREFIX = "th_pat_";
 
 export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
   // Check for PAT Bearer token first (prefix: th_pat_)
+  // RFC 7235: auth scheme is case-insensitive, so normalise before matching.
   const authHeader = req.headers["authorization"];
-  if (authHeader?.startsWith("Bearer " + PAT_PREFIX)) {
-    const rawToken = authHeader.slice("Bearer ".length);
+  const lowerHeader = authHeader?.toLowerCase() ?? "";
+  if (lowerHeader.startsWith("bearer " + PAT_PREFIX)) {
+    const rawToken = authHeader!.slice("bearer ".length);
     const userId = await patService.validateToken(rawToken);
     if (!userId) {
       return reply.status(401).send({ error: "Invalid or expired token" });

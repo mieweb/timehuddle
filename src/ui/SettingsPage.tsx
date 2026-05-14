@@ -525,8 +525,8 @@ const ApiTokensManager: React.FC = () => {
     try {
       const list = await tokenApi.list();
       setTokens(list);
-    } catch {
-      // silently ignore — tokens section just shows empty
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load tokens');
     } finally {
       setLoading(false);
     }
@@ -565,9 +565,13 @@ const ApiTokensManager: React.FC = () => {
 
   const handleCopy = async () => {
     if (!createdToken) return;
-    await navigator.clipboard.writeText(createdToken);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(createdToken);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Failed to copy — please copy the token manually.');
+    }
   };
 
   return (
