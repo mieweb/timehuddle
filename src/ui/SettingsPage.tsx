@@ -39,7 +39,14 @@ import {
   subscribeToPush,
   unsubscribeFromPush,
 } from '../lib/nativePush';
-import { authApi, userApi, notificationApi, teamApi, tokenApi, type PersonalAccessToken } from '../lib/api';
+import {
+  authApi,
+  userApi,
+  notificationApi,
+  teamApi,
+  tokenApi,
+  type PersonalAccessToken,
+} from '../lib/api';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { useBrand, BRANDS } from '../lib/useBrand';
@@ -525,7 +532,9 @@ const ApiTokensManager: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const handleCreate = async () => {
     const name = newTokenName.trim();
@@ -565,13 +574,17 @@ const ApiTokensManager: React.FC = () => {
     <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
       {/* Create new token */}
       <div className="flex flex-col gap-3 px-5 py-4">
-        <Text size="xs" weight="medium">Generate new token</Text>
+        <Text size="xs" weight="medium">
+          Generate new token
+        </Text>
         <div className="flex gap-2">
           <Input
             placeholder="Token name (e.g. TimeHarbor)"
             value={newTokenName}
             onChange={(e) => setNewTokenName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate(); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleCreate();
+            }}
             className="flex-1"
           />
           <Button
@@ -584,7 +597,11 @@ const ApiTokensManager: React.FC = () => {
             Generate
           </Button>
         </div>
-        {error && <Text size="xs" className="text-red-500">{error}</Text>}
+        {error && (
+          <Text size="xs" className="text-red-500">
+            {error}
+          </Text>
+        )}
       </div>
 
       {/* One-time token reveal */}
@@ -607,27 +624,31 @@ const ApiTokensManager: React.FC = () => {
       {/* Token list */}
       {loading ? (
         <div className="px-5 py-3">
-          <Text variant="muted" size="xs">Loading…</Text>
+          <Text variant="muted" size="xs">
+            Loading…
+          </Text>
         </div>
       ) : tokens.length === 0 ? (
         <div className="px-5 py-3">
-          <Text variant="muted" size="xs">No tokens yet.</Text>
+          <Text variant="muted" size="xs">
+            No tokens yet.
+          </Text>
         </div>
       ) : (
         tokens.map((t) => (
           <div key={t._id} className="flex items-center justify-between px-5 py-3">
             <div className="flex flex-col gap-0.5">
-              <Text size="xs" weight="medium">{t.name}</Text>
+              <Text size="xs" weight="medium">
+                {t.name}
+              </Text>
               <Text variant="muted" size="xs">
                 Created {new Date(t.createdAt).toLocaleDateString()}
-                {t.lastUsedAt ? ` · Last used ${new Date(t.lastUsedAt).toLocaleDateString()}` : ' · Never used'}
+                {t.lastUsedAt
+                  ? ` · Last used ${new Date(t.lastUsedAt).toLocaleDateString()}`
+                  : ' · Never used'}
               </Text>
             </div>
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={() => void handleRevoke(t._id)}
-            >
+            <Button size="sm" variant="danger" onClick={() => void handleRevoke(t._id)}>
               Revoke
             </Button>
           </div>

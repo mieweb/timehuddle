@@ -70,10 +70,7 @@ test.describe('API Token — Settings page lifecycle', () => {
     await expect(warningText).toBeVisible({ timeout: 8000 });
 
     // Read the raw token from the <code> element inside the reveal banner
-    const tokenCode = page
-      .locator('code')
-      .filter({ hasText: PAT_PREFIX })
-      .first();
+    const tokenCode = page.locator('code').filter({ hasText: PAT_PREFIX }).first();
     await expect(tokenCode).toBeVisible({ timeout: 5000 });
 
     const rawToken = await tokenCode.innerText();

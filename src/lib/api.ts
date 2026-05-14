@@ -972,7 +972,6 @@ export const channelApi = {
     }),
 };
 
-
 // ─── Personal Access Tokens ───────────────────────────────────────────────────
 
 export interface PersonalAccessToken {
