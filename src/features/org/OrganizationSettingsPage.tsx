@@ -1,14 +1,4 @@
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Input,
-  Spinner,
-  Text,
-} from '@mieweb/ui';
+import { Button, Card, CardContent, CardHeader, CardTitle, Input, Spinner, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { ApiError, orgAdminApi, type AdminOrganization } from '../../lib/api';
@@ -75,7 +65,7 @@ export const OrganizationSettingsPage: React.FC = () => {
   if (!canAccess) {
     return (
       <AppPage>
-        <Card padding="lg" className="mx-auto max-w-2xl text-center">
+        <Card padding="lg" className="">
           <CardHeader>
             <CardTitle>Organization Settings Unavailable</CardTitle>
           </CardHeader>
@@ -90,16 +80,15 @@ export const OrganizationSettingsPage: React.FC = () => {
   }
 
   return (
-    <AppPage subtitle="Admin / Organization Settings">
+    <AppPage>
       <Card padding="lg" className="space-y-4">
-        <CardHeader className="flex items-center justify-between gap-3">
+        <CardHeader className="">
           <div>
             <CardTitle>Organization Settings</CardTitle>
             <Text variant="muted" size="sm">
               Update settings for the default organization.
             </Text>
           </div>
-          <Badge variant="default">Admin</Badge>
         </CardHeader>
 
         <CardContent className="space-y-4">

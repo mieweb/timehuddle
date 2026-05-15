@@ -106,16 +106,15 @@ export const OrganizationMembersPage: React.FC = () => {
   }
 
   return (
-    <AppPage subtitle="Admin / Members">
+    <AppPage>
       <Card padding="lg" className="space-y-4">
-        <CardHeader className="flex items-center justify-between gap-3">
+        <CardHeader className="">
           <div>
             <CardTitle>Members</CardTitle>
             <Text variant="muted" size="sm">
               Manage owner/admin/member role assignments for the default organization.
             </Text>
           </div>
-          <Badge variant="default">Members</Badge>
         </CardHeader>
 
         <CardContent className="space-y-4">
