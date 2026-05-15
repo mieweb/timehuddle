@@ -135,9 +135,6 @@ export const WorkPage: React.FC = () => {
   const [dayEntries, setDayEntries] = useState<DayEntry[]>([]);
   const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
 
-  // Running session (for live display)
-  const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
-
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [newEntryTicketId, setNewEntryTicketId] = useState('');
   const [newEntryNote, setNewEntryNote] = useState('');
@@ -202,10 +199,6 @@ export const WorkPage: React.FC = () => {
     try {
       const entries = await timerApi.getDay(selectedDate);
       setDayEntries(entries);
-
-      // Resolve any running session
-      const running = entries.flatMap((e) => e.sessions).find((s) => s.endTime === null);
-      setRunningSessionId(running?.id ?? null);
     } catch {
       // keep previous
     }
@@ -236,7 +229,6 @@ export const WorkPage: React.FC = () => {
     async (entryId: string) => {
       try {
         const { session, closedSessionId } = await timerApi.startSession(entryId, Date.now());
-        setRunningSessionId(session.id);
         // Optimistic update
         setDayEntries((prev) =>
           prev.map((de) => {
@@ -301,7 +293,6 @@ export const WorkPage: React.FC = () => {
     async (sessionId: string) => {
       try {
         const closed = await timerApi.stopSession(sessionId, Date.now());
-        setRunningSessionId(null);
         setDayEntries((prev) =>
           prev.map((de) => ({
             ...de,
@@ -338,12 +329,11 @@ export const WorkPage: React.FC = () => {
   }, [newEntryTicketId, newEntryNote, selectedDate, fetchDay]);
 
   const handleDeleteEntry = useCallback(
-    async (entryId: string, isRunning: boolean) => {
+    async (entryId: string) => {
       setDeletingEntryId(entryId);
       try {
         await timerApi.deleteEntry(entryId);
         setDayEntries((prev) => prev.filter((de) => de.entry.id !== entryId));
-        if (isRunning) setRunningSessionId(null);
         void fetchWeekTotals();
       } catch {
         void fetchDay();
@@ -737,7 +727,7 @@ export const WorkPage: React.FC = () => {
                               ? handleStop(runningSess.id)
                               : handleStart(de.entry.id)
                           }
-                          disabled={!isRunning && (!!runningSessionId || !isToday)}
+                          disabled={!isRunning && !isToday}
                           style={!isRunning && !isToday ? { pointerEvents: 'none' } : undefined}
                           className={`rounded-full ${
                             isRunning
@@ -896,7 +886,7 @@ export const WorkPage: React.FC = () => {
                 <Button
                   variant="danger"
                   onClick={() => {
-                    void handleDeleteEntry(editEntry.entry.id, isRunning);
+                    void handleDeleteEntry(editEntry.entry.id);
                     setEditEntry(null);
                   }}
                   aria-label="Delete work item"
