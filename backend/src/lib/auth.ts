@@ -1,9 +1,16 @@
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
 import { bearer } from "better-auth/plugins";
+import { oidcProvider } from "better-auth/plugins/oidc-provider";
 import { client } from "./db.js";
 import { sendEmail } from "./email.js";
 import { teamService } from "../services/team.service.js";
+
+// TimeHarbor is the only registered OAuth client (trusted — skips consent).
+const TIMEHARBOR_CLIENT_ID = process.env.TIMEHARBOR_CLIENT_ID ?? "timeharbor";
+const TIMEHARBOR_CLIENT_SECRET = process.env.TIMEHARBOR_CLIENT_SECRET ?? "";
+const TIMEHARBOR_REDIRECT_URI =
+  process.env.TIMEHARBOR_REDIRECT_URI ?? "http://localhost:3001/v1/timehuddle/oauth/callback";
 
 export const auth = betterAuth({
   database: mongodbAdapter(client.db()),
@@ -13,6 +20,36 @@ export const auth = betterAuth({
     // `Authorization: Bearer <token>` on all authenticated requests.
     // Required for Capacitor (custom-scheme WebViews where cookies are unreliable).
     bearer(),
+
+    // OIDC provider — TimeHarbor connects via OAuth 2.0 Authorization Code flow.
+    // Endpoints exposed under /api/auth/oauth2/* and /api/auth/.well-known/...
+    oidcProvider({
+      // Silence the deprecation warning — the replacement package (@better-auth/oauth-provider)
+      // is not yet available as a stable release in our version.
+      __skipDeprecationWarning: true,
+
+      // Where to redirect unauthenticated users during the authorize flow.
+      loginPage: process.env.TIMEHUDDLE_LOGIN_PAGE ?? `${process.env.APP_URL ?? "http://localhost:3000"}/auth/sign-in`,
+
+      // Secrets stored as plain text — SHA-256 hashing can be enabled in production.
+      storeClientSecret: "plain",
+
+      // TimeHarbor is a trusted first-party client: skip the consent screen.
+      trustedClients: TIMEHARBOR_CLIENT_SECRET
+        ? [
+            {
+              clientId: TIMEHARBOR_CLIENT_ID,
+              clientSecret: TIMEHARBOR_CLIENT_SECRET,
+              name: "TimeHarbor",
+              type: "web",
+              redirectUrls: [TIMEHARBOR_REDIRECT_URI],
+              disabled: false,
+              metadata: null,
+              skipConsent: true,
+            },
+          ]
+        : [],
+    }),
   ],
 
   emailAndPassword: {
