@@ -1,7 +1,8 @@
 import { ObjectId } from "mongodb";
 import { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
-import { usersCollection, teamsCollection } from "../models/index.js";
+import { organizationsCollection, usersCollection, teamsCollection } from "../models/index.js";
+import { DEFAULT_ORG_KEY } from "../lib/org-config.js";
 import { userService } from "../services/user.service.js";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -21,6 +22,14 @@ const userSessionSchema = {
     email: { type: "string", format: "email" },
     image: { type: "string", nullable: true },
     username: { type: "string", nullable: true },
+    organizationMembership: {
+      type: ["object", "null"],
+      properties: {
+        organizationId: { type: "string" },
+        organizationKey: { type: "string" },
+        role: { type: "string", enum: ["owner", "admin"] },
+      },
+    },
   },
 };
 
@@ -60,6 +69,333 @@ const publicTeamMembershipSchema = {
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 export async function userRoutes(app: FastifyInstance) {
+  type DefaultOrganizationRole = "owner" | "admin" | "member";
+
+  async function resolveDefaultOrganizationMembership(userId: string): Promise<
+    | {
+        organizationId: string;
+        organizationKey: string;
+        role: "owner" | "admin";
+      }
+    | null
+  > {
+    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    if (!defaultOrg) return null;
+
+    const owners = defaultOrg.owners ?? [];
+    if (owners.includes(userId)) {
+      return {
+        organizationId: defaultOrg._id.toHexString(),
+        organizationKey: defaultOrg.key,
+        role: "owner",
+      };
+    }
+
+    const admins = defaultOrg.admins ?? [];
+    if (admins.includes(userId)) {
+      return {
+        organizationId: defaultOrg._id.toHexString(),
+        organizationKey: defaultOrg.key,
+        role: "admin",
+      };
+    }
+
+    return null;
+  }
+
+  function resolveDefaultOrganizationRole(
+    owners: string[],
+    admins: string[],
+    userId: string
+  ): DefaultOrganizationRole {
+    if (owners.includes(userId)) return "owner";
+    if (admins.includes(userId)) return "admin";
+    return "member";
+  }
+
+  app.get(
+    "/admin/organization",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Get default organization admin metadata (owner/admin only)",
+        security: [{ cookieAuth: [] }],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              organization: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  key: { type: "string" },
+                  name: { type: "string" },
+                  ownersCount: { type: "number" },
+                  adminsCount: { type: "number" },
+                },
+              },
+            },
+          },
+          ...unauthorizedResponse,
+          403: {
+            type: "object",
+            properties: { error: { type: "string", example: "Forbidden" } },
+          },
+          404: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const requesterMembership = await resolveDefaultOrganizationMembership(req.user!.id);
+      if (!requesterMembership) return reply.status(403).send({ error: "Forbidden" });
+
+      const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      if (!defaultOrg) return reply.status(404).send({ error: "Default organization not found" });
+
+      return reply.send({
+        organization: {
+          id: defaultOrg._id.toHexString(),
+          key: defaultOrg.key,
+          name: defaultOrg.name,
+          ownersCount: (defaultOrg.owners ?? []).length,
+          adminsCount: (defaultOrg.admins ?? []).length,
+        },
+      });
+    }
+  );
+
+  app.put(
+    "/admin/organization",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Update default organization name (owner/admin only)",
+        security: [{ cookieAuth: [] }],
+        body: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            name: { type: "string", minLength: 1, maxLength: 120 },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              organization: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  key: { type: "string" },
+                  name: { type: "string" },
+                },
+              },
+            },
+          },
+          ...unauthorizedResponse,
+          400: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+          403: {
+            type: "object",
+            properties: { error: { type: "string", example: "Forbidden" } },
+          },
+          404: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const requesterMembership = await resolveDefaultOrganizationMembership(req.user!.id);
+      if (!requesterMembership) return reply.status(403).send({ error: "Forbidden" });
+
+      const { name } = req.body as { name: string };
+      const nextName = name.trim();
+      if (!nextName) return reply.status(400).send({ error: "Organization name is required" });
+
+      const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      if (!defaultOrg) return reply.status(404).send({ error: "Default organization not found" });
+
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg._id },
+        { $set: { name: nextName, updatedAt: new Date() } }
+      );
+
+      return reply.send({
+        organization: {
+          id: defaultOrg._id.toHexString(),
+          key: defaultOrg.key,
+          name: nextName,
+        },
+      });
+    }
+  );
+
+  app.get(
+    "/admin/organization/users",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "List users with default organization role (owner/admin only)",
+        security: [{ cookieAuth: [] }],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              users: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    name: { type: "string" },
+                    email: { type: "string", format: "email" },
+                    username: { type: "string", nullable: true },
+                    image: { type: "string", nullable: true },
+                    role: { type: "string", enum: ["owner", "admin", "member"] },
+                  },
+                },
+              },
+            },
+          },
+          ...unauthorizedResponse,
+          403: {
+            type: "object",
+            properties: { error: { type: "string", example: "Forbidden" } },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const requesterMembership = await resolveDefaultOrganizationMembership(req.user!.id);
+      if (!requesterMembership) return reply.status(403).send({ error: "Forbidden" });
+
+      const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      const owners = defaultOrg?.owners ?? [];
+      const admins = defaultOrg?.admins ?? [];
+
+      const users = await usersCollection()
+        .find({}, { projection: { name: 1, email: 1, username: 1, image: 1 } })
+        .sort({ name: 1, email: 1 })
+        .limit(500)
+        .toArray();
+
+      return reply.send({
+        users: users.map((u) => ({
+          id: u._id.toHexString(),
+          name: u.name,
+          email: u.email,
+          username: u.username ?? null,
+          image: u.image ?? null,
+          role: resolveDefaultOrganizationRole(owners, admins, u._id.toHexString()),
+        })),
+      });
+    }
+  );
+
+  app.put(
+    "/admin/organization/users/:userId/role",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Set default organization role for a user (owner/admin only)",
+        security: [{ cookieAuth: [] }],
+        params: {
+          type: "object",
+          required: ["userId"],
+          properties: {
+            userId: { type: "string", pattern: "^[0-9a-f]{24}$" },
+          },
+        },
+        body: {
+          type: "object",
+          required: ["role"],
+          properties: {
+            role: { type: "string", enum: ["owner", "admin", "member"] },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              user: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  role: { type: "string", enum: ["owner", "admin", "member"] },
+                },
+              },
+            },
+          },
+          ...unauthorizedResponse,
+          400: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+          403: {
+            type: "object",
+            properties: { error: { type: "string", example: "Forbidden" } },
+          },
+          404: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const requesterMembership = await resolveDefaultOrganizationMembership(req.user!.id);
+      if (!requesterMembership) return reply.status(403).send({ error: "Forbidden" });
+
+      const { userId } = req.params as { userId: string };
+      const { role } = req.body as { role: DefaultOrganizationRole };
+
+      const [targetUser, defaultOrg] = await Promise.all([
+        usersCollection().findOne({ _id: new ObjectId(userId) }),
+        organizationsCollection().findOne({ key: DEFAULT_ORG_KEY }),
+      ]);
+
+      if (!targetUser) return reply.status(404).send({ error: "User not found" });
+      if (!defaultOrg) return reply.status(404).send({ error: "Default organization not found" });
+
+      const owners = new Set(defaultOrg.owners ?? []);
+      const admins = new Set(defaultOrg.admins ?? []);
+
+      owners.delete(userId);
+      admins.delete(userId);
+      if (role === "owner") owners.add(userId);
+      if (role === "admin") admins.add(userId);
+
+      const elevatedCount = new Set<string>([...owners, ...admins]).size;
+      if (elevatedCount === 0) {
+        return reply.status(400).send({ error: "At least one owner or admin is required" });
+      }
+
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg._id },
+        {
+          $set: {
+            owners: Array.from(owners),
+            admins: Array.from(admins),
+            updatedAt: new Date(),
+          },
+        }
+      );
+
+      return reply.send({ user: { id: userId, role } });
+    }
+  );
+
   app.get(
     "/me",
     {
@@ -77,11 +413,15 @@ export async function userRoutes(app: FastifyInstance) {
     async (req, reply) => {
       // Augment the session user with the username from the users collection.
       const sessionUser = req.user!;
-      const dbUser = await usersCollection().findOne({ _id: new ObjectId(sessionUser.id) });
+      const [dbUser, organizationMembership] = await Promise.all([
+        usersCollection().findOne({ _id: new ObjectId(sessionUser.id) }),
+        resolveDefaultOrganizationMembership(sessionUser.id),
+      ]);
       return reply.send({
         user: {
           ...sessionUser,
           username: dbUser?.username ?? null,
+          organizationMembership,
         },
       });
     }

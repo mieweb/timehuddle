@@ -21,6 +21,8 @@
   },
   "dependencies": {
     "@better-auth/core": "^1.6.9",
+    "@casl/ability": "^6.8.1",
+    "@casl/mongoose": "^8.0.5",
     "@fastify/cors": "^11.0.1",
     "@fastify/multipart": "^9.4.0",
     "@fastify/static": "^9.1.1",

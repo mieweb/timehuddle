@@ -28,6 +28,9 @@ import { TicketsPage } from '../features/tickets/TicketsPage';
 import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
+import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
+import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
+import { OrganizationSettingsPage } from '../features/org/OrganizationSettingsPage';
 import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
 import { TeamProvider } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
@@ -60,6 +63,12 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/activity': { title: 'Activity Log', component: ActivityLogPage },
+  '/app/admin/organization': { title: 'Organization Admin', component: OrganizationOverviewPage },
+  '/app/admin/organization/settings': {
+    title: 'Organization Settings',
+    component: OrganizationSettingsPage,
+  },
+  '/app/admin/users': { title: 'Members', component: OrganizationMembersPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
 };
 

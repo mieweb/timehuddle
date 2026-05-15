@@ -26,6 +26,11 @@ export interface TimecoreUser {
   image?: string | null;
   /** Canonical username — null until the user has claimed one. */
   username: string | null;
+  organizationMembership?: {
+    organizationId: string;
+    organizationKey: string;
+    role: 'owner' | 'admin';
+  } | null;
 }
 
 export interface AuthAccount {
@@ -282,6 +287,50 @@ export const userApi = {
       method: 'PUT',
       body: JSON.stringify(data),
     }).then((r) => r.user),
+};
+
+export type DefaultOrganizationRole = 'owner' | 'admin' | 'member';
+
+export interface OrganizationAdminUser {
+  id: string;
+  name: string;
+  email: string;
+  username: string | null;
+  image: string | null;
+  role: DefaultOrganizationRole;
+}
+
+export interface AdminOrganization {
+  id: string;
+  key: string;
+  name: string;
+  ownersCount?: number;
+  adminsCount?: number;
+}
+
+export const orgAdminApi = {
+  getOrganization: () =>
+    request<{ organization: AdminOrganization }>('/v1/admin/organization').then(
+      (r) => r.organization,
+    ),
+
+  updateOrganizationName: (name: string) =>
+    request<{ organization: AdminOrganization }>('/v1/admin/organization', {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }).then((r) => r.organization),
+
+  listUsers: () =>
+    request<{ users: OrganizationAdminUser[] }>('/v1/admin/organization/users').then((r) => r.users),
+
+  setUserRole: (userId: string, role: DefaultOrganizationRole) =>
+    request<{ user: { id: string; role: DefaultOrganizationRole } }>(
+      `/v1/admin/organization/users/${encodeURIComponent(userId)}/role`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      },
+    ).then((r) => r.user),
 };
 
 // ─── Username API ─────────────────────────────────────────────────────────────

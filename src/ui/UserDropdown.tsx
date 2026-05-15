@@ -3,12 +3,19 @@
  *
  * Uses @mieweb/ui Dropdown, Avatar, and DropdownItem components.
  */
-import { faCircleUser, faRightFromBracket } from '@fortawesome/free-solid-svg-icons';
+import {
+  faBuilding,
+  faCircleUser,
+  faGear,
+  faRightFromBracket,
+  faUsers,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Avatar, Dropdown, DropdownItem, DropdownSeparator, Text } from '@mieweb/ui';
 import React, { useCallback, useState } from 'react';
 
 import { useSession } from '../lib/useSession';
+import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
 import { useRouter } from './router';
 
 // ─── UserDropdown ─────────────────────────────────────────────────────────────
@@ -36,6 +43,22 @@ export const UserDropdown: React.FC = () => {
 
   const displayName = user?.name || email?.split('@')[0] || 'Account';
   const truncated = displayName.length > 22 ? `${displayName.slice(0, 20)}…` : displayName;
+  const showOrganizationAdmin = hasDefaultOrganizationAdminAccess(user);
+
+  const handleOrganizationOverview = useCallback(() => {
+    setOpen(false);
+    navigate('/app/admin/organization');
+  }, [navigate]);
+
+  const handleOrganizationMembers = useCallback(() => {
+    setOpen(false);
+    navigate('/app/admin/users');
+  }, [navigate]);
+
+  const handleOrganizationSettings = useCallback(() => {
+    setOpen(false);
+    navigate('/app/admin/organization/settings');
+  }, [navigate]);
 
   return (
     <Dropdown
@@ -71,6 +94,26 @@ export const UserDropdown: React.FC = () => {
       <DropdownItem icon={<FontAwesomeIcon icon={faCircleUser} />} onClick={handleProfile}>
         Profile
       </DropdownItem>
+
+      {showOrganizationAdmin && (
+        <>
+          <DropdownItem
+            icon={<FontAwesomeIcon icon={faBuilding} />}
+            onClick={handleOrganizationOverview}
+          >
+            Organization
+          </DropdownItem>
+          <DropdownItem icon={<FontAwesomeIcon icon={faUsers} />} onClick={handleOrganizationMembers}>
+            Members
+          </DropdownItem>
+          <DropdownItem
+            icon={<FontAwesomeIcon icon={faGear} />}
+            onClick={handleOrganizationSettings}
+          >
+            Organization Settings
+          </DropdownItem>
+        </>
+      )}
 
       <DropdownSeparator />
 

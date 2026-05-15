@@ -3,6 +3,7 @@ import { getDB } from "../lib/db.js";
 import { organizationsCollection, teamsCollection, usersCollection } from "../models/index.js";
 import type { Organization } from "../models/organization.model.js";
 import type { Team } from "../models/team.model.js";
+import { DEFAULT_ORG_KEY, DEFAULT_ORG_NAME } from "../lib/org-config.js";
 import { channelService } from "./channel.service.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -10,9 +11,6 @@ import { channelService } from "./channel.service.js";
 function generateTeamCode(): string {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
 }
-
-const DEFAULT_ORG_KEY = "default";
-const DEFAULT_ORG_NAME = "Default Organization";
 
 export function toPublicTeam(team: Team & { _id: ObjectId }) {
   return {
@@ -52,6 +50,8 @@ export class TeamService {
       _id: new ObjectId(),
       key: DEFAULT_ORG_KEY,
       name: DEFAULT_ORG_NAME,
+      owners: [],
+      admins: [],
       createdAt: new Date(),
     };
     await organizationsCollection().insertOne(org);
