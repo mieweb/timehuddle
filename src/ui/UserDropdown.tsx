@@ -6,7 +6,6 @@
 import {
   faBuilding,
   faCircleUser,
-  faGear,
   faRightFromBracket,
   faUsers,
 } from '@fortawesome/free-solid-svg-icons';
@@ -52,12 +51,7 @@ export const UserDropdown: React.FC = () => {
 
   const handleOrganizationMembers = useCallback(() => {
     setOpen(false);
-    navigate('/app/admin/users');
-  }, [navigate]);
-
-  const handleOrganizationSettings = useCallback(() => {
-    setOpen(false);
-    navigate('/app/admin/organization/settings');
+    navigate('/org/members');
   }, [navigate]);
 
   return (
@@ -97,20 +91,18 @@ export const UserDropdown: React.FC = () => {
 
       {showOrganizationAdmin && (
         <>
+          <DropdownSeparator />
           <DropdownItem
             icon={<FontAwesomeIcon icon={faBuilding} />}
             onClick={handleOrganizationOverview}
           >
             Organization
           </DropdownItem>
-          <DropdownItem icon={<FontAwesomeIcon icon={faUsers} />} onClick={handleOrganizationMembers}>
-            Members
-          </DropdownItem>
           <DropdownItem
-            icon={<FontAwesomeIcon icon={faGear} />}
-            onClick={handleOrganizationSettings}
+            icon={<FontAwesomeIcon icon={faUsers} />}
+            onClick={handleOrganizationMembers}
           >
-            Organization Settings
+            Members
           </DropdownItem>
         </>
       )}

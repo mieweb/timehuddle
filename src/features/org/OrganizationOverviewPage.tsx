@@ -47,11 +47,14 @@ export const OrganizationOverviewPage: React.FC = () => {
           </Text>
 
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => navigate('/app/admin/users')}>
+            <Button variant="secondary" onClick={() => navigate('/org/members')}>
               Members
             </Button>
-            <Button variant="secondary" onClick={() => navigate('/app/admin/organization/settings')}>
-              Organization Settings
+            <Button
+              variant="secondary"
+              onClick={() => navigate('/app/admin/organization/settings')}
+            >
+              Settings
             </Button>
           </div>
         </CardContent>

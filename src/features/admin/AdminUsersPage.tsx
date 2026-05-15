@@ -123,7 +123,12 @@ export const AdminUsersPage: React.FC = () => {
             <Text variant="muted" size="sm">
               Assign roles directly from this table.
             </Text>
-            <Button variant="secondary" size="sm" onClick={() => void loadUsers()} disabled={loading}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void loadUsers()}
+              disabled={loading}
+            >
               Refresh
             </Button>
           </div>

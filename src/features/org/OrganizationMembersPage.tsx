@@ -123,7 +123,12 @@ export const OrganizationMembersPage: React.FC = () => {
             <Text variant="muted" size="sm">
               Assign roles directly from this table.
             </Text>
-            <Button variant="secondary" size="sm" onClick={() => void loadUsers()} disabled={loading}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void loadUsers()}
+              disabled={loading}
+            >
               Refresh
             </Button>
           </div>
@@ -149,6 +154,7 @@ export const OrganizationMembersPage: React.FC = () => {
                   <TableHead>Email</TableHead>
                   <TableHead>Username</TableHead>
                   <TableHead className="w-48">Role</TableHead>
+                  <TableHead className="w-48">Reports To</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -168,7 +174,7 @@ export const OrganizationMembersPage: React.FC = () => {
                       <TableCell>{orgUser.email}</TableCell>
                       <TableCell>{orgUser.username ? `@${orgUser.username}` : '—'}</TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-2">
+                        <div className="flex w-full items-center gap-2">
                           <Select
                             label="Role"
                             hideLabel
@@ -180,8 +186,50 @@ export const OrganizationMembersPage: React.FC = () => {
                             options={roleOptions}
                             disabled={isSaving}
                             aria-label={`Set role for ${orgUser.name}`}
+                            className="flex-1"
                           />
                           {isSaving && <Spinner size="sm" label="Saving" />}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex w-full items-center gap-2">
+                          <Select
+                            label="Reports To"
+                            hideLabel
+                            size="sm"
+                            value={orgUser.reportsToUserId || ''}
+                            onValueChange={async (value) => {
+                              const previous = users;
+                              const reportsToValue = value ? value : null;
+                              setUsers((prev) =>
+                                prev.map((u) =>
+                                  u.id === orgUser.id
+                                    ? { ...u, reportsToUserId: reportsToValue }
+                                    : u,
+                                ),
+                              );
+                              setSavingUserId(orgUser.id);
+                              setError(null);
+                              try {
+                                await orgAdminApi.updateReportsTo(orgUser.id, reportsToValue);
+                              } catch (err) {
+                                setUsers(previous);
+                                if (err instanceof ApiError) {
+                                  setError(err.message);
+                                } else {
+                                  setError('Failed to update Reports To');
+                                }
+                              } finally {
+                                setSavingUserId(null);
+                              }
+                            }}
+                            options={[
+                              { value: '', label: 'None' },
+                              ...users.map((u) => ({ value: u.id, label: u.name })),
+                            ]}
+                            aria-label={`Set Reports To for ${orgUser.name}`}
+                            className="flex-1"
+                          />
                         </div>
                       </TableCell>
                     </TableRow>

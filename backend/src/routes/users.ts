@@ -71,14 +71,11 @@ const publicTeamMembershipSchema = {
 export async function userRoutes(app: FastifyInstance) {
   type DefaultOrganizationRole = "owner" | "admin" | "member";
 
-  async function resolveDefaultOrganizationMembership(userId: string): Promise<
-    | {
-        organizationId: string;
-        organizationKey: string;
-        role: "owner" | "admin";
-      }
-    | null
-  > {
+  async function resolveDefaultOrganizationMembership(userId: string): Promise<{
+    organizationId: string;
+    organizationKey: string;
+    role: "owner" | "admin";
+  } | null> {
     const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
     if (!defaultOrg) return null;
 
@@ -261,6 +258,7 @@ export async function userRoutes(app: FastifyInstance) {
                     email: { type: "string", format: "email" },
                     username: { type: "string", nullable: true },
                     image: { type: "string", nullable: true },
+                    reportsToUserId: { type: "string", nullable: true },
                     role: { type: "string", enum: ["owner", "admin", "member"] },
                   },
                 },
@@ -284,7 +282,7 @@ export async function userRoutes(app: FastifyInstance) {
       const admins = defaultOrg?.admins ?? [];
 
       const users = await usersCollection()
-        .find({}, { projection: { name: 1, email: 1, username: 1, image: 1 } })
+        .find({}, { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } })
         .sort({ name: 1, email: 1 })
         .limit(500)
         .toArray();
@@ -296,6 +294,7 @@ export async function userRoutes(app: FastifyInstance) {
           email: u.email,
           username: u.username ?? null,
           image: u.image ?? null,
+          reportsToUserId: u.reportsToUserId ?? null,
           role: resolveDefaultOrganizationRole(owners, admins, u._id.toHexString()),
         })),
       });

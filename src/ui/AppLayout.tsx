@@ -68,7 +68,7 @@ const ROUTES: Record<string, RouteConfig> = {
     title: 'Organization Settings',
     component: OrganizationSettingsPage,
   },
-  '/app/admin/users': { title: 'Members', component: OrganizationMembersPage },
+  '/org/members': { title: 'Members', component: OrganizationMembersPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
 };
 

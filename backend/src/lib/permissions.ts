@@ -1,10 +1,6 @@
-import {
-  AbilityBuilder,
-  createMongoAbility,
-  type AnyMongoAbility,
-} from "@casl/ability";
+import { AbilityBuilder, createMongoAbility, type AnyMongoAbility } from "@casl/ability";
 
-export const APP_ROLES = ["owner", "admin" ] as const;
+export const APP_ROLES = ["owner", "admin"] as const;
 
 export type AppRole = (typeof APP_ROLES)[number];
 

@@ -298,6 +298,7 @@ export interface OrganizationAdminUser {
   username: string | null;
   image: string | null;
   role: DefaultOrganizationRole;
+  reportsToUserId?: string | null;
 }
 
 export interface AdminOrganization {
@@ -321,7 +322,9 @@ export const orgAdminApi = {
     }).then((r) => r.organization),
 
   listUsers: () =>
-    request<{ users: OrganizationAdminUser[] }>('/v1/admin/organization/users').then((r) => r.users),
+    request<{ users: OrganizationAdminUser[] }>('/v1/admin/organization/users').then(
+      (r) => r.users,
+    ),
 
   setUserRole: (userId: string, role: DefaultOrganizationRole) =>
     request<{ user: { id: string; role: DefaultOrganizationRole } }>(
@@ -329,6 +332,15 @@ export const orgAdminApi = {
       {
         method: 'PUT',
         body: JSON.stringify({ role }),
+      },
+    ).then((r) => r.user),
+
+  updateReportsTo: (userId: string, reportsTo: string | null) =>
+    request<{ user: { id: string; reportsToUserId: string | null } }>(
+      `/v1/org/users/${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ reportsToUserId: reportsTo }),
       },
     ).then((r) => r.user),
 };
