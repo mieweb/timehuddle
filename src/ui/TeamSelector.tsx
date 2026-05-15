@@ -1,17 +1,28 @@
-import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
+import { faCheck, faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Dropdown, DropdownItem, Text } from '@mieweb/ui';
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 
 import { useTeam } from '../lib/TeamContext';
 
 export const TeamSelector: React.FC = () => {
   const { teams, selectedTeam, setSelectedTeamId, teamsReady } = useTeam();
+  const [open, setOpen] = useState(false);
+
+  const handleSelectTeam = useCallback(
+    (teamId: string) => {
+      setSelectedTeamId(teamId);
+      setOpen(false);
+    },
+    [setSelectedTeamId],
+  );
 
   if (!teamsReady || teams.length === 0) return null;
 
   return (
     <Dropdown
+      open={open}
+      onOpenChange={setOpen}
       trigger={
         <button
           type="button"
@@ -28,8 +39,16 @@ export const TeamSelector: React.FC = () => {
       width={200}
     >
       {teams.map((team) => (
-        <DropdownItem key={team.id} onClick={() => setSelectedTeamId(team.id)}>
-          {team.id === selectedTeam?.id ? `✓ ${team.name}` : team.name}
+        <DropdownItem key={team.id} onClick={() => handleSelectTeam(team.id)}>
+          <span className="flex items-center gap-2">
+            <FontAwesomeIcon
+              icon={faCheck}
+              className={`text-xs text-blue-600 transition-opacity ${
+                team.id === selectedTeam?.id ? 'opacity-100' : 'opacity-0'
+              }`}
+            />
+            <span>{team.name}</span>
+          </span>
         </DropdownItem>
       ))}
     </Dropdown>

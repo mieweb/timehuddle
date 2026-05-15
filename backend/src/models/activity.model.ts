@@ -19,12 +19,43 @@ export interface TicketCreatedPayload {
   teamId: string;
 }
 
+export interface PATCreatedPayload {
+  tokenId: string;
+  name: string;
+}
+
+export interface PATRevokedPayload {
+  tokenId: string;
+}
+
+export interface TicketUpdatedPayload {
+  ticketId: string;
+  ticketTitle: string;
+  teamId: string;
+  action:
+    | "edited"
+    | "status-changed"
+    | "priority-changed"
+    | "status-priority-changed"
+    | "assigned"
+    | "unassigned"
+    | "deleted"
+    | "batch-status-changed";
+  status?: string;
+  priority?: string;
+  assigneeId?: string | null;
+  assigneeName?: string;
+}
+
 // ─── Activity type constants ──────────────────────────────────────────────────
 
 export const ActivityType = {
   ClockIn: "clock.in",
   ClockOut: "clock.out",
   TicketCreated: "ticket.created",
+  TicketUpdated: "ticket.updated",
+  PATCreated: "pat.created",
+  PATRevoked: "pat.revoked",
 } as const;
 
 // ─── Discriminated union ──────────────────────────────────────────────────────
@@ -53,8 +84,29 @@ export interface TicketCreatedActivity extends ActivityBase {
   payload: TicketCreatedPayload;
 }
 
+export interface TicketUpdatedActivity extends ActivityBase {
+  type: "ticket.updated";
+  payload: TicketUpdatedPayload;
+}
+
+export interface PATCreatedActivity extends ActivityBase {
+  type: "pat.created";
+  payload: PATCreatedPayload;
+}
+
+export interface PATRevokedActivity extends ActivityBase {
+  type: "pat.revoked";
+  payload: PATRevokedPayload;
+}
+
 /** Extensible discriminated union — add new variants here as features grow. */
-export type ActivityEvent = ClockInActivity | ClockOutActivity | TicketCreatedActivity;
+export type ActivityEvent =
+  | ClockInActivity
+  | ClockOutActivity
+  | TicketCreatedActivity
+  | TicketUpdatedActivity
+  | PATCreatedActivity
+  | PATRevokedActivity;
 
 // ─── Emit input type ──────────────────────────────────────────────────────────
 
@@ -63,7 +115,10 @@ type WithDefaults = { occurredAt?: Date; source?: ActivityBase["source"] };
 export type EmitActivityInput =
   | (Omit<ClockInActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
   | (Omit<ClockOutActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
-  | (Omit<TicketCreatedActivity, "_id" | "occurredAt" | "source"> & WithDefaults);
+  | (Omit<TicketCreatedActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
+  | (Omit<TicketUpdatedActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
+  | (Omit<PATCreatedActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
+  | (Omit<PATRevokedActivity, "_id" | "occurredAt" | "source"> & WithDefaults);
 
 // ─── Public (API-facing) shape ────────────────────────────────────────────────
 

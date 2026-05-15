@@ -1,122 +1,41 @@
 /**
- * ClockPage — Clock in/out with live timer and ticket management.
- *
- * Features:
- *   • Big clock in/out button with live session timer
- *   • Team selector
- *   • Active session ticket list with start/stop toggles
- *   • Media attachments (links) on clock entries
- *   • Add existing ticket or create new ticket from here
+ * ClockPage — Clock in/out with live session timer.
  */
-import {
-  faCircleStop,
-  faPlay,
-  faPause,
-  faPlus,
-  faStopwatch,
-  faXmark,
-} from '@fortawesome/free-solid-svg-icons';
+import { faCircleStop, faStopwatch } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Input,
-  Spinner,
-  Text,
-} from '@mieweb/ui';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, Spinner, Text } from '@mieweb/ui';
+import React from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
-import { formatTimer, formatDuration } from '../../lib/timeUtils';
-import { clockApi, ticketApi, type Ticket } from '../../lib/api';
+import { formatTimer } from '../../lib/timeUtils';
 import { AppPage } from '../../ui/AppPage';
 import { useClockToggle } from '../../lib/useClockToggle';
-import { useSession } from '../../lib/useSession';
-import { AttachmentsPanel } from './AttachmentsPanel';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
 export const ClockPage: React.FC = () => {
-  const { selectedTeamId, activeClockEvent, currentTime, teamsReady, refetchClock } = useTeam();
+  const { selectedTeamId, activeClockEvent, currentTime, teamsReady } = useTeam();
 
   const { clockIn, clockOut, clockInLoading, clockOutLoading } = useClockToggle();
-  const { user } = useSession();
-
-  // Tickets for the selected team
-  const [allTickets, setAllTickets] = useState<Ticket[]>([]);
-
-  useEffect(() => {
-    if (!selectedTeamId) {
-      setAllTickets([]);
-      return;
-    }
-    ticketApi
-      .getTickets(selectedTeamId)
-      .then(setAllTickets)
-      .catch(() => {});
-  }, [selectedTeamId]);
-
-  // Loading states
-  const [createTicketLoading, setCreateTicketLoading] = useState(false);
-
-  // UI state
-  const [showNewTicket, setShowNewTicket] = useState(false);
-  const [newTicketTitle, setNewTicketTitle] = useState('');
 
   // Session duration
   const sessionSeconds = activeClockEvent
     ? Math.floor((currentTime - activeClockEvent.startTime) / 1000)
     : 0;
 
-  // ── Handlers ──
+  // Live wall-clock display
+  const currentTimeDisplay = new Date(currentTime).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const currentDateDisplay = new Date(currentTime).toLocaleDateString([], {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
 
-  const handleStartTicket = useCallback(
-    async (ticketId: string) => {
-      if (!activeClockEvent?.id) return;
-      await clockApi.addTicket(activeClockEvent.id, ticketId, Date.now());
-      await refetchClock();
-    },
-    [activeClockEvent, refetchClock],
-  );
-
-  const handleStopTicket = useCallback(
-    async (ticketId: string) => {
-      if (!activeClockEvent?.id) return;
-      await clockApi.stopTicket(activeClockEvent.id, ticketId, Date.now());
-      await refetchClock();
-    },
-    [activeClockEvent, refetchClock],
-  );
-
-  const handleCreateTicket = useCallback(async () => {
-    if (!newTicketTitle.trim() || !selectedTeamId) return;
-    setCreateTicketLoading(true);
-    try {
-      await ticketApi.createTicket({ teamId: selectedTeamId, title: newTicketTitle.trim() });
-      const updated = await ticketApi.getTickets(selectedTeamId);
-      setAllTickets(updated);
-      setNewTicketTitle('');
-      setShowNewTicket(false);
-    } finally {
-      setCreateTicketLoading(false);
-    }
-  }, [newTicketTitle, selectedTeamId]);
-
-  // Tickets in the active clock event
-  const activeTicketIds = useMemo(
-    () => new Set(activeClockEvent?.tickets.map((t) => t.ticketId) ?? []),
-    [activeClockEvent],
-  );
-
-  // Available tickets not yet in the session
-  const availableTickets = useMemo(
-    () => allTickets.filter((t) => !activeTicketIds.has(t.id)),
-    [allTickets, activeTicketIds],
-  );
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   if (!teamsReady) {
     return (
@@ -129,197 +48,92 @@ export const ClockPage: React.FC = () => {
   return (
     <AppPage>
       {/* ── Clock Button ── */}
-      <Card padding="lg" className="flex flex-col items-center gap-4 rounded-2xl">
-        <CardContent className="flex flex-col items-center gap-4">
-          {activeClockEvent ? (
-            <>
-              <div className="text-center">
-                <Text
-                  variant="success"
-                  size="xs"
-                  weight="medium"
-                  className="uppercase tracking-widest"
+      <Card padding="lg" className="relative rounded-2xl">
+        <CardContent className="flex flex-col-reverse items-center gap-4 sm:flex-row sm:items-center">
+          {/* Clock button — full width on mobile, 1/4 on sm+ */}
+          <div className="flex w-full flex-col items-center gap-2 sm:w-1/4">
+            {activeClockEvent ? (
+              <>
+                <button
+                  type="button"
+                  onClick={clockOut}
+                  disabled={clockOutLoading}
+                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-red-500 py-4 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-red-600 active:scale-95 disabled:opacity-50 sm:h-16 sm:w-16 sm:rounded-full sm:py-0"
+                  aria-label="Clock out"
                 >
-                  Session Active
-                </Text>
-                <Text size="3xl" weight="bold" className="mt-2 font-mono">
-                  {formatTimer(sessionSeconds)}
-                </Text>
-              </div>
-              {/* Clock Out — keeping custom round button for the unique clock UI */}
-              <button
-                type="button"
-                onClick={clockOut}
-                disabled={clockOutLoading}
-                className="flex h-24 w-24 items-center justify-center rounded-full bg-red-500 text-white shadow-lg transition-transform hover:scale-105 hover:bg-red-600 active:scale-95 disabled:opacity-50"
-                aria-label="Clock out"
+                  <FontAwesomeIcon icon={faCircleStop} className="text-2xl" />
+                  <span className="text-sm font-semibold sm:hidden">Clock Out</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={clockIn}
+                  disabled={clockInLoading || !selectedTeamId}
+                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-green-500 py-4 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-green-600 active:scale-95 disabled:opacity-50 sm:h-16 sm:w-16 sm:rounded-full sm:py-0"
+                  aria-label="Clock in"
+                >
+                  <FontAwesomeIcon icon={faStopwatch} className="text-2xl" />
+                  <span className="text-sm font-semibold sm:hidden">Clock In</span>
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Time display — full width on mobile, 3/4 on sm+; border switches from top to left */}
+          <div className="flex w-full flex-col items-center gap-1 border-b border-neutral-200 pb-4 text-center dark:border-neutral-700 sm:w-3/4 sm:items-start sm:border-b-0 sm:border-l sm:pb-0 sm:pl-4 sm:text-left">
+            <div className="font-mono text-4xl font-bold leading-none tabular-nums">
+              {currentTimeDisplay}
+            </div>
+            <Text variant="muted" size="sm">
+              {currentDateDisplay}
+            </Text>
+            {activeClockEvent ? (
+              <Text
+                variant="success"
+                size="xs"
+                weight="medium"
+                className="mt-1 uppercase tracking-widest"
               >
-                <FontAwesomeIcon icon={faCircleStop} className="text-3xl" />
-              </button>
-              <Text variant="muted" size="xs">
-                Tap to clock out
+                Session active — {formatTimer(sessionSeconds)}
               </Text>
-            </>
-          ) : (
-            <>
-              <Text variant="muted" size="xs" weight="medium" className="uppercase tracking-widest">
+            ) : (
+              <Text
+                variant="muted"
+                size="xs"
+                weight="medium"
+                className="mt-1 uppercase tracking-widest"
+              >
                 Ready to work
               </Text>
-              {/* Clock In — keeping custom round button for the unique clock UI */}
-              <button
-                type="button"
-                onClick={clockIn}
-                disabled={clockInLoading || !selectedTeamId}
-                className="flex h-24 w-24 items-center justify-center rounded-full bg-green-500 text-white shadow-lg transition-transform hover:scale-105 hover:bg-green-600 active:scale-95 disabled:opacity-50"
-                aria-label="Clock in"
-              >
-                <FontAwesomeIcon icon={faStopwatch} className="text-3xl" />
-              </button>
-              <Text variant="muted" size="xs">
-                Tap to clock in
-              </Text>
-            </>
-          )}
+            )}
+          </div>
         </CardContent>
+        <span className="block px-5 pb-3 font-mono text-xs text-neutral-400 text-center dark:text-neutral-500 sm:absolute sm:bottom-3 sm:right-4 sm:px-0 sm:pb-0 sm:text-right">
+          {timeZone}
+        </span>
       </Card>
 
-      {/* ── Session Tickets ── */}
+      {/* ── Quick Ticket Creation ── */}
       {activeClockEvent && (
         <Card padding="none">
           <CardHeader className="flex flex-row items-center justify-between px-5 py-3">
-            <CardTitle className="text-sm">Session Tickets</CardTitle>
-            <Button variant="link" size="sm" onClick={() => setShowNewTicket(true)}>
-              <FontAwesomeIcon icon={faPlus} className="mr-1" />
-              New Ticket
-            </Button>
+            <CardTitle className="text-sm">Quick Actions</CardTitle>
           </CardHeader>
-
-          {/* New ticket form */}
-          {showNewTicket && (
-            <div className="flex gap-2 border-b border-neutral-100 px-5 py-3 dark:border-neutral-800">
-              <Input
-                label="Ticket title"
-                hideLabel
-                placeholder="Ticket title"
-                value={newTicketTitle}
-                onChange={(e) => setNewTicketTitle(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateTicket()}
-                size="sm"
-                className="flex-1"
-                autoFocus
-              />
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleCreateTicket}
-                isLoading={createTicketLoading}
-              >
-                Add
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  setShowNewTicket(false);
-                  setNewTicketTitle('');
-                }}
-                aria-label="Cancel"
-              >
-                <FontAwesomeIcon icon={faXmark} />
-              </Button>
-            </div>
-          )}
-
-          {/* Active tickets */}
-          <CardContent className="p-0">
-            <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-              {activeClockEvent.tickets.map((ct) => {
-                const ticket = allTickets.find((t) => t.id === ct.ticketId);
-                const isRunning = !!ct.startTimestamp;
-                const elapsed = isRunning
-                  ? ct.accumulatedTime + Math.floor((currentTime - ct.startTimestamp!) / 1000)
-                  : ct.accumulatedTime;
-
-                return (
-                  <li key={ct.ticketId} className="flex items-center gap-3 px-5 py-3">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() =>
-                        isRunning ? handleStopTicket(ct.ticketId) : handleStartTicket(ct.ticketId)
-                      }
-                      className={
-                        isRunning
-                          ? 'rounded-full bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-400'
-                          : 'rounded-full bg-green-100 text-green-600 dark:bg-green-900/40 dark:text-green-400'
-                      }
-                      aria-label={isRunning ? 'Pause ticket' : 'Start ticket'}
-                    >
-                      <FontAwesomeIcon icon={isRunning ? faPause : faPlay} className="text-xs" />
-                    </Button>
-                    <div className="min-w-0 flex-1">
-                      <Text size="sm" weight="medium" truncate>
-                        {ticket?.title ?? ct.ticketId}
-                      </Text>
-                      {ticket?.github && (
-                        <a
-                          href={ticket.github}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-blue-500 hover:underline"
-                        >
-                          {ticket.github.includes('github.com') ? 'GitHub' : 'Link'} ↗
-                        </a>
-                      )}
-                    </div>
-                    <Badge
-                      variant={isRunning ? 'success' : 'secondary'}
-                      size="sm"
-                      className="font-mono"
-                    >
-                      {formatDuration(elapsed)}
-                    </Badge>
-                  </li>
-                );
-              })}
-            </ul>
+          <CardContent className="px-5 py-4">
+            <Text variant="muted" size="sm">
+              Coming soon… In the meantime, track your time on the{' '}
+              <a href="/app/work" className="text-blue-500 hover:underline">
+                Work
+              </a>{' '}
+              page or manage your{' '}
+              <a href="/app/tickets" className="text-blue-500 hover:underline">
+                Tickets
+              </a>
+              .
+            </Text>
           </CardContent>
-
-          {/* Add existing ticket */}
-          {availableTickets.length > 0 && (
-            <div className="border-t border-neutral-100 px-5 py-3 dark:border-neutral-800">
-              <Text variant="muted" size="xs" className="mb-2">
-                Add existing ticket:
-              </Text>
-              <div className="flex flex-wrap gap-2">
-                {availableTickets.slice(0, 5).map((t) => (
-                  <Button
-                    key={t.id}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleStartTicket(t.id)}
-                  >
-                    {t.title}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {activeClockEvent.tickets.length === 0 && !showNewTicket && (
-            <div className="px-5 py-6 text-center">
-              <Text variant="muted" size="xs">
-                No tickets in this session. Add one to track your work!
-              </Text>
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* ── Attachments for the active clock entry ── */}
-      {activeClockEvent && (
-        <Card padding="md">
-          <AttachmentsPanel kind="clock" entityId={activeClockEvent.id} currentUserId={user?.id} />
         </Card>
       )}
     </AppPage>

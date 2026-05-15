@@ -2,6 +2,7 @@ import { ObjectId } from "mongodb";
 import { getDB } from "../lib/db.js";
 import { teamsCollection, usersCollection } from "../models/index.js";
 import type { Team } from "../models/team.model.js";
+import { channelService } from "./channel.service.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -64,6 +65,7 @@ export class TeamService {
       createdAt: new Date(),
     };
     await teamsCollection().insertOne(doc);
+    channelService.ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
     return toPublicTeam(doc);
   }
 
@@ -84,6 +86,7 @@ export class TeamService {
       createdAt: new Date(),
     };
     await teamsCollection().insertOne(doc);
+    channelService.ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
     return toPublicTeam(doc);
   }
 

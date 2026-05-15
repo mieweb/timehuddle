@@ -11,30 +11,33 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
   AlertDescription,
-  Badge,
   Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   Input,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
   Spinner,
   Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
-import { formatDuration, formatTime, formatDate } from '../../lib/timeUtils';
-import { clockApi, type ClockEvent } from '../../lib/api';
+import { formatDuration } from '../../lib/timeUtils';
+import { ApiError, clockApi, type ClockEvent } from '../../lib/api';
 import { AppPage } from '../../ui/AppPage';
 import { useSession } from '../../lib/useSession';
 import { AttachmentsPanel } from './AttachmentsPanel';
+import { TimesheetRow } from './TimesheetRow';
 
 interface TimesheetData {
   sessions: ClockEvent[];
@@ -81,9 +84,25 @@ function getDateRange(preset: Preset): [Date, Date] {
   }
 }
 
+function toLocalDateTimeInputValue(epochMs: number): string {
+  const d = new Date(epochMs);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+}
+
+function fromLocalDateTimeInputValue(value: string): number | null {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
 export const TimesheetPage: React.FC = () => {
   const { user } = useSession();
-  const { teamsReady, teams } = useTeam();
+  const { teamsReady, teams, selectedTeamId } = useTeam();
 
   const [preset, setPreset] = useState<Preset>('week');
   const [customStart, setCustomStart] = useState('');
@@ -91,7 +110,13 @@ export const TimesheetPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<TimesheetData | null>(null);
-  const [attachmentsOpenForSession, setAttachmentsOpenForSession] = useState<string | null>(null);
+  const [activeSession, setActiveSession] = useState<ClockEvent | null>(null);
+  const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
+  const [editClockIn, setEditClockIn] = useState('');
+  const [editClockOut, setEditClockOut] = useState('');
+  const [sessionSaveLoading, setSessionSaveLoading] = useState(false);
+  const [sessionDeleteLoading, setSessionDeleteLoading] = useState(false);
+  const [sessionSaveError, setSessionSaveError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!user?.id) return;
@@ -124,6 +149,74 @@ export const TimesheetPage: React.FC = () => {
     void fetchData();
   }, [preset]);
 
+  const openSessionDialog = useCallback((session: ClockEvent) => {
+    setActiveSession(session);
+    setEditClockIn(toLocalDateTimeInputValue(session.startTime));
+    setEditClockOut(session.endTime ? toLocalDateTimeInputValue(session.endTime) : '');
+    setSessionSaveError(null);
+    setSessionDialogOpen(true);
+  }, []);
+
+  const handleSaveSession = useCallback(async () => {
+    if (!activeSession) return;
+
+    const parsedStart = fromLocalDateTimeInputValue(editClockIn);
+    if (parsedStart === null) {
+      setSessionSaveError('Enter a valid clock-in date and time.');
+      return;
+    }
+
+    let parsedEnd: number | null = null;
+    if (editClockOut.trim()) {
+      parsedEnd = fromLocalDateTimeInputValue(editClockOut);
+      if (parsedEnd === null) {
+        setSessionSaveError('Enter a valid clock-out date and time, or leave it blank.');
+        return;
+      }
+    }
+
+    setSessionSaveLoading(true);
+    setSessionSaveError(null);
+    try {
+      await clockApi.updateTimes(activeSession.id, {
+        startTime: parsedStart,
+        endTime: parsedEnd,
+      });
+      setSessionDialogOpen(false);
+      setActiveSession(null);
+      await fetchData();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setSessionSaveError(e.message);
+      } else {
+        setSessionSaveError('Unable to update session times.');
+      }
+    } finally {
+      setSessionSaveLoading(false);
+    }
+  }, [activeSession, editClockIn, editClockOut, fetchData]);
+
+  const handleDeleteSession = useCallback(async () => {
+    if (!activeSession) return;
+
+    setSessionDeleteLoading(true);
+    setSessionSaveError(null);
+    try {
+      await clockApi.deleteEvent(activeSession.id);
+      setSessionDialogOpen(false);
+      setActiveSession(null);
+      await fetchData();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setSessionSaveError(e.message);
+      } else {
+        setSessionSaveError('Unable to delete session.');
+      }
+    } finally {
+      setSessionDeleteLoading(false);
+    }
+  }, [activeSession, fetchData]);
+
   const presets: { key: Preset; label: string }[] = [
     { key: 'today', label: 'Today' },
     { key: 'yesterday', label: 'Yesterday' },
@@ -132,6 +225,33 @@ export const TimesheetPage: React.FC = () => {
     { key: '14d', label: '14 Days' },
     { key: 'custom', label: 'Custom' },
   ];
+
+  // Filter sessions by selected team
+  const filteredSessions = useMemo(() => {
+    if (!data) return [];
+    return selectedTeamId
+      ? data.sessions.filter((s) => s.teamId === selectedTeamId)
+      : data.sessions;
+  }, [data, selectedTeamId]);
+
+  // Recompute summary from filtered sessions
+  const filteredSummary = useMemo(() => {
+    const completed = filteredSessions.filter((s) => s.endTime !== null);
+    const totalSeconds = filteredSessions.reduce((sum, s) => {
+      if (s.endTime === null) return sum;
+      return sum + Math.floor((s.endTime - s.startTime) / 1000);
+    }, 0);
+    const workingDays = new Set(
+      filteredSessions.map((s) => new Date(s.startTime).toISOString().slice(0, 10)),
+    ).size;
+    return {
+      totalSeconds,
+      totalSessions: filteredSessions.length,
+      completedSessions: completed.length,
+      averageSessionSeconds: completed.length > 0 ? Math.floor(totalSeconds / completed.length) : 0,
+      workingDays,
+    };
+  }, [filteredSessions]);
 
   if (!teamsReady) {
     return (
@@ -197,7 +317,7 @@ export const TimesheetPage: React.FC = () => {
                 Total Hours
               </Text>
               <Text size="lg" weight="semibold">
-                {formatDuration(data.summary.totalSeconds)}
+                {formatDuration(filteredSummary.totalSeconds)}
               </Text>
             </CardContent>
           </Card>
@@ -207,7 +327,7 @@ export const TimesheetPage: React.FC = () => {
                 Sessions
               </Text>
               <Text size="lg" weight="semibold">
-                {data.summary.totalSessions}
+                {filteredSummary.totalSessions}
               </Text>
             </CardContent>
           </Card>
@@ -217,7 +337,7 @@ export const TimesheetPage: React.FC = () => {
                 Avg Session
               </Text>
               <Text size="lg" weight="semibold">
-                {formatDuration(data.summary.averageSessionSeconds)}
+                {formatDuration(filteredSummary.averageSessionSeconds)}
               </Text>
             </CardContent>
           </Card>
@@ -227,7 +347,7 @@ export const TimesheetPage: React.FC = () => {
                 Working Days
               </Text>
               <Text size="lg" weight="semibold">
-                {data.summary.workingDays}
+                {filteredSummary.workingDays}
               </Text>
             </CardContent>
           </Card>
@@ -249,10 +369,10 @@ export const TimesheetPage: React.FC = () => {
       )}
 
       {/* Sessions list */}
-      {data && data.sessions.length > 0 && (
+      {data && filteredSessions.length > 0 && (
         <Card padding="none">
           <CardHeader className="px-5 py-3">
-            <CardTitle className="text-sm">Clock Events ({data.sessions.length})</CardTitle>
+            <CardTitle className="text-sm">Sessions ({filteredSessions.length})</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table responsive>
@@ -264,82 +384,91 @@ export const TimesheetPage: React.FC = () => {
                   <TableHead>Duration</TableHead>
                   <TableHead>Team</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Attachments</TableHead>
+                  <TableHead className="w-16 text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.sessions.map((s) => {
-                  const startTime = new Date(s.startTime);
-                  const endTime = s.endTime ? new Date(s.endTime) : null;
-                  const duration = endTime
-                    ? Math.floor((endTime.getTime() - startTime.getTime()) / 1000)
-                    : null;
-                  const isActive = !s.endTime;
-                  const teamName = teams.find((t) => t.id === s.teamId)?.name ?? s.teamId;
-                  const isAttachmentsOpen = attachmentsOpenForSession === s.id;
-                  return (
-                    <React.Fragment key={s.id}>
-                      <TableRow>
-                        <TableCell>{formatDate(startTime, true)}</TableCell>
-                        <TableCell>{formatTime(startTime)}</TableCell>
-                        <TableCell>{endTime ? formatTime(endTime) : '—'}</TableCell>
-                        <TableCell className="font-mono">
-                          {duration ? formatDuration(duration) : '—'}
-                        </TableCell>
-                        <TableCell>{teamName}</TableCell>
-                        <TableCell>
-                          {isActive ? (
-                            <Badge variant="success" size="sm">
-                              <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                              Active
-                            </Badge>
-                          ) : (
-                            <Text variant="muted" size="xs">
-                              Completed
-                            </Text>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {isActive ? (
-                            <Text variant="muted" size="xs">
-                              —
-                            </Text>
-                          ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                setAttachmentsOpenForSession((prev) =>
-                                  prev === s.id ? null : s.id,
-                                )
-                              }
-                            >
-                              {isAttachmentsOpen ? 'Hide' : 'Manage'}
-                            </Button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                      {!isActive && isAttachmentsOpen && (
-                        <TableRow>
-                          <TableCell colSpan={7}>
-                            <AttachmentsPanel
-                              kind="clock"
-                              entityId={s.id}
-                              currentUserId={user?.id}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
+                {filteredSessions.map((s) => (
+                  <TimesheetRow key={s.id} session={s} teams={teams} onEdit={openSessionDialog} />
+                ))}
               </TableBody>
             </Table>
           </CardContent>
         </Card>
       )}
 
-      {data && data.sessions.length === 0 && !loading && (
+      <Modal
+        open={sessionDialogOpen}
+        onOpenChange={(open) => {
+          setSessionDialogOpen(open);
+          if (!open) {
+            setActiveSession(null);
+            setSessionSaveError(null);
+          }
+        }}
+        aria-labelledby="edit-session-title"
+      >
+        <ModalHeader>
+          <Text weight="semibold" id="edit-session-title">
+            Edit Session
+          </Text>
+        </ModalHeader>
+        <ModalBody className="space-y-4">
+          <Input
+            label="Clock In"
+            type="datetime-local"
+            value={editClockIn}
+            onChange={(e) => setEditClockIn(e.target.value)}
+          />
+          <Input
+            label="Clock Out"
+            type="datetime-local"
+            value={editClockOut}
+            onChange={(e) => setEditClockOut(e.target.value)}
+            placeholder="Leave blank to keep active"
+          />
+          {sessionSaveError && (
+            <Text size="xs" className="text-danger">
+              {sessionSaveError}
+            </Text>
+          )}
+          {activeSession && (
+            <AttachmentsPanel kind="clock" entityId={activeSession.id} currentUserId={user?.id} />
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              onClick={handleSaveSession}
+              isLoading={sessionSaveLoading}
+              disabled={sessionDeleteLoading}
+            >
+              Save
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setSessionDialogOpen(false)}
+              disabled={sessionSaveLoading || sessionDeleteLoading}
+            >
+              Cancel
+            </Button>
+            {activeSession?.endTime !== null && (
+              <Button
+                variant="danger"
+                className="ml-auto"
+                onClick={handleDeleteSession}
+                isLoading={sessionDeleteLoading}
+                disabled={sessionSaveLoading}
+              >
+                Delete
+              </Button>
+            )}
+          </div>
+        </ModalFooter>
+      </Modal>
+
+      {data && filteredSessions.length === 0 && !loading && (
         <Card variant="outlined" padding="lg" className="border-dashed text-center">
           <CardContent>
             <FontAwesomeIcon

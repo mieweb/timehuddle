@@ -28,7 +28,6 @@ let workerId: string;
 let adminId: string;
 let teamId: string;
 let clockEventId: string;
-let ticketId: string;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -98,21 +97,6 @@ beforeAll(async () => {
   await db.collection("teams").insertOne(teamDoc);
   teamId = teamDoc._id.toHexString();
 
-  // Create a ticket for the worker to use
-  const ticketDoc = {
-    _id: new ObjectId(),
-    teamId,
-    title: "Clock Test Ticket",
-    github: "",
-    accumulatedTime: 0,
-    status: "open",
-    createdBy: workerId,
-    assignedTo: workerId,
-    createdAt: new Date(),
-  };
-  await db.collection("tickets").insertOne(ticketDoc);
-  ticketId = ticketDoc._id.toHexString();
-
   workerCookie = await getSessionCookie(WORKER.email, WORKER.password);
   adminCookie = await getSessionCookie(ADMIN.email, ADMIN.password);
   otherCookie = await getSessionCookie(OTHER.email, OTHER.password);
@@ -122,7 +106,6 @@ afterAll(async () => {
   const db = client.db();
   await db.collection("teams").deleteOne({ code: "CLOCKTEAM1" });
   await db.collection("clockevents").deleteMany({ teamId });
-  await db.collection("tickets").deleteMany({ teamId });
   await Promise.all([purgeUser(WORKER.email), purgeUser(ADMIN.email), purgeUser(OTHER.email)]);
   await app.close();
 });
@@ -195,49 +178,6 @@ describe("GET /v1/clock/active", () => {
   });
 });
 
-// ─── POST /v1/clock/:id/ticket/start ─────────────────────────────────────────
-
-describe("POST /v1/clock/:id/ticket/start", () => {
-  it("adds a ticket to the active clock event — 200", async () => {
-    const now = Date.now();
-    const res = await inject("POST", `/v1/clock/${clockEventId}/ticket/start`, workerCookie, {
-      ticketId,
-      now,
-    });
-    expect(res.statusCode).toBe(200);
-    const { event } = res.json();
-    const entry = event.tickets.find((t: any) => t.ticketId === ticketId);
-    expect(entry).toBeDefined();
-    expect(entry.startTimestamp).toBe(now);
-  });
-
-  it("returns 404 for a non-existent clock event", async () => {
-    const fakeId = new ObjectId().toHexString();
-    const res = await inject("POST", `/v1/clock/${fakeId}/ticket/start`, workerCookie, {
-      ticketId,
-      now: Date.now(),
-    });
-    expect(res.statusCode).toBe(404);
-  });
-});
-
-// ─── POST /v1/clock/:id/ticket/stop ──────────────────────────────────────────
-
-describe("POST /v1/clock/:id/ticket/stop", () => {
-  it("stops the running ticket timer — 200", async () => {
-    const now = Date.now() + 5000;
-    const res = await inject("POST", `/v1/clock/${clockEventId}/ticket/stop`, workerCookie, {
-      ticketId,
-      now,
-    });
-    expect(res.statusCode).toBe(200);
-    const { event } = res.json();
-    const entry = event.tickets.find((t: any) => t.ticketId === ticketId);
-    expect(entry.startTimestamp).toBeNull();
-    expect(entry.accumulatedTime).toBeGreaterThan(0);
-  });
-});
-
 // ─── Attachments (replaces YouTube-specific route) ───────────────────────────
 
 describe("POST /v1/attachments (clock)", () => {
@@ -276,6 +216,12 @@ describe("POST /v1/clock/stop", () => {
     expect(event.accumulatedTime).toBeGreaterThanOrEqual(0);
   });
 
+  it("active event is null after clocking out", async () => {
+    const res = await inject("GET", "/v1/clock/active", workerCookie);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().event).toBeNull();
+  });
+
   it("returns 404 when already clocked out", async () => {
     const res = await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
     expect(res.statusCode).toBe(404);
@@ -307,8 +253,17 @@ describe("PUT /v1/clock/:id/times", () => {
     expect(res.json().event.startTime).toBe(newStart);
   });
 
-  it("non-admin returns 403", async () => {
+  it("event owner can adjust times — 200", async () => {
+    const base = Date.now() - 120_000;
     const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, workerCookie, {
+      startTime: base,
+      endTime: base + 60_000,
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("non-owner non-admin returns 403", async () => {
+    const res = await inject("PUT", `/v1/clock/${clockEventId}/times`, otherCookie, {
       startTime: Date.now(),
     });
     expect(res.statusCode).toBe(403);
@@ -360,6 +315,42 @@ describe("PUT /v1/clock/:id/times", () => {
   });
 });
 
+// ─── DELETE /v1/clock/:id ───────────────────────────────────────────────────
+
+describe("DELETE /v1/clock/:id", () => {
+  it("event owner can delete a clock event — 200", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const ownedEventId = startRes.json().event.id as string;
+
+    const deleteRes = await inject("DELETE", `/v1/clock/${ownedEventId}`, workerCookie);
+    expect(deleteRes.statusCode).toBe(200);
+    expect(deleteRes.json().ok).toBe(true);
+  });
+
+  it("team admin can delete another member's clock event — 200", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const targetEventId = startRes.json().event.id as string;
+
+    const deleteRes = await inject("DELETE", `/v1/clock/${targetEventId}`, adminCookie);
+    expect(deleteRes.statusCode).toBe(200);
+    expect(deleteRes.json().ok).toBe(true);
+  });
+
+  it("non-owner non-admin returns 403", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const targetEventId = startRes.json().event.id as string;
+
+    const forbiddenRes = await inject("DELETE", `/v1/clock/${targetEventId}`, otherCookie);
+    expect(forbiddenRes.statusCode).toBe(403);
+
+    // Cleanup to keep test data stable for later assertions.
+    await inject("DELETE", `/v1/clock/${targetEventId}`, workerCookie);
+  });
+});
+
 // ─── GET /v1/clock/timesheet ─────────────────────────────────────────────────
 
 describe("GET /v1/clock/timesheet", () => {
@@ -385,6 +376,68 @@ describe("GET /v1/clock/timesheet", () => {
     expect(Array.isArray(body.sessions)).toBe(true);
     expect(body.summary).toBeDefined();
     expect(body.summary.totalSessions).toBeGreaterThan(0);
+  });
+
+  it("includes live elapsed time for an active session in summary totals", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const activeEventId = startRes.json().event.id as string;
+
+    const db = client.db();
+    const twoMinutesAgo = Date.now() - 120_000;
+    const eventDate = new Date(twoMinutesAgo);
+    await db
+      .collection("clockevents")
+      .updateOne(
+        { _id: new ObjectId(activeEventId) },
+        { $set: { startTime: twoMinutesAgo, accumulatedTime: 30 } }
+      );
+
+    // Anchor the query window to the adjusted startTime day to avoid midnight flakiness in CI.
+    const startMs = new Date(eventDate).setHours(0, 0, 0, 0);
+    const endMs = new Date(eventDate).setHours(23, 59, 59, 999);
+    const res = await inject(
+      "GET",
+      `/v1/clock/timesheet?userId=${workerId}&startMs=${startMs}&endMs=${endMs}`,
+      workerCookie
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().summary.totalSeconds).toBeGreaterThanOrEqual(150);
+
+    await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
+  });
+
+  it("includes a completed session that spans a midnight boundary", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const crossMidnightEventId = startRes.json().event.id as string;
+
+    const db = client.db();
+    const todayStart = new Date().setHours(0, 0, 0, 0);
+    const yesterdayMidnight = todayStart - 24 * 60 * 60 * 1000;
+    const startTime = yesterdayMidnight - 2 * 60 * 1000;
+    const endTime = yesterdayMidnight + 3 * 60 * 1000;
+
+    await db
+      .collection("clockevents")
+      .updateOne(
+        { _id: new ObjectId(crossMidnightEventId) },
+        { $set: { startTime, endTime, accumulatedTime: 0 } }
+      );
+
+    const startMs = yesterdayMidnight - 60 * 60 * 1000;
+    const endMs = yesterdayMidnight + 60 * 60 * 1000;
+    const res = await inject(
+      "GET",
+      `/v1/clock/timesheet?userId=${workerId}&startMs=${startMs}&endMs=${endMs}`,
+      workerCookie
+    );
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.summary.totalSeconds).toBeGreaterThanOrEqual(300);
+    expect(body.sessions.some((s: { id: string }) => s.id === crossMidnightEventId)).toBe(true);
   });
 
   it("admin can view worker timesheet (shared team) — 200", async () => {

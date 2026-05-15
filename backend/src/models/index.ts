@@ -7,11 +7,14 @@ import type { Message } from "./message.model.js";
 import type { Notification } from "./notification.model.js";
 import type { Attachment } from "./attachment.model.js";
 import type { Profile } from "./profile.model.js";
-import type { EncryptedOpLogBatch } from "./encrypted-oplog.model.js";
-import type { RecoveryKeyStatus } from "./recovery-key-status.model.js";
 import type { PushSubscription } from "./push-subscription.model.js";
 import type { UserDeviceTokens } from "./device-token.model.js";
+import type { WorkItem } from "./work-item.model.js";
+import type { Timer } from "./timer.model.js";
 import type { ActivityEvent } from "./activity.model.js";
+import type { Channel } from "./channel.model.js";
+import type { ChannelMessage } from "./channel-message.model.js";
+import type { PersonalAccessToken } from "./personal-access-token.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
 export function usersCollection() {
@@ -53,16 +56,6 @@ export function profilesCollection() {
   return getDB().collection<Profile>("profiles");
 }
 
-// Encrypted op-log batches
-export function encryptedOpLogsCollection() {
-  return getDB().collection<EncryptedOpLogBatch>("encryptedOpLogs");
-}
-
-// Recovery key save-status
-export function recoveryKeyStatusCollection() {
-  return getDB().collection<RecoveryKeyStatus>("recoveryKeyStatus");
-}
-
 // Push subscriptions
 export function pushSubscriptionsCollection() {
   return getDB().collection<PushSubscription>("pushsubscriptions");
@@ -73,7 +66,32 @@ export function deviceTokensCollection() {
   return getDB().collection<UserDeviceTokens>("devicetokens");
 }
 
+// Work items — one row per user × ticket × calendar day
+export function workItemsCollection() {
+  return getDB().collection<WorkItem>("workitems");
+}
+
+// Timers — the canonical ledger of work segments
+export function timersCollection() {
+  return getDB().collection<Timer>("timers");
+}
+
 // Activity log
 export function activitiesCollection() {
   return getDB().collection<ActivityEvent>("activities");
+}
+
+// Channels — team-scoped group chat
+export function channelsCollection() {
+  return getDB().collection<Channel>("channels");
+}
+
+// Channel messages
+export function channelMessagesCollection() {
+  return getDB().collection<ChannelMessage>("channelmessages");
+}
+
+// Personal access tokens
+export function personalAccessTokensCollection() {
+  return getDB().collection<PersonalAccessToken>("personal_access_tokens");
 }

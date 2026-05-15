@@ -1,16 +1,5 @@
 import { ObjectId } from "mongodb";
-
-export interface ClockTicketSession {
-  startTimestamp: number; // epoch ms
-  endTimestamp: number | null; // epoch ms
-}
-
-export interface ClockEventTicket {
-  ticketId: string;
-  startTimestamp?: number; // epoch ms — present while running
-  accumulatedTime: number; // seconds
-  sessions: ClockTicketSession[];
-}
+import { clockEventsCollection } from "./index.js";
 
 export interface ClockEvent {
   _id: ObjectId;
@@ -18,6 +7,28 @@ export interface ClockEvent {
   teamId: string;
   startTime: number; // epoch ms
   accumulatedTime: number; // seconds
-  tickets: ClockEventTicket[];
   endTime: number | null; // epoch ms — null = still clocked in
+}
+
+// Read helpers using native MongoDB collection
+export async function findActiveClockEventByUserTeam(
+  userId: string,
+  teamId: string
+): Promise<ClockEvent | null> {
+  return clockEventsCollection().findOne({ userId, teamId, endTime: null });
+}
+
+export async function findActiveClockEventByUser(userId: string): Promise<ClockEvent | null> {
+  return clockEventsCollection().findOne({ userId, endTime: null });
+}
+
+export async function findClockEventsForUser(userId: string): Promise<ClockEvent[]> {
+  return clockEventsCollection().find({ userId }).sort({ startTime: -1 }).toArray();
+}
+
+export async function findLiveClockEventsForTeams(teamIds: string[]): Promise<ClockEvent[]> {
+  if (!teamIds.length) return [];
+  return clockEventsCollection()
+    .find({ teamId: { $in: teamIds }, endTime: null })
+    .toArray();
 }

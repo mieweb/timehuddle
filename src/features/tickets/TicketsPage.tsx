@@ -1,21 +1,24 @@
 /**
- * TicketsPage — CRUD ticket management with time tracking.
+ * TicketsPage — CRUD ticket management.
  *
  * Features:
  *   • Create ticket (title + optional GitHub URL)
- *   • Start/stop timer per ticket
  *   • Edit title/GitHub link
  *   • Delete tickets
  *   • Search/filter
- *   • Accumulated time display
+ *   • Status badge display
+ *
+ * Ticket-level timer tracking has moved to the Timers page (/app/work).
  */
 import {
+  faChevronDown,
   faEllipsisVertical,
   faExternalLink,
   faEye,
-  faPause,
   faPen,
-  faPlay,
+  faCircleCheck,
+  faCircleDot,
+  faCircleXmark,
   faPlus,
   faRightLeft,
   faSearch,
@@ -24,12 +27,10 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  Badge,
+  Avatar,
   Button,
   Card,
   CardContent,
-  CardHeader,
-  CardTitle,
   Dropdown,
   DropdownContent,
   DropdownItem,
@@ -46,13 +47,16 @@ import {
   Text,
   Textarea,
 } from '@mieweb/ui';
+import { Capacitor } from '@capacitor/core';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { teamApi, ticketApi, type TeamMember, type Ticket } from '../../lib/api';
+import { teamApi, ticketApi, type Team, type TeamMember, type Ticket } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
-import { formatDuration } from '../../lib/timeUtils';
 import { useSession } from '../../lib/useSession';
+import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { AttachmentsPanel } from '../clock/AttachmentsPanel';
+import { VideoUploadButton } from '../media/VideoUploadButton';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -71,12 +75,48 @@ const PRIORITY_OPTIONS = [
   { value: 'critical', label: 'Critical' },
 ];
 
-function priorityDotColor(p: string | null): string {
-  if (p === 'critical') return 'bg-red-500';
-  if (p === 'high') return 'bg-amber-500';
-  if (p === 'medium') return 'bg-blue-500';
-  if (p === 'low') return 'bg-neutral-400';
-  return '';
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
+  const years = Math.floor(months / 12);
+  return `${years} year${years === 1 ? '' : 's'} ago`;
+}
+
+function statusIconFor(status: string | null | undefined): {
+  icon: typeof faCircleDot;
+  className: string;
+} {
+  const s = status ?? 'open';
+  if (s === 'closed' || s === 'reviewed')
+    return { icon: faCircleCheck, className: 'text-purple-500' };
+  if (s === 'blocked') return { icon: faCircleXmark, className: 'text-amber-500' };
+  return { icon: faCircleDot, className: 'text-green-500' };
+}
+
+function priorityLabelClass(priority: string): string {
+  if (priority === 'critical')
+    return 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400';
+  if (priority === 'high')
+    return 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400';
+  if (priority === 'medium')
+    return 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-400';
+  return 'border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400';
+}
+
+function statusLabelClass(status: string): string {
+  if (status === 'in-progress')
+    return 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-400';
+  if (status === 'blocked')
+    return 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400';
+  return 'border-neutral-200 bg-neutral-100 text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400';
 }
 
 async function fetchIssueTitle(url: string): Promise<string | null> {
@@ -118,193 +158,256 @@ async function fetchIssueTitle(url: string): Promise<string | null> {
 interface TicketRowProps {
   ticket: Ticket;
   isCreator: boolean;
-  isAssignee: boolean;
-  currentTime: number;
   assigneeName: string | null;
-  onStartStop: (ticket: Ticket) => Promise<void>;
+  assigneeId: string | null;
+  createdByName: string | null;
   onEditRequest: (ticket: Ticket) => void;
   onDeleteRequest: (id: string) => void;
   onChangeStatusRequest: (ticket: Ticket) => void;
-  onDetailsRequest: (ticket: Ticket) => void;
 }
 
 const TicketRow: React.FC<TicketRowProps> = ({
   ticket,
   isCreator,
-  isAssignee,
-  currentTime,
   assigneeName,
-  onStartStop,
+  assigneeId,
+  createdByName,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
-  onDetailsRequest,
 }) => {
-  const isRunning = !!ticket.startTimestamp;
-  const elapsed = isRunning
-    ? (ticket.accumulatedTime || 0) + Math.floor((currentTime - ticket.startTimestamp!) / 1000)
-    : ticket.accumulatedTime || 0;
-
-  const statusLabel =
-    STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label ?? ticket.status ?? 'Open';
-  const dotColor = priorityDotColor(ticket.priority);
+  const { navigate } = useRouter();
+  const { icon, className: iconClass } = statusIconFor(ticket.status);
+  const showStatusLabel =
+    ticket.status &&
+    ticket.status !== 'open' &&
+    ticket.status !== 'closed' &&
+    ticket.status !== 'reviewed';
+  const statusLabel = STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label;
 
   return (
-    <li className="px-5 py-3">
-      <div className="flex items-start gap-3">
-        {/* Play/Pause — assignee if assigned, otherwise creator */}
-        {(ticket.assignedTo ? isAssignee : isCreator) && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => onStartStop(ticket)}
-            className={`shrink-0 rounded-full ${
-              isRunning
-                ? 'bg-amber-100 text-amber-600 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-400'
-                : 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-400'
-            }`}
-            aria-label={isRunning ? 'Pause ticket' : 'Start ticket'}
+    <li className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40">
+      {/* Status icon */}
+      <div className="mt-0.5 shrink-0 pt-0.5">
+        <FontAwesomeIcon icon={icon} className={`text-base ${iconClass}`} />
+      </div>
+
+      {/* Content */}
+      <div className="min-w-0 flex-1">
+        {/* Title + label badges */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            className="text-left text-sm font-semibold text-neutral-900 hover:text-primary dark:text-neutral-100 dark:hover:text-primary"
+            onClick={() => navigate(`/app/tickets/${ticket.id}`)}
           >
-            <FontAwesomeIcon icon={isRunning ? faPause : faPlay} className="text-xs" />
-          </Button>
-        )}
-
-        {/* Content */}
-        <div className="min-w-0 flex-1 space-y-1">
-          {/* Title row: priority dot + title + 3-dot menu */}
-          <div className="flex items-start gap-1.5">
-            {dotColor && (
-              <span
-                className={`mt-1 inline-block h-2 w-2 shrink-0 rounded-full ${dotColor}`}
-                aria-label={`Priority: ${ticket.priority}`}
-              />
-            )}
-            <Text size="sm" weight="medium" className="flex-1">
-              {ticket.title}
-            </Text>
-            <Dropdown
-              trigger={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Ticket options"
-                  className="-mt-1 -mr-2 shrink-0"
-                >
-                  <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-                </Button>
-              }
-              placement="bottom-end"
+            {ticket.title}
+          </button>
+          {ticket.priority && (
+            <span
+              className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium ${priorityLabelClass(ticket.priority)}`}
             >
-              <DropdownContent>
-                <DropdownItem
-                  icon={<FontAwesomeIcon icon={faEye} />}
-                  onClick={() => onDetailsRequest(ticket)}
-                >
-                  Ticket Details
-                </DropdownItem>
-                {isCreator && (
-                  <DropdownItem
-                    icon={<FontAwesomeIcon icon={faPen} />}
-                    onClick={() => onEditRequest(ticket)}
-                  >
-                    Edit Ticket
-                  </DropdownItem>
-                )}
-                <DropdownItem
-                  icon={<FontAwesomeIcon icon={faRightLeft} />}
-                  onClick={() => onChangeStatusRequest(ticket)}
-                >
-                  Change Status
-                </DropdownItem>
-                {isCreator && (
-                  <>
-                    <DropdownSeparator />
-                    <DropdownItem
-                      icon={<FontAwesomeIcon icon={faTrash} />}
-                      variant="danger"
-                      onClick={() => onDeleteRequest(ticket.id)}
-                    >
-                      Delete Ticket
-                    </DropdownItem>
-                  </>
-                )}
-              </DropdownContent>
-            </Dropdown>
-          </div>
-
-          {ticket.description && (
-            <p className="line-clamp-2 text-xs text-neutral-500 dark:text-neutral-400">
-              {ticket.description}
-            </p>
+              {ticket.priority}
+            </span>
           )}
-
-          {/* Footer: github, assignee, time, status */}
-          <div className="flex flex-wrap items-center gap-2">
-            {ticket.github && (
-              <a
-                href={ticket.github}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-blue-500 hover:underline"
-              >
-                <FontAwesomeIcon icon={faExternalLink} className="text-[10px]" />
-                {ticket.github.includes('github.com') ? 'GitHub' : 'Link'}
-              </a>
-            )}
-            {assigneeName && (
-              <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
-                {assigneeName}
-              </span>
-            )}
-            <Badge variant={isRunning ? 'success' : 'secondary'} size="sm" className="font-mono">
-              {formatDuration(elapsed)}
-            </Badge>
-            <Badge variant="secondary" size="sm">
+          {showStatusLabel && statusLabel && (
+            <span
+              className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium ${statusLabelClass(ticket.status)}`}
+            >
               {statusLabel}
-            </Badge>
-          </div>
+            </span>
+          )}
         </div>
+
+        {/* Metadata line */}
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-neutral-500 dark:text-neutral-400">
+          <span>
+            #{ticket.id.slice(-5)} opened {timeAgo(ticket.createdAt)} by{' '}
+            {createdByName ?? `user-${ticket.createdBy.slice(-4)}`}
+          </span>
+          {assigneeName && <span>· assigned to {assigneeName}</span>}
+          {ticket.github && (
+            <a
+              href={ticket.github}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 hover:text-blue-500 hover:underline"
+            >
+              <FontAwesomeIcon icon={faExternalLink} className="text-[10px]" />
+              {ticket.github.includes('github.com') ? 'GitHub' : 'Issue link'}
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* Right side: assignee avatar + overflow menu */}
+      <div className="flex shrink-0 items-center gap-2">
+        {assigneeName && assigneeId && (
+          <button
+            className="rounded-full ring-offset-1 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            onClick={() => navigate(`/app/profile/${assigneeId}`)}
+            aria-label={`View ${assigneeName}'s profile`}
+            title={assigneeName}
+          >
+            <Avatar name={assigneeName} size="xs" />
+          </button>
+        )}
+        <Dropdown
+          trigger={
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Ticket options"
+              className="opacity-0 transition-opacity group-hover:opacity-100"
+            >
+              <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+            </Button>
+          }
+          placement="bottom-end"
+        >
+          <DropdownContent>
+            <DropdownItem
+              icon={<FontAwesomeIcon icon={faEye} />}
+              onClick={() => navigate(`/app/tickets/${ticket.id}`)}
+            >
+              Ticket Details
+            </DropdownItem>
+            {isCreator && (
+              <DropdownItem
+                icon={<FontAwesomeIcon icon={faPen} />}
+                onClick={() => onEditRequest(ticket)}
+              >
+                Edit Ticket
+              </DropdownItem>
+            )}
+            <DropdownItem
+              icon={<FontAwesomeIcon icon={faRightLeft} />}
+              onClick={() => onChangeStatusRequest(ticket)}
+            >
+              Change Status
+            </DropdownItem>
+            {isCreator && (
+              <>
+                <DropdownSeparator />
+                <DropdownItem
+                  icon={<FontAwesomeIcon icon={faTrash} />}
+                  variant="danger"
+                  onClick={() => onDeleteRequest(ticket.id)}
+                >
+                  Delete Ticket
+                </DropdownItem>
+              </>
+            )}
+          </DropdownContent>
+        </Dropdown>
       </div>
     </li>
   );
 };
 
+// ─── Filter dropdown helper ───────────────────────────────────────────────────
+
+interface FilterDropdownProps {
+  label: string;
+  activeLabel: string | null;
+  children: React.ReactNode;
+}
+
+const FilterDropdown: React.FC<FilterDropdownProps> = ({ label, activeLabel, children }) => (
+  <Dropdown
+    trigger={
+      <button
+        className={`flex items-center gap-1 text-xs font-medium transition-colors ${
+          activeLabel
+            ? 'text-neutral-900 dark:text-neutral-100'
+            : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+        }`}
+      >
+        {activeLabel ? `${label}: ${activeLabel}` : label}
+        <FontAwesomeIcon icon={faChevronDown} className="text-[10px]" />
+      </button>
+    }
+    placement="bottom-end"
+  >
+    <DropdownContent>{children}</DropdownContent>
+  </Dropdown>
+);
+
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { selectedTeamId, teamsReady, currentTime } = useTeam();
+  const { teams, selectedTeamId, teamsReady } = useTeam();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  // Map from teamId → members for cross-team member lookups
+  const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
 
   const refetch = useCallback(async () => {
-    if (!selectedTeamId) {
+    if (!teams.length) {
       setTickets([]);
       return;
     }
     try {
-      const data = await ticketApi.getTickets(selectedTeamId);
-      setTickets(data);
+      const results = await Promise.all(teams.map((t) => ticketApi.getTickets(t.id)));
+      // Deduplicate by id in case a ticket appears in multiple team responses
+      const seen = new Set<string>();
+      const merged: Ticket[] = [];
+      for (const batch of results) {
+        for (const ticket of batch) {
+          if (!seen.has(ticket.id)) {
+            seen.add(ticket.id);
+            merged.push(ticket);
+          }
+        }
+      }
+      setTickets(merged);
     } catch {
       // keep previous tickets on error
     }
-  }, [selectedTeamId]);
+  }, [teams]);
 
   useEffect(() => {
     void refetch();
   }, [refetch]);
 
-  // Fetch team members for assignee display + edit modal
+  // Fetch members for all teams
   useEffect(() => {
-    if (!selectedTeamId) {
-      setTeamMembers([]);
-      return;
+    if (!teams.length) return;
+    void Promise.all(
+      teams.map(async (t) => {
+        try {
+          const members = await teamApi.getMembers(t.id);
+          return [t.id, members] as [string, TeamMember[]];
+        } catch {
+          return [t.id, []] as [string, TeamMember[]];
+        }
+      }),
+    ).then((entries) => setMembersByTeam(new Map(entries)));
+  }, [teams]);
+
+  // Flat deduplicated member list across all teams
+  const allMembers = useMemo(() => {
+    const seen = new Set<string>();
+    const out: TeamMember[] = [];
+    for (const members of membersByTeam.values()) {
+      for (const m of members) {
+        if (!seen.has(m.id)) {
+          seen.add(m.id);
+          out.push(m);
+        }
+      }
     }
-    teamApi
-      .getMembers(selectedTeamId)
-      .then(setTeamMembers)
-      .catch(() => {});
-  }, [selectedTeamId]);
+    return out;
+  }, [membersByTeam]);
+
+  // Assignee name resolver (searches all members)
+  const getAssigneeName = useCallback(
+    (assignedTo: string | null) => {
+      if (!assignedTo) return null;
+      const member = allMembers.find((m) => m.id === assignedTo);
+      return member ? member.name || member.email : null;
+    },
+    [allMembers],
+  );
 
   // Mutation loading states
   const [createLoading, setCreateLoading] = useState(false);
@@ -320,7 +423,10 @@ export const TicketsPage: React.FC = () => {
 
   // Search + filter
   const [searchQuery, setSearchQuery] = useState('');
-  const [showSearch, setShowSearch] = useState(false);
+  const [teamFilter, setTeamFilter] = useState<string | null>(null);
+  const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
+  const [statusDetailFilter, setStatusDetailFilter] = useState<string | null>(null);
+  const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
 
   // Delete state
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -342,66 +448,103 @@ export const TicketsPage: React.FC = () => {
 
   // Ticket details modal (read-only)
   const [detailsTicket, setDetailsTicket] = useState<Ticket | null>(null);
+  const [detailsAttachmentRefresh, setDetailsAttachmentRefresh] = useState(0);
 
-  // Status filter
-  type StatusFilter = 'all' | 'open' | 'inprogress' | 'done';
-  const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
-    { value: 'all', label: 'All' },
-    { value: 'open', label: 'Open' },
-    { value: 'inprogress', label: 'In Progress' },
-    { value: 'done', label: 'Done' },
-  ];
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  // Status filter: Open vs Closed (GitHub style)
+  type StatusFilter = 'open' | 'closed';
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
 
-  // Filter tickets by search
+  // Filter tickets by search + team + assignee
   const searchFilteredTickets = useMemo(() => {
-    if (!searchQuery.trim()) return tickets;
-    const q = searchQuery.toLowerCase();
-    return tickets.filter(
-      (t) => t.title.toLowerCase().includes(q) || t.github?.toLowerCase().includes(q),
-    );
-  }, [tickets, searchQuery]);
+    let result = tickets;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (t) => t.title.toLowerCase().includes(q) || t.github?.toLowerCase().includes(q),
+      );
+    }
+    if (teamFilter) {
+      result = result.filter((t) => t.teamId === teamFilter);
+    }
+    if (assigneeFilter === '__unassigned__') {
+      result = result.filter((t) => !t.assignedTo);
+    } else if (assigneeFilter) {
+      result = result.filter((t) => t.assignedTo === assigneeFilter);
+    }
+    if (statusDetailFilter) {
+      result = result.filter((t) => (t.status ?? 'open') === statusDetailFilter);
+    }
+    if (priorityFilter) {
+      result = result.filter((t) => (t.priority ?? '') === priorityFilter);
+    }
+    return result;
+  }, [tickets, searchQuery, teamFilter, assigneeFilter, statusDetailFilter, priorityFilter]);
+
+  // Open vs closed counts (GitHub-style header tabs)
+  const openCount = useMemo(
+    () =>
+      searchFilteredTickets.filter(
+        (t) => !t.status || (t.status !== 'closed' && t.status !== 'reviewed'),
+      ).length,
+    [searchFilteredTickets],
+  );
+  const closedCount = useMemo(
+    () =>
+      searchFilteredTickets.filter((t) => t.status === 'closed' || t.status === 'reviewed').length,
+    [searchFilteredTickets],
+  );
 
   // Filter tickets by status tab
   const filteredTickets = useMemo(() => {
-    if (statusFilter === 'all') return searchFilteredTickets;
-    if (statusFilter === 'open')
-      return searchFilteredTickets.filter((t) => !t.status || t.status === 'open');
-    if (statusFilter === 'inprogress')
-      return searchFilteredTickets.filter((t) => t.status === 'in-progress' || !!t.startTimestamp);
-    if (statusFilter === 'done')
+    if (statusFilter === 'closed')
       return searchFilteredTickets.filter((t) => t.status === 'closed' || t.status === 'reviewed');
-    return searchFilteredTickets;
+    // 'open' = everything that isn't closed
+    return searchFilteredTickets.filter(
+      (t) => !t.status || (t.status !== 'closed' && t.status !== 'reviewed'),
+    );
   }, [searchFilteredTickets, statusFilter]);
 
-  // My tickets vs others
-  const myTickets = useMemo(
-    () => filteredTickets.filter((t) => t.createdBy === userId),
-    [filteredTickets, userId],
-  );
-  const otherTickets = useMemo(
-    () => filteredTickets.filter((t) => t.createdBy !== userId),
-    [filteredTickets, userId],
-  );
-
-  // Assignee name resolver
-  const getAssigneeName = useCallback(
-    (assignedTo: string | null) => {
-      if (!assignedTo) return null;
-      const member = teamMembers.find((m) => m.id === assignedTo);
-      return member ? member.name || member.email : null;
-    },
-    [teamMembers],
-  );
-
-  // Member options for assignee select
-  const memberOptions = useMemo(
-    () => [
+  // Member options for assignee select in the edit modal
+  const memberOptions = useMemo(() => {
+    const teamId = selectedTeamId ?? teams[0]?.id;
+    const members = teamId ? (membersByTeam.get(teamId) ?? []) : [];
+    return [
       { value: '', label: 'Unassigned' },
-      ...teamMembers.map((m) => ({ value: m.id, label: m.name || m.email })),
-    ],
-    [teamMembers],
+      ...members.map((m) => ({ value: m.id, label: m.name || m.email })),
+    ];
+  }, [membersByTeam, selectedTeamId, teams]);
+
+  // Active filter label helpers
+  const activeTeamLabel = useMemo(
+    () => (teamFilter ? (teams.find((t: Team) => t.id === teamFilter)?.name ?? null) : null),
+    [teamFilter, teams],
   );
+  const activeStatusDetailLabel = useMemo(
+    () =>
+      statusDetailFilter
+        ? (STATUS_OPTIONS.find((s) => s.value === statusDetailFilter)?.label ?? null)
+        : null,
+    [statusDetailFilter],
+  );
+  const activePriorityLabel = useMemo(
+    () =>
+      priorityFilter
+        ? (PRIORITY_OPTIONS.find((p) => p.value === priorityFilter)?.label ?? null)
+        : null,
+    [priorityFilter],
+  );
+  const activeAssigneeLabel = useMemo(() => {
+    if (!assigneeFilter) return null;
+    if (assigneeFilter === '__unassigned__') return 'Unassigned';
+    return getAssigneeName(assigneeFilter) ?? null;
+  }, [assigneeFilter, getAssigneeName]);
+
+  // Members sorted with current user first
+  const sortedMembers = useMemo(() => {
+    const me = allMembers.find((m) => m.id === userId);
+    const rest = allMembers.filter((m) => m.id !== userId);
+    return me ? [me, ...rest] : rest;
+  }, [allMembers, userId]);
 
   // ── Handlers ──
 
@@ -422,24 +565,6 @@ export const TicketsPage: React.FC = () => {
       setCreateLoading(false);
     }
   }, [createTitle, createGithub, selectedTeamId, refetch]);
-
-  const handleStartStop = useCallback(async (ticket: Ticket) => {
-    const now = Date.now();
-    if (ticket.startTimestamp) {
-      const updated = await ticketApi.stopTimer(ticket.id, now);
-      setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-    } else {
-      const result = await ticketApi.startTimer(ticket.id, now);
-      // Immediately reconcile local state: update the started ticket and any auto-stopped ones.
-      const stoppedById = new Map(result.stoppedTickets.map((s) => [s.id, s]));
-      setTickets((prev) =>
-        prev.map((t) => {
-          if (t.id === result.ticket.id) return result.ticket;
-          return stoppedById.get(t.id) ?? t;
-        }),
-      );
-    }
-  }, []);
 
   const openEditModal = (ticket: Ticket) => {
     setEditTicket(ticket);
@@ -507,72 +632,9 @@ export const TicketsPage: React.FC = () => {
   }
 
   return (
-    <AppPage>
-      {/* ── Status filter tabs ── */}
-      <div className="flex gap-1" role="tablist" aria-label="Filter tickets by status">
-        {STATUS_FILTERS.map((f) => (
-          <button
-            key={f.value}
-            role="tab"
-            aria-selected={statusFilter === f.value}
-            onClick={() => setStatusFilter(f.value)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              statusFilter === f.value
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-muted/80'
-            }`}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Mobile header ── */}
-      <div className="flex items-center gap-2 md:hidden">
-        <Button
-          variant="primary"
-          size="icon"
-          onClick={() => setShowCreate(true)}
-          aria-label="New Ticket"
-        >
-          <FontAwesomeIcon icon={faPlus} />
-        </Button>
-
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => {
-            setShowSearch((v) => !v);
-            if (showSearch) setSearchQuery('');
-          }}
-          aria-label={showSearch ? 'Close search' : 'Search tickets'}
-        >
-          <FontAwesomeIcon icon={showSearch ? faXmark : faSearch} />
-        </Button>
-      </div>
-
-      {/* Search input (mobile) */}
-      {showSearch && (
-        <div className="relative md:hidden">
-          <FontAwesomeIcon
-            icon={faSearch}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
-          />
-          <Input
-            label="Search"
-            hideLabel
-            placeholder="Search tickets…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8"
-            size="sm"
-            autoFocus
-          />
-        </div>
-      )}
-
-      {/* ── Desktop header ── */}
-      <div className="hidden flex-wrap items-center gap-3 md:flex">
+    <AppPage fullWidth>
+      {/* ── Header: New Ticket + Search ── */}
+      <div className="flex flex-wrap items-center gap-3">
         <Button
           variant="primary"
           leftIcon={<FontAwesomeIcon icon={faPlus} />}
@@ -684,85 +746,174 @@ export const TicketsPage: React.FC = () => {
         </Card>
       )}
 
-      {/* My tickets */}
-      {myTickets.length > 0 && (
-        <Card padding="none" style={{ overflow: 'visible' }}>
-          <CardHeader className="px-5 py-3">
-            <CardTitle className="text-sm">My Tickets ({myTickets.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0" style={{ overflow: 'visible' }}>
-            <ul
-              className="divide-y divide-neutral-100 dark:divide-neutral-800"
-              style={{ overflow: 'visible' }}
+      {/* ── Unified ticket list (GitHub style) ── */}
+      <Card
+        padding="none"
+        style={{ overflow: 'visible' }}
+        className={Capacitor.isNativePlatform() ? 'border-0 shadow-none bg-transparent' : ''}
+      >
+        {/* GitHub-style header: Open / Closed tabs + filter dropdowns */}
+        <div
+          className={`flex items-center justify-between gap-2 px-4 py-2.5 ${Capacitor.isNativePlatform() ? 'border-b border-neutral-200 dark:border-neutral-700' : 'rounded-t-xl border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/60'}`}
+        >
+          {/* Left: status tabs */}
+          <div className="flex items-center gap-4">
+            <button
+              role="tab"
+              aria-selected={statusFilter === 'open'}
+              onClick={() => setStatusFilter('open')}
+              className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                statusFilter === 'open'
+                  ? 'text-neutral-900 dark:text-neutral-100'
+                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+              }`}
             >
-              {myTickets.map((t) => (
-                <TicketRow
-                  key={t.id}
-                  ticket={t}
-                  isCreator={true}
-                  isAssignee={t.assignedTo === userId}
-                  currentTime={currentTime}
-                  assigneeName={getAssigneeName(t.assignedTo)}
-                  onStartStop={handleStartStop}
-                  onEditRequest={openEditModal}
-                  onDeleteRequest={setDeleteId}
-                  onChangeStatusRequest={(ticket) => {
-                    setChangeStatusTicket(ticket);
-                    setChangeStatusValue(ticket.status || 'open');
-                  }}
-                  onDetailsRequest={setDetailsTicket}
-                />
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Team tickets */}
-      {otherTickets.length > 0 && (
-        <Card padding="none" style={{ overflow: 'visible' }}>
-          <CardHeader className="px-5 py-3">
-            <CardTitle className="text-sm">Team Tickets ({otherTickets.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0" style={{ overflow: 'visible' }}>
-            <ul
-              className="divide-y divide-neutral-100 dark:divide-neutral-800"
-              style={{ overflow: 'visible' }}
+              <FontAwesomeIcon icon={faCircleDot} className="text-green-500" />
+              {openCount} Open
+            </button>
+            <button
+              role="tab"
+              aria-selected={statusFilter === 'closed'}
+              onClick={() => setStatusFilter('closed')}
+              className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                statusFilter === 'closed'
+                  ? 'text-neutral-900 dark:text-neutral-100'
+                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+              }`}
             >
-              {otherTickets.map((t) => (
-                <TicketRow
-                  key={t.id}
-                  ticket={t}
-                  isCreator={false}
-                  isAssignee={t.assignedTo === userId}
-                  currentTime={currentTime}
-                  assigneeName={getAssigneeName(t.assignedTo)}
-                  onStartStop={handleStartStop}
-                  onEditRequest={openEditModal}
-                  onDeleteRequest={setDeleteId}
-                  onChangeStatusRequest={(ticket) => {
-                    setChangeStatusTicket(ticket);
-                    setChangeStatusValue(ticket.status || 'open');
-                  }}
-                  onDetailsRequest={setDetailsTicket}
-                />
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
+              <FontAwesomeIcon icon={faCircleCheck} className="text-purple-500" />
+              {closedCount} Closed
+            </button>
+          </div>
 
-      {filteredTickets.length === 0 && (
-        <Card variant="outlined" padding="lg" className="border-dashed text-center">
-          <CardContent>
+          {/* Right: filter dropdowns */}
+          <div className="flex items-center gap-4">
+            {teams.length > 1 && (
+              <FilterDropdown label="Team" activeLabel={activeTeamLabel}>
+                <DropdownItem
+                  onClick={() => setTeamFilter(null)}
+                  className={!teamFilter ? 'font-semibold' : ''}
+                >
+                  All teams
+                </DropdownItem>
+                <DropdownSeparator />
+                {teams.map((t: Team) => (
+                  <DropdownItem
+                    key={t.id}
+                    onClick={() => setTeamFilter(t.id)}
+                    className={teamFilter === t.id ? 'font-semibold' : ''}
+                  >
+                    {t.name}
+                  </DropdownItem>
+                ))}
+              </FilterDropdown>
+            )}
+            <FilterDropdown label="Priority" activeLabel={activePriorityLabel}>
+              <DropdownItem
+                onClick={() => setPriorityFilter(null)}
+                className={!priorityFilter ? 'font-semibold' : ''}
+              >
+                Any priority
+              </DropdownItem>
+              <DropdownSeparator />
+              {PRIORITY_OPTIONS.map((p) => (
+                <DropdownItem
+                  key={p.value}
+                  onClick={() => setPriorityFilter(priorityFilter === p.value ? null : p.value)}
+                  className={priorityFilter === p.value ? 'font-semibold' : ''}
+                >
+                  {p.label}
+                </DropdownItem>
+              ))}
+            </FilterDropdown>
+            <FilterDropdown label="Status" activeLabel={activeStatusDetailLabel}>
+              <DropdownItem
+                onClick={() => setStatusDetailFilter(null)}
+                className={!statusDetailFilter ? 'font-semibold' : ''}
+              >
+                Any status
+              </DropdownItem>
+              <DropdownSeparator />
+              {STATUS_OPTIONS.filter(
+                (s) => s.value !== 'open' && s.value !== 'closed' && s.value !== 'reviewed',
+              ).map((s) => (
+                <DropdownItem
+                  key={s.value}
+                  onClick={() =>
+                    setStatusDetailFilter(statusDetailFilter === s.value ? null : s.value)
+                  }
+                  className={statusDetailFilter === s.value ? 'font-semibold' : ''}
+                >
+                  {s.label}
+                </DropdownItem>
+              ))}
+            </FilterDropdown>
+            <FilterDropdown label="Assignee" activeLabel={activeAssigneeLabel}>
+              <DropdownItem
+                onClick={() => setAssigneeFilter(null)}
+                className={assigneeFilter === null ? 'font-semibold' : ''}
+              >
+                Any
+              </DropdownItem>
+              <DropdownSeparator />
+              <DropdownItem
+                onClick={() =>
+                  setAssigneeFilter(assigneeFilter === '__unassigned__' ? null : '__unassigned__')
+                }
+                className={assigneeFilter === '__unassigned__' ? 'font-semibold' : ''}
+              >
+                Unassigned
+              </DropdownItem>
+              {sortedMembers.length > 0 && <DropdownSeparator />}
+              {sortedMembers.map((m) => (
+                <DropdownItem
+                  key={m.id}
+                  onClick={() => setAssigneeFilter(assigneeFilter === m.id ? null : m.id)}
+                  className={assigneeFilter === m.id ? 'font-semibold' : ''}
+                >
+                  {m.id === userId ? `${m.name || m.email} (you)` : m.name || m.email}
+                </DropdownItem>
+              ))}
+            </FilterDropdown>
+          </div>
+        </div>
+
+        {/* Ticket rows */}
+        {filteredTickets.length > 0 ? (
+          <ul
+            className="divide-y divide-neutral-100 dark:divide-neutral-800"
+            style={{ overflow: 'visible' }}
+            aria-label={statusFilter === 'open' ? 'Open tickets' : 'Closed tickets'}
+          >
+            {filteredTickets.map((t) => (
+              <TicketRow
+                key={t.id}
+                ticket={t}
+                isCreator={t.createdBy === userId}
+                assigneeName={getAssigneeName(t.assignedTo)}
+                assigneeId={t.assignedTo}
+                createdByName={getAssigneeName(t.createdBy)}
+                onEditRequest={openEditModal}
+                onDeleteRequest={setDeleteId}
+                onChangeStatusRequest={(ticket) => {
+                  setChangeStatusTicket(ticket);
+                  setChangeStatusValue(ticket.status || 'open');
+                }}
+              />
+            ))}
+          </ul>
+        ) : (
+          <div className="px-4 py-10 text-center">
             <Text variant="muted" size="sm">
               {searchQuery
                 ? 'No tickets match your search.'
-                : 'No tickets yet. Create one to get started!'}
+                : statusFilter === 'open'
+                  ? 'No open tickets. Create one to get started!'
+                  : 'No closed tickets.'}
             </Text>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        )}
+      </Card>
 
       {/* Edit ticket modal (creator only) */}
       <Modal open={!!editTicket} onOpenChange={(open) => !open && setEditTicket(null)}>
@@ -852,7 +1003,7 @@ export const TicketsPage: React.FC = () => {
             loadingText="Saving…"
             disabled={!editTitle.trim()}
           >
-            Save Changes
+            Save
           </Button>
         </ModalFooter>
       </Modal>
@@ -931,7 +1082,7 @@ export const TicketsPage: React.FC = () => {
                     </Text>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span
-                        className={`inline-block h-2 w-2 rounded-full ${priorityDotColor(detailsTicket.priority)}`}
+                        className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium ${priorityLabelClass(detailsTicket.priority)}`}
                       />
                       <Text size="sm">
                         {detailsTicket.priority.charAt(0).toUpperCase() +
@@ -940,14 +1091,6 @@ export const TicketsPage: React.FC = () => {
                     </div>
                   </div>
                 )}
-                <div>
-                  <Text size="xs" variant="muted" weight="medium">
-                    Time Tracked
-                  </Text>
-                  <Text size="sm" className="font-mono">
-                    {formatDuration(detailsTicket.accumulatedTime || 0)}
-                  </Text>
-                </div>
               </div>
               {detailsTicket.github && (
                 <div>
@@ -996,9 +1139,33 @@ export const TicketsPage: React.FC = () => {
                   </Text>
                 </div>
               )}
+              <div className="space-y-1 pt-1">
+                <AttachmentsPanel
+                  key={detailsAttachmentRefresh}
+                  kind="ticket"
+                  entityId={detailsTicket.id}
+                  currentUserId={userId ?? undefined}
+                />
+                <VideoUploadButton
+                  ticketId={detailsTicket.id}
+                  onUploadComplete={() => setDetailsAttachmentRefresh((n) => n + 1)}
+                />
+              </div>
             </div>
           </ModalBody>
           <ModalFooter>
+            {userId && detailsTicket.assignedTo !== userId && (
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  await ticketApi.assignTicket(detailsTicket.id, userId);
+                  setDetailsTicket((t) => (t ? { ...t, assignedTo: userId } : t));
+                  void refetch();
+                }}
+              >
+                Assign to me
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setDetailsTicket(null)}>
               Close
             </Button>

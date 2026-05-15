@@ -1,6 +1,12 @@
 import { ObjectId } from "mongodb";
 import { teamsCollection, ticketsCollection, usersCollection } from "../models/index.js";
 import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
+import {
+  ActivityType,
+  type TicketCreatedPayload,
+  type TicketUpdatedPayload,
+} from "../models/activity.model.js";
+import { emitActivity } from "./activity.service.js";
 import { notificationService } from "./notification.service.js";
 import { pushService } from "./push.service.js";
 
@@ -12,6 +18,46 @@ function isValidId(id: string): boolean {
 }
 
 export class TicketService {
+  private async getActor(userId: string): Promise<{ id: string; name: string }> {
+    const user = isValidId(userId)
+      ? await usersCollection().findOne({ _id: new ObjectId(userId) })
+      : null;
+    return {
+      id: userId,
+      name: user?.name ?? user?.email?.split("@")[0] ?? "Someone",
+    };
+  }
+
+  private async emitTicketCreatedActivity(
+    userId: string,
+    teamId: string,
+    payload: TicketCreatedPayload
+  ): Promise<void> {
+    const actor = await this.getActor(userId);
+    await emitActivity({
+      userId,
+      teamId,
+      type: ActivityType.TicketCreated,
+      actor,
+      payload,
+    });
+  }
+
+  private async emitTicketUpdatedActivity(
+    userId: string,
+    teamId: string,
+    payload: TicketUpdatedPayload
+  ): Promise<void> {
+    const actor = await this.getActor(userId);
+    await emitActivity({
+      userId,
+      teamId,
+      type: ActivityType.TicketUpdated,
+      actor,
+      payload,
+    });
+  }
+
   async findById(id: string): Promise<Ticket | null> {
     if (!isValidId(id)) return null;
     return ticketsCollection().findOne({ _id: new ObjectId(id) });
@@ -34,7 +80,6 @@ export class TicketService {
     teamId: string;
     title: string;
     github: string;
-    accumulatedTime: number;
     createdBy: string;
   }): Promise<{ id: string } | "forbidden"> {
     if (!isValidId(data.teamId)) return "forbidden";
@@ -48,11 +93,15 @@ export class TicketService {
       teamId: data.teamId,
       title: data.title,
       github: data.github,
-      accumulatedTime: data.accumulatedTime,
       status: "open",
       createdBy: data.createdBy,
       assignedTo: data.createdBy,
       createdAt: new Date(),
+    });
+    await this.emitTicketCreatedActivity(data.createdBy, data.teamId, {
+      ticketId: result.insertedId.toHexString(),
+      ticketTitle: data.title,
+      teamId: data.teamId,
     });
     return { id: result.insertedId.toHexString() };
   }
@@ -60,16 +109,31 @@ export class TicketService {
   async update(
     id: string,
     userId: string,
-    updates: Partial<Pick<Ticket, "title" | "github" | "accumulatedTime" | "description">>
+    updates: Partial<Pick<Ticket, "title" | "github" | "description">>
   ): Promise<Ticket | OwnerError> {
     const ticket = await this.findById(id);
     if (!ticket) return "not-found";
-    if (ticket.createdBy !== userId) return "forbidden";
+    if (!isValidId(ticket.teamId)) return "forbidden";
+    const team = await teamsCollection().findOne({
+      _id: new ObjectId(ticket.teamId),
+      $or: [{ members: userId }, { admins: userId }],
+    });
+    if (!team) return "forbidden";
+    // Only the ticket creator or a team admin may edit title/github/description.
+    const isAdmin = (team.admins ?? []).includes(userId);
+    if (ticket.createdBy !== userId && !isAdmin) return "forbidden";
     await ticketsCollection().updateOne(
       { _id: new ObjectId(id) },
       { $set: { ...updates, updatedAt: new Date(), updatedBy: userId } }
     );
-    return (await this.findById(id))!;
+    const updated = (await this.findById(id))!;
+    await this.emitTicketUpdatedActivity(userId, updated.teamId, {
+      ticketId: updated._id.toHexString(),
+      ticketTitle: updated.title,
+      teamId: updated.teamId,
+      action: "edited",
+    });
+    return updated;
   }
 
   // Any team member can update status and/or priority.
@@ -92,198 +156,48 @@ export class TicketService {
       $set.reviewedAt = new Date();
     }
     await ticketsCollection().updateOne({ _id: new ObjectId(id) }, { $set });
-    return (await this.findById(id))!;
+    const updated = (await this.findById(id))!;
+    const action =
+      updates.status && updates.priority
+        ? "status-priority-changed"
+        : updates.status
+          ? "status-changed"
+          : "priority-changed";
+    await this.emitTicketUpdatedActivity(userId, updated.teamId, {
+      ticketId: updated._id.toHexString(),
+      ticketTitle: updated.title,
+      teamId: updated.teamId,
+      action,
+      status: updates.status,
+      priority: updates.priority,
+    });
+    return updated;
   }
 
   // Soft-delete so Phase 5 clock event cleanup can reference the ID.
   async delete(id: string, userId: string): Promise<"ok" | OwnerError> {
     const ticket = await this.findById(id);
     if (!ticket) return "not-found";
-    if (ticket.createdBy !== userId) return "forbidden";
+    if (!isValidId(ticket.teamId)) return "forbidden";
+    const team = await teamsCollection().findOne({
+      _id: new ObjectId(ticket.teamId),
+      $or: [{ members: userId }, { admins: userId }],
+    });
+    if (!team) return "forbidden";
+    // Only the ticket creator or a team admin may delete.
+    const isAdmin = (team.admins ?? []).includes(userId);
+    if (ticket.createdBy !== userId && !isAdmin) return "forbidden";
     await ticketsCollection().updateOne(
       { _id: new ObjectId(id) },
       { $set: { status: "deleted" as TicketStatus, updatedAt: new Date() } }
     );
+    await this.emitTicketUpdatedActivity(userId, ticket.teamId, {
+      ticketId: ticket._id.toHexString(),
+      ticketTitle: ticket.title,
+      teamId: ticket.teamId,
+      action: "deleted",
+    });
     return "ok";
-  }
-
-  async startTimer(
-    id: string,
-    userId: string,
-    now: number
-  ): Promise<{ ticket: Ticket; stoppedTickets: Ticket[] } | OwnerError> {
-    const ticket = await this.findById(id);
-    if (!ticket) return "not-found";
-    // If assigned: only assignee can run timer. If unassigned: only creator can.
-    const canTimer = ticket.assignedTo ? ticket.assignedTo === userId : ticket.createdBy === userId;
-    if (!canTimer) return "forbidden";
-
-    // Stop any other running timers owned by this user before starting the new one.
-    const running = await ticketsCollection()
-      .find({
-        createdBy: userId,
-        startTimestamp: { $exists: true },
-        _id: { $ne: new ObjectId(id) },
-      })
-      .toArray();
-
-    const stoppedTickets: Ticket[] = [];
-    if (running.length > 0) {
-      // Batch all stops into a single bulkWrite round-trip.
-      const bulkOps = running.map((other) => {
-        const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
-        const newAccumulatedTime = (other.accumulatedTime ?? 0) + elapsed;
-        return {
-          updateOne: {
-            filter: { _id: other._id },
-            update: {
-              $set: { accumulatedTime: newAccumulatedTime },
-              $unset: { startTimestamp: 1 as const },
-            },
-          },
-        };
-      });
-      await ticketsCollection().bulkWrite(bulkOps);
-
-      // Build stopped-ticket objects from in-memory data to avoid extra DB reads.
-      for (const other of running) {
-        const elapsed = Math.floor((now - other.startTimestamp!) / 1000);
-        const stopped: Ticket = {
-          ...other,
-          accumulatedTime: (other.accumulatedTime ?? 0) + elapsed,
-        };
-        delete stopped.startTimestamp;
-        stoppedTickets.push(stopped);
-      }
-    }
-
-    const started = await ticketsCollection().findOneAndUpdate(
-      { _id: new ObjectId(id) },
-      { $set: { startTimestamp: now } },
-      { returnDocument: "after" }
-    );
-    if (!started) return "not-found";
-
-    // Notify team admins
-    if (isValidId(ticket.teamId)) {
-      const [team, user] = await Promise.all([
-        teamsCollection().findOne({ _id: new ObjectId(ticket.teamId) }),
-        usersCollection().findOne({ _id: new ObjectId(userId) }),
-      ]);
-      if (team) {
-        const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
-        const notifyAdmins = (team.admins ?? []).filter((aid) => aid !== userId);
-        await Promise.all(
-          notifyAdmins.map((adminId) =>
-            Promise.all([
-              notificationService
-                .create({
-                  userId: adminId,
-                  title: "TiméHuddle",
-                  body: `${userName} started a timer on "${ticket.title}"`,
-                  notificationData: {
-                    type: "ticket-timer-start",
-                    userId,
-                    userName,
-                    ticketId: id,
-                    ticketTitle: ticket.title,
-                    teamId: ticket.teamId,
-                    url: `/app/tickets`,
-                  },
-                })
-                .catch(() => {}),
-              pushService
-                .sendPush(adminId, {
-                  title: `${userName} started "${ticket.title}"`,
-                  body: `${userName} started a timer on "${ticket.title}"`,
-                  tag: `ticket-start-${id}`,
-                  data: {
-                    type: "ticket-timer-start",
-                    userId,
-                    userName,
-                    ticketId: id,
-                    ticketTitle: ticket.title,
-                    teamId: ticket.teamId,
-                    url: `/app/tickets`,
-                  },
-                })
-                .catch(() => {}),
-            ])
-          )
-        );
-      }
-    }
-
-    return { ticket: started, stoppedTickets };
-  }
-
-  async stopTimer(id: string, userId: string, now: number): Promise<Ticket | OwnerError> {
-    const ticket = await this.findById(id);
-    if (!ticket) return "not-found";
-    // If assigned: only assignee can run timer. If unassigned: only creator can.
-    const canTimer = ticket.assignedTo ? ticket.assignedTo === userId : ticket.createdBy === userId;
-    if (!canTimer) return "forbidden";
-    if (ticket.startTimestamp != null) {
-      const elapsed = Math.floor((now - ticket.startTimestamp) / 1000);
-      const prev = ticket.accumulatedTime ?? 0;
-      await ticketsCollection().updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { accumulatedTime: prev + elapsed }, $unset: { startTimestamp: "" } }
-      );
-    }
-    const updated = (await this.findById(id))!;
-
-    // Notify team admins
-    if (isValidId(ticket.teamId)) {
-      const [team, user] = await Promise.all([
-        teamsCollection().findOne({ _id: new ObjectId(ticket.teamId) }),
-        usersCollection().findOne({ _id: new ObjectId(userId) }),
-      ]);
-      if (team) {
-        const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
-        const notifyAdmins = (team.admins ?? []).filter((aid) => aid !== userId);
-        await Promise.all(
-          notifyAdmins.map((adminId) =>
-            Promise.all([
-              notificationService
-                .create({
-                  userId: adminId,
-                  title: "TiméHuddle",
-                  body: `${userName} stopped the timer on "${ticket.title}"`,
-                  notificationData: {
-                    type: "ticket-timer-stop",
-                    userId,
-                    userName,
-                    ticketId: id,
-                    ticketTitle: ticket.title,
-                    teamId: ticket.teamId,
-                    url: `/app/tickets`,
-                  },
-                })
-                .catch(() => {}),
-              pushService
-                .sendPush(adminId, {
-                  title: `${userName} stopped "${ticket.title}"`,
-                  body: `${userName} stopped the timer on "${ticket.title}"`,
-                  tag: `ticket-stop-${id}`,
-                  data: {
-                    type: "ticket-timer-stop",
-                    userId,
-                    userName,
-                    ticketId: id,
-                    ticketTitle: ticket.title,
-                    teamId: ticket.teamId,
-                    url: `/app/tickets`,
-                  },
-                })
-                .catch(() => {}),
-            ])
-          )
-        );
-      }
-    }
-
-    return updated;
   }
 
   async batchUpdateStatus(
@@ -309,10 +223,24 @@ export class TicketService {
       { _id: { $in: validIds }, teamId },
       { $set }
     );
+    const updatedTickets = await ticketsCollection()
+      .find({ _id: { $in: validIds }, teamId })
+      .toArray();
+    await Promise.all(
+      updatedTickets.map((ticket) =>
+        this.emitTicketUpdatedActivity(adminId, teamId, {
+          ticketId: ticket._id.toHexString(),
+          ticketTitle: ticket.title,
+          teamId,
+          action: "batch-status-changed",
+          status,
+        })
+      )
+    );
     return result.modifiedCount;
   }
 
-  // Assign ticket: allowed for the ticket creator or a team admin.
+  // Assign ticket: allowed for team admins only.
   async assign(
     id: string,
     requesterId: string,
@@ -323,12 +251,9 @@ export class TicketService {
     if (!isValidId(ticket.teamId)) return "forbidden";
     const team = await teamsCollection().findOne({
       _id: new ObjectId(ticket.teamId),
-      $or: [{ members: requesterId }, { admins: requesterId }],
+      admins: requesterId,
     });
     if (!team) return "forbidden";
-    const isCreator = ticket.createdBy === requesterId;
-    const isAdmin = (team.admins ?? []).includes(requesterId);
-    if (!isCreator && !isAdmin) return "forbidden";
     if (assignedToUserId !== null) {
       const allMembers = [...new Set([...(team.members ?? []), ...(team.admins ?? [])])];
       if (!allMembers.includes(assignedToUserId)) return "bad-assignee";
@@ -338,6 +263,18 @@ export class TicketService {
       { $set: { assignedTo: assignedToUserId, updatedAt: new Date(), updatedBy: requesterId } }
     );
     const updated = (await this.findById(id))!;
+    const assignee =
+      assignedToUserId && isValidId(assignedToUserId)
+        ? await usersCollection().findOne({ _id: new ObjectId(assignedToUserId) })
+        : null;
+    await this.emitTicketUpdatedActivity(requesterId, updated.teamId, {
+      ticketId: updated._id.toHexString(),
+      ticketTitle: updated.title,
+      teamId: updated.teamId,
+      action: assignedToUserId ? "assigned" : "unassigned",
+      assigneeId: assignedToUserId,
+      assigneeName: assignee?.name ?? assignee?.email?.split("@")[0],
+    });
 
     // Notify the assignee (skip if unassigning or assigning to self)
     if (assignedToUserId && assignedToUserId !== requesterId) {

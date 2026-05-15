@@ -4,6 +4,7 @@
  * Base URL is read from the VITE_TIMECORE_URL env var (set in .env),
  * falling back to localhost:4000 for local development.
  */
+import { autoReconnectWs, type AutoReconnectWs } from './autoReconnectWs.js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -11,6 +12,8 @@ export const TIMECORE_BASE_URL: string =
   (typeof import.meta !== 'undefined' &&
     (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
   'http://localhost:4000';
+
+const WS_BASE_URL = TIMECORE_BASE_URL.replace(/^http/, 'ws');
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -43,6 +46,8 @@ export interface PublicUser {
   image: string | null;
   bio: string;
   website: string;
+  reportsTo: { id: string; name: string; username: string | null } | null;
+  teamMemberships: Array<{ id: string; name: string; role: 'admin' | 'member' }>;
   /** Teams shared between the viewer and this user (non-personal). Empty for own profile. */
   sharedTeams?: Array<{ id: string; name: string; isAdmin: boolean }>;
 }
@@ -75,6 +80,9 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
   const token = sessionToken.get();
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
+  // Destructure headers out of options so that ...restOptions below does not
+  // overwrite the merged headers object (which would drop Authorization).
+  const { headers: optHeaders, ...restOptions } = options;
   try {
     const res = await fetch(`${TIMECORE_BASE_URL}${path}`, {
       credentials: 'include',
@@ -82,9 +90,9 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
       headers: {
         ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...options.headers,
+        ...optHeaders,
       },
-      ...options,
+      ...restOptions,
     });
 
     if (!res.ok) {
@@ -263,7 +271,13 @@ export const userApi = {
     ),
 
   /** Update the current user's profile fields. */
-  updateProfile: (data: { name?: string; image?: string | null; bio?: string; website?: string }) =>
+  updateProfile: (data: {
+    name?: string;
+    image?: string | null;
+    bio?: string;
+    website?: string;
+    reportsToUserId?: string | null;
+  }) =>
     request<{ user: PublicUser }>('/v1/me/profile', {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -301,8 +315,6 @@ export interface Ticket {
   title: string;
   description: string | null;
   github: string;
-  accumulatedTime: number;
-  startTimestamp: number | null;
   status: string;
   priority: string | null;
   createdBy: string;
@@ -319,21 +331,16 @@ export const ticketApi = {
       (r) => r.tickets,
     ),
 
-  createTicket: (data: {
-    teamId: string;
-    title: string;
-    github?: string;
-    accumulatedTime?: number;
-  }) =>
+  getTicket: (id: string) =>
+    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`).then((r) => r.ticket),
+
+  createTicket: (data: { teamId: string; title: string; github?: string }) =>
     request<{ ticket: Ticket }>('/v1/tickets', {
       method: 'POST',
       body: JSON.stringify(data),
     }).then((r) => r.ticket),
 
-  updateTicket: (
-    id: string,
-    updates: { title?: string; github?: string; accumulatedTime?: number; description?: string },
-  ) =>
+  updateTicket: (id: string, updates: { title?: string; github?: string; description?: string }) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
@@ -348,21 +355,6 @@ export const ticketApi = {
   deleteTicket: (id: string) =>
     request<{ ok: boolean }>(`/v1/tickets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
-  startTimer: (id: string, now: number) =>
-    request<{ ticket: Ticket; stoppedTickets: Ticket[] }>(
-      `/v1/tickets/${encodeURIComponent(id)}/start`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ now }),
-      },
-    ),
-
-  stopTimer: (id: string, now: number) =>
-    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/stop`, {
-      method: 'POST',
-      body: JSON.stringify({ now }),
-    }).then((r) => r.ticket),
-
   batchUpdateStatus: (data: { ticketIds: string[]; status: string; teamId: string }) =>
     request<{ modified: number }>('/v1/tickets/batch-status', {
       method: 'POST',
@@ -374,6 +366,12 @@ export const ticketApi = {
       method: 'PUT',
       body: JSON.stringify({ assignedToUserId }),
     }).then((r) => r.ticket),
+
+  /** Get total accumulated seconds for a ticket from Timers. */
+  getTotal: (ticketId: string) =>
+    request<{ totalSeconds: number }>(
+      `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
+    ).then((r) => r.totalSeconds),
 };
 
 // ─── Team API ─────────────────────────────────────────────────────────────────
@@ -456,25 +454,12 @@ export const teamApi = {
 
 // ─── Clock API ────────────────────────────────────────────────────────────────
 
-export interface ClockTicketSession {
-  startTimestamp: number;
-  endTimestamp: number | null;
-}
-
-export interface ClockEventTicket {
-  ticketId: string;
-  startTimestamp: number | null;
-  accumulatedTime: number;
-  sessions: ClockTicketSession[];
-}
-
 export interface ClockEvent {
   id: string;
   userId: string;
   teamId: string;
   startTime: number;
   accumulatedTime: number;
-  tickets: ClockEventTicket[];
   endTime: number | null;
 }
 
@@ -491,20 +476,6 @@ export const clockApi = {
     request<{ event: ClockEvent }>('/v1/clock/stop', {
       method: 'POST',
       body: JSON.stringify({ teamId }),
-    }).then((r) => r.event),
-
-  /** Start a ticket timer inside an active clock event. */
-  addTicket: (clockEventId: string, ticketId: string, now: number) =>
-    request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/ticket/start`, {
-      method: 'POST',
-      body: JSON.stringify({ ticketId, now }),
-    }).then((r) => r.event),
-
-  /** Stop a ticket timer inside a clock event. */
-  stopTicket: (clockEventId: string, ticketId: string, now: number) =>
-    request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/ticket/stop`, {
-      method: 'POST',
-      body: JSON.stringify({ ticketId, now }),
     }).then((r) => r.event),
 
   /** Get the current user's active clock event (any team), or null. */
@@ -528,12 +499,26 @@ export const clockApi = {
       `/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startMs=${startMs}&endMs=${endMs}`,
     ),
 
-  /** Open an SSE connection for live team clock state. Returns an EventSource. */
-  openLiveStream: (teamIds: string[]): EventSource =>
-    new EventSource(
-      `${TIMECORE_BASE_URL}/v1/clock/live?teamIds=${teamIds.map(encodeURIComponent).join(',')}`,
-      { withCredentials: true },
-    ),
+  /** Update a clock event's start/end timestamps. */
+  updateTimes: (clockEventId: string, data: { startTime?: number; endTime?: number | null }) =>
+    request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/times`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }).then((r) => r.event),
+
+  /** Delete a clock event. */
+  deleteEvent: (clockEventId: string) =>
+    request<{ ok: boolean }>(`/v1/clock/${encodeURIComponent(clockEventId)}`, {
+      method: 'DELETE',
+    }).then((r) => r.ok),
+
+  /** Open a WebSocket connection for live team clock state. Auto-reconnects on drop. */
+  openLiveStream: (teamIds: string[]): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/clock/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`;
+      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+    }),
 };
 
 // ─── Notifications ────────────────────────────────────────────────────────────
@@ -565,11 +550,16 @@ export interface Message {
 }
 
 export const messageApi = {
-  /** Fetch a thread's message history. */
-  getThread: (teamId: string, adminId: string, memberId: string) =>
-    request<{ messages: Message[] }>(
-      `/v1/messages?teamId=${encodeURIComponent(teamId)}&adminId=${encodeURIComponent(adminId)}&memberId=${encodeURIComponent(memberId)}`,
-    ).then((r) => r.messages),
+  /** Fetch a thread's message history. Pass `before` ISO string for cursor-based pagination. */
+  getThread: (teamId: string, adminId: string, memberId: string, before?: string) => {
+    const qs = new URLSearchParams({
+      teamId,
+      adminId,
+      memberId,
+    });
+    if (before) qs.set('before', before);
+    return request<{ messages: Message[]; hasMore: boolean }>(`/v1/messages?${qs.toString()}`);
+  },
 
   /** Send a message. */
   send: (data: {
@@ -584,12 +574,15 @@ export const messageApi = {
       body: JSON.stringify(data),
     }).then((r) => r.message),
 
-  /** Open an SSE stream for a thread. Returns an EventSource. */
-  openStream: (threadId: string): EventSource =>
-    new EventSource(
-      `${TIMECORE_BASE_URL}/v1/messages/stream?threadId=${encodeURIComponent(threadId)}`,
-      { withCredentials: true },
-    ),
+  /** Open a WebSocket stream for a thread. Auto-reconnects on drop. */
+  openStream: (threadId: string): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const url = new URL(`${WS_BASE_URL}/v1/messages/ws`);
+      url.searchParams.set('threadId', threadId);
+      if (token) url.searchParams.set('token', token);
+      return url.toString();
+    }),
 };
 
 export type TeamInvitePreview = {
@@ -638,12 +631,14 @@ export const notificationApi = {
   /** Send a test push notification to the requesting user's devices. */
   testPush: () => request<{ ok: boolean }>('/v1/notifications/test-push', { method: 'POST' }),
 
-  /** Open an SSE stream for new notifications. */
-  openStream: (): EventSource => {
+  /** Open a WebSocket stream for new notifications. Auto-reconnects on drop. */
+  openStream: (): AutoReconnectWs => {
     const token = sessionToken.get();
-    const url = new URL(`${TIMECORE_BASE_URL}/v1/notifications/stream`);
-    if (token) url.searchParams.set('token', token);
-    return new EventSource(url.toString(), { withCredentials: true });
+    return autoReconnectWs(() => {
+      const url = new URL(`${WS_BASE_URL}/v1/notifications/ws`);
+      if (token) url.searchParams.set('token', token);
+      return url.toString();
+    });
   },
 };
 
@@ -688,6 +683,136 @@ export const attachmentApi = {
     }),
 };
 
+// ─── Timer API ────────────────────────────────────────────────────────────────
+
+/** A WorkItem is the per-user per-ticket per-day timesheet row. */
+export interface WorkItem {
+  id: string;
+  userId: string;
+  ticketId: string;
+  displayTitle: string | null;
+  date: string; // UTC "YYYY-MM-DD"
+  note?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+/** A Timer is one start–stop interval inside a WorkItem. */
+export interface Timer {
+  id: string;
+  workItemId: string;
+  userId: string;
+  date: string;
+  startTime: number; // epoch ms
+  endTime: number | null;
+  durationSeconds?: number;
+  createdAt: string;
+}
+
+export interface DayEntry {
+  entry: WorkItem;
+  sessions: Timer[];
+}
+
+export interface WeekDay {
+  date: string;
+  totalSeconds: number;
+}
+
+/** Returns the browser's IANA timezone string (e.g. "America/New_York"). */
+function clientTz(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+export const timerApi = {
+  /** Create a WorkItem for the given ticket + date. */
+  createEntry: (data: { ticketId: string; date: string; note?: string }) =>
+    request<{ entry: WorkItem }>('/v1/timers/entries', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.entry),
+
+  /** Start a timer for a WorkItem. Closes any open timer first. */
+  startSession: (entryId: string, now?: number) =>
+    request<{ session: Timer; closedSessionId?: string }>(
+      `/v1/timers/entries/${encodeURIComponent(entryId)}/start`,
+      { method: 'POST', body: JSON.stringify({ now: now ?? Date.now() }) },
+    ),
+
+  /** Stop a running timer. */
+  stopSession: (sessionId: string, now?: number) =>
+    request<{ session: Timer }>(`/v1/timers/sessions/${encodeURIComponent(sessionId)}/stop`, {
+      method: 'POST',
+      body: JSON.stringify({ now: now ?? Date.now() }),
+    }).then((r) => r.session),
+
+  /** Update a WorkItem's note, duration, and/or ticket (duration ignored while running). */
+  updateEntry: (
+    entryId: string,
+    data: { note?: string | null; durationSeconds?: number; ticketId?: string },
+  ) =>
+    request<{ entry: WorkItem }>(`/v1/timers/entries/${encodeURIComponent(entryId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }).then((r) => r.entry),
+
+  /** Delete a WorkItem and all of its timers. */
+  deleteEntry: (entryId: string) =>
+    request<{ deletedEntry: boolean; deletedSessions: number }>(
+      `/v1/timers/entries/${encodeURIComponent(entryId)}`,
+      { method: 'DELETE' },
+    ),
+
+  /** Get the currently running timer for the authenticated user, or null. */
+  getRunning: () => request<{ session: Timer | null }>('/v1/timers/running').then((r) => r.session),
+
+  /** Get all entries + sessions for a local day (YYYY-MM-DD). */
+  getDay: (date: string) => {
+    const tz = clientTz();
+    return request<{ entries: DayEntry[] }>(
+      `/v1/timers/day?date=${encodeURIComponent(date)}&tz=${encodeURIComponent(tz)}`,
+    ).then((r) => r.entries);
+  },
+
+  /** Get 7-day totals for the week starting at the given date (YYYY-MM-DD). */
+  getWeek: (date: string) => {
+    const tz = clientTz();
+    return request<{ days: WeekDay[] }>(
+      `/v1/timers/week?date=${encodeURIComponent(date)}&tz=${encodeURIComponent(tz)}`,
+    ).then((r) => r.days);
+  },
+
+  /** Get total seconds for a ticket from all closed Timers. */
+  getTicketTotal: (ticketId: string) =>
+    request<{ totalSeconds: number }>(
+      `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
+    ).then((r) => r.totalSeconds),
+
+  /**
+   * Copy entries from the most recent previous day into toDate.
+   * Skips rows that already exist with the same ticket + note + sortOrder signature.
+   */
+  copyPrevious: (toDate: string) =>
+    request<{ created: number }>('/v1/timers/copy-previous', {
+      method: 'POST',
+      body: JSON.stringify({ toDate }),
+    }).then((r) => r.created),
+};
+
+// ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
+
+export const videoApi = {
+  /** Reserve a videoid on the server before starting a TUS upload.
+   *  Pass `existingVideoid` when resuming a recording session so the backend
+   *  re-registers the same id instead of creating a new one.
+   */
+  reserve: (ticketId: string, existingVideoid?: string) =>
+    request<{ videoid: string }>('/v1/pulsevault/reserve', {
+      method: 'POST',
+      body: JSON.stringify(existingVideoid ? { ticketId, videoid: existingVideoid } : { ticketId }),
+    }),
+};
+
 // ─── Activity Log ─────────────────────────────────────────────────────────────
 
 export interface ActivityLogItem {
@@ -717,4 +842,158 @@ export const activityApi = {
       `/v1/activity/log${query ? `?${query}` : ''}`,
     );
   },
+
+  /**
+   * Fetch a page of activity log events for a specific user (teammates only).
+   *
+   * @param userId - The target user's ID.
+   * @param limit  - Max items per page (1–50, default 20).
+   * @param before - Cursor: ISO timestamp; fetch events older than this.
+   */
+  getUserActivity: (userId: string, params: { limit?: number; before?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.before) qs.set('before', params.before);
+    const query = qs.toString();
+    return request<{ events: ActivityLogItem[]; nextCursor: string | null }>(
+      `/v1/users/${encodeURIComponent(userId)}/activity${query ? `?${query}` : ''}`,
+    );
+  },
+
+  /** Ticket IDs + titles from the user's last 48 h of timer work. */
+  getUserWorkSummary: (userId: string) =>
+    request<{ items: { id: string; title: string }[] }>(
+      `/v1/work/summary/user/${encodeURIComponent(userId)}`,
+    ),
+
+  /** Activity events for a specific ticket (team members only). */
+  getTicketActivity: (ticketId: string, limit = 50) =>
+    request<{ events: ActivityLogItem[] }>(
+      `/v1/tickets/${encodeURIComponent(ticketId)}/activity?limit=${limit}`,
+    ),
+};
+
+// ─── Presence ─────────────────────────────────────────────────────────────────
+
+export const presenceApi = {
+  /**
+   * Open a WebSocket presence stream.
+   * Sends periodic { type: "ping" } heartbeats to stay marked online.
+   * Receives { type: "snapshot", online: string[] } on connect,
+   * then { type: "presence", userId: string, online: boolean } on changes.
+   */
+  openStream: (watchIds: string[]): AutoReconnectWs => {
+    const token = sessionToken.get();
+    return autoReconnectWs(() => {
+      const url = new URL(`${WS_BASE_URL}/v1/presence/ws`);
+      if (token) url.searchParams.set('token', token);
+      if (watchIds.length > 0) url.searchParams.set('watch', watchIds.join(','));
+      return url.toString();
+    });
+  },
+};
+
+// ─── Channel types ────────────────────────────────────────────────────────────
+
+export interface Channel {
+  id: string;
+  teamId: string;
+  name: string;
+  description?: string;
+  isDefault: boolean;
+  /** userIds who can access this channel; empty array means team-wide */
+  members: string[];
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface ChannelMessage {
+  id: string;
+  channelId: string;
+  teamId: string;
+  fromUserId: string;
+  senderName: string;
+  text: string;
+  createdAt: string;
+}
+
+// ─── Channel API ──────────────────────────────────────────────────────────────
+
+export const channelApi = {
+  getChannels: (teamId: string): Promise<Channel[]> =>
+    request<{ channels: Channel[] }>(`/v1/channels?teamId=${encodeURIComponent(teamId)}`).then(
+      (r) => r.channels,
+    ),
+
+  createChannel: (data: {
+    teamId: string;
+    name: string;
+    description?: string;
+    members?: string[];
+  }): Promise<Channel> =>
+    request<{ channel: Channel }>('/v1/channels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then((r) => r.channel),
+
+  getMessages: (
+    channelId: string,
+    teamId: string,
+    before?: string,
+  ): Promise<{ messages: ChannelMessage[]; hasMore: boolean }> => {
+    const url = new URL(
+      `/v1/channels/${encodeURIComponent(channelId)}/messages`,
+      TIMECORE_BASE_URL,
+    );
+    url.searchParams.set('teamId', teamId);
+    if (before) url.searchParams.set('before', before);
+    return request<{ messages: ChannelMessage[]; hasMore: boolean }>(url.pathname + url.search);
+  },
+
+  sendMessage: (
+    channelId: string,
+    data: { teamId: string; text: string },
+  ): Promise<ChannelMessage> =>
+    request<{ message: ChannelMessage }>(`/v1/channels/${encodeURIComponent(channelId)}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then((r) => r.message),
+
+  openStream: (channelId: string, teamId: string): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const url = new URL(`${WS_BASE_URL}/v1/channels/ws`);
+      url.searchParams.set('channelId', channelId);
+      url.searchParams.set('teamId', teamId);
+      const token = sessionToken.get();
+      if (token) url.searchParams.set('token', token);
+      return url.toString();
+    }),
+};
+
+// ─── Personal Access Tokens ───────────────────────────────────────────────────
+
+export interface PersonalAccessToken {
+  _id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string | null;
+}
+
+export const tokenApi = {
+  list: (): Promise<PersonalAccessToken[]> =>
+    request<{ tokens: PersonalAccessToken[] }>('/v1/me/tokens').then((r) => r.tokens),
+
+  create: (name: string): Promise<{ token: string; name: string }> =>
+    request<{ token: string; name: string }>('/v1/me/tokens', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
+
+  revoke: (id: string): Promise<void> =>
+    request<{ success: boolean }>(`/v1/me/tokens/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }).then(() => undefined),
 };

@@ -1,6 +1,9 @@
 import { FastifyInstance } from "fastify";
+import { ObjectId } from "mongodb";
 import { requireAuth } from "../middleware/require-auth.js";
 import { ticketService } from "../services/ticket.service.js";
+import { activityService } from "../services/activity.service.js";
+import { teamsCollection } from "../models/index.js";
 import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -12,8 +15,6 @@ function toPublicTicket(t: Ticket) {
     title: t.title,
     description: t.description ?? null,
     github: t.github,
-    accumulatedTime: t.accumulatedTime,
-    startTimestamp: t.startTimestamp ?? null,
     status: t.status,
     priority: t.priority ?? null,
     createdBy: t.createdBy,
@@ -38,8 +39,6 @@ const ticketShape = {
     title: { type: "string" },
     description: { type: "string", nullable: true },
     github: { type: "string" },
-    accumulatedTime: { type: "number" },
-    startTimestamp: { type: "number", nullable: true },
     status: { type: "string", enum: ALL_STATUSES },
     priority: { type: "string", enum: ALL_PRIORITIES, nullable: true },
     createdBy: { type: "string" },
@@ -95,6 +94,78 @@ export async function ticketRoutes(app: FastifyInstance) {
     }
   );
 
+  // GET /v1/tickets/:id
+  app.get(
+    "/tickets/:id",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Tickets"],
+        summary: "Get a single ticket by ID (team members only)",
+        params: idParam,
+        response: {
+          200: { type: "object", properties: { ticket: ticketShape } },
+          ...unauth,
+          403: err("Not a team member"),
+          404: err("Ticket not found"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const ticket = await ticketService.findById(id);
+      if (!ticket) return reply.status(404).send({ error: "Ticket not found" });
+      const team = await teamsCollection().findOne({
+        _id: new ObjectId(ticket.teamId),
+        members: req.user!.id,
+      });
+      if (!team) return reply.status(403).send({ error: "Not a team member" });
+      return reply.send({ ticket: toPublicTicket(ticket) });
+    }
+  );
+
+  // GET /v1/tickets/:id/activity
+  app.get(
+    "/tickets/:id/activity",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Tickets"],
+        summary: "Get activity events for a ticket (team members only)",
+        params: idParam,
+        querystring: {
+          type: "object",
+          properties: {
+            limit: { type: "integer", minimum: 1, maximum: 100, default: 50 },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              events: { type: "array", items: { type: "object", additionalProperties: true } },
+            },
+          },
+          ...unauth,
+          403: err("Not a team member"),
+          404: err("Ticket not found"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const { limit } = req.query as { limit?: number };
+      const ticket = await ticketService.findById(id);
+      if (!ticket) return reply.status(404).send({ error: "Ticket not found" });
+      const team = await teamsCollection().findOne({
+        _id: new ObjectId(ticket.teamId),
+        members: req.user!.id,
+      });
+      if (!team) return reply.status(403).send({ error: "Not a team member" });
+      return reply.send(await activityService.getTicketActivity(id, limit));
+    }
+  );
+
   // POST /v1/tickets
   app.post(
     "/tickets",
@@ -111,7 +182,6 @@ export async function ticketRoutes(app: FastifyInstance) {
             teamId: { type: "string" },
             title: { type: "string", minLength: 1, maxLength: 500 },
             github: { type: "string", maxLength: 1000, default: "" },
-            accumulatedTime: { type: "number", minimum: 0, default: 0 },
           },
         },
         response: {
@@ -126,13 +196,11 @@ export async function ticketRoutes(app: FastifyInstance) {
         teamId: string;
         title: string;
         github: string;
-        accumulatedTime: number;
       };
       const result = await ticketService.create({
         teamId: body.teamId,
         title: body.title,
         github: body.github ?? "",
-        accumulatedTime: body.accumulatedTime ?? 0,
         createdBy: req.user!.id,
       });
       if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
@@ -148,7 +216,7 @@ export async function ticketRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Tickets"],
-        summary: "Update a ticket (owner only)",
+        summary: "Update a ticket (any team member)",
         params: idParam,
         body: {
           type: "object",
@@ -157,13 +225,12 @@ export async function ticketRoutes(app: FastifyInstance) {
             title: { type: "string", minLength: 1, maxLength: 500 },
             description: { type: "string", maxLength: 5000 },
             github: { type: "string", maxLength: 1000 },
-            accumulatedTime: { type: "number", minimum: 0 },
           },
         },
         response: {
           200: { type: "object", properties: { ticket: ticketShape } },
           ...unauth,
-          403: err("Not your ticket"),
+          403: err("Not a team member"),
           404: err("Ticket not found"),
         },
       },
@@ -174,11 +241,10 @@ export async function ticketRoutes(app: FastifyInstance) {
         title: string;
         description: string;
         github: string;
-        accumulatedTime: number;
       }>;
       const result = await ticketService.update(id, req.user!.id, body);
       if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Not your ticket" });
+      if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
       return reply.send({ ticket: toPublicTicket(result) });
     }
   );
@@ -190,12 +256,12 @@ export async function ticketRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Tickets"],
-        summary: "Delete a ticket (owner only, soft-delete)",
+        summary: "Delete a ticket (any team member, soft-delete)",
         params: idParam,
         response: {
           200: { type: "object", properties: { ok: { type: "boolean" } } },
           ...unauth,
-          403: err("Not your ticket"),
+          403: err("Not a team member"),
           404: err("Ticket not found"),
         },
       },
@@ -204,7 +270,7 @@ export async function ticketRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const result = await ticketService.delete(id, req.user!.id);
       if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Not your ticket" });
+      if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
       return reply.send({ ok: true });
     }
   );
@@ -281,86 +347,6 @@ export async function ticketRoutes(app: FastifyInstance) {
     }
   );
 
-  // POST /v1/tickets/:id/start
-  app.post(
-    "/tickets/:id/start",
-    {
-      preHandler: [requireAuth],
-      schema: {
-        tags: ["Tickets"],
-        summary: "Start ticket timer (owner only)",
-        params: idParam,
-        body: {
-          type: "object",
-          required: ["now"],
-          additionalProperties: false,
-          properties: { now: { type: "number" } },
-        },
-        response: {
-          200: {
-            type: "object",
-            properties: {
-              ticket: ticketShape,
-              stoppedTickets: { type: "array", items: ticketShape },
-            },
-          },
-          ...unauth,
-          403: err("Not your ticket"),
-          404: err("Ticket not found"),
-        },
-      },
-    },
-    async (req, reply) => {
-      const { id } = req.params as { id: string };
-      const { now } = req.body as { now: number };
-      req.log.info({ ticketId: id, userId: req.user!.id }, "[timer] startTimer called");
-      const result = await ticketService.startTimer(id, req.user!.id, now);
-      if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Not your ticket" });
-      req.log.info(
-        { ticketId: id, stoppedCount: result.stoppedTickets.length },
-        "[timer] startTimer result"
-      );
-      return reply.send({
-        ticket: toPublicTicket(result.ticket),
-        stoppedTickets: result.stoppedTickets.map(toPublicTicket),
-      });
-    }
-  );
-
-  // POST /v1/tickets/:id/stop
-  app.post(
-    "/tickets/:id/stop",
-    {
-      preHandler: [requireAuth],
-      schema: {
-        tags: ["Tickets"],
-        summary: "Stop ticket timer and accumulate elapsed time (owner only)",
-        params: idParam,
-        body: {
-          type: "object",
-          required: ["now"],
-          additionalProperties: false,
-          properties: { now: { type: "number" } },
-        },
-        response: {
-          200: { type: "object", properties: { ticket: ticketShape } },
-          ...unauth,
-          403: err("Not your ticket"),
-          404: err("Ticket not found"),
-        },
-      },
-    },
-    async (req, reply) => {
-      const { id } = req.params as { id: string };
-      const { now } = req.body as { now: number };
-      const result = await ticketService.stopTimer(id, req.user!.id, now);
-      if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Not your ticket" });
-      return reply.send({ ticket: toPublicTicket(result) });
-    }
-  );
-
   // PUT /v1/tickets/:id/assign
   app.put(
     "/tickets/:id/assign",
@@ -368,7 +354,7 @@ export async function ticketRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Tickets"],
-        summary: "Assign ticket to a team member (ticket creator or team admin)",
+        summary: "Assign ticket to a team member (any team member)",
         params: idParam,
         body: {
           type: "object",

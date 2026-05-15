@@ -3,7 +3,6 @@ export { type TicketDoc } from './schema';
 export type {
   CreateTicketInput,
   UpdateTicketInput,
-  TicketTimerInput,
   BatchUpdateStatusInput,
   AssignTicketInput,
 } from './schema';

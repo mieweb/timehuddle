@@ -1,12 +1,21 @@
 import { ObjectId } from "mongodb";
+
 import {
+  attachmentsCollection,
   clockEventsCollection,
   teamsCollection,
-  ticketsCollection,
   usersCollection,
 } from "../models/index.js";
-import type { ClockEvent, ClockEventTicket } from "../models/clock.model.js";
+import type { ClockEvent } from "../models/clock.model.js";
+import {
+  findActiveClockEventByUser,
+  findActiveClockEventByUserTeam,
+  findClockEventsForUser,
+  findLiveClockEventsForTeams,
+} from "../models/clock.model.js";
+import { timerService } from "./timer.service.js";
 import { ActivityType } from "../models/activity.model.js";
+
 import { notificationService } from "./notification.service.js";
 import { emitActivity } from "./activity.service.js";
 
@@ -19,7 +28,7 @@ function isValidId(id: string): boolean {
 type SseListener = (teamId: string, event: PublicClockEvent | null) => void;
 const sseListeners = new Set<SseListener>();
 
-export function subscribeSse(fn: SseListener): () => void {
+export function subscribe(fn: SseListener): () => void {
   sseListeners.add(fn);
   return () => sseListeners.delete(fn);
 }
@@ -56,76 +65,33 @@ export function toPublicClockEvent(e: ClockEvent) {
     teamId: e.teamId,
     startTime,
     accumulatedTime: e.accumulatedTime,
-    tickets: (e.tickets ?? []).map((t) => ({
-      ticketId: t.ticketId,
-      startTimestamp: t.startTimestamp ?? null,
-      accumulatedTime: t.accumulatedTime,
-      sessions: (t.sessions ?? []).map((s) => ({
-        startTimestamp: s.startTimestamp,
-        endTimestamp: s.endTimestamp,
-      })),
-    })),
     endTime,
   };
 }
 
 export type PublicClockEvent = ReturnType<typeof toPublicClockEvent>;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-async function stopTicketInEvent(
-  clockEventId: ObjectId,
-  ticketId: string,
-  now: number
-): Promise<void> {
-  const coll = clockEventsCollection();
-  const event = await coll.findOne({ _id: clockEventId });
-  if (!event) return;
-  const entry = event.tickets?.find((t) => t.ticketId === ticketId);
-  if (!entry?.startTimestamp) return;
-
-  const elapsed = Math.floor((now - entry.startTimestamp) / 1000);
-  const prev = entry.accumulatedTime ?? 0;
-  const updatedSessions = (entry.sessions ?? []).map((s) =>
-    s.endTimestamp === null ? { ...s, endTimestamp: now } : s
-  );
-
-  await coll.updateOne(
-    { _id: clockEventId, "tickets.ticketId": ticketId },
-    {
-      $set: {
-        "tickets.$.accumulatedTime": prev + elapsed,
-        "tickets.$.sessions": updatedSessions,
-      },
-      $unset: { "tickets.$.startTimestamp": "" },
-    }
-  );
-}
-
 // ─── ClockService ─────────────────────────────────────────────────────────────
 
 export class ClockService {
   /** Return the active (open) clock event for a user in a team, or null. */
   async getActive(userId: string, teamId: string): Promise<ClockEvent | null> {
-    return clockEventsCollection().findOne({ userId, teamId, endTime: null });
+    return findActiveClockEventByUserTeam(userId, teamId);
   }
 
   /** Return the active clock event across any team for the user. */
   async getActiveForUser(userId: string): Promise<ClockEvent | null> {
-    return clockEventsCollection().findOne({ userId, endTime: null });
+    return findActiveClockEventByUser(userId);
   }
 
   /** All clock events for a user (for their own timesheet & history). */
   async getForUser(userId: string): Promise<ClockEvent[]> {
-    return clockEventsCollection().find({ userId }).sort({ startTime: -1 }).toArray();
+    return findClockEventsForUser(userId);
   }
 
   /** Live clock events for a set of teams (used by SSE + dashboard). */
   async getLiveForTeams(teamIds: string[]): Promise<ClockEvent[]> {
-    if (!teamIds.length) return [];
-    return clockEventsCollection()
-      .find({ teamId: { $in: teamIds }, endTime: null })
-      .toArray();
+    return findLiveClockEventsForTeams(teamIds);
   }
 
   async start(userId: string, teamId: string): Promise<PublicClockEvent | "forbidden"> {
@@ -148,7 +114,6 @@ export class ClockService {
       teamId,
       startTime: now,
       accumulatedTime: 0,
-      tickets: [],
       endTime: null,
     });
 
@@ -205,24 +170,8 @@ export class ClockService {
     const elapsed = Math.floor((now - event.startTime) / 1000);
     const prev = event.accumulatedTime ?? 0;
 
-    // Stop all running ticket timers inside the event
-    for (const t of (event.tickets ?? []).filter((t) => t.startTimestamp)) {
-      await stopTicketInEvent(event._id, t.ticketId, now);
-    }
-
-    // Also stop any free-running ticket timers in the tickets collection
-    const tColl = ticketsCollection();
-    const running = await tColl
-      .find({ teamId, createdBy: userId, startTimestamp: { $exists: true } })
-      .toArray();
-    for (const ticket of running) {
-      const telapsed = Math.floor((now - (ticket.startTimestamp ?? 0)) / 1000);
-      const tprev = ticket.accumulatedTime ?? 0;
-      await tColl.updateOne(
-        { _id: ticket._id },
-        { $set: { accumulatedTime: tprev + telapsed }, $unset: { startTimestamp: "" } }
-      );
-    }
+    // Close all open timer sessions for this user in a single updateMany
+    await timerService.closeAllForUser(userId, now);
 
     const $set: Record<string, unknown> = {
       endTime: now,
@@ -285,145 +234,6 @@ export class ClockService {
     return pub;
   }
 
-  async addTicket(
-    userId: string,
-    clockEventId: string,
-    ticketId: string,
-    now: number
-  ): Promise<PublicClockEvent | "not-found" | "forbidden"> {
-    if (!isValidId(clockEventId)) return "not-found";
-    const coll = clockEventsCollection();
-    const event = await coll.findOne({
-      _id: new ObjectId(clockEventId),
-      userId,
-      endTime: null,
-    });
-    if (!event) return "not-found";
-
-    const existing = event.tickets?.find((t) => t.ticketId === ticketId);
-    if (existing) {
-      await coll.updateOne(
-        { _id: event._id, "tickets.ticketId": ticketId },
-        {
-          $set: { "tickets.$.startTimestamp": now },
-          $push: { "tickets.$.sessions": { startTimestamp: now, endTimestamp: null } } as any,
-        }
-      );
-    } else {
-      // Grab accumulated time from the tickets collection
-      const ticket = isValidId(ticketId)
-        ? await ticketsCollection().findOne({ _id: new ObjectId(ticketId) })
-        : null;
-      const initialTime = ticket?.accumulatedTime ?? 0;
-      const entry: ClockEventTicket = {
-        ticketId,
-        startTimestamp: now,
-        accumulatedTime: initialTime,
-        sessions: [{ startTimestamp: now, endTimestamp: null }],
-      };
-      await coll.updateOne({ _id: event._id }, { $push: { tickets: entry } } as any);
-    }
-
-    const updated = await coll.findOne({ _id: event._id });
-    if (!updated) return "not-found";
-    const pub = toPublicClockEvent(updated);
-    broadcast(event.teamId, pub);
-
-    // Notify team admins of ticket timer start
-    const [team, user] = await Promise.all([
-      teamsCollection().findOne({ _id: new ObjectId(event.teamId) }),
-      usersCollection().findOne({ _id: new ObjectId(event.userId) }),
-    ]);
-    if (team) {
-      const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
-      const ticket = isValidId(ticketId)
-        ? await ticketsCollection().findOne({ _id: new ObjectId(ticketId) })
-        : null;
-      const ticketTitle = ticket?.title ?? ticketId;
-      const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
-      await Promise.all(
-        notifyAdmins.map((adminId) =>
-          notificationService
-            .create({
-              userId: adminId,
-              title: "TiméHuddle",
-              body: `${userName} started a timer on "${ticketTitle}"`,
-              notificationData: {
-                type: "ticket-timer-start",
-                userId,
-                userName,
-                ticketId,
-                ticketTitle,
-                teamId: event.teamId,
-                url: `/app/tickets`,
-              },
-            })
-            .catch(() => {})
-        )
-      );
-    }
-
-    return pub;
-  }
-
-  async stopTicket(
-    userId: string,
-    clockEventId: string,
-    ticketId: string,
-    now: number
-  ): Promise<PublicClockEvent | "not-found"> {
-    if (!isValidId(clockEventId)) return "not-found";
-    const coll = clockEventsCollection();
-    const event = await coll.findOne({
-      _id: new ObjectId(clockEventId),
-      userId,
-    });
-    if (!event) return "not-found";
-
-    await stopTicketInEvent(event._id, ticketId, now);
-
-    const updated = await coll.findOne({ _id: event._id });
-    if (!updated) return "not-found";
-    const pub = toPublicClockEvent(updated);
-    broadcast(event.teamId, pub);
-
-    // Notify team admins of ticket timer stop
-    const [team, user] = await Promise.all([
-      teamsCollection().findOne({ _id: new ObjectId(event.teamId) }),
-      usersCollection().findOne({ _id: new ObjectId(event.userId) }),
-    ]);
-    if (team) {
-      const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
-      const ticket = isValidId(ticketId)
-        ? await ticketsCollection().findOne({ _id: new ObjectId(ticketId) })
-        : null;
-      const ticketTitle = ticket?.title ?? ticketId;
-      const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
-      await Promise.all(
-        notifyAdmins.map((adminId) =>
-          notificationService
-            .create({
-              userId: adminId,
-              title: "TiméHuddle",
-              body: `${userName} stopped the timer on "${ticketTitle}"`,
-              notificationData: {
-                type: "ticket-timer-stop",
-                userId,
-                userName,
-                ticketId,
-                ticketTitle,
-                teamId: event.teamId,
-                url: `/app/tickets`,
-              },
-            })
-            .catch(() => {})
-        )
-      );
-    }
-
-    return pub;
-  }
-
   async updateTimes(
     requesterId: string,
     clockEventId: string,
@@ -434,12 +244,15 @@ export class ClockService {
     const event = await coll.findOne({ _id: new ObjectId(clockEventId) });
     if (!event) return "not-found";
 
-    // Must be a team admin
-    const team = await teamsCollection().findOne({
-      _id: new ObjectId(event.teamId),
-      admins: requesterId,
-    });
-    if (!team) return "forbidden";
+    // Allow self-service edits for the event owner. Admins can also edit.
+    // Future timesheet submission/locking should gate edits at this layer.
+    if (event.userId !== requesterId) {
+      const adminTeam = await teamsCollection().findOne({
+        _id: new ObjectId(event.teamId),
+        admins: requesterId,
+      });
+      if (!adminTeam) return "forbidden";
+    }
 
     // Resolve the effective start/end after the partial update to validate the range.
     const effectiveStart = typeof data.startTime === "number" ? data.startTime : event.startTime;
@@ -462,6 +275,37 @@ export class ClockService {
 
     const updated = await coll.findOne({ _id: event._id });
     return updated ? toPublicClockEvent(updated) : "not-found";
+  }
+
+  async deleteEvent(
+    requesterId: string,
+    clockEventId: string
+  ): Promise<"ok" | "not-found" | "forbidden"> {
+    if (!isValidId(clockEventId)) return "not-found";
+
+    const coll = clockEventsCollection();
+    const event = await coll.findOne({ _id: new ObjectId(clockEventId) });
+    if (!event) return "not-found";
+
+    if (event.userId !== requesterId) {
+      const adminTeam = await teamsCollection().findOne({
+        _id: new ObjectId(event.teamId),
+        admins: requesterId,
+      });
+      if (!adminTeam) return "forbidden";
+    }
+
+    await coll.deleteOne({ _id: event._id });
+    await attachmentsCollection().deleteMany({
+      "attachedTo.kind": "clock",
+      "attachedTo.id": clockEventId,
+    });
+
+    if (event.endTime === null) {
+      broadcast(event.teamId, null);
+    }
+
+    return "ok";
   }
 
   async getTimesheet(
@@ -496,8 +340,12 @@ export class ClockService {
 
     const sessions = events.map(toPublicClockEvent);
     const completed = sessions.filter((s) => s.endTime !== null);
+    const now = Date.now();
     const totalSeconds = sessions.reduce((sum, s) => {
-      if (!s.endTime) return sum + s.accumulatedTime;
+      if (!s.endTime) {
+        const liveElapsedSeconds = Math.max(0, Math.floor((now - s.startTime) / 1000));
+        return sum + (s.accumulatedTime ?? 0) + liveElapsedSeconds;
+      }
       return sum + Math.floor((s.endTime - s.startTime) / 1000);
     }, 0);
     const avgSeconds = completed.length > 0 ? totalSeconds / completed.length : 0;

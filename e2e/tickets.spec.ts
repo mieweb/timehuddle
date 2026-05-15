@@ -136,15 +136,15 @@ test.describe('Tickets', () => {
     await page.waitForTimeout(200);
 
     // Save
-    await page.locator('[role="dialog"]').getByRole('button', { name: 'Save Changes' }).click();
+    await page.locator('[role="dialog"]').getByRole('button', { name: 'Save' }).click();
     await page.waitForTimeout(1000);
 
     // Updated title should be visible
     await expect(page.getByText('Updated ticket title').first()).toBeVisible();
 
-    // Priority dot (amber = high) should be present on the row
-    const updatedRow = page.locator('li').filter({ hasText: 'Updated ticket title' });
-    await expect(updatedRow.locator('.bg-amber-500')).toBeVisible();
+    // Priority pill (amber = high) should be present on the row
+    const updatedRow = page.locator('li').filter({ hasText: 'Updated ticket title' }).first();
+    await expect(updatedRow.filter({ hasText: 'high' })).toBeVisible();
 
     // Cleanup
     await deleteTicket(page, 'Updated ticket title');
@@ -207,19 +207,19 @@ test.describe('Tickets', () => {
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(1000);
 
-    // "All" tab — ticket should be visible
+    // Ticket is visible in the default Open view
     await expect(page.getByText('Open filter ticket').first()).toBeVisible();
 
     // "Open" tab — should show it
-    await page.getByRole('tab', { name: 'Open' }).click();
+    await page.getByRole('tab', { name: /Open/ }).click();
     await expect(page.getByText('Open filter ticket').first()).toBeVisible();
 
-    // "Done" tab — should NOT show it
-    await page.getByRole('tab', { name: 'Done' }).click();
+    // "Closed" tab — should NOT show it
+    await page.getByRole('tab', { name: /Closed/ }).click();
     await expect(page.getByText('Open filter ticket')).not.toBeVisible();
 
-    // Back to "All"
-    await page.getByRole('tab', { name: 'All' }).click();
+    // Back to "Open"
+    await page.getByRole('tab', { name: /Open/ }).click();
     await expect(page.getByText('Open filter ticket').first()).toBeVisible();
 
     // Cleanup
@@ -228,22 +228,22 @@ test.describe('Tickets', () => {
 
   // ── Ticket Details ─────────────────────────────────────────────────────────
 
-  test('view ticket details modal', async ({ page }) => {
+  test('view ticket details page', async ({ page }) => {
     // Create a ticket
     await page.getByRole('button', { name: 'New Ticket' }).click();
     await page.getByPlaceholder('Ticket title').fill('Details modal ticket');
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(1000);
 
-    // Open 3-dot menu → Ticket Details
-    await openTicketMenu(page, 'Details modal ticket');
-    await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
-    await page.waitForTimeout(400);
+    // Click the ticket title to navigate to the detail page
+    await page.getByRole('button', { name: 'Details modal ticket' }).first().click();
+    await page.waitForTimeout(600);
 
-    // Details modal should show the ticket title
-    await expect(page.locator('[role="dialog"]').getByText('Details modal ticket')).toBeVisible();
+    // Detail page should show the ticket title as a heading
+    await expect(page.getByRole('heading', { name: 'Details modal ticket' })).toBeVisible();
 
-    await page.locator('[role="dialog"]').getByText('Close').click();
+    // Navigate back
+    await page.getByRole('button', { name: 'Back to tickets' }).click();
     await page.waitForTimeout(300);
 
     // Cleanup

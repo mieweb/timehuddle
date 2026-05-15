@@ -33,8 +33,27 @@ const userProfileSchema = {
     emailVerified: { type: "boolean" },
     image: { type: "string", nullable: true },
     username: { type: "string", nullable: true },
+    reportsToUserId: { type: "string", nullable: true },
     createdAt: { type: "string", format: "date-time" },
     updatedAt: { type: "string", format: "date-time" },
+  },
+};
+
+const publicReportsToSchema = {
+  type: ["object", "null"],
+  properties: {
+    id: { type: "string" },
+    name: { type: "string" },
+    username: { type: "string", nullable: true },
+  },
+};
+
+const publicTeamMembershipSchema = {
+  type: "object",
+  properties: {
+    id: { type: "string" },
+    name: { type: "string" },
+    role: { type: "string", enum: ["admin", "member"] },
   },
 };
 
@@ -182,6 +201,11 @@ export async function userRoutes(app: FastifyInstance) {
       image: { type: "string", nullable: true },
       bio: { type: "string" },
       website: { type: "string" },
+      reportsTo: publicReportsToSchema,
+      teamMemberships: {
+        type: "array",
+        items: publicTeamMembershipSchema,
+      },
       sharedTeams: {
         type: "array",
         items: {
@@ -196,8 +220,33 @@ export async function userRoutes(app: FastifyInstance) {
     },
   };
 
+  async function resolveReportsTo(u: Awaited<ReturnType<typeof userService.findById>>) {
+    if (!u?.reportsToUserId) return null;
+    const reportsToUser = await userService.findById(u.reportsToUserId);
+    if (!reportsToUser) return null;
+    return {
+      id: reportsToUser._id.toHexString(),
+      name: reportsToUser.name,
+      username: reportsToUser.username ?? null,
+    };
+  }
+
+  async function resolveTeamMemberships(userId: string) {
+    const teamDocs = await teamsCollection()
+      .find({ members: userId, isPersonal: { $ne: true } })
+      .toArray();
+
+    return teamDocs
+      .map((team) => ({
+        id: team._id.toString(),
+        name: team.name,
+        role: team.admins.includes(userId) ? "admin" : "member",
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   /** Maps a DB user doc to a safe public payload. */
-  function toPublicUser(u: Awaited<ReturnType<typeof userService.findById>>) {
+  async function toPublicUser(u: Awaited<ReturnType<typeof userService.findById>>) {
     if (!u) return null;
     return {
       id: u._id.toHexString(),
@@ -206,6 +255,8 @@ export async function userRoutes(app: FastifyInstance) {
       image: u.image ?? null,
       bio: u.bio ?? "",
       website: u.website ?? "",
+      reportsTo: await resolveReportsTo(u),
+      teamMemberships: await resolveTeamMemberships(u._id.toHexString()),
     };
   }
 
@@ -257,7 +308,7 @@ export async function userRoutes(app: FastifyInstance) {
         isAdmin: t.admins.includes(targetId),
       }));
 
-      return reply.send({ user: { ...toPublicUser(user), sharedTeams } });
+      return reply.send({ user: { ...(await toPublicUser(user)), sharedTeams } });
     }
   );
 
@@ -307,7 +358,7 @@ export async function userRoutes(app: FastifyInstance) {
         isAdmin: t.admins.includes(targetId),
       }));
 
-      return reply.send({ user: { ...toPublicUser(user), sharedTeams } });
+      return reply.send({ user: { ...(await toPublicUser(user)), sharedTeams } });
     }
   );
 
@@ -340,7 +391,7 @@ export async function userRoutes(app: FastifyInstance) {
         .map((s) => s.trim())
         .filter(Boolean);
       const users = await userService.findManyByIds(rawIds);
-      return reply.send({ users: users.map(toPublicUser) });
+      return reply.send({ users: await Promise.all(users.map((user) => toPublicUser(user))) });
     }
   );
 
@@ -351,6 +402,7 @@ export async function userRoutes(app: FastifyInstance) {
     image?: string | null;
     bio?: string;
     website?: string;
+    reportsToUserId?: string | null;
   }
 
   app.put(
@@ -373,10 +425,14 @@ export async function userRoutes(app: FastifyInstance) {
               maxLength: 200,
               pattern: "^$|^https?:\\/\\/.+",
             },
+            reportsToUserId: {
+              anyOf: [{ type: "string", pattern: "^[0-9a-f]{24}$" }, { type: "null" }],
+            },
           },
         },
         response: {
           200: { type: "object", properties: { user: publicUserSchema } },
+          400: { type: "object", properties: { error: { type: "string" } } },
           ...unauthorizedResponse,
         },
       },
@@ -384,7 +440,10 @@ export async function userRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const body = req.body as ProfileUpdateBody;
       const updated = await userService.updateProfile(req.user!.id, body);
-      return reply.send({ user: toPublicUser(updated) });
+      if (typeof updated === "string") {
+        return reply.status(400).send({ error: updated });
+      }
+      return reply.send({ user: await toPublicUser(updated) });
     }
   );
 }

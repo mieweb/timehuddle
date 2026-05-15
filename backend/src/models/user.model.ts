@@ -12,6 +12,7 @@ export interface User {
   username?: string | null;
   bio?: string;
   website?: string;
+  reportsToUserId?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

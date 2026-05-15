@@ -1,13 +1,14 @@
 import { ObjectId } from "mongodb";
 import { messagesCollection, teamsCollection, usersCollection } from "../models/index.js";
 import type { Message, PublicMessage } from "../models/message.model.js";
+import { notificationService } from "./notification.service.js";
 
 // ─── SSE pub/sub ──────────────────────────────────────────────────────────────
 
 type SseCallback = (msg: PublicMessage) => void;
 const sseListeners = new Map<string, Set<SseCallback>>();
 
-export function subscribeSse(threadId: string, fn: SseCallback): () => void {
+export function subscribe(threadId: string, fn: SseCallback): () => void {
   if (!sseListeners.has(threadId)) sseListeners.set(threadId, new Set());
   sseListeners.get(threadId)!.add(fn);
   return () => {
@@ -49,16 +50,23 @@ class MessageService {
     requesterId: string,
     teamId: string,
     adminId: string,
-    memberId: string
-  ): Promise<PublicMessage[] | "forbidden"> {
+    memberId: string,
+    options: { before?: Date; limit?: number } = {}
+  ): Promise<{ messages: PublicMessage[]; hasMore: boolean } | "forbidden"> {
     if (requesterId !== adminId && requesterId !== memberId) return "forbidden";
     const threadId = buildThreadId(teamId, adminId, memberId);
+    const limit = options.limit ?? 50;
+    const filter: Record<string, unknown> = { threadId };
+    if (options.before) filter.createdAt = { $lt: options.before };
     const messages = await messagesCollection()
-      .find({ threadId })
-      .sort({ createdAt: 1 })
-      .limit(500)
+      .find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit + 1)
       .toArray();
-    return messages.map(toPublicMessage);
+    const hasMore = messages.length > limit;
+    if (hasMore) messages.pop();
+    messages.reverse();
+    return { messages: messages.map(toPublicMessage), hasMore };
   }
 
   async send(
@@ -109,6 +117,25 @@ class MessageService {
     await messagesCollection().insertOne(doc);
     const pub = toPublicMessage(doc);
     broadcast(threadId, pub);
+
+    // Push notification to recipient
+    const truncatedText = text.length > 200 ? text.slice(0, 197) + "…" : text;
+    notificationService
+      .create({
+        userId: toUserId,
+        title: `New message from ${senderName}`,
+        body: truncatedText,
+        notificationData: {
+          type: "message",
+          teamId,
+          adminId,
+          memberId,
+          senderName,
+          url: `/app/messages?openTeam=${encodeURIComponent(teamId)}&openPeer=${encodeURIComponent(senderId)}`,
+        },
+      })
+      .catch((err) => console.error("[message] push notification failed:", err));
+
     return pub;
   }
 }

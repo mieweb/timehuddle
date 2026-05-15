@@ -8,7 +8,7 @@ This is a React 19 + Vite + Tailwind CSS 4 + TypeScript frontend application. Th
 
 ### Node Version
 
-This project pins Node via `.nvmrc`. **Always run `nvm use` before any terminal commands** to ensure the correct Node version is active. Using the wrong version causes `package-lock.json` drift and CI failures.
+This project pins Node via `.nvmrc`. **Run `nvm use` before Node-related terminal commands (`node`, `npm`, `npx`, `pnpm`, `yarn`)** to ensure the correct Node version is active. Using the wrong version causes `package-lock.json` drift and CI failures.
 
 ```bash
 nvm use          # activate the pinned version
@@ -165,6 +165,12 @@ src/
 - **Small functions**: Break down complex functions into smaller, focused ones
 - **Readable code**: Code should be obvious to understand at first glance
 
+### Core Model Data Discipline
+
+- **Persist domain data only**: Core persistence models should store canonical business data, not UI convenience values.
+- **No display-only fallbacks in model shape**: Do not add fields that exist only as presentation fallbacks (for example, duplicated title snapshots) to core database models.
+- **Resolve presentation at read time**: Compute or join display-friendly values in service/response layers rather than persisting redundant fallback fields.
+
 ### Folder Philosophy
 
 - **Clear purpose**: Every folder should have a main thing that anchors its contents.
@@ -178,6 +184,34 @@ src/
 - **Shared logic belongs in `packages/`**: If both sides need the same utility, it lives in a scoped package (e.g. `packages/youtube/` as `@timehuddle/youtube`) — not duplicated, not cross-imported.
 - **The backend owns data**: Persistence, validation, and business rules live in the backend. The frontend only consumes the API.
 - **Public APIs only**: The frontend communicates with the backend exclusively through versioned HTTP endpoints — never by reaching into backend modules directly.
+
+### Backend Architecture: Route → Controller → Service
+
+Every backend feature must follow a strict three-layer separation:
+
+| Layer          | Location                   | Responsibility                                              |
+| -------------- | -------------------------- | ----------------------------------------------------------- |
+| **Route**      | `backend/src/routes/`      | Schema declaration, auth hooks, wires request to controller |
+| **Controller** | `backend/src/controllers/` | Extracts params, calls service(s), formats reply            |
+| **Service**    | `backend/src/services/`    | Business logic and database access — no Fastify types       |
+
+**Rules:**
+
+- **Routes never contain business logic.** They declare the Fastify schema, attach `preHandler`/`onRequest` hooks, and call exactly one controller method.
+- **Controllers never touch the database directly.** They read from `req` (params, query, body, `req.user`), call service methods, and call `reply.send()` or `return`.
+- **Services never import Fastify types.** They are plain async functions or classes that can be unit-tested without an HTTP context.
+- **New routes always get a controller.** Do not add inline handler logic to a route file — extract it to `backend/src/controllers/<feature>.controller.ts` immediately.
+- **Existing inline route handlers should be migrated to controllers** whenever they are touched.
+
+```
+// ✅ Correct
+// routes/work-summary.ts  → calls workSummaryController.getByUser(req, reply)
+// controllers/work-summary.controller.ts → calls workSummaryService.forUser(userId)
+// services/work-summary.service.ts → queries MongoDB, returns data
+
+// ❌ Wrong
+// routes/work-summary.ts  → contains MongoDB queries inline
+```
 
 ### Refactoring Guidelines
 
@@ -201,6 +235,61 @@ src/
 - **Avoid unnecessary re-renders**: Prefer `useMemo` and `useCallback` only where measurable impact exists — don't pre-optimize
 - **Bundle size**: Avoid importing entire libraries; prefer named imports
 - **Backend queries**: Return only the fields the client needs; avoid over-fetching from the API
+
+### Avoid Repetitive Code: DRY
+
+Do this when it makes sense.
+
+- **For Example**: Never call connection setup per-query.\*\* Guards like `ensureMongooseConnected()` repeated inside model helpers cause redundant readyState checks and risk duplicate connect attempts.
+- Initialize all connections once in `bootstrap()` in `backend/src/server.ts`, before any request can arrive:
+  ```typescript
+  await connectDB(); // native MongoDB driver
+  await ensureMongooseConnected(); // Mongoose (whenever any Mongoose model is in use)
+  ```
+- Model helpers then need no connection guards — queries run unconditionally.
+
+### Mongoose vs Native MongoDB — When to Use Each
+
+- **Mongoose**: Stateful or permissioned models with lifecycle hooks, instance methods, or enum enforcement (e.g. `Ticket`). Use `InferSchemaType` — no separate interface needed.
+- **Native MongoDB driver**: Simple append/query models with no business rules (e.g. `ClockEvent`). Use a typed `interface` + collection accessor from `backend/src/models/index.ts`.
+
+### Mongoose ESM Import Rule (Node 24)
+
+Named imports from `mongoose` crash in ESM under Node 24 / Docker. Always use the default import then destructure:
+
+```typescript
+// ❌ Fails in Node 24 ESM
+import { Schema, model, models } from 'mongoose';
+
+// ✅ Correct
+import mongoose from 'mongoose';
+const { Schema, model, models } = mongoose;
+```
+
+### Mongoose Schema — `_id` Type Pinning
+
+`InferSchemaType` infers `_id` as `mongoose.Types.ObjectId`, which is incompatible with native driver filter types. Pin it explicitly when the model coexists with native driver queries:
+
+```typescript
+import { ObjectId } from 'mongodb';
+export type Ticket = mongoose.InferSchemaType<typeof ticketSchema> & { _id: ObjectId };
+```
+
+### Mongoose Pre-Hook Signature (v8+)
+
+Use `async function` with no `next` parameter — passing `next` causes a type error in Mongoose 8:
+
+```typescript
+// ❌ Type error in Mongoose 8
+ticketSchema.pre('save', function (next) {
+  next();
+});
+
+// ✅ Correct
+ticketSchema.pre('save', async function () {
+  this.updatedAt = new Date();
+});
+```
 
 ## HTML & CSS Guidelines
 

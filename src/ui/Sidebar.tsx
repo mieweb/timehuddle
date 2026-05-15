@@ -1,13 +1,15 @@
 /**
  * Sidebar — Collapsible app navigation.
  *
- * Desktop: fixed width panel, animates between 240 px (expanded) and
- * 64 px (collapsed / icon-only) using a spring.
+ * Desktop rail (md+): fixed width panel, animates between 240 px (expanded) and
+ * 64 px (collapsed / icon-only) using a spring. Collapse control lives in the
+ * rail footer.
  *
- * Mobile (< md): hidden by default; slides in as a full-height drawer from
- * the left when isMobileOpen is true in SidebarContext.
+ * Mobile drawer (< md): slides in from the left when isMobileOpen is true.
+ * The drawer always shows icons with labels (never icon-only) and does not
+ * show the rail collapse control — the hamburger/drawer is the primary pattern.
  *
- * Labels fade in/out with AnimatePresence so they never clip during resize.
+ * Labels fade in/out with AnimatePresence on the rail so they never clip during resize.
  */
 import {
   faChevronLeft,
@@ -18,6 +20,7 @@ import {
   faGauge,
   faGear,
   faListCheck,
+  faStopwatch,
   faTable,
   faUsers,
   faClockRotateLeft,
@@ -61,7 +64,7 @@ const NAV: NavSection[] = [
     heading: 'Workspace',
     items: [
       { icon: faGauge, label: 'Dashboard', href: '/app/dashboard' },
-      { icon: faClock, label: 'Clock In/Out', href: '/app/clock' },
+      { icon: faStopwatch, label: 'Work', href: '/app/work' },
       { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
       { icon: faTable, label: 'Timesheet', href: '/app/timesheet' },
     ],
@@ -77,9 +80,19 @@ const NAV: NavSection[] = [
   },
   {
     heading: 'System',
-    items: [{ icon: faGear, label: 'Settings', href: '/app/settings' }],
+
+    items: [
+      { icon: faClock, label: 'Clock', href: '/app/clock' },
+      { icon: faGear, label: 'Settings', href: '/app/settings' },
+    ],
   },
 ];
+
+type SidebarContentVariant = 'rail' | 'drawer';
+
+interface SidebarContentProps {
+  variant?: SidebarContentVariant;
+}
 
 // ─── NavLink ─────────────────────────────────────────────────────────────────
 
@@ -137,9 +150,10 @@ const NavLink: React.FC<{ item: NavItem; active: boolean; expanded: boolean }> =
 
 // ─── SidebarContent ───────────────────────────────────────────────────────────
 
-const SidebarContent: React.FC = () => {
+const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => {
   const { isExpanded, toggle } = useSidebar();
   const { pathname } = useRouter();
+  const expanded = variant === 'drawer' ? true : isExpanded;
 
   return (
     <div className="flex h-full flex-col">
@@ -147,7 +161,7 @@ const SidebarContent: React.FC = () => {
       <div
         className={[
           'sidebar-brand flex shrink-0 items-center border-b border-neutral-200 px-3 dark:border-neutral-800',
-          isExpanded ? '' : 'justify-center',
+          expanded ? '' : 'justify-center',
         ].join(' ')}
         style={{ minHeight: '4rem' }}
       >
@@ -159,7 +173,7 @@ const SidebarContent: React.FC = () => {
           </div>
           {/* Wordmark */}
           <AnimatePresence initial={false}>
-            {isExpanded && (
+            {expanded && (
               <motion.div
                 key="wordmark"
                 initial={{ opacity: 0, width: 0 }}
@@ -186,7 +200,7 @@ const SidebarContent: React.FC = () => {
           <div key={si}>
             {/* Section heading — only shown when expanded */}
             <AnimatePresence initial={false}>
-              {isExpanded && section.heading && (
+              {expanded && section.heading && (
                 <motion.p
                   key="heading"
                   initial={{ opacity: 0, height: 0 }}
@@ -202,7 +216,7 @@ const SidebarContent: React.FC = () => {
             <ul className="space-y-0.5">
               {section.items.map((item) => (
                 <li key={item.label}>
-                  <NavLink item={item} active={pathname === item.href} expanded={isExpanded} />
+                  <NavLink item={item} active={pathname === item.href} expanded={expanded} />
                 </li>
               ))}
             </ul>
@@ -210,39 +224,39 @@ const SidebarContent: React.FC = () => {
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="shrink-0 space-y-0.5 border-t border-neutral-200 px-2 py-3 dark:border-neutral-800">
-        {/* Collapse toggle */}
-        <button
-          type="button"
-          onClick={toggle}
-          title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-          aria-label={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-          className={[
-            'flex h-9 w-full items-center rounded-lg text-sm text-neutral-500 transition-colors hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800',
-            isExpanded ? 'gap-3 px-2.5' : 'justify-center px-0',
-          ].join(' ')}
-        >
-          <FontAwesomeIcon
-            icon={isExpanded ? faChevronLeft : faChevronRight}
-            className="w-4 shrink-0 text-xs"
-          />
-          <AnimatePresence initial={false}>
-            {isExpanded && (
-              <motion.span
-                key="collapse-label"
-                initial={{ opacity: 0, width: 0 }}
-                animate={{ opacity: 1, width: 'auto' }}
-                exit={{ opacity: 0, width: 0 }}
-                transition={{ duration: 0.15, ease: 'easeInOut' }}
-                className="overflow-hidden whitespace-nowrap"
-              >
-                Collapse
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </button>
-      </div>
+      {variant === 'rail' && (
+        <div className="shrink-0 space-y-0.5 border-t border-neutral-200 px-2 py-3 dark:border-neutral-800">
+          <button
+            type="button"
+            onClick={toggle}
+            title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-label={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            className={[
+              'flex h-9 w-full items-center rounded-lg text-sm text-neutral-500 transition-colors hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800',
+              isExpanded ? 'gap-3 px-2.5' : 'justify-center px-0',
+            ].join(' ')}
+          >
+            <FontAwesomeIcon
+              icon={isExpanded ? faChevronLeft : faChevronRight}
+              className="w-4 shrink-0 text-xs"
+            />
+            <AnimatePresence initial={false}>
+              {isExpanded && (
+                <motion.span
+                  key="collapse-label"
+                  initial={{ opacity: 0, width: 0 }}
+                  animate={{ opacity: 1, width: 'auto' }}
+                  exit={{ opacity: 0, width: 0 }}
+                  transition={{ duration: 0.15, ease: 'easeInOut' }}
+                  className="overflow-hidden whitespace-nowrap"
+                >
+                  Collapse
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </button>
+        </div>
+      )}
     </div>
   );
 };
@@ -261,7 +275,7 @@ export const Sidebar: React.FC = () => {
           animate={{ width: isExpanded ? 240 : 64 }}
           transition={isReload ? { duration: 0 } : { type: 'spring', damping: 28, stiffness: 280 }}
         >
-          <SidebarContent />
+          <SidebarContent variant="rail" />
         </motion.aside>
 
         {/* ── Mobile: slide-in drawer ────────────────────────────────────── */}
@@ -288,7 +302,7 @@ export const Sidebar: React.FC = () => {
                 >
                   ✕
                 </Button>
-                <SidebarContent />
+                <SidebarContent variant="drawer" />
               </motion.aside>
             )}
           </AnimatePresence>,
