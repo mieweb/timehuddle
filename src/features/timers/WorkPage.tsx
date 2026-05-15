@@ -199,7 +199,6 @@ export const WorkPage: React.FC = () => {
     try {
       const entries = await timerApi.getDay(selectedDate);
       setDayEntries(entries);
-
     } catch {
       // keep previous
     }
