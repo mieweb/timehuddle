@@ -7,6 +7,12 @@ import {
   usersCollection,
 } from "../models/index.js";
 import type { ClockEvent } from "../models/clock.model.js";
+import {
+  findActiveClockEventByUser,
+  findActiveClockEventByUserTeam,
+  findClockEventsForUser,
+  findLiveClockEventsForTeams,
+} from "../models/clock.model.js";
 import { timerService } from "./timer.service.js";
 import { ActivityType } from "../models/activity.model.js";
 
@@ -70,25 +76,22 @@ export type PublicClockEvent = ReturnType<typeof toPublicClockEvent>;
 export class ClockService {
   /** Return the active (open) clock event for a user in a team, or null. */
   async getActive(userId: string, teamId: string): Promise<ClockEvent | null> {
-    return clockEventsCollection().findOne({ userId, teamId, endTime: null });
+    return findActiveClockEventByUserTeam(userId, teamId);
   }
 
   /** Return the active clock event across any team for the user. */
   async getActiveForUser(userId: string): Promise<ClockEvent | null> {
-    return clockEventsCollection().findOne({ userId, endTime: null });
+    return findActiveClockEventByUser(userId);
   }
 
   /** All clock events for a user (for their own timesheet & history). */
   async getForUser(userId: string): Promise<ClockEvent[]> {
-    return clockEventsCollection().find({ userId }).sort({ startTime: -1 }).toArray();
+    return findClockEventsForUser(userId);
   }
 
   /** Live clock events for a set of teams (used by SSE + dashboard). */
   async getLiveForTeams(teamIds: string[]): Promise<ClockEvent[]> {
-    if (!teamIds.length) return [];
-    return clockEventsCollection()
-      .find({ teamId: { $in: teamIds }, endTime: null })
-      .toArray();
+    return findLiveClockEventsForTeams(teamIds);
   }
 
   async start(userId: string, teamId: string): Promise<PublicClockEvent | "forbidden"> {
