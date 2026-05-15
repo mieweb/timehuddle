@@ -29,7 +29,9 @@ export const auth = betterAuth({
       __skipDeprecationWarning: true,
 
       // Where to redirect unauthenticated users during the authorize flow.
-      loginPage: process.env.TIMEHUDDLE_LOGIN_PAGE ?? `${process.env.APP_URL ?? "http://localhost:3000"}/auth/sign-in`,
+      loginPage:
+        process.env.TIMEHUDDLE_LOGIN_PAGE ??
+        `${process.env.APP_URL ?? "http://localhost:3000"}/auth/sign-in`,
 
       // Secrets stored as plain text — SHA-256 hashing can be enabled in production.
       storeClientSecret: "plain",
