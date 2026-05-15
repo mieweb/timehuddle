@@ -1,6 +1,7 @@
 import { ObjectId } from "mongodb";
 import { getDB } from "../lib/db.js";
-import { teamsCollection, usersCollection } from "../models/index.js";
+import { organizationsCollection, teamsCollection, usersCollection } from "../models/index.js";
+import type { Organization } from "../models/organization.model.js";
 import type { Team } from "../models/team.model.js";
 import { channelService } from "./channel.service.js";
 
@@ -9,6 +10,9 @@ import { channelService } from "./channel.service.js";
 function generateTeamCode(): string {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
 }
+
+const DEFAULT_ORG_KEY = "default";
+const DEFAULT_ORG_NAME = "Default Organization";
 
 export function toPublicTeam(team: Team & { _id: ObjectId }) {
   return {
@@ -40,6 +44,20 @@ export type TeamError =
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 export class TeamService {
+  private async ensureDefaultOrganization(): Promise<Organization & { _id: ObjectId }> {
+    const existing = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    if (existing) return existing;
+
+    const org: Organization & { _id: ObjectId } = {
+      _id: new ObjectId(),
+      key: DEFAULT_ORG_KEY,
+      name: DEFAULT_ORG_NAME,
+      createdAt: new Date(),
+    };
+    await organizationsCollection().insertOne(org);
+    return org;
+  }
+
   /** Return all teams the user belongs to, sorted personal-first then by name. */
   async getTeamsForUser(userId: string): Promise<PublicTeam[]> {
     const teams = await teamsCollection().find({ members: userId }).toArray();
@@ -54,9 +72,11 @@ export class TeamService {
     const existing = await teamsCollection().findOne({ isPersonal: true, members: userId });
     if (existing) return toPublicTeam(existing);
 
+    const defaultOrg = await this.ensureDefaultOrganization();
     const code = generateTeamCode();
     const doc: Team & { _id: ObjectId } = {
       _id: new ObjectId(),
+      orgId: defaultOrg._id.toHexString(),
       name: "Personal",
       members: [userId],
       admins: [userId],
@@ -74,9 +94,11 @@ export class TeamService {
     userId: string,
     data: { name: string; description?: string }
   ): Promise<PublicTeam> {
+    const defaultOrg = await this.ensureDefaultOrganization();
     const code = generateTeamCode();
     const doc: Team & { _id: ObjectId } = {
       _id: new ObjectId(),
+      orgId: defaultOrg._id.toHexString(),
       name: data.name,
       description: data.description,
       members: [userId],
