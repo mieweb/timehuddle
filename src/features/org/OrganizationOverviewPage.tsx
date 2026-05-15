@@ -1,6 +1,7 @@
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Text } from '@mieweb/ui';
-import React from 'react';
+import { Button, Card, CardContent, CardHeader, CardTitle, Text } from '@mieweb/ui';
+import React, { useCallback, useEffect, useState } from 'react';
 
+import { orgAdminApi, type AdminOrganization } from '../../lib/api';
 import { hasDefaultOrganizationAdminAccess } from '../../lib/organizationAccess';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
@@ -10,6 +11,21 @@ export const OrganizationOverviewPage: React.FC = () => {
   const { user } = useSession();
   const { navigate } = useRouter();
   const canAccess = hasDefaultOrganizationAdminAccess(user);
+  const [organization, setOrganization] = useState<AdminOrganization | null>(null);
+
+  const loadOrganization = useCallback(async () => {
+    try {
+      const org = await orgAdminApi.getOrganization();
+      setOrganization(org);
+    } catch {
+      // Silently handle error, display fallback text
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!canAccess) return;
+    void loadOrganization();
+  }, [canAccess, loadOrganization]);
 
   if (!canAccess) {
     return (
@@ -20,7 +36,7 @@ export const OrganizationOverviewPage: React.FC = () => {
           </CardHeader>
           <CardContent className="space-y-3">
             <Text variant="muted" size="sm">
-              This page is restricted to default organization users with owner or admin role.
+              This page is restricted to organization owners and admins.
             </Text>
           </CardContent>
         </Card>
@@ -29,16 +45,15 @@ export const OrganizationOverviewPage: React.FC = () => {
   }
 
   return (
-    <AppPage subtitle="Admin / Organization">
+    <AppPage>
       <Card padding="lg" className="space-y-4">
-        <CardHeader className="flex items-center justify-between gap-3">
+        <CardHeader className="">
           <div>
-            <CardTitle>Organization Admin</CardTitle>
+            <CardTitle>{organization?.name || 'Organization'} </CardTitle>
             <Text variant="muted" size="sm">
               Manage organization-level admin tools.
             </Text>
           </div>
-          <Badge variant="default">Admin</Badge>
         </CardHeader>
 
         <CardContent className="space-y-4">
