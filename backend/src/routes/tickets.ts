@@ -34,6 +34,7 @@ function toPublicTicket(t: Ticket) {
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt?.toISOString() ?? null,
     sharedWithTimeharbor: t.sharedWithTimeharbor ?? false,
+    externalTrackedMs: t.externalTrackedMs ?? 0,
   };
 }
 
@@ -59,6 +60,7 @@ const ticketShape = {
     createdAt: { type: "string" },
     updatedAt: { type: "string", nullable: true },
     sharedWithTimeharbor: { type: "boolean" },
+    externalTrackedMs: { type: "number" },
     createdByName: { type: "string" },
     assignedToName: { type: "string", nullable: true },
   },
@@ -359,6 +361,65 @@ export async function ticketRoutes(app: FastifyInstance) {
       const result = await ticketService.batchUpdateStatus(ticketIds, teamId, status, req.user!.id);
       if (result === "forbidden") return reply.status(403).send({ error: "Not a team admin" });
       return reply.send({ modified: result });
+    }
+  );
+
+  // PATCH /v1/tickets/:id/external-update — accept time/status/description pushed from TimeHarbor
+  app.patch(
+    "/tickets/:id/external-update",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Tickets"],
+        summary: "Accept an external update from TimeHarbor (time, status, description, github)",
+        params: idParam,
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            addMs: { type: "number", minimum: 0 },
+            status: { type: "string", enum: ALL_STATUSES },
+            description: { type: "string", maxLength: 5000 },
+            github: { type: "string", maxLength: 1000 },
+          },
+        },
+        response: {
+          200: { type: "object", properties: { ticket: ticketShape } },
+          ...unauth,
+          403: err("Not a team member"),
+          404: err("Ticket not found"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as {
+        addMs?: number;
+        status?: TicketStatus;
+        description?: string;
+        github?: string;
+      };
+      const ticket = await ticketService.findById(id);
+      if (!ticket) return reply.status(404).send({ error: "Ticket not found" });
+      const team = await teamsCollection().findOne({
+        _id: new ObjectId(ticket.teamId),
+        $or: [{ members: req.user!.id }, { admins: req.user!.id }],
+      });
+      if (!team) return reply.status(403).send({ error: "Not a team member" });
+
+      const $set: Record<string, unknown> = { updatedAt: new Date() };
+      const $inc: Record<string, unknown> = {};
+      if (body.status !== undefined) $set.status = body.status;
+      if (body.description !== undefined) $set.description = body.description;
+      if (body.github !== undefined) $set.github = body.github;
+      if (body.addMs && body.addMs > 0) $inc.externalTrackedMs = body.addMs;
+
+      const update: Record<string, unknown> = { $set };
+      if (Object.keys($inc).length > 0) update.$inc = $inc;
+
+      await ticketsCollection().updateOne({ _id: new ObjectId(id) }, update);
+      const updated = await ticketService.findById(id);
+      return reply.send({ ticket: toPublicTicket(updated!) });
     }
   );
 

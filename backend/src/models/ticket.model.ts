@@ -21,4 +21,6 @@ export interface Ticket {
   // Set to true when the ticket owner flags it for import into TimeHarbor.
   // TimeHarbor polls this field to decide which tickets to pull.
   sharedWithTimeharbor?: boolean;
+  /** Cumulative milliseconds tracked in TimeHarbor and pushed back here. */
+  externalTrackedMs?: number;
 }
