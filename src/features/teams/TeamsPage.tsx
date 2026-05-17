@@ -38,6 +38,10 @@ import {
   ModalHeader,
   ModalTitle,
   Spinner,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   Text,
   Textarea,
 } from '@mieweb/ui';
@@ -49,6 +53,7 @@ import { useSession } from '../../lib/useSession';
 import { usePresence } from '../../lib/usePresence';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { AdminTimesheetPanel } from './AdminTimesheetPanel';
 const TeamChart = React.lazy(() => import('./TeamChart').then((m) => ({ default: m.TeamChart })));
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
@@ -321,7 +326,21 @@ export const TeamsPage: React.FC = () => {
             )}
           </div>
 
-          {/* Members list */}
+          {/* Tabs: Members | Timesheet */}
+          <Tabs defaultValue="members" className="mt-2">
+            <TabsList className="w-full">
+              <TabsTrigger value="members" className="flex-1">
+                Members
+              </TabsTrigger>
+              {!selectedTeam.isPersonal && (
+                <TabsTrigger value="timesheet" className="flex-1">
+                  Timesheet
+                </TabsTrigger>
+              )}
+            </TabsList>
+
+            {/* ── Members tab ── */}
+            <TabsContent value="members">
           <div className="py-1">
             <div className="mb-3 flex items-center justify-between">
               <Text
@@ -453,37 +472,50 @@ export const TeamsPage: React.FC = () => {
               })}
             </ul>
           </div>
-        </div>
-      )}
 
-      {/* Chart */}
-      {selectedTeam && !selectedTeam.isPersonal && (
-        <div className="overflow-hidden">
-          <div className="py-2">
-            <CardTitle>Chart</CardTitle>
-          </div>
-          <div className="overflow-x-auto">
-            <React.Suspense
-              fallback={
-                <div className="flex items-center justify-center p-8">
-                  <Spinner size="lg" label="Loading chart…" />
-                </div>
-              }
-            >
-              <TeamChart
-                teamName={selectedTeam.name}
-                members={selectedTeam.members.map((memberId) => {
-                  const m = membersById.get(memberId);
-                  return {
-                    id: memberId,
-                    name: m?.name ?? memberId,
-                    email: m?.email,
-                    isAdmin: selectedTeam.admins.includes(memberId),
-                  };
-                })}
-              />
-            </React.Suspense>
-          </div>
+          {/* Chart inside members tab */}
+          {!selectedTeam.isPersonal && (
+            <div className="mt-4 overflow-hidden">
+              <div className="py-2">
+                <CardTitle>Chart</CardTitle>
+              </div>
+              <div className="overflow-x-auto">
+                <React.Suspense
+                  fallback={
+                    <div className="flex items-center justify-center p-8">
+                      <Spinner size="lg" label="Loading chart…" />
+                    </div>
+                  }
+                >
+                  <TeamChart
+                    teamName={selectedTeam.name}
+                    members={selectedTeam.members.map((memberId) => {
+                      const m = membersById.get(memberId);
+                      return {
+                        id: memberId,
+                        name: m?.name ?? memberId,
+                        email: m?.email,
+                        isAdmin: selectedTeam.admins.includes(memberId),
+                      };
+                    })}
+                  />
+                </React.Suspense>
+              </div>
+            </div>
+          )}
+            </TabsContent>
+
+            {/* ── Timesheet tab (non-personal teams only) ── */}
+            {!selectedTeam.isPersonal && (
+              <TabsContent value="timesheet">
+                <AdminTimesheetPanel
+                  members={members}
+                  selectedTeamId={selectedTeamId}
+                  teams={teams}
+                />
+              </TabsContent>
+            )}
+          </Tabs>
         </div>
       )}
 
