@@ -193,6 +193,9 @@ describe("clock break flow", () => {
     expect(pauseRes.statusCode).toBe(200);
     expect(pauseRes.json().event.isPaused).toBe(true);
     expect(typeof pauseRes.json().event.pausedAt).toBe("number");
+    expect(Array.isArray(pauseRes.json().event.breakSegments)).toBe(true);
+    expect(pauseRes.json().event.breakSegments.length).toBeGreaterThanOrEqual(1);
+    expect(pauseRes.json().event.breakSegments[0].resumedAt).toBeNull();
 
     const statusWhilePaused = await inject(
       "GET",
@@ -206,6 +209,9 @@ describe("clock break flow", () => {
     const resumeRes = await inject("POST", "/v1/clock/resume", workerCookie, { teamId });
     expect(resumeRes.statusCode).toBe(200);
     expect(resumeRes.json().event.isPaused).toBe(false);
+    expect(Array.isArray(resumeRes.json().event.breakSegments)).toBe(true);
+    expect(resumeRes.json().event.breakSegments.length).toBeGreaterThanOrEqual(1);
+    expect(typeof resumeRes.json().event.breakSegments[0].resumedAt).toBe("number");
 
     const statusAfterResume = await inject(
       "GET",

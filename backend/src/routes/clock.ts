@@ -19,6 +19,16 @@ const clockEventShape = {
     isPaused: { type: "boolean" },
     pausedAt: { type: "number", nullable: true },
     totalPausedSeconds: { type: "number" },
+    breakSegments: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          pausedAt: { type: "number" },
+          resumedAt: { type: "number", nullable: true },
+        },
+      },
+    },
     endTime: { type: "number", nullable: true },
   },
 };

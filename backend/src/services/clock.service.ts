@@ -90,6 +90,31 @@ export function toPublicClockEvent(e: ClockEvent) {
         ? (raw["totalPausedSeconds"] as number)
         : 0;
 
+  const breakSegments = Array.isArray(raw["breakSegments"])
+    ? (raw["breakSegments"] as Array<Record<string, unknown>>)
+        .map((segment) => {
+          const rawPausedAt = segment["pausedAt"];
+          const rawResumedAt = segment["resumedAt"];
+          const pausedAt =
+            rawPausedAt instanceof Date
+              ? rawPausedAt.getTime()
+              : typeof rawPausedAt === "number"
+                ? rawPausedAt
+                : null;
+          const resumedAt =
+            rawResumedAt instanceof Date
+              ? rawResumedAt.getTime()
+              : typeof rawResumedAt === "number"
+                ? rawResumedAt
+                : null;
+          if (pausedAt === null) return null;
+          return { pausedAt, resumedAt };
+        })
+        .filter((segment): segment is { pausedAt: number; resumedAt: number | null } =>
+          segment !== null
+        )
+    : [];
+
   const now = Date.now();
   const workSeconds = getActiveWorkSeconds(e, now);
 
@@ -103,6 +128,7 @@ export function toPublicClockEvent(e: ClockEvent) {
     isPaused: pausedAt !== null,
     pausedAt,
     totalPausedSeconds,
+    breakSegments,
     endTime,
   };
 }
@@ -152,6 +178,7 @@ export class ClockService {
       teamId,
       startTime: now,
       accumulatedTime: 0,
+      breakSegments: [],
       pausedAt: null,
       totalPausedSeconds: 0,
       pauseStartedSessionId: null,
@@ -320,6 +347,7 @@ export class ClockService {
       (event.accumulatedTime ?? 0) + elapsed
     );
     const pausedSessionId = await timerService.closeRunningForUser(userId, now);
+    const breakSegments = Array.isArray(event.breakSegments) ? event.breakSegments : [];
 
     await coll.updateOne(
       { _id: event._id, endTime: null },
@@ -329,6 +357,7 @@ export class ClockService {
           pausedAt: now,
           startTime: now,
           pauseStartedSessionId: pausedSessionId,
+          breakSegments: [...breakSegments, { pausedAt: now, resumedAt: null }],
         },
       }
     );
@@ -353,6 +382,13 @@ export class ClockService {
     const pausedSeconds = getElapsedSeconds(event.pausedAt, now);
     const totalPausedSeconds = (event.totalPausedSeconds ?? 0) + pausedSeconds;
     const pausedSessionId = event.pauseStartedSessionId ?? null;
+    const breakSegments = Array.isArray(event.breakSegments) ? [...event.breakSegments] : [];
+    for (let i = breakSegments.length - 1; i >= 0; i -= 1) {
+      if (breakSegments[i]?.resumedAt == null) {
+        breakSegments[i] = { ...breakSegments[i], resumedAt: now };
+        break;
+      }
+    }
 
     await coll.updateOne(
       { _id: event._id, endTime: null },
@@ -362,6 +398,7 @@ export class ClockService {
           pausedAt: null,
           totalPausedSeconds,
           pauseStartedSessionId: null,
+          breakSegments,
         },
       }
     );
@@ -508,6 +545,10 @@ export class ClockService {
       teamId,
       startTime,
       accumulatedTime,
+      breakSegments: [],
+      pausedAt: null,
+      totalPausedSeconds: 0,
+      pauseStartedSessionId: null,
       endTime,
     });
 

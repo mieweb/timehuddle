@@ -1,10 +1,11 @@
 /**
- * TimesheetRow — Renders one or more <TableRow>s for a single clock session.
+ * TimesheetRow — renders a clear timeline per session.
  *
- * A session that spans midnight is split into per-calendar-day segments.
- * Continuation segments show "---" for clock-in (on all but the first day)
- * and "---" for clock-out (on all but the last day), making it clear the
- * session carried over from / into an adjacent day.
+ * For each session we render:
+ * - one row per WORK segment
+ * - one row per BREAK segment
+ *
+ * This makes flows explicit: work -> break -> resumed work.
  */
 import { faEllipsisVertical } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -27,163 +28,206 @@ interface Props {
   onEdit: (session: ClockEvent) => void;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+type TimelineStatus = 'active' | 'clocked-out' | 'worked' | 'break' | 'on-break';
 
-/** Returns midnight (local time) for the given date. */
-function startOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+interface TimelineEntry {
+  id: string;
+  kind: 'work' | 'break';
+  start: number;
+  end: number | null;
+  durationSeconds: number;
+  status: TimelineStatus;
+  metaText?: string;
 }
 
-/** Returns the last millisecond of the day (local time). */
-function endOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-}
-
-interface DaySegment {
-  /** Calendar date label for this row */
-  date: Date;
-  /** Actual clock-in for this segment — null means it's a continuation */
-  clockIn: Date | null;
-  /** Actual clock-out for this segment — null means it continues into next day (or still active) */
-  clockOut: Date | null;
-  /** Duration in seconds for this segment */
-  durationSeconds: number | null;
-  /** Whether this is the very first segment of the session */
-  isFirst: boolean;
-  /** Whether this is the very last segment of the session */
-  isLast: boolean;
-  /** Whether the overall session is still active (no endTime) */
-  isActive: boolean;
-  /** Whether this segment spans more than one day in the original session */
-  isMultiDay: boolean;
-}
-
-/**
- * Splits a ClockEvent into per-calendar-day segments (local time).
- * Single-day sessions produce exactly one segment.
- */
-function splitIntoSegments(session: ClockEvent): DaySegment[] {
-  const start = new Date(session.startTime);
-  const end = session.endTime ? new Date(session.endTime) : null;
-
-  const startDay = startOfDay(start);
-  const endDay = end ? startOfDay(end) : startDay;
-
-  // Count days spanned
-  const totalDays = Math.round((endDay.getTime() - startDay.getTime()) / (24 * 60 * 60 * 1000)) + 1;
-  const isMultiDay = totalDays > 1;
-
-  const segments: DaySegment[] = [];
-
-  for (let i = 0; i < totalDays; i++) {
-    const dayStart = new Date(startDay);
-    dayStart.setDate(dayStart.getDate() + i);
-    const dayEnd = endOfDay(dayStart);
-
-    const isFirst = i === 0;
-    const isLast = i === totalDays - 1;
-
-    const segmentStart = isFirst ? start : dayStart;
-    // For the last segment use the real end; otherwise clip at end-of-day.
-    // If still active on the last day, segmentEnd is null.
-    const segmentEnd: Date | null = isLast ? end : dayEnd;
-
-    const durationSeconds =
-      segmentEnd !== null
-        ? Math.max(0, Math.floor((segmentEnd.getTime() - segmentStart.getTime()) / 1000))
-        : null;
-
-    segments.push({
-      date: dayStart,
-      clockIn: isFirst ? start : null,
-      clockOut: isLast ? end : dayEnd,
-      durationSeconds,
-      isFirst,
-      isLast,
-      isActive: !session.endTime,
-      isMultiDay,
-    });
+function getSessionWorkSeconds(session: ClockEvent, now: number): number {
+  if (session.endTime === null) {
+    if (typeof session.workSeconds === 'number') return Math.max(0, session.workSeconds);
+    const accumulated = Math.max(0, session.accumulatedTime ?? 0);
+    if (session.isPaused) return accumulated;
+    return accumulated + Math.max(0, Math.floor((now - session.startTime) / 1000));
   }
 
-  return segments;
+  const accumulated = Math.max(0, session.accumulatedTime ?? 0);
+  if (accumulated > 0) return accumulated;
+  return Math.max(0, Math.floor((session.endTime - session.startTime) / 1000));
+}
+
+function getBreakTimelineEntries(session: ClockEvent, now: number): TimelineEntry[] {
+  const segments = Array.isArray(session.breakSegments) ? session.breakSegments : [];
+  const entries = segments.map((segment, index): TimelineEntry => {
+    const resumedAt = typeof segment.resumedAt === 'number' ? segment.resumedAt : null;
+    const durationSeconds = Math.max(
+      0,
+      Math.floor(((resumedAt ?? now) - segment.pausedAt) / 1000),
+    );
+    return {
+      id: `${session.id}-break-${index}`,
+      kind: 'break',
+      start: segment.pausedAt,
+      end: resumedAt,
+      durationSeconds,
+      status: resumedAt ? 'break' : 'on-break',
+      metaText: resumedAt
+        ? `${formatTime(new Date(segment.pausedAt))} to ${formatTime(new Date(resumedAt))}`
+        : `since ${formatTime(new Date(segment.pausedAt))}`,
+    };
+  });
+
+  return entries;
+}
+
+function getWorkTimelineEntries(session: ClockEvent, now: number): TimelineEntry[] {
+  const breaks = (Array.isArray(session.breakSegments) ? session.breakSegments : [])
+    .filter((b): b is { pausedAt: number; resumedAt: number | null } => typeof b.pausedAt === 'number')
+    .sort((a, b) => a.pausedAt - b.pausedAt);
+
+  const totalWorkSeconds = getSessionWorkSeconds(session, now);
+
+  if (breaks.length === 0) {
+    const end =
+      session.endTime ?? (session.isPaused && typeof session.pausedAt === 'number' ? session.pausedAt : now);
+    const start = end - totalWorkSeconds * 1000;
+    return [
+      {
+        id: `${session.id}-work-0`,
+        kind: 'work',
+        start,
+        end,
+        durationSeconds: totalWorkSeconds,
+        status: session.endTime ? 'clocked-out' : session.isPaused ? 'worked' : 'active',
+      },
+    ];
+  }
+
+  const knownSegments: Array<{ start: number; end: number }> = [];
+
+  for (let i = 0; i < breaks.length - 1; i += 1) {
+    const resume = breaks[i].resumedAt;
+    const nextPause = breaks[i + 1].pausedAt;
+    if (typeof resume === 'number' && nextPause > resume) {
+      knownSegments.push({ start: resume, end: nextPause });
+    }
+  }
+
+  const lastBreak = breaks[breaks.length - 1];
+  if (typeof lastBreak.resumedAt === 'number') {
+    const lastEnd = session.endTime ?? now;
+    if (lastEnd > lastBreak.resumedAt) {
+      knownSegments.push({ start: lastBreak.resumedAt, end: lastEnd });
+    }
+  }
+
+  const knownSeconds = knownSegments.reduce(
+    (sum, seg) => sum + Math.max(0, Math.floor((seg.end - seg.start) / 1000)),
+    0,
+  );
+  const firstEnd = breaks[0].pausedAt;
+  const firstSeconds = Math.max(0, totalWorkSeconds - knownSeconds);
+  const firstStart = firstEnd - firstSeconds * 1000;
+
+  const workSegments = [{ start: firstStart, end: firstEnd }, ...knownSegments];
+
+  return workSegments.map((seg, index) => {
+    const isLast = index === workSegments.length - 1;
+    let status: TimelineStatus = 'worked';
+    if (isLast) {
+      if (session.endTime) status = 'clocked-out';
+      else if (!session.isPaused) status = 'active';
+    }
+
+    return {
+      id: `${session.id}-work-${index}`,
+      kind: 'work',
+      start: seg.start,
+      end: seg.end,
+      durationSeconds: Math.max(0, Math.floor((seg.end - seg.start) / 1000)),
+      status,
+    };
+  });
+}
+
+function getTimelineEntries(session: ClockEvent, now: number): TimelineEntry[] {
+  const workEntries = getWorkTimelineEntries(session, now);
+  const breakEntries = getBreakTimelineEntries(session, now);
+
+  return [...workEntries, ...breakEntries].sort((a, b) => {
+    if (b.start !== a.start) return b.start - a.start;
+    if (a.kind === b.kind) return 0;
+    return a.kind === 'work' ? -1 : 1;
+  });
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
   const teamName = teams.find((t) => t.id === session.teamId)?.name ?? session.teamId;
-  // clock-in day at bottom) — matching the descending sort of the session list.
-  const segments = splitIntoSegments(session).reverse();
+  const now = Date.now();
+  const timeline = getTimelineEntries(session, now);
 
   return (
     <>
-      {segments.map((seg, idx) => (
-        <TableRow key={`${session.id}-day-${idx}`}>
-          {/* Date */}
+      {timeline.map((entry, index) => (
+        <TableRow key={entry.id}>
           <TableCell>
-            <span className="flex items-center gap-1.5">
-              {formatDate(seg.date, true)}
-              {seg.isMultiDay && (
-                <Badge variant="warning" size="sm" aria-label="Multi-day session">
-                  +{segments.length}d
-                </Badge>
-              )}
+            <span className={entry.kind === 'break' ? 'pl-4' : ''}>
+              {formatDate(new Date(entry.start), true)}
             </span>
           </TableCell>
 
-          {/* Clock In */}
           <TableCell>
-            {seg.clockIn ? (
-              formatTime(seg.clockIn)
-            ) : (
-              <Text variant="muted" size="xs" aria-label="Continued from previous day">
-                ---
-              </Text>
-            )}
+            {formatTime(new Date(entry.start))}
           </TableCell>
 
-          {/* Clock Out */}
           <TableCell>
-            {seg.isActive && seg.isLast ? (
+            {entry.end ? (
+              formatTime(new Date(entry.end))
+            ) : (
               <Text variant="muted" size="xs">
                 —
               </Text>
-            ) : seg.isLast && seg.clockOut ? (
-              formatTime(seg.clockOut)
-            ) : (
-              <Text variant="muted" size="xs" aria-label="Continued into next day">
-                ---
-              </Text>
             )}
           </TableCell>
 
-          {/* Duration */}
           <TableCell className="font-mono">
-            {seg.durationSeconds !== null ? formatDuration(seg.durationSeconds) : '—'}
+            {formatDuration(entry.durationSeconds)}
           </TableCell>
 
-          {/* Team — only on first row to avoid repetition */}
-          <TableCell>{seg.isFirst ? teamName : ''}</TableCell>
-
-          {/* Status */}
           <TableCell>
-            {seg.isActive && seg.isLast ? (
+            {entry.kind === 'work' ? teamName : <Text variant="muted" size="xs">{teamName}</Text>}
+          </TableCell>
+
+          <TableCell>
+            {entry.status === 'active' ? (
               <Badge variant="success" size="sm">
                 <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
                 Active
               </Badge>
-            ) : seg.isFirst ? (
-              <Text variant="muted" size="xs">
-                Completed
-              </Text>
+            ) : entry.status === 'clocked-out' ? (
+              <Badge variant="secondary" size="sm">
+                Clocked Out
+              </Badge>
+            ) : entry.status === 'on-break' ? (
+              <Badge variant="warning" size="sm">
+                On Break
+              </Badge>
+            ) : entry.status === 'break' ? (
+              <Badge variant="secondary" size="sm">
+                Break
+              </Badge>
             ) : (
-              ''
+              <Text variant="muted" size="xs">
+                Worked
+              </Text>
             )}
           </TableCell>
 
-          {/* Actions — only on first row */}
           <TableCell className="text-right">
-            {seg.isFirst && (
+            {entry.kind === 'break' ? (
+              <Text variant="muted" size="xs">
+                {entry.metaText ?? ''}
+              </Text>
+            ) : index === 0 ? (
               <Button
                 variant="ghost"
                 size="icon"
@@ -192,7 +236,7 @@ export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
               >
                 <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
               </Button>
-            )}
+            ) : null}
           </TableCell>
         </TableRow>
       ))}

@@ -465,6 +465,10 @@ export interface ClockEvent {
   isPaused?: boolean;
   pausedAt?: number | null;
   totalPausedSeconds?: number;
+  breakSegments?: Array<{
+    pausedAt: number;
+    resumedAt: number | null;
+  }>;
   endTime: number | null;
 }
 

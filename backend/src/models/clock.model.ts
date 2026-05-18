@@ -1,12 +1,18 @@
 import { ObjectId } from "mongodb";
 import { clockEventsCollection } from "./index.js";
 
+export interface ClockBreakSegment {
+  pausedAt: number; // epoch ms when break started
+  resumedAt: number | null; // epoch ms when break ended
+}
+
 export interface ClockEvent {
   _id: ObjectId;
   userId: string;
   teamId: string;
   startTime: number; // epoch ms
   accumulatedTime: number; // seconds
+  breakSegments?: ClockBreakSegment[]; // ordered break timeline for this session
   pausedAt?: number | null; // epoch ms when user started break
   totalPausedSeconds?: number; // cumulative paused seconds for this session
   pauseStartedSessionId?: string | null; // ticket timer paused when break started

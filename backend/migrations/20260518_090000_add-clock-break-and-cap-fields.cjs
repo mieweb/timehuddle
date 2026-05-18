@@ -3,6 +3,7 @@ module.exports = {
     await db.collection("clockevents").updateMany(
       {
         $or: [
+          { breakSegments: { $exists: false } },
           { pausedAt: { $exists: false } },
           { totalPausedSeconds: { $exists: false } },
           { pauseStartedSessionId: { $exists: false } },
@@ -13,6 +14,7 @@ module.exports = {
       },
       {
         $set: {
+          breakSegments: [],
           pausedAt: null,
           totalPausedSeconds: 0,
           pauseStartedSessionId: null,
