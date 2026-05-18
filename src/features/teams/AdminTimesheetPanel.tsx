@@ -6,7 +6,7 @@
  * edit/delete capabilities as the personal TimesheetPage.
  *
  * Authorization:
- *   • The backend allows any team member to VIEW another member's sessions.
+ *   • The backend allows only team admins to VIEW another member's sessions.
  *   • Edit/delete is allowed only for admins (enforced server-side).
  */
 import { faCalendar } from '@fortawesome/free-solid-svg-icons';
