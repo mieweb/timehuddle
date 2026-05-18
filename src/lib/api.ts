@@ -323,6 +323,7 @@ export interface Ticket {
   reviewedAt: string | null;
   createdAt: string;
   updatedAt: string | null;
+  sharedWithTimeharbor?: boolean;
 }
 
 export const ticketApi = {
@@ -511,6 +512,13 @@ export const clockApi = {
     request<{ ok: boolean }>(`/v1/clock/${encodeURIComponent(clockEventId)}`, {
       method: 'DELETE',
     }).then((r) => r.ok),
+
+  /** Create a completed manual clock entry for a past time range. */
+  createManualEntry: (data: { teamId: string; startTime: number; endTime: number }) =>
+    request<{ event: ClockEvent }>('/v1/clock/manual', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.event),
 
   /** Open a WebSocket connection for live team clock state. Auto-reconnects on drop. */
   openLiveStream: (teamIds: string[]): AutoReconnectWs =>
@@ -997,3 +1005,29 @@ export const tokenApi = {
       method: 'DELETE',
     }).then(() => undefined),
 };
+
+// ─── TimeHarbor Share ─────────────────────────────────────────────────────────
+
+/**
+ * Flag a single ticket as shared with TimeHarbor.
+ * One-way: this only sets the flag on the TimeHuddle record; TimeHarbor pulls it.
+ */
+export const shareTicketWithTimeharbor = (id: string, shared: boolean): Promise<void> =>
+  request<{ success: boolean }>(`/v1/tickets/${encodeURIComponent(id)}/timeharbor-share`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ shared }),
+  }).then(() => undefined);
+
+/**
+ * Flag multiple tickets as shared with (or unshared from) TimeHarbor in one request.
+ */
+export const bulkShareTicketsWithTimeharbor = (
+  ticketIds: string[],
+  shared: boolean,
+): Promise<void> =>
+  request<{ modifiedCount: number }>('/v1/tickets/bulk-timeharbor-share', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticketIds, shared }),
+  }).then(() => undefined);

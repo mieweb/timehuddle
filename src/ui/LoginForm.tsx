@@ -90,6 +90,20 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setError(null);
     try {
       await authApi.signIn(email.trim().toLowerCase(), password);
+      // If this sign-in was initiated as part of an OAuth 2.0 authorization request
+      // (e.g. from TimeHarbor), redirect back to the authorization endpoint so
+      // Better Auth can issue the authorization code now that the user is authenticated.
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('response_type') && params.get('client_id') && params.get('state')) {
+        // Copy the fresh Bearer token into a cookie so Better Auth reads the session.
+        const token = localStorage.getItem('timecore_session_token');
+        if (token) {
+          document.cookie = `better-auth.session_token=${token}; path=/; SameSite=Lax`;
+        }
+        // Use same-origin URL (/api proxy) so the session cookie is sent along.
+        window.location.href = `/api/auth/oauth2/authorize?${params.toString()}`;
+        return;
+      }
       await session.refetch();
     } catch (err: unknown) {
       setError((err as Error).message || 'Login failed');
