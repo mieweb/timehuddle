@@ -308,6 +308,43 @@ export class ClockService {
     return "ok";
   }
 
+  /**
+   * Create a completed clock event for a past time range (manual backfill).
+   * Requester must be a member of the team. Both times must be in the past.
+   */
+  async createManual(
+    userId: string,
+    teamId: string,
+    startTime: number,
+    endTime: number
+  ): Promise<PublicClockEvent | "forbidden" | "invalid-range"> {
+    if (!isValidId(teamId)) return "forbidden";
+    const team = await teamsCollection().findOne({
+      _id: new ObjectId(teamId),
+      $or: [{ members: userId }, { admins: userId }],
+    });
+    if (!team) return "forbidden";
+
+    const now = Date.now();
+    if (startTime > now || endTime > now) return "invalid-range";
+    if (endTime <= startTime) return "invalid-range";
+
+    const accumulatedTime = Math.floor((endTime - startTime) / 1000);
+    const coll = clockEventsCollection();
+    const result = await coll.insertOne({
+      _id: new ObjectId(),
+      userId,
+      teamId,
+      startTime,
+      accumulatedTime,
+      endTime,
+    });
+
+    const created = await coll.findOne({ _id: result.insertedId });
+    if (!created) return "forbidden";
+    return toPublicClockEvent(created);
+  }
+
   async getTimesheet(
     requesterId: string,
     targetUserId: string,

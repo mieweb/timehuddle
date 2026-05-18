@@ -129,10 +129,45 @@ export async function clockRoutes(app: FastifyInstance) {
     }
   );
 
+  // POST /v1/clock/manual — create a completed past clock entry
+  app.post(
+    "/clock/manual",
+    {
+      onRequest: [requireAuth],
+      schema: {
+        tags: ["Clock"],
+        body: {
+          type: "object",
+          required: ["teamId", "startTime", "endTime"],
+          properties: {
+            teamId: { type: "string" },
+            startTime: { type: "number" },
+            endTime: { type: "number" },
+          },
+        },
+        response: { 201: { type: "object", properties: { event: clockEventShape } } },
+      },
+    },
+    async (req, reply) => {
+      const { id: userId } = (req as any).user;
+      const { teamId, startTime, endTime } = req.body as {
+        teamId: string;
+        startTime: number;
+        endTime: number;
+      };
+      const result = await clockService.createManual(userId, teamId, startTime, endTime);
+      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
+      if (result === "invalid-range")
+        return (reply as any)
+          .status(422)
+          .send({ error: "Times must be in the past and clock-out must be after clock-in." });
+      return reply.status(201).send({ event: result });
+    }
+  );
+
   // GET /v1/clock/timesheet
   app.get(
-    "/clock/timesheet",
-    {
+    "/clock/timesheet",    {
       onRequest: [requireAuth],
       schema: {
         tags: ["Clock"],

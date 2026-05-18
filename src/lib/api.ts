@@ -512,6 +512,13 @@ export const clockApi = {
       method: 'DELETE',
     }).then((r) => r.ok),
 
+  /** Create a completed manual clock entry for a past time range. */
+  createManualEntry: (data: { teamId: string; startTime: number; endTime: number }) =>
+    request<{ event: ClockEvent }>('/v1/clock/manual', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.event),
+
   /** Open a WebSocket connection for live team clock state. Auto-reconnects on drop. */
   openLiveStream: (teamIds: string[]): AutoReconnectWs =>
     autoReconnectWs(() => {

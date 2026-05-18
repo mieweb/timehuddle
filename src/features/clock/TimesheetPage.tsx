@@ -6,7 +6,7 @@
  *   • Session list with date, times, duration, team name, tickets
  *   • Summary stats (total hours, sessions, avg, working days)
  */
-import { faCalendar } from '@fortawesome/free-solid-svg-icons';
+import { faCalendar, faPlus } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
@@ -21,6 +21,7 @@ import {
   ModalBody,
   ModalFooter,
   ModalHeader,
+  Select,
   Spinner,
   Table,
   TableBody,
@@ -75,6 +76,14 @@ export const TimesheetPage: React.FC = () => {
   const [sessionDeleteLoading, setSessionDeleteLoading] = useState(false);
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null);
 
+  // Add entry modal state
+  const [addEntryOpen, setAddEntryOpen] = useState(false);
+  const [newClockIn, setNewClockIn] = useState('');
+  const [newClockOut, setNewClockOut] = useState('');
+  const [newTeamId, setNewTeamId] = useState('');
+  const [addEntryLoading, setAddEntryLoading] = useState(false);
+  const [addEntryError, setAddEntryError] = useState<string | null>(null);
+
   const fetchData = useCallback(async () => {
     if (!user?.id) return;
     let startMs: number;
@@ -123,11 +132,21 @@ export const TimesheetPage: React.FC = () => {
       return;
     }
 
+    const now = Date.now();
+    if (parsedStart > now) {
+      setSessionSaveError('Clock-in time cannot be in the future.');
+      return;
+    }
+
     let parsedEnd: number | null = null;
     if (editClockOut.trim()) {
       parsedEnd = fromLocalDateTimeInputValue(editClockOut);
       if (parsedEnd === null) {
         setSessionSaveError('Enter a valid clock-out date and time, or leave it blank.');
+        return;
+      }
+      if (parsedEnd > now) {
+        setSessionSaveError('Clock-out time cannot be in the future.');
         return;
       }
     }
@@ -174,6 +193,87 @@ export const TimesheetPage: React.FC = () => {
     }
   }, [activeSession, fetchData]);
 
+  const openAddEntry = useCallback(() => {
+    setNewClockIn('');
+    setNewClockOut('');
+    setNewTeamId(selectedTeamId ?? teams[0]?.id ?? '');
+    setAddEntryError(null);
+    setAddEntryOpen(true);
+  }, [selectedTeamId, teams]);
+
+  const handleAddEntry = useCallback(async () => {
+    const parsedStart = fromLocalDateTimeInputValue(newClockIn);
+    if (parsedStart === null) {
+      setAddEntryError('Enter a valid clock-in date and time.');
+      return;
+    }
+    const parsedEnd = fromLocalDateTimeInputValue(newClockOut);
+    if (parsedEnd === null) {
+      setAddEntryError('Enter a valid clock-out date and time.');
+      return;
+    }
+    const now = Date.now();
+    if (parsedStart > now || parsedEnd > now) {
+      setAddEntryError('Times cannot be in the future.');
+      return;
+    }
+    if (parsedEnd <= parsedStart) {
+      setAddEntryError('Clock-out must be after clock-in.');
+      return;
+    }
+    if (!newTeamId) {
+      setAddEntryError('Please select a team.');
+      return;
+    }
+    setAddEntryLoading(true);
+    setAddEntryError(null);
+    try {
+      await clockApi.createManualEntry({ teamId: newTeamId, startTime: parsedStart, endTime: parsedEnd });
+      setAddEntryOpen(false);
+      setNewClockIn('');
+      setNewClockOut('');
+      setNewTeamId('');
+      await fetchData();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setAddEntryError(e.message);
+      } else {
+        setAddEntryError('Unable to create entry.');
+      }
+    } finally {
+      setAddEntryLoading(false);
+    }
+  }, [newClockIn, newClockOut, newTeamId, fetchData]);
+
+  // Duration previews (display-only, computed from inputs)
+  const editDurationSeconds = useMemo(() => {
+    if (!editClockIn || !editClockOut) return null;
+    const s = fromLocalDateTimeInputValue(editClockIn);
+    const e = fromLocalDateTimeInputValue(editClockOut);
+    if (!s || !e || e <= s) return null;
+    return Math.floor((e - s) / 1000);
+  }, [editClockIn, editClockOut]);
+
+  const newDurationSeconds = useMemo(() => {
+    if (!newClockIn || !newClockOut) return null;
+    const s = fromLocalDateTimeInputValue(newClockIn);
+    const e = fromLocalDateTimeInputValue(newClockOut);
+    if (!s || !e || e <= s) return null;
+    return Math.floor((e - s) / 1000);
+  }, [newClockIn, newClockOut]);
+
+  // Team name lookup for edit modal
+  const editTeamName = useMemo(() => {
+    if (!activeSession) return '';
+    return teams.find((t) => t.id === activeSession.teamId)?.name ?? '';
+  }, [activeSession, teams]);
+
+  // Team options for new entry (exclude personal workspace)
+  const teamOptions = useMemo(
+    () => teams.filter((t) => !t.isPersonal).map((t) => ({ value: t.id, label: t.name })),
+    [teams],
+  );
+
   const presets = PRESETS;
 
   // Filter sessions by selected team
@@ -213,18 +313,29 @@ export const TimesheetPage: React.FC = () => {
 
   return (
     <AppPage>
-      {/* Date range filter */}
-      <div className="flex flex-wrap items-center gap-2">
-        {presets.map((p) => (
-          <Button
-            key={p.key}
-            variant={preset === p.key ? 'primary' : 'outline'}
-            size="sm"
-            onClick={() => setPreset(p.key)}
-          >
-            {p.label}
-          </Button>
-        ))}
+      {/* Date range filter + Add Entry */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {presets.map((p) => (
+            <Button
+              key={p.key}
+              variant={preset === p.key ? 'primary' : 'outline'}
+              size="sm"
+              onClick={() => setPreset(p.key)}
+            >
+              {p.label}
+            </Button>
+          ))}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          leftIcon={<FontAwesomeIcon icon={faPlus} />}
+          onClick={openAddEntry}
+          disabled={teamOptions.length === 0}
+        >
+          Add Entry
+        </Button>
       </div>
 
       {/* Custom date inputs */}
@@ -364,6 +475,12 @@ export const TimesheetPage: React.FC = () => {
           </Text>
         </ModalHeader>
         <ModalBody className="space-y-4">
+          {editTeamName && (
+            <div className="flex items-center justify-between rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
+              <Text size="xs" variant="muted">Team</Text>
+              <Text size="sm" weight="medium">{editTeamName}</Text>
+            </div>
+          )}
           <Input
             label="Clock In"
             type="datetime-local"
@@ -377,6 +494,12 @@ export const TimesheetPage: React.FC = () => {
             onChange={(e) => setEditClockOut(e.target.value)}
             placeholder="Leave blank to keep active"
           />
+          {editDurationSeconds !== null && (
+            <div className="flex items-center justify-between rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
+              <Text size="xs" variant="muted">Duration</Text>
+              <Text size="sm" weight="medium">{formatDuration(editDurationSeconds)}</Text>
+            </div>
+          )}
           {sessionSaveError && (
             <Text size="xs" className="text-danger">
               {sessionSaveError}
@@ -414,6 +537,71 @@ export const TimesheetPage: React.FC = () => {
                 Delete
               </Button>
             )}
+          </div>
+        </ModalFooter>
+      </Modal>
+
+      {/* Add Entry modal */}
+      <Modal
+        open={addEntryOpen}
+        onOpenChange={(open) => {
+          setAddEntryOpen(open);
+          if (!open) setAddEntryError(null);
+        }}
+        aria-labelledby="add-entry-title"
+      >
+        <ModalHeader>
+          <Text weight="semibold" id="add-entry-title">
+            Add Past Entry
+          </Text>
+        </ModalHeader>
+        <ModalBody className="space-y-4">
+          <Select
+            label="Team"
+            value={newTeamId}
+            onValueChange={(val) => setNewTeamId(val)}
+            options={teamOptions}
+          />
+          <Input
+            label="Clock In"
+            type="datetime-local"
+            value={newClockIn}
+            onChange={(e) => setNewClockIn(e.target.value)}
+          />
+          <Input
+            label="Clock Out"
+            type="datetime-local"
+            value={newClockOut}
+            onChange={(e) => setNewClockOut(e.target.value)}
+          />
+          {newDurationSeconds !== null && (
+            <div className="flex items-center justify-between rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
+              <Text size="xs" variant="muted">Duration</Text>
+              <Text size="sm" weight="medium">{formatDuration(newDurationSeconds)}</Text>
+            </div>
+          )}
+          {addEntryError && (
+            <Text size="xs" className="text-danger">
+              {addEntryError}
+            </Text>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <div className="flex w-full flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              onClick={handleAddEntry}
+              isLoading={addEntryLoading}
+            >
+              Save Entry
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setAddEntryOpen(false)}
+              disabled={addEntryLoading}
+            >
+              Cancel
+            </Button>
           </div>
         </ModalFooter>
       </Modal>
