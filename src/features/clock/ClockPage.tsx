@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, Spinner, Text } from '@mieweb
 import React from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
-import { formatTimer } from '../../lib/timeUtils';
+import { formatTimer, getActiveClockSeconds } from '../../lib/timeUtils';
 import { AppPage } from '../../ui/AppPage';
 import { useClockToggle } from '../../lib/useClockToggle';
 
@@ -19,9 +19,7 @@ export const ClockPage: React.FC = () => {
   const { clockIn, clockOut, clockInLoading, clockOutLoading } = useClockToggle();
 
   // Session duration
-  const sessionSeconds = activeClockEvent
-    ? Math.floor((currentTime - activeClockEvent.startTime) / 1000)
-    : 0;
+  const sessionSeconds = getActiveClockSeconds(activeClockEvent, currentTime);
 
   // Live wall-clock display
   const currentTimeDisplay = new Date(currentTime).toLocaleTimeString([], {

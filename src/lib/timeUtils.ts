@@ -49,3 +49,12 @@ export function toDateString(date: Date): string {
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+/** Compute elapsed seconds for an active clock event */
+export function getActiveClockSeconds(
+  event: { startTime: number; endTime: number | null } | null,
+  nowMs: number,
+): number {
+  if (!event || event.endTime != null) return 0;
+  return Math.max(0, Math.floor((nowMs - event.startTime) / 1000));
+}
