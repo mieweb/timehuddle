@@ -37,6 +37,11 @@ export async function ensureIndexes() {
   // 5. Timers for a user on a given UTC date
   await timers.createIndex({ userId: 1, date: 1 });
 
+  // ── Clock event indexes ─────────────────────────────────────────────────────
+  const clockEvents = db.collection("clockevents");
+  await clockEvents.createIndex({ userId: 1, teamId: 1, endTime: 1 });
+  await clockEvents.createIndex({ endTime: 1, autoClockedOutAt: 1 });
+
   // Personal access tokens
   const pats = db.collection("personal_access_tokens");
   await pats.createIndex({ tokenHash: 1 }, { unique: true });

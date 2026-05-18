@@ -13,6 +13,7 @@ import { ObjectId } from "mongodb";
 import { buildApp } from "../src/server.js";
 import { connectDB, client } from "../src/lib/db.js";
 import { auth } from "../src/lib/auth.js";
+import { clockMonitorService } from "../src/services/clock-monitor.service.js";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -106,6 +107,9 @@ afterAll(async () => {
   const db = client.db();
   await db.collection("teams").deleteOne({ code: "CLOCKTEAM1" });
   await db.collection("clockevents").deleteMany({ teamId });
+  await db.collection("notifications").deleteMany({ userId: workerId });
+  await db.collection("timers").deleteMany({ userId: workerId });
+  await db.collection("workitems").deleteMany({ userId: workerId });
   await Promise.all([purgeUser(WORKER.email), purgeUser(ADMIN.email), purgeUser(OTHER.email)]);
   await app.close();
 });
@@ -178,6 +182,150 @@ describe("GET /v1/clock/active", () => {
   });
 });
 
+// ─── Pause / Resume / Status ────────────────────────────────────────────────
+
+describe("clock break flow", () => {
+  it("pauses and resumes an active clock event", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+
+    const pauseRes = await inject("POST", "/v1/clock/pause", workerCookie, { teamId });
+    expect(pauseRes.statusCode).toBe(200);
+    expect(pauseRes.json().event.isPaused).toBe(true);
+    expect(typeof pauseRes.json().event.pausedAt).toBe("number");
+
+    const statusWhilePaused = await inject(
+      "GET",
+      `/v1/clock/status?teamId=${teamId}`,
+      workerCookie
+    );
+    expect(statusWhilePaused.statusCode).toBe(200);
+    expect(statusWhilePaused.json().isPaused).toBe(true);
+    expect(statusWhilePaused.json().remainingSeconds).toBeLessThanOrEqual(8 * 60 * 60);
+
+    const resumeRes = await inject("POST", "/v1/clock/resume", workerCookie, { teamId });
+    expect(resumeRes.statusCode).toBe(200);
+    expect(resumeRes.json().event.isPaused).toBe(false);
+
+    const statusAfterResume = await inject(
+      "GET",
+      `/v1/clock/status?teamId=${teamId}`,
+      workerCookie
+    );
+    expect(statusAfterResume.statusCode).toBe(200);
+    expect(statusAfterResume.json().isPaused).toBe(false);
+
+    const stopRes = await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
+    expect(stopRes.statusCode).toBe(200);
+  });
+
+  it("returns 409 when pausing an already paused clock", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+
+    const firstPause = await inject("POST", "/v1/clock/pause", workerCookie, { teamId });
+    expect(firstPause.statusCode).toBe(200);
+
+    const secondPause = await inject("POST", "/v1/clock/pause", workerCookie, { teamId });
+    expect(secondPause.statusCode).toBe(409);
+
+    await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
+  });
+});
+
+// ─── Monitor enforcement ─────────────────────────────────────────────────────
+
+describe("clock monitor enforcement", () => {
+  it("sends one-time 3h and 4h reminders", async () => {
+    const db = client.db();
+    await db.collection("notifications").deleteMany({ userId: workerId });
+
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const eventId = startRes.json().event.id as string;
+
+    await db.collection("clockevents").updateOne(
+      { _id: new ObjectId(eventId) },
+      {
+        $set: {
+          accumulatedTime: 4 * 60 * 60,
+          startTime: Date.now(),
+          pausedAt: null,
+          notifiedAt3h: null,
+          notifiedAt4h: null,
+        },
+      }
+    );
+
+    const firstRun = await clockMonitorService.checkAndEnforce(Date.now());
+    expect(firstRun.reminded3h).toBeGreaterThanOrEqual(1);
+    expect(firstRun.reminded4h).toBeGreaterThanOrEqual(1);
+
+    const secondRun = await clockMonitorService.checkAndEnforce(Date.now());
+    expect(secondRun.reminded3h).toBe(0);
+    expect(secondRun.reminded4h).toBe(0);
+
+    const reminders = await db
+      .collection("notifications")
+      .find({ userId: workerId, "data.type": { $in: ["break-reminder-3h", "break-reminder-4h"] } })
+      .toArray();
+    expect(reminders.length).toBe(2);
+
+    await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
+  });
+
+  it("auto clocks out at 8h and closes running timer", async () => {
+    const db = client.db();
+    await db.collection("notifications").deleteMany({ userId: workerId });
+
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const eventId = startRes.json().event.id as string;
+
+    const workItemId = new ObjectId().toHexString();
+    await db.collection("timers").insertOne({
+      _id: new ObjectId(),
+      workItemId,
+      userId: workerId,
+      date: new Date().toISOString().slice(0, 10),
+      startTime: Date.now() - 90_000,
+      endTime: null,
+      createdAt: new Date(),
+    });
+
+    await db.collection("clockevents").updateOne(
+      { _id: new ObjectId(eventId) },
+      {
+        $set: {
+          accumulatedTime: 8 * 60 * 60,
+          startTime: Date.now(),
+          pausedAt: null,
+          autoClockedOutAt: null,
+        },
+      }
+    );
+
+    const run = await clockMonitorService.checkAndEnforce(Date.now());
+    expect(run.autoClockedOut).toBeGreaterThanOrEqual(1);
+
+    const activeRes = await inject("GET", "/v1/clock/active", workerCookie);
+    expect(activeRes.statusCode).toBe(200);
+    expect(activeRes.json().event).toBeNull();
+
+    const closedTimers = await db
+      .collection("timers")
+      .find({ userId: workerId, endTime: { $ne: null } })
+      .toArray();
+    expect(closedTimers.length).toBeGreaterThan(0);
+
+    const autoDone = await db.collection("notifications").findOne({
+      userId: workerId,
+      "data.type": "auto-clockout-8h",
+    });
+    expect(autoDone).not.toBeNull();
+  });
+});
+
 // ─── Attachments (replaces YouTube-specific route) ───────────────────────────
 
 describe("POST /v1/attachments (clock)", () => {
@@ -209,6 +357,9 @@ describe("POST /v1/attachments (clock)", () => {
 
 describe("POST /v1/clock/stop", () => {
   it("clocks out — 200, sets endTime", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+
     const res = await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
     expect(res.statusCode).toBe(200);
     const { event } = res.json();

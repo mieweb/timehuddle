@@ -16,10 +16,19 @@ import { useClockToggle } from '../../lib/useClockToggle';
 export const ClockPage: React.FC = () => {
   const { selectedTeamId, activeClockEvent, currentTime, teamsReady } = useTeam();
 
-  const { clockIn, clockOut, clockInLoading, clockOutLoading } = useClockToggle();
+  const {
+    clockIn,
+    clockOut,
+    pauseClock,
+    resumeClock,
+    clockInLoading,
+    clockOutLoading,
+    clockPauseLoading,
+  } = useClockToggle();
 
   // Session duration
   const sessionSeconds = getActiveClockSeconds(activeClockEvent, currentTime);
+  const isPaused = !!activeClockEvent?.isPaused;
 
   // Live wall-clock display
   const currentTimeDisplay = new Date(currentTime).toLocaleTimeString([], {
@@ -62,6 +71,15 @@ export const ClockPage: React.FC = () => {
                   <FontAwesomeIcon icon={faCircleStop} className="text-2xl" />
                   <span className="text-sm font-semibold sm:hidden">Clock Out</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={isPaused ? resumeClock : pauseClock}
+                  disabled={clockPauseLoading}
+                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-amber-500 py-3 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-amber-600 active:scale-95 disabled:opacity-50 sm:w-28"
+                  aria-label={isPaused ? 'Resume work' : 'Start break'}
+                >
+                  <span className="text-sm font-semibold">{isPaused ? 'Resume' : 'Break'}</span>
+                </button>
               </>
             ) : (
               <>
@@ -89,12 +107,12 @@ export const ClockPage: React.FC = () => {
             </Text>
             {activeClockEvent ? (
               <Text
-                variant="success"
+                variant={isPaused ? 'warning' : 'success'}
                 size="xs"
                 weight="medium"
                 className="mt-1 uppercase tracking-widest"
               >
-                Session active — {formatTimer(sessionSeconds)}
+                {isPaused ? 'On break' : 'Session active'} — {formatTimer(sessionSeconds)}
               </Text>
             ) : (
               <Text

@@ -52,9 +52,20 @@ export function toDateString(date: Date): string {
 
 /** Compute elapsed seconds for an active clock event */
 export function getActiveClockSeconds(
-  event: { startTime: number; endTime: number | null } | null,
+  event: {
+    startTime: number;
+    endTime: number | null;
+    accumulatedTime?: number;
+    isPaused?: boolean;
+    workSeconds?: number;
+  } | null,
   nowMs: number,
 ): number {
   if (!event || event.endTime != null) return 0;
-  return Math.max(0, Math.floor((nowMs - event.startTime) / 1000));
+  if (typeof event.workSeconds === 'number') return Math.max(0, event.workSeconds);
+
+  const accumulated = event.accumulatedTime ?? 0;
+  if (event.isPaused) return Math.max(0, accumulated);
+
+  return Math.max(0, accumulated + Math.floor((nowMs - event.startTime) / 1000));
 }

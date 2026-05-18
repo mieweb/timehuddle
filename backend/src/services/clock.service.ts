@@ -19,8 +19,24 @@ import { ActivityType } from "../models/activity.model.js";
 import { notificationService } from "./notification.service.js";
 import { emitActivity } from "./activity.service.js";
 
+const MAX_WORK_SECONDS_PER_DAY = 8 * 60 * 60;
+
 function isValidId(id: string): boolean {
   return /^[0-9a-f]{24}$/i.test(id);
+}
+
+function getElapsedSeconds(fromEpochMs: number, nowEpochMs: number): number {
+  return Math.max(0, Math.floor((nowEpochMs - fromEpochMs) / 1000));
+}
+
+function getActiveWorkSeconds(
+  event: { accumulatedTime?: number; pausedAt?: number | null; startTime: number },
+  now: number
+): number {
+  const base = event.accumulatedTime ?? 0;
+  const isPaused = typeof event.pausedAt === "number";
+  if (isPaused) return Math.min(MAX_WORK_SECONDS_PER_DAY, base);
+  return Math.min(MAX_WORK_SECONDS_PER_DAY, base + getElapsedSeconds(event.startTime, now));
 }
 
 // ─── SSE broadcast ────────────────────────────────────────────────────────────
@@ -59,12 +75,34 @@ export function toPublicClockEvent(e: ClockEvent) {
         ? rawEndTime
         : null;
 
+  const rawPausedAt = raw["pausedAt"];
+  const pausedAt =
+    rawPausedAt instanceof Date
+      ? rawPausedAt.getTime()
+      : typeof rawPausedAt === "number"
+        ? rawPausedAt
+        : null;
+
+  const totalPausedSeconds =
+    typeof e.totalPausedSeconds === "number"
+      ? e.totalPausedSeconds
+      : typeof raw["totalPausedSeconds"] === "number"
+        ? (raw["totalPausedSeconds"] as number)
+        : 0;
+
+  const now = Date.now();
+  const workSeconds = getActiveWorkSeconds(e, now);
+
   return {
     id: e._id.toHexString(),
     userId: e.userId,
     teamId: e.teamId,
     startTime,
     accumulatedTime: e.accumulatedTime,
+    workSeconds,
+    isPaused: pausedAt !== null,
+    pausedAt,
+    totalPausedSeconds,
     endTime,
   };
 }
@@ -114,6 +152,12 @@ export class ClockService {
       teamId,
       startTime: now,
       accumulatedTime: 0,
+      pausedAt: null,
+      totalPausedSeconds: 0,
+      pauseStartedSessionId: null,
+      notifiedAt3h: null,
+      notifiedAt4h: null,
+      autoClockedOutAt: null,
       endTime: null,
     });
 
@@ -160,22 +204,34 @@ export class ClockService {
   }
 
   async stop(userId: string, teamId: string): Promise<PublicClockEvent | "not-found"> {
+    return this.stopWithReason(userId, teamId);
+  }
+
+  async stopWithReason(
+    userId: string,
+    teamId: string,
+    reason?: "auto-8h"
+  ): Promise<PublicClockEvent | "not-found"> {
     const coll = clockEventsCollection();
     const event = await coll.findOne({ userId, teamId, endTime: null });
     if (!event) return "not-found";
 
     const now = Date.now();
 
-    // Accumulate time
-    const elapsed = Math.floor((now - event.startTime) / 1000);
     const prev = event.accumulatedTime ?? 0;
+    const elapsed =
+      typeof event.pausedAt === "number" ? 0 : getElapsedSeconds(event.startTime, now);
+    const finalSeconds = Math.min(MAX_WORK_SECONDS_PER_DAY, prev + elapsed);
 
     // Close all open timer sessions for this user in a single updateMany
     await timerService.closeAllForUser(userId, now);
 
     const $set: Record<string, unknown> = {
       endTime: now,
-      accumulatedTime: prev + elapsed,
+      accumulatedTime: finalSeconds,
+      pausedAt: null,
+      pauseStartedSessionId: null,
+      ...(reason === "auto-8h" ? { autoClockedOutAt: now } : {}),
     };
 
     await coll.updateOne({ _id: event._id }, { $set });
@@ -218,6 +274,20 @@ export class ClockService {
         )
       );
 
+      if (reason === "auto-8h") {
+        await notificationService.create({
+          userId,
+          title: "TiméHuddle",
+          body: "Done for the day. Locked 8 hours and clocked you out.",
+          notificationData: {
+            type: "auto-clockout-8h",
+            teamId,
+            userId,
+            url: "/app/clock",
+          },
+        });
+      }
+
       void emitActivity({
         userId,
         teamId,
@@ -232,6 +302,107 @@ export class ClockService {
     }
 
     return pub;
+  }
+
+  async pause(
+    userId: string,
+    teamId: string
+  ): Promise<PublicClockEvent | "not-found" | "already-paused"> {
+    const coll = clockEventsCollection();
+    const event = await coll.findOne({ userId, teamId, endTime: null });
+    if (!event) return "not-found";
+    if (typeof event.pausedAt === "number") return "already-paused";
+
+    const now = Date.now();
+    const elapsed = getElapsedSeconds(event.startTime, now);
+    const nextAccumulated = Math.min(
+      MAX_WORK_SECONDS_PER_DAY,
+      (event.accumulatedTime ?? 0) + elapsed
+    );
+    const pausedSessionId = await timerService.closeRunningForUser(userId, now);
+
+    await coll.updateOne(
+      { _id: event._id, endTime: null },
+      {
+        $set: {
+          accumulatedTime: nextAccumulated,
+          pausedAt: now,
+          startTime: now,
+          pauseStartedSessionId: pausedSessionId,
+        },
+      }
+    );
+
+    const updated = await coll.findOne({ _id: event._id });
+    if (!updated) return "not-found";
+    const pub = toPublicClockEvent(updated);
+    broadcast(teamId, pub);
+    return pub;
+  }
+
+  async resume(
+    userId: string,
+    teamId: string
+  ): Promise<PublicClockEvent | "not-found" | "not-paused"> {
+    const coll = clockEventsCollection();
+    const event = await coll.findOne({ userId, teamId, endTime: null });
+    if (!event) return "not-found";
+    if (typeof event.pausedAt !== "number") return "not-paused";
+
+    const now = Date.now();
+    const pausedSeconds = getElapsedSeconds(event.pausedAt, now);
+    const totalPausedSeconds = (event.totalPausedSeconds ?? 0) + pausedSeconds;
+    const pausedSessionId = event.pauseStartedSessionId ?? null;
+
+    await coll.updateOne(
+      { _id: event._id, endTime: null },
+      {
+        $set: {
+          startTime: now,
+          pausedAt: null,
+          totalPausedSeconds,
+          pauseStartedSessionId: null,
+        },
+      }
+    );
+
+    if (pausedSessionId && isValidId(pausedSessionId)) {
+      const pausedSession = await timerService.getSessionById(pausedSessionId);
+      if (pausedSession && pausedSession.userId === userId) {
+        await timerService.startTimerForEntry(userId, pausedSession.workItemId, now);
+      }
+    }
+
+    const updated = await coll.findOne({ _id: event._id });
+    if (!updated) return "not-found";
+    const pub = toPublicClockEvent(updated);
+    broadcast(teamId, pub);
+    return pub;
+  }
+
+  async getStatus(
+    userId: string,
+    teamId: string
+  ): Promise<
+    | {
+        event: PublicClockEvent;
+        workSeconds: number;
+        remainingSeconds: number;
+        isPaused: boolean;
+      }
+    | "not-found"
+  > {
+    const event = await this.getActive(userId, teamId);
+    if (!event) return "not-found";
+
+    const now = Date.now();
+    const workSeconds = getActiveWorkSeconds(event, now);
+    return {
+      event: toPublicClockEvent(event),
+      workSeconds,
+      remainingSeconds: Math.max(0, MAX_WORK_SECONDS_PER_DAY - workSeconds),
+      isPaused: typeof event.pausedAt === "number",
+    };
   }
 
   async updateTimes(
@@ -383,10 +554,11 @@ export class ClockService {
     const now = Date.now();
     const totalSeconds = sessions.reduce((sum, s) => {
       if (!s.endTime) {
-        const liveElapsedSeconds = Math.max(0, Math.floor((now - s.startTime) / 1000));
-        return sum + (s.accumulatedTime ?? 0) + liveElapsedSeconds;
+        return sum + getActiveWorkSeconds(s, now);
       }
-      return sum + Math.floor((s.endTime - s.startTime) / 1000);
+      const accumulated = s.accumulatedTime ?? 0;
+      if (accumulated > 0) return sum + accumulated;
+      return sum + Math.max(0, Math.floor((s.endTime - s.startTime) / 1000));
     }, 0);
     const avgSeconds = completed.length > 0 ? totalSeconds / completed.length : 0;
     const uniqueDates = new Set(

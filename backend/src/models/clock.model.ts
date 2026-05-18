@@ -7,6 +7,12 @@ export interface ClockEvent {
   teamId: string;
   startTime: number; // epoch ms
   accumulatedTime: number; // seconds
+  pausedAt?: number | null; // epoch ms when user started break
+  totalPausedSeconds?: number; // cumulative paused seconds for this session
+  pauseStartedSessionId?: string | null; // ticket timer paused when break started
+  notifiedAt3h?: number | null; // epoch ms when 3h reminder was sent
+  notifiedAt4h?: number | null; // epoch ms when 4h reminder was sent
+  autoClockedOutAt?: number | null; // epoch ms if system auto-clocked out at 8h
   endTime: number | null; // epoch ms — null = still clocked in
 }
 

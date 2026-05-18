@@ -461,6 +461,10 @@ export interface ClockEvent {
   teamId: string;
   startTime: number;
   accumulatedTime: number;
+  workSeconds?: number;
+  isPaused?: boolean;
+  pausedAt?: number | null;
+  totalPausedSeconds?: number;
   endTime: number | null;
 }
 
@@ -478,6 +482,29 @@ export const clockApi = {
       method: 'POST',
       body: JSON.stringify({ teamId }),
     }).then((r) => r.event),
+
+  /** Pause an active clock session (break start). */
+  pause: (teamId: string) =>
+    request<{ event: ClockEvent }>('/v1/clock/pause', {
+      method: 'POST',
+      body: JSON.stringify({ teamId }),
+    }).then((r) => r.event),
+
+  /** Resume a paused clock session (break end). */
+  resume: (teamId: string) =>
+    request<{ event: ClockEvent }>('/v1/clock/resume', {
+      method: 'POST',
+      body: JSON.stringify({ teamId }),
+    }).then((r) => r.event),
+
+  /** Get active clock status for a team, including remaining seconds to 8h cap. */
+  getStatus: (teamId: string) =>
+    request<{
+      event: ClockEvent;
+      workSeconds: number;
+      remainingSeconds: number;
+      isPaused: boolean;
+    }>(`/v1/clock/status?teamId=${encodeURIComponent(teamId)}`),
 
   /** Get the current user's active clock event (any team), or null. */
   getActive: () => request<{ event: ClockEvent | null }>('/v1/clock/active').then((r) => r.event),

@@ -15,6 +15,10 @@ const clockEventShape = {
     teamId: { type: "string" },
     startTime: { type: "number" },
     accumulatedTime: { type: "number" },
+    workSeconds: { type: "number" },
+    isPaused: { type: "boolean" },
+    pausedAt: { type: "number", nullable: true },
+    totalPausedSeconds: { type: "number" },
     endTime: { type: "number", nullable: true },
   },
 };
@@ -70,6 +74,90 @@ export async function clockRoutes(app: FastifyInstance) {
       if (result === "not-found")
         return (reply as any).status(404).send({ error: "No active clock event" });
       return { event: result };
+    }
+  );
+
+  // POST /v1/clock/pause
+  app.post(
+    "/clock/pause",
+    {
+      onRequest: [requireAuth],
+      schema: {
+        tags: ["Clock"],
+        body: {
+          type: "object",
+          required: ["teamId"],
+          properties: {
+            teamId: { type: "string" },
+          },
+        },
+        response: { 200: { type: "object", properties: { event: clockEventShape } } },
+      },
+    },
+    async (req, reply) => {
+      const { id: userId } = (req as any).user;
+      const { teamId } = req.body as { teamId: string };
+      const result = await clockService.pause(userId, teamId);
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "No active clock event" });
+      if (result === "already-paused")
+        return (reply as any).status(409).send({ error: "Clock is already paused" });
+      return { event: result };
+    }
+  );
+
+  // POST /v1/clock/resume
+  app.post(
+    "/clock/resume",
+    {
+      onRequest: [requireAuth],
+      schema: {
+        tags: ["Clock"],
+        body: {
+          type: "object",
+          required: ["teamId"],
+          properties: {
+            teamId: { type: "string" },
+          },
+        },
+        response: { 200: { type: "object", properties: { event: clockEventShape } } },
+      },
+    },
+    async (req, reply) => {
+      const { id: userId } = (req as any).user;
+      const { teamId } = req.body as { teamId: string };
+      const result = await clockService.resume(userId, teamId);
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "No active clock event" });
+      if (result === "not-paused")
+        return (reply as any).status(409).send({ error: "Clock is not paused" });
+      return { event: result };
+    }
+  );
+
+  // GET /v1/clock/status?teamId=...
+  app.get(
+    "/clock/status",
+    {
+      onRequest: [requireAuth],
+      schema: {
+        tags: ["Clock"],
+        querystring: {
+          type: "object",
+          required: ["teamId"],
+          properties: {
+            teamId: { type: "string" },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id: userId } = (req as any).user;
+      const { teamId } = req.query as { teamId: string };
+      const result = await clockService.getStatus(userId, teamId);
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "No active clock event" });
+      return result;
     }
   );
 
