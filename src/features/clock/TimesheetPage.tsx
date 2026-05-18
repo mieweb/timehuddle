@@ -228,7 +228,11 @@ export const TimesheetPage: React.FC = () => {
     setAddEntryLoading(true);
     setAddEntryError(null);
     try {
-      await clockApi.createManualEntry({ teamId: newTeamId, startTime: parsedStart, endTime: parsedEnd });
+      await clockApi.createManualEntry({
+        teamId: newTeamId,
+        startTime: parsedStart,
+        endTime: parsedEnd,
+      });
       setAddEntryOpen(false);
       setNewClockIn('');
       setNewClockOut('');
@@ -477,8 +481,12 @@ export const TimesheetPage: React.FC = () => {
         <ModalBody className="space-y-4">
           {editTeamName && (
             <div className="flex items-center justify-between rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
-              <Text size="xs" variant="muted">Team</Text>
-              <Text size="sm" weight="medium">{editTeamName}</Text>
+              <Text size="xs" variant="muted">
+                Team
+              </Text>
+              <Text size="sm" weight="medium">
+                {editTeamName}
+              </Text>
             </div>
           )}
           <Input
@@ -496,8 +504,12 @@ export const TimesheetPage: React.FC = () => {
           />
           {editDurationSeconds !== null && (
             <div className="flex items-center justify-between rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
-              <Text size="xs" variant="muted">Duration</Text>
-              <Text size="sm" weight="medium">{formatDuration(editDurationSeconds)}</Text>
+              <Text size="xs" variant="muted">
+                Duration
+              </Text>
+              <Text size="sm" weight="medium">
+                {formatDuration(editDurationSeconds)}
+              </Text>
             </div>
           )}
           {sessionSaveError && (
@@ -576,8 +588,12 @@ export const TimesheetPage: React.FC = () => {
           />
           {newDurationSeconds !== null && (
             <div className="flex items-center justify-between rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
-              <Text size="xs" variant="muted">Duration</Text>
-              <Text size="sm" weight="medium">{formatDuration(newDurationSeconds)}</Text>
+              <Text size="xs" variant="muted">
+                Duration
+              </Text>
+              <Text size="sm" weight="medium">
+                {formatDuration(newDurationSeconds)}
+              </Text>
             </div>
           )}
           {addEntryError && (
@@ -588,11 +604,7 @@ export const TimesheetPage: React.FC = () => {
         </ModalBody>
         <ModalFooter>
           <div className="flex w-full flex-wrap items-center gap-2">
-            <Button
-              variant="primary"
-              onClick={handleAddEntry}
-              isLoading={addEntryLoading}
-            >
+            <Button variant="primary" onClick={handleAddEntry} isLoading={addEntryLoading}>
               Save Entry
             </Button>
             <Button

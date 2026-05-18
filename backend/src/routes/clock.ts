@@ -167,7 +167,8 @@ export async function clockRoutes(app: FastifyInstance) {
 
   // GET /v1/clock/timesheet
   app.get(
-    "/clock/timesheet",    {
+    "/clock/timesheet",
+    {
       onRequest: [requireAuth],
       schema: {
         tags: ["Clock"],
