@@ -460,6 +460,26 @@ describe("GET /v1/clock/timesheet", () => {
     expect(res.statusCode).toBe(200);
   });
 
+  it("non-admin team member cannot view another member timesheet — 403", async () => {
+    const now = new Date();
+    const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const endMs = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+      999
+    ).getTime();
+    const res = await inject(
+      "GET",
+      `/v1/clock/timesheet?userId=${adminId}&startMs=${startMs}&endMs=${endMs}`,
+      workerCookie
+    );
+    expect(res.statusCode).toBe(403);
+  });
+
   it("other user gets 403", async () => {
     const now = new Date();
     const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
