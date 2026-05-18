@@ -64,7 +64,15 @@ export const OrganizationPage: React.FC = () => {
   return (
     <AppPage fullWidth noPadding className="h-full min-h-0 space-y-0">
       <div className="relative h-full min-h-0 w-full overflow-hidden">
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 px-3 py-3 md:px-4 md:py-4">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 py-3 md:px-4 md:py-4">
+          {error && (
+            <Text
+              size="sm"
+              className="mb-2 ml-auto block w-fit rounded-md bg-red-50/95 px-3 py-2 text-red-700 shadow-sm dark:bg-red-950/65 dark:text-red-300"
+            >
+              {error}
+            </Text>
+          )}
           <div className="pointer-events-auto ml-auto flex w-fit items-center gap-2 rounded-md border border-neutral-200/70 bg-white/90 px-2 py-1 shadow-sm backdrop-blur dark:border-neutral-700/70 dark:bg-neutral-900/85">
             <Text variant="muted" size="sm">
               Members: {users.length}
@@ -78,14 +86,6 @@ export const OrganizationPage: React.FC = () => {
               Refresh
             </Button>
           </div>
-          {error && (
-            <Text
-              size="sm"
-              className="mt-2 ml-auto block w-fit rounded-md bg-red-50/95 px-3 py-2 text-red-700 shadow-sm dark:bg-red-950/65 dark:text-red-300"
-            >
-              {error}
-            </Text>
-          )}
         </div>
 
         {loading ? (
@@ -106,6 +106,7 @@ export const OrganizationPage: React.FC = () => {
                 id: orgUser.id,
                 name: orgUser.name,
                 email: orgUser.email,
+                username: orgUser.username,
                 role: orgUser.role,
                 reportsToUserId: orgUser.reportsToUserId || null,
               }))}
