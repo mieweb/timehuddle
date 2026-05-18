@@ -31,6 +31,8 @@ const ticketSchema = new Schema(
     updatedBy: { type: String },
     createdAt: { type: Date, required: true, default: () => new Date() },
     updatedAt: { type: Date },
+    sharedWithTimeharbor: { type: Boolean },
+    externalTrackedMs: { type: Number },
   },
   {
     collection: "tickets",

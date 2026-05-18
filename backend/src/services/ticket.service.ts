@@ -63,6 +63,24 @@ export class TicketService {
     return ticketsCollection().findOne({ _id: new ObjectId(id) });
   }
 
+  /** Return all tickets the user can see that are flagged sharedWithTimeharbor=true, across all their teams. */
+  async findSharedWithTimeharbor(userId: string): Promise<Ticket[]> {
+    // Find all team IDs the user is a member or admin of
+    const userTeams = await teamsCollection()
+      .find({ $or: [{ members: userId }, { admins: userId }] }, { projection: { _id: 1 } })
+      .toArray();
+    const teamIds = userTeams.map((t) => t._id.toString());
+    if (teamIds.length === 0) return [];
+    return ticketsCollection()
+      .find({
+        teamId: { $in: teamIds },
+        sharedWithTimeharbor: true,
+        status: { $ne: "deleted" as TicketStatus },
+      })
+      .sort({ updatedAt: -1 })
+      .toArray();
+  }
+
   async findByTeam(teamId: string, userId: string): Promise<Ticket[] | "forbidden"> {
     if (!isValidId(teamId)) return "forbidden";
     const team = await teamsCollection().findOne({

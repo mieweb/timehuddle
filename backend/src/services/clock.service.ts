@@ -308,6 +308,43 @@ export class ClockService {
     return "ok";
   }
 
+  /**
+   * Create a completed clock event for a past time range (manual backfill).
+   * Requester must be a member of the team. Both times must be in the past.
+   */
+  async createManual(
+    userId: string,
+    teamId: string,
+    startTime: number,
+    endTime: number
+  ): Promise<PublicClockEvent | "forbidden" | "invalid-range"> {
+    if (!isValidId(teamId)) return "forbidden";
+    const team = await teamsCollection().findOne({
+      _id: new ObjectId(teamId),
+      $or: [{ members: userId }, { admins: userId }],
+    });
+    if (!team) return "forbidden";
+
+    const now = Date.now();
+    if (startTime > now || endTime > now) return "invalid-range";
+    if (endTime <= startTime) return "invalid-range";
+
+    const accumulatedTime = Math.floor((endTime - startTime) / 1000);
+    const coll = clockEventsCollection();
+    const result = await coll.insertOne({
+      _id: new ObjectId(),
+      userId,
+      teamId,
+      startTime,
+      accumulatedTime,
+      endTime,
+    });
+
+    const created = await coll.findOne({ _id: result.insertedId });
+    if (!created) return "forbidden";
+    return toPublicClockEvent(created);
+  }
+
   async getTimesheet(
     requesterId: string,
     targetUserId: string,
@@ -326,12 +363,15 @@ export class ClockService {
       }
     | "forbidden"
   > {
-    // Verify shared team membership
-    const myTeams = await teamsCollection().find({ members: requesterId }).toArray();
-    const sharedTeam = myTeams.some(
-      (t) => t.members.includes(targetUserId) || t.admins.includes(targetUserId)
-    );
-    if (!sharedTeam && requesterId !== targetUserId) return "forbidden";
+    // Users can always view their own timesheet. Viewing another member's
+    // timesheet is restricted to team admins in a shared team.
+    if (requesterId !== targetUserId) {
+      const sharedAdminTeam = await teamsCollection().findOne({
+        admins: requesterId,
+        $or: [{ members: targetUserId }, { admins: targetUserId }],
+      });
+      if (!sharedAdminTeam) return "forbidden";
+    }
 
     const events = await clockEventsCollection()
       .find({ userId: targetUserId, startTime: { $gte: startMs, $lte: endMs } })

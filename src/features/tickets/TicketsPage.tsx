@@ -22,6 +22,7 @@ import {
   faPlus,
   faRightLeft,
   faSearch,
+  faShareFromSquare,
   faTrash,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons';
@@ -50,7 +51,14 @@ import {
 import { Capacitor } from '@capacitor/core';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { teamApi, ticketApi, type Team, type TeamMember, type Ticket } from '../../lib/api';
+import {
+  teamApi,
+  ticketApi,
+  shareTicketWithTimeharbor,
+  type Team,
+  type TeamMember,
+  type Ticket,
+} from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
@@ -136,6 +144,7 @@ interface TicketRowProps {
   onEditRequest: (ticket: Ticket) => void;
   onDeleteRequest: (id: string) => void;
   onChangeStatusRequest: (ticket: Ticket) => void;
+  onShareWithTimeharbor: (ticket: Ticket, shared: boolean) => void;
 }
 
 const TicketRow: React.FC<TicketRowProps> = ({
@@ -147,6 +156,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
+  onShareWithTimeharbor,
 }) => {
   const { navigate } = useRouter();
   const { icon, className: iconClass } = statusIconFor(ticket.status);
@@ -186,6 +196,15 @@ const TicketRow: React.FC<TicketRowProps> = ({
               className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium ${statusLabelClass(ticket.status)}`}
             >
               {statusLabel}
+            </span>
+          )}
+          {ticket.sharedWithTimeharbor && (
+            <span
+              className="inline-flex items-center rounded-full border border-blue-300 bg-blue-50 px-1.5 py-px text-[11px] font-medium text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-400"
+              title="Shared with TimeHarbor"
+              aria-label="Shared with TimeHarbor"
+            >
+              TH
             </span>
           )}
         </div>
@@ -256,6 +275,12 @@ const TicketRow: React.FC<TicketRowProps> = ({
               onClick={() => onChangeStatusRequest(ticket)}
             >
               Change Status
+            </DropdownItem>
+            <DropdownItem
+              icon={<FontAwesomeIcon icon={faShareFromSquare} />}
+              onClick={() => onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor)}
+            >
+              {ticket.sharedWithTimeharbor ? 'Remove from TimeHarbor' : 'Send to TimeHarbor'}
             </DropdownItem>
             {isCreator && (
               <>
@@ -870,6 +895,19 @@ export const TicketsPage: React.FC = () => {
                 onChangeStatusRequest={(ticket) => {
                   setChangeStatusTicket(ticket);
                   setChangeStatusValue(ticket.status || 'open');
+                }}
+                onShareWithTimeharbor={async (ticket, shared) => {
+                  try {
+                    await shareTicketWithTimeharbor(ticket.id, shared);
+                    // Optimistically update local state
+                    setTickets((prev) =>
+                      prev.map((t) =>
+                        t.id === ticket.id ? { ...t, sharedWithTimeharbor: shared } : t,
+                      ),
+                    );
+                  } catch {
+                    // Silently ignore — user can retry
+                  }
                 }}
               />
             ))}

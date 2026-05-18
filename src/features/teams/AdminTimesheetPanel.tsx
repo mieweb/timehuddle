@@ -1,12 +1,15 @@
 /**
- * TimesheetPage — Clock event history with date range filter.
+ * AdminTimesheetPanel — Timesheet view for team admins/leaders.
  *
- * Features:
- *   • Date range presets (Today, Yesterday, 7d, This Week, 14d, Custom)
- *   • Session list with date, times, duration, team name, tickets
- *   • Summary stats (total hours, sessions, avg, working days)
+ * Allows selecting any member of the current team and viewing their
+ * clock-in / clock-out history with the same date range presets and
+ * edit/delete capabilities as the personal TimesheetPage.
+ *
+ * Authorization:
+ *   • The backend allows only team admins to VIEW another member's sessions.
+ *   • Edit/delete is allowed only for admins (enforced server-side).
  */
-import { faCalendar, faPlus } from '@fortawesome/free-solid-svg-icons';
+import { faCalendar } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
@@ -32,20 +35,24 @@ import {
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { useTeam } from '../../lib/TeamContext';
-import { formatDuration } from '../../lib/timeUtils';
 import { ApiError, clockApi, type ClockEvent } from '../../lib/api';
-import { AppPage } from '../../ui/AppPage';
-import { useSession } from '../../lib/useSession';
-import { AttachmentsPanel } from './AttachmentsPanel';
-import { TimesheetRow } from './TimesheetRow';
+import { formatDuration } from '../../lib/timeUtils';
+import { type TeamMember } from '../../lib/api';
+import { TimesheetRow } from '../clock/TimesheetRow';
 import {
   fromLocalDateTimeInputValue,
   getDateRange,
   PRESETS,
   toLocalDateTimeInputValue,
   type Preset,
-} from './timesheetUtils';
+} from '../clock/timesheetUtils';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface SimpleTeam {
+  id: string;
+  name: string;
+}
 
 interface TimesheetData {
   sessions: ClockEvent[];
@@ -58,16 +65,24 @@ interface TimesheetData {
   };
 }
 
-export const TimesheetPage: React.FC = () => {
-  const { user } = useSession();
-  const { teamsReady, teams, selectedTeamId } = useTeam();
+interface Props {
+  members: TeamMember[];
+  selectedTeamId: string | null;
+  teams: SimpleTeam[];
+}
 
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, teams }) => {
+  const [selectedMemberId, setSelectedMemberId] = useState<string>('');
   const [preset, setPreset] = useState<Preset>('week');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<TimesheetData | null>(null);
+
+  // Edit modal state
   const [activeSession, setActiveSession] = useState<ClockEvent | null>(null);
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
   const [editClockIn, setEditClockIn] = useState('');
@@ -76,16 +91,21 @@ export const TimesheetPage: React.FC = () => {
   const [sessionDeleteLoading, setSessionDeleteLoading] = useState(false);
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null);
 
-  // Add entry modal state
-  const [addEntryOpen, setAddEntryOpen] = useState(false);
-  const [newClockIn, setNewClockIn] = useState('');
-  const [newClockOut, setNewClockOut] = useState('');
-  const [newTeamId, setNewTeamId] = useState('');
-  const [addEntryLoading, setAddEntryLoading] = useState(false);
-  const [addEntryError, setAddEntryError] = useState<string | null>(null);
+  // When the team changes, reset member selection
+  useEffect(() => {
+    setSelectedMemberId('');
+    setData(null);
+  }, [selectedTeamId]);
+
+  // Auto-select first member when member list loads
+  useEffect(() => {
+    if (members.length > 0 && !selectedMemberId) {
+      setSelectedMemberId(members[0].id);
+    }
+  }, [members, selectedMemberId]);
 
   const fetchData = useCallback(async () => {
-    if (!user?.id) return;
+    if (!selectedMemberId) return;
     let startMs: number;
     let endMs: number;
 
@@ -102,18 +122,50 @@ export const TimesheetPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await clockApi.getTimesheet(user?.id ?? '', startMs, endMs);
+      const result = await clockApi.getTimesheet(selectedMemberId, startMs, endMs);
       setData(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load timesheet');
     } finally {
       setLoading(false);
     }
-  }, [user?.id, preset, customStart, customEnd]);
+  }, [selectedMemberId, preset, customStart, customEnd]);
 
+  // Refetch when member or non-custom preset changes
   useEffect(() => {
-    void fetchData();
-  }, [preset]);
+    if (selectedMemberId && preset !== 'custom') {
+      void fetchData();
+    }
+  }, [selectedMemberId, preset]);
+
+  // Filter sessions to selected team only
+  const filteredSessions = useMemo(() => {
+    if (!data) return [];
+    return selectedTeamId
+      ? data.sessions.filter((s) => s.teamId === selectedTeamId)
+      : data.sessions;
+  }, [data, selectedTeamId]);
+
+  // Recompute summary from filtered sessions
+  const filteredSummary = useMemo(() => {
+    const completed = filteredSessions.filter((s) => s.endTime !== null);
+    const totalSeconds = filteredSessions.reduce((sum, s) => {
+      if (s.endTime === null) return sum;
+      return sum + Math.floor((s.endTime - s.startTime) / 1000);
+    }, 0);
+    const workingDays = new Set(
+      filteredSessions.map((s) => new Date(s.startTime).toISOString().slice(0, 10)),
+    ).size;
+    return {
+      totalSeconds,
+      totalSessions: filteredSessions.length,
+      completedSessions: completed.length,
+      averageSessionSeconds: completed.length > 0 ? Math.floor(totalSeconds / completed.length) : 0,
+      workingDays,
+    };
+  }, [filteredSessions]);
+
+  // ── Edit modal handlers ──
 
   const openSessionDialog = useCallback((session: ClockEvent) => {
     setActiveSession(session);
@@ -132,21 +184,11 @@ export const TimesheetPage: React.FC = () => {
       return;
     }
 
-    const now = Date.now();
-    if (parsedStart > now) {
-      setSessionSaveError('Clock-in time cannot be in the future.');
-      return;
-    }
-
     let parsedEnd: number | null = null;
     if (editClockOut.trim()) {
       parsedEnd = fromLocalDateTimeInputValue(editClockOut);
       if (parsedEnd === null) {
         setSessionSaveError('Enter a valid clock-out date and time, or leave it blank.');
-        return;
-      }
-      if (parsedEnd > now) {
-        setSessionSaveError('Clock-out time cannot be in the future.');
         return;
       }
     }
@@ -193,153 +235,50 @@ export const TimesheetPage: React.FC = () => {
     }
   }, [activeSession, fetchData]);
 
-  const openAddEntry = useCallback(() => {
-    setNewClockIn('');
-    setNewClockOut('');
-    setNewTeamId(selectedTeamId ?? teams[0]?.id ?? '');
-    setAddEntryError(null);
-    setAddEntryOpen(true);
-  }, [selectedTeamId, teams]);
-
-  const handleAddEntry = useCallback(async () => {
-    const parsedStart = fromLocalDateTimeInputValue(newClockIn);
-    if (parsedStart === null) {
-      setAddEntryError('Enter a valid clock-in date and time.');
-      return;
-    }
-    const parsedEnd = fromLocalDateTimeInputValue(newClockOut);
-    if (parsedEnd === null) {
-      setAddEntryError('Enter a valid clock-out date and time.');
-      return;
-    }
-    const now = Date.now();
-    if (parsedStart > now || parsedEnd > now) {
-      setAddEntryError('Times cannot be in the future.');
-      return;
-    }
-    if (parsedEnd <= parsedStart) {
-      setAddEntryError('Clock-out must be after clock-in.');
-      return;
-    }
-    if (!newTeamId) {
-      setAddEntryError('Please select a team.');
-      return;
-    }
-    setAddEntryLoading(true);
-    setAddEntryError(null);
-    try {
-      await clockApi.createManualEntry({
-        teamId: newTeamId,
-        startTime: parsedStart,
-        endTime: parsedEnd,
-      });
-      setAddEntryOpen(false);
-      setNewClockIn('');
-      setNewClockOut('');
-      setNewTeamId('');
-      await fetchData();
-    } catch (e) {
-      if (e instanceof ApiError) {
-        setAddEntryError(e.message);
-      } else {
-        setAddEntryError('Unable to create entry.');
-      }
-    } finally {
-      setAddEntryLoading(false);
-    }
-  }, [newClockIn, newClockOut, newTeamId, fetchData]);
-
-  // Duration previews (display-only, computed from inputs)
-  const editDurationSeconds = useMemo(() => {
-    if (!editClockIn || !editClockOut) return null;
-    const s = fromLocalDateTimeInputValue(editClockIn);
-    const e = fromLocalDateTimeInputValue(editClockOut);
-    if (!s || !e || e <= s) return null;
-    return Math.floor((e - s) / 1000);
-  }, [editClockIn, editClockOut]);
-
-  const newDurationSeconds = useMemo(() => {
-    if (!newClockIn || !newClockOut) return null;
-    const s = fromLocalDateTimeInputValue(newClockIn);
-    const e = fromLocalDateTimeInputValue(newClockOut);
-    if (!s || !e || e <= s) return null;
-    return Math.floor((e - s) / 1000);
-  }, [newClockIn, newClockOut]);
-
-  // Team name lookup for edit modal
-  const editTeamName = useMemo(() => {
-    if (!activeSession) return '';
-    return teams.find((t) => t.id === activeSession.teamId)?.name ?? '';
-  }, [activeSession, teams]);
-
-  // Team options for new entry (exclude personal workspace)
-  const teamOptions = useMemo(
-    () => teams.filter((t) => !t.isPersonal).map((t) => ({ value: t.id, label: t.name })),
-    [teams],
+  // ── Member select options ──
+  const memberOptions = useMemo(
+    () => members.map((m) => ({ value: m.id, label: m.name || m.email || m.id })),
+    [members],
   );
 
-  const presets = PRESETS;
-
-  // Filter sessions by selected team
-  const filteredSessions = useMemo(() => {
-    if (!data) return [];
-    return selectedTeamId
-      ? data.sessions.filter((s) => s.teamId === selectedTeamId)
-      : data.sessions;
-  }, [data, selectedTeamId]);
-
-  // Recompute summary from filtered sessions
-  const filteredSummary = useMemo(() => {
-    const completed = filteredSessions.filter((s) => s.endTime !== null);
-    const totalSeconds = filteredSessions.reduce((sum, s) => {
-      if (s.endTime === null) return sum;
-      return sum + Math.floor((s.endTime - s.startTime) / 1000);
-    }, 0);
-    const workingDays = new Set(
-      filteredSessions.map((s) => new Date(s.startTime).toISOString().slice(0, 10)),
-    ).size;
-    return {
-      totalSeconds,
-      totalSessions: filteredSessions.length,
-      completedSessions: completed.length,
-      averageSessionSeconds: completed.length > 0 ? Math.floor(totalSeconds / completed.length) : 0,
-      workingDays,
-    };
-  }, [filteredSessions]);
-
-  if (!teamsReady) {
+  if (members.length === 0) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <Spinner size="lg" label="Loading…" />
-      </div>
+      <Card variant="outlined" padding="lg" className="border-dashed text-center">
+        <CardContent>
+          <Text variant="muted" size="sm">
+            No members in this team yet.
+          </Text>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <AppPage>
-      {/* Date range filter + Add Entry */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {presets.map((p) => (
-            <Button
-              key={p.key}
-              variant={preset === p.key ? 'primary' : 'outline'}
-              size="sm"
-              onClick={() => setPreset(p.key)}
-            >
-              {p.label}
-            </Button>
-          ))}
+    <div className="space-y-4">
+      {/* Member selector */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:flex-wrap">
+        <div className="w-full sm:w-64">
+          <Select
+            label="Member"
+            value={selectedMemberId}
+            onValueChange={(val) => setSelectedMemberId(val)}
+            options={memberOptions}
+          />
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          leftIcon={<FontAwesomeIcon icon={faPlus} />}
-          onClick={openAddEntry}
-          disabled={teamOptions.length === 0}
-        >
-          Add Entry
-        </Button>
+      </div>
+
+      {/* Date range presets */}
+      <div className="flex flex-wrap items-center gap-2">
+        {PRESETS.map((p) => (
+          <Button
+            key={p.key}
+            variant={preset === p.key ? 'primary' : 'outline'}
+            size="sm"
+            onClick={() => setPreset(p.key)}
+          >
+            {p.label}
+          </Button>
+        ))}
       </div>
 
       {/* Custom date inputs */}
@@ -363,7 +302,7 @@ export const TimesheetPage: React.FC = () => {
             variant="primary"
             size="sm"
             onClick={fetchData}
-            disabled={loading || !customStart || !customEnd}
+            disabled={loading || !customStart || !customEnd || !selectedMemberId}
             isLoading={loading}
             loadingText="Applying…"
             className="w-full md:w-auto"
@@ -433,7 +372,7 @@ export const TimesheetPage: React.FC = () => {
         </Alert>
       )}
 
-      {/* Sessions list */}
+      {/* Sessions table */}
       {data && filteredSessions.length > 0 && (
         <Card padding="none">
           <CardHeader className="px-5 py-3">
@@ -462,6 +401,22 @@ export const TimesheetPage: React.FC = () => {
         </Card>
       )}
 
+      {/* Empty state */}
+      {data && filteredSessions.length === 0 && !loading && (
+        <Card variant="outlined" padding="lg" className="border-dashed text-center">
+          <CardContent>
+            <FontAwesomeIcon
+              icon={faCalendar}
+              className="mb-2 text-2xl text-neutral-300 dark:text-neutral-600"
+            />
+            <Text variant="muted" size="sm">
+              No clock events in this date range.
+            </Text>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Edit session modal */}
       <Modal
         open={sessionDialogOpen}
         onOpenChange={(open) => {
@@ -471,24 +426,14 @@ export const TimesheetPage: React.FC = () => {
             setSessionSaveError(null);
           }
         }}
-        aria-labelledby="edit-session-title"
+        aria-labelledby="admin-edit-session-title"
       >
         <ModalHeader>
-          <Text weight="semibold" id="edit-session-title">
+          <Text weight="semibold" id="admin-edit-session-title">
             Edit Session
           </Text>
         </ModalHeader>
         <ModalBody className="space-y-4">
-          {editTeamName && (
-            <div className="flex items-center justify-between rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
-              <Text size="xs" variant="muted">
-                Team
-              </Text>
-              <Text size="sm" weight="medium">
-                {editTeamName}
-              </Text>
-            </div>
-          )}
           <Input
             label="Clock In"
             type="datetime-local"
@@ -502,23 +447,10 @@ export const TimesheetPage: React.FC = () => {
             onChange={(e) => setEditClockOut(e.target.value)}
             placeholder="Leave blank to keep active"
           />
-          {editDurationSeconds !== null && (
-            <div className="flex items-center justify-between rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
-              <Text size="xs" variant="muted">
-                Duration
-              </Text>
-              <Text size="sm" weight="medium">
-                {formatDuration(editDurationSeconds)}
-              </Text>
-            </div>
-          )}
           {sessionSaveError && (
             <Text size="xs" className="text-danger">
               {sessionSaveError}
             </Text>
-          )}
-          {activeSession && (
-            <AttachmentsPanel kind="clock" entityId={activeSession.id} currentUserId={user?.id} />
           )}
         </ModalBody>
         <ModalFooter>
@@ -552,85 +484,6 @@ export const TimesheetPage: React.FC = () => {
           </div>
         </ModalFooter>
       </Modal>
-
-      {/* Add Entry modal */}
-      <Modal
-        open={addEntryOpen}
-        onOpenChange={(open) => {
-          setAddEntryOpen(open);
-          if (!open) setAddEntryError(null);
-        }}
-        aria-labelledby="add-entry-title"
-      >
-        <ModalHeader>
-          <Text weight="semibold" id="add-entry-title">
-            Add Past Entry
-          </Text>
-        </ModalHeader>
-        <ModalBody className="space-y-4">
-          <Select
-            label="Team"
-            value={newTeamId}
-            onValueChange={(val) => setNewTeamId(val)}
-            options={teamOptions}
-          />
-          <Input
-            label="Clock In"
-            type="datetime-local"
-            value={newClockIn}
-            onChange={(e) => setNewClockIn(e.target.value)}
-          />
-          <Input
-            label="Clock Out"
-            type="datetime-local"
-            value={newClockOut}
-            onChange={(e) => setNewClockOut(e.target.value)}
-          />
-          {newDurationSeconds !== null && (
-            <div className="flex items-center justify-between rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
-              <Text size="xs" variant="muted">
-                Duration
-              </Text>
-              <Text size="sm" weight="medium">
-                {formatDuration(newDurationSeconds)}
-              </Text>
-            </div>
-          )}
-          {addEntryError && (
-            <Text size="xs" className="text-danger">
-              {addEntryError}
-            </Text>
-          )}
-        </ModalBody>
-        <ModalFooter>
-          <div className="flex w-full flex-wrap items-center gap-2">
-            <Button variant="primary" onClick={handleAddEntry} isLoading={addEntryLoading}>
-              Save Entry
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => setAddEntryOpen(false)}
-              disabled={addEntryLoading}
-            >
-              Cancel
-            </Button>
-          </div>
-        </ModalFooter>
-      </Modal>
-
-      {data && filteredSessions.length === 0 && !loading && (
-        <Card variant="outlined" padding="lg" className="border-dashed text-center">
-          <CardContent>
-            <FontAwesomeIcon
-              icon={faCalendar}
-              className="mb-2 text-2xl text-neutral-300 dark:text-neutral-600"
-            />
-            <Text variant="muted" size="sm">
-              No clock events in this date range.
-            </Text>
-          </CardContent>
-        </Card>
-      )}
-    </AppPage>
+    </div>
   );
 };
