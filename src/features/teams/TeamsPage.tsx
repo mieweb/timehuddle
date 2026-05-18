@@ -332,7 +332,7 @@ export const TeamsPage: React.FC = () => {
               <TabsTrigger value="members" className="flex-1">
                 Members
               </TabsTrigger>
-              {!selectedTeam.isPersonal && (
+              {isAdmin && !selectedTeam.isPersonal && (
                 <TabsTrigger value="timesheet" className="flex-1">
                   Timesheet
                 </TabsTrigger>
@@ -510,7 +510,7 @@ export const TeamsPage: React.FC = () => {
             </TabsContent>
 
             {/* ── Timesheet tab (non-personal teams only) ── */}
-            {!selectedTeam.isPersonal && (
+            {isAdmin && !selectedTeam.isPersonal && (
               <TabsContent value="timesheet">
                 <AdminTimesheetPanel
                   members={members}

@@ -363,12 +363,15 @@ export class ClockService {
       }
     | "forbidden"
   > {
-    // Verify shared team membership
-    const myTeams = await teamsCollection().find({ members: requesterId }).toArray();
-    const sharedTeam = myTeams.some(
-      (t) => t.members.includes(targetUserId) || t.admins.includes(targetUserId)
-    );
-    if (!sharedTeam && requesterId !== targetUserId) return "forbidden";
+    // Users can always view their own timesheet. Viewing another member's
+    // timesheet is restricted to team admins in a shared team.
+    if (requesterId !== targetUserId) {
+      const sharedAdminTeam = await teamsCollection().findOne({
+        admins: requesterId,
+        $or: [{ members: targetUserId }, { admins: targetUserId }],
+      });
+      if (!sharedAdminTeam) return "forbidden";
+    }
 
     const events = await clockEventsCollection()
       .find({ userId: targetUserId, startTime: { $gte: startMs, $lte: endMs } })
