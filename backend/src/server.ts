@@ -6,6 +6,7 @@ import websocket from "@fastify/websocket";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { connectDB } from "./lib/db.js";
+import { ensureMongooseConnected } from "./lib/mongoose.js";
 import { ensureIndexes } from "./lib/ensure-indexes.js";
 import { auth } from "./lib/auth.js";
 import { appContext } from "./middleware/app-context.js";
@@ -472,6 +473,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
 async function bootstrap() {
   await connectDB();
+  await ensureMongooseConnected();
   await ensureIndexes();
   const app = await buildApp();
   const port = Number(process.env.PORT) || 4000;

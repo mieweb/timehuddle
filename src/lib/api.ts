@@ -1015,7 +1015,10 @@ export const shareTicketWithTimeharbor = (id: string, shared: boolean): Promise<
 /**
  * Flag multiple tickets as shared with (or unshared from) TimeHarbor in one request.
  */
-export const bulkShareTicketsWithTimeharbor = (ticketIds: string[], shared: boolean): Promise<void> =>
+export const bulkShareTicketsWithTimeharbor = (
+  ticketIds: string[],
+  shared: boolean,
+): Promise<void> =>
   request<{ modifiedCount: number }>('/v1/tickets/bulk-timeharbor-share', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },

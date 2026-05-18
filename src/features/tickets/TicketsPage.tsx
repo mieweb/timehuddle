@@ -51,7 +51,14 @@ import {
 import { Capacitor } from '@capacitor/core';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { teamApi, ticketApi, shareTicketWithTimeharbor, type Team, type TeamMember, type Ticket } from '../../lib/api';
+import {
+  teamApi,
+  ticketApi,
+  shareTicketWithTimeharbor,
+  type Team,
+  type TeamMember,
+  type Ticket,
+} from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
@@ -923,8 +930,8 @@ export const TicketsPage: React.FC = () => {
                     // Optimistically update local state
                     setTickets((prev) =>
                       prev.map((t) =>
-                        t.id === ticket.id ? { ...t, sharedWithTimeharbor: shared } : t
-                      )
+                        t.id === ticket.id ? { ...t, sharedWithTimeharbor: shared } : t,
+                      ),
                     );
                   } catch {
                     // Silently ignore — user can retry

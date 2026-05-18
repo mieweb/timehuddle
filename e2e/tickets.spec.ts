@@ -81,33 +81,41 @@ test.describe('Tickets', () => {
   });
 
   test('create a ticket by pasting GitHub PR URL into title field', async ({ page }) => {
+    const issueUrl = 'https://github.com/microsoft/vscode/issues/1';
+    const mockTitle = 'E2E mock GitHub issue title';
+
+    // Avoid flaky CI failures from GitHub API rate limits / network
+    await page.route('**/repos/microsoft/vscode/issues/1', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ title: mockTitle }),
+      });
+    });
+
     await page.getByRole('button', { name: 'New Ticket' }).click();
 
     // Paste a well-known public GitHub issue URL into the title input
-    await pasteInto(page, 'Ticket title', 'https://github.com/microsoft/vscode/issues/1');
-
-    // Wait for the GitHub API fetch to resolve
-    await page.waitForTimeout(5000);
+    await pasteInto(page, 'Ticket title', issueUrl);
 
     const titleInput = page.getByPlaceholder('Ticket title');
     const urlInput = page.getByPlaceholder('GitHub / Redmine URL (optional)');
 
     // Title should be auto-populated (not the raw URL)
-    const titleValue = await titleInput.inputValue();
-    expect(titleValue.length).toBeGreaterThan(0);
-    expect(titleValue).not.toContain('github.com');
+    await expect(titleInput).toHaveValue(mockTitle, { timeout: 10000 });
+    await expect(titleInput).not.toHaveValue(/github\.com/);
 
     // URL field should hold the pasted URL
-    await expect(urlInput).toHaveValue('https://github.com/microsoft/vscode/issues/1');
+    await expect(urlInput).toHaveValue(issueUrl);
 
     // Create the ticket
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(1000);
 
-    await expect(page.getByText(titleValue).first()).toBeVisible();
+    await expect(page.getByText(mockTitle).first()).toBeVisible();
 
     // Cleanup
-    await deleteTicket(page, titleValue);
+    await deleteTicket(page, mockTitle);
   });
 
   // ── Edit ───────────────────────────────────────────────────────────────────

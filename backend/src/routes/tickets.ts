@@ -13,7 +13,10 @@ async function resolveUserNames(ids: string[]): Promise<Record<string, string>> 
   const unique = [...new Set(ids.filter(Boolean))];
   if (unique.length === 0) return {};
   const users = await usersCollection()
-    .find({ _id: { $in: unique.map((id) => new ObjectId(id)) } }, { projection: { _id: 1, name: 1 } })
+    .find(
+      { _id: { $in: unique.map((id) => new ObjectId(id)) } },
+      { projection: { _id: 1, name: 1 } }
+    )
     .toArray();
   return Object.fromEntries(users.map((u) => [u._id.toHexString(), u.name ?? ""]));
 }
@@ -528,11 +531,11 @@ export async function ticketRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { ticketIds, shared } = req.body as { ticketIds: string[]; shared: boolean };
       // Verify user is a member of every team that owns these tickets
-      const validIds = ticketIds.filter(id => /^[0-9a-f]{24}$/i.test(id));
+      const validIds = ticketIds.filter((id) => /^[0-9a-f]{24}$/i.test(id));
       const tickets = await ticketsCollection()
-        .find({ _id: { $in: validIds.map(id => new ObjectId(id)) } })
+        .find({ _id: { $in: validIds.map((id) => new ObjectId(id)) } })
         .toArray();
-      const teamIds = [...new Set(tickets.map(t => t.teamId))];
+      const teamIds = [...new Set(tickets.map((t) => t.teamId))];
       for (const teamId of teamIds) {
         const member = await teamsCollection().findOne({
           _id: new ObjectId(teamId),
@@ -541,7 +544,7 @@ export async function ticketRoutes(app: FastifyInstance) {
         if (!member) return reply.status(403).send({ error: "Not a team member for all tickets" });
       }
       const result = await ticketsCollection().updateMany(
-        { _id: { $in: validIds.map(id => new ObjectId(id)) } },
+        { _id: { $in: validIds.map((id) => new ObjectId(id)) } },
         { $set: { sharedWithTimeharbor: shared, updatedAt: new Date() } }
       );
       return reply.send({ modified: result.modifiedCount });

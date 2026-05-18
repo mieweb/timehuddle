@@ -46,47 +46,6 @@ export type PublicSession = ReturnType<typeof toPublicSession>;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Convert a local YYYY-MM-DD string in a given IANA timezone to the UTC epoch
- * ms range [start, end) that covers that local day.
- */
-function localDayBounds(dateStr: string, tz: string): { start: number; end: number } {
-  // Find epoch ms for local midnight in `tz` via Intl probe-and-shift.
-  const isoMidnight = `${dateStr}T00:00:00`;
-  const probe = new Date(isoMidnight + "Z"); // treat as UTC first
-  const offset = getUtcOffsetMs(probe, tz);
-  const startMs = probe.getTime() - offset;
-
-  // End = start + 24 h (handles DST: compute offset at end too)
-  const endProbe = new Date(startMs + 24 * 3600 * 1000);
-  const endOffset = getUtcOffsetMs(endProbe, tz);
-  return { start: startMs, end: startMs + 24 * 3600 * 1000 - (endOffset - offset) };
-}
-
-/**
- * Returns the UTC offset in milliseconds for a Date in a given IANA timezone.
- * A positive offset means UTC is ahead (e.g. UTC+5 → offset = -5h ms).
- */
-function getUtcOffsetMs(date: Date, tz: string): number {
-  // Format the date in the target TZ and in UTC, then diff.
-  const opts: Intl.DateTimeFormatOptions = {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  };
-  const parts = new Intl.DateTimeFormat("en-CA", opts).formatToParts(date);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "0";
-  const localDate = new Date(
-    `${get("year")}-${get("month")}-${get("day")}T${get("hour").replace("24", "00")}:${get("minute")}:${get("second")}Z`
-  );
-  return date.getTime() - localDate.getTime();
-}
-
 /** Convert epoch ms to a UTC "YYYY-MM-DD" date key. */
 export function toUtcDateKey(epochMs: number): string {
   return new Date(epochMs).toISOString().slice(0, 10);
@@ -372,11 +331,8 @@ export class TimerService {
   async getDayEntries(
     userId: string,
     dateStr: string,
-    tz: string
+    _tz: string
   ): Promise<Array<{ entry: WorkItem; sessions: Timer[] }>> {
-    const { start, end } = localDayBounds(dateStr, tz);
-
-    // Use UTC date as a prefilter, then refine with timezone-aware boundaries
     const entries = await workItemsCollection().find({ userId, date: dateStr }).toArray();
     if (entries.length === 0) return [];
 
@@ -385,7 +341,7 @@ export class TimerService {
       .find({
         userId,
         workItemId: { $in: entryIds },
-        startTime: { $gte: start, $lt: end },
+        date: dateStr,
       })
       .sort({ startTime: 1 })
       .toArray();
