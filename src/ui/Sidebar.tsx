@@ -168,7 +168,7 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
         style={{ minHeight: '4rem' }}
       >
         {' '}
-        <span className="flex min-w-0 items-center gap-3 rounded-md" aria-label="TimeHuddle">
+        <span className="flex min-w-0 items-center gap-3 rounded-md" aria-label="Huddle">
           {/* Icon mark */}
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--mieweb-primary-500)] to-[var(--mieweb-primary-700)] text-sm font-bold text-white shadow-sm">
             TH
@@ -185,7 +185,7 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
                 className="overflow-hidden"
               >
                 <p className="whitespace-nowrap text-sm font-semibold leading-none tracking-tight text-neutral-900 dark:text-neutral-100">
-                  TimeHuddle
+                  Huddle
                 </p>
                 <p className="mt-0.5 whitespace-nowrap text-[10px] text-neutral-400 dark:text-neutral-500">
                   Team Collaboration

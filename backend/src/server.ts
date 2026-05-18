@@ -90,6 +90,15 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // We convert the Fastify request into a Web Request and pass it to
   // auth.handler directly, avoiding the body-stream issue that occurs
   // when using toNodeHandler (Fastify already consumes the body).
+
+  // Accept application/x-www-form-urlencoded bodies (used by the OIDC token endpoint).
+  // Return the raw string so betterAuthHandler can forward it as-is.
+  app.addContentTypeParser(
+    "application/x-www-form-urlencoded",
+    { parseAs: "string" },
+    (_req, body, done) => done(null, body)
+  );
+
   async function betterAuthHandler(req: any, reply: any) {
     // Use the request URL as-is — better-auth's dynamic baseURL config
     // reads x-forwarded-host/proto headers to derive the correct origin.
@@ -114,10 +123,21 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     }
 
     const hasBody = req.method !== "GET" && req.method !== "HEAD";
+    const contentType = (req.headers["content-type"] as string | undefined) ?? "";
+    // For URL-encoded bodies (OIDC token endpoint), forward the raw string as-is.
+    // For everything else, forward as JSON (Fastify has already parsed the body).
+    let body: string | undefined;
+    if (hasBody) {
+      if (contentType.includes("application/x-www-form-urlencoded")) {
+        body = req.body as string;
+      } else {
+        body = JSON.stringify(req.body);
+      }
+    }
     const webRequest = new Request(url, {
       method: req.method,
       headers,
-      body: hasBody ? JSON.stringify(req.body) : undefined,
+      body,
     });
 
     const response = await auth.handler(webRequest);

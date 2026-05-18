@@ -22,6 +22,7 @@ import {
   faPlus,
   faRightLeft,
   faSearch,
+  faShareFromSquare,
   faTrash,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons';
@@ -50,13 +51,21 @@ import {
 import { Capacitor } from '@capacitor/core';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { teamApi, ticketApi, type Team, type TeamMember, type Ticket } from '../../lib/api';
+import {
+  teamApi,
+  ticketApi,
+  shareTicketWithTimeharbor,
+  type Team,
+  type TeamMember,
+  type Ticket,
+} from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
 import { VideoUploadButton } from '../media/VideoUploadButton';
+import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -120,37 +129,8 @@ function statusLabelClass(status: string): string {
 }
 
 async function fetchIssueTitle(url: string): Promise<string | null> {
-  // GitHub: https://github.com/{owner}/{repo}/issues/{n} or /pull/{n}
-  const githubMatch = url.match(/github\.com\/([^/?#]+)\/([^/?#]+)\/(issues|pull)\/(\d+)/);
-  if (githubMatch) {
-    const [, owner, repo, , number] = githubMatch;
-    try {
-      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${number}`, {
-        headers: { Accept: 'application/vnd.github+json' },
-      });
-      if (!res.ok) return null;
-      const data = (await res.json()) as { title?: string };
-      return data.title ?? null;
-    } catch {
-      return null;
-    }
-  }
-  // Redmine: https://{host}/issues/{n}
-  const redmineMatch = url.match(/^(https?:\/\/[^/]+)\/issues\/(\d+)/);
-  if (redmineMatch) {
-    const [, base, number] = redmineMatch;
-    try {
-      const res = await fetch(`${base}/issues/${number}.json`, {
-        headers: { Accept: 'application/json' },
-      });
-      if (!res.ok) return null;
-      const data = (await res.json()) as { issue?: { subject?: string } };
-      return data.issue?.subject ?? null;
-    } catch {
-      return null;
-    }
-  }
-  return null;
+  const issue = await fetchGithubIssue(url);
+  return issue?.title ?? null;
 }
 
 // ─── TicketRow ─────────────────────────────────────────────────────────────────
@@ -164,6 +144,7 @@ interface TicketRowProps {
   onEditRequest: (ticket: Ticket) => void;
   onDeleteRequest: (id: string) => void;
   onChangeStatusRequest: (ticket: Ticket) => void;
+  onShareWithTimeharbor: (ticket: Ticket, shared: boolean) => void;
 }
 
 const TicketRow: React.FC<TicketRowProps> = ({
@@ -175,6 +156,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
+  onShareWithTimeharbor,
 }) => {
   const { navigate } = useRouter();
   const { icon, className: iconClass } = statusIconFor(ticket.status);
@@ -214,6 +196,15 @@ const TicketRow: React.FC<TicketRowProps> = ({
               className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium ${statusLabelClass(ticket.status)}`}
             >
               {statusLabel}
+            </span>
+          )}
+          {ticket.sharedWithTimeharbor && (
+            <span
+              className="inline-flex items-center rounded-full border border-blue-300 bg-blue-50 px-1.5 py-px text-[11px] font-medium text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-400"
+              title="Shared with TimeHarbor"
+              aria-label="Shared with TimeHarbor"
+            >
+              TH
             </span>
           )}
         </div>
@@ -284,6 +275,12 @@ const TicketRow: React.FC<TicketRowProps> = ({
               onClick={() => onChangeStatusRequest(ticket)}
             >
               Change Status
+            </DropdownItem>
+            <DropdownItem
+              icon={<FontAwesomeIcon icon={faShareFromSquare} />}
+              onClick={() => onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor)}
+            >
+              {ticket.sharedWithTimeharbor ? 'Remove from TimeHarbor' : 'Send to TimeHarbor'}
             </DropdownItem>
             {isCreator && (
               <>
@@ -367,6 +364,13 @@ export const TicketsPage: React.FC = () => {
 
   useEffect(() => {
     void refetch();
+  }, [refetch]);
+
+  // Listen for external refetch requests (e.g., from CommandPalette)
+  useEffect(() => {
+    const onRefetch = () => void refetch();
+    window.addEventListener('tickets:refetch', onRefetch);
+    return () => window.removeEventListener('tickets:refetch', onRefetch);
   }, [refetch]);
 
   // Fetch members for all teams
@@ -694,11 +698,7 @@ export const TicketsPage: React.FC = () => {
                   const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)
                     ?.getData('text')
                     ?.trim();
-                  if (!text) return;
-                  const isUrl =
-                    /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(text) ||
-                    /https?:\/\/.+\/issues\/\d+/.test(text);
-                  if (!isUrl) return;
+                  if (!text || !isGithubIssueUrl(text)) return;
                   e.preventDefault();
                   setCreateGithub(text);
                   setCreateTitleFetching(true);
@@ -709,19 +709,16 @@ export const TicketsPage: React.FC = () => {
                 }}
               />
               <Input
-                label="GitHub / Redmine URL"
+                label="GitHub URL"
                 hideLabel
                 type="url"
-                placeholder="GitHub / Redmine URL (optional)"
+                placeholder="GitHub URL (optional)"
                 value={createGithub}
                 onChange={(e) => {
                   const url = e.target.value;
                   setCreateGithub(url);
                   if (createFetchTimer.current) clearTimeout(createFetchTimer.current);
-                  if (
-                    /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(url) ||
-                    /https?:\/\/.+\/issues\/\d+/.test(url)
-                  ) {
+                  if (isGithubIssueUrl(url)) {
                     createFetchTimer.current = setTimeout(() => {
                       setCreateTitleFetching(true);
                       void fetchIssueTitle(url).then((title) => {
@@ -899,6 +896,19 @@ export const TicketsPage: React.FC = () => {
                   setChangeStatusTicket(ticket);
                   setChangeStatusValue(ticket.status || 'open');
                 }}
+                onShareWithTimeharbor={async (ticket, shared) => {
+                  try {
+                    await shareTicketWithTimeharbor(ticket.id, shared);
+                    // Optimistically update local state
+                    setTickets((prev) =>
+                      prev.map((t) =>
+                        t.id === ticket.id ? { ...t, sharedWithTimeharbor: shared } : t,
+                      ),
+                    );
+                  } catch {
+                    // Silently ignore — user can retry
+                  }
+                }}
               />
             ))}
           </ul>
@@ -933,11 +943,7 @@ export const TicketsPage: React.FC = () => {
                 const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)
                   ?.getData('text')
                   ?.trim();
-                if (!text) return;
-                const isUrl =
-                  /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(text) ||
-                  /https?:\/\/.+\/issues\/\d+/.test(text);
-                if (!isUrl) return;
+                if (!text || !isGithubIssueUrl(text)) return;
                 e.preventDefault();
                 setEditGithub(text);
                 setTitleFetching(true);
@@ -956,7 +962,7 @@ export const TicketsPage: React.FC = () => {
               rows={3}
             />
             <Input
-              label="GitHub / Redmine URL"
+              label="GitHub URL"
               type="url"
               placeholder="https://github.com/…"
               value={editGithub}
@@ -964,10 +970,7 @@ export const TicketsPage: React.FC = () => {
                 const url = e.target.value;
                 setEditGithub(url);
                 if (editFetchTimer.current) clearTimeout(editFetchTimer.current);
-                if (
-                  /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(url) ||
-                  /https?:\/\/.+\/issues\/\d+/.test(url)
-                ) {
+                if (isGithubIssueUrl(url)) {
                   editFetchTimer.current = setTimeout(() => {
                     setTitleFetching(true);
                     void fetchIssueTitle(url).then((title) => {
