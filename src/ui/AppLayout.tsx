@@ -222,8 +222,8 @@ export const AppLayout: React.FC = () => {
 
   return (
     <RouterContext.Provider value={{ pathname, navigate }}>
-      <CommandPalette />
       <TeamProvider>
+        <CommandPalette />
         <MessagesActiveChatContext.Provider value={{ setHasActiveChat: setMessagesHasActiveChat }}>
           <SidebarContext.Provider
             value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}

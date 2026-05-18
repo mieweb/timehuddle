@@ -57,6 +57,7 @@ import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
 import { VideoUploadButton } from '../media/VideoUploadButton';
+import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -120,37 +121,8 @@ function statusLabelClass(status: string): string {
 }
 
 async function fetchIssueTitle(url: string): Promise<string | null> {
-  // GitHub: https://github.com/{owner}/{repo}/issues/{n} or /pull/{n}
-  const githubMatch = url.match(/github\.com\/([^/?#]+)\/([^/?#]+)\/(issues|pull)\/(\d+)/);
-  if (githubMatch) {
-    const [, owner, repo, , number] = githubMatch;
-    try {
-      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${number}`, {
-        headers: { Accept: 'application/vnd.github+json' },
-      });
-      if (!res.ok) return null;
-      const data = (await res.json()) as { title?: string };
-      return data.title ?? null;
-    } catch {
-      return null;
-    }
-  }
-  // Redmine: https://{host}/issues/{n}
-  const redmineMatch = url.match(/^(https?:\/\/[^/]+)\/issues\/(\d+)/);
-  if (redmineMatch) {
-    const [, base, number] = redmineMatch;
-    try {
-      const res = await fetch(`${base}/issues/${number}.json`, {
-        headers: { Accept: 'application/json' },
-      });
-      if (!res.ok) return null;
-      const data = (await res.json()) as { issue?: { subject?: string } };
-      return data.issue?.subject ?? null;
-    } catch {
-      return null;
-    }
-  }
-  return null;
+  const issue = await fetchGithubIssue(url);
+  return issue?.title ?? null;
 }
 
 // ─── TicketRow ─────────────────────────────────────────────────────────────────
@@ -367,6 +339,13 @@ export const TicketsPage: React.FC = () => {
 
   useEffect(() => {
     void refetch();
+  }, [refetch]);
+
+  // Listen for external refetch requests (e.g., from CommandPalette)
+  useEffect(() => {
+    const onRefetch = () => void refetch();
+    window.addEventListener('tickets:refetch', onRefetch);
+    return () => window.removeEventListener('tickets:refetch', onRefetch);
   }, [refetch]);
 
   // Fetch members for all teams
@@ -694,11 +673,7 @@ export const TicketsPage: React.FC = () => {
                   const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)
                     ?.getData('text')
                     ?.trim();
-                  if (!text) return;
-                  const isUrl =
-                    /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(text) ||
-                    /https?:\/\/.+\/issues\/\d+/.test(text);
-                  if (!isUrl) return;
+                  if (!text || !isGithubIssueUrl(text)) return;
                   e.preventDefault();
                   setCreateGithub(text);
                   setCreateTitleFetching(true);
@@ -709,19 +684,16 @@ export const TicketsPage: React.FC = () => {
                 }}
               />
               <Input
-                label="GitHub / Redmine URL"
+                label="GitHub URL"
                 hideLabel
                 type="url"
-                placeholder="GitHub / Redmine URL (optional)"
+                placeholder="GitHub URL (optional)"
                 value={createGithub}
                 onChange={(e) => {
                   const url = e.target.value;
                   setCreateGithub(url);
                   if (createFetchTimer.current) clearTimeout(createFetchTimer.current);
-                  if (
-                    /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(url) ||
-                    /https?:\/\/.+\/issues\/\d+/.test(url)
-                  ) {
+                  if (isGithubIssueUrl(url)) {
                     createFetchTimer.current = setTimeout(() => {
                       setCreateTitleFetching(true);
                       void fetchIssueTitle(url).then((title) => {
@@ -933,11 +905,7 @@ export const TicketsPage: React.FC = () => {
                 const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)
                   ?.getData('text')
                   ?.trim();
-                if (!text) return;
-                const isUrl =
-                  /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(text) ||
-                  /https?:\/\/.+\/issues\/\d+/.test(text);
-                if (!isUrl) return;
+                if (!text || !isGithubIssueUrl(text)) return;
                 e.preventDefault();
                 setEditGithub(text);
                 setTitleFetching(true);
@@ -956,7 +924,7 @@ export const TicketsPage: React.FC = () => {
               rows={3}
             />
             <Input
-              label="GitHub / Redmine URL"
+              label="GitHub URL"
               type="url"
               placeholder="https://github.com/…"
               value={editGithub}
@@ -964,10 +932,7 @@ export const TicketsPage: React.FC = () => {
                 const url = e.target.value;
                 setEditGithub(url);
                 if (editFetchTimer.current) clearTimeout(editFetchTimer.current);
-                if (
-                  /github\.com\/[^/]+\/[^/]+\/(issues|pull)\/\d+/.test(url) ||
-                  /https?:\/\/.+\/issues\/\d+/.test(url)
-                ) {
+                if (isGithubIssueUrl(url)) {
                   editFetchTimer.current = setTimeout(() => {
                     setTitleFetching(true);
                     void fetchIssueTitle(url).then((title) => {
