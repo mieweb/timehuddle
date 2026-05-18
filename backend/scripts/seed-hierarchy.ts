@@ -7,6 +7,13 @@ const SEED_REPORTS_TO_EMAIL: Record<string, string | null> = {
   "bob@example.com": "carol@example.com",
   "dan@example.com": "carol@example.com",
   "eve@example.com": "carol@example.com",
+  "tanya@example.com": "carol@example.com",
+
+  "parker@example.com": "tanya@example.com",
+  "quinn@example.com": "tanya@example.com",
+  "riley@example.com": "tanya@example.com",
+  "sam@example.com": "carol@example.com",
+  "uma@example.com": "riley@example.com",
 
   "kira@example.com": "alice@example.com",
   "liam@example.com": "kira@example.com",

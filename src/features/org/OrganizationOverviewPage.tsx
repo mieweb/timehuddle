@@ -65,10 +65,7 @@ export const OrganizationOverviewPage: React.FC = () => {
             <Button variant="secondary" onClick={() => navigate('/org/members')}>
               Members
             </Button>
-            <Button
-              variant="secondary"
-              onClick={() => navigate('/app/admin/organization/settings')}
-            >
+            <Button variant="secondary" onClick={() => navigate('/app/settings')}>
               Settings
             </Button>
           </div>

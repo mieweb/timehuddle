@@ -28,6 +28,12 @@ const SEED_USERS = [
   { name: "Maya Marketing", email: "maya@example.com", password: "Password1!" },
   { name: "Noah Ops", email: "noah@example.com", password: "Password1!" },
   { name: "Olivia Analyst", email: "olivia@example.com", password: "Password1!" },
+  { name: "Parker Frontend", email: "parker@example.com", password: "Password1!" },
+  { name: "Quinn QA", email: "quinn@example.com", password: "Password1!" },
+  { name: "Riley Backend", email: "riley@example.com", password: "Password1!" },
+  { name: "Sam Fullstack", email: "sam@example.com", password: "Password1!" },
+  { name: "Tanya Tech Lead", email: "tanya@example.com", password: "Password1!" },
+  { name: "Uma Engineer", email: "uma@example.com", password: "Password1!" },
 ];
 
 // Keep exactly one seeded user unclaimed for username-claim flows.
@@ -38,7 +44,7 @@ const SEED_TEAMS = [
     name: "Developers",
     code: "ZDLYFY9T",
     description: "Frontend and backend engineers building TimeHuddle.",
-    admins: ["alice@example.com", "carol@example.com"],
+    admins: ["alice@example.com", "carol@example.com", "tanya@example.com"],
     members: [
       "alice@example.com",
       "bob@example.com",
@@ -46,6 +52,12 @@ const SEED_TEAMS = [
       "dan@example.com",
       "eve@example.com",
       "ian@example.com",
+      "parker@example.com",
+      "quinn@example.com",
+      "riley@example.com",
+      "sam@example.com",
+      "tanya@example.com",
+      "uma@example.com",
     ],
   },
   {
@@ -59,29 +71,36 @@ const SEED_TEAMS = [
     name: "Product",
     code: "FAKASXQ9",
     description: "Product planning and roadmap prioritization.",
-    admins: ["kira@example.com"],
-    members: ["kira@example.com", "alice@example.com", "liam@example.com"],
+    admins: ["kira@example.com", "tanya@example.com"],
+    members: ["kira@example.com", "alice@example.com", "liam@example.com", "tanya@example.com"],
   },
   {
     name: "Design",
     code: "MHGT2L3Z",
     description: "UX research, visual design, and prototypes.",
     admins: ["liam@example.com"],
-    members: ["liam@example.com", "kira@example.com", "maya@example.com"],
+    members: ["liam@example.com", "kira@example.com", "maya@example.com", "parker@example.com"],
   },
   {
     name: "Support",
     code: "180YR2C3",
     description: "Customer support and escalation management.",
-    admins: ["jules@example.com"],
-    members: ["jules@example.com", "hannah@example.com", "noah@example.com"],
+    admins: ["jules@example.com", "quinn@example.com"],
+    members: ["jules@example.com", "hannah@example.com", "noah@example.com", "quinn@example.com"],
   },
   {
     name: "Operations",
     code: "R0VCXWDP",
     description: "Internal IT, onboarding, and environment operations.",
-    admins: ["noah@example.com", "ian@example.com"],
-    members: ["noah@example.com", "ian@example.com", "hannah@example.com", "maya@example.com"],
+    admins: ["noah@example.com", "ian@example.com", "riley@example.com"],
+    members: [
+      "noah@example.com",
+      "ian@example.com",
+      "hannah@example.com",
+      "maya@example.com",
+      "riley@example.com",
+      "uma@example.com",
+    ],
   },
 ];
 

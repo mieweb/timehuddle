@@ -1,7 +1,12 @@
 import { Button, Spinner, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
-import { ApiError, orgAdminApi, type AdminOrganization, type OrganizationAdminUser } from '../../lib/api';
+import {
+  ApiError,
+  orgAdminApi,
+  type AdminOrganization,
+  type OrganizationAdminUser,
+} from '../../lib/api';
 import { hasDefaultOrganizationAdminAccess } from '../../lib/organizationAccess';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
@@ -22,7 +27,10 @@ export const OrganizationPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [org, members] = await Promise.all([orgAdminApi.getOrganization(), orgAdminApi.listUsers()]);
+      const [org, members] = await Promise.all([
+        orgAdminApi.getOrganization(),
+        orgAdminApi.listUsers(),
+      ]);
       setOrganization(org);
       setUsers(members);
     } catch (err) {
@@ -43,7 +51,7 @@ export const OrganizationPage: React.FC = () => {
 
   if (!canAccess) {
     return (
-      <AppPage fullWidth className="h-full p-0 md:p-0">
+      <AppPage fullWidth noPadding className="h-full">
         <div className="flex h-full items-center justify-center px-6 text-center">
           <Text variant="muted" size="sm">
             This page is restricted to default organization users with owner or admin role.
@@ -54,7 +62,7 @@ export const OrganizationPage: React.FC = () => {
   }
 
   return (
-    <AppPage fullWidth className="h-full min-h-0 space-y-0 p-0 md:p-0">
+    <AppPage fullWidth noPadding className="h-full min-h-0 space-y-0">
       <div className="relative h-full min-h-0 w-full overflow-hidden">
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 px-3 py-3 md:px-4 md:py-4">
           <div className="pointer-events-auto ml-auto flex w-fit items-center gap-2 rounded-md border border-neutral-200/70 bg-white/90 px-2 py-1 shadow-sm backdrop-blur dark:border-neutral-700/70 dark:bg-neutral-900/85">
@@ -92,18 +100,16 @@ export const OrganizationPage: React.FC = () => {
               </div>
             }
           >
-            <div className="h-full w-full overflow-auto">
-              <OrganizationChart
-                organizationName={organization?.name || 'Organization'}
-                members={users.map((orgUser) => ({
-                  id: orgUser.id,
-                  name: orgUser.name,
-                  email: orgUser.email,
-                  role: orgUser.role,
-                  reportsToUserId: orgUser.reportsToUserId || null,
-                }))}
-              />
-            </div>
+            <OrganizationChart
+              organizationName={organization?.name || 'Organization'}
+              members={users.map((orgUser) => ({
+                id: orgUser.id,
+                name: orgUser.name,
+                email: orgUser.email,
+                role: orgUser.role,
+                reportsToUserId: orgUser.reportsToUserId || null,
+              }))}
+            />
           </React.Suspense>
         )}
       </div>

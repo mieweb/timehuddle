@@ -10,7 +10,6 @@ import { Button, Text } from '@mieweb/ui';
 import React from 'react';
 
 import { useSidebar } from './AppLayout';
-import { TeamSelector } from './TeamSelector';
 import { UserDropdown } from './UserDropdown';
 
 interface AppHeaderProps {
@@ -44,7 +43,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ title }) => {
 
         {/* ── Right ── */}
         <div className="flex items-center gap-2">
-          <TeamSelector />
           <UserDropdown />
         </div>
       </div>
