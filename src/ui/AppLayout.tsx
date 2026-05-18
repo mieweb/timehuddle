@@ -33,6 +33,7 @@ import { TeamProvider } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
 import { AppHeader } from './AppHeader';
 import { BottomNav } from './BottomNav';
+import { CommandPalette } from './CommandPalette';
 import { RouterContext } from './router';
 import { SettingsPage } from './SettingsPage';
 import { Sidebar } from './Sidebar';
@@ -221,6 +222,7 @@ export const AppLayout: React.FC = () => {
 
   return (
     <RouterContext.Provider value={{ pathname, navigate }}>
+      <CommandPalette />
       <TeamProvider>
         <MessagesActiveChatContext.Provider value={{ setHasActiveChat: setMessagesHasActiveChat }}>
           <SidebarContext.Provider
