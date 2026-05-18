@@ -3,10 +3,20 @@ import { ObjectId } from "mongodb";
 import { requireAuth } from "../middleware/require-auth.js";
 import { ticketService } from "../services/ticket.service.js";
 import { activityService } from "../services/activity.service.js";
-import { teamsCollection } from "../models/index.js";
+import { teamsCollection, ticketsCollection, usersCollection } from "../models/index.js";
 import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Resolve an array of user IDs to a map of id → display name. */
+async function resolveUserNames(ids: string[]): Promise<Record<string, string>> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return {};
+  const users = await usersCollection()
+    .find({ _id: { $in: unique.map((id) => new ObjectId(id)) } }, { projection: { _id: 1, name: 1 } })
+    .toArray();
+  return Object.fromEntries(users.map((u) => [u._id.toHexString(), u.name ?? ""]));
+}
 
 function toPublicTicket(t: Ticket) {
   return {
@@ -23,6 +33,8 @@ function toPublicTicket(t: Ticket) {
     reviewedAt: t.reviewedAt?.toISOString() ?? null,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt?.toISOString() ?? null,
+    sharedWithTimeharbor: t.sharedWithTimeharbor ?? false,
+    externalTrackedMs: t.externalTrackedMs ?? 0,
   };
 }
 
@@ -47,6 +59,10 @@ const ticketShape = {
     reviewedAt: { type: "string", nullable: true },
     createdAt: { type: "string" },
     updatedAt: { type: "string", nullable: true },
+    sharedWithTimeharbor: { type: "boolean" },
+    externalTrackedMs: { type: "number" },
+    createdByName: { type: "string" },
+    assignedToName: { type: "string", nullable: true },
   },
 };
 
@@ -66,6 +82,34 @@ const unauth = { 401: err("Unauthorized") };
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 export async function ticketRoutes(app: FastifyInstance) {
+  // GET /v1/tickets/shared-with-timeharbor — all flagged tickets across user's teams
+  app.get(
+    "/tickets/shared-with-timeharbor",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Tickets"],
+        summary: "List all tickets flagged as shared with TimeHarbor (across all user teams)",
+        response: {
+          200: { type: "object", properties: { tickets: { type: "array", items: ticketShape } } },
+          ...unauth,
+        },
+      },
+    },
+    async (req, reply) => {
+      const tickets = await ticketService.findSharedWithTimeharbor(req.user!.id);
+      const userIds = tickets.flatMap((t) => [t.createdBy, t.assignedTo ?? ""].filter(Boolean));
+      const names = await resolveUserNames(userIds);
+      return reply.send({
+        tickets: tickets.map((t) => ({
+          ...toPublicTicket(t),
+          createdByName: names[t.createdBy] ?? "",
+          assignedToName: t.assignedTo ? (names[t.assignedTo] ?? "") : null,
+        })),
+      });
+    }
+  );
+
   // GET /v1/tickets?teamId=
   app.get(
     "/tickets",
@@ -90,7 +134,15 @@ export async function ticketRoutes(app: FastifyInstance) {
       const { teamId } = req.query as { teamId: string };
       const result = await ticketService.findByTeam(teamId, req.user!.id);
       if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
-      return reply.send({ tickets: result.map(toPublicTicket) });
+      const userIds = result.flatMap((t) => [t.createdBy, t.assignedTo ?? ""].filter(Boolean));
+      const names = await resolveUserNames(userIds);
+      return reply.send({
+        tickets: result.map((t) => ({
+          ...toPublicTicket(t),
+          createdByName: names[t.createdBy] ?? "",
+          assignedToName: t.assignedTo ? (names[t.assignedTo] ?? "") : null,
+        })),
+      });
     }
   );
 
@@ -312,6 +364,65 @@ export async function ticketRoutes(app: FastifyInstance) {
     }
   );
 
+  // PATCH /v1/tickets/:id/external-update — accept time/status/description pushed from TimeHarbor
+  app.patch(
+    "/tickets/:id/external-update",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Tickets"],
+        summary: "Accept an external update from TimeHarbor (time, status, description, github)",
+        params: idParam,
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            addMs: { type: "number", minimum: 0 },
+            status: { type: "string", enum: ALL_STATUSES },
+            description: { type: "string", maxLength: 5000 },
+            github: { type: "string", maxLength: 1000 },
+          },
+        },
+        response: {
+          200: { type: "object", properties: { ticket: ticketShape } },
+          ...unauth,
+          403: err("Not a team member"),
+          404: err("Ticket not found"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const body = req.body as {
+        addMs?: number;
+        status?: TicketStatus;
+        description?: string;
+        github?: string;
+      };
+      const ticket = await ticketService.findById(id);
+      if (!ticket) return reply.status(404).send({ error: "Ticket not found" });
+      const team = await teamsCollection().findOne({
+        _id: new ObjectId(ticket.teamId),
+        $or: [{ members: req.user!.id }, { admins: req.user!.id }],
+      });
+      if (!team) return reply.status(403).send({ error: "Not a team member" });
+
+      const $set: Record<string, unknown> = { updatedAt: new Date() };
+      const $inc: Record<string, unknown> = {};
+      if (body.status !== undefined) $set.status = body.status;
+      if (body.description !== undefined) $set.description = body.description;
+      if (body.github !== undefined) $set.github = body.github;
+      if (body.addMs && body.addMs > 0) $inc.externalTrackedMs = body.addMs;
+
+      const update: Record<string, unknown> = { $set };
+      if (Object.keys($inc).length > 0) update.$inc = $inc;
+
+      await ticketsCollection().updateOne({ _id: new ObjectId(id) }, update);
+      const updated = await ticketService.findById(id);
+      return reply.send({ ticket: toPublicTicket(updated!) });
+    }
+  );
+
   // PATCH /v1/tickets/:id/status-priority — any team member
   app.patch(
     "/tickets/:id/status-priority",
@@ -344,6 +455,96 @@ export async function ticketRoutes(app: FastifyInstance) {
       if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
       return reply.send({ ticket: toPublicTicket(result) });
+    }
+  );
+
+  // PATCH /v1/tickets/:id/timeharbor-share — flag a single ticket for TimeHarbor import
+  app.patch(
+    "/tickets/:id/timeharbor-share",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Tickets"],
+        summary: "Flag (or unflag) a ticket for TimeHarbor import",
+        params: idParam,
+        body: {
+          type: "object",
+          required: ["shared"],
+          additionalProperties: false,
+          properties: { shared: { type: "boolean" } },
+        },
+        response: {
+          200: { type: "object", properties: { ticket: ticketShape } },
+          ...unauth,
+          403: err("Not a team member"),
+          404: err("Ticket not found"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const { shared } = req.body as { shared: boolean };
+      const ticket = await ticketService.findById(id);
+      if (!ticket) return reply.status(404).send({ error: "Ticket not found" });
+      const team = await teamsCollection().findOne({
+        _id: new ObjectId(ticket.teamId),
+        $or: [{ members: req.user!.id }, { admins: req.user!.id }],
+      });
+      if (!team) return reply.status(403).send({ error: "Not a team member" });
+      await ticketsCollection().updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { sharedWithTimeharbor: shared, updatedAt: new Date() } }
+      );
+      const updated = await ticketService.findById(id);
+      return reply.send({ ticket: toPublicTicket(updated!) });
+    }
+  );
+
+  // PATCH /v1/tickets/bulk-timeharbor-share — flag multiple tickets at once
+  // NOTE: registered before /:id routes to avoid route conflict
+  app.patch(
+    "/tickets/bulk-timeharbor-share",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Tickets"],
+        summary: "Flag (or unflag) multiple tickets for TimeHarbor import",
+        body: {
+          type: "object",
+          required: ["ticketIds", "shared"],
+          additionalProperties: false,
+          properties: {
+            ticketIds: { type: "array", items: { type: "string" }, minItems: 1 },
+            shared: { type: "boolean" },
+          },
+        },
+        response: {
+          200: { type: "object", properties: { modified: { type: "number" } } },
+          ...unauth,
+          403: err("Not a team member for all tickets"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const { ticketIds, shared } = req.body as { ticketIds: string[]; shared: boolean };
+      // Verify user is a member of every team that owns these tickets
+      const validIds = ticketIds.filter(id => /^[0-9a-f]{24}$/i.test(id));
+      const tickets = await ticketsCollection()
+        .find({ _id: { $in: validIds.map(id => new ObjectId(id)) } })
+        .toArray();
+      const teamIds = [...new Set(tickets.map(t => t.teamId))];
+      for (const teamId of teamIds) {
+        const member = await teamsCollection().findOne({
+          _id: new ObjectId(teamId),
+          $or: [{ members: req.user!.id }, { admins: req.user!.id }],
+        });
+        if (!member) return reply.status(403).send({ error: "Not a team member for all tickets" });
+      }
+      const result = await ticketsCollection().updateMany(
+        { _id: { $in: validIds.map(id => new ObjectId(id)) } },
+        { $set: { sharedWithTimeharbor: shared, updatedAt: new Date() } }
+      );
+      return reply.send({ modified: result.modifiedCount });
     }
   );
 

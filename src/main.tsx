@@ -224,6 +224,27 @@ const App: React.FC = () => {
   }
 
   if (!user) return <LoginForm />;
+
+  // If the user is already authenticated and there are OAuth 2.0 authorization
+  // params in the URL (e.g. redirected here from TimeHarbor), forward them
+  // back to Better Auth's authorization endpoint so it can issue the code.
+  const oauthParams =
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  if (
+    oauthParams?.get('response_type') &&
+    oauthParams?.get('client_id') &&
+    oauthParams?.get('state')
+  ) {
+    // The app uses Bearer token (localStorage) for API calls, but the OIDC /authorize
+    // endpoint is a browser navigation — it can't send custom headers. Copy the token
+    // into a cookie so Better Auth can recognise the session during the authorize flow.
+    const token = localStorage.getItem('timecore_session_token');
+    if (token) {
+      document.cookie = `better-auth.session_token=${token}; path=/; SameSite=Lax`;
+    }
+    window.location.href = `/api/auth/oauth2/authorize?${oauthParams.toString()}`;
+    return null;
+  }
   if (needsUsernameClaim)
     return (
       <>

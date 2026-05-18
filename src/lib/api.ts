@@ -323,6 +323,7 @@ export interface Ticket {
   reviewedAt: string | null;
   createdAt: string;
   updatedAt: string | null;
+  sharedWithTimeharbor?: boolean;
 }
 
 export const ticketApi = {
@@ -1004,3 +1005,26 @@ export const tokenApi = {
       method: 'DELETE',
     }).then(() => undefined),
 };
+
+// ─── TimeHarbor Share ─────────────────────────────────────────────────────────
+
+/**
+ * Flag a single ticket as shared with TimeHarbor.
+ * One-way: this only sets the flag on the TimeHuddle record; TimeHarbor pulls it.
+ */
+export const shareTicketWithTimeharbor = (id: string, shared: boolean): Promise<void> =>
+  request<{ success: boolean }>(`/v1/tickets/${encodeURIComponent(id)}/timeharbor-share`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ shared }),
+  }).then(() => undefined);
+
+/**
+ * Flag multiple tickets as shared with (or unshared from) TimeHarbor in one request.
+ */
+export const bulkShareTicketsWithTimeharbor = (ticketIds: string[], shared: boolean): Promise<void> =>
+  request<{ modifiedCount: number }>('/v1/tickets/bulk-timeharbor-share', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticketIds, shared }),
+  }).then(() => undefined);
