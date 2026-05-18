@@ -30,6 +30,7 @@ import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
 import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
+import { OrganizationPage } from '../features/org/OrganizationPage';
 import { OrganizationSettingsPage } from '../features/org/OrganizationSettingsPage';
 import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
 import { TeamProvider } from '../lib/TeamContext';
@@ -60,6 +61,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/work': { title: 'Work', component: WorkPage },
   '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
   '/app/teams': { title: 'Teams', component: TeamsPage },
+  '/app/organization': { title: 'Organization', component: OrganizationPage },
   '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/activity': { title: 'Activity Log', component: ActivityLogPage },

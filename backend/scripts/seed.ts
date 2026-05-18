@@ -10,6 +10,7 @@ import {
   workItemsCollection,
   timersCollection,
 } from "../src/models/index.js";
+import { applySeedHierarchy } from "./seed-hierarchy.js";
 
 const SEED_USERS = [
   { name: "Alice Admin", email: "alice@example.com", password: "Password1!" },
@@ -1071,6 +1072,9 @@ async function seed() {
     { email: UNCLAIMED_USERNAME_EMAIL },
     { $unset: { username: "" } }
   );
+
+  // Give seeded users a realistic manager/reporting structure for org views.
+  await applySeedHierarchy();
 
   for (const team of SEED_TEAMS) {
     await upsertSeedTeam(team, userIdsByEmail);
