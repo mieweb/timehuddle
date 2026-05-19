@@ -1,7 +1,7 @@
 const { ObjectId } = require("mongodb");
 
-const DEFAULT_ORG_KEY = "myorg";
-const DEFAULT_ORG_NAME = "My Organization";
+const DEFAULT_ORG_KEY = process.env.DEFAULT_ORG_KEY || "default";
+const DEFAULT_ORG_NAME = process.env.DEFAULT_ORG_NAME || "Default Organization";
 
 module.exports = {
   async up(db) {
