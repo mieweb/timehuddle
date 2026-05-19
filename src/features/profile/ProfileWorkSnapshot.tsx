@@ -14,15 +14,12 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Badge, Card, Spinner, Text } from '@mieweb/ui';
-import React, { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 
-import { ticketApi, type Ticket } from '../../lib/api';
+import { type Ticket } from '../../lib/api';
+import { useProfileTickets } from './useProfileTickets';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const DONE_STATUSES = new Set(['closed', 'reviewed', 'deleted']);
-
-const STATUS_ORDER = ['blocked', 'in-progress', 'open'];
 
 const STATUS_META: Record<
   string,
@@ -49,7 +46,7 @@ function priorityClass(p: string | null): string {
 }
 
 function priorityLabel(p: string | null): string | null {
-  if (!p || p === 'low') return null; // low priority is noise — omit
+  if (!p || p === 'low') return null;
   return p.charAt(0).toUpperCase() + p.slice(1);
 }
 
@@ -101,58 +98,7 @@ interface ProfileWorkSnapshotProps {
 }
 
 export const ProfileWorkSnapshot: React.FC<ProfileWorkSnapshotProps> = ({ userId, teams }) => {
-  const [allTickets, setAllTickets] = useState<Array<{ ticket: Ticket; teamName: string }>>([]);
-  const [loading, setLoading] = useState(true);
-
-  // Stable key so the effect doesn't re-run when the parent re-renders with a new array reference
-  const teamsKey = teams.map((t) => t.id).join(',');
-
-  useEffect(() => {
-    if (teams.length === 0) {
-      setAllTickets([]);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    Promise.all(
-      teams.map((team) =>
-        ticketApi
-          .getTickets(team.id)
-          .then((tickets) => tickets.map((t) => ({ ticket: t, teamName: team.name }))),
-      ),
-    )
-      .then((results) => setAllTickets(results.flat()))
-      .catch(() => setAllTickets([]))
-      .finally(() => setLoading(false));
-  }, [userId, teamsKey]);
-
-  // Filter to this user's active tickets, sorted by status priority order
-  const activeTickets = useMemo(() => {
-    const assigned = allTickets.filter(
-      ({ ticket }) => ticket.assignedTo === userId && !DONE_STATUSES.has(ticket.status ?? ''),
-    );
-    return [...assigned].sort((a, b) => {
-      const ai = STATUS_ORDER.indexOf(a.ticket.status ?? 'open');
-      const bi = STATUS_ORDER.indexOf(b.ticket.status ?? 'open');
-      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-    });
-  }, [allTickets, userId]);
-
-  // Group by status for section headings when there are mixed statuses
-  const groups = useMemo(() => {
-    const map = new Map<string, Array<{ ticket: Ticket; teamName: string }>>();
-    for (const entry of activeTickets) {
-      const s = entry.ticket.status ?? 'open';
-      const arr = map.get(s) ?? [];
-      arr.push(entry);
-      map.set(s, arr);
-    }
-    return STATUS_ORDER.flatMap((s) => {
-      const entries = map.get(s);
-      return entries ? [{ status: s, entries }] : [];
-    });
-  }, [activeTickets]);
+  const { activeTickets, groups, loading } = useProfileTickets(userId, teams);
 
   const blockedCount = groups.find((g) => g.status === 'blocked')?.entries.length ?? 0;
 

@@ -107,6 +107,7 @@ export const OrganizationPage: React.FC = () => {
                 name: orgUser.name,
                 email: orgUser.email,
                 username: orgUser.username,
+                image: orgUser.image,
                 role: orgUser.role,
                 reportsToUserId: orgUser.reportsToUserId || null,
               }))}

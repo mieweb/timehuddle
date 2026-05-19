@@ -1,8 +1,9 @@
 import '@mieweb/ychart';
-import { Button, Modal, ModalBody, ModalClose, ModalFooter, ModalHeader, ModalTitle } from '@mieweb/ui';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useRouter } from '../../ui/router';
+import { CompactTicketList } from '../profile/CompactTicketList';
+import { useProfileTickets } from '../profile/useProfileTickets';
 
 type ChartState = {
   svgWidth: number;
@@ -28,6 +29,7 @@ interface OrganizationChartMember {
   name: string;
   email: string;
   username: string | null;
+  image: string | null;
   role: 'owner' | 'admin' | 'member';
   reportsToUserId?: string | null;
 }
@@ -35,6 +37,7 @@ interface OrganizationChartMember {
 interface OrganizationChartProps {
   organizationName: string;
   members: OrganizationChartMember[];
+  teams?: Array<{ id: string; name: string }>;
 }
 
 const ROOT_ID = 'org-root';
@@ -167,29 +170,27 @@ const OrganizationChartMount: React.FC<{
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 };
 
-interface SelectedMember {
-  id: string;
-  name: string;
-  username: string | null;
-}
+type SelectedMember = OrganizationChartMember;
 
 export const OrganizationChart: React.FC<OrganizationChartProps> = ({
   organizationName,
   members,
+  teams = [],
 }) => {
   const { navigate } = useRouter();
   const [selectedMember, setSelectedMember] = useState<SelectedMember | null>(null);
-
-  const memberById = useMemo(
-    () => new Map(members.map((m) => [m.id, m])),
-    [members],
+  const { activeTickets, loading: ticketsLoading } = useProfileTickets(
+    selectedMember?.id ?? '',
+    teams,
   );
+
+  const memberById = useMemo(() => new Map(members.map((m) => [m.id, m])), [members]);
 
   const handleMemberDetails = (nodeData: Record<string, unknown>) => {
     const id = String(nodeData.id ?? '');
     const member = memberById.get(id);
     if (!member) return;
-    setSelectedMember({ id: member.id, name: member.name, username: member.username });
+    setSelectedMember(member);
   };
   const membersKey = members
     .map(
@@ -213,6 +214,10 @@ export const OrganizationChart: React.FC<OrganizationChartProps> = ({
       : `/app/profile/${selectedMember.id}`
     : '';
 
+  const handleNavigateProfile = () => {
+    navigate(profilePath);
+  };
+
   return (
     <div
       style={{ width: '100%', height: '100%', isolation: 'isolate' }}
@@ -221,38 +226,106 @@ export const OrganizationChart: React.FC<OrganizationChartProps> = ({
       <OrganizationChartMount key={yaml} yaml={yaml} onMemberDetails={handleMemberDetails} />
 
       {selectedMember && (
-        <Modal
-          open
-          onOpenChange={(open) => { if (!open) setSelectedMember(null); }}
-          aria-label={`Profile of ${selectedMember.name}`}
-        >
-          <ModalHeader>
-            <ModalTitle>{selectedMember.name}</ModalTitle>
-            <ModalClose onClick={() => setSelectedMember(null)} aria-label="Close" />
-          </ModalHeader>
-          <ModalBody>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              {selectedMember.username ? `@${selectedMember.username}` : 'No handle set'}
-            </p>
-          </ModalBody>
-          <ModalFooter>
-            <Button
-              variant="secondary"
-              onClick={() => setSelectedMember(null)}
-            >
-              Close
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                setSelectedMember(null);
-                navigate(profilePath);
-              }}
-            >
-              View Profile
-            </Button>
-          </ModalFooter>
-        </Modal>
+        <>
+          {/* Overlay backdrop — click to close */}
+          <div
+            className="absolute inset-0 bg-black/30 transition-opacity dark:bg-black/50"
+            onClick={() => setSelectedMember(null)}
+            role="button"
+            tabIndex={0}
+            aria-label="Close profile"
+            onKeyDown={(e) => e.key === 'Escape' && setSelectedMember(null)}
+          />
+
+          {/* Lightbox card */}
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-end">
+            <div className="pointer-events-auto mr-6 w-full max-w-sm rounded-xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
+              {/* Header with close button */}
+              <div className="flex items-start justify-between border-b border-neutral-200 p-6 dark:border-neutral-700">
+                <div>
+                  <h2 className="text-lg font-semibold text-neutral-900 dark:text-white">
+                    {selectedMember.name}
+                  </h2>
+                  <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                    {selectedMember.username ? `@${selectedMember.username}` : 'No handle'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedMember(null)}
+                  className="flex-shrink-0 text-neutral-400 transition-colors hover:text-neutral-600 dark:hover:text-neutral-300"
+                  aria-label="Close"
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="space-y-4 p-6">
+                {/* Avatar */}
+                {selectedMember.image && (
+                  <div className="flex justify-center">
+                    <img
+                      src={selectedMember.image}
+                      alt={selectedMember.name}
+                      className="h-20 w-20 rounded-full object-cover ring-4 ring-neutral-100 dark:ring-neutral-800"
+                    />
+                  </div>
+                )}
+
+                {/* Role */}
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+                    Role
+                  </p>
+                  <p className="mt-1 text-sm font-medium capitalize text-neutral-900 dark:text-white">
+                    {selectedMember.role}
+                  </p>
+                </div>
+
+                {/* Email */}
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+                    Email
+                  </p>
+                  <p className="mt-1 truncate text-sm text-neutral-700 dark:text-neutral-300">
+                    {selectedMember.email}
+                  </p>
+                </div>
+
+                {/* Active tickets (if teams available) */}
+                {teams.length > 0 && (
+                  <div className="border-t border-neutral-200 pt-4 dark:border-neutral-700">
+                    <p className="mb-2.5 text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+                      Work
+                    </p>
+                    <CompactTicketList
+                      tickets={activeTickets}
+                      loading={ticketsLoading}
+                      maxItems={3}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Footer with action button */}
+              <div className="border-t border-neutral-200 p-6 dark:border-neutral-700">
+                <button
+                  onClick={handleNavigateProfile}
+                  className="w-full rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 dark:bg-neutral-700 dark:hover:bg-neutral-600"
+                >
+                  View Full Profile
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
