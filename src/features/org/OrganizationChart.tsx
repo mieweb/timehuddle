@@ -93,9 +93,6 @@ function buildYaml(organizationName: string, members: OrganizationChartMember[])
     lines.push(`  parentId: ${JSON.stringify(parentId)}`);
     lines.push(`  name: ${JSON.stringify(member.name)}`);
     lines.push(`  title: ${JSON.stringify(roleLabel[member.role])}`);
-    if (member.email) {
-      lines.push(`  email: ${JSON.stringify(member.email)}`);
-    }
   });
 
   return lines.join('\n');

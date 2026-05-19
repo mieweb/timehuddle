@@ -49,7 +49,6 @@ import { useSession } from '../../lib/useSession';
 import { usePresence } from '../../lib/usePresence';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
-const TeamChart = React.lazy(() => import('./TeamChart').then((m) => ({ default: m.TeamChart })));
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
 
@@ -452,37 +451,6 @@ export const TeamsPage: React.FC = () => {
                 );
               })}
             </ul>
-          </div>
-        </div>
-      )}
-
-      {/* Chart */}
-      {selectedTeam && !selectedTeam.isPersonal && (
-        <div className="overflow-hidden">
-          <div className="py-2">
-            <CardTitle>Chart</CardTitle>
-          </div>
-          <div className="overflow-x-auto">
-            <React.Suspense
-              fallback={
-                <div className="flex items-center justify-center p-8">
-                  <Spinner size="lg" label="Loading chart…" />
-                </div>
-              }
-            >
-              <TeamChart
-                teamName={selectedTeam.name}
-                members={selectedTeam.members.map((memberId) => {
-                  const m = membersById.get(memberId);
-                  return {
-                    id: memberId,
-                    name: m?.name ?? memberId,
-                    email: m?.email,
-                    isAdmin: selectedTeam.admins.includes(memberId),
-                  };
-                })}
-              />
-            </React.Suspense>
           </div>
         </div>
       )}
