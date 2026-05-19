@@ -826,159 +826,154 @@ export const TicketsPage: React.FC = () => {
       )}
 
       {/* ── Unified ticket list (GitHub style) ── */}
-      <Card
-        padding="none"
-        style={{ overflow: 'visible' }}
-      >
-        
+      <Card padding="none" style={{ overflow: 'visible' }}>
         {/* GitHub-style header: Open / Closed tabs + filter dropdowns */}
         <div
           className={`sticky top-14 z-30 px-4 py-2.5 md:relative md:top-auto md:z-30 ${Capacitor.isNativePlatform() ? 'border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80' : 'rounded-t-xl border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-800/70 dark:supports-backdrop-filter:bg-neutral-800/50'}`}
         >
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-2">
-          {/* Left: status tabs */}
-          <div className="flex items-center gap-4">
-            <button
-              role="tab"
-              aria-selected={statusFilter === 'open'}
-              onClick={() => setStatusFilter('open')}
-              className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                statusFilter === 'open'
-                  ? 'text-neutral-900 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-              }`}
-            >
-              <FontAwesomeIcon icon={faCircleDot} className="text-green-500" />
-              {openCount} Open
-            </button>
-            <button
-              role="tab"
-              aria-selected={statusFilter === 'closed'}
-              onClick={() => setStatusFilter('closed')}
-              className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                statusFilter === 'closed'
-                  ? 'text-neutral-900 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-              }`}
-            >
-              <FontAwesomeIcon icon={faCircleCheck} className="text-purple-500" />
-              {closedCount} Closed
-            </button>
-          </div>
+            {/* Left: status tabs */}
+            <div className="flex items-center gap-4">
+              <button
+                role="tab"
+                aria-selected={statusFilter === 'open'}
+                onClick={() => setStatusFilter('open')}
+                className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                  statusFilter === 'open'
+                    ? 'text-neutral-900 dark:text-neutral-100'
+                    : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+                }`}
+              >
+                <FontAwesomeIcon icon={faCircleDot} className="text-green-500" />
+                {openCount} Open
+              </button>
+              <button
+                role="tab"
+                aria-selected={statusFilter === 'closed'}
+                onClick={() => setStatusFilter('closed')}
+                className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                  statusFilter === 'closed'
+                    ? 'text-neutral-900 dark:text-neutral-100'
+                    : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+                }`}
+              >
+                <FontAwesomeIcon icon={faCircleCheck} className="text-purple-500" />
+                {closedCount} Closed
+              </button>
+            </div>
 
-
-          {/* Right: filter dropdowns */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:pl-0">
-            {teams.length > 1 && (
+            {/* Right: filter dropdowns */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:pl-0">
+              {teams.length > 1 && (
+                <FilterDropdown
+                  label="Team"
+                  activeLabel={activeTeamLabel}
+                  open={openFilterMenu === 'team'}
+                  onOpenChange={(open) => setOpenFilterMenu(open ? 'team' : null)}
+                >
+                  <DropdownItem
+                    onClick={() => setTeamFilter(null)}
+                    className={!teamFilter ? 'font-semibold' : ''}
+                  >
+                    All teams
+                  </DropdownItem>
+                  <DropdownSeparator />
+                  {teams.map((t: Team) => (
+                    <DropdownItem
+                      key={t.id}
+                      onClick={() => setTeamFilter(t.id)}
+                      className={teamFilter === t.id ? 'font-semibold' : ''}
+                    >
+                      {t.name}
+                    </DropdownItem>
+                  ))}
+                </FilterDropdown>
+              )}
               <FilterDropdown
-                label="Team"
-                activeLabel={activeTeamLabel}
-                open={openFilterMenu === 'team'}
-                onOpenChange={(open) => setOpenFilterMenu(open ? 'team' : null)}
+                label="Priority"
+                activeLabel={activePriorityLabel}
+                open={openFilterMenu === 'priority'}
+                onOpenChange={(open) => setOpenFilterMenu(open ? 'priority' : null)}
               >
                 <DropdownItem
-                  onClick={() => setTeamFilter(null)}
-                  className={!teamFilter ? 'font-semibold' : ''}
+                  onClick={() => setPriorityFilter(null)}
+                  className={!priorityFilter ? 'font-semibold' : ''}
                 >
-                  All teams
+                  Any priority
                 </DropdownItem>
                 <DropdownSeparator />
-                {teams.map((t: Team) => (
+                {PRIORITY_OPTIONS.map((p) => (
                   <DropdownItem
-                    key={t.id}
-                    onClick={() => setTeamFilter(t.id)}
-                    className={teamFilter === t.id ? 'font-semibold' : ''}
+                    key={p.value}
+                    onClick={() => setPriorityFilter(priorityFilter === p.value ? null : p.value)}
+                    className={priorityFilter === p.value ? 'font-semibold' : ''}
                   >
-                    {t.name}
+                    {p.label}
                   </DropdownItem>
                 ))}
               </FilterDropdown>
-            )}
-            <FilterDropdown
-              label="Priority"
-              activeLabel={activePriorityLabel}
-              open={openFilterMenu === 'priority'}
-              onOpenChange={(open) => setOpenFilterMenu(open ? 'priority' : null)}
-            >
-              <DropdownItem
-                onClick={() => setPriorityFilter(null)}
-                className={!priorityFilter ? 'font-semibold' : ''}
+              <FilterDropdown
+                label="Status"
+                activeLabel={activeStatusDetailLabel}
+                placement="bottom-end"
+                open={openFilterMenu === 'status'}
+                onOpenChange={(open) => setOpenFilterMenu(open ? 'status' : null)}
               >
-                Any priority
-              </DropdownItem>
-              <DropdownSeparator />
-              {PRIORITY_OPTIONS.map((p) => (
                 <DropdownItem
-                  key={p.value}
-                  onClick={() => setPriorityFilter(priorityFilter === p.value ? null : p.value)}
-                  className={priorityFilter === p.value ? 'font-semibold' : ''}
+                  onClick={() => setStatusDetailFilter(null)}
+                  className={!statusDetailFilter ? 'font-semibold' : ''}
                 >
-                  {p.label}
+                  Any status
                 </DropdownItem>
-              ))}
-            </FilterDropdown>
-            <FilterDropdown
-              label="Status"
-              activeLabel={activeStatusDetailLabel}
-              placement="bottom-end"
-              open={openFilterMenu === 'status'}
-              onOpenChange={(open) => setOpenFilterMenu(open ? 'status' : null)}
-            >
-              <DropdownItem
-                onClick={() => setStatusDetailFilter(null)}
-                className={!statusDetailFilter ? 'font-semibold' : ''}
+                <DropdownSeparator />
+                {STATUS_OPTIONS.filter(
+                  (s) => s.value !== 'open' && s.value !== 'closed' && s.value !== 'reviewed',
+                ).map((s) => (
+                  <DropdownItem
+                    key={s.value}
+                    onClick={() =>
+                      setStatusDetailFilter(statusDetailFilter === s.value ? null : s.value)
+                    }
+                    className={statusDetailFilter === s.value ? 'font-semibold' : ''}
+                  >
+                    {s.label}
+                  </DropdownItem>
+                ))}
+              </FilterDropdown>
+              <FilterDropdown
+                label="Assignee"
+                activeLabel={activeAssigneeLabel}
+                placement="bottom-end"
+                open={openFilterMenu === 'assignee'}
+                onOpenChange={(open) => setOpenFilterMenu(open ? 'assignee' : null)}
               >
-                Any status
-              </DropdownItem>
-              <DropdownSeparator />
-              {STATUS_OPTIONS.filter(
-                (s) => s.value !== 'open' && s.value !== 'closed' && s.value !== 'reviewed',
-              ).map((s) => (
                 <DropdownItem
-                  key={s.value}
+                  onClick={() => setAssigneeFilter(null)}
+                  className={assigneeFilter === null ? 'font-semibold' : ''}
+                >
+                  Any
+                </DropdownItem>
+                <DropdownSeparator />
+                <DropdownItem
                   onClick={() =>
-                    setStatusDetailFilter(statusDetailFilter === s.value ? null : s.value)
+                    setAssigneeFilter(assigneeFilter === '__unassigned__' ? null : '__unassigned__')
                   }
-                  className={statusDetailFilter === s.value ? 'font-semibold' : ''}
+                  className={assigneeFilter === '__unassigned__' ? 'font-semibold' : ''}
                 >
-                  {s.label}
+                  Unassigned
                 </DropdownItem>
-              ))}
-            </FilterDropdown>
-            <FilterDropdown
-              label="Assignee"
-              activeLabel={activeAssigneeLabel}
-              placement="bottom-end"
-              open={openFilterMenu === 'assignee'}
-              onOpenChange={(open) => setOpenFilterMenu(open ? 'assignee' : null)}
-            >
-              <DropdownItem
-                onClick={() => setAssigneeFilter(null)}
-                className={assigneeFilter === null ? 'font-semibold' : ''}
-              >
-                Any
-              </DropdownItem>
-              <DropdownSeparator />
-              <DropdownItem
-                onClick={() =>
-                  setAssigneeFilter(assigneeFilter === '__unassigned__' ? null : '__unassigned__')
-                }
-                className={assigneeFilter === '__unassigned__' ? 'font-semibold' : ''}
-              >
-                Unassigned
-              </DropdownItem>
-              {sortedMembers.length > 0 && <DropdownSeparator />}
-              {sortedMembers.map((m) => (
-                <DropdownItem
-                  key={m.id}
-                  onClick={() => setAssigneeFilter(assigneeFilter === m.id ? null : m.id)}
-                  className={assigneeFilter === m.id ? 'font-semibold' : ''}
-                >
-                  {m.id === userId ? `${m.name || m.email} (you)` : m.name || m.email}
-                </DropdownItem>
-              ))}
-            </FilterDropdown>
-          </div>
+                {sortedMembers.length > 0 && <DropdownSeparator />}
+                {sortedMembers.map((m) => (
+                  <DropdownItem
+                    key={m.id}
+                    onClick={() => setAssigneeFilter(assigneeFilter === m.id ? null : m.id)}
+                    className={assigneeFilter === m.id ? 'font-semibold' : ''}
+                  >
+                    {m.id === userId ? `${m.name || m.email} (you)` : m.name || m.email}
+                  </DropdownItem>
+                ))}
+              </FilterDropdown>
+            </div>
           </div>
         </div>
 
