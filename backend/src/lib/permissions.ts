@@ -10,6 +10,7 @@ export type AppAction =
   | "create"
   | "update"
   | "delete"
+  | "batchStatus"
   | "comment"
   | "assign"
   | "review";
@@ -18,8 +19,9 @@ export type AppSubject = "Ticket" | "Team" | "User" | "all";
 
 export type PermissionContext = {
   userId: string;
-  role: AppRole;
+  role: AppRole | "member";
   teamIds: string[];
+  teamAdminIds?: string[];
 };
 
 export type AppAbility = AnyMongoAbility;
@@ -27,9 +29,17 @@ export type AppAbility = AnyMongoAbility;
 export function buildAbilityFor(context: PermissionContext): AppAbility {
   const { can, build } = new AbilityBuilder<AppAbility>(createMongoAbility);
 
-  // Boilerplate baseline: only elevated roles get full access for now.
   if (context.role === "owner" || context.role === "admin") {
     can("manage", "all");
+    return build();
+  }
+
+  if (context.teamIds.length > 0) {
+    const teamScope = { teamId: { $in: context.teamIds } };
+    can("read", "Ticket", teamScope);
+    can("create", "Ticket", teamScope);
+    can(["update", "assign", "review", "comment", "batchStatus"], "Ticket", teamScope);
+    can("delete", "Ticket", { ...teamScope, createdBy: context.userId });
   }
 
   return build();
