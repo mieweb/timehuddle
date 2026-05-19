@@ -66,7 +66,7 @@ const NAV_ITEMS: NavSection[] = [
       {
         icon: faSitemap,
         label: 'Org Chart',
-        href: '/app/org',
+        href: '/app/organization',
         keywords: ['organization', 'hierarchy', 'chart', 'structure'],
       },
       { icon: faEnvelope, label: 'Messages', href: '/app/messages', keywords: ['chat', 'inbox'] },
