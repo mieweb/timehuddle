@@ -1,8 +1,6 @@
-import { ObjectId } from "mongodb";
 import { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
-import { organizationsCollection, usersCollection } from "../models/index.js";
-import { DEFAULT_ORG_KEY } from "../lib/org-config.js";
+import { orgController } from "../controllers/org.controller.js";
 
 const unauthorizedResponse = {
   401: {
@@ -12,36 +10,7 @@ const unauthorizedResponse = {
 };
 
 export async function orgRoutes(app: FastifyInstance) {
-  async function resolveDefaultOrganizationMembership(userId: string): Promise<{
-    organizationId: string;
-    organizationKey: string;
-    role: "owner" | "admin";
-  } | null> {
-    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
-    if (!defaultOrg) return null;
-
-    const owners = defaultOrg.owners ?? [];
-    if (owners.includes(userId)) {
-      return {
-        organizationId: defaultOrg._id.toHexString(),
-        organizationKey: defaultOrg.key,
-        role: "owner",
-      };
-    }
-
-    const admins = defaultOrg.admins ?? [];
-    if (admins.includes(userId)) {
-      return {
-        organizationId: defaultOrg._id.toHexString(),
-        organizationKey: defaultOrg.key,
-        role: "admin",
-      };
-    }
-
-    return null;
-  }
-
-  app.put(
+  app.put<{ Params: { userId: string }; Body: { reportsToUserId?: string | null } }>(
     "/org/users/:userId",
     {
       preHandler: [requireAuth],
@@ -85,40 +54,6 @@ export async function orgRoutes(app: FastifyInstance) {
         },
       },
     },
-    async (req, reply) => {
-      const { userId } = req.params as { userId: string };
-      const { reportsToUserId } = req.body as { reportsToUserId?: string | null };
-
-      const requesterMembership = await resolveDefaultOrganizationMembership(req.user!.id);
-      if (!requesterMembership || !["owner", "admin"].includes(requesterMembership.role)) {
-        return reply.status(403).send({ error: "Forbidden" });
-      }
-
-      const user = await usersCollection().findOne({ _id: new ObjectId(userId) });
-      if (!user) {
-        return reply.status(404).send({ error: "User not found" });
-      }
-
-      if (reportsToUserId !== undefined && reportsToUserId !== null) {
-        const reportsToUser = await usersCollection().findOne({
-          _id: new ObjectId(reportsToUserId),
-        });
-        if (!reportsToUser) {
-          return reply.status(404).send({ error: "Reports-to user not found" });
-        }
-      }
-
-      await usersCollection().updateOne(
-        { _id: new ObjectId(userId) },
-        { $set: { reportsToUserId, updatedAt: new Date() } }
-      );
-
-      return reply.send({
-        user: {
-          id: userId,
-          reportsToUserId,
-        },
-      });
-    }
+    orgController.updateOrgUserReportsTo
   );
 }
