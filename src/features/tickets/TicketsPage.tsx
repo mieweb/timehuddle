@@ -342,7 +342,7 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
     placement={placement}
     open={open}
     onOpenChange={onOpenChange}
-    className="z-1000 max-w-[calc(100vw-1rem)] bg-neutral-900 dark:bg-neutral-800"
+    className="z-1000 max-w-[calc(100vw-1rem)] bg-white dark:bg-neutral-800"
   >
     <DropdownContent className="max-h-[60vh] overflow-y-auto">{children}</DropdownContent>
   </Dropdown>
