@@ -150,6 +150,7 @@ export class TimerService {
     | "not-found"
     | "forbidden"
     | "already-running"
+    | "invalid-date"
   > {
     if (!isValidId(ticketId)) return "not-found";
     const ticket = await ticketsCollection().findOne({ _id: new ObjectId(ticketId) });
@@ -164,6 +165,11 @@ export class TimerService {
     if (!team) return "forbidden";
 
     const date = toUtcDateKey(now);
+
+    // Prevent starting timers on previous days
+    if (this.isPreviousDate(date)) {
+      return "invalid-date";
+    }
 
     // Ensure WorkItem exists
     const entryResult = await this.getOrCreateEntry(userId, ticketId, date);
@@ -217,11 +223,21 @@ export class TimerService {
     userId: string,
     entryId: string,
     now: number
-  ): Promise<{ session: Timer; closedSessionId: string | null } | "not-found" | "forbidden"> {
-    if (!isValidId(entryId)) return "not-found";
+  ): Promise<
+    | { type: "success"; session: Timer; closedSessionId: string | null }
+    | { type: "not-found" }
+    | { type: "forbidden" }
+    | { type: "invalid-date" }
+  > {
+    if (!isValidId(entryId)) return { type: "not-found" };
     const entry = await workItemsCollection().findOne({ _id: new ObjectId(entryId) });
-    if (!entry) return "not-found";
-    if (entry.userId !== userId) return "forbidden";
+    if (!entry) return { type: "not-found" };
+    if (entry.userId !== userId) return { type: "forbidden" };
+
+    // Prevent starting timers on previous days
+    if (this.isPreviousDate(entry.date)) {
+      return { type: "invalid-date" };
+    }
 
     let closedSessionId: string | null = null;
     const closeResult = await this._closeRunningSession(userId, now);
@@ -240,7 +256,7 @@ export class TimerService {
 
     try {
       await timersCollection().insertOne(session);
-      return { session, closedSessionId };
+      return { type: "success", session, closedSessionId };
     } catch (err: unknown) {
       if ((err as { code?: number }).code === 11000) {
         const retryClose = await this._closeRunningSession(userId, now);
@@ -251,7 +267,7 @@ export class TimerService {
           createdAt: new Date(),
         };
         await timersCollection().insertOne(session2);
-        return { session: session2, closedSessionId };
+        return { type: "success", session: session2, closedSessionId };
       }
       throw err;
     }
@@ -614,6 +630,14 @@ export class TimerService {
       { $set: { endTime: now, durationSeconds } }
     );
     return running._id.toHexString();
+  }
+
+  /**
+   * Check if the given date is earlier than today.
+   */
+  private isPreviousDate(date: string): boolean {
+    const today = new Date().toISOString().slice(0, 10);
+    return date < today;
   }
 }
 

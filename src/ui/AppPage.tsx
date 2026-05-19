@@ -18,6 +18,11 @@ interface AppPageProps {
    */
   fullWidth?: boolean;
   /**
+   * When true, remove the default page padding.
+   * Use for full-bleed pages where content should touch container edges.
+   */
+  noPadding?: boolean;
+  /**
    * Optional extra classes applied to the outer wrapper div.
    * Use sparingly — only for pages that require a non-standard layout
    * (e.g. full-height flex containers for chat/canvas interfaces).
@@ -25,9 +30,15 @@ interface AppPageProps {
   className?: string;
 }
 
-export const AppPage: React.FC<AppPageProps> = ({ subtitle, children, className, fullWidth }) => (
+export const AppPage: React.FC<AppPageProps> = ({
+  subtitle,
+  children,
+  className,
+  fullWidth,
+  noPadding,
+}) => (
   <div
-    className={`w-full space-y-6 p-4 md:p-6${
+    className={`w-full space-y-6 ${noPadding ? 'p-0 md:p-0' : 'p-4 md:p-6'}${
       fullWidth ? '' : ' md:mx-auto md:max-w-4xl'
     }${className ? ` ${className}` : ''}`}
   >

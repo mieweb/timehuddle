@@ -12,6 +12,7 @@ import { auth } from "./lib/auth.js";
 import { appContext } from "./middleware/app-context.js";
 import { healthRoutes } from "./routes/health.js";
 import { userRoutes } from "./routes/users.js";
+import { orgRoutes } from "./routes/org.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { teamRoutes } from "./routes/teams.js";
 import { clockRoutes } from "./routes/clock.js";
@@ -451,6 +452,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
   // App routes
   await app.register(userRoutes, { prefix: "/v1" });
+  await app.register(orgRoutes, { prefix: "/v1" });
   await app.register(teamRoutes, { prefix: "/v1" });
   await app.register(ticketRoutes, { prefix: "/v1" });
   await app.register(clockRoutes, { prefix: "/v1" });

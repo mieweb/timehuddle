@@ -175,6 +175,7 @@ export async function timerRoutes(app: FastifyInstance) {
               session: { ...sessionShape, nullable: true },
             },
           },
+          422: err("Cannot start a timer on a previous day"),
           403: err("Forbidden"),
           404: err("Ticket not found"),
         },
@@ -211,8 +212,18 @@ export async function timerRoutes(app: FastifyInstance) {
           entryResult._id.toHexString(),
           Date.now()
         );
-        if (startResult !== "not-found" && startResult !== "forbidden") {
-          session = toPublicSession(startResult.session);
+
+        switch (startResult.type) {
+          case "not-found":
+          case "forbidden":
+            break;
+          case "invalid-date":
+            return reply.status(422).send({ error: "Cannot start a timer on a previous day" });
+          case "success":
+            session = toPublicSession(startResult.session);
+            break;
+          default:
+            throw new Error("Unexpected result type");
         }
       }
 
@@ -255,6 +266,7 @@ export async function timerRoutes(app: FastifyInstance) {
           },
           404: err("WorkItem not found"),
           403: err("Forbidden"),
+          422: err("Cannot start a timer on a previous day"),
         },
       },
     },
@@ -264,13 +276,22 @@ export async function timerRoutes(app: FastifyInstance) {
       const { now = Date.now() } = req.body as { now?: number };
 
       const result = await timerService.startTimerForEntry(userId, entryId, now);
-      if (result === "not-found") return reply.status(404).send({ error: "WorkItem not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
 
-      return reply.send({
-        session: toPublicSession(result.session),
-        closedSessionId: result.closedSessionId,
-      });
+      switch (result.type) {
+        case "not-found":
+          return reply.status(404).send({ error: "WorkItem not found" });
+        case "forbidden":
+          return reply.status(403).send({ error: "Forbidden" });
+        case "invalid-date":
+          return reply.status(422).send({ error: "Cannot start a timer on a previous day" });
+        case "success":
+          return reply.send({
+            session: toPublicSession(result.session),
+            closedSessionId: result.closedSessionId,
+          });
+        default:
+          throw new Error("Unexpected result type");
+      }
     }
   );
 

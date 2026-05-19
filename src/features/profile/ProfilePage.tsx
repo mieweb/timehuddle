@@ -30,12 +30,13 @@ import {
 } from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
 
-import { activityApi, ApiError, userApi, type PublicUser } from '../../lib/api';
+import { ApiError, userApi, type PublicUser } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 import { ProfileActivityFeed } from './ProfileActivityFeed';
 import { ProfileWorkSnapshot } from './ProfileWorkSnapshot';
+import { WorkSummaryTags } from './WorkSummaryTags';
 
 type ProfilePageProps = { userId: string; username?: never } | { username: string; userId?: never };
 
@@ -48,7 +49,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   const [isReady, setIsReady] = useState(false);
   const [isForbidden, setIsForbidden] = useState(false);
   const [isNotFound, setIsNotFound] = useState(false);
-  const [workSummary, setWorkSummary] = useState<{ id: string; title: string }[]>([]);
 
   useEffect(() => {
     setIsReady(false);
@@ -67,14 +67,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
       })
       .finally(() => setIsReady(true));
   }, [userId, username]);
-
-  useEffect(() => {
-    if (!profile) return;
-    activityApi
-      .getUserWorkSummary(profile.id)
-      .then(({ items }) => setWorkSummary(items))
-      .catch(() => setWorkSummary([]));
-  }, [profile?.id]);
 
   if (!isReady) {
     return (
@@ -210,21 +202,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
 
           {/* Work tab */}
           <TabsContent value="work" className="flex flex-col gap-4">
-            {/* 48 h work summary blurb */}
-            {workSummary.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {workSummary.map((t) => (
-                  <button
-                    key={t.id}
-                    aria-label={`View ticket: ${t.title}`}
-                    className="rounded-md bg-neutral-100 px-2.5 py-1 text-sm font-medium text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
-                    onClick={() => navigate(`/app/tickets/${t.id}`)}
-                  >
-                    {t.title}
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* 48 h work summary */}
+            <WorkSummaryTags userId={profile.id} />
 
             <ProfileWorkSnapshot
               userId={profile.id}

@@ -28,6 +28,8 @@ BETTER_AUTH_SECRET=your-secret
 BETTER_AUTH_URL=http://localhost:4000
 TRUSTED_ORIGINS=http://localhost:3000
 APP_URL=http://localhost:3000
+DEFAULT_ORG_KEY=default
+DEFAULT_ORG_NAME=Default Organization
 
 # GitHub OAuth — required for "Continue with GitHub" sign-in.
 # Create an OAuth App at https://github.com/settings/developers
@@ -36,6 +38,8 @@ APP_URL=http://localhost:3000
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 ```
+
+`DEFAULT_ORG_KEY` and `DEFAULT_ORG_NAME` are optional and let you change which organization is treated as the default admin scope without code changes.
 
 ```bash
 npm run dev

@@ -28,11 +28,15 @@ import { TicketsPage } from '../features/tickets/TicketsPage';
 import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
+import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
+import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
+import { OrganizationPage } from '../features/org/OrganizationPage';
 import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
 import { TeamProvider } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
 import { AppHeader } from './AppHeader';
 import { BottomNav } from './BottomNav';
+import { CommandPalette } from './CommandPalette';
 import { RouterContext } from './router';
 import { SettingsPage } from './SettingsPage';
 import { Sidebar } from './Sidebar';
@@ -57,9 +61,12 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/work': { title: 'Work', component: WorkPage },
   '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
   '/app/teams': { title: 'Teams', component: TeamsPage },
+  '/app/organization': { title: 'Organization', component: OrganizationPage },
   '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/activity': { title: 'Activity Log', component: ActivityLogPage },
+  '/app/admin/organization': { title: 'Organization Admin', component: OrganizationOverviewPage },
+  '/org/members': { title: 'Members', component: OrganizationMembersPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
 };
 
@@ -222,6 +229,7 @@ export const AppLayout: React.FC = () => {
   return (
     <RouterContext.Provider value={{ pathname, navigate }}>
       <TeamProvider>
+        <CommandPalette />
         <MessagesActiveChatContext.Provider value={{ setHasActiveChat: setMessagesHasActiveChat }}>
           <SidebarContext.Provider
             value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
