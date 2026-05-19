@@ -99,6 +99,15 @@ export async function orgRoutes(app: FastifyInstance) {
         return reply.status(404).send({ error: "User not found" });
       }
 
+      if (reportsToUserId !== undefined && reportsToUserId !== null) {
+        const reportsToUser = await usersCollection().findOne({
+          _id: new ObjectId(reportsToUserId),
+        });
+        if (!reportsToUser) {
+          return reply.status(404).send({ error: "Reports-to user not found" });
+        }
+      }
+
       await usersCollection().updateOne(
         { _id: new ObjectId(userId) },
         { $set: { reportsToUserId, updatedAt: new Date() } }
