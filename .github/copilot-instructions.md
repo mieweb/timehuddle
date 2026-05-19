@@ -363,6 +363,7 @@ ticketSchema.pre('save', async function () {
 - **No sweeping edits**: Broad refactors or multi-module changes must be split or proposed as new components.
 - **Isolated improvements**: If a change grows complex, extract it into a new function, module, or component instead of modifying multiple areas.
 - **Direct requests only**: Large refactors or architectural shifts should only occur when explicitly requested.
+- **Permission changes by need**: Add new permission arrangements only when they are required for the current task or explicitly requested.
 
 ## @mieweb/ui Usage
 
