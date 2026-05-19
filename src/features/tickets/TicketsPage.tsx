@@ -254,7 +254,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
               variant="ghost"
               size="icon"
               aria-label="Ticket options"
-              className="opacity-0 transition-opacity group-hover:opacity-100"
+              className="opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
             >
               <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
             </Button>
