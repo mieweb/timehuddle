@@ -64,7 +64,9 @@ function buildTimelineRows(session: ClockEvent, now: number): TimelineRow[] {
 
     const breakEnd = brk.endTime ?? (session.endTime === null ? null : sessionEnd);
     const breakDuration =
-      breakEnd === null ? Math.max(0, Math.floor((now - breakStart) / 1000)) : Math.max(0, Math.floor((breakEnd - breakStart) / 1000));
+      breakEnd === null
+        ? Math.max(0, Math.floor((now - breakStart) / 1000))
+        : Math.max(0, Math.floor((breakEnd - breakStart) / 1000));
 
     rows.push({
       kind: 'break',
@@ -80,8 +82,7 @@ function buildTimelineRows(session: ClockEvent, now: number): TimelineRow[] {
   }
 
   if (session.endTime === null && session.isPaused && !rows.some((row) => row.kind === 'break')) {
-    const breakStart =
-      typeof session.pausedAt === 'number' ? session.pausedAt : session.startTime;
+    const breakStart = typeof session.pausedAt === 'number' ? session.pausedAt : session.startTime;
     rows.push({
       kind: 'break',
       start: breakStart,
@@ -97,7 +98,9 @@ function buildTimelineRows(session: ClockEvent, now: number): TimelineRow[] {
   if (shouldAddTrailingWork) {
     const end = session.endTime === null ? null : sessionEnd;
     const durationSeconds =
-      end === null ? Math.max(0, Math.floor((now - cursor) / 1000)) : Math.max(0, Math.floor((end - cursor) / 1000));
+      end === null
+        ? Math.max(0, Math.floor((now - cursor) / 1000))
+        : Math.max(0, Math.floor((end - cursor) / 1000));
     rows.push({
       kind: 'work',
       start: cursor,

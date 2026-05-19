@@ -28,8 +28,12 @@ vi.mock('@mieweb/ui', () => ({
       {children}
     </button>
   ),
-  TableCell: ({ children, ...rest }: { children: ReactNode; [key: string]: unknown }) => <td {...rest}>{children}</td>,
-  TableRow: ({ children, ...rest }: { children: ReactNode; [key: string]: unknown }) => <tr {...rest}>{children}</tr>,
+  TableCell: ({ children, ...rest }: { children: ReactNode; [key: string]: unknown }) => (
+    <td {...rest}>{children}</td>
+  ),
+  TableRow: ({ children, ...rest }: { children: ReactNode; [key: string]: unknown }) => (
+    <tr {...rest}>{children}</tr>
+  ),
   Text: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
 
