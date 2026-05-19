@@ -46,6 +46,7 @@ import {
   Spinner,
   Text,
   Textarea,
+  type DropdownPlacement,
 } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -306,10 +307,16 @@ const TicketRow: React.FC<TicketRowProps> = ({
 interface FilterDropdownProps {
   label: string;
   activeLabel: string | null;
+  placement?: DropdownPlacement;
   children: React.ReactNode;
 }
 
-const FilterDropdown: React.FC<FilterDropdownProps> = ({ label, activeLabel, children }) => (
+const FilterDropdown: React.FC<FilterDropdownProps> = ({
+  label,
+  activeLabel,
+  placement = 'bottom-start',
+  children,
+}) => (
   <Dropdown
     trigger={
       <button
@@ -323,9 +330,10 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({ label, activeLabel, chi
         <FontAwesomeIcon icon={faChevronDown} className="text-[10px]" />
       </button>
     }
-    placement="bottom-end"
+    placement={placement}
+    className="max-w-[calc(100vw-1rem)]"
   >
-    <DropdownContent>{children}</DropdownContent>
+    <DropdownContent className="max-h-[60vh] overflow-y-auto">{children}</DropdownContent>
   </Dropdown>
 );
 
@@ -638,29 +646,32 @@ export const TicketsPage: React.FC = () => {
   return (
     <AppPage fullWidth>
       {/* ── Header: New Ticket + Search ── */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          variant="primary"
-          leftIcon={<FontAwesomeIcon icon={faPlus} />}
-          onClick={() => setShowCreate(true)}
-        >
-          New Ticket
-        </Button>
+      <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="primary"
+            leftIcon={<FontAwesomeIcon icon={faPlus} />}
+            onClick={() => setShowCreate(true)}
+            className="shrink-0"
+          >
+            New Ticket
+          </Button>
 
-        <div className="relative flex-1">
-          <FontAwesomeIcon
-            icon={faSearch}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
-          />
-          <Input
-            label="Search"
-            hideLabel
-            placeholder="Search tickets…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8"
-            size="sm"
-          />
+          <div className="relative min-w-0 flex-1">
+            <FontAwesomeIcon
+              icon={faSearch}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
+            />
+            <Input
+              label="Search"
+              hideLabel
+              placeholder="Search tickets…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8"
+              size="sm"
+            />
+          </div>
         </div>
       </div>
 
@@ -747,12 +758,13 @@ export const TicketsPage: React.FC = () => {
       <Card
         padding="none"
         style={{ overflow: 'visible' }}
-        className={Capacitor.isNativePlatform() ? 'border-0 shadow-none bg-transparent' : ''}
       >
+        
         {/* GitHub-style header: Open / Closed tabs + filter dropdowns */}
         <div
-          className={`flex items-center justify-between gap-2 px-4 py-2.5 ${Capacitor.isNativePlatform() ? 'border-b border-neutral-200 dark:border-neutral-700' : 'rounded-t-xl border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/60'}`}
+          className={`sticky top-14 z-10 px-4 py-2.5 md:static md:top-auto md:z-auto ${Capacitor.isNativePlatform() ? 'border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80' : 'rounded-t-xl border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-800/70 dark:supports-backdrop-filter:bg-neutral-800/50'}`}
         >
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-2">
           {/* Left: status tabs */}
           <div className="flex items-center gap-4">
             <button
@@ -783,8 +795,9 @@ export const TicketsPage: React.FC = () => {
             </button>
           </div>
 
+
           {/* Right: filter dropdowns */}
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:pl-0">
             {teams.length > 1 && (
               <FilterDropdown label="Team" activeLabel={activeTeamLabel}>
                 <DropdownItem
@@ -845,7 +858,11 @@ export const TicketsPage: React.FC = () => {
                 </DropdownItem>
               ))}
             </FilterDropdown>
-            <FilterDropdown label="Assignee" activeLabel={activeAssigneeLabel}>
+            <FilterDropdown
+              label="Assignee"
+              activeLabel={activeAssigneeLabel}
+              placement="bottom-end"
+            >
               <DropdownItem
                 onClick={() => setAssigneeFilter(null)}
                 className={assigneeFilter === null ? 'font-semibold' : ''}
@@ -872,6 +889,7 @@ export const TicketsPage: React.FC = () => {
                 </DropdownItem>
               ))}
             </FilterDropdown>
+          </div>
           </div>
         </div>
 
