@@ -173,7 +173,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
   return (
     <li
       data-ticket-id={ticket.id}
-      className="group relative z-0 flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40"
+      className="group relative flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40"
     >
       {/* Status icon */}
       <div className="mt-0.5 shrink-0 pt-0.5">
@@ -240,7 +240,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
       <div className="flex shrink-0 items-center gap-2">
         {!suppressAvatars && assigneeName && assigneeId && (
           <button
-            className="relative z-0 rounded-full ring-offset-1 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="rounded-full ring-offset-1 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             onClick={() => navigate(`/app/profile/${assigneeId}`)}
             aria-label={`View ${assigneeName}'s profile`}
             title={assigneeName}
@@ -249,6 +249,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
           </button>
         )}
         <Dropdown
+          className="z-1000 bg-white dark:bg-neutral-800"
           trigger={
             <Button
               variant="ghost"
