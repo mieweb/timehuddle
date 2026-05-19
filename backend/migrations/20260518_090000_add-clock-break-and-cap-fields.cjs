@@ -3,10 +3,11 @@ module.exports = {
     await db.collection("clockevents").updateMany(
       {
         $or: [
-          { breakSegments: { $exists: false } },
           { pausedAt: { $exists: false } },
           { totalPausedSeconds: { $exists: false } },
           { pauseStartedSessionId: { $exists: false } },
+          { originalStartTime: { $exists: false } },
+          { breaks: { $exists: false } },
           { notifiedAt3h: { $exists: false } },
           { notifiedAt4h: { $exists: false } },
           { autoClockedOutAt: { $exists: false } },
@@ -14,16 +15,22 @@ module.exports = {
       },
       {
         $set: {
-          breakSegments: [],
           pausedAt: null,
           totalPausedSeconds: 0,
           pauseStartedSessionId: null,
+          breaks: [],
           notifiedAt3h: null,
           notifiedAt4h: null,
           autoClockedOutAt: null,
         },
       }
     );
+
+    await db
+      .collection("clockevents")
+      .updateMany({ originalStartTime: { $exists: false }, startTime: { $type: "number" } }, [
+        { $set: { originalStartTime: "$startTime" } },
+      ]);
   },
 
   async down() {

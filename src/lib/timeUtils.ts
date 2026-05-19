@@ -52,13 +52,15 @@ export function toDateString(date: Date): string {
 
 /** Compute elapsed seconds for an active clock event */
 export function getActiveClockSeconds(
-  event: {
-    startTime: number;
-    endTime: number | null;
-    accumulatedTime?: number;
-    isPaused?: boolean;
-    workSeconds?: number;
-  } | null,
+  event:
+    | {
+        startTime: number;
+        endTime: number | null;
+        accumulatedTime?: number;
+        isPaused?: boolean;
+        workSeconds?: number;
+      }
+    | null,
   nowMs: number,
 ): number {
   if (!event || event.endTime != null) return 0;

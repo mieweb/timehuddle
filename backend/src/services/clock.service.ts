@@ -21,6 +21,8 @@ import { emitActivity } from "./activity.service.js";
 
 const MAX_WORK_SECONDS_PER_DAY = 8 * 60 * 60;
 
+type BreakInterval = { startTime: number; endTime: number | null };
+
 function isValidId(id: string): boolean {
   return /^[0-9a-f]{24}$/i.test(id);
 }
@@ -37,6 +39,79 @@ function getActiveWorkSeconds(
   const isPaused = typeof event.pausedAt === "number";
   if (isPaused) return Math.min(MAX_WORK_SECONDS_PER_DAY, base);
   return Math.min(MAX_WORK_SECONDS_PER_DAY, base + getElapsedSeconds(event.startTime, now));
+}
+
+function toBreakIntervals(value: unknown): BreakInterval[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry): BreakInterval | null => {
+      if (!entry || typeof entry !== "object") return null;
+      const raw = entry as Record<string, unknown>;
+      const startTime = raw["startTime"];
+      const endTime = raw["endTime"];
+      if (typeof startTime !== "number") return null;
+      if (typeof endTime === "number") return { startTime, endTime };
+      return { startTime, endTime: null };
+    })
+    .filter((entry): entry is BreakInterval => entry !== null)
+    .sort((a, b) => a.startTime - b.startTime);
+}
+
+function normalizeBreakIntervals(
+  breaks: BreakInterval[],
+  sessionStart: number,
+  sessionEnd: number | null
+): BreakInterval[] {
+  const clipped = breaks
+    .map((b): BreakInterval | null => {
+      const start = Math.max(sessionStart, b.startTime);
+      const endCap = sessionEnd ?? null;
+      const rawEnd = b.endTime;
+      const end =
+        typeof rawEnd === "number" ? (endCap === null ? rawEnd : Math.min(rawEnd, endCap)) : endCap;
+
+      if (sessionEnd !== null && start >= sessionEnd) return null;
+      if (typeof end === "number" && end <= sessionStart) return null;
+      if (typeof end === "number" && end <= start) return null;
+      return { startTime: start, endTime: end };
+    })
+    .filter((b): b is BreakInterval => b !== null)
+    .sort((a, b) => a.startTime - b.startTime);
+
+  if (!clipped.length) return [];
+  const merged: BreakInterval[] = [];
+  for (const current of clipped) {
+    const prev = merged[merged.length - 1];
+    if (!prev) {
+      merged.push(current);
+      continue;
+    }
+
+    const prevEnd = prev.endTime;
+    const currEnd = current.endTime;
+    const overlap = prevEnd === null || current.startTime <= prevEnd;
+    if (!overlap) {
+      merged.push(current);
+      continue;
+    }
+
+    if (prevEnd === null) continue;
+    if (currEnd === null) {
+      prev.endTime = null;
+      continue;
+    }
+    prev.endTime = Math.max(prevEnd, currEnd);
+  }
+
+  return merged;
+}
+
+function getBreakSeconds(breaks: BreakInterval[], now: number): number {
+  return breaks.reduce((sum, b) => {
+    const end = typeof b.endTime === "number" ? b.endTime : now;
+    if (end <= b.startTime) return sum;
+    return sum + Math.floor((end - b.startTime) / 1000);
+  }, 0);
 }
 
 // ─── SSE broadcast ────────────────────────────────────────────────────────────
@@ -90,30 +165,14 @@ export function toPublicClockEvent(e: ClockEvent) {
         ? (raw["totalPausedSeconds"] as number)
         : 0;
 
-  const breakSegments = Array.isArray(raw["breakSegments"])
-    ? (raw["breakSegments"] as Array<Record<string, unknown>>)
-        .map((segment) => {
-          const rawPausedAt = segment["pausedAt"];
-          const rawResumedAt = segment["resumedAt"];
-          const pausedAt =
-            rawPausedAt instanceof Date
-              ? rawPausedAt.getTime()
-              : typeof rawPausedAt === "number"
-                ? rawPausedAt
-                : null;
-          const resumedAt =
-            rawResumedAt instanceof Date
-              ? rawResumedAt.getTime()
-              : typeof rawResumedAt === "number"
-                ? rawResumedAt
-                : null;
-          if (pausedAt === null) return null;
-          return { pausedAt, resumedAt };
-        })
-        .filter((segment): segment is { pausedAt: number; resumedAt: number | null } =>
-          segment !== null
-        )
-    : [];
+  const originalStartTime =
+    typeof e.originalStartTime === "number"
+      ? e.originalStartTime
+      : typeof raw["originalStartTime"] === "number"
+        ? (raw["originalStartTime"] as number)
+        : startTime;
+
+  const breaks = toBreakIntervals(raw["breaks"]);
 
   const now = Date.now();
   const workSeconds = getActiveWorkSeconds(e, now);
@@ -123,12 +182,13 @@ export function toPublicClockEvent(e: ClockEvent) {
     userId: e.userId,
     teamId: e.teamId,
     startTime,
+    originalStartTime,
     accumulatedTime: e.accumulatedTime,
+    breaks,
     workSeconds,
     isPaused: pausedAt !== null,
     pausedAt,
     totalPausedSeconds,
-    breakSegments,
     endTime,
   };
 }
@@ -177,8 +237,9 @@ export class ClockService {
       userId,
       teamId,
       startTime: now,
+      originalStartTime: now,
       accumulatedTime: 0,
-      breakSegments: [],
+      breaks: [],
       pausedAt: null,
       totalPausedSeconds: 0,
       pauseStartedSessionId: null,
@@ -258,6 +319,15 @@ export class ClockService {
       accumulatedTime: finalSeconds,
       pausedAt: null,
       pauseStartedSessionId: null,
+      breaks: (() => {
+        const breaks = toBreakIntervals((event as unknown as Record<string, unknown>)["breaks"]);
+        if (typeof event.pausedAt !== "number") return breaks;
+        const openIdx = breaks.findIndex((b) => b.endTime === null);
+        if (openIdx === -1) return breaks;
+        const next = breaks.slice();
+        next[openIdx] = { ...next[openIdx], endTime: now };
+        return next;
+      })(),
       ...(reason === "auto-8h" ? { autoClockedOutAt: now } : {}),
     };
 
@@ -346,8 +416,10 @@ export class ClockService {
       MAX_WORK_SECONDS_PER_DAY,
       (event.accumulatedTime ?? 0) + elapsed
     );
+    const breaks = toBreakIntervals((event as unknown as Record<string, unknown>)["breaks"]);
+    const hasOpenBreak = breaks.some((b) => b.endTime === null);
+    const nextBreaks = hasOpenBreak ? breaks : [...breaks, { startTime: now, endTime: null }];
     const pausedSessionId = await timerService.closeRunningForUser(userId, now);
-    const breakSegments = Array.isArray(event.breakSegments) ? event.breakSegments : [];
 
     await coll.updateOne(
       { _id: event._id, endTime: null },
@@ -357,7 +429,7 @@ export class ClockService {
           pausedAt: now,
           startTime: now,
           pauseStartedSessionId: pausedSessionId,
-          breakSegments: [...breakSegments, { pausedAt: now, resumedAt: null }],
+          breaks: nextBreaks,
         },
       }
     );
@@ -382,13 +454,12 @@ export class ClockService {
     const pausedSeconds = getElapsedSeconds(event.pausedAt, now);
     const totalPausedSeconds = (event.totalPausedSeconds ?? 0) + pausedSeconds;
     const pausedSessionId = event.pauseStartedSessionId ?? null;
-    const breakSegments = Array.isArray(event.breakSegments) ? [...event.breakSegments] : [];
-    for (let i = breakSegments.length - 1; i >= 0; i -= 1) {
-      if (breakSegments[i]?.resumedAt == null) {
-        breakSegments[i] = { ...breakSegments[i], resumedAt: now };
-        break;
-      }
-    }
+    const breaks = toBreakIntervals((event as unknown as Record<string, unknown>)["breaks"]);
+    const openIdx = breaks.findIndex((b) => b.endTime === null);
+    const nextBreaks =
+      openIdx === -1
+        ? breaks
+        : breaks.map((b, idx) => (idx === openIdx ? { ...b, endTime: now } : b));
 
     await coll.updateOne(
       { _id: event._id, endTime: null },
@@ -398,7 +469,7 @@ export class ClockService {
           pausedAt: null,
           totalPausedSeconds,
           pauseStartedSessionId: null,
-          breakSegments,
+          breaks: nextBreaks,
         },
       }
     );
@@ -445,7 +516,11 @@ export class ClockService {
   async updateTimes(
     requesterId: string,
     clockEventId: string,
-    data: { startTime?: number; endTime?: number | null }
+    data: {
+      startTime?: number;
+      endTime?: number | null;
+      breaks?: Array<{ startTime: number; endTime: number | null }>;
+    }
   ): Promise<PublicClockEvent | "not-found" | "forbidden" | "invalid-range"> {
     if (!isValidId(clockEventId)) return "not-found";
     const coll = clockEventsCollection();
@@ -474,10 +549,36 @@ export class ClockService {
       return "invalid-range";
     }
 
-    const $set: Record<string, unknown> = {};
-    if (typeof data.startTime === "number") $set.startTime = data.startTime;
+    const existingBreaks = toBreakIntervals(
+      (event as unknown as Record<string, unknown>)["breaks"] || []
+    );
+    const requestedBreaks = Array.isArray(data.breaks)
+      ? toBreakIntervals(data.breaks)
+      : existingBreaks;
+    const normalizedBreaks = normalizeBreakIntervals(requestedBreaks, effectiveStart, effectiveEnd);
+    const now = Date.now();
+    const totalPausedSeconds = getBreakSeconds(normalizedBreaks, now);
+
+    const $set: Record<string, unknown> = {
+      breaks: normalizedBreaks,
+      totalPausedSeconds,
+    };
+    if (typeof data.startTime === "number") {
+      $set.startTime = data.startTime;
+      $set.originalStartTime = data.startTime;
+    }
     if (data.endTime === null) $set.endTime = null;
     else if (typeof data.endTime === "number") $set.endTime = data.endTime;
+
+    if (effectiveEnd !== null) {
+      const spanSeconds = Math.max(0, Math.floor((effectiveEnd - effectiveStart) / 1000));
+      $set.accumulatedTime = Math.max(0, spanSeconds - totalPausedSeconds);
+      $set.pausedAt = null;
+      $set.pauseStartedSessionId = null;
+    } else {
+      const openBreak = normalizedBreaks.find((b) => b.endTime === null);
+      $set.pausedAt = openBreak ? openBreak.startTime : null;
+    }
 
     if (Object.keys($set).length > 0) await coll.updateOne({ _id: event._id }, { $set });
 
@@ -544,8 +645,9 @@ export class ClockService {
       userId,
       teamId,
       startTime,
+      originalStartTime: startTime,
       accumulatedTime,
-      breakSegments: [],
+      breaks: [],
       pausedAt: null,
       totalPausedSeconds: 0,
       pauseStartedSessionId: null,
@@ -567,6 +669,7 @@ export class ClockService {
         sessions: ReturnType<typeof toPublicClockEvent>[];
         summary: {
           totalSeconds: number;
+          totalBreakSeconds: number;
           totalSessions: number;
           completedSessions: number;
           averageSessionSeconds: number;
@@ -586,11 +689,19 @@ export class ClockService {
     }
 
     const events = await clockEventsCollection()
-      .find({ userId: targetUserId, startTime: { $gte: startMs, $lte: endMs } })
+      .find({
+        userId: targetUserId,
+        $or: [
+          { startTime: { $gte: startMs, $lte: endMs } },
+          { originalStartTime: { $gte: startMs, $lte: endMs } },
+        ],
+      })
       .sort({ startTime: -1 })
       .toArray();
 
-    const sessions = events.map(toPublicClockEvent);
+    const sessions = events
+      .map(toPublicClockEvent)
+      .sort((a, b) => (b.originalStartTime ?? b.startTime) - (a.originalStartTime ?? a.startTime));
     const completed = sessions.filter((s) => s.endTime !== null);
     const now = Date.now();
     const totalSeconds = sessions.reduce((sum, s) => {
@@ -602,14 +713,21 @@ export class ClockService {
       return sum + Math.max(0, Math.floor((s.endTime - s.startTime) / 1000));
     }, 0);
     const avgSeconds = completed.length > 0 ? totalSeconds / completed.length : 0;
+    const totalBreakSeconds = sessions.reduce((sum, s) => {
+      const breaks = toBreakIntervals(
+        (s as unknown as Record<string, unknown>)["breaks"] ?? s.breaks
+      );
+      return sum + getBreakSeconds(breaks, now);
+    }, 0);
     const uniqueDates = new Set(
-      sessions.map((s) => new Date(s.startTime).toISOString().split("T")[0])
+      sessions.map((s) => new Date(s.originalStartTime ?? s.startTime).toISOString().split("T")[0])
     );
 
     return {
       sessions,
       summary: {
         totalSeconds,
+        totalBreakSeconds,
         totalSessions: sessions.length,
         completedSessions: completed.length,
         averageSessionSeconds: avgSeconds,

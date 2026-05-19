@@ -51,11 +51,18 @@ interface TimesheetData {
   sessions: ClockEvent[];
   summary: {
     totalSeconds: number;
+    totalBreakSeconds: number;
     totalSessions: number;
     completedSessions: number;
     averageSessionSeconds: number;
     workingDays: number;
   };
+}
+
+interface EditableBreak {
+  id: string;
+  start: string;
+  end: string;
 }
 
 function getSessionWorkSeconds(session: ClockEvent, now: number): number {
@@ -69,6 +76,16 @@ function getSessionWorkSeconds(session: ClockEvent, now: number): number {
   const accumulated = Math.max(0, session.accumulatedTime ?? 0);
   if (accumulated > 0) return accumulated;
   return Math.max(0, Math.floor((session.endTime - session.startTime) / 1000));
+}
+
+function getSessionBreakSeconds(session: ClockEvent, now: number): number {
+  const breaks = Array.isArray(session.breaks) ? session.breaks : [];
+  return breaks.reduce((sum, brk) => {
+    if (typeof brk.startTime !== 'number') return sum;
+    const end = typeof brk.endTime === 'number' ? brk.endTime : now;
+    if (end <= brk.startTime) return sum;
+    return sum + Math.max(0, Math.floor((end - brk.startTime) / 1000));
+  }, 0);
 }
 
 export const TimesheetPage: React.FC = () => {
@@ -85,6 +102,7 @@ export const TimesheetPage: React.FC = () => {
   const [sessionDialogOpen, setSessionDialogOpen] = useState(false);
   const [editClockIn, setEditClockIn] = useState('');
   const [editClockOut, setEditClockOut] = useState('');
+  const [editBreaks, setEditBreaks] = useState<EditableBreak[]>([]);
   const [sessionSaveLoading, setSessionSaveLoading] = useState(false);
   const [sessionDeleteLoading, setSessionDeleteLoading] = useState(false);
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null);
@@ -130,8 +148,17 @@ export const TimesheetPage: React.FC = () => {
 
   const openSessionDialog = useCallback((session: ClockEvent) => {
     setActiveSession(session);
-    setEditClockIn(toLocalDateTimeInputValue(session.startTime));
+    setEditClockIn(toLocalDateTimeInputValue(session.originalStartTime ?? session.startTime));
     setEditClockOut(session.endTime ? toLocalDateTimeInputValue(session.endTime) : '');
+    const nextBreaks = (Array.isArray(session.breaks) ? session.breaks : [])
+      .filter((brk) => typeof brk.startTime === 'number')
+      .sort((a, b) => a.startTime - b.startTime)
+      .map((brk, idx) => ({
+        id: `${session.id}-break-${idx}`,
+        start: toLocalDateTimeInputValue(brk.startTime),
+        end: typeof brk.endTime === 'number' ? toLocalDateTimeInputValue(brk.endTime) : '',
+      }));
+    setEditBreaks(nextBreaks);
     setSessionSaveError(null);
     setSessionDialogOpen(true);
   }, []);
@@ -164,15 +191,67 @@ export const TimesheetPage: React.FC = () => {
       }
     }
 
+    const parsedBreaks: Array<{ startTime: number; endTime: number | null }> = [];
+    for (const brk of editBreaks) {
+      const startInput = brk.start.trim();
+      const endInput = brk.end.trim();
+
+      if (!startInput && !endInput) continue;
+      if (!startInput) {
+        setSessionSaveError('Each break must include a start time.');
+        return;
+      }
+
+      const breakStart = fromLocalDateTimeInputValue(startInput);
+      if (breakStart === null) {
+        setSessionSaveError('Enter a valid break start time.');
+        return;
+      }
+
+      if (breakStart < parsedStart) {
+        setSessionSaveError('Break start cannot be earlier than clock-in.');
+        return;
+      }
+
+      if (parsedEnd !== null && breakStart >= parsedEnd) {
+        setSessionSaveError('Break start must be before clock-out.');
+        return;
+      }
+
+      let breakEnd: number | null = null;
+      if (endInput) {
+        breakEnd = fromLocalDateTimeInputValue(endInput);
+        if (breakEnd === null) {
+          setSessionSaveError('Enter a valid break end time.');
+          return;
+        }
+        if (breakEnd <= breakStart) {
+          setSessionSaveError('Break end must be later than break start.');
+          return;
+        }
+        if (parsedEnd !== null && breakEnd > parsedEnd) {
+          setSessionSaveError('Break end cannot be later than clock-out.');
+          return;
+        }
+      } else if (parsedEnd !== null) {
+        setSessionSaveError('Completed sessions require a break end time.');
+        return;
+      }
+
+      parsedBreaks.push({ startTime: breakStart, endTime: breakEnd });
+    }
+
     setSessionSaveLoading(true);
     setSessionSaveError(null);
     try {
       await clockApi.updateTimes(activeSession.id, {
         startTime: parsedStart,
         endTime: parsedEnd,
+        breaks: parsedBreaks,
       });
       setSessionDialogOpen(false);
       setActiveSession(null);
+      setEditBreaks([]);
       await fetchData();
     } catch (e) {
       if (e instanceof ApiError) {
@@ -183,7 +262,7 @@ export const TimesheetPage: React.FC = () => {
     } finally {
       setSessionSaveLoading(false);
     }
-  }, [activeSession, editClockIn, editClockOut, fetchData]);
+  }, [activeSession, editBreaks, editClockIn, editClockOut, fetchData]);
 
   const handleDeleteSession = useCallback(async () => {
     if (!activeSession) return;
@@ -194,6 +273,7 @@ export const TimesheetPage: React.FC = () => {
       await clockApi.deleteEvent(activeSession.id);
       setSessionDialogOpen(false);
       setActiveSession(null);
+      setEditBreaks([]);
       await fetchData();
     } catch (e) {
       if (e instanceof ApiError) {
@@ -268,8 +348,18 @@ export const TimesheetPage: React.FC = () => {
     const s = fromLocalDateTimeInputValue(editClockIn);
     const e = fromLocalDateTimeInputValue(editClockOut);
     if (!s || !e || e <= s) return null;
-    return Math.floor((e - s) / 1000);
-  }, [editClockIn, editClockOut]);
+    const breakSeconds = editBreaks.reduce((sum, brk) => {
+      const bs = fromLocalDateTimeInputValue(brk.start);
+      const be = fromLocalDateTimeInputValue(brk.end);
+      if (!bs || !be || be <= bs) return sum;
+      if (be <= s || bs >= e) return sum;
+      const clipStart = Math.max(bs, s);
+      const clipEnd = Math.min(be, e);
+      if (clipEnd <= clipStart) return sum;
+      return sum + Math.floor((clipEnd - clipStart) / 1000);
+    }, 0);
+    return Math.max(0, Math.floor((e - s) / 1000) - breakSeconds);
+  }, [editBreaks, editClockIn, editClockOut]);
 
   const newDurationSeconds = useMemo(() => {
     if (!newClockIn || !newClockOut) return null;
@@ -306,11 +396,16 @@ export const TimesheetPage: React.FC = () => {
     const now = Date.now();
     const completed = filteredSessions.filter((s) => s.endTime !== null);
     const totalSeconds = filteredSessions.reduce((sum, s) => sum + getSessionWorkSeconds(s, now), 0);
+    const totalBreakSeconds = filteredSessions.reduce(
+      (sum, s) => sum + getSessionBreakSeconds(s, now),
+      0,
+    );
     const workingDays = new Set(
-      filteredSessions.map((s) => new Date(s.startTime).toISOString().slice(0, 10)),
+      filteredSessions.map((s) => new Date(s.originalStartTime ?? s.startTime).toISOString().slice(0, 10)),
     ).size;
     return {
       totalSeconds,
+      totalBreakSeconds,
       totalSessions: filteredSessions.length,
       completedSessions: completed.length,
       averageSessionSeconds: completed.length > 0 ? Math.floor(totalSeconds / completed.length) : 0,
@@ -386,7 +481,7 @@ export const TimesheetPage: React.FC = () => {
 
       {/* Summary stats */}
       {data && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
           <Card>
             <CardContent>
               <Text variant="muted" size="xs">
@@ -394,6 +489,16 @@ export const TimesheetPage: React.FC = () => {
               </Text>
               <Text size="lg" weight="semibold">
                 {formatDuration(filteredSummary.totalSeconds)}
+              </Text>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent>
+              <Text variant="muted" size="xs">
+                Break Hours
+              </Text>
+              <Text size="lg" weight="semibold">
+                {formatDuration(filteredSummary.totalBreakSeconds)}
               </Text>
             </CardContent>
           </Card>
@@ -479,6 +584,7 @@ export const TimesheetPage: React.FC = () => {
           setSessionDialogOpen(open);
           if (!open) {
             setActiveSession(null);
+            setEditBreaks([]);
             setSessionSaveError(null);
           }
         }}
@@ -523,6 +629,82 @@ export const TimesheetPage: React.FC = () => {
               </Text>
             </div>
           )}
+          <div className="space-y-2 rounded-md border border-neutral-200 p-3 dark:border-neutral-700">
+            <div className="flex items-center justify-between">
+              <Text size="sm" weight="medium">
+                Breaks
+              </Text>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() =>
+                  setEditBreaks((prev) => [
+                    ...prev,
+                    {
+                      id: `new-break-${Date.now()}-${prev.length}`,
+                      start: '',
+                      end: '',
+                    },
+                  ])
+                }
+                disabled={sessionSaveLoading || sessionDeleteLoading}
+              >
+                Add Break
+              </Button>
+            </div>
+            {editBreaks.length === 0 ? (
+              <Text size="xs" variant="muted">
+                No breaks configured.
+              </Text>
+            ) : (
+              <div className="space-y-3">
+                {editBreaks.map((brk, idx) => (
+                  <div key={brk.id} className="space-y-2 rounded-md border border-neutral-200 p-2 dark:border-neutral-700">
+                    <Text size="xs" variant="muted">
+                      Break {idx + 1}
+                    </Text>
+                    <Input
+                      label="Break Start"
+                      type="datetime-local"
+                      value={brk.start}
+                      onChange={(e) =>
+                        setEditBreaks((prev) =>
+                          prev.map((entry) =>
+                            entry.id === brk.id ? { ...entry, start: e.target.value } : entry,
+                          ),
+                        )
+                      }
+                    />
+                    <Input
+                      label="Break End"
+                      type="datetime-local"
+                      value={brk.end}
+                      onChange={(e) =>
+                        setEditBreaks((prev) =>
+                          prev.map((entry) =>
+                            entry.id === brk.id ? { ...entry, end: e.target.value } : entry,
+                          ),
+                        )
+                      }
+                      placeholder="Leave blank for open break"
+                    />
+                    <div className="flex justify-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setEditBreaks((prev) => prev.filter((entry) => entry.id !== brk.id))
+                        }
+                        disabled={sessionSaveLoading || sessionDeleteLoading}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           {sessionSaveError && (
             <Text size="xs" className="text-danger">
               {sessionSaveError}

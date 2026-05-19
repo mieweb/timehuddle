@@ -460,15 +460,13 @@ export interface ClockEvent {
   userId: string;
   teamId: string;
   startTime: number;
+  originalStartTime?: number;
   accumulatedTime: number;
+  breaks?: Array<{ startTime: number; endTime: number | null }>;
   workSeconds?: number;
   isPaused?: boolean;
   pausedAt?: number | null;
   totalPausedSeconds?: number;
-  breakSegments?: Array<{
-    pausedAt: number;
-    resumedAt: number | null;
-  }>;
   endTime: number | null;
 }
 
@@ -522,6 +520,7 @@ export const clockApi = {
       sessions: ClockEvent[];
       summary: {
         totalSeconds: number;
+        totalBreakSeconds: number;
         totalSessions: number;
         completedSessions: number;
         averageSessionSeconds: number;
@@ -531,8 +530,15 @@ export const clockApi = {
       `/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startMs=${startMs}&endMs=${endMs}`,
     ),
 
-  /** Update a clock event's start/end timestamps. */
-  updateTimes: (clockEventId: string, data: { startTime?: number; endTime?: number | null }) =>
+  /** Update a clock event's timestamps and optional break intervals. */
+  updateTimes: (
+    clockEventId: string,
+    data: {
+      startTime?: number;
+      endTime?: number | null;
+      breaks?: Array<{ startTime: number; endTime: number | null }>;
+    },
+  ) =>
     request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/times`, {
       method: 'PUT',
       body: JSON.stringify(data),

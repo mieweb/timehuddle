@@ -193,9 +193,9 @@ describe("clock break flow", () => {
     expect(pauseRes.statusCode).toBe(200);
     expect(pauseRes.json().event.isPaused).toBe(true);
     expect(typeof pauseRes.json().event.pausedAt).toBe("number");
-    expect(Array.isArray(pauseRes.json().event.breakSegments)).toBe(true);
-    expect(pauseRes.json().event.breakSegments.length).toBeGreaterThanOrEqual(1);
-    expect(pauseRes.json().event.breakSegments[0].resumedAt).toBeNull();
+    expect(Array.isArray(pauseRes.json().event.breaks)).toBe(true);
+    expect(pauseRes.json().event.breaks.length).toBeGreaterThan(0);
+    expect(pauseRes.json().event.breaks[0].endTime).toBeNull();
 
     const statusWhilePaused = await inject(
       "GET",
@@ -209,9 +209,8 @@ describe("clock break flow", () => {
     const resumeRes = await inject("POST", "/v1/clock/resume", workerCookie, { teamId });
     expect(resumeRes.statusCode).toBe(200);
     expect(resumeRes.json().event.isPaused).toBe(false);
-    expect(Array.isArray(resumeRes.json().event.breakSegments)).toBe(true);
-    expect(resumeRes.json().event.breakSegments.length).toBeGreaterThanOrEqual(1);
-    expect(typeof resumeRes.json().event.breakSegments[0].resumedAt).toBe("number");
+    expect(Array.isArray(resumeRes.json().event.breaks)).toBe(true);
+    expect(resumeRes.json().event.breaks[0].endTime).not.toBeNull();
 
     const statusAfterResume = await inject(
       "GET",
@@ -461,6 +460,72 @@ describe("PUT /v1/clock/:id/times", () => {
       endTime: base - 1000,
     });
     expect(res.statusCode).toBe(422);
+  });
+
+  it("shrinks overlapping break periods and recalculates totals on edit", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const eventId = startRes.json().event.id as string;
+
+    const db = client.db();
+    const base = Date.now() - 2 * 60 * 60 * 1000;
+    const sessionEnd = base + 90 * 60 * 1000; // 90 min
+    const breakStart = base + 30 * 60 * 1000; // +30 min
+    const breakEnd = base + 60 * 60 * 1000; // +60 min
+
+    await db.collection("clockevents").updateOne(
+      { _id: new ObjectId(eventId) },
+      {
+        $set: {
+          startTime: base,
+          originalStartTime: base,
+          endTime: sessionEnd,
+          breaks: [{ startTime: breakStart, endTime: breakEnd }],
+          totalPausedSeconds: 30 * 60,
+          accumulatedTime: 60 * 60,
+          pausedAt: null,
+          pauseStartedSessionId: null,
+        },
+      }
+    );
+
+    const editedEnd = base + 45 * 60 * 1000; // overlaps break; break should shrink to +30..+45
+    const editRes = await inject("PUT", `/v1/clock/${eventId}/times`, workerCookie, {
+      endTime: editedEnd,
+    });
+    expect(editRes.statusCode).toBe(200);
+
+    const updated = editRes.json().event;
+    expect(updated.breaks.length).toBe(1);
+    expect(updated.breaks[0].startTime).toBe(breakStart);
+    expect(updated.breaks[0].endTime).toBe(editedEnd);
+    expect(updated.totalPausedSeconds).toBe(15 * 60);
+    expect(updated.accumulatedTime).toBe(30 * 60);
+  });
+
+  it("accepts manual break edits and recalculates session totals", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const eventId = startRes.json().event.id as string;
+
+    const base = Date.now() - 2 * 60 * 60 * 1000;
+    const sessionEnd = base + 90 * 60 * 1000; // 90 min
+    const breakStart = base + 20 * 60 * 1000;
+    const breakEnd = base + 30 * 60 * 1000;
+
+    const editRes = await inject("PUT", `/v1/clock/${eventId}/times`, workerCookie, {
+      startTime: base,
+      endTime: sessionEnd,
+      breaks: [{ startTime: breakStart, endTime: breakEnd }],
+    });
+    expect(editRes.statusCode).toBe(200);
+
+    const updated = editRes.json().event;
+    expect(updated.breaks.length).toBe(1);
+    expect(updated.breaks[0].startTime).toBe(breakStart);
+    expect(updated.breaks[0].endTime).toBe(breakEnd);
+    expect(updated.totalPausedSeconds).toBe(10 * 60);
+    expect(updated.accumulatedTime).toBe(80 * 60);
   });
 
   it("clearing endTime (null) always succeeds regardless of startTime", async () => {
