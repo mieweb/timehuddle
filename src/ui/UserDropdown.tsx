@@ -67,10 +67,13 @@ export const UserDropdown: React.FC = () => {
       trigger={
         <button
           type="button"
-          className="flex items-center rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+          className="flex items-center gap-2 rounded-full px-1 py-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
           aria-label="Account menu"
         >
           <UserAvatar name={displayName} size="sm" src={user?.image} />
+          <Text size="sm" weight="medium" className="hidden max-w-32 truncate md:block">
+            {truncated}
+          </Text>
         </button>
       }
       placement="bottom-end"

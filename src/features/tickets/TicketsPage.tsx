@@ -142,6 +142,7 @@ interface TicketRowProps {
   assigneeName: string | null;
   assigneeId: string | null;
   createdByName: string | null;
+  suppressAvatars?: boolean;
   onEditRequest: (ticket: Ticket) => void;
   onDeleteRequest: (id: string) => void;
   onChangeStatusRequest: (ticket: Ticket) => void;
@@ -154,6 +155,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
   assigneeName,
   assigneeId,
   createdByName,
+  suppressAvatars = false,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -169,7 +171,10 @@ const TicketRow: React.FC<TicketRowProps> = ({
   const statusLabel = STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label;
 
   return (
-    <li className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40">
+    <li
+      data-ticket-id={ticket.id}
+      className="group relative z-0 flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40"
+    >
       {/* Status icon */}
       <div className="mt-0.5 shrink-0 pt-0.5">
         <FontAwesomeIcon icon={icon} className={`text-base ${iconClass}`} />
@@ -233,9 +238,9 @@ const TicketRow: React.FC<TicketRowProps> = ({
 
       {/* Right side: assignee avatar + overflow menu */}
       <div className="flex shrink-0 items-center gap-2">
-        {assigneeName && assigneeId && (
+        {!suppressAvatars && assigneeName && assigneeId && (
           <button
-            className="rounded-full ring-offset-1 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="relative z-0 rounded-full ring-offset-1 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             onClick={() => navigate(`/app/profile/${assigneeId}`)}
             aria-label={`View ${assigneeName}'s profile`}
             title={assigneeName}
@@ -308,6 +313,8 @@ interface FilterDropdownProps {
   label: string;
   activeLabel: string | null;
   placement?: DropdownPlacement;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
 }
 
@@ -315,6 +322,8 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
   label,
   activeLabel,
   placement = 'bottom-start',
+  open,
+  onOpenChange,
   children,
 }) => (
   <Dropdown
@@ -331,7 +340,9 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
       </button>
     }
     placement={placement}
-    className="max-w-[calc(100vw-1rem)]"
+    open={open}
+    onOpenChange={onOpenChange}
+    className="z-1000 max-w-[calc(100vw-1rem)] bg-neutral-900 dark:bg-neutral-800"
   >
     <DropdownContent className="max-h-[60vh] overflow-y-auto">{children}</DropdownContent>
   </Dropdown>
@@ -439,6 +450,11 @@ export const TicketsPage: React.FC = () => {
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
   const [statusDetailFilter, setStatusDetailFilter] = useState<string | null>(null);
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
+  const [openFilterMenu, setOpenFilterMenu] = useState<
+    'team' | 'priority' | 'status' | 'assignee' | null
+  >(null);
+  const ticketListRef = React.useRef<HTMLUListElement | null>(null);
+  const [suppressedAvatarIds, setSuppressedAvatarIds] = useState<string[]>([]);
 
   // Delete state
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -515,6 +531,61 @@ export const TicketsPage: React.FC = () => {
       (t) => !t.status || (t.status !== 'closed' && t.status !== 'reviewed'),
     );
   }, [searchFilteredTickets, statusFilter]);
+
+  // When a filter menu is open on desktop web, suppress only row avatars that
+  // visually intersect with that floating menu area.
+  useEffect(() => {
+    if (!openFilterMenu) {
+      setSuppressedAvatarIds([]);
+      return;
+    }
+    if (openFilterMenu === 'team' || openFilterMenu === 'status') {
+      setSuppressedAvatarIds([]);
+      return;
+    }
+    if (Capacitor.isNativePlatform() || window.innerWidth < 768) {
+      setSuppressedAvatarIds([]);
+      return;
+    }
+
+    const listEl = ticketListRef.current;
+    if (!listEl) {
+      setSuppressedAvatarIds([]);
+      return;
+    }
+
+    const updateSuppressedRows = () => {
+      const menuEl = document.querySelector('[role="menu"]') as HTMLElement | null;
+      if (!menuEl) {
+        setSuppressedAvatarIds([]);
+        return;
+      }
+
+      const menuRect = menuEl.getBoundingClientRect();
+      const ids: string[] = [];
+      const rows = listEl.querySelectorAll<HTMLLIElement>('li[data-ticket-id]');
+
+      rows.forEach((row) => {
+        const rowRect = row.getBoundingClientRect();
+        const overlapsMenu = rowRect.top < menuRect.bottom && rowRect.bottom > menuRect.top;
+        if (overlapsMenu && row.dataset.ticketId) ids.push(row.dataset.ticketId);
+      });
+
+      setSuppressedAvatarIds(ids);
+    };
+
+    const rafId = window.requestAnimationFrame(updateSuppressedRows);
+    const scrollHost = listEl.closest('main');
+
+    scrollHost?.addEventListener('scroll', updateSuppressedRows, { passive: true });
+    window.addEventListener('resize', updateSuppressedRows, { passive: true });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      scrollHost?.removeEventListener('scroll', updateSuppressedRows);
+      window.removeEventListener('resize', updateSuppressedRows);
+    };
+  }, [openFilterMenu, filteredTickets.length]);
 
   // Member options for assignee select in the edit modal
   const memberOptions = useMemo(() => {
@@ -762,7 +833,7 @@ export const TicketsPage: React.FC = () => {
         
         {/* GitHub-style header: Open / Closed tabs + filter dropdowns */}
         <div
-          className={`sticky top-14 z-10 px-4 py-2.5 md:static md:top-auto md:z-auto ${Capacitor.isNativePlatform() ? 'border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80' : 'rounded-t-xl border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-800/70 dark:supports-backdrop-filter:bg-neutral-800/50'}`}
+          className={`sticky top-14 z-30 px-4 py-2.5 md:relative md:top-auto md:z-30 ${Capacitor.isNativePlatform() ? 'border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80' : 'rounded-t-xl border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-800/70 dark:supports-backdrop-filter:bg-neutral-800/50'}`}
         >
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-2">
           {/* Left: status tabs */}
@@ -799,7 +870,12 @@ export const TicketsPage: React.FC = () => {
           {/* Right: filter dropdowns */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:pl-0">
             {teams.length > 1 && (
-              <FilterDropdown label="Team" activeLabel={activeTeamLabel}>
+              <FilterDropdown
+                label="Team"
+                activeLabel={activeTeamLabel}
+                open={openFilterMenu === 'team'}
+                onOpenChange={(open) => setOpenFilterMenu(open ? 'team' : null)}
+              >
                 <DropdownItem
                   onClick={() => setTeamFilter(null)}
                   className={!teamFilter ? 'font-semibold' : ''}
@@ -818,7 +894,12 @@ export const TicketsPage: React.FC = () => {
                 ))}
               </FilterDropdown>
             )}
-            <FilterDropdown label="Priority" activeLabel={activePriorityLabel}>
+            <FilterDropdown
+              label="Priority"
+              activeLabel={activePriorityLabel}
+              open={openFilterMenu === 'priority'}
+              onOpenChange={(open) => setOpenFilterMenu(open ? 'priority' : null)}
+            >
               <DropdownItem
                 onClick={() => setPriorityFilter(null)}
                 className={!priorityFilter ? 'font-semibold' : ''}
@@ -836,7 +917,13 @@ export const TicketsPage: React.FC = () => {
                 </DropdownItem>
               ))}
             </FilterDropdown>
-            <FilterDropdown label="Status" activeLabel={activeStatusDetailLabel}>
+            <FilterDropdown
+              label="Status"
+              activeLabel={activeStatusDetailLabel}
+              placement="bottom-end"
+              open={openFilterMenu === 'status'}
+              onOpenChange={(open) => setOpenFilterMenu(open ? 'status' : null)}
+            >
               <DropdownItem
                 onClick={() => setStatusDetailFilter(null)}
                 className={!statusDetailFilter ? 'font-semibold' : ''}
@@ -862,6 +949,8 @@ export const TicketsPage: React.FC = () => {
               label="Assignee"
               activeLabel={activeAssigneeLabel}
               placement="bottom-end"
+              open={openFilterMenu === 'assignee'}
+              onOpenChange={(open) => setOpenFilterMenu(open ? 'assignee' : null)}
             >
               <DropdownItem
                 onClick={() => setAssigneeFilter(null)}
@@ -896,6 +985,7 @@ export const TicketsPage: React.FC = () => {
         {/* Ticket rows */}
         {filteredTickets.length > 0 ? (
           <ul
+            ref={ticketListRef}
             className="divide-y divide-neutral-100 dark:divide-neutral-800"
             style={{ overflow: 'visible' }}
             aria-label={statusFilter === 'open' ? 'Open tickets' : 'Closed tickets'}
@@ -908,6 +998,11 @@ export const TicketsPage: React.FC = () => {
                 assigneeName={getAssigneeName(t.assignedTo)}
                 assigneeId={t.assignedTo}
                 createdByName={getAssigneeName(t.createdBy)}
+                suppressAvatars={
+                  openFilterMenu !== 'team' &&
+                  openFilterMenu !== 'status' &&
+                  suppressedAvatarIds.includes(t.id)
+                }
                 onEditRequest={openEditModal}
                 onDeleteRequest={setDeleteId}
                 onChangeStatusRequest={(ticket) => {
