@@ -16,7 +16,6 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  Avatar,
   Button,
   Card,
   CardContent,
@@ -43,6 +42,7 @@ import {
   type ChannelMessage,
   type Message,
 } from '../../lib/api';
+import { UserAvatar } from '../../ui/UserAvatar';
 
 // ─── MessagesPage ─────────────────────────────────────────────────────────────
 
@@ -94,6 +94,7 @@ export const MessagesPage: React.FC = () => {
   // ── DM state ─────────────────────────────────────────────────────────────────
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [memberNames, setMemberNames] = useState<Record<string, string>>({});
+  const [memberImages, setMemberImages] = useState<Record<string, string | null>>({});
   const [memberNamesLoaded, setMemberNamesLoaded] = useState(false);
   const [selectedAdminId, setSelectedAdminId] = useState<string | null>(null);
   const effectiveAdminId = isAdmin ? userId : selectedAdminId;
@@ -189,8 +190,13 @@ export const MessagesPage: React.FC = () => {
       .getUsers(ids)
       .then((users) => {
         const names: Record<string, string> = {};
-        for (const u of users) names[u.id] = u.name;
+        const images: Record<string, string | null> = {};
+        for (const u of users) {
+          names[u.id] = u.name;
+          images[u.id] = u.image;
+        }
         setMemberNames(names);
+        setMemberImages(images);
         setMemberNamesLoaded(true);
       })
       .catch(() => {
@@ -664,7 +670,7 @@ export const MessagesPage: React.FC = () => {
                         }`}
                         aria-label={`Direct message ${m.name}${dmUnread[m.id] ? `, ${dmUnread[m.id]} unread` : ''}`}
                       >
-                        <Avatar name={m.name} size="sm" />
+                        <UserAvatar name={m.name} size="sm" src={memberImages[m.id]} />
                         <span className="flex-1 truncate font-medium">{m.name}</span>
                         {(dmUnread[m.id] ?? 0) > 0 && (
                           <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
@@ -741,7 +747,7 @@ export const MessagesPage: React.FC = () => {
                     return (
                       <div key={msg.id} className={`flex gap-3 ${showHeader ? 'mt-4' : 'mt-0.5'}`}>
                         <div className="w-8 shrink-0">
-                          {showHeader && <Avatar name={msg.senderName} size="sm" />}
+                          {showHeader && <UserAvatar name={msg.senderName} size="sm" />}
                         </div>
                         <div className="min-w-0 flex-1">
                           {showHeader && (
@@ -966,7 +972,7 @@ export const MessagesPage: React.FC = () => {
                             )
                           }
                         />
-                        <Avatar name={m.name} size="sm" />
+                        <UserAvatar name={m.name} size="sm" src={memberImages[m.id]} />
                         <span className="text-sm">{m.name}</span>
                       </label>
                     </li>

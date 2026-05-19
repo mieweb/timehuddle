@@ -5,6 +5,11 @@ import fs from "fs";
 import crypto from "crypto";
 import { profilesCollection } from "../models/index.js";
 
+function avatarStorageDir() {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(__dirname, "..", "..", "data", "avatars");
+}
+
 export const profileController = {
   async getProfile(req: FastifyRequest, reply: FastifyReply) {
     const userId = req.user!.id;
@@ -58,21 +63,22 @@ export const profileController = {
 
   async uploadAvatar(req: FastifyRequest, reply: FastifyReply) {
     const userId = req.user!.id;
+    const now = new Date();
     const data = await (req as any).file();
     if (!data) {
       return reply.status(400).send({ error: "No file uploaded" });
     }
 
-    const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-    if (!allowed.includes(data.mimetype)) {
-      return reply.status(400).send({ error: "Invalid image type. Use JPEG, PNG, WebP, or GIF." });
+    // Allow PNG and JPEG files
+    if (data.mimetype !== "image/png" && data.mimetype !== "image/jpeg") {
+      return reply.status(400).send({ error: "Only PNG and JPEG images are allowed." });
     }
 
-    const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    const uploadsDir = path.resolve(__dirname, "..", "..", "uploads", "avatars");
+    const uploadsDir = avatarStorageDir();
     fs.mkdirSync(uploadsDir, { recursive: true });
 
-    const ext = data.mimetype.split("/")[1] === "jpeg" ? "jpg" : data.mimetype.split("/")[1];
+    // Use correct extension
+    const ext = data.mimetype === "image/png" ? "png" : "jpg";
     const filename = `${userId}-${crypto.randomBytes(8).toString("hex")}.${ext}`;
     const filepath = path.join(uploadsDir, filename);
 
@@ -94,8 +100,17 @@ export const profileController = {
 
     await profilesCollection().findOneAndUpdate(
       { userId, app: "timeharbor" as const },
-      { $set: { avatarUrl, updatedAt: new Date() } },
-      { returnDocument: "after" }
+      {
+        $setOnInsert: {
+          userId,
+          app: "timeharbor" as const,
+          displayName: req.user!.name,
+          status: "online" as const,
+          createdAt: now,
+        },
+        $set: { avatarUrl, updatedAt: now },
+      },
+      { upsert: true, returnDocument: "after" }
     );
 
     reply.send({ avatarUrl });
@@ -106,8 +121,7 @@ export const profileController = {
 
     const existing = await profilesCollection().findOne({ userId, app: "timeharbor" as const });
     if (existing?.avatarUrl) {
-      const __dirname = path.dirname(fileURLToPath(import.meta.url));
-      const uploadsDir = path.resolve(__dirname, "..", "..", "uploads", "avatars");
+      const uploadsDir = avatarStorageDir();
       const oldFile = existing.avatarUrl.split("/").pop();
       if (oldFile) {
         const oldPath = path.join(uploadsDir, oldFile);

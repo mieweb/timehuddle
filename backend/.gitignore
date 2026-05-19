@@ -36,3 +36,5 @@ coverage/
 
 # Uploaded video files
 data/videos/
+data/avatars/
+uploads/

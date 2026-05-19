@@ -57,6 +57,15 @@ export interface PublicUser {
   sharedTeams?: Array<{ id: string; name: string; isAdmin: boolean }>;
 }
 
+function withAbsoluteImage(user: PublicUser): PublicUser {
+  if (!user.image) return user;
+  if (/^https?:\/\//i.test(user.image)) return user;
+  return {
+    ...user,
+    image: `${TIMECORE_BASE_URL}${user.image.startsWith('/') ? '' : '/'}${user.image}`,
+  };
+}
+
 /** API error that carries the HTTP status code. */
 export class ApiError extends Error {
   constructor(
@@ -248,7 +257,11 @@ export const authApi = {
    */
   getMe: async (): Promise<{ user: TimecoreUser } | null> => {
     try {
-      return await request<{ user: TimecoreUser }>('/v1/me');
+      const data = await request<{ user: TimecoreUser }>('/v1/me');
+      if (data?.user?.image && !/^https?:\/\//i.test(data.user.image)) {
+        data.user.image = `${TIMECORE_BASE_URL}${data.user.image.startsWith('/') ? '' : '/'}${data.user.image}`;
+      }
+      return data;
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return null;
       throw err;
@@ -259,20 +272,46 @@ export const authApi = {
 // ─── User API ─────────────────────────────────────────────────────────────────
 
 export const userApi = {
+  /** Upload a new avatar image for the current user (multipart/form-data). Returns { avatarUrl }. */
+  uploadAvatar: async (blob: Blob): Promise<{ avatarUrl: string }> => {
+    const formData = new FormData();
+    formData.append('avatar', blob, 'avatar.png');
+    const token = sessionToken.get();
+    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/avatar`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+        res.status,
+      );
+    }
+    return res.json() as Promise<{ avatarUrl: string }>;
+  },
   /** Get a single user's public profile by ID. */
   getUser: (id: string) =>
-    request<{ user: PublicUser }>(`/v1/users/${encodeURIComponent(id)}`).then((r) => r.user),
+    request<{ user: PublicUser }>(`/v1/users/${encodeURIComponent(id)}`).then((r) =>
+      withAbsoluteImage(r.user),
+    ),
 
   /** Get a single user's public profile by username (requires auth). */
   getUserByUsername: (username: string) =>
     request<{ user: PublicUser }>(`/v1/users/by/username/${encodeURIComponent(username)}`).then(
-      (r) => r.user,
+      (r) => withAbsoluteImage(r.user),
     ),
 
   /** Batch-fetch public profiles by ID list (server caps at 200). */
   getUsers: (ids: string[]) =>
     request<{ users: PublicUser[] }>(`/v1/users?ids=${ids.map(encodeURIComponent).join(',')}`).then(
-      (r) => r.users,
+      (r) => r.users.map(withAbsoluteImage),
     ),
 
   /** Update the current user's profile fields. */
@@ -465,6 +504,7 @@ export interface TeamMember {
   name: string;
   email: string;
   username: string | null;
+  image: string | null;
 }
 
 export const teamApi = {
@@ -495,8 +535,12 @@ export const teamApi = {
     request<{ ok: boolean }>(`/v1/teams/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   getMembers: (id: string) =>
-    request<{ members: TeamMember[] }>(`/v1/teams/${encodeURIComponent(id)}/members`).then(
-      (r) => r.members,
+    request<{ members: TeamMember[] }>(`/v1/teams/${encodeURIComponent(id)}/members`).then((r) =>
+      r.members.map((m) =>
+        m.image && !/^https?:\/\//i.test(m.image)
+          ? { ...m, image: `${TIMECORE_BASE_URL}${m.image.startsWith('/') ? '' : '/'}${m.image}` }
+          : m,
+      ),
     ),
 
   inviteMember: (id: string, email: string) =>

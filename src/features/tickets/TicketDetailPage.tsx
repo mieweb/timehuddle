@@ -7,17 +7,7 @@ import {
   faXmark,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  Avatar,
-  Button,
-  Card,
-  CardContent,
-  Select,
-  Spinner,
-  Text,
-  Textarea,
-  Input,
-} from '@mieweb/ui';
+import { Button, Card, CardContent, Select, Spinner, Text, Textarea, Input } from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
 import {
   activityApi,
@@ -30,6 +20,7 @@ import {
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
+import { UserAvatar } from '../../ui/UserAvatar';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
 import { VideoUploadButton } from '../media/VideoUploadButton';
 
@@ -445,11 +436,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                 <ol className="ticket-activity-list space-y-3" aria-label="Ticket activity">
                   {activity.map((event) => (
                     <li key={event.id} className="ticket-activity-item flex items-start gap-2.5">
-                      <Avatar
-                        size="sm"
-                        name={event.actor.name ?? '?'}
-                        aria-label={event.actor.name ?? 'User'}
-                      />
+                      <UserAvatar size="sm" name={event.actor.name ?? '?'} />
                       <div className="min-w-0">
                         <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
                           {event.actor.name}
@@ -533,7 +520,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                   Created By
                 </p>
                 <div className="flex items-center gap-2">
-                  <Avatar size="sm" name={creatorName} aria-label={creatorName} />
+                  <UserAvatar size="sm" name={creatorName} />
                   <Text size="sm" className="text-neutral-700 dark:text-neutral-300">
                     {creatorName}
                   </Text>

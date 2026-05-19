@@ -1,9 +1,18 @@
 import { ObjectId } from "mongodb";
 import { FastifyInstance } from "fastify";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { requireAuth } from "../middleware/require-auth.js";
-import { organizationsCollection, usersCollection, teamsCollection } from "../models/index.js";
+import {
+  organizationsCollection,
+  profilesCollection,
+  usersCollection,
+  teamsCollection,
+} from "../models/index.js";
 import { DEFAULT_ORG_KEY } from "../lib/org-config.js";
 import { userService } from "../services/user.service.js";
+import { profileController } from "../controllers/profile.controller.js";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -70,6 +79,24 @@ const publicTeamMembershipSchema = {
 
 export async function userRoutes(app: FastifyInstance) {
   type DefaultOrganizationRole = "owner" | "admin" | "member";
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const avatarUploadsDir = path.resolve(__dirname, "..", "..", "uploads", "avatars");
+
+  function findLegacyAvatarUrl(userId: string): string | null {
+    if (!fs.existsSync(avatarUploadsDir)) return null;
+
+    const candidates = fs
+      .readdirSync(avatarUploadsDir)
+      .filter((name) => name.startsWith(`${userId}-`) && /\.(png|jpe?g)$/i.test(name))
+      .map((name) => ({
+        name,
+        mtimeMs: fs.statSync(path.join(avatarUploadsDir, name)).mtimeMs,
+      }))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+    const latest = candidates[0]?.name;
+    return latest ? `/uploads/avatars/${latest}` : null;
+  }
 
   async function resolveDefaultOrganizationMembership(userId: string): Promise<{
     organizationId: string;
@@ -470,13 +497,17 @@ export async function userRoutes(app: FastifyInstance) {
     async (req, reply) => {
       // Augment the session user with the username from the users collection.
       const sessionUser = req.user!;
-      const [dbUser, organizationMembership] = await Promise.all([
+      const [dbUser, profile, organizationMembership] = await Promise.all([
         usersCollection().findOne({ _id: new ObjectId(sessionUser.id) }),
+        profilesCollection().findOne({ userId: sessionUser.id, app: "timeharbor" as const }),
         resolveDefaultOrganizationMembership(sessionUser.id),
       ]);
+      // Prefer uploaded avatar over OAuth session image
+      const image = profile?.avatarUrl ?? dbUser?.image ?? sessionUser.image ?? null;
       return reply.send({
         user: {
           ...sessionUser,
+          image,
           username: dbUser?.username ?? null,
           organizationMembership,
         },
@@ -645,15 +676,41 @@ export async function userRoutes(app: FastifyInstance) {
   /** Maps a DB user doc to a safe public payload. */
   async function toPublicUser(u: Awaited<ReturnType<typeof userService.findById>>) {
     if (!u) return null;
+
+    const userId = u._id.toHexString();
+
+    const profile = await profilesCollection().findOne({
+      userId,
+      app: "timeharbor" as const,
+    });
+
+    const recoveredAvatarUrl = !profile?.avatarUrl ? findLegacyAvatarUrl(userId) : null;
+    if (recoveredAvatarUrl) {
+      await profilesCollection().findOneAndUpdate(
+        { userId, app: "timeharbor" as const },
+        {
+          $setOnInsert: {
+            userId,
+            app: "timeharbor" as const,
+            displayName: u.name,
+            status: "online" as const,
+            createdAt: new Date(),
+          },
+          $set: { avatarUrl: recoveredAvatarUrl, updatedAt: new Date() },
+        },
+        { upsert: true, returnDocument: "after" }
+      );
+    }
+
     return {
-      id: u._id.toHexString(),
+      id: userId,
       name: u.name,
       username: u.username ?? null,
-      image: u.image ?? null,
+      image: profile?.avatarUrl ?? recoveredAvatarUrl ?? u.image ?? null,
       bio: u.bio ?? "",
       website: u.website ?? "",
       reportsTo: await resolveReportsTo(u),
-      teamMemberships: await resolveTeamMemberships(u._id.toHexString()),
+      teamMemberships: await resolveTeamMemberships(userId),
     };
   }
 
@@ -912,5 +969,25 @@ export async function userRoutes(app: FastifyInstance) {
         })),
       });
     }
+  );
+
+  // ─── Avatar upload ──────────────────────────────────────────────────────────
+  app.post(
+    "/me/avatar",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Upload avatar image for current user (multipart/form-data)",
+        security: [{ cookieAuth: [] }],
+        consumes: ["multipart/form-data"],
+        response: {
+          200: { type: "object", properties: { avatarUrl: { type: "string" } } },
+          400: { type: "object", properties: { error: { type: "string" } } },
+          ...unauthorizedResponse,
+        },
+      },
+    },
+    profileController.uploadAvatar
   );
 }
