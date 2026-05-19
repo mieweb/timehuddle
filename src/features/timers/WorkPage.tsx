@@ -149,7 +149,7 @@ export const WorkPage: React.FC = () => {
   const [copyLoading, setCopyLoading] = useState(false);
   const [copyDone, setCopyDone] = useState(false);
 
-  // All tickets for the selected team (for edit modal)
+  // All tickets across the user's teams (for labels and pickers)
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
 
   // Edit modal state
@@ -160,18 +160,40 @@ export const WorkPage: React.FC = () => {
   const [editError, setEditError] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState(false);
 
-  // ── Fetch tickets for the selected team (for both pickers) ──
+  // ── Fetch tickets for all teams (for both pickers) ──
 
   useEffect(() => {
-    if (!selectedTeamId) {
+    if (teams.length === 0) {
       setAllTickets([]);
       return;
     }
-    ticketApi
-      .getTickets(selectedTeamId)
-      .then(setAllTickets)
-      .catch(() => setAllTickets([]));
-  }, [selectedTeamId]);
+
+    let cancelled = false;
+
+    const loadTickets = async () => {
+      try {
+        const ticketLists = await Promise.all(teams.map((team) => ticketApi.getTickets(team.id)));
+        if (cancelled) return;
+
+        const byId = new Map<string, Ticket>();
+        for (const tickets of ticketLists) {
+          for (const ticket of tickets) {
+            byId.set(ticket.id, ticket);
+          }
+        }
+
+        setAllTickets(Array.from(byId.values()));
+      } catch {
+        if (!cancelled) setAllTickets([]);
+      }
+    };
+
+    void loadTickets();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [teams]);
 
   // ── Fetch week totals ──
 
@@ -432,13 +454,6 @@ export const WorkPage: React.FC = () => {
     return map;
   }, [teams]);
 
-  // Filter day entries to only those belonging to the selected team's tickets
-  const teamTicketIds = useMemo(() => new Set(allTickets.map((t) => t.id)), [allTickets]);
-  const filteredDayEntries = useMemo(
-    () => dayEntries.filter((de) => teamTicketIds.has(de.entry.ticketId)),
-    [dayEntries, teamTicketIds],
-  );
-
   const getWorkItemLabel = useCallback(
     (entry: DayEntry['entry']) => {
       const ticket = ticketsById.get(entry.ticketId);
@@ -684,7 +699,7 @@ export const WorkPage: React.FC = () => {
       </Modal>
 
       {/* ── Day View ── */}
-      {filteredDayEntries.length === 0 ? (
+      {dayEntries.length === 0 ? (
         <div className="py-10 text-center">
           <Text variant="muted" size="sm">
             No timers for this day. Create one with "+".
@@ -702,7 +717,7 @@ export const WorkPage: React.FC = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredDayEntries.map((de) => {
+              {dayEntries.map((de) => {
                 const title = getWorkItemLabel(de.entry);
                 const total = entryTotalSeconds(de.sessions, currentTime);
                 const runningSess = de.sessions.find((s) => s.endTime === null);
@@ -793,7 +808,7 @@ export const WorkPage: React.FC = () => {
         </Card>
       )}
 
-      {(isToday || isFuture) && filteredDayEntries.length === 0 && (
+      {(isToday || isFuture) && dayEntries.length === 0 && (
         <div className="flex justify-start">
           <Button
             variant="ghost"
