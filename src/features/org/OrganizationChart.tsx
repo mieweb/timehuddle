@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from '../../ui/router';
 import { CompactTicketList } from '../profile/CompactTicketList';
 import { useProfileTickets } from '../profile/useProfileTickets';
+import { WorkSummaryTags } from '../profile/WorkSummaryTags';
 
 type ChartState = {
   svgWidth: number;
@@ -104,9 +105,50 @@ const OrganizationChartMount: React.FC<{
 }> = ({ yaml, onMemberDetails }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<YChartInstance | null>(null);
+  const hideTimeoutsRef = useRef<number[]>([]);
   const chartId = useRef(`oc-${Date.now()}-${Math.random().toString(36).slice(2)}`).current;
   const onMemberDetailsRef = useRef(onMemberDetails);
   onMemberDetailsRef.current = onMemberDetails;
+
+  // Add global styles to hide unwanted UI elements
+  useEffect(() => {
+    const styleId = 'org-chart-ui-styles';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      // Hide the search field selector dropdown and YAML editor
+      style.textContent = `
+        /* Hide the "All Fields" / search field selector combobox */
+        #_r_0_,
+        button[id^="_r_"][aria-haspopup="listbox"],
+        [aria-label*="search by field"],
+        [aria-label*="Filter search"]
+        { display: none !important; }
+        
+        /* Hide YAML editor and its toggle button */
+        .yaml-editor,
+        [class*="YamlEditor"],
+        [class*="CodeEditor"],
+        textarea[class*="editor"],
+        .editor-panel,
+        [role="tabpanel"] > textarea,
+        [aria-label*="YAML"],
+        [aria-label*="yaml"],
+        div[class*="editor-container"],
+        div[class*="right-panel"],
+        button[data-id^="ychart-collapse-editor"],
+        button[data-id^="ychart-filter-btn"],
+        .ychart-poi-selector-wrapper
+        { display: none !important; }
+      `;
+      document.head.appendChild(style);
+    }
+
+    return () => {
+      const style = document.getElementById(styleId);
+      if (style && style.parentElement) style.parentElement.removeChild(style);
+    };
+  }, []);
 
   useEffect(() => {
     const containerElement = containerRef.current!;
@@ -118,10 +160,75 @@ const OrganizationChartMount: React.FC<{
       try {
         instanceRef.current = new window.YChartEditor().initView(chartId, yaml);
 
-        // Patch the built-in details panel to use our custom modal instead
+        // Disable the YAML editor panel
         const instance = instanceRef.current as YChartInstance & {
           showNodeDetails?: (data: Record<string, unknown>) => void;
+          config?: { searchFields?: string[] };
+          POISelector?: { setFields?: (fields: string[]) => void };
+          toggleEditor?: () => void;
+          hideEditor?: () => void;
         };
+
+        // Try to hide the YAML editor if methods exist
+        if (typeof instance.hideEditor === 'function') {
+          instance.hideEditor();
+        } else if (typeof instance.toggleEditor === 'function') {
+          // Some implementations might use toggle - call it twice if it's already visible
+          const editor = document.querySelector(
+            `#${chartId} [class*="editor"], #${chartId} .yaml-editor`,
+          );
+          if (editor) {
+            (editor as HTMLElement).style.display = 'none';
+          }
+        }
+
+        // Also hide via CSS
+        const editorElements = document.querySelectorAll(
+          `#${chartId} .yaml-editor, #${chartId} [class*="Editor"], #${chartId} textarea, #${chartId} .editor-panel`,
+        );
+        editorElements.forEach((el) => {
+          (el as HTMLElement).style.display = 'none';
+        });
+
+        // Hide any visible editor tabs or buttons
+        const allButtons = document.querySelectorAll('button');
+        allButtons.forEach((btn) => {
+          const text = btn.textContent || '';
+          if (text.includes('YAML') || text.includes('Editor')) {
+            btn.style.display = 'none';
+          }
+        });
+
+        if (instance.config) {
+          instance.config.searchFields = ['name', 'title'];
+        }
+
+        // Try to set POI fields if the method exists
+        if (instance.POISelector?.setFields) {
+          instance.POISelector.setFields(['name', 'title']);
+        }
+
+        // Hide non-searchable field options in the dropdown
+        const hideUnwantedOptions = () => {
+          const fieldsToHide = ['id', 'parentid'];
+          const allLabels = document.querySelectorAll(
+            `#${chartId} [role="option"], #${chartId} button`,
+          );
+          allLabels.forEach((el) => {
+            const text = (el.textContent || '').toLowerCase().trim();
+            if (fieldsToHide.includes(text)) {
+              (el as HTMLElement).style.display = 'none';
+            }
+          });
+        };
+
+        // Run immediately and also after a small delay in case elements render asynchronously
+        hideUnwantedOptions();
+        hideTimeoutsRef.current.push(window.setTimeout(hideUnwantedOptions, 100));
+        hideTimeoutsRef.current.push(window.setTimeout(hideUnwantedOptions, 300));
+        hideTimeoutsRef.current.push(window.setTimeout(hideUnwantedOptions, 500));
+
+        // Patch the built-in details panel to use our custom modal instead
         if (typeof instance.showNodeDetails === 'function') {
           instance.showNodeDetails = (data: Record<string, unknown>) => {
             onMemberDetailsRef.current(data);
@@ -150,6 +257,8 @@ const OrganizationChartMount: React.FC<{
     return () => {
       cancelAnimationFrame(frameId);
       window.clearTimeout(fitTimerId);
+      hideTimeoutsRef.current.forEach((timeout) => window.clearTimeout(timeout));
+      hideTimeoutsRef.current = [];
 
       const instance = instanceRef.current;
       if (instance) {
@@ -286,14 +395,12 @@ export const OrganizationChart: React.FC<OrganizationChartProps> = ({
                   </p>
                 </div>
 
-                {/* Email */}
+                {/* Recent work summary (48h) */}
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                    Email
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+                    Recent Work
                   </p>
-                  <p className="mt-1 truncate text-sm text-neutral-700 dark:text-neutral-300">
-                    {selectedMember.email}
-                  </p>
+                  <WorkSummaryTags userId={selectedMember.id} />
                 </div>
 
                 {/* Active tickets (if teams available) */}

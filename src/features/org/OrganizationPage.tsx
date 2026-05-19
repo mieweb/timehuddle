@@ -3,12 +3,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import {
   ApiError,
-  orgAdminApi,
+  orgApi,
   type AdminOrganization,
   type OrganizationAdminUser,
 } from '../../lib/api';
-import { hasDefaultOrganizationAdminAccess } from '../../lib/organizationAccess';
-import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 
 const OrganizationChart = React.lazy(() =>
@@ -16,10 +14,8 @@ const OrganizationChart = React.lazy(() =>
 );
 
 export const OrganizationPage: React.FC = () => {
-  const { user } = useSession();
-  const canAccess = hasDefaultOrganizationAdminAccess(user);
   const [organization, setOrganization] = useState<AdminOrganization | null>(null);
-  const [users, setUsers] = useState<OrganizationAdminUser[]>([]);
+  const [displayUsers, setDisplayUsers] = useState<OrganizationAdminUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,12 +23,9 @@ export const OrganizationPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [org, members] = await Promise.all([
-        orgAdminApi.getOrganization(),
-        orgAdminApi.listUsers(),
-      ]);
+      const [org, members] = await Promise.all([orgApi.getOrganization(), orgApi.listUsers()]);
       setOrganization(org);
-      setUsers(members);
+      setDisplayUsers(members);
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
@@ -45,16 +38,15 @@ export const OrganizationPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!canAccess) return;
     void loadOrganizationData();
-  }, [canAccess, loadOrganizationData]);
+  }, [loadOrganizationData]);
 
-  if (!canAccess) {
+  if (!organization && !loading) {
     return (
       <AppPage fullWidth noPadding className="h-full">
         <div className="flex h-full items-center justify-center px-6 text-center">
           <Text variant="muted" size="sm">
-            This page is restricted to default organization users with owner or admin role.
+            No organization data available.
           </Text>
         </div>
       </AppPage>
@@ -75,7 +67,7 @@ export const OrganizationPage: React.FC = () => {
           )}
           <div className="pointer-events-auto ml-auto flex w-fit items-center gap-2 rounded-md border border-neutral-200/70 bg-white/90 px-2 py-1 shadow-sm backdrop-blur dark:border-neutral-700/70 dark:bg-neutral-900/85">
             <Text variant="muted" size="sm">
-              Members: {users.length}
+              Members: {displayUsers.length}
             </Text>
             <Button
               variant="secondary"
@@ -102,12 +94,12 @@ export const OrganizationPage: React.FC = () => {
           >
             <OrganizationChart
               organizationName={organization?.name || 'Organization'}
-              members={users.map((orgUser) => ({
+              members={displayUsers.map((orgUser) => ({
                 id: orgUser.id,
                 name: orgUser.name,
                 email: orgUser.email,
                 username: orgUser.username,
-                image: orgUser.image,
+                image: orgUser.image ?? null,
                 role: orgUser.role,
                 reportsToUserId: orgUser.reportsToUserId || null,
               }))}

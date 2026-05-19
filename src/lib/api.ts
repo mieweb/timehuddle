@@ -345,6 +345,16 @@ export const orgAdminApi = {
     ).then((r) => r.user),
 };
 
+// ─── Public Organization API (for all authenticated users) ──────────────────
+
+export const orgApi = {
+  getOrganization: () =>
+    request<{ organization: AdminOrganization }>('/v1/organization').then((r) => r.organization),
+
+  listUsers: () =>
+    request<{ users: OrganizationAdminUser[] }>('/v1/organization/users').then((r) => r.users),
+};
+
 // ─── Username API ─────────────────────────────────────────────────────────────
 
 export const usernameApi = {

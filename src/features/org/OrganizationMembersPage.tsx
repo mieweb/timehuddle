@@ -26,6 +26,7 @@ import {
 import { hasDefaultOrganizationAdminAccess } from '../../lib/organizationAccess';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
+import { TeamMembersView } from './TeamMembersView';
 
 export const OrganizationMembersPage: React.FC = () => {
   const { user } = useSession();
@@ -89,20 +90,7 @@ export const OrganizationMembersPage: React.FC = () => {
   );
 
   if (!canAccess) {
-    return (
-      <AppPage>
-        <Card padding="lg" className="mx-auto max-w-2xl text-center">
-          <CardHeader>
-            <CardTitle>Members Unavailable</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Text variant="muted" size="sm">
-              This page is restricted to default organization users with owner or admin role.
-            </Text>
-          </CardContent>
-        </Card>
-      </AppPage>
-    );
+    return <TeamMembersView />;
   }
 
   return (

@@ -236,6 +236,52 @@ export async function userRoutes(app: FastifyInstance) {
     }
   );
 
+  // ─── Public organization (for all authenticated users) ──────────────────────
+
+  app.get(
+    "/organization",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Get default organization metadata (all authenticated users)",
+        security: [{ cookieAuth: [] }],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              organization: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  key: { type: "string" },
+                  name: { type: "string" },
+                },
+              },
+            },
+          },
+          ...unauthorizedResponse,
+          404: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      if (!defaultOrg) return reply.status(404).send({ error: "Default organization not found" });
+
+      return reply.send({
+        organization: {
+          id: defaultOrg._id.toHexString(),
+          key: defaultOrg.key,
+          name: defaultOrg.name,
+        },
+      });
+    }
+  );
+
   app.get(
     "/admin/organization/users",
     {
@@ -783,6 +829,68 @@ export async function userRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: updated });
       }
       return reply.send({ user: await toPublicUser(updated) });
+    }
+  );
+
+  // ─── Public organization users (for regular members to view org chart) ────────
+
+  app.get(
+    "/organization/users",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "List all users with default organization role (all authenticated users)",
+        security: [{ cookieAuth: [] }],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              users: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    name: { type: "string" },
+                    email: { type: "string", format: "email" },
+                    username: { type: "string", nullable: true },
+                    image: { type: "string", nullable: true },
+                    reportsToUserId: { type: "string", nullable: true },
+                    role: { type: "string", enum: ["owner", "admin", "member"] },
+                  },
+                },
+              },
+            },
+          },
+          ...unauthorizedResponse,
+        },
+      },
+    },
+    async (req, reply) => {
+      const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      if (!defaultOrg) return reply.status(404).send({ error: "Organization not found" });
+
+      const owners = defaultOrg.owners ?? [];
+      const admins = defaultOrg.admins ?? [];
+
+      const users = await usersCollection()
+        .find({}, { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } })
+        .sort({ name: 1, email: 1 })
+        .limit(500)
+        .toArray();
+
+      return reply.send({
+        users: users.map((u) => ({
+          id: u._id.toHexString(),
+          name: u.name,
+          email: u.email,
+          username: u.username ?? null,
+          image: u.image ?? null,
+          reportsToUserId: u.reportsToUserId ?? null,
+          role: resolveDefaultOrganizationRole(owners, admins, u._id.toHexString()),
+        })),
+      });
     }
   );
 }
