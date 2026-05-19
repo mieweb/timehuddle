@@ -16,6 +16,7 @@ import {
   faGauge,
   faGear,
   faListCheck,
+  faSitemap,
   faSpinner,
   faStopwatch,
   faTable,
@@ -62,6 +63,12 @@ const NAV_ITEMS: NavSection[] = [
     heading: 'Manage',
     items: [
       { icon: faUsers, label: 'Teams', href: '/app/teams', keywords: ['members', 'groups'] },
+      {
+        icon: faSitemap,
+        label: 'Org Chart',
+        href: '/app/organization',
+        keywords: ['organization', 'hierarchy', 'chart', 'structure'],
+      },
       { icon: faEnvelope, label: 'Messages', href: '/app/messages', keywords: ['chat', 'inbox'] },
       {
         icon: faBell,

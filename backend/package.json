@@ -14,6 +14,7 @@
     "migrate:status": "npx migrate-mongo status -f migrate-mongo-config.cjs",
     "migrate:down": "npx migrate-mongo down -f migrate-mongo-config.cjs",
     "seed": "tsx scripts/seed.ts",
+    "seed:hierarchy": "tsx scripts/seed-org-hierarchy.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "format": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.ts\"",
@@ -21,6 +22,8 @@
   },
   "dependencies": {
     "@better-auth/core": "^1.6.9",
+    "@casl/ability": "^6.8.1",
+    "@casl/mongoose": "^8.0.5",
     "@fastify/cors": "^11.0.1",
     "@fastify/multipart": "^9.4.0",
     "@fastify/static": "^9.1.1",

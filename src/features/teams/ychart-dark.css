@@ -6,6 +6,20 @@
  * (set by useTheme.ts on <html>) is sufficient — no component changes needed.
  */
 
+/**
+ * Brand alignment — both light and dark.
+ *
+ * ychart's "success" variable is misnamed: it defaults to Material Blue
+ * (#2196F3) and is used for node-selection strokes and the SVG canvas
+ * focus outline. Override it (and the associated shadow) to follow the
+ * app's primary brand color so the chart doesn't show a conflicting blue.
+ */
+:root {
+  --yc-color-success: var(--color-primary);
+  --yc-color-success-shadow: color-mix(in srgb, var(--color-primary) 60%, transparent);
+  --yc-shadow-node-selected: 0 0 8px color-mix(in srgb, var(--color-primary) 60%, transparent);
+}
+
 [data-theme='dark'] {
   /* ── Backgrounds ───────────────────────────────────────────────── */
   --yc-color-bg-primary: #171717; /* neutral-900 */

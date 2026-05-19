@@ -69,9 +69,14 @@ function splitIntoSegments(session: ClockEvent): DaySegment[] {
   const startDay = startOfDay(start);
   const endDay = end ? startOfDay(end) : startDay;
 
+  // Calculate total duration in milliseconds
+  const totalDurationMs = end ? end.getTime() - start.getTime() : 0;
+
   // Count days spanned
   const totalDays = Math.round((endDay.getTime() - startDay.getTime()) / (24 * 60 * 60 * 1000)) + 1;
-  const isMultiDay = totalDays > 1;
+
+  // Determine if the session spans multiple days and exceeds 24 hours
+  const isMultiDay = totalDays > 1 && totalDurationMs >= 24 * 60 * 60 * 1000;
 
   const segments: DaySegment[] = [];
 
@@ -82,7 +87,6 @@ function splitIntoSegments(session: ClockEvent): DaySegment[] {
 
     const isFirst = i === 0;
     const isLast = i === totalDays - 1;
-
     const segmentStart = isFirst ? start : dayStart;
     // For the last segment use the real end; otherwise clip at end-of-day.
     // If still active on the last day, segmentEnd is null.
@@ -172,7 +176,7 @@ export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
                 <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
                 Active
               </Badge>
-            ) : seg.isFirst ? (
+            ) : seg.isLast ? (
               <Text variant="muted" size="xs">
                 Completed
               </Text>
@@ -181,9 +185,9 @@ export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
             )}
           </TableCell>
 
-          {/* Actions — only on first row */}
+          {/* Actions — only on last row */}
           <TableCell className="text-right">
-            {seg.isFirst && (
+            {seg.isLast && (
               <Button
                 variant="ghost"
                 size="icon"

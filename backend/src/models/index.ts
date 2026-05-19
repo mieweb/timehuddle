@@ -15,6 +15,7 @@ import type { ActivityEvent } from "./activity.model.js";
 import type { Channel } from "./channel.model.js";
 import type { ChannelMessage } from "./channel-message.model.js";
 import type { PersonalAccessToken } from "./personal-access-token.model.js";
+import type { Organization } from "./organization.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
 export function usersCollection() {
@@ -24,6 +25,11 @@ export function usersCollection() {
 // Teams — populated once Phase 3 timehuddle migration is complete
 export function teamsCollection() {
   return getDB().collection<Team>("teams");
+}
+
+// Organizations
+export function organizationsCollection() {
+  return getDB().collection<Organization>("organizations");
 }
 
 // Tickets

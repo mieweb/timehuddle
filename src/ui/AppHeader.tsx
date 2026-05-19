@@ -2,7 +2,7 @@
  * AppHeader — Sticky top bar.
  *
  * Left  : hamburger (mobile), current page title
- * Right : clock-in timer (if active), TeamSelector, UserDropdown
+ * Right : clock-in timer (if active), UserDropdown
  */
 import { faBars } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -12,7 +12,6 @@ import React from 'react';
 import { useClockDocumentTitle } from '../lib/useClockDocumentTitle';
 import { useSidebar } from './AppLayout';
 import { ClockInHeaderTimer } from './ClockInHeaderTimer';
-import { TeamSelector } from './TeamSelector';
 import { UserDropdown } from './UserDropdown';
 
 interface AppHeaderProps {
@@ -50,7 +49,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ title }) => {
         <div className="flex items-center gap-2">
           {/* Clock-in timer (visible when clocked in) */}
           <ClockInHeaderTimer />
-          <TeamSelector />
           <UserDropdown />
         </div>
       </div>
