@@ -1,9 +1,15 @@
 import { ObjectId } from "mongodb";
 import { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
-import { organizationsCollection, usersCollection, teamsCollection } from "../models/index.js";
+import {
+  organizationsCollection,
+  profilesCollection,
+  usersCollection,
+  teamsCollection,
+} from "../models/index.js";
 import { DEFAULT_ORG_KEY } from "../lib/org-config.js";
 import { userService } from "../services/user.service.js";
+import { profileController } from "../controllers/profile.controller.js";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -470,13 +476,19 @@ export async function userRoutes(app: FastifyInstance) {
     async (req, reply) => {
       // Augment the session user with the username from the users collection.
       const sessionUser = req.user!;
-      const [dbUser, organizationMembership] = await Promise.all([
+      const [dbUser, profile, organizationMembership] = await Promise.all([
         usersCollection().findOne({ _id: new ObjectId(sessionUser.id) }),
+        profilesCollection().findOne({ userId: sessionUser.id, app: "timeharbor" as const }),
         resolveDefaultOrganizationMembership(sessionUser.id),
       ]);
+      // Prefer uploaded avatar over OAuth session image
+      const image = profile?.avatarUrl ?? dbUser?.image ?? sessionUser.image ?? null;
+      const backgroundUrl = profile?.backgroundUrl ?? null;
       return reply.send({
         user: {
           ...sessionUser,
+          image,
+          backgroundUrl,
           username: dbUser?.username ?? null,
           organizationMembership,
         },
@@ -642,18 +654,32 @@ export async function userRoutes(app: FastifyInstance) {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  /** Maps a DB user doc to a safe public payload. */
-  async function toPublicUser(u: Awaited<ReturnType<typeof userService.findById>>) {
+  type ProfileDoc = { userId: string; avatarUrl?: string | null; backgroundUrl?: string | null };
+
+  /** Maps a DB user doc to a safe public payload.
+   * Pass a pre-fetched profileMap (userId → doc) to avoid a per-user DB round-trip. */
+  async function toPublicUser(
+    u: Awaited<ReturnType<typeof userService.findById>>,
+    profileMap?: Map<string, ProfileDoc>
+  ) {
     if (!u) return null;
+
+    const userId = u._id.toHexString();
+
+    const profile = profileMap
+      ? profileMap.get(userId)
+      : await profilesCollection().findOne({ userId, app: "timeharbor" as const });
+
     return {
-      id: u._id.toHexString(),
+      id: userId,
       name: u.name,
       username: u.username ?? null,
-      image: u.image ?? null,
+      image: profile?.avatarUrl ?? u.image ?? null,
+      backgroundUrl: profile?.backgroundUrl ?? null,
       bio: u.bio ?? "",
       website: u.website ?? "",
       reportsTo: await resolveReportsTo(u),
-      teamMemberships: await resolveTeamMemberships(u._id.toHexString()),
+      teamMemberships: await resolveTeamMemberships(userId),
     };
   }
 
@@ -788,7 +814,14 @@ export async function userRoutes(app: FastifyInstance) {
         .map((s) => s.trim())
         .filter(Boolean);
       const users = await userService.findManyByIds(rawIds);
-      return reply.send({ users: await Promise.all(users.map((user) => toPublicUser(user))) });
+      const userIds = users.map((u) => u._id.toHexString());
+      const profiles = await profilesCollection()
+        .find({ userId: { $in: userIds }, app: "timeharbor" as const })
+        .toArray();
+      const profileMap = new Map(profiles.map((p) => [p.userId, p]));
+      return reply.send({
+        users: await Promise.all(users.map((user) => toPublicUser(user, profileMap))),
+      });
     }
   );
 
@@ -912,5 +945,79 @@ export async function userRoutes(app: FastifyInstance) {
         })),
       });
     }
+  );
+
+  // ─── Avatar upload / delete ─────────────────────────────────────────────────
+  app.post(
+    "/me/avatar",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Upload avatar image for current user (multipart/form-data)",
+        security: [{ cookieAuth: [] }],
+        consumes: ["multipart/form-data"],
+        response: {
+          200: { type: "object", properties: { avatarUrl: { type: "string" } } },
+          400: { type: "object", properties: { error: { type: "string" } } },
+          ...unauthorizedResponse,
+        },
+      },
+    },
+    profileController.uploadAvatar
+  );
+
+  app.delete(
+    "/me/avatar",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Delete avatar image for current user",
+        security: [{ cookieAuth: [] }],
+        response: {
+          200: { type: "object", properties: { ok: { type: "boolean" } } },
+          ...unauthorizedResponse,
+        },
+      },
+    },
+    profileController.deleteAvatar
+  );
+
+  // ─── Background image upload / delete ───────────────────────────────────────
+  app.post(
+    "/me/background",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Upload profile background image for current user (multipart/form-data)",
+        security: [{ cookieAuth: [] }],
+        consumes: ["multipart/form-data"],
+        response: {
+          200: { type: "object", properties: { backgroundUrl: { type: "string" } } },
+          400: { type: "object", properties: { error: { type: "string" } } },
+          ...unauthorizedResponse,
+        },
+      },
+    },
+    profileController.uploadBackground
+  );
+
+  app.delete(
+    "/me/background",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Delete profile background image for current user",
+        security: [{ cookieAuth: [] }],
+        response: {
+          200: { type: "object", properties: { ok: { type: "boolean" } } },
+          ...unauthorizedResponse,
+        },
+      },
+    },
+    profileController.deleteBackground
   );
 }

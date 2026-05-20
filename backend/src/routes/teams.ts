@@ -25,6 +25,7 @@ const memberShape = {
     name: { type: "string" },
     email: { type: "string" },
     username: { type: "string", nullable: true },
+    image: { type: "string", nullable: true },
   },
 };
 

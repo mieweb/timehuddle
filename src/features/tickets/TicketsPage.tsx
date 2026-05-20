@@ -28,7 +28,6 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  Avatar,
   Button,
   Card,
   CardContent,
@@ -63,6 +62,7 @@ import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { UserAvatar } from '../../ui/UserAvatar';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
 import { VideoUploadButton } from '../media/VideoUploadButton';
 import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
@@ -239,7 +239,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
             aria-label={`View ${assigneeName}'s profile`}
             title={assigneeName}
           >
-            <Avatar name={assigneeName} size="xs" />
+            <UserAvatar name={assigneeName} size="xs" />
           </button>
         )}
         <Dropdown
