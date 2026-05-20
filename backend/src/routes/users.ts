@@ -654,16 +654,21 @@ export async function userRoutes(app: FastifyInstance) {
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  /** Maps a DB user doc to a safe public payload. */
-  async function toPublicUser(u: Awaited<ReturnType<typeof userService.findById>>) {
+  type ProfileDoc = { userId: string; avatarUrl?: string | null; backgroundUrl?: string | null };
+
+  /** Maps a DB user doc to a safe public payload.
+   * Pass a pre-fetched profileMap (userId → doc) to avoid a per-user DB round-trip. */
+  async function toPublicUser(
+    u: Awaited<ReturnType<typeof userService.findById>>,
+    profileMap?: Map<string, ProfileDoc>
+  ) {
     if (!u) return null;
 
     const userId = u._id.toHexString();
 
-    const profile = await profilesCollection().findOne({
-      userId,
-      app: "timeharbor" as const,
-    });
+    const profile = profileMap
+      ? profileMap.get(userId)
+      : await profilesCollection().findOne({ userId, app: "timeharbor" as const });
 
     return {
       id: userId,
@@ -809,7 +814,14 @@ export async function userRoutes(app: FastifyInstance) {
         .map((s) => s.trim())
         .filter(Boolean);
       const users = await userService.findManyByIds(rawIds);
-      return reply.send({ users: await Promise.all(users.map((user) => toPublicUser(user))) });
+      const userIds = users.map((u) => u._id.toHexString());
+      const profiles = await profilesCollection()
+        .find({ userId: { $in: userIds }, app: "timeharbor" as const })
+        .toArray();
+      const profileMap = new Map(profiles.map((p) => [p.userId, p]));
+      return reply.send({
+        users: await Promise.all(users.map((user) => toPublicUser(user, profileMap))),
+      });
     }
   );
 
