@@ -14,7 +14,6 @@ const clockEventShape = {
     userId: { type: "string" },
     teamId: { type: "string" },
     startTime: { type: "number" },
-    originalStartTime: { type: "number" },
     accumulatedTime: { type: "number" },
     breaks: {
       type: "array",
@@ -23,13 +22,16 @@ const clockEventShape = {
         properties: {
           startTime: { type: "number" },
           endTime: { type: "number", nullable: true },
+          type: { type: "string", enum: ["rest", "meal"] },
+          classificationSource: { type: "string", enum: ["auto", "manual"] },
+          notes: { type: "string" },
         },
       },
     },
     workSeconds: { type: "number" },
+    deductedBreakSeconds: { type: "number" },
+    totalBreakSeconds: { type: "number" },
     isPaused: { type: "boolean" },
-    pausedAt: { type: "number", nullable: true },
-    totalPausedSeconds: { type: "number" },
     endTime: { type: "number", nullable: true },
   },
 };
@@ -193,6 +195,9 @@ export async function clockRoutes(app: FastifyInstance) {
                 properties: {
                   startTime: { type: "number" },
                   endTime: { type: "number", nullable: true },
+                  type: { type: "string", enum: ["rest", "meal"] },
+                  classificationSource: { type: "string", enum: ["auto", "manual"] },
+                  notes: { type: "string" },
                 },
               },
             },

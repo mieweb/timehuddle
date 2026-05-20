@@ -192,7 +192,6 @@ describe("clock break flow", () => {
     const pauseRes = await inject("POST", "/v1/clock/pause", workerCookie, { teamId });
     expect(pauseRes.statusCode).toBe(200);
     expect(pauseRes.json().event.isPaused).toBe(true);
-    expect(typeof pauseRes.json().event.pausedAt).toBe("number");
     expect(Array.isArray(pauseRes.json().event.breaks)).toBe(true);
     expect(pauseRes.json().event.breaks.length).toBeGreaterThan(0);
     expect(pauseRes.json().event.breaks[0].endTime).toBeNull();
@@ -204,7 +203,6 @@ describe("clock break flow", () => {
     );
     expect(statusWhilePaused.statusCode).toBe(200);
     expect(statusWhilePaused.json().isPaused).toBe(true);
-    expect(statusWhilePaused.json().remainingSeconds).toBeLessThanOrEqual(8 * 60 * 60);
 
     const resumeRes = await inject("POST", "/v1/clock/resume", workerCookie, { teamId });
     expect(resumeRes.statusCode).toBe(200);
@@ -253,9 +251,8 @@ describe("clock monitor enforcement", () => {
       { _id: new ObjectId(eventId) },
       {
         $set: {
-          accumulatedTime: 4 * 60 * 60,
-          startTime: Date.now(),
-          pausedAt: null,
+          // Set startTime to 4.5 hours ago so computeWorkSeconds returns > 4h
+          startTime: Date.now() - 4.5 * 60 * 60 * 1000,
           notifiedAt3h: null,
           notifiedAt4h: null,
         },
@@ -277,57 +274,6 @@ describe("clock monitor enforcement", () => {
     expect(reminders.length).toBe(2);
 
     await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
-  });
-
-  it("auto clocks out at 8h and closes running timer", async () => {
-    const db = client.db();
-    await db.collection("notifications").deleteMany({ userId: workerId });
-
-    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
-    expect(startRes.statusCode).toBe(200);
-    const eventId = startRes.json().event.id as string;
-
-    const workItemId = new ObjectId().toHexString();
-    await db.collection("timers").insertOne({
-      _id: new ObjectId(),
-      workItemId,
-      userId: workerId,
-      date: new Date().toISOString().slice(0, 10),
-      startTime: Date.now() - 90_000,
-      endTime: null,
-      createdAt: new Date(),
-    });
-
-    await db.collection("clockevents").updateOne(
-      { _id: new ObjectId(eventId) },
-      {
-        $set: {
-          accumulatedTime: 8 * 60 * 60,
-          startTime: Date.now(),
-          pausedAt: null,
-          autoClockedOutAt: null,
-        },
-      }
-    );
-
-    const run = await clockMonitorService.checkAndEnforce(Date.now());
-    expect(run.autoClockedOut).toBeGreaterThanOrEqual(1);
-
-    const activeRes = await inject("GET", "/v1/clock/active", workerCookie);
-    expect(activeRes.statusCode).toBe(200);
-    expect(activeRes.json().event).toBeNull();
-
-    const closedTimers = await db
-      .collection("timers")
-      .find({ userId: workerId, endTime: { $ne: null } })
-      .toArray();
-    expect(closedTimers.length).toBeGreaterThan(0);
-
-    const autoDone = await db.collection("notifications").findOne({
-      userId: workerId,
-      "data.type": "auto-clockout-8h",
-    });
-    expect(autoDone).not.toBeNull();
   });
 });
 
@@ -478,13 +424,9 @@ describe("PUT /v1/clock/:id/times", () => {
       {
         $set: {
           startTime: base,
-          originalStartTime: base,
           endTime: sessionEnd,
           breaks: [{ startTime: breakStart, endTime: breakEnd }],
-          totalPausedSeconds: 30 * 60,
           accumulatedTime: 60 * 60,
-          pausedAt: null,
-          pauseStartedSessionId: null,
         },
       }
     );
@@ -499,8 +441,9 @@ describe("PUT /v1/clock/:id/times", () => {
     expect(updated.breaks.length).toBe(1);
     expect(updated.breaks[0].startTime).toBe(breakStart);
     expect(updated.breaks[0].endTime).toBe(editedEnd);
-    expect(updated.totalPausedSeconds).toBe(15 * 60);
-    expect(updated.accumulatedTime).toBe(30 * 60);
+    // 15-min break is classified as "rest" (< 20 min) — not deducted from pay
+    expect(updated.breaks[0].type).toBe("rest");
+    expect(updated.accumulatedTime).toBe(45 * 60); // full 45-min span, nothing deducted
   });
 
   it("accepts manual break edits and recalculates session totals", async () => {
@@ -524,8 +467,9 @@ describe("PUT /v1/clock/:id/times", () => {
     expect(updated.breaks.length).toBe(1);
     expect(updated.breaks[0].startTime).toBe(breakStart);
     expect(updated.breaks[0].endTime).toBe(breakEnd);
-    expect(updated.totalPausedSeconds).toBe(10 * 60);
-    expect(updated.accumulatedTime).toBe(80 * 60);
+    // 10-min break is classified as "rest" (< 20 min) — not deducted from pay
+    expect(updated.breaks[0].type).toBe("rest");
+    expect(updated.accumulatedTime).toBe(90 * 60); // full 90-min span, nothing deducted
   });
 
   it("clearing endTime (null) always succeeds regardless of startTime", async () => {

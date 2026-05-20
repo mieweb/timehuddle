@@ -40,7 +40,6 @@ export async function ensureIndexes() {
   // ── Clock event indexes ─────────────────────────────────────────────────────
   const clockEvents = db.collection("clockevents");
   await clockEvents.createIndex({ userId: 1, teamId: 1, endTime: 1 });
-  await clockEvents.createIndex({ endTime: 1, autoClockedOutAt: 1 });
 
   // Personal access tokens
   const pats = db.collection("personal_access_tokens");

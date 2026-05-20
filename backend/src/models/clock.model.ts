@@ -1,20 +1,31 @@
 import { ObjectId } from "mongodb";
 import { clockEventsCollection } from "./index.js";
 
+/**
+ * A break interval embedded in a clock event.
+ * type is absent while the break is in progress; set on close.
+ * "rest" breaks (<30 min) are compensable (not deducted from pay).
+ * "meal" breaks (≥30 min) are non-compensable (deducted from pay).
+ */
+export interface ClockBreak {
+  startTime: number; // epoch ms
+  endTime: number | null; // null = break in progress
+  type?: "rest" | "meal"; // set when break closes
+  classificationSource?: "auto" | "manual"; // "auto" = duration-based default
+  notes?: string;
+  updatedBy?: string; // userId of last editor
+  updatedAt?: number; // epoch ms of last edit
+}
+
 export interface ClockEvent {
   _id: ObjectId;
   userId: string;
   teamId: string;
-  startTime: number; // epoch ms
-  originalStartTime?: number; // epoch ms immutable session start (kept across breaks/resumes)
-  accumulatedTime: number; // seconds
-  breaks?: Array<{ startTime: number; endTime: number | null }>; // recorded break periods
-  pausedAt?: number | null; // epoch ms when user started break
-  totalPausedSeconds?: number; // cumulative paused seconds for this session
-  pauseStartedSessionId?: string | null; // ticket timer paused when break started
+  startTime: number; // epoch ms — immutable shift start
+  accumulatedTime: number; // seconds — computed at clock-out (span minus deducted breaks)
+  breaks?: ClockBreak[]; // embedded break intervals
   notifiedAt3h?: number | null; // epoch ms when 3h reminder was sent
   notifiedAt4h?: number | null; // epoch ms when 4h reminder was sent
-  autoClockedOutAt?: number | null; // epoch ms if system auto-clocked out at 8h
   endTime: number | null; // epoch ms — null = still clocked in
 }
 

@@ -6,7 +6,7 @@ import {
   teamsCollection,
   usersCollection,
 } from "../models/index.js";
-import type { ClockEvent } from "../models/clock.model.js";
+import type { ClockBreak, ClockEvent } from "../models/clock.model.js";
 import {
   findActiveClockEventByUser,
   findActiveClockEventByUserTeam,
@@ -19,51 +19,96 @@ import { ActivityType } from "../models/activity.model.js";
 import { notificationService } from "./notification.service.js";
 import { emitActivity } from "./activity.service.js";
 
-const MAX_WORK_SECONDS_PER_DAY = 8 * 60 * 60;
-
-type BreakInterval = { startTime: number; endTime: number | null };
+/** 20-minute threshold: breaks ≥ this are non-compensable meal breaks (deducted). */
+const MEAL_BREAK_THRESHOLD_SECONDS = 20 * 60;
 
 function isValidId(id: string): boolean {
   return /^[0-9a-f]{24}$/i.test(id);
 }
 
-function getElapsedSeconds(fromEpochMs: number, nowEpochMs: number): number {
-  return Math.max(0, Math.floor((nowEpochMs - fromEpochMs) / 1000));
-}
-
-function getActiveWorkSeconds(
-  event: { accumulatedTime?: number; pausedAt?: number | null; startTime: number },
-  now: number
-): number {
-  const base = event.accumulatedTime ?? 0;
-  const isPaused = typeof event.pausedAt === "number";
-  if (isPaused) return Math.min(MAX_WORK_SECONDS_PER_DAY, base);
-  return Math.min(MAX_WORK_SECONDS_PER_DAY, base + getElapsedSeconds(event.startTime, now));
-}
-
-function toBreakIntervals(value: unknown): BreakInterval[] {
+/**
+ * Parse the raw `breaks` field from a MongoDB document into typed ClockBreak entries.
+ * Preserves all metadata (type, classificationSource, notes, etc.).
+ */
+export function toBreakEntries(value: unknown): ClockBreak[] {
   if (!Array.isArray(value)) return [];
   return value
-    .map((entry): BreakInterval | null => {
+    .map((entry): ClockBreak | null => {
       if (!entry || typeof entry !== "object") return null;
       const raw = entry as Record<string, unknown>;
       const startTime = raw["startTime"];
-      const endTime = raw["endTime"];
       if (typeof startTime !== "number") return null;
-      if (typeof endTime === "number") return { startTime, endTime };
-      return { startTime, endTime: null };
+      const endTime = typeof raw["endTime"] === "number" ? raw["endTime"] : null;
+      const type = raw["type"] === "rest" || raw["type"] === "meal" ? raw["type"] : undefined;
+      const classificationSource =
+        raw["classificationSource"] === "auto" || raw["classificationSource"] === "manual"
+          ? (raw["classificationSource"] as "auto" | "manual")
+          : undefined;
+      const notes = typeof raw["notes"] === "string" ? raw["notes"] : undefined;
+      const updatedBy = typeof raw["updatedBy"] === "string" ? raw["updatedBy"] : undefined;
+      const updatedAt = typeof raw["updatedAt"] === "number" ? raw["updatedAt"] : undefined;
+      return { startTime, endTime, type, classificationSource, notes, updatedBy, updatedAt };
     })
-    .filter((entry): entry is BreakInterval => entry !== null)
+    .filter((e): e is ClockBreak => e !== null)
     .sort((a, b) => a.startTime - b.startTime);
 }
 
-function normalizeBreakIntervals(
-  breaks: BreakInterval[],
+/** Auto-classify a break based on its duration. */
+function classifyBreak(durationSeconds: number): { type: "rest" | "meal"; classificationSource: "auto" } {
+  return {
+    type: durationSeconds >= MEAL_BREAK_THRESHOLD_SECONDS ? "meal" : "rest",
+    classificationSource: "auto",
+  };
+}
+
+/**
+ * Seconds to deduct from shift span for pay purposes.
+ * Only closed "meal" breaks or open breaks that have already exceeded 30 min are deducted.
+ */
+function computeDeductedBreakSeconds(breaks: ClockBreak[], now: number): number {
+  return breaks.reduce((sum, b) => {
+    const end = typeof b.endTime === "number" ? b.endTime : now;
+    if (end <= b.startTime) return sum;
+    const durationSeconds = Math.floor((end - b.startTime) / 1000);
+    if (typeof b.endTime === "number") {
+      // Closed break: use explicit type ("rest" = paid, anything else = deducted)
+      return b.type === "rest" ? sum : sum + durationSeconds;
+    }
+    // Open break: auto-classify by current duration for live display
+    return durationSeconds >= MEAL_BREAK_THRESHOLD_SECONDS ? sum + durationSeconds : sum;
+  }, 0);
+}
+
+/** Total break seconds across all breaks (for display, not pay deduction). */
+function computeTotalBreakSeconds(breaks: ClockBreak[], now: number): number {
+  return breaks.reduce((sum, b) => {
+    const end = typeof b.endTime === "number" ? b.endTime : now;
+    if (end <= b.startTime) return sum;
+    return sum + Math.floor((end - b.startTime) / 1000);
+  }, 0);
+}
+
+/**
+ * Compute net work seconds for a shift: full span minus deducted (meal) break seconds.
+ * No artificial cap — stores the actual hours worked.
+ */
+export function computeWorkSeconds(
+  event: Pick<ClockEvent, "startTime" | "endTime" | "breaks">,
+  now: number
+): number {
+  const shiftEnd = typeof event.endTime === "number" ? event.endTime : now;
+  const shiftSpan = Math.max(0, Math.floor((shiftEnd - event.startTime) / 1000));
+  const breaks = toBreakEntries((event as unknown as Record<string, unknown>)["breaks"]);
+  return Math.max(0, shiftSpan - computeDeductedBreakSeconds(breaks, now));
+}
+
+function normalizeBreakEntries(
+  breaks: ClockBreak[],
   sessionStart: number,
   sessionEnd: number | null
-): BreakInterval[] {
+): ClockBreak[] {
   const clipped = breaks
-    .map((b): BreakInterval | null => {
+    .map((b): ClockBreak | null => {
       const start = Math.max(sessionStart, b.startTime);
       const endCap = sessionEnd ?? null;
       const rawEnd = b.endTime;
@@ -73,28 +118,26 @@ function normalizeBreakIntervals(
       if (sessionEnd !== null && start >= sessionEnd) return null;
       if (typeof end === "number" && end <= sessionStart) return null;
       if (typeof end === "number" && end <= start) return null;
-      return { startTime: start, endTime: end };
+      return { ...b, startTime: start, endTime: end };
     })
-    .filter((b): b is BreakInterval => b !== null)
+    .filter((b): b is ClockBreak => b !== null)
     .sort((a, b) => a.startTime - b.startTime);
 
   if (!clipped.length) return [];
-  const merged: BreakInterval[] = [];
+  const merged: ClockBreak[] = [];
   for (const current of clipped) {
     const prev = merged[merged.length - 1];
     if (!prev) {
-      merged.push(current);
+      merged.push({ ...current });
       continue;
     }
-
     const prevEnd = prev.endTime;
     const currEnd = current.endTime;
     const overlap = prevEnd === null || current.startTime <= prevEnd;
     if (!overlap) {
-      merged.push(current);
+      merged.push({ ...current });
       continue;
     }
-
     if (prevEnd === null) continue;
     if (currEnd === null) {
       prev.endTime = null;
@@ -102,16 +145,7 @@ function normalizeBreakIntervals(
     }
     prev.endTime = Math.max(prevEnd, currEnd);
   }
-
   return merged;
-}
-
-function getBreakSeconds(breaks: BreakInterval[], now: number): number {
-  return breaks.reduce((sum, b) => {
-    const end = typeof b.endTime === "number" ? b.endTime : now;
-    if (end <= b.startTime) return sum;
-    return sum + Math.floor((end - b.startTime) / 1000);
-  }, 0);
 }
 
 // ─── SSE broadcast ────────────────────────────────────────────────────────────
@@ -150,45 +184,25 @@ export function toPublicClockEvent(e: ClockEvent) {
         ? rawEndTime
         : null;
 
-  const rawPausedAt = raw["pausedAt"];
-  const pausedAt =
-    rawPausedAt instanceof Date
-      ? rawPausedAt.getTime()
-      : typeof rawPausedAt === "number"
-        ? rawPausedAt
-        : null;
-
-  const totalPausedSeconds =
-    typeof e.totalPausedSeconds === "number"
-      ? e.totalPausedSeconds
-      : typeof raw["totalPausedSeconds"] === "number"
-        ? (raw["totalPausedSeconds"] as number)
-        : 0;
-
-  const originalStartTime =
-    typeof e.originalStartTime === "number"
-      ? e.originalStartTime
-      : typeof raw["originalStartTime"] === "number"
-        ? (raw["originalStartTime"] as number)
-        : startTime;
-
-  const breaks = toBreakIntervals(raw["breaks"]);
+  const breaks = toBreakEntries(raw["breaks"]);
+  const isPaused = breaks.some((b) => b.endTime === null);
 
   const now = Date.now();
-  const workSeconds = getActiveWorkSeconds(e, now);
+  const workSeconds = computeWorkSeconds({ startTime, endTime, breaks }, now);
+  const deductedBreakSeconds = computeDeductedBreakSeconds(breaks, now);
+  const totalBreakSeconds = computeTotalBreakSeconds(breaks, now);
 
   return {
     id: e._id.toHexString(),
     userId: e.userId,
     teamId: e.teamId,
     startTime,
-    originalStartTime,
     accumulatedTime: e.accumulatedTime,
     breaks,
     workSeconds,
-    isPaused: pausedAt !== null,
-    pausedAt,
-    totalPausedSeconds,
+    deductedBreakSeconds,
+    totalBreakSeconds,
+    isPaused,
     endTime,
   };
 }
@@ -237,15 +251,10 @@ export class ClockService {
       userId,
       teamId,
       startTime: now,
-      originalStartTime: now,
       accumulatedTime: 0,
       breaks: [],
-      pausedAt: null,
-      totalPausedSeconds: 0,
-      pauseStartedSessionId: null,
       notifiedAt3h: null,
       notifiedAt4h: null,
-      autoClockedOutAt: null,
       endTime: null,
     });
 
@@ -292,46 +301,39 @@ export class ClockService {
   }
 
   async stop(userId: string, teamId: string): Promise<PublicClockEvent | "not-found"> {
-    return this.stopWithReason(userId, teamId);
-  }
-
-  async stopWithReason(
-    userId: string,
-    teamId: string,
-    reason?: "auto-8h"
-  ): Promise<PublicClockEvent | "not-found"> {
     const coll = clockEventsCollection();
     const event = await coll.findOne({ userId, teamId, endTime: null });
     if (!event) return "not-found";
 
     const now = Date.now();
 
-    const prev = event.accumulatedTime ?? 0;
-    const elapsed =
-      typeof event.pausedAt === "number" ? 0 : getElapsedSeconds(event.startTime, now);
-    const finalSeconds = Math.min(MAX_WORK_SECONDS_PER_DAY, prev + elapsed);
-
-    // Close all open timer sessions for this user in a single updateMany
+    // Close any open timer sessions for this user
     await timerService.closeAllForUser(userId, now);
 
-    const $set: Record<string, unknown> = {
-      endTime: now,
-      accumulatedTime: finalSeconds,
-      pausedAt: null,
-      pauseStartedSessionId: null,
-      breaks: (() => {
-        const breaks = toBreakIntervals((event as unknown as Record<string, unknown>)["breaks"]);
-        if (typeof event.pausedAt !== "number") return breaks;
-        const openIdx = breaks.findIndex((b) => b.endTime === null);
-        if (openIdx === -1) return breaks;
-        const next = breaks.slice();
-        next[openIdx] = { ...next[openIdx], endTime: now };
-        return next;
-      })(),
-      ...(reason === "auto-8h" ? { autoClockedOutAt: now } : {}),
-    };
+    // Close any open break with auto-classification
+    const rawBreaks = (event as unknown as Record<string, unknown>)["breaks"];
+    const breaks = toBreakEntries(rawBreaks);
+    const closedBreaks: ClockBreak[] = breaks.map((b) => {
+      if (b.endTime !== null) return b;
+      const durationSeconds = Math.floor((now - b.startTime) / 1000);
+      return { ...b, endTime: now, ...classifyBreak(durationSeconds) };
+    });
 
-    await coll.updateOne({ _id: event._id }, { $set });
+    // Compute final accumulated time: full shift span minus deducted (meal) breaks
+    const shiftSpan = Math.floor((now - event.startTime) / 1000);
+    const deducted = computeDeductedBreakSeconds(closedBreaks, now);
+    const finalAccumulatedTime = Math.max(0, shiftSpan - deducted);
+
+    await coll.updateOne(
+      { _id: event._id },
+      {
+        $set: {
+          endTime: now,
+          accumulatedTime: finalAccumulatedTime,
+          breaks: closedBreaks,
+        },
+      }
+    );
 
     const updated = await coll.findOne({ _id: event._id });
     if (!updated) return "not-found";
@@ -371,20 +373,6 @@ export class ClockService {
         )
       );
 
-      if (reason === "auto-8h") {
-        await notificationService.create({
-          userId,
-          title: "TiméHuddle",
-          body: "Done for the day. Locked 8 hours and clocked you out.",
-          notificationData: {
-            type: "auto-clockout-8h",
-            teamId,
-            userId,
-            url: "/app/clock",
-          },
-        });
-      }
-
       void emitActivity({
         userId,
         teamId,
@@ -408,30 +396,20 @@ export class ClockService {
     const coll = clockEventsCollection();
     const event = await coll.findOne({ userId, teamId, endTime: null });
     if (!event) return "not-found";
-    if (typeof event.pausedAt === "number") return "already-paused";
+
+    const rawBreaks = (event as unknown as Record<string, unknown>)["breaks"];
+    const breaks = toBreakEntries(rawBreaks);
+    if (breaks.some((b) => b.endTime === null)) return "already-paused";
 
     const now = Date.now();
-    const elapsed = getElapsedSeconds(event.startTime, now);
-    const nextAccumulated = Math.min(
-      MAX_WORK_SECONDS_PER_DAY,
-      (event.accumulatedTime ?? 0) + elapsed
-    );
-    const breaks = toBreakIntervals((event as unknown as Record<string, unknown>)["breaks"]);
-    const hasOpenBreak = breaks.some((b) => b.endTime === null);
-    const nextBreaks = hasOpenBreak ? breaks : [...breaks, { startTime: now, endTime: null }];
-    const pausedSessionId = await timerService.closeRunningForUser(userId, now);
+    const nextBreaks: ClockBreak[] = [...breaks, { startTime: now, endTime: null }];
+
+    // Close any running timer session (not resumed automatically on resume)
+    await timerService.closeRunningForUser(userId, now);
 
     await coll.updateOne(
       { _id: event._id, endTime: null },
-      {
-        $set: {
-          accumulatedTime: nextAccumulated,
-          pausedAt: now,
-          startTime: now,
-          pauseStartedSessionId: pausedSessionId,
-          breaks: nextBreaks,
-        },
-      }
+      { $set: { breaks: nextBreaks } }
     );
 
     const updated = await coll.findOne({ _id: event._id });
@@ -448,38 +426,25 @@ export class ClockService {
     const coll = clockEventsCollection();
     const event = await coll.findOne({ userId, teamId, endTime: null });
     if (!event) return "not-found";
-    if (typeof event.pausedAt !== "number") return "not-paused";
+
+    const rawBreaks = (event as unknown as Record<string, unknown>)["breaks"];
+    const breaks = toBreakEntries(rawBreaks);
+    const openIdx = breaks.findIndex((b) => b.endTime === null);
+    if (openIdx === -1) return "not-paused";
 
     const now = Date.now();
-    const pausedSeconds = getElapsedSeconds(event.pausedAt, now);
-    const totalPausedSeconds = (event.totalPausedSeconds ?? 0) + pausedSeconds;
-    const pausedSessionId = event.pauseStartedSessionId ?? null;
-    const breaks = toBreakIntervals((event as unknown as Record<string, unknown>)["breaks"]);
-    const openIdx = breaks.findIndex((b) => b.endTime === null);
-    const nextBreaks =
-      openIdx === -1
-        ? breaks
-        : breaks.map((b, idx) => (idx === openIdx ? { ...b, endTime: now } : b));
+    const openBreak = breaks[openIdx];
+    const durationSeconds = Math.floor((now - openBreak.startTime) / 1000);
+    const classification = classifyBreak(durationSeconds);
+
+    const nextBreaks = breaks.map((b, idx) =>
+      idx === openIdx ? { ...b, endTime: now, ...classification } : b
+    );
 
     await coll.updateOne(
       { _id: event._id, endTime: null },
-      {
-        $set: {
-          startTime: now,
-          pausedAt: null,
-          totalPausedSeconds,
-          pauseStartedSessionId: null,
-          breaks: nextBreaks,
-        },
-      }
+      { $set: { breaks: nextBreaks } }
     );
-
-    if (pausedSessionId && isValidId(pausedSessionId)) {
-      const pausedSession = await timerService.getSessionById(pausedSessionId);
-      if (pausedSession && pausedSession.userId === userId) {
-        await timerService.startTimerForEntry(userId, pausedSession.workItemId, now);
-      }
-    }
 
     const updated = await coll.findOne({ _id: event._id });
     if (!updated) return "not-found";
@@ -495,7 +460,6 @@ export class ClockService {
     | {
         event: PublicClockEvent;
         workSeconds: number;
-        remainingSeconds: number;
         isPaused: boolean;
       }
     | "not-found"
@@ -504,12 +468,13 @@ export class ClockService {
     if (!event) return "not-found";
 
     const now = Date.now();
-    const workSeconds = getActiveWorkSeconds(event, now);
+    const rawBreaks = (event as unknown as Record<string, unknown>)["breaks"];
+    const breaks = toBreakEntries(rawBreaks);
+    const workSeconds = computeWorkSeconds(event, now);
     return {
       event: toPublicClockEvent(event),
       workSeconds,
-      remainingSeconds: Math.max(0, MAX_WORK_SECONDS_PER_DAY - workSeconds),
-      isPaused: typeof event.pausedAt === "number",
+      isPaused: breaks.some((b) => b.endTime === null),
     };
   }
 
@@ -519,7 +484,7 @@ export class ClockService {
     data: {
       startTime?: number;
       endTime?: number | null;
-      breaks?: Array<{ startTime: number; endTime: number | null }>;
+      breaks?: Array<{ startTime: number; endTime: number | null; type?: "rest" | "meal"; classificationSource?: "auto" | "manual"; notes?: string }>;
     }
   ): Promise<PublicClockEvent | "not-found" | "forbidden" | "invalid-range"> {
     if (!isValidId(clockEventId)) return "not-found";
@@ -528,7 +493,6 @@ export class ClockService {
     if (!event) return "not-found";
 
     // Allow self-service edits for the event owner. Admins can also edit.
-    // Future timesheet submission/locking should gate edits at this layer.
     if (event.userId !== requesterId) {
       const adminTeam = await teamsCollection().findOne({
         _id: new ObjectId(event.teamId),
@@ -537,7 +501,6 @@ export class ClockService {
       if (!adminTeam) return "forbidden";
     }
 
-    // Resolve the effective start/end after the partial update to validate the range.
     const effectiveStart = typeof data.startTime === "number" ? data.startTime : event.startTime;
     const effectiveEnd =
       data.endTime === null
@@ -549,35 +512,31 @@ export class ClockService {
       return "invalid-range";
     }
 
-    const existingBreaks = toBreakIntervals(
+    const existingBreaks = toBreakEntries(
       (event as unknown as Record<string, unknown>)["breaks"] || []
     );
     const requestedBreaks = Array.isArray(data.breaks)
-      ? toBreakIntervals(data.breaks)
+      ? toBreakEntries(data.breaks)
       : existingBreaks;
-    const normalizedBreaks = normalizeBreakIntervals(requestedBreaks, effectiveStart, effectiveEnd);
-    const now = Date.now();
-    const totalPausedSeconds = getBreakSeconds(normalizedBreaks, now);
+    const normalizedBreaks = normalizeBreakEntries(requestedBreaks, effectiveStart, effectiveEnd);
 
-    const $set: Record<string, unknown> = {
-      breaks: normalizedBreaks,
-      totalPausedSeconds,
-    };
-    if (typeof data.startTime === "number") {
-      $set.startTime = data.startTime;
-      $set.originalStartTime = data.startTime;
-    }
+    // Auto-classify any closed breaks that lack a type
+    const now = Date.now();
+    const classifiedBreaks: ClockBreak[] = normalizedBreaks.map((b) => {
+      if (b.endTime === null || b.type !== undefined) return b;
+      const durationSeconds = Math.floor((b.endTime - b.startTime) / 1000);
+      return { ...b, ...classifyBreak(durationSeconds) };
+    });
+
+    const $set: Record<string, unknown> = { breaks: classifiedBreaks };
+    if (typeof data.startTime === "number") $set.startTime = data.startTime;
     if (data.endTime === null) $set.endTime = null;
     else if (typeof data.endTime === "number") $set.endTime = data.endTime;
 
     if (effectiveEnd !== null) {
+      const deductedSeconds = computeDeductedBreakSeconds(classifiedBreaks, now);
       const spanSeconds = Math.max(0, Math.floor((effectiveEnd - effectiveStart) / 1000));
-      $set.accumulatedTime = Math.max(0, spanSeconds - totalPausedSeconds);
-      $set.pausedAt = null;
-      $set.pauseStartedSessionId = null;
-    } else {
-      const openBreak = normalizedBreaks.find((b) => b.endTime === null);
-      $set.pausedAt = openBreak ? openBreak.startTime : null;
+      $set.accumulatedTime = Math.max(0, spanSeconds - deductedSeconds);
     }
 
     if (Object.keys($set).length > 0) await coll.updateOne({ _id: event._id }, { $set });
@@ -645,12 +604,8 @@ export class ClockService {
       userId,
       teamId,
       startTime,
-      originalStartTime: startTime,
       accumulatedTime,
       breaks: [],
-      pausedAt: null,
-      totalPausedSeconds: 0,
-      pauseStartedSessionId: null,
       endTime,
     });
 
@@ -691,22 +646,19 @@ export class ClockService {
     const events = await clockEventsCollection()
       .find({
         userId: targetUserId,
-        $or: [
-          { startTime: { $gte: startMs, $lte: endMs } },
-          { originalStartTime: { $gte: startMs, $lte: endMs } },
-        ],
+        startTime: { $gte: startMs, $lte: endMs },
       })
       .sort({ startTime: -1 })
       .toArray();
 
     const sessions = events
       .map(toPublicClockEvent)
-      .sort((a, b) => (b.originalStartTime ?? b.startTime) - (a.originalStartTime ?? a.startTime));
+      .sort((a, b) => b.startTime - a.startTime);
     const completed = sessions.filter((s) => s.endTime !== null);
     const now = Date.now();
     const totalSeconds = sessions.reduce((sum, s) => {
       if (!s.endTime) {
-        return sum + getActiveWorkSeconds(s, now);
+        return sum + computeWorkSeconds(s, now);
       }
       const accumulated = s.accumulatedTime ?? 0;
       if (accumulated > 0) return sum + accumulated;
@@ -714,13 +666,13 @@ export class ClockService {
     }, 0);
     const avgSeconds = completed.length > 0 ? totalSeconds / completed.length : 0;
     const totalBreakSeconds = sessions.reduce((sum, s) => {
-      const breaks = toBreakIntervals(
+      const breaks = toBreakEntries(
         (s as unknown as Record<string, unknown>)["breaks"] ?? s.breaks
       );
-      return sum + getBreakSeconds(breaks, now);
+      return sum + computeTotalBreakSeconds(breaks, now);
     }, 0);
     const uniqueDates = new Set(
-      sessions.map((s) => new Date(s.originalStartTime ?? s.startTime).toISOString().split("T")[0])
+      sessions.map((s) => new Date(s.startTime).toISOString().split("T")[0])
     );
 
     return {
