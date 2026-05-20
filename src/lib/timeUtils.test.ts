@@ -56,6 +56,23 @@ describe('getActiveClockSeconds', () => {
     expect(getActiveClockSeconds(event, now)).toBe(60);
   });
 
+  it('deducts completed meal break seconds from live elapsed time', () => {
+    const startTime = 0;
+    const now = 3600 * 1000; // 1 hour later
+    const event = { startTime, endTime: null, deductedBreakSeconds: 1800 }; // 30min meal
+    expect(getActiveClockSeconds(event, now)).toBe(1800); // 3600 - 1800
+  });
+
+  it('freezes at workSeconds snapshot when paused', () => {
+    const event = { startTime: 0, endTime: null, isPaused: true, workSeconds: 1234 };
+    expect(getActiveClockSeconds(event, Date.now())).toBe(1234);
+  });
+
+  it('returns 0 when paused with no workSeconds', () => {
+    const event = { startTime: 0, endTime: null, isPaused: true };
+    expect(getActiveClockSeconds(event, Date.now())).toBe(0);
+  });
+
   it('guards against negative elapsed time (future startTime)', () => {
     const event = { startTime: 100000, endTime: null };
     expect(getActiveClockSeconds(event, 1000)).toBe(0);

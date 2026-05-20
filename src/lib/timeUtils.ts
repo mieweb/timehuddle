@@ -55,17 +55,18 @@ export function getActiveClockSeconds(
   event: {
     startTime: number;
     endTime: number | null;
-    accumulatedTime?: number;
     isPaused?: boolean;
     workSeconds?: number;
+    deductedBreakSeconds?: number;
   } | null,
   nowMs: number,
 ): number {
   if (!event || event.endTime != null) return 0;
-  if (typeof event.workSeconds === 'number') return Math.max(0, event.workSeconds);
 
-  const accumulated = event.accumulatedTime ?? 0;
-  if (event.isPaused) return Math.max(0, accumulated);
+  // Paused: freeze at the last computed work snapshot
+  if (event.isPaused) return Math.max(0, event.workSeconds ?? 0);
 
-  return Math.max(0, accumulated + Math.floor((nowMs - event.startTime) / 1000));
+  // Active: tick live — shift span minus already-deducted meal breaks
+  const deducted = event.deductedBreakSeconds ?? 0;
+  return Math.max(0, Math.floor((nowMs - event.startTime) / 1000) - deducted);
 }
