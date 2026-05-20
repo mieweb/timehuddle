@@ -30,39 +30,49 @@ export const ProfileAvatarCropModal: React.FC<ProfileAvatarCropModalProps> = ({
     [],
   );
 
+  const [cropError, setCropError] = useState<string | null>(null);
+
   const getCroppedImg = async () => {
     if (!image || !croppedAreaPixels) return;
     setLoading(true);
-    const createImage = (url: string) =>
-      new Promise<HTMLImageElement>((resolve, reject) => {
+    setCropError(null);
+    try {
+      const imageEl = await new Promise<HTMLImageElement>((resolve, reject) => {
         const img = new window.Image();
         img.addEventListener('load', () => resolve(img));
-        img.addEventListener('error', (err) => reject(err));
+        img.addEventListener('error', () => reject(new Error('Failed to load image')));
         img.setAttribute('crossOrigin', 'anonymous');
-        img.src = url;
+        img.src = image;
       });
-    const imageEl = await createImage(image);
-    const canvas = document.createElement('canvas');
-    const size = Math.max(croppedAreaPixels.width, croppedAreaPixels.height);
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(
-      imageEl,
-      croppedAreaPixels.x,
-      croppedAreaPixels.y,
-      croppedAreaPixels.width,
-      croppedAreaPixels.height,
-      0,
-      0,
-      size,
-      size,
-    );
-    canvas.toBlob((blob) => {
+      const canvas = document.createElement('canvas');
+      const size = Math.max(croppedAreaPixels.width, croppedAreaPixels.height);
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas 2D context unavailable');
+      ctx.drawImage(
+        imageEl,
+        croppedAreaPixels.x,
+        croppedAreaPixels.y,
+        croppedAreaPixels.width,
+        croppedAreaPixels.height,
+        0,
+        0,
+        size,
+        size,
+      );
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((b) => {
+          if (b) resolve(b);
+          else reject(new Error('Failed to encode cropped image'));
+        }, 'image/png');
+      });
+      onCropComplete(blob);
+    } catch (err) {
+      setCropError(err instanceof Error ? err.message : 'Crop failed');
+    } finally {
       setLoading(false);
-      if (blob) onCropComplete(blob);
-    }, 'image/png');
+    }
   };
 
   return (
@@ -92,6 +102,7 @@ export const ProfileAvatarCropModal: React.FC<ProfileAvatarCropModalProps> = ({
         )}
       </ModalBody>
       <ModalFooter>
+        {cropError && <p className="text-sm text-red-500 mr-auto">{cropError}</p>}
         <Button variant="outline" onClick={onClose} disabled={loading}>
           Cancel
         </Button>
