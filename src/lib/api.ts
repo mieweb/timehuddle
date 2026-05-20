@@ -59,15 +59,14 @@ export interface PublicUser {
   sharedTeams?: Array<{ id: string; name: string; isAdmin: boolean }>;
 }
 
+function toAbsoluteUrl(url: string | null): string | null {
+  if (!url || /^https?:\/\//i.test(url)) return url;
+  return `${TIMECORE_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
 function withAbsoluteImage(user: PublicUser): PublicUser {
-  const image =
-    user.image && !/^https?:\/\//i.test(user.image)
-      ? `${TIMECORE_BASE_URL}${user.image.startsWith('/') ? '' : '/'}${user.image}`
-      : user.image;
-  const backgroundUrl =
-    user.backgroundUrl && !/^https?:\/\//i.test(user.backgroundUrl)
-      ? `${TIMECORE_BASE_URL}${user.backgroundUrl.startsWith('/') ? '' : '/'}${user.backgroundUrl}`
-      : user.backgroundUrl;
+  const image = toAbsoluteUrl(user.image);
+  const backgroundUrl = toAbsoluteUrl(user.backgroundUrl);
   if (image === user.image && backgroundUrl === user.backgroundUrl) return user;
   return { ...user, image, backgroundUrl };
 }
@@ -303,9 +302,11 @@ export const userApi = {
         res.status,
       );
     }
-    return res.json() as Promise<{ avatarUrl: string }>;
+    const data = (await res.json()) as { avatarUrl: string };
+    return { avatarUrl: toAbsoluteUrl(data.avatarUrl) as string };
   },
   /** Delete the current user's avatar. */
+
   deleteAvatar: async (): Promise<void> => {
     const token = sessionToken.get();
     const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/avatar`, {
