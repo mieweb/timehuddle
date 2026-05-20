@@ -17,7 +17,9 @@
  */
 import { expect, test } from '@playwright/test';
 
-const TEST_EMAIL = 'alice@example.com';
+// Use bob (not alice) so parallel CI runs don't clash with alice-based tests
+// (work, profile, tickets, api-token, pulsevault all use alice in beforeEach)
+const TEST_EMAIL = 'bob@example.com';
 const TEST_PASSWORD = 'Password1!';
 const API_BASE = 'http://localhost:4000/v1';
 
