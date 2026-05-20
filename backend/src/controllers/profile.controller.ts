@@ -1,5 +1,6 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import fs from "fs";
+import { pipeline } from "stream/promises";
 import path from "path";
 import {
   profileMediaDir,
@@ -79,7 +80,7 @@ export const profileController = {
     }
 
     const dir = profileMediaDir();
-    fs.mkdirSync(dir, { recursive: true });
+    await fs.promises.mkdir(dir, { recursive: true });
 
     const filename = buildProfileMediaFilename(userId, "avatar", data.mimetype);
     const filepath = path.join(dir, filename);
@@ -88,7 +89,7 @@ export const profileController = {
     const existing = await profilesCollection().findOne({ userId, app: "timeharbor" as const });
     unlinkProfileMedia(existing?.avatarUrl);
 
-    fs.writeFileSync(filepath, await data.toBuffer());
+    await pipeline(data.file, fs.createWriteStream(filepath));
 
     const avatarUrl = profileMediaUrl(filename);
 
@@ -138,7 +139,7 @@ export const profileController = {
     }
 
     const dir = profileMediaDir();
-    fs.mkdirSync(dir, { recursive: true });
+    await fs.promises.mkdir(dir, { recursive: true });
 
     const filename = buildProfileMediaFilename(userId, "background", data.mimetype);
     const filepath = path.join(dir, filename);
@@ -147,7 +148,7 @@ export const profileController = {
     const existing = await profilesCollection().findOne({ userId, app: "timeharbor" as const });
     unlinkProfileMedia(existing?.backgroundUrl);
 
-    fs.writeFileSync(filepath, await data.toBuffer());
+    await pipeline(data.file, fs.createWriteStream(filepath));
 
     const backgroundUrl = profileMediaUrl(filename);
 
