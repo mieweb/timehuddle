@@ -627,7 +627,7 @@ export class TimerService {
    */
   private isPreviousDate(date: string, tz?: string): boolean {
     const today = tz
-      ? new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date())
+      ? new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date())
       : new Date().toISOString().slice(0, 10);
     return date < today;
   }

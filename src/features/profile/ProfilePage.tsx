@@ -129,14 +129,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
       {/* <ProfileNotices notices={[{ type: 'coming-soon' }]} /> */}
 
       {/* Hero card */}
-      <div
-        className="relative overflow-hidden rounded-2xl shadow-lg"
-        style={{
-          background: backgroundUrl
-            ? undefined
-            : 'linear-gradient(to bottom right, #262626, #0a0a0a)',
-        }}
-      >
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-neutral-800 to-neutral-950 dark:from-neutral-900 dark:to-black shadow-lg">
         {/* Background image (if set) */}
         {backgroundUrl && (
           <div
