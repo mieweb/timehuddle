@@ -121,6 +121,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const [descDraft, setDescDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [attachmentRefresh, setAttachmentRefresh] = useState(0);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Load ticket + activity
   useEffect(() => {
@@ -146,7 +147,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     teamApi
       .getMembers(ticket.teamId)
       .then(setMembers)
-      .catch(() => {});
+      .catch(() => setActionError('Failed to load team members. Assignee cannot be changed.'));
   }, [ticket?.teamId]);
 
   // ── Handlers ──
@@ -192,8 +193,13 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
   const handleAssigneeChange = async (assignedToUserId: string) => {
     if (!ticket) return;
-    const updated = await ticketApi.assignTicket(ticket.id, assignedToUserId || null);
-    setTicket(updated);
+    setActionError(null);
+    try {
+      const updated = await ticketApi.assignTicket(ticket.id, assignedToUserId || null);
+      setTicket(updated);
+    } catch {
+      setActionError('Failed to update assignee. You may not have permission.');
+    }
   };
 
   const handleDelete = async () => {
@@ -512,6 +518,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                   value={ticket.assignedTo ?? ''}
                   onValueChange={(val: string) => void handleAssigneeChange(val)}
                 />
+                {actionError && <p className="mt-1 text-xs text-red-500">{actionError}</p>}
               </div>
 
               {/* Created by */}
