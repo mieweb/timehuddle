@@ -18,6 +18,7 @@ import {
   faGauge,
   faGear,
   faListCheck,
+  faSitemap,
   faMoon,
   faSpinner,
   faStopwatch,
