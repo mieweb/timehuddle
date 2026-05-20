@@ -357,7 +357,11 @@ export async function clockRoutes(app: FastifyInstance) {
         arr.push(b);
         breaksByEventId.set(b.clockEventId, arr);
       }
-      return { events: events.map((e) => toPublicClockEvent(e, breaksByEventId.get(e._id.toHexString()) ?? [])) };
+      return {
+        events: events.map((e) =>
+          toPublicClockEvent(e, breaksByEventId.get(e._id.toHexString()) ?? [])
+        ),
+      };
     }
   );
 

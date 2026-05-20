@@ -15,7 +15,9 @@ async function up(db) {
   const coll = db.collection("clockevents");
 
   // Process in batches to avoid loading all documents at once.
-  const cursor = coll.find({ breaks: { $elemMatch: { endTime: { $ne: null }, type: { $exists: false } } } });
+  const cursor = coll.find({
+    breaks: { $elemMatch: { endTime: { $ne: null }, type: { $exists: false } } },
+  });
 
   let modified = 0;
   for await (const doc of cursor) {
@@ -23,17 +25,14 @@ async function up(db) {
 
     const updatedBreaks = doc.breaks.map((b) => {
       if (typeof b.endTime !== "number") return b; // open break — skip
-      if (b.type !== undefined) return b;           // already classified — skip
+      if (b.type !== undefined) return b; // already classified — skip
 
       const durationSeconds = Math.max(0, Math.floor((b.endTime - b.startTime) / 1000));
       const type = durationSeconds >= MEAL_BREAK_THRESHOLD_SECONDS ? "meal" : "rest";
       return { ...b, type, classificationSource: "auto" };
     });
 
-    await coll.updateOne(
-      { _id: doc._id },
-      { $set: { breaks: updatedBreaks } }
-    );
+    await coll.updateOne({ _id: doc._id }, { $set: { breaks: updatedBreaks } });
     modified++;
   }
 

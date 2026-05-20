@@ -57,7 +57,10 @@ export function toBreakEntries(value: unknown): ClockBreakInterval[] {
 }
 
 /** Auto-classify a break based on its duration. */
-function classifyBreak(durationSeconds: number): { type: "rest" | "meal"; classificationSource: "auto" } {
+function classifyBreak(durationSeconds: number): {
+  type: "rest" | "meal";
+  classificationSource: "auto";
+} {
   return {
     type: durationSeconds >= MEAL_BREAK_THRESHOLD_SECONDS ? "meal" : "rest",
     classificationSource: "auto",
@@ -484,7 +487,13 @@ export class ClockService {
     data: {
       startTime?: number;
       endTime?: number | null;
-      breaks?: Array<{ startTime: number; endTime: number | null; type?: "rest" | "meal"; classificationSource?: "auto" | "manual"; notes?: string }>;
+      breaks?: Array<{
+        startTime: number;
+        endTime: number | null;
+        type?: "rest" | "meal";
+        classificationSource?: "auto" | "manual";
+        notes?: string;
+      }>;
     }
   ): Promise<PublicClockEvent | "not-found" | "forbidden" | "invalid-range"> {
     if (!isValidId(clockEventId)) return "not-found";
@@ -710,4 +719,3 @@ export class ClockService {
 }
 
 export const clockService = new ClockService();
-

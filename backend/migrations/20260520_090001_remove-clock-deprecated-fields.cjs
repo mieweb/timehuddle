@@ -40,7 +40,9 @@ async function down(_db) {
   // Rolling back this migration would require re-deriving pausedAt/totalPausedSeconds
   // from the breaks[] array, which is complex and lossy. If a rollback is needed,
   // restore from a database backup taken before this migration ran.
-  console.log("[remove-clock-deprecated-fields] down: no-op (fields not restored — restore from backup if needed)");
+  console.log(
+    "[remove-clock-deprecated-fields] down: no-op (fields not restored — restore from backup if needed)"
+  );
 }
 
 module.exports = { up, down };
