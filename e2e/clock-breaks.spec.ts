@@ -43,7 +43,9 @@ async function ensureClockedOut(page: import('@playwright/test').Page) {
 }
 
 /** Fetch alice's first team and clock in. Returns the new event id. */
-async function clockIn(page: import('@playwright/test').Page): Promise<{ eventId: string; teamId: string }> {
+async function clockIn(
+  page: import('@playwright/test').Page,
+): Promise<{ eventId: string; teamId: string }> {
   const teamsRes = await page.request.get(`${API_BASE}/teams`);
   const { teams } = (await teamsRes.json()) as { teams: { id: string }[] };
   const teamId = teams[0].id;
