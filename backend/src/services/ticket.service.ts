@@ -309,7 +309,7 @@ export class TicketService {
     return result.modifiedCount;
   }
 
-  // Assign ticket: allowed for team admins only.
+  // Assign ticket: allowed for any team member.
   async assign(
     id: string,
     requesterId: string,
