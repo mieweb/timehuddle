@@ -54,6 +54,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   const [avatarModalOpen, setAvatarModalOpen] = useState(false);
   const [avatarImage, setAvatarImage] = useState<string | null>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
+  // Background image state
+  const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null);
+  const [backgroundUploading, setBackgroundUploading] = useState(false);
 
   useEffect(() => {
     setIsReady(false);
@@ -61,7 +64,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
     setIsNotFound(false);
     const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
     fetch
-      .then((p) => setProfile(p))
+      .then((p) => {
+        setProfile(p);
+        setBackgroundUrl(p.backgroundUrl ?? null);
+      })
       .catch((err) => {
         if (err instanceof ApiError && err.status === 403) {
           setIsForbidden(true);
@@ -123,16 +129,93 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
       {/* <ProfileNotices notices={[{ type: 'coming-soon' }]} /> */}
 
       {/* Hero card */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-neutral-800 to-neutral-950 dark:from-neutral-900 dark:to-black shadow-lg">
-        {/* Decorative background circles */}
-        <div
-          className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/5"
-          aria-hidden
-        />
-        <div
-          className="pointer-events-none absolute -left-10 bottom-0 h-40 w-40 rounded-full bg-white/[0.03]"
-          aria-hidden
-        />
+      <div
+        className="relative overflow-hidden rounded-2xl shadow-lg"
+        style={{
+          background: backgroundUrl
+            ? undefined
+            : 'linear-gradient(to bottom right, #262626, #0a0a0a)',
+        }}
+      >
+        {/* Background image (if set) */}
+        {backgroundUrl && (
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url(${backgroundUrl})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+            aria-hidden
+          >
+            {/* Darken overlay so text stays readable */}
+            <div className="absolute inset-0 bg-black/50" />
+          </div>
+        )}
+
+        {/* Decorative background circles (shown only without bg image) */}
+        {!backgroundUrl && (
+          <>
+            <div
+              className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/5"
+              aria-hidden
+            />
+            <div
+              className="pointer-events-none absolute -left-10 bottom-0 h-40 w-40 rounded-full bg-white/[0.03]"
+              aria-hidden
+            />
+          </>
+        )}
+
+        {/* Background upload button — top-right corner, own profile only */}
+        {isOwn && (
+          <div className="absolute right-3 top-3 z-20">
+            <label
+              htmlFor="background-upload-input"
+              className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-black/40 px-2.5 py-1.5 text-xs text-white backdrop-blur-sm hover:bg-black/60 transition-colors"
+              aria-label="Change background image"
+            >
+              <FontAwesomeIcon icon={faArrowUpFromBracket} className="text-xs" />
+              {backgroundUploading ? 'Uploading…' : 'Background'}
+            </label>
+            <input
+              id="background-upload-input"
+              type="file"
+              accept="image/*"
+              className="hidden"
+              disabled={backgroundUploading}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                e.target.value = '';
+                setBackgroundUploading(true);
+                try {
+                  const { backgroundUrl: newUrl } = await userApi.uploadBackground(file);
+                  setBackgroundUrl(newUrl);
+                } finally {
+                  setBackgroundUploading(false);
+                }
+              }}
+            />
+            {backgroundUrl && (
+              <button
+                className="mt-1 flex w-full cursor-pointer items-center justify-center rounded-lg bg-black/40 px-2.5 py-1 text-xs text-red-300 backdrop-blur-sm hover:bg-black/60 transition-colors"
+                aria-label="Remove background image"
+                onClick={async () => {
+                  setBackgroundUploading(true);
+                  try {
+                    await userApi.deleteBackground();
+                    setBackgroundUrl(null);
+                  } finally {
+                    setBackgroundUploading(false);
+                  }
+                }}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="relative flex flex-col items-center gap-4 px-6 pb-8 pt-10 text-center sm:flex-row sm:items-end sm:gap-6 sm:px-10 sm:pb-8 sm:pt-10 sm:text-left">
           {/* Avatar + upload button (own profile) */}

@@ -222,7 +222,8 @@ export class TimerService {
   async startTimerForEntry(
     userId: string,
     entryId: string,
-    now: number
+    now: number,
+    tz?: string
   ): Promise<
     | { type: "success"; session: Timer; closedSessionId: string | null }
     | { type: "not-found" }
@@ -235,7 +236,7 @@ export class TimerService {
     if (entry.userId !== userId) return { type: "forbidden" };
 
     // Prevent starting timers on previous days
-    if (this.isPreviousDate(entry.date)) {
+    if (this.isPreviousDate(entry.date, tz)) {
       return { type: "invalid-date" };
     }
 
@@ -624,8 +625,10 @@ export class TimerService {
   /**
    * Check if the given date is earlier than today.
    */
-  private isPreviousDate(date: string): boolean {
-    const today = new Date().toISOString().slice(0, 10);
+  private isPreviousDate(date: string, tz?: string): boolean {
+    const today = tz
+      ? new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date())
+      : new Date().toISOString().slice(0, 10);
     return date < today;
   }
 }

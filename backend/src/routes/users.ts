@@ -1,8 +1,5 @@
 import { ObjectId } from "mongodb";
 import { FastifyInstance } from "fastify";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
 import { requireAuth } from "../middleware/require-auth.js";
 import {
   organizationsCollection,
@@ -79,24 +76,6 @@ const publicTeamMembershipSchema = {
 
 export async function userRoutes(app: FastifyInstance) {
   type DefaultOrganizationRole = "owner" | "admin" | "member";
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const avatarUploadsDir = path.resolve(__dirname, "..", "..", "uploads", "avatars");
-
-  function findLegacyAvatarUrl(userId: string): string | null {
-    if (!fs.existsSync(avatarUploadsDir)) return null;
-
-    const candidates = fs
-      .readdirSync(avatarUploadsDir)
-      .filter((name) => name.startsWith(`${userId}-`) && /\.(png|jpe?g)$/i.test(name))
-      .map((name) => ({
-        name,
-        mtimeMs: fs.statSync(path.join(avatarUploadsDir, name)).mtimeMs,
-      }))
-      .sort((a, b) => b.mtimeMs - a.mtimeMs);
-
-    const latest = candidates[0]?.name;
-    return latest ? `/uploads/avatars/${latest}` : null;
-  }
 
   async function resolveDefaultOrganizationMembership(userId: string): Promise<{
     organizationId: string;
@@ -504,10 +483,12 @@ export async function userRoutes(app: FastifyInstance) {
       ]);
       // Prefer uploaded avatar over OAuth session image
       const image = profile?.avatarUrl ?? dbUser?.image ?? sessionUser.image ?? null;
+      const backgroundUrl = profile?.backgroundUrl ?? null;
       return reply.send({
         user: {
           ...sessionUser,
           image,
+          backgroundUrl,
           username: dbUser?.username ?? null,
           organizationMembership,
         },
@@ -684,29 +665,12 @@ export async function userRoutes(app: FastifyInstance) {
       app: "timeharbor" as const,
     });
 
-    const recoveredAvatarUrl = !profile?.avatarUrl ? findLegacyAvatarUrl(userId) : null;
-    if (recoveredAvatarUrl) {
-      await profilesCollection().findOneAndUpdate(
-        { userId, app: "timeharbor" as const },
-        {
-          $setOnInsert: {
-            userId,
-            app: "timeharbor" as const,
-            displayName: u.name,
-            status: "online" as const,
-            createdAt: new Date(),
-          },
-          $set: { avatarUrl: recoveredAvatarUrl, updatedAt: new Date() },
-        },
-        { upsert: true, returnDocument: "after" }
-      );
-    }
-
     return {
       id: userId,
       name: u.name,
       username: u.username ?? null,
-      image: profile?.avatarUrl ?? recoveredAvatarUrl ?? u.image ?? null,
+      image: profile?.avatarUrl ?? u.image ?? null,
+      backgroundUrl: profile?.backgroundUrl ?? null,
       bio: u.bio ?? "",
       website: u.website ?? "",
       reportsTo: await resolveReportsTo(u),
@@ -971,7 +935,7 @@ export async function userRoutes(app: FastifyInstance) {
     }
   );
 
-  // ─── Avatar upload ──────────────────────────────────────────────────────────
+  // ─── Avatar upload / delete ─────────────────────────────────────────────────
   app.post(
     "/me/avatar",
     {
@@ -989,5 +953,59 @@ export async function userRoutes(app: FastifyInstance) {
       },
     },
     profileController.uploadAvatar
+  );
+
+  app.delete(
+    "/me/avatar",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Delete avatar image for current user",
+        security: [{ cookieAuth: [] }],
+        response: {
+          200: { type: "object", properties: { ok: { type: "boolean" } } },
+          ...unauthorizedResponse,
+        },
+      },
+    },
+    profileController.deleteAvatar
+  );
+
+  // ─── Background image upload / delete ───────────────────────────────────────
+  app.post(
+    "/me/background",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Upload profile background image for current user (multipart/form-data)",
+        security: [{ cookieAuth: [] }],
+        consumes: ["multipart/form-data"],
+        response: {
+          200: { type: "object", properties: { backgroundUrl: { type: "string" } } },
+          400: { type: "object", properties: { error: { type: "string" } } },
+          ...unauthorizedResponse,
+        },
+      },
+    },
+    profileController.uploadBackground
+  );
+
+  app.delete(
+    "/me/background",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Delete profile background image for current user",
+        security: [{ cookieAuth: [] }],
+        response: {
+          200: { type: "object", properties: { ok: { type: "boolean" } } },
+          ...unauthorizedResponse,
+        },
+      },
+    },
+    profileController.deleteBackground
   );
 }

@@ -254,7 +254,10 @@ export async function timerRoutes(app: FastifyInstance) {
         body: {
           type: "object",
           additionalProperties: false,
-          properties: { now: { type: "number" } },
+          properties: {
+            now: { type: "number" },
+            tz: { type: "string" },
+          },
         },
         response: {
           200: {
@@ -273,9 +276,9 @@ export async function timerRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id: userId } = (req as any).user;
       const { id: entryId } = req.params as { id: string };
-      const { now = Date.now() } = req.body as { now?: number };
+      const { now = Date.now(), tz } = req.body as { now?: number; tz?: string };
 
-      const result = await timerService.startTimerForEntry(userId, entryId, now);
+      const result = await timerService.startTimerForEntry(userId, entryId, now, tz);
 
       switch (result.type) {
         case "not-found":

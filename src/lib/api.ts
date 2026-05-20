@@ -24,6 +24,7 @@ export interface TimecoreUser {
   createdAt: string;
   emailVerified: boolean;
   image?: string | null;
+  backgroundUrl?: string | null;
   /** Canonical username — null until the user has claimed one. */
   username: string | null;
   organizationMembership?: {
@@ -49,6 +50,7 @@ export interface PublicUser {
   /** Canonical username/handle. Null until the user claims one. */
   username: string | null;
   image: string | null;
+  backgroundUrl: string | null;
   bio: string;
   website: string;
   reportsTo: { id: string; name: string; username: string | null } | null;
@@ -58,12 +60,16 @@ export interface PublicUser {
 }
 
 function withAbsoluteImage(user: PublicUser): PublicUser {
-  if (!user.image) return user;
-  if (/^https?:\/\//i.test(user.image)) return user;
-  return {
-    ...user,
-    image: `${TIMECORE_BASE_URL}${user.image.startsWith('/') ? '' : '/'}${user.image}`,
-  };
+  const image =
+    user.image && !/^https?:\/\//i.test(user.image)
+      ? `${TIMECORE_BASE_URL}${user.image.startsWith('/') ? '' : '/'}${user.image}`
+      : user.image;
+  const backgroundUrl =
+    user.backgroundUrl && !/^https?:\/\//i.test(user.backgroundUrl)
+      ? `${TIMECORE_BASE_URL}${user.backgroundUrl.startsWith('/') ? '' : '/'}${user.backgroundUrl}`
+      : user.backgroundUrl;
+  if (image === user.image && backgroundUrl === user.backgroundUrl) return user;
+  return { ...user, image, backgroundUrl };
 }
 
 /** API error that carries the HTTP status code. */
@@ -261,6 +267,9 @@ export const authApi = {
       if (data?.user?.image && !/^https?:\/\//i.test(data.user.image)) {
         data.user.image = `${TIMECORE_BASE_URL}${data.user.image.startsWith('/') ? '' : '/'}${data.user.image}`;
       }
+      if (data?.user?.backgroundUrl && !/^https?:\/\//i.test(data.user.backgroundUrl)) {
+        data.user.backgroundUrl = `${TIMECORE_BASE_URL}${data.user.backgroundUrl.startsWith('/') ? '' : '/'}${data.user.backgroundUrl}`;
+      }
       return data;
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return null;
@@ -295,6 +304,51 @@ export const userApi = {
       );
     }
     return res.json() as Promise<{ avatarUrl: string }>;
+  },
+  /** Delete the current user's avatar. */
+  deleteAvatar: async (): Promise<void> => {
+    const token = sessionToken.get();
+    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/avatar`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
+  },
+  /** Upload a new background image for the current user (multipart/form-data). Returns { backgroundUrl }. */
+  uploadBackground: async (blob: Blob): Promise<{ backgroundUrl: string }> => {
+    const formData = new FormData();
+    formData.append('background', blob, 'background.jpg');
+    const token = sessionToken.get();
+    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/background`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: formData,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+        res.status,
+      );
+    }
+    const result = (await res.json()) as { backgroundUrl: string };
+    return {
+      backgroundUrl: `${TIMECORE_BASE_URL}${result.backgroundUrl.startsWith('/') ? '' : '/'}${result.backgroundUrl}`,
+    };
+  },
+  /** Delete the current user's background image. */
+  deleteBackground: async (): Promise<void> => {
+    const token = sessionToken.get();
+    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/background`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
   },
   /** Get a single user's public profile by ID. */
   getUser: (id: string) =>
@@ -859,7 +913,7 @@ export const timerApi = {
   startSession: (entryId: string, now?: number) =>
     request<{ session: Timer; closedSessionId?: string }>(
       `/v1/timers/entries/${encodeURIComponent(entryId)}/start`,
-      { method: 'POST', body: JSON.stringify({ now: now ?? Date.now() }) },
+      { method: 'POST', body: JSON.stringify({ now: now ?? Date.now(), tz: clientTz() }) },
     ),
 
   /** Stop a running timer. */

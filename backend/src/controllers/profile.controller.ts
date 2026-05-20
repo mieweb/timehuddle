@@ -1,13 +1,18 @@
 import { FastifyRequest, FastifyReply } from "fastify";
-import { fileURLToPath } from "url";
-import path from "path";
 import fs from "fs";
-import crypto from "crypto";
+import path from "path";
+import {
+  profileMediaDir,
+  buildProfileMediaFilename,
+  profileMediaUrl,
+} from "../lib/profileMedia.js";
 import { profilesCollection } from "../models/index.js";
 
-function avatarStorageDir() {
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(__dirname, "..", "..", "data", "avatars");
+/** Delete a profile media file identified by its stored URL (fire-and-forget). */
+function unlinkProfileMedia(storedUrl: string | undefined | null): void {
+  if (!storedUrl) return;
+  const filename = storedUrl.split("/").pop();
+  if (filename) fs.unlink(path.join(profileMediaDir(), filename), () => {});
 }
 
 export const profileController = {
@@ -69,34 +74,23 @@ export const profileController = {
       return reply.status(400).send({ error: "No file uploaded" });
     }
 
-    // Allow PNG and JPEG files
     if (data.mimetype !== "image/png" && data.mimetype !== "image/jpeg") {
       return reply.status(400).send({ error: "Only PNG and JPEG images are allowed." });
     }
 
-    const uploadsDir = avatarStorageDir();
-    fs.mkdirSync(uploadsDir, { recursive: true });
+    const dir = profileMediaDir();
+    fs.mkdirSync(dir, { recursive: true });
 
-    // Use correct extension
-    const ext = data.mimetype === "image/png" ? "png" : "jpg";
-    const filename = `${userId}-${crypto.randomBytes(8).toString("hex")}.${ext}`;
-    const filepath = path.join(uploadsDir, filename);
+    const filename = buildProfileMediaFilename(userId, "avatar", data.mimetype);
+    const filepath = path.join(dir, filename);
 
-    // Delete old avatar file if exists
+    // Delete old avatar file before saving the new one
     const existing = await profilesCollection().findOne({ userId, app: "timeharbor" as const });
-    if (existing?.avatarUrl) {
-      const oldFile = existing.avatarUrl.split("/").pop();
-      if (oldFile) {
-        const oldPath = path.join(uploadsDir, oldFile);
-        fs.unlink(oldPath, () => {});
-      }
-    }
+    unlinkProfileMedia(existing?.avatarUrl);
 
-    // Save file to disk
-    const buffer = await data.toBuffer();
-    fs.writeFileSync(filepath, buffer);
+    fs.writeFileSync(filepath, await data.toBuffer());
 
-    const avatarUrl = `/uploads/avatars/${filename}`;
+    const avatarUrl = profileMediaUrl(filename);
 
     await profilesCollection().findOneAndUpdate(
       { userId, app: "timeharbor" as const },
@@ -120,18 +114,70 @@ export const profileController = {
     const userId = req.user!.id;
 
     const existing = await profilesCollection().findOne({ userId, app: "timeharbor" as const });
-    if (existing?.avatarUrl) {
-      const uploadsDir = avatarStorageDir();
-      const oldFile = existing.avatarUrl.split("/").pop();
-      if (oldFile) {
-        const oldPath = path.join(uploadsDir, oldFile);
-        fs.unlink(oldPath, () => {});
-      }
-    }
+    unlinkProfileMedia(existing?.avatarUrl);
 
     await profilesCollection().findOneAndUpdate(
       { userId, app: "timeharbor" as const },
       { $unset: { avatarUrl: "" }, $set: { updatedAt: new Date() } },
+      { returnDocument: "after" }
+    );
+
+    reply.send({ ok: true });
+  },
+
+  async uploadBackground(req: FastifyRequest, reply: FastifyReply) {
+    const userId = req.user!.id;
+    const now = new Date();
+    const data = await (req as any).file();
+    if (!data) {
+      return reply.status(400).send({ error: "No file uploaded" });
+    }
+
+    if (data.mimetype !== "image/png" && data.mimetype !== "image/jpeg") {
+      return reply.status(400).send({ error: "Only PNG and JPEG images are allowed." });
+    }
+
+    const dir = profileMediaDir();
+    fs.mkdirSync(dir, { recursive: true });
+
+    const filename = buildProfileMediaFilename(userId, "background", data.mimetype);
+    const filepath = path.join(dir, filename);
+
+    // Delete old background file before saving the new one
+    const existing = await profilesCollection().findOne({ userId, app: "timeharbor" as const });
+    unlinkProfileMedia(existing?.backgroundUrl);
+
+    fs.writeFileSync(filepath, await data.toBuffer());
+
+    const backgroundUrl = profileMediaUrl(filename);
+
+    await profilesCollection().findOneAndUpdate(
+      { userId, app: "timeharbor" as const },
+      {
+        $setOnInsert: {
+          userId,
+          app: "timeharbor" as const,
+          displayName: req.user!.name,
+          status: "online" as const,
+          createdAt: now,
+        },
+        $set: { backgroundUrl, updatedAt: now },
+      },
+      { upsert: true, returnDocument: "after" }
+    );
+
+    reply.send({ backgroundUrl });
+  },
+
+  async deleteBackground(req: FastifyRequest, reply: FastifyReply) {
+    const userId = req.user!.id;
+
+    const existing = await profilesCollection().findOne({ userId, app: "timeharbor" as const });
+    unlinkProfileMedia(existing?.backgroundUrl);
+
+    await profilesCollection().findOneAndUpdate(
+      { userId, app: "timeharbor" as const },
+      { $unset: { backgroundUrl: "" }, $set: { updatedAt: new Date() } },
       { returnDocument: "after" }
     );
 
