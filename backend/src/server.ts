@@ -92,9 +92,9 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     exposedHeaders: ["set-auth-token"],
   });
 
-  // Serve uploaded files from backend/data/*.
+  // Serve all uploaded files from backend/uploads/.
   await app.register(fastifyStatic, {
-    root: path.resolve(__dirname, "..", "data"),
+    root: path.resolve(__dirname, "..", "uploads"),
     prefix: "/uploads/",
     decorateReply: false,
   });

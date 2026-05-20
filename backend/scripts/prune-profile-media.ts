@@ -1,5 +1,5 @@
 /**
- * Prune orphaned profile media files from backend/data/profile/.
+ * Prune orphaned profile media files from backend/uploads/profile/.
  *
  * A file is considered "used" if its basename appears as the last segment of
  * `avatarUrl` or `backgroundUrl` in any profile document in the `profiles`
@@ -16,7 +16,7 @@ import { connectDB, client } from "../src/lib/db.js";
 import { profilesCollection } from "../src/models/index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROFILE_DIR = path.resolve(__dirname, "..", "data", "profile");
+const PROFILE_DIR = path.resolve(__dirname, "..", "uploads", "profile");
 const DRY_RUN = process.argv.includes("--dry-run");
 
 async function main() {
@@ -47,7 +47,7 @@ async function main() {
   }
 
   const allFiles = fs.readdirSync(PROFILE_DIR).filter((f) => {
-    return fs.statSync(path.join(PROFILE_DIR, f)).isFile();
+    return f !== ".gitkeep" && fs.statSync(path.join(PROFILE_DIR, f)).isFile();
   });
 
   const unused = allFiles.filter((f) => !referencedFilenames.has(f));

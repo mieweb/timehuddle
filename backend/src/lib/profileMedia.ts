@@ -2,7 +2,7 @@
  * profileMedia — helpers for profile media file naming and URL parsing.
  *
  * All profile images (avatar, background, …) live in one directory:
- *   backend/data/profile/
+ *   backend/uploads/profile/
  *
  * Filename format:
  *   {userId}-{8-byte hex}_{type}.{ext}
@@ -21,7 +21,7 @@ export type ProfileMediaType = "avatar" | "background";
 /** Absolute path to the shared profile-media storage directory. */
 export function profileMediaDir(): string {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(__dirname, "..", "..", "data", "profile");
+  return path.resolve(__dirname, "..", "..", "uploads", "profile");
 }
 
 /** Build a new unique filename for a profile media upload. */

@@ -38,4 +38,5 @@ coverage/
 data/videos/
 data/avatars/
 data/profile/
-uploads/
+uploads/**
+!uploads/**/.gitkeep
