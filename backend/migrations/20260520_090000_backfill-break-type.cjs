@@ -2,13 +2,13 @@
  * Migration: Backfill break type classification on existing clock event break entries.
  *
  * Breaks without a `type` field are auto-classified based on duration:
- *   - duration < 1800 seconds (30 min) → type: "rest"   (compensable, not deducted)
- *   - duration >= 1800 seconds (30 min) → type: "meal"  (non-compensable, deducted)
+ *   - duration < 1200 seconds (20 min) → type: "rest"   (compensable, not deducted)
+ *   - duration >= 1200 seconds (20 min) → type: "meal"  (non-compensable, deducted)
  *
  * Open breaks (endTime === null) are skipped — they will be classified when they close.
  */
 
-const MEAL_BREAK_THRESHOLD_SECONDS = 30 * 60;
+const MEAL_BREAK_THRESHOLD_SECONDS = 20 * 60;
 
 /** @param {import("mongodb").Db} db */
 async function up(db) {

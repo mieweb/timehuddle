@@ -579,12 +579,11 @@ export const clockApi = {
       body: JSON.stringify({ teamId }),
     }).then((r) => r.event),
 
-  /** Get active clock status for a team, including remaining seconds to 8h cap. */
+  /** Get active clock status for a team. */
   getStatus: (teamId: string) =>
     request<{
       event: ClockEvent;
       workSeconds: number;
-      remainingSeconds: number;
       isPaused: boolean;
     }>(`/v1/clock/status?teamId=${encodeURIComponent(teamId)}`),
 

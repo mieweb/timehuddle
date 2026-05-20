@@ -367,12 +367,12 @@ export const TeamsPage: React.FC = () => {
 
                     return (
                       <li key={memberId} className="flex items-center gap-3 py-2.5">
-                        <button
-                          type="button"
+                        <Button
+                          variant="ghost"
                           onClick={() =>
                             navigate(username ? `/${username}` : `/app/profile/${memberId}`)
                           }
-                          className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
                           aria-label={`View ${name}'s profile`}
                         >
                           <div className="relative shrink-0">
@@ -405,7 +405,7 @@ export const TeamsPage: React.FC = () => {
                               </Text>
                             )}
                           </div>
-                        </button>
+                        </Button>
                         {isMemberAdmin && (
                           <Badge
                             variant="warning"

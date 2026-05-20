@@ -47,6 +47,11 @@ export async function ensureIndexes() {
   await clockBreaks.createIndex({ clockEventId: 1, endTime: 1 });
   // Ordered retrieval of all breaks for an event
   await clockBreaks.createIndex({ clockEventId: 1, startTime: 1 });
+  // Prevent concurrent pause from creating multiple open breaks per event
+  await clockBreaks.createIndex(
+    { clockEventId: 1 },
+    { unique: true, partialFilterExpression: { endTime: null }, name: "one_open_break_per_event" }
+  );
 
   // Personal access tokens
   const pats = db.collection("personal_access_tokens");

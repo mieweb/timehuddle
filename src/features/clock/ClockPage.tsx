@@ -3,7 +3,7 @@
  */
 import { faCircleStop, faStopwatch } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Card, CardContent, CardHeader, CardTitle, Spinner, Text } from '@mieweb/ui';
+import { Button, Card, CardContent, CardHeader, CardTitle, Spinner, Text } from '@mieweb/ui';
 import React from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
@@ -61,38 +61,36 @@ export const ClockPage: React.FC = () => {
           <div className="flex w-full flex-col items-center gap-2 sm:w-1/4">
             {activeClockEvent ? (
               <>
-                <button
-                  type="button"
+                <Button
                   onClick={clockOut}
-                  disabled={clockOutLoading}
+                  isLoading={clockOutLoading}
                   className="flex w-full items-center justify-center gap-3 rounded-2xl bg-red-500 py-4 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-red-600 active:scale-95 disabled:opacity-50 sm:h-16 sm:w-16 sm:rounded-full sm:py-0"
                   aria-label="Clock out"
                 >
                   <FontAwesomeIcon icon={faCircleStop} className="text-2xl" />
                   <span className="text-sm font-semibold sm:hidden">Clock Out</span>
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
                   onClick={isPaused ? resumeClock : pauseClock}
-                  disabled={clockPauseLoading}
+                  isLoading={clockPauseLoading}
                   className="flex w-full items-center justify-center gap-3 rounded-2xl bg-amber-500 py-3 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-amber-600 active:scale-95 disabled:opacity-50 sm:w-28"
                   aria-label={isPaused ? 'Resume work' : 'Start break'}
                 >
                   <span className="text-sm font-semibold">{isPaused ? 'Resume' : 'Break'}</span>
-                </button>
+                </Button>
               </>
             ) : (
               <>
-                <button
-                  type="button"
+                <Button
                   onClick={clockIn}
-                  disabled={clockInLoading || !selectedTeamId}
+                  isLoading={clockInLoading}
+                  disabled={!selectedTeamId}
                   className="flex w-full items-center justify-center gap-3 rounded-2xl bg-green-500 py-4 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-green-600 active:scale-95 disabled:opacity-50 sm:h-16 sm:w-16 sm:rounded-full sm:py-0"
                   aria-label="Clock in"
                 >
                   <FontAwesomeIcon icon={faStopwatch} className="text-2xl" />
                   <span className="text-sm font-semibold sm:hidden">Clock In</span>
-                </button>
+                </Button>
               </>
             )}
           </div>

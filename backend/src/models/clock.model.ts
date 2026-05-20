@@ -29,7 +29,7 @@ export interface ClockEvent {
   _id: ObjectId;
   userId: string;
   teamId: string;
-  startTime: number; // epoch ms — immutable shift start
+  startTime: number; // epoch ms — shift start (mutable via updateTimes)
   accumulatedTime: number; // seconds — computed at clock-out (span minus deducted breaks)
   notifiedAt4h?: number | null; // epoch ms when 4h reminder was sent
   endTime: number | null; // epoch ms — null = still clocked in

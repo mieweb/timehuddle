@@ -1,6 +1,6 @@
 import { clockEventsCollection } from "../models/index.js";
 import type { ClockEvent } from "../models/clock.model.js";
-import { findBreaksForEvent } from "../models/clock.model.js";
+import { findBreaksForEvents } from "../models/clock.model.js";
 import { computeWorkSeconds } from "./clock.service.js";
 import { notificationService } from "./notification.service.js";
 
@@ -19,8 +19,17 @@ class ClockMonitorService {
 
     let reminded4h = 0;
 
+    const activeIds = activeEvents.map((e) => e._id.toHexString());
+    const allBreaks = await findBreaksForEvents(activeIds);
+    const breaksByEventId = new Map<string, typeof allBreaks>();
+    for (const b of allBreaks) {
+      const arr = breaksByEventId.get(b.clockEventId) ?? [];
+      arr.push(b);
+      breaksByEventId.set(b.clockEventId, arr);
+    }
+
     for (const event of activeEvents) {
-      const breaks = await findBreaksForEvent(event._id.toHexString());
+      const breaks = breaksByEventId.get(event._id.toHexString()) ?? [];
       const workSeconds = computeWorkSeconds(event as ClockEvent, breaks, now);
 
       if (workSeconds >= FOUR_HOURS_SECONDS && event.notifiedAt4h == null) {

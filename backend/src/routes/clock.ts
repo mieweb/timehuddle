@@ -3,8 +3,9 @@ import { ObjectId } from "mongodb";
 import { auth } from "../lib/auth.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { clockService, toPublicClockEvent, subscribe } from "../services/clock.service.js";
-import { findBreaksForEvent, findBreaksForEvents } from "../models/clock.model.js";
+import { findBreaksForEvents } from "../models/clock.model.js";
 import { teamsCollection } from "../models/index.js";
+import { clockController } from "../controllers/clock.controller.js";
 
 // ─── Public shape schema ──────────────────────────────────────────────────────
 
@@ -55,13 +56,7 @@ export async function clockRoutes(app: FastifyInstance) {
         response: { 200: { type: "object", properties: { event: clockEventShape } } },
       },
     },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { teamId } = req.body as { teamId: string };
-      const result = await clockService.start(userId, teamId);
-      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
-      return { event: result };
-    }
+    clockController.start
   );
 
   // POST /v1/clock/stop
@@ -81,14 +76,7 @@ export async function clockRoutes(app: FastifyInstance) {
         response: { 200: { type: "object", properties: { event: clockEventShape } } },
       },
     },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { teamId } = req.body as { teamId: string };
-      const result = await clockService.stop(userId, teamId);
-      if (result === "not-found")
-        return (reply as any).status(404).send({ error: "No active clock event" });
-      return { event: result };
-    }
+    clockController.stop
   );
 
   // POST /v1/clock/pause
@@ -108,16 +96,7 @@ export async function clockRoutes(app: FastifyInstance) {
         response: { 200: { type: "object", properties: { event: clockEventShape } } },
       },
     },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { teamId } = req.body as { teamId: string };
-      const result = await clockService.pause(userId, teamId);
-      if (result === "not-found")
-        return (reply as any).status(404).send({ error: "No active clock event" });
-      if (result === "already-paused")
-        return (reply as any).status(409).send({ error: "Clock is already paused" });
-      return { event: result };
-    }
+    clockController.pause
   );
 
   // POST /v1/clock/resume
@@ -137,16 +116,7 @@ export async function clockRoutes(app: FastifyInstance) {
         response: { 200: { type: "object", properties: { event: clockEventShape } } },
       },
     },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { teamId } = req.body as { teamId: string };
-      const result = await clockService.resume(userId, teamId);
-      if (result === "not-found")
-        return (reply as any).status(404).send({ error: "No active clock event" });
-      if (result === "not-paused")
-        return (reply as any).status(409).send({ error: "Clock is not paused" });
-      return { event: result };
-    }
+    clockController.resume
   );
 
   // GET /v1/clock/status?teamId=...
@@ -165,14 +135,7 @@ export async function clockRoutes(app: FastifyInstance) {
         },
       },
     },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { teamId } = req.query as { teamId: string };
-      const result = await clockService.getStatus(userId, teamId);
-      if (result === "not-found")
-        return (reply as any).status(404).send({ error: "No active clock event" });
-      return result;
-    }
+    clockController.getStatus
   );
 
   // PUT /v1/clock/:id/times
@@ -207,24 +170,7 @@ export async function clockRoutes(app: FastifyInstance) {
         response: { 200: { type: "object", properties: { event: clockEventShape } } },
       },
     },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { id: clockEventId } = req.params as { id: string };
-      const data = req.body as {
-        startTime?: number;
-        endTime?: number | null;
-        breaks?: Array<{ startTime: number; endTime: number | null }>;
-      };
-      const result = await clockService.updateTimes(userId, clockEventId, data);
-      if (result === "not-found")
-        return (reply as any).status(404).send({ error: "Clock event not found" });
-      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
-      if (result === "invalid-range")
-        return (reply as any)
-          .status(422)
-          .send({ error: "Clock-out cannot be earlier than clock-in" });
-      return { event: result };
-    }
+    clockController.updateTimes
   );
 
   // DELETE /v1/clock/:id
@@ -238,15 +184,7 @@ export async function clockRoutes(app: FastifyInstance) {
         response: { 200: { type: "object", properties: { ok: { type: "boolean" } } } },
       },
     },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { id: clockEventId } = req.params as { id: string };
-      const result = await clockService.deleteEvent(userId, clockEventId);
-      if (result === "not-found")
-        return (reply as any).status(404).send({ error: "Clock event not found" });
-      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
-      return { ok: true };
-    }
+    clockController.deleteEvent
   );
 
   // POST /v1/clock/manual — create a completed past clock entry
@@ -268,21 +206,7 @@ export async function clockRoutes(app: FastifyInstance) {
         response: { 201: { type: "object", properties: { event: clockEventShape } } },
       },
     },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { teamId, startTime, endTime } = req.body as {
-        teamId: string;
-        startTime: number;
-        endTime: number;
-      };
-      const result = await clockService.createManual(userId, teamId, startTime, endTime);
-      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
-      if (result === "invalid-range")
-        return (reply as any)
-          .status(422)
-          .send({ error: "Times must be in the past and clock-out must be after clock-in." });
-      return reply.status(201).send({ event: result });
-    }
+    clockController.createManual
   );
 
   // GET /v1/clock/timesheet
@@ -303,17 +227,7 @@ export async function clockRoutes(app: FastifyInstance) {
         },
       },
     },
-    async (req, reply) => {
-      const { id: requesterId } = (req as any).user;
-      const { userId, startMs, endMs } = req.query as {
-        userId: string;
-        startMs: number;
-        endMs: number;
-      };
-      const result = await clockService.getTimesheet(requesterId, userId, startMs, endMs);
-      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
-      return result;
-    }
+    clockController.getTimesheet
   );
 
   // GET /v1/clock/active — current user's active event (any team)
@@ -331,12 +245,7 @@ export async function clockRoutes(app: FastifyInstance) {
         },
       },
     },
-    async (req) => {
-      const { id: userId } = (req as any).user;
-      const event = await clockService.getActiveForUser(userId);
-      const breaks = event ? await findBreaksForEvent(event._id.toHexString()) : [];
-      return { event: event ? toPublicClockEvent(event, breaks) : null };
-    }
+    clockController.getActive
   );
 
   // GET /v1/clock/events — all events for current user
@@ -346,23 +255,7 @@ export async function clockRoutes(app: FastifyInstance) {
       onRequest: [requireAuth],
       schema: { tags: ["Clock"] },
     },
-    async (req) => {
-      const { id: userId } = (req as any).user;
-      const events = await clockService.getForUser(userId);
-      const eventIds = events.map((e) => e._id.toHexString());
-      const allBreaks = await findBreaksForEvents(eventIds);
-      const breaksByEventId = new Map<string, typeof allBreaks>();
-      for (const b of allBreaks) {
-        const arr = breaksByEventId.get(b.clockEventId) ?? [];
-        arr.push(b);
-        breaksByEventId.set(b.clockEventId, arr);
-      }
-      return {
-        events: events.map((e) =>
-          toPublicClockEvent(e, breaksByEventId.get(e._id.toHexString()) ?? [])
-        ),
-      };
-    }
+    clockController.getEvents
   );
 
   // GET /v1/clock/ws?teamIds=id1,id2 — WebSocket stream for live team clock state
