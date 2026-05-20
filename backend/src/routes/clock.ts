@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { auth } from "../lib/auth.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { clockService, toPublicClockEvent, subscribe } from "../services/clock.service.js";
+import { findBreaksForEvent, findBreaksForEvents } from "../models/clock.model.js";
 import { teamsCollection } from "../models/index.js";
 
 // ─── Public shape schema ──────────────────────────────────────────────────────
@@ -333,7 +334,8 @@ export async function clockRoutes(app: FastifyInstance) {
     async (req) => {
       const { id: userId } = (req as any).user;
       const event = await clockService.getActiveForUser(userId);
-      return { event: event ? toPublicClockEvent(event) : null };
+      const breaks = event ? await findBreaksForEvent(event._id.toHexString()) : [];
+      return { event: event ? toPublicClockEvent(event, breaks) : null };
     }
   );
 
@@ -347,7 +349,15 @@ export async function clockRoutes(app: FastifyInstance) {
     async (req) => {
       const { id: userId } = (req as any).user;
       const events = await clockService.getForUser(userId);
-      return { events: events.map(toPublicClockEvent) };
+      const eventIds = events.map((e) => e._id.toHexString());
+      const allBreaks = await findBreaksForEvents(eventIds);
+      const breaksByEventId = new Map<string, typeof allBreaks>();
+      for (const b of allBreaks) {
+        const arr = breaksByEventId.get(b.clockEventId) ?? [];
+        arr.push(b);
+        breaksByEventId.set(b.clockEventId, arr);
+      }
+      return { events: events.map((e) => toPublicClockEvent(e, breaksByEventId.get(e._id.toHexString()) ?? [])) };
     }
   );
 
@@ -405,7 +415,17 @@ export async function clockRoutes(app: FastifyInstance) {
 
     // Send initial snapshot
     const initial = await clockService.getLiveForTeams(teamIds);
-    const snapshot = initial.map(toPublicClockEvent);
+    const initialIds = initial.map((e) => e._id.toHexString());
+    const initialBreaks = await findBreaksForEvents(initialIds);
+    const initialBreaksByEventId = new Map<string, typeof initialBreaks>();
+    for (const b of initialBreaks) {
+      const arr = initialBreaksByEventId.get(b.clockEventId) ?? [];
+      arr.push(b);
+      initialBreaksByEventId.set(b.clockEventId, arr);
+    }
+    const snapshot = initial.map((e) =>
+      toPublicClockEvent(e, initialBreaksByEventId.get(e._id.toHexString()) ?? [])
+    );
     if (socket.readyState === socket.OPEN) {
       socket.send(JSON.stringify({ type: "snapshot", events: snapshot }));
     }

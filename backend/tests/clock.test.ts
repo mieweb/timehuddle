@@ -239,7 +239,7 @@ describe("clock break flow", () => {
 // ─── Monitor enforcement ─────────────────────────────────────────────────────
 
 describe("clock monitor enforcement", () => {
-  it("sends one-time 3h and 4h reminders", async () => {
+  it("sends a one-time 4h reminder", async () => {
     const db = client.db();
     await db.collection("notifications").deleteMany({ userId: workerId });
 
@@ -253,25 +253,22 @@ describe("clock monitor enforcement", () => {
         $set: {
           // Set startTime to 4.5 hours ago so computeWorkSeconds returns > 4h
           startTime: Date.now() - 4.5 * 60 * 60 * 1000,
-          notifiedAt3h: null,
           notifiedAt4h: null,
         },
       }
     );
 
     const firstRun = await clockMonitorService.checkAndEnforce(Date.now());
-    expect(firstRun.reminded3h).toBeGreaterThanOrEqual(1);
     expect(firstRun.reminded4h).toBeGreaterThanOrEqual(1);
 
     const secondRun = await clockMonitorService.checkAndEnforce(Date.now());
-    expect(secondRun.reminded3h).toBe(0);
     expect(secondRun.reminded4h).toBe(0);
 
     const reminders = await db
       .collection("notifications")
-      .find({ userId: workerId, "data.type": { $in: ["break-reminder-3h", "break-reminder-4h"] } })
+      .find({ userId: workerId, "data.type": "break-reminder-4h" })
       .toArray();
-    expect(reminders.length).toBe(2);
+    expect(reminders.length).toBe(1);
 
     await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
   });
@@ -425,11 +422,17 @@ describe("PUT /v1/clock/:id/times", () => {
         $set: {
           startTime: base,
           endTime: sessionEnd,
-          breaks: [{ startTime: breakStart, endTime: breakEnd }],
           accumulatedTime: 60 * 60,
         },
       }
     );
+    // Seed the break in the separate clockbreaks collection (embedded field no longer exists)
+    await db.collection("clockbreaks").insertOne({
+      _id: new ObjectId(),
+      clockEventId: eventId,
+      startTime: breakStart,
+      endTime: breakEnd,
+    });
 
     const editedEnd = base + 45 * 60 * 1000; // overlaps break; break should shrink to +30..+45
     const editRes = await inject("PUT", `/v1/clock/${eventId}/times`, workerCookie, {

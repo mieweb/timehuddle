@@ -1,14 +1,13 @@
 import { clockEventsCollection } from "../models/index.js";
 import type { ClockEvent } from "../models/clock.model.js";
+import { findBreaksForEvent } from "../models/clock.model.js";
 import { computeWorkSeconds } from "./clock.service.js";
 import { notificationService } from "./notification.service.js";
 
-const THREE_HOURS_SECONDS = 3 * 60 * 60;
 const FOUR_HOURS_SECONDS = 4 * 60 * 60;
 
 class ClockMonitorService {
   async checkAndEnforce(now = Date.now()): Promise<{
-    reminded3h: number;
     reminded4h: number;
   }> {
     const coll = clockEventsCollection();
@@ -18,32 +17,11 @@ class ClockMonitorService {
       })
       .toArray();
 
-    let reminded3h = 0;
     let reminded4h = 0;
 
     for (const event of activeEvents) {
-      const workSeconds = computeWorkSeconds(event as ClockEvent, now);
-
-      if (workSeconds >= THREE_HOURS_SECONDS && event.notifiedAt3h == null) {
-        const locked = await coll.updateOne(
-          { _id: event._id, endTime: null, notifiedAt3h: null },
-          { $set: { notifiedAt3h: now } }
-        );
-        if (locked.modifiedCount === 1) {
-          reminded3h += 1;
-          await notificationService.create({
-            userId: event.userId,
-            title: "TiméHuddle",
-            body: "Need a break? You have worked for 3 hours.",
-            notificationData: {
-              type: "break-reminder-3h",
-              teamId: event.teamId,
-              clockEventId: event._id.toHexString(),
-              url: "/app/clock",
-            },
-          });
-        }
-      }
+      const breaks = await findBreaksForEvent(event._id.toHexString());
+      const workSeconds = computeWorkSeconds(event as ClockEvent, breaks, now);
 
       if (workSeconds >= FOUR_HOURS_SECONDS && event.notifiedAt4h == null) {
         const locked = await coll.updateOne(
@@ -67,7 +45,7 @@ class ClockMonitorService {
       }
     }
 
-    return { reminded3h, reminded4h };
+    return { reminded4h };
   }
 }
 

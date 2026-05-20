@@ -531,13 +531,22 @@ export interface ClockEvent {
   userId: string;
   teamId: string;
   startTime: number;
+  /** @deprecated No longer returned by the API — use startTime. */
   originalStartTime?: number;
   accumulatedTime: number;
-  breaks?: Array<{ startTime: number; endTime: number | null }>;
+  breaks?: Array<{
+    startTime: number;
+    endTime: number | null;
+    type?: 'rest' | 'meal';
+    classificationSource?: 'auto' | 'manual';
+    notes?: string;
+  }>;
   workSeconds?: number;
+  deductedBreakSeconds?: number;
+  totalBreakSeconds?: number;
   isPaused?: boolean;
+  /** @deprecated No longer set by the API — use breaks[].endTime === null to find active break. */
   pausedAt?: number | null;
-  totalPausedSeconds?: number;
   endTime: number | null;
 }
 

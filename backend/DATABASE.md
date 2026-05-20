@@ -27,6 +27,7 @@ flowchart LR
   User --> Team
   User --> Ticket
   User --> ClockEvent
+  ClockEvent --> ClockBreak
   User --> WorkItem
   WorkItem --> Timer
   Ticket --> WorkItem
@@ -48,7 +49,8 @@ flowchart LR
 | `teams` | App | `Team` interface in `backend/src/models/team.model.ts` | Defines collaboration boundaries (membership/admins) used for authz checks. | Team membership and admin authorization root.
 | `organizations` | App | `Organization` interface in `backend/src/models/organization.model.ts` | Groups teams under higher-level ownership/admin governance. | Teams reference via `orgId` (string ObjectId).
 | `tickets` | App (Mongoose) | `ticketSchema` in `backend/src/models/ticket.model.ts` | Stores work units that time entries and assignments are anchored to. | Only major collection currently backed by explicit Mongoose schema.
-| `clockevents` | App | `ClockEvent` interface in `backend/src/models/clock.model.ts` | Captures attendance-style clock in/out state, breaks, and day-cap enforcement. | Clock-in/out sessions and break state.
+| `clockevents` | App | `ClockEvent` interface in `backend/src/models/clock.model.ts` | Captures attendance-style clock in/out state. | Clock-in/out sessions; breaks live in the separate `clockbreaks` collection.
+| `clockbreaks` | App | `ClockBreak` interface in `backend/src/models/clock.model.ts` | Stores FLSA-classified break intervals as first-class documents referencing a parent clock event. | Separate collection; each document owns a `clockEventId` foreign key.
 | `messages` | App | `Message` interface in `backend/src/models/message.model.ts` | Persists admin-member direct thread communication history. | Admin-member threaded DM messages.
 | `notifications` | App | `Notification` interface in `backend/src/models/notification.model.ts` | Delivers in-app inbox notifications and read state per user. | User notification inbox.
 | `attachments` | App | `Attachment` interface in `backend/src/models/attachment.model.ts` | Associates media/links with ticket or clock context for evidence and context. | Attached to tickets or clock entries.
@@ -150,17 +152,41 @@ Core fields used by app code:
 - `_id: ObjectId`
 - `userId: string`
 - `teamId: string`
+- `startTime: number` (epoch ms — immutable shift start, never mutated after clock-in)
+- `accumulatedTime: number` (seconds — net paid time: full shift span minus deducted meal breaks; written at clock-out)
+- `notifiedAt4h?: number | null` (epoch ms of 4-hour break reminder notification)
+- `endTime: number | null` (`null` = session still active)
+
+> Break intervals are **no longer embedded** in `clockevents`. They are stored as separate documents in the `clockbreaks` collection (see below).
+
+### `clockbreaks`
+
+One document per break interval. Each document is owned by a single `clockevents` document.
+
+- `_id: ObjectId`
+- `clockEventId: string` (hex ObjectId of the parent `clockevents` document)
 - `startTime: number` (epoch ms)
-- `originalStartTime?: number`
-- `accumulatedTime: number` (seconds)
-- `breaks?: { startTime: number; endTime: number | null }[]`
-- `pausedAt?: number | null`
-- `totalPausedSeconds?: number`
-- `pauseStartedSessionId?: string | null`
-- `notifiedAt3h?: number | null`
-- `notifiedAt4h?: number | null`
-- `autoClockedOutAt?: number | null`
-- `endTime: number | null`
+- `endTime: number | null` (`null` = break still open)
+- `type?: "rest" | "meal"` — set on break close; `rest` = compensable (< 20 min), `meal` = non-compensable (≥ 20 min), deducted from `accumulatedTime`
+- `classificationSource?: "auto" | "manual"` — `auto` when set by the 20-minute threshold rule
+- `notes?: string`
+- `updatedBy?: string`
+- `updatedAt?: number`
+
+#### Break Classification Rule
+
+Break duration is measured from `startTime` to `endTime` (or `now` for open breaks):
+
+- **< 20 minutes** → `type: "rest"` — compensable; counted as paid work time, not deducted from `accumulatedTime`
+- **≥ 20 minutes** → `type: "meal"` — non-compensable; deducted from `accumulatedTime`
+
+`accumulatedTime` formula (written at clock-out):
+
+```
+accumulatedTime = (endTime − startTime) − sum(meal break durations)
+```
+
+The `workSeconds` field returned by the API is computed live from the same formula (useful for active sessions where `accumulatedTime` is 0 until clock-out).
 
 ### `activities`
 
@@ -297,7 +323,8 @@ Indexes created by `backend/src/lib/ensure-indexes.ts`:
 - `timers`: `{ workItemId: 1, startTime: 1 }`
 - `timers`: `{ userId: 1, date: 1 }`
 - `clockevents`: `{ userId: 1, teamId: 1, endTime: 1 }`
-- `clockevents`: `{ endTime: 1, autoClockedOutAt: 1 }`
+- `clockbreaks`: `{ clockEventId: 1, endTime: 1 }` (open-break lookup)
+- `clockbreaks`: `{ clockEventId: 1, startTime: 1 }` (ordered retrieval)
 - `personal_access_tokens`: unique `{ tokenHash: 1 }`
 - `personal_access_tokens`: `{ userId: 1 }`
 
@@ -326,6 +353,14 @@ Mongoose-managed indexes on `tickets` schema:
 - `20260518_090000_add-clock-break-and-cap-fields.cjs`
   - Added pause/break/notification/cap fields to `clockevents`
   - Backfilled `originalStartTime`
+- `20260520_090000_backfill-break-type.cjs`
+  - Backfilled `type` and `classificationSource: "auto"` on existing closed break entries using the 20-minute threshold rule
+- `20260520_090001_remove-clock-deprecated-fields.cjs`
+  - Removed deprecated fields from all `clockevents` documents: `originalStartTime`, `pausedAt`, `totalPausedSeconds`, `pauseStartedSessionId`, `autoClockedOutAt`
+- `20260521_000000_extract-breaks-to-collection.cjs`
+  - Extracted embedded `breaks[]` arrays from `clockevents` into the new `clockbreaks` collection
+  - Each break becomes a separate document with a `clockEventId` foreign key
+  - `$unset breaks` run against all `clockevents` documents
 
 ## Startup Guarantees
 

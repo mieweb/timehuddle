@@ -2,7 +2,7 @@ import { getDB } from "../lib/db.js";
 import type { User } from "./user.model.js";
 import type { Team } from "./team.model.js";
 import type { Ticket } from "./ticket.model.js";
-import type { ClockEvent } from "./clock.model.js";
+import type { ClockBreak, ClockEvent } from "./clock.model.js";
 import type { Message } from "./message.model.js";
 import type { Notification } from "./notification.model.js";
 import type { Attachment } from "./attachment.model.js";
@@ -40,6 +40,11 @@ export function ticketsCollection() {
 // Clock events
 export function clockEventsCollection() {
   return getDB().collection<ClockEvent>("clockevents");
+}
+
+// Clock breaks — separate collection, each document references a clockevents._id
+export function clockBreaksCollection() {
+  return getDB().collection<ClockBreak>("clockbreaks");
 }
 
 // Messages
