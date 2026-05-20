@@ -10,13 +10,14 @@ import {
   faUsers,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Avatar, Dropdown, DropdownItem, DropdownSeparator, Text } from '@mieweb/ui';
+import { Dropdown, DropdownItem, DropdownSeparator, Text } from '@mieweb/ui';
 import React, { useCallback, useState } from 'react';
 
 import { useTeam } from '../lib/TeamContext';
 import { useSession } from '../lib/useSession';
 import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
 import { useRouter } from './router';
+import { UserAvatar } from './UserAvatar';
 
 // ─── UserDropdown ─────────────────────────────────────────────────────────────
 
@@ -69,7 +70,7 @@ export const UserDropdown: React.FC = () => {
           className="flex items-center rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500/40"
           aria-label="Account menu"
         >
-          <Avatar name={displayName} size="sm" />
+          <UserAvatar name={displayName} size="sm" src={user?.image} />
         </button>
       }
       placement="bottom-end"
@@ -77,7 +78,7 @@ export const UserDropdown: React.FC = () => {
     >
       {/* User info */}
       <div className="flex items-center gap-3 px-3 py-2.5">
-        <Avatar name={displayName} size="md" />
+        <UserAvatar name={displayName} size="md" src={user?.image} />
         <div className="min-w-0">
           <Text size="sm" weight="medium" truncate>
             {truncated}

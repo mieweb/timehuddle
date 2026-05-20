@@ -17,7 +17,6 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  Avatar,
   Badge,
   Button,
   Card,
@@ -28,12 +27,14 @@ import {
   TabsTrigger,
   Text,
 } from '@mieweb/ui';
+import { ProfileAvatarCropModal } from './ProfileAvatarCropModal';
 import React, { useEffect, useState } from 'react';
 
 import { ApiError, userApi, type PublicUser } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
+import { UserAvatar } from '../../ui/UserAvatar';
 import { ProfileActivityFeed } from './ProfileActivityFeed';
 import { ProfileWorkSnapshot } from './ProfileWorkSnapshot';
 import { WorkSummaryTags } from './WorkSummaryTags';
@@ -49,6 +50,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   const [isReady, setIsReady] = useState(false);
   const [isForbidden, setIsForbidden] = useState(false);
   const [isNotFound, setIsNotFound] = useState(false);
+  // Avatar upload/crop modal state
+  const [avatarModalOpen, setAvatarModalOpen] = useState(false);
+  const [avatarImage, setAvatarImage] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  // Background image state
+  const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null);
+  const [backgroundUploading, setBackgroundUploading] = useState(false);
 
   useEffect(() => {
     setIsReady(false);
@@ -56,7 +64,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
     setIsNotFound(false);
     const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
     fetch
-      .then((p) => setProfile(p))
+      .then((p) => {
+        setProfile(p);
+        setBackgroundUrl(p.backgroundUrl ?? null);
+      })
       .catch((err) => {
         if (err instanceof ApiError && err.status === 403) {
           setIsForbidden(true);
@@ -81,7 +92,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
     return (
       <div className="w-full space-y-6 p-6">
         <Card padding="lg" className="flex flex-col items-center gap-4 text-center">
-          <Avatar name="?" size="xl" />
+          <UserAvatar name="?" size="xl" />
           <Text as="h1" size="xl" weight="bold">
             User Not Found
           </Text>
@@ -98,7 +109,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
     return (
       <div className="w-full space-y-6 p-6">
         <Card padding="lg" className="flex flex-col items-center gap-4 text-center">
-          <Avatar name="?" size="xl" />
+          <UserAvatar name="?" size="xl" />
           <Text as="h1" size="xl" weight="bold">
             Profile Unavailable
           </Text>
@@ -119,20 +130,142 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
 
       {/* Hero card */}
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-neutral-800 to-neutral-950 dark:from-neutral-900 dark:to-black shadow-lg">
-        {/* Decorative background circles */}
-        <div
-          className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/5"
-          aria-hidden
-        />
-        <div
-          className="pointer-events-none absolute -left-10 bottom-0 h-40 w-40 rounded-full bg-white/[0.03]"
-          aria-hidden
-        />
+        {/* Background image (if set) */}
+        {backgroundUrl && (
+          <div
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `url(${backgroundUrl})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+            }}
+            aria-hidden
+          >
+            {/* Darken overlay so text stays readable */}
+            <div className="absolute inset-0 bg-black/50" />
+          </div>
+        )}
+
+        {/* Decorative background circles (shown only without bg image) */}
+        {!backgroundUrl && (
+          <>
+            <div
+              className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/5"
+              aria-hidden
+            />
+            <div
+              className="pointer-events-none absolute -left-10 bottom-0 h-40 w-40 rounded-full bg-white/[0.03]"
+              aria-hidden
+            />
+          </>
+        )}
+
+        {/* Background upload button — top-right corner, own profile only */}
+        {isOwn && (
+          <div className="absolute right-3 top-3 z-20">
+            <label
+              htmlFor="background-upload-input"
+              className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-black/40 px-2.5 py-1.5 text-xs text-white backdrop-blur-sm hover:bg-black/60 transition-colors"
+              aria-label="Change background image"
+            >
+              <FontAwesomeIcon icon={faArrowUpFromBracket} className="text-xs" />
+              {backgroundUploading ? 'Uploading…' : 'Background'}
+            </label>
+            <input
+              id="background-upload-input"
+              type="file"
+              accept="image/*"
+              className="hidden"
+              disabled={backgroundUploading}
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                e.target.value = '';
+                setBackgroundUploading(true);
+                try {
+                  const { backgroundUrl: newUrl } = await userApi.uploadBackground(file);
+                  setBackgroundUrl(newUrl);
+                } finally {
+                  setBackgroundUploading(false);
+                }
+              }}
+            />
+            {backgroundUrl && (
+              <button
+                className="mt-1 flex w-full cursor-pointer items-center justify-center rounded-lg bg-black/40 px-2.5 py-1 text-xs text-red-300 backdrop-blur-sm hover:bg-black/60 transition-colors"
+                aria-label="Remove background image"
+                onClick={async () => {
+                  setBackgroundUploading(true);
+                  try {
+                    await userApi.deleteBackground();
+                    setBackgroundUrl(null);
+                  } finally {
+                    setBackgroundUploading(false);
+                  }
+                }}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="relative flex flex-col items-center gap-4 px-6 pb-8 pt-10 text-center sm:flex-row sm:items-end sm:gap-6 sm:px-10 sm:pb-8 sm:pt-10 sm:text-left">
-          {/* Avatar */}
-          <div className="shrink-0 rounded-2xl ring-4 ring-white/10">
-            <Avatar name={nameText} size="xl" />
+          {/* Avatar + upload button (own profile) */}
+          <div className="shrink-0 rounded-2xl ring-4 ring-white/10 relative group overflow-hidden w-24 h-24">
+            {profile?.image ? (
+              <img
+                src={profile.image}
+                alt={nameText}
+                className="w-full h-full object-cover rounded-2xl"
+              />
+            ) : (
+              <div className="w-full h-full rounded-2xl bg-neutral-700 flex items-center justify-center text-white text-3xl font-bold select-none">
+                {nameText.charAt(0).toUpperCase()}
+              </div>
+            )}
+            {isOwn && (
+              <>
+                <input
+                  id="avatar-upload-input"
+                  type="file"
+                  accept="image/*"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  aria-label="Upload avatar"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        setAvatarImage(ev.target?.result as string);
+                        setAvatarModalOpen(true);
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                  disabled={avatarUploading}
+                  tabIndex={-1}
+                />
+                <div className="absolute bottom-0 left-0 right-0 flex justify-center pb-2 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="pointer-events-auto"
+                    aria-label="Change avatar"
+                    tabIndex={0}
+                    onClick={() => {
+                      const input = document.getElementById(
+                        'avatar-upload-input',
+                      ) as HTMLInputElement | null;
+                      if (input) input.click();
+                    }}
+                    disabled={avatarUploading}
+                  >
+                    Change
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Info */}
@@ -187,6 +320,34 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
           )}
         </div>
       </div>
+
+      {/* Avatar crop modal */}
+      {isOwn && (
+        <ProfileAvatarCropModal
+          open={avatarModalOpen}
+          image={avatarImage}
+          onClose={() => {
+            setAvatarModalOpen(false);
+            setAvatarImage(null);
+          }}
+          onCropComplete={async (croppedBlob) => {
+            setAvatarUploading(true);
+            try {
+              // Upload avatar and get new URL
+              const { avatarUrl } = await userApi.uploadAvatar(croppedBlob);
+              setAvatarModalOpen(false);
+              setAvatarImage(null);
+              // Update profile state with new avatar URL (optimistic update)
+              setProfile((prev) => (prev ? { ...prev, image: avatarUrl } : prev));
+              // Refetch profile to ensure latest data
+              const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
+              fetch.then((p) => setProfile(p)).catch(() => {});
+            } finally {
+              setAvatarUploading(false);
+            }
+          }}
+        />
+      )}
 
       {/* Tab rail — Work | Activity */}
       {profile && (

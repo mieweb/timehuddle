@@ -23,7 +23,6 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  Avatar,
   Badge,
   Button,
   CardTitle,
@@ -54,6 +53,7 @@ import { usePresence } from '../../lib/usePresence';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { AdminTimesheetPanel } from './AdminTimesheetPanel';
+import { UserAvatar } from '../../ui/UserAvatar';
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
 
@@ -362,6 +362,7 @@ export const TeamsPage: React.FC = () => {
                     const name = m?.name ?? memberId;
                     const username = m?.username ?? null;
                     const email = m?.email ?? '';
+                    const image = m?.image ?? null;
                     const isMemberAdmin = selectedTeam.admins.includes(memberId);
                     const isMe = memberId === userId;
 
@@ -376,7 +377,7 @@ export const TeamsPage: React.FC = () => {
                           aria-label={`View ${name}'s profile`}
                         >
                           <div className="relative shrink-0">
-                            <Avatar name={name} size="sm" />
+                            <UserAvatar name={name} size="sm" src={image} />
                             {onlineUsers.has(memberId) && (
                               <span
                                 className="absolute right-0 bottom-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
