@@ -1105,6 +1105,17 @@ function withAbsoluteMediaItem(item: MediaItem): MediaItem {
 }
 
 export const mediaApi = {
+  /** POST /v1/media — upload image file to media library */
+  uploadImage: async (file: File): Promise<MediaItem> => {
+    const form = new FormData();
+    form.append('file', file, file.name || 'image');
+    const response = await request<{ item: MediaItem }>('/v1/media', {
+      method: 'POST',
+      body: form,
+    });
+    return withAbsoluteMediaItem(response.item);
+  },
+
   /** GET /v1/media — list media library items for the current user */
   list: () =>
     request<{ items: MediaItem[] }>(`/v1/media`).then((r) => r.items.map(withAbsoluteMediaItem)),

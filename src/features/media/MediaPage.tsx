@@ -75,7 +75,7 @@ const GridItem: React.FC<{
     aria-label={`Open details for ${item.title ?? item.filename}`}
     aria-pressed={selected}
     className={[
-      'group relative aspect-square overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800',
+      'group relative aspect-[4/3] overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800',
       'focus:outline-none focus:ring-2 focus:ring-[var(--mieweb-primary-500)]',
       'transition-transform hover:scale-[1.02]',
       selected ? 'ring-2 ring-[var(--mieweb-primary-500)]' : '',
@@ -492,6 +492,19 @@ export const MediaPage: React.FC = () => {
     }
   };
 
+  const handleImageFile = async (file: File) => {
+    setUploadError(null);
+    setUploadProgress(0);
+    try {
+      const created = await mediaApi.uploadImage(file);
+      setItems((prev) => [created, ...prev]);
+    } catch {
+      setUploadError('Upload failed. Please try again.');
+    } finally {
+      setUploadProgress(null);
+    }
+  };
+
   const handleUpdated = (updated: MediaItem) => {
     setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
   };
@@ -538,7 +551,17 @@ export const MediaPage: React.FC = () => {
             if (file) handleVideoFile(file);
           }}
         />
-        <input ref={imageInputRef} type="file" accept="image/*" className="hidden" />
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) handleImageFile(file);
+          }}
+        />
 
         {/* Upload status */}
         {uploadProgress !== null && (
@@ -596,7 +619,7 @@ export const MediaPage: React.FC = () => {
               </Text>
             </div>
           ) : (
-            <div className="grid gap-2 auto-rows-[1fr] grid-cols-[repeat(auto-fill,minmax(160px,1fr))]">
+            <div className="grid gap-3 auto-rows-[1fr] grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
               {filteredItems.map((item) => (
                 <GridItem
                   key={item.id}

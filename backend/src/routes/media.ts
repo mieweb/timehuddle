@@ -9,10 +9,33 @@ import { mediaService } from "../services/media.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const thumbnailsDir = path.resolve(__dirname, "../../uploads/thumbnails");
+const mediaDir = path.resolve(__dirname, "../../uploads/media");
 
 function buildThumbnailFilename(userId: string): string {
   const hex = randomBytes(8).toString("hex");
   return `${userId}-${hex}.jpg`;
+}
+
+function imageExtFromMime(mimeType: string): string | null {
+  switch (mimeType) {
+    case "image/png":
+      return "png";
+    case "image/jpeg":
+      return "jpg";
+    case "image/webp":
+      return "webp";
+    case "image/gif":
+      return "gif";
+    case "image/avif":
+      return "avif";
+    default:
+      return null;
+  }
+}
+
+function buildImageFilename(userId: string, ext: string): string {
+  const hex = randomBytes(8).toString("hex");
+  return `${userId}-${hex}.${ext}`;
 }
 
 const mediaItemShape = {
@@ -38,6 +61,54 @@ const mediaItemShape = {
 };
 
 export async function mediaRoutes(app: FastifyInstance) {
+  // POST /v1/media — upload an image to the media library
+  app.post(
+    "/media",
+    {
+      onRequest: [requireAuth],
+      schema: {
+        tags: ["Media"],
+        summary: "Upload an image to the media library",
+        response: {
+          200: { type: "object", properties: { item: mediaItemShape } },
+          400: { type: "object", properties: { error: { type: "string" } } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const userId = req.user!.id;
+      const data = await req.file();
+      if (!data) return reply.status(400).send({ error: "No file uploaded" });
+
+      const ext = imageExtFromMime(data.mimetype);
+      if (!ext) {
+        return reply.status(400).send({ error: "Unsupported image type" });
+      }
+
+      const buffer = await data.toBuffer();
+      if (buffer.length === 0) {
+        return reply.status(400).send({ error: "Empty file" });
+      }
+
+      await fs.mkdir(mediaDir, { recursive: true });
+      const filename = buildImageFilename(userId, ext);
+      const dest = path.join(mediaDir, filename);
+      await fs.writeFile(dest, buffer);
+
+      const url = `/uploads/media/${filename}`;
+      const item = await mediaService.create(userId, {
+        type: "image",
+        mimeType: data.mimetype,
+        url,
+        filename,
+        size: buffer.length,
+        title: data.filename || undefined,
+      });
+
+      return reply.send({ item });
+    }
+  );
+
   // GET /v1/media?userId=<id> — list media items for a user
   app.get(
     "/media",
