@@ -112,6 +112,7 @@ export const MessagesPage: React.FC = () => {
 
   // ── Deep-link / pending thread handling ──────────────────────────────────────
   const pendingOpenPeerRef = useRef<string | null>(null);
+  const pendingDmIntentRef = useRef(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const q = new URLSearchParams(window.location.search);
@@ -119,7 +120,10 @@ export const MessagesPage: React.FC = () => {
     const openPeer = q.get('openPeer');
     if (!openTeam && !openPeer) return;
     if (openTeam) setSelectedTeamId(openTeam);
-    if (openPeer) pendingOpenPeerRef.current = openPeer;
+    if (openPeer) {
+      pendingOpenPeerRef.current = openPeer;
+      pendingDmIntentRef.current = true;
+    }
     window.history.replaceState(null, '', '/app/messages');
   }, []);
 
@@ -130,9 +134,11 @@ export const MessagesPage: React.FC = () => {
     if (selectedTeam.admins.includes(userId) && selectedTeam.members.includes(peer)) {
       setSelectedMemberId(peer);
       setActiveView('dm');
+      pendingDmIntentRef.current = false;
     } else if (selectedTeam.members.includes(userId) && selectedTeam.admins.includes(peer)) {
       setSelectedAdminId(peer);
       setActiveView('dm');
+      pendingDmIntentRef.current = false;
     }
   }, [selectedTeam, userId]);
 
@@ -151,6 +157,7 @@ export const MessagesPage: React.FC = () => {
       const { teamId, adminId, memberId } = parsed;
       if (teamId) setSelectedTeamId(teamId);
       if (adminId && memberId) {
+        pendingDmIntentRef.current = true;
         if (userId === adminId) setSelectedMemberId(memberId);
         else if (userId === memberId) setSelectedAdminId(adminId);
         setActiveView('dm');
@@ -169,6 +176,7 @@ export const MessagesPage: React.FC = () => {
       } = (e as CustomEvent<{ teamId: string; adminId: string; memberId: string }>).detail;
       if (tId) setSelectedTeamId(tId);
       if (aId && mId && userId) {
+        pendingDmIntentRef.current = true;
         if (userId === aId) setSelectedMemberId(mId);
         else if (userId === mId) setSelectedAdminId(aId);
         setActiveView('dm');
@@ -218,7 +226,9 @@ export const MessagesPage: React.FC = () => {
         const def = cs.find((c) => c.isDefault) ?? cs[0];
         if (def) {
           setSelectedChannelId(def.id);
-          setActiveView('channel');
+          if (!pendingDmIntentRef.current) {
+            setActiveView('channel');
+          }
         } else {
           setSelectedChannelId(null);
         }
