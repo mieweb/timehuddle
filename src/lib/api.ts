@@ -1067,6 +1067,42 @@ export const videoApi = {
       method: 'POST',
       body: JSON.stringify(existingVideoid ? { ticketId, videoid: existingVideoid } : { ticketId }),
     }),
+
+  /** Reserve a videoid for a media library upload (no ticket context). */
+  reserveForLibrary: () => request<{ videoid: string }>('/v1/media/reserve', { method: 'POST' }),
+};
+
+// ─── Media Library ────────────────────────────────────────────────────────────
+
+export interface MediaItem {
+  id: string;
+  userId: string;
+  type: 'video' | 'image';
+  mimeType: string;
+  url: string;
+  videoid: string | null;
+  filename: string;
+  size: number;
+  title: string | null;
+  caption: string | null;
+  altText: string | null;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+  thumbnail: string | null;
+  uploadedAt: string;
+}
+
+export const mediaApi = {
+  /** GET /v1/media?userId=<id> */
+  list: (userId: string) =>
+    request<{ items: MediaItem[] }>(`/v1/media?userId=${encodeURIComponent(userId)}`).then(
+      (r) => r.items,
+    ),
+
+  /** DELETE /v1/media/:id */
+  remove: (id: string) =>
+    request<{ ok: boolean }>(`/v1/media/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
 // ─── Activity Log ─────────────────────────────────────────────────────────────

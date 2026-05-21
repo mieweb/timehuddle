@@ -16,6 +16,7 @@ import type { Channel } from "./channel.model.js";
 import type { ChannelMessage } from "./channel-message.model.js";
 import type { PersonalAccessToken } from "./personal-access-token.model.js";
 import type { Organization } from "./organization.model.js";
+import type { MediaItem } from "./media-item.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
 export function usersCollection() {
@@ -105,4 +106,9 @@ export function channelMessagesCollection() {
 // Personal access tokens
 export function personalAccessTokensCollection() {
   return getDB().collection<PersonalAccessToken>("personal_access_tokens");
+}
+
+// Media library items
+export function mediaItemsCollection() {
+  return getDB().collection<MediaItem>("mediaitems");
 }

@@ -28,6 +28,7 @@ import { messageRoutes } from "./routes/messages.js";
 import { activityRoutes } from "./routes/activity.js";
 import { workRoutes } from "./routes/work.js";
 import { pulseVaultRoutes, pulseVaultCompatRoutes } from "./routes/pulsevault.js";
+import { mediaRoutes } from "./routes/media.js";
 import { presenceRoutes } from "./routes/presence.js";
 import { channelRoutes } from "./routes/channels.js";
 import { tokenRoutes } from "./routes/tokens.js";
@@ -490,6 +491,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(timerRoutes, { prefix: "/v1" });
   await app.register(notificationRoutes, { prefix: "/v1" });
   await app.register(attachmentRoutes, { prefix: "/v1" });
+  await app.register(mediaRoutes, { prefix: "/v1" });
   await app.register(pulseVaultRoutes, { prefix: "/v1" });
   await app.register(messageRoutes, { prefix: "/v1" });
   await app.register(activityRoutes, { prefix: "/v1" });

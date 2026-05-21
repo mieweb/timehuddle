@@ -14,8 +14,10 @@
  */
 import { randomUUID } from "node:crypto";
 
+type ReservationContext = { kind: "ticket"; ticketId: string } | { kind: "library" };
+
 interface Reservation {
-  ticketId: string;
+  context: ReservationContext;
   userId: string;
   /** One-time auth token forwarded by Pulse Cam as Authorization: Bearer. */
   token: string;
@@ -26,7 +28,14 @@ const store = new Map<string, Reservation>();
 /** Reserve a videoid for a ticket. Returns the one-time upload token. */
 export function reserveVideo(videoid: string, ticketId: string, userId: string): string {
   const token = randomUUID();
-  store.set(videoid, { ticketId, userId, token });
+  store.set(videoid, { context: { kind: "ticket", ticketId }, userId, token });
+  return token;
+}
+
+/** Reserve a videoid for the media library (no ticket). Returns the one-time upload token. */
+export function reserveVideoForLibrary(videoid: string, userId: string): string {
+  const token = randomUUID();
+  store.set(videoid, { context: { kind: "library" }, userId, token });
   return token;
 }
 
@@ -36,8 +45,10 @@ export function verifyReservationToken(videoid: string, token: string): boolean 
   return entry?.token === token;
 }
 
-export function consumeReservation(videoid: string): Omit<Reservation, "token"> | undefined {
+export function consumeReservation(
+  videoid: string
+): { context: ReservationContext; userId: string } | undefined {
   const entry = store.get(videoid);
   store.delete(videoid);
-  return entry ? { ticketId: entry.ticketId, userId: entry.userId } : undefined;
+  return entry ? { context: entry.context, userId: entry.userId } : undefined;
 }

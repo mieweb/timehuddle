@@ -12,7 +12,12 @@ import { requireAuth } from "../middleware/require-auth.js";
 import { auth } from "../lib/auth.js";
 import { ticketService } from "../services/ticket.service.js";
 import { attachmentService } from "../services/attachment.service.js";
-import { reserveVideo, consumeReservation } from "../services/video-reserve.service.js";
+import { mediaService } from "../services/media.service.js";
+import {
+  reserveVideo,
+  reserveVideoForLibrary,
+  consumeReservation,
+} from "../services/video-reserve.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.resolve(__dirname, "../../data/videos");
@@ -41,13 +46,25 @@ async function onUploadCompleteHandler(request: any, ctx: any) {
     "localhost:4000";
   const videoUrl = `${proto}://${host}/v1/video/${ctx.videoid}`;
 
-  await attachmentService.create(
-    reservation.userId,
-    videoUrl,
-    "video",
-    { kind: "ticket", id: reservation.ticketId },
-    { title: `Video ${ctx.videoid.slice(0, 8)}` }
-  );
+  if (reservation.context.kind === "library") {
+    await mediaService.create(reservation.userId, {
+      type: "video",
+      mimeType: "video/mp4",
+      url: videoUrl,
+      videoid: ctx.videoid,
+      filename: `${ctx.videoid}.mp4`,
+      size: ctx.size ?? 0,
+      title: `Video ${ctx.videoid.slice(0, 8)}`,
+    });
+  } else {
+    await attachmentService.create(
+      reservation.userId,
+      videoUrl,
+      "video",
+      { kind: "ticket", id: reservation.context.ticketId },
+      { title: `Video ${ctx.videoid.slice(0, 8)}` }
+    );
+  }
 }
 
 // Compat: old Pulse Cam configs that saved the bare server URL (http://host:4000) call
@@ -153,6 +170,30 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
       const uploadLink = buildUploadLink({ server: `${proto}://${host}`, videoid });
 
       return reply.status(201).send({ videoid, uploadLink });
+    }
+  );
+
+  // POST /v1/media/reserve — authenticated users reserve a videoid for a library upload.
+  app.post(
+    "/media/reserve",
+    {
+      onRequest: [requireAuth],
+      schema: {
+        tags: ["Media"],
+        summary: "Reserve a videoid for a TUS video upload to the media library",
+        response: {
+          201: {
+            type: "object",
+            properties: { videoid: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const userId = req.user!.id;
+      const videoid = randomUUID();
+      reserveVideoForLibrary(videoid, userId);
+      return reply.status(201).send({ videoid });
     }
   );
 
