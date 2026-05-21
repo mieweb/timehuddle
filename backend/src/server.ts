@@ -78,6 +78,15 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
         { name: "Messages", description: "Admin-member threaded messaging and SSE stream" },
         { name: "Activity", description: "Unified activity log for user and team events" },
       ],
+      components: {
+        securitySchemes: {
+          cookieAuth: {
+            type: "apiKey",
+            in: "cookie",
+            name: "better-auth.session_token",
+          },
+        },
+      },
     },
   });
 
