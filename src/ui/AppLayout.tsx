@@ -106,15 +106,15 @@ export const MessagesActiveChatContext = createContext<{
   setHasActiveChat: (v: boolean) => void;
 }>({ setHasActiveChat: () => {} });
 
-// ─── Report Issue context ─────────────────────────────────────────────────────
-// UserDropdown calls openReportIssue() but the modal renders here at the root
-// so it escapes AppHeader's backdrop-filter containing block.
-export const ReportIssueContext = createContext<{
+// ─── App Feedback context ────────────────────────────────────────────────────
+// Modals render here at the root so they escape AppHeader's backdrop-filter
+// containing block. Sidebar triggers both via this context.
+export const AppFeedbackContext = createContext<{
   openReportIssue: () => void;
   openFeedback: () => void;
 }>({ openReportIssue: () => {}, openFeedback: () => {} });
 
-export const useReportIssue = () => useContext(ReportIssueContext);
+export const useAppFeedback = () => useContext(AppFeedbackContext);
 
 // ─── AppLayout ────────────────────────────────────────────────────────────────
 
@@ -248,7 +248,7 @@ export const AppLayout: React.FC = () => {
         <CommandPalette />
         <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
         <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-        <ReportIssueContext.Provider
+        <AppFeedbackContext.Provider
           value={{
             openReportIssue: () => setReportIssueOpen(true),
             openFeedback: () => setFeedbackOpen(true),
@@ -296,7 +296,7 @@ export const AppLayout: React.FC = () => {
               </div>
             </SidebarContext.Provider>
           </MessagesActiveChatContext.Provider>
-        </ReportIssueContext.Provider>
+        </AppFeedbackContext.Provider>
       </TeamProvider>
     </RouterContext.Provider>
   );

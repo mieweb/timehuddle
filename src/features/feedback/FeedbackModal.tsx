@@ -4,7 +4,9 @@
 import { Modal, ModalBody, ModalHeader } from '@mieweb/ui';
 import React from 'react';
 
+const ENV = (import.meta as { env?: Record<string, string> }).env ?? {};
 const FEEDBACK_URL =
+  ENV.VITE_POLLENATE_FEEDBACK_URL ||
   'https://pollenate.dev/f/medical-informatics-engineering-3/huddle-feedback-gze8e7?embed=true';
 
 interface Props {

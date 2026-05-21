@@ -47,7 +47,7 @@ const isReload = (() => {
 })();
 
 import { useSidebar } from './AppLayout';
-import { useReportIssue } from './AppLayout';
+import { useAppFeedback } from './AppLayout';
 import { useRouter } from './router';
 
 // ─── Nav data ─────────────────────────────────────────────────────────────────
@@ -158,7 +158,7 @@ const NavLink: React.FC<{ item: NavItem; active: boolean; expanded: boolean }> =
 const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => {
   const { isExpanded, toggle, closeMobile } = useSidebar();
   const { pathname } = useRouter();
-  const { openReportIssue, openFeedback } = useReportIssue();
+  const { openReportIssue, openFeedback } = useAppFeedback();
   const expanded = variant === 'drawer' ? true : isExpanded;
 
   return (
