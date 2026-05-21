@@ -206,21 +206,21 @@ const DetailsDrawer: React.FC<DrawerProps> = ({ item, onClose, onUpdated, onDele
       {/* Scrollable body */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* Preview */}
-        <div className="bg-neutral-950 flex flex-col items-center justify-center min-h-40 max-h-64">
+        <div className="bg-neutral-950 flex flex-col items-center justify-center min-h-32 max-h-48 min-[768px]:min-h-40 min-[768px]:max-h-64">
           {item.type === 'video' ? (
             <video
               ref={previewVideoRef}
               src={item.url}
               controls
               playsInline
-              className="max-h-64 w-full object-contain"
+              className="max-h-48 w-full object-contain min-[768px]:max-h-64"
               aria-label={item.title ?? 'Video preview'}
             />
           ) : (
             <img
               src={item.url}
               alt={item.altText ?? item.title ?? ''}
-              className="max-h-64 w-full object-contain"
+              className="max-h-48 w-full object-contain min-[768px]:max-h-64"
             />
           )}
         </div>
@@ -433,6 +433,11 @@ export const MediaPage: React.FC = () => {
     }
 
     const recomputeDrawerHeight = () => {
+      if (window.innerWidth < 768) {
+        setDrawerHeight(null);
+        return;
+      }
+
       const el = drawerRef.current;
       if (!el) return;
       const top = el.getBoundingClientRect().top;
@@ -453,6 +458,26 @@ export const MediaPage: React.FC = () => {
     return () => {
       window.removeEventListener('resize', onViewportChange);
       window.removeEventListener('scroll', onViewportChange);
+    };
+  }, [selectedItem]);
+
+  useEffect(() => {
+    if (!selectedItem || window.innerWidth >= 768) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setSelectedId(null);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
     };
   }, [selectedItem]);
 
@@ -635,6 +660,17 @@ export const MediaPage: React.FC = () => {
         {/* Sticky drawer — scrolls with page, sticks in view */}
         <AnimatePresence>
           {selectedItem && (
+            <motion.div
+              key="media-drawer-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40 bg-black/40 min-[768px]:hidden"
+              onClick={() => setSelectedId(null)}
+              aria-hidden="true"
+            />
+          )}
+          {selectedItem && (
             <motion.aside
               ref={drawerRef}
               key="media-drawer"
@@ -642,8 +678,10 @@ export const MediaPage: React.FC = () => {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 40 }}
               transition={{ type: 'spring', stiffness: 340, damping: 32 }}
-              className="w-80 shrink-0 sticky top-4 min-h-0 rounded-xl border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900 shadow-xl overflow-hidden flex flex-col"
+              className="fixed inset-x-2 top-2 bottom-2 z-50 min-h-0 rounded-xl border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900 shadow-xl overflow-hidden flex flex-col min-[768px]:inset-auto min-[768px]:z-auto min-[768px]:w-80 min-[768px]:shrink-0 min-[768px]:sticky min-[768px]:top-4"
               style={drawerHeight ? { height: `${drawerHeight}px` } : undefined}
+              role="dialog"
+              aria-modal="true"
               aria-label="Media details"
             >
               <DetailsDrawer
