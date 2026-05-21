@@ -435,7 +435,8 @@ export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, 
         <Card padding="none">
           <CardHeader className="flex items-center justify-between px-5 py-3">
             <CardTitle className="text-sm">
-              {groupedByDay.size} {groupedByDay.size === 1 ? 'day' : 'days'} &middot; {filteredSessions.length} sessions
+              {groupedByDay.size} {groupedByDay.size === 1 ? 'day' : 'days'} &middot;{' '}
+              {filteredSessions.length} sessions
             </CardTitle>
             <Button
               variant="outline"

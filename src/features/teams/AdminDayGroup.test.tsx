@@ -29,13 +29,9 @@ vi.mock('@mieweb/ui', () => ({
     </button>
   ),
   TableCell: ({ children }: { children: ReactNode }) => <td>{children}</td>,
-  TableRow: ({
-    children,
-    onClick,
-  }: {
-    children: ReactNode;
-    onClick?: () => void;
-  }) => <tr onClick={onClick}>{children}</tr>,
+  TableRow: ({ children, onClick }: { children: ReactNode; onClick?: () => void }) => (
+    <tr onClick={onClick}>{children}</tr>
+  ),
   Text: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
 
@@ -190,10 +186,7 @@ describe('AdminDayGroup', () => {
     });
 
     it('session rows carry the correct session id when expanded', () => {
-      const sessions = [
-        buildSession({ id: 'sess-a' }),
-        buildSession({ id: 'sess-b' }),
-      ];
+      const sessions = [buildSession({ id: 'sess-a' }), buildSession({ id: 'sess-b' })];
       renderGroup({ sessions, isExpanded: true });
       const rows = screen.getAllByTestId('timesheet-row');
       const ids = rows.map((r) => r.getAttribute('data-session-id'));

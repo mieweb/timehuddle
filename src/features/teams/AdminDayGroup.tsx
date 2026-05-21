@@ -46,7 +46,13 @@ function getSessionWorkSeconds(session: ClockEvent, now: number): number {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export const AdminDayGroup: React.FC<Props> = ({ sessions, teams, onEdit, isExpanded, onToggle }) => {
+export const AdminDayGroup: React.FC<Props> = ({
+  sessions,
+  teams,
+  onEdit,
+  isExpanded,
+  onToggle,
+}) => {
   const now = Date.now();
 
   const hasActiveSession = sessions.some((s) => s.endTime === null);
@@ -56,9 +62,7 @@ export const AdminDayGroup: React.FC<Props> = ({ sessions, teams, onEdit, isExpa
   const earliestStart = Math.min(...sessions.map((s) => s.originalStartTime ?? s.startTime));
 
   // Latest clock-out (null if any session is still active)
-  const latestEnd = hasActiveSession
-    ? null
-    : Math.max(...sessions.map((s) => s.endTime as number));
+  const latestEnd = hasActiveSession ? null : Math.max(...sessions.map((s) => s.endTime as number));
 
   // Team: single name if all sessions share a team, otherwise "Multiple"
   const teamIds = [...new Set(sessions.map((s) => s.teamId))];
@@ -70,10 +74,7 @@ export const AdminDayGroup: React.FC<Props> = ({ sessions, teams, onEdit, isExpa
   // Sessions sorted descending for the expanded view (newest first)
   const sortedSessions = sessions
     .slice()
-    .sort(
-      (a, b) =>
-        (b.originalStartTime ?? b.startTime) - (a.originalStartTime ?? a.startTime),
-    );
+    .sort((a, b) => (b.originalStartTime ?? b.startTime) - (a.originalStartTime ?? a.startTime));
 
   return (
     <>
