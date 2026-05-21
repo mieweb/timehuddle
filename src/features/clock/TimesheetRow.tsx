@@ -33,6 +33,10 @@ type TimelineRow = {
   end: number | null;
   durationSeconds: number | null;
   status: 'Completed' | 'Active' | 'Break Period' | 'On Break';
+  /** Segment is a continuation from the previous calendar day — show "---" for clock-in */
+  isContinuation?: boolean;
+  /** Segment continues into the next calendar day — show "---" for clock-out */
+  isContinued?: boolean;
 };
 
 function buildTimelineRows(session: ClockEvent, now: number): TimelineRow[] {
@@ -113,22 +117,97 @@ function buildTimelineRows(session: ClockEvent, now: number): TimelineRow[] {
   return rows.sort((a, b) => b.start - a.start);
 }
 
+/** Returns the next midnight (start of tomorrow, local time) as a ms timestamp. */
+function nextMidnight(ts: number): number {
+  const d = new Date(ts);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+}
+
+/**
+ * Splits timeline rows that cross a calendar-day boundary into per-day segments.
+ * The first segment gets `isContinued = true` (no clock-out shown).
+ * Subsequent segments get `isContinuation = true` (no clock-in shown).
+ * Result is re-sorted descending by start so newest rows appear first.
+ */
+function splitAtMidnight(rows: TimelineRow[]): TimelineRow[] {
+  const result: TimelineRow[] = [];
+  for (const row of rows) {
+    if (row.end === null) {
+      result.push(row);
+      continue;
+    }
+    const startDate = new Date(row.start);
+    const endDate = new Date(row.end);
+    const sameDay =
+      startDate.getFullYear() === endDate.getFullYear() &&
+      startDate.getMonth() === endDate.getMonth() &&
+      startDate.getDate() === endDate.getDate();
+    if (sameDay) {
+      result.push(row);
+      continue;
+    }
+    // Spans at least one midnight — split into per-calendar-day segments.
+    let cursor = row.start;
+    while (true) {
+      const midnight = nextMidnight(cursor);
+      if (midnight >= row.end) {
+        // Final segment
+        result.push({
+          ...row,
+          start: cursor,
+          end: row.end,
+          durationSeconds: Math.max(0, Math.floor((row.end - cursor) / 1000)),
+          isContinuation: cursor !== row.start,
+          isContinued: false,
+        });
+        break;
+      } else {
+        // Non-final segment — clip at midnight
+        result.push({
+          ...row,
+          start: cursor,
+          end: midnight,
+          durationSeconds: Math.max(0, Math.floor((midnight - cursor) / 1000)),
+          isContinuation: cursor !== row.start,
+          isContinued: true,
+        });
+        cursor = midnight;
+      }
+    }
+  }
+  return result.sort((a, b) => b.start - a.start);
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
   const teamName = teams.find((t) => t.id === session.teamId)?.name ?? session.teamId;
-  const timelineRows = buildTimelineRows(session, Date.now());
+  const timelineRows = splitAtMidnight(buildTimelineRows(session, Date.now()));
 
   return (
     <>
       {timelineRows.map((row, idx) => {
         const showActions = idx === 0;
+        // Team name belongs on the chronologically-first segment (last in desc-sorted array)
+        const showTeam = idx === timelineRows.length - 1;
         return (
           <TableRow key={`${session.id}-${row.kind}-${idx}`}>
             <TableCell>{formatDate(new Date(row.start), true)}</TableCell>
-            <TableCell>{formatTime(new Date(row.start))}</TableCell>
             <TableCell>
-              {row.end === null ? (
+              {row.isContinuation ? (
+                <Text variant="muted" size="xs">
+                  ---
+                </Text>
+              ) : (
+                formatTime(new Date(row.start))
+              )}
+            </TableCell>
+            <TableCell>
+              {row.isContinued ? (
+                <Text variant="muted" size="xs">
+                  ---
+                </Text>
+              ) : row.end === null ? (
                 <Text variant="muted" size="xs">
                   —
                 </Text>
@@ -139,9 +218,9 @@ export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
             <TableCell className="font-mono">
               {row.durationSeconds !== null ? formatDuration(row.durationSeconds) : '—'}
             </TableCell>
-            <TableCell>{showActions ? teamName : ''}</TableCell>
+            <TableCell>{showTeam ? teamName : ''}</TableCell>
             <TableCell>
-              {row.status === 'Active' ? (
+              {row.isContinued ? null : row.status === 'Active' ? (
                 <Badge variant="success" size="sm">
                   <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
                   Active

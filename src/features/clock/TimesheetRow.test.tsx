@@ -56,6 +56,19 @@ function buildSession(): ClockEvent {
   };
 }
 
+function buildCrossMidnightSession(): ClockEvent {
+  return {
+    id: 'session-midnight',
+    userId: 'u1',
+    teamId: 'team-1',
+    // Clocked in 7:49 PM May 20, clocked out 2:49 AM May 21
+    startTime: new Date('2026-05-20T19:49:00').getTime(),
+    endTime: new Date('2026-05-21T02:49:00').getTime(),
+    accumulatedTime: 7 * 3600,
+    breaks: [],
+  };
+}
+
 describe('TimesheetRow', () => {
   it('renders work/break rows and does not render marker row text', () => {
     const session = buildSession();
@@ -90,6 +103,58 @@ describe('TimesheetRow', () => {
           <TimesheetRow
             session={session}
             teams={[{ id: 'team-1', name: 'Mobile test' }]}
+            onEdit={onEdit}
+          />
+        </tbody>
+      </table>,
+    );
+
+    const editButtons = screen.getAllByRole('button', { name: 'Edit session' });
+    expect(editButtons).toHaveLength(1);
+
+    fireEvent.click(editButtons[0]);
+    expect(onEdit).toHaveBeenCalledWith(session);
+  });
+
+  it('splits a cross-midnight session into two rows with --- markers', () => {
+    const session = buildCrossMidnightSession();
+
+    render(
+      <table>
+        <tbody>
+          <TimesheetRow
+            session={session}
+            teams={[{ id: 'team-1', name: 'Night Crew' }]}
+            onEdit={vi.fn()}
+          />
+        </tbody>
+      </table>,
+    );
+
+    const rows = screen.getAllByRole('row');
+    expect(rows).toHaveLength(2);
+
+    // Two "---" markers: one for clock-in (May 21 continuation) and one for clock-out (May 20 continued)
+    const dashes = screen.getAllByText('---');
+    expect(dashes).toHaveLength(2);
+
+    // "Completed" status only on the newest row (May 21); May 20 is isContinued so no status
+    expect(screen.getAllByText('Completed')).toHaveLength(1);
+
+    // Team name on the oldest row (May 20, the original clock-in day)
+    expect(screen.getByText('Night Crew')).toBeTruthy();
+  });
+
+  it('shows the edit action on the newest row for a cross-midnight session', () => {
+    const session = buildCrossMidnightSession();
+    const onEdit = vi.fn();
+
+    render(
+      <table>
+        <tbody>
+          <TimesheetRow
+            session={session}
+            teams={[{ id: 'team-1', name: 'Night Crew' }]}
             onEdit={onEdit}
           />
         </tbody>
