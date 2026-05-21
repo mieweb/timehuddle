@@ -608,6 +608,7 @@ export async function userRoutes(app: FastifyInstance) {
       name: { type: "string" },
       username: { type: "string", nullable: true },
       image: { type: "string", nullable: true },
+      backgroundUrl: { type: "string", nullable: true },
       bio: { type: "string" },
       website: { type: "string" },
       reportsTo: publicReportsToSchema,
