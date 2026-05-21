@@ -96,6 +96,8 @@ async function updateTimes(
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 test.describe('Clock Break Classification', () => {
+  // All tests share bob's clock session — run serially to avoid parallel conflicts.
+  test.describe.configure({ mode: 'serial' });
   test.setTimeout(60000);
 
   test.beforeEach(async ({ page }) => {
