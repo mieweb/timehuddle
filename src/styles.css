@@ -50,12 +50,6 @@ html[data-theme='dark'] {
     margin: auto !important;
     overflow-y: auto !important;
   }
-
-  /* Lift Pollenate floating widget above the BottomNav (~56px) */
-  #pollenate-widget .pollenate-trigger,
-  #pollenate-widget .pollenate-panel {
-    bottom: calc(56px + 16px) !important;
-  }
 }
 @source "../node_modules/@mieweb/ui/dist";
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
