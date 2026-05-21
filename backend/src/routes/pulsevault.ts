@@ -2,7 +2,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import pulseVault, { createLocalStorage, createMp4Sniffer, buildUploadLink } from "@mieweb/pulsevault";
+import pulseVault, {
+  createLocalStorage,
+  createMp4Sniffer,
+  buildUploadLink,
+} from "@mieweb/pulsevault";
 import { fromNodeHeaders } from "better-auth/node";
 import { requireAuth } from "../middleware/require-auth.js";
 import { auth } from "../lib/auth.js";
