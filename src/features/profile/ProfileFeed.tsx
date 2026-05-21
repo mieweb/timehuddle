@@ -4,7 +4,8 @@ import { Button, Card, Spinner, Text } from '@mieweb/ui';
 import * as tus from 'tus-js-client';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { mediaApi, TIMECORE_BASE_URL, sessionToken, videoApi, type MediaItem } from '../../lib/api';
+import { mediaApi, sessionToken, videoApi, type MediaItem } from '../../lib/api';
+import { extractVideoThumbnail } from '../../lib/videoThumbnail';
 import { useSession } from '../../lib/useSession';
 
 // ─── Upload helpers ───────────────────────────────────────────────────────────
@@ -14,7 +15,7 @@ async function uploadFileToLibrary(file: File, onProgress: (pct: number) => void
 
   await new Promise<void>((resolve, reject) => {
     const upload = new tus.Upload(file, {
-      endpoint: `${TIMECORE_BASE_URL.replace(/\/$/, '')}/v1/video/upload`,
+      endpoint: videoApi.uploadEndpoint(),
       retryDelays: [0, 3000, 5000],
       metadata: { videoid, filename: file.name, filetype: file.type },
       headers: sessionToken.get() ? { Authorization: `Bearer ${sessionToken.get()}` } : {},
@@ -126,7 +127,7 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await mediaApi.list(userId);
+      const data = await mediaApi.listForUser(userId);
       setItems(data);
     } finally {
       setLoading(false);
@@ -141,10 +142,27 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
     setUploadError(null);
     setUploadProgress(0);
     try {
+      // Start thumbnail extraction in parallel with the upload
+      const thumbnailPromise = extractVideoThumbnail(file).catch(() => null);
+
       await uploadFileToLibrary(file, setUploadProgress);
-      // Poll briefly for the new item to appear
+
       await new Promise((r) => setTimeout(r, 1500));
-      await fetchItems();
+      const freshItems = await mediaApi.listForUser(userId);
+      setItems(freshItems);
+
+      const thumbnailBlob = await thumbnailPromise;
+      if (thumbnailBlob && freshItems.length > 0) {
+        const newest = freshItems[0];
+        if (newest) {
+          try {
+            const updated = await mediaApi.uploadThumbnail(newest.id, thumbnailBlob);
+            setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+          } catch {
+            // Keep the successful upload and skip thumbnail update failures.
+          }
+        }
+      }
     } catch {
       setUploadError('Upload failed. Please try again.');
     } finally {

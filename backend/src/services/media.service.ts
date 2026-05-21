@@ -41,6 +41,12 @@ export interface CreateMediaItemOpts {
   thumbnail?: string;
 }
 
+export interface UpdateMediaItemOpts {
+  title?: string;
+  caption?: string;
+  altText?: string;
+}
+
 export const mediaService = {
   async create(userId: string, opts: CreateMediaItemOpts): Promise<PublicMediaItem> {
     const doc: MediaItem = {
@@ -76,6 +82,14 @@ export const mediaService = {
     return doc ? toPublicMediaItem(doc) : null;
   },
 
+  async ensureOwned(userId: string, id: string): Promise<"ok" | "not-found" | "forbidden"> {
+    if (!isValidId(id)) return "not-found";
+    const doc = await mediaItemsCollection().findOne({ _id: new ObjectId(id) });
+    if (!doc) return "not-found";
+    if (doc.userId !== userId) return "forbidden";
+    return "ok";
+  },
+
   async remove(userId: string, id: string): Promise<"ok" | "not-found" | "forbidden"> {
     if (!isValidId(id)) return "not-found";
     const coll = mediaItemsCollection();
@@ -84,5 +98,44 @@ export const mediaService = {
     if (doc.userId !== userId) return "forbidden";
     await coll.deleteOne({ _id: doc._id });
     return "ok";
+  },
+
+  async setThumbnail(
+    userId: string,
+    id: string,
+    thumbnailUrl: string
+  ): Promise<PublicMediaItem | "not-found" | "forbidden"> {
+    const ownership = await this.ensureOwned(userId, id);
+    if (ownership !== "ok") return ownership;
+    const coll = mediaItemsCollection();
+    const docId = new ObjectId(id);
+    const updated = await coll.findOneAndUpdate(
+      { _id: docId },
+      { $set: { thumbnail: thumbnailUrl } },
+      { returnDocument: "after" }
+    );
+    return updated ? toPublicMediaItem(updated) : "not-found";
+  },
+
+  async update(
+    userId: string,
+    id: string,
+    opts: UpdateMediaItemOpts
+  ): Promise<PublicMediaItem | "not-found" | "forbidden"> {
+    if (!isValidId(id)) return "not-found";
+    const coll = mediaItemsCollection();
+    const doc = await coll.findOne({ _id: new ObjectId(id) });
+    if (!doc) return "not-found";
+    if (doc.userId !== userId) return "forbidden";
+    const $set: Partial<MediaItem> = {};
+    if (opts.title !== undefined) $set.title = opts.title;
+    if (opts.caption !== undefined) $set.caption = opts.caption;
+    if (opts.altText !== undefined) $set.altText = opts.altText;
+    const updated = await coll.findOneAndUpdate(
+      { _id: doc._id },
+      { $set },
+      { returnDocument: "after" }
+    );
+    return updated ? toPublicMediaItem(updated) : "not-found";
   },
 };

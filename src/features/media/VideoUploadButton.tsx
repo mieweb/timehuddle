@@ -161,7 +161,7 @@ export const VideoUploadButton: React.FC<VideoUploadButtonProps> = ({
 
     const token = sessionToken.get();
     const upload = new tus.Upload(file, {
-      endpoint: `${TIMECORE_BASE_URL}/v1/video/upload`,
+      endpoint: videoApi.uploadEndpoint(),
       retryDelays: [0, 3000, 5000, 10000],
       metadata: { filename: file.name, filetype: file.type, videoid },
       headers: token ? { Authorization: `Bearer ${token}` } : {},
