@@ -9,7 +9,7 @@
  *   • The backend allows only team admins to VIEW another member's sessions.
  *   • Edit/delete is allowed only for admins (enforced server-side).
  */
-import { faCalendar } from '@fortawesome/free-solid-svg-icons';
+import { faCalendar, faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
@@ -38,7 +38,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiError, clockApi, type ClockEvent } from '../../lib/api';
 import { formatDuration } from '../../lib/timeUtils';
 import { type TeamMember } from '../../lib/api';
-import { TimesheetRow } from '../clock/TimesheetRow';
+import { AdminDayGroup } from './AdminDayGroup';
 import {
   fromLocalDateTimeInputValue,
   getDateRange,
@@ -88,6 +88,7 @@ function getSessionWorkSeconds(session: ClockEvent, now: number): number {
 
 export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, teams }) => {
   const [selectedMemberId, setSelectedMemberId] = useState<string>('');
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
   const [preset, setPreset] = useState<Preset>('week');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -158,6 +159,46 @@ export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, 
       ? data.sessions.filter((s) => s.teamId === selectedTeamId)
       : data.sessions;
   }, [data, selectedTeamId]);
+
+  // Group filtered sessions by calendar day (descending date order)
+  const groupedByDay = useMemo(() => {
+    const map = new Map<string, ClockEvent[]>();
+    for (const session of filteredSessions) {
+      const dayKey = new Date(session.originalStartTime ?? session.startTime)
+        .toISOString()
+        .slice(0, 10);
+      const bucket = map.get(dayKey);
+      if (bucket) {
+        bucket.push(session);
+      } else {
+        map.set(dayKey, [session]);
+      }
+    }
+    // Sort entries descending by date
+    return new Map([...map.entries()].sort((a, b) => b[0].localeCompare(a[0])));
+  }, [filteredSessions]);
+
+  const allExpanded = expandedDays.size > 0;
+
+  const toggleExpandAll = useCallback(() => {
+    if (allExpanded) {
+      setExpandedDays(new Set());
+    } else {
+      setExpandedDays(new Set(groupedByDay.keys()));
+    }
+  }, [allExpanded, groupedByDay]);
+
+  const toggleDay = useCallback((dayKey: string) => {
+    setExpandedDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(dayKey)) {
+        next.delete(dayKey);
+      } else {
+        next.add(dayKey);
+      }
+      return next;
+    });
+  }, []);
 
   // Recompute summary from filtered sessions
   const filteredSummary = useMemo(() => {
@@ -392,8 +433,23 @@ export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, 
       {/* Sessions table */}
       {data && filteredSessions.length > 0 && (
         <Card padding="none">
-          <CardHeader className="px-5 py-3">
-            <CardTitle className="text-sm">Sessions ({filteredSessions.length})</CardTitle>
+          <CardHeader className="flex items-center justify-between px-5 py-3">
+            <CardTitle className="text-sm">
+              {groupedByDay.size} {groupedByDay.size === 1 ? 'day' : 'days'} &middot;{' '}
+              {filteredSessions.length} sessions
+            </CardTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleExpandAll}
+              aria-label={allExpanded ? 'Collapse all days' : 'Expand all days'}
+            >
+              <FontAwesomeIcon
+                icon={allExpanded ? faChevronUp : faChevronDown}
+                className="mr-1.5 text-xs"
+              />
+              {allExpanded ? 'Collapse All' : 'Expand All'}
+            </Button>
           </CardHeader>
           <CardContent className="p-0">
             <Table responsive>
@@ -409,8 +465,15 @@ export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, 
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredSessions.map((s) => (
-                  <TimesheetRow key={s.id} session={s} teams={teams} onEdit={openSessionDialog} />
+                {[...groupedByDay.entries()].map(([dayKey, daySessions]) => (
+                  <AdminDayGroup
+                    key={dayKey}
+                    sessions={daySessions}
+                    teams={teams}
+                    onEdit={openSessionDialog}
+                    isExpanded={expandedDays.has(dayKey)}
+                    onToggle={() => toggleDay(dayKey)}
+                  />
                 ))}
               </TableBody>
             </Table>
