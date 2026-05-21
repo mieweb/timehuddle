@@ -46,6 +46,7 @@ import {
   Spinner,
   Text,
   Textarea,
+  type DropdownPlacement,
 } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -141,6 +142,7 @@ interface TicketRowProps {
   assigneeName: string | null;
   assigneeId: string | null;
   createdByName: string | null;
+  suppressAvatars?: boolean;
   onEditRequest: (ticket: Ticket) => void;
   onDeleteRequest: (id: string) => void;
   onChangeStatusRequest: (ticket: Ticket) => void;
@@ -153,6 +155,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
   assigneeName,
   assigneeId,
   createdByName,
+  suppressAvatars = false,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -168,7 +171,10 @@ const TicketRow: React.FC<TicketRowProps> = ({
   const statusLabel = STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label;
 
   return (
-    <li className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40">
+    <li
+      data-ticket-id={ticket.id}
+      className="group relative flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40"
+    >
       {/* Status icon */}
       <div className="mt-0.5 shrink-0 pt-0.5">
         <FontAwesomeIcon icon={icon} className={`text-base ${iconClass}`} />
@@ -232,7 +238,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
 
       {/* Right side: assignee avatar + overflow menu */}
       <div className="flex shrink-0 items-center gap-2">
-        {assigneeName && assigneeId && (
+        {!suppressAvatars && assigneeName && assigneeId && (
           <button
             className="rounded-full ring-offset-1 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             onClick={() => navigate(`/app/profile/${assigneeId}`)}
@@ -243,12 +249,13 @@ const TicketRow: React.FC<TicketRowProps> = ({
           </button>
         )}
         <Dropdown
+          className="z-1000 bg-white dark:bg-neutral-800"
           trigger={
             <Button
               variant="ghost"
               size="icon"
               aria-label="Ticket options"
-              className="opacity-0 transition-opacity group-hover:opacity-100"
+              className="opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
             >
               <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
             </Button>
@@ -306,10 +313,20 @@ const TicketRow: React.FC<TicketRowProps> = ({
 interface FilterDropdownProps {
   label: string;
   activeLabel: string | null;
+  placement?: DropdownPlacement;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
 }
 
-const FilterDropdown: React.FC<FilterDropdownProps> = ({ label, activeLabel, children }) => (
+const FilterDropdown: React.FC<FilterDropdownProps> = ({
+  label,
+  activeLabel,
+  placement = 'bottom-start',
+  open,
+  onOpenChange,
+  children,
+}) => (
   <Dropdown
     trigger={
       <button
@@ -323,9 +340,12 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({ label, activeLabel, chi
         <FontAwesomeIcon icon={faChevronDown} className="text-[10px]" />
       </button>
     }
-    placement="bottom-end"
+    placement={placement}
+    open={open}
+    onOpenChange={onOpenChange}
+    className="z-1000 max-w-[calc(100vw-1rem)] bg-white dark:bg-neutral-800"
   >
-    <DropdownContent>{children}</DropdownContent>
+    <DropdownContent className="max-h-[60vh] overflow-y-auto">{children}</DropdownContent>
   </Dropdown>
 );
 
@@ -431,6 +451,11 @@ export const TicketsPage: React.FC = () => {
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
   const [statusDetailFilter, setStatusDetailFilter] = useState<string | null>(null);
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
+  const [openFilterMenu, setOpenFilterMenu] = useState<
+    'team' | 'priority' | 'status' | 'assignee' | null
+  >(null);
+  const ticketListRef = React.useRef<HTMLUListElement | null>(null);
+  const [suppressedAvatarIds, setSuppressedAvatarIds] = useState<string[]>([]);
 
   // Delete state
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -507,6 +532,61 @@ export const TicketsPage: React.FC = () => {
       (t) => !t.status || (t.status !== 'closed' && t.status !== 'reviewed'),
     );
   }, [searchFilteredTickets, statusFilter]);
+
+  // When a filter menu is open on desktop web, suppress only row avatars that
+  // visually intersect with that floating menu area.
+  useEffect(() => {
+    if (!openFilterMenu) {
+      setSuppressedAvatarIds([]);
+      return;
+    }
+    if (openFilterMenu === 'team' || openFilterMenu === 'status') {
+      setSuppressedAvatarIds([]);
+      return;
+    }
+    if (Capacitor.isNativePlatform() || window.innerWidth < 768) {
+      setSuppressedAvatarIds([]);
+      return;
+    }
+
+    const listEl = ticketListRef.current;
+    if (!listEl) {
+      setSuppressedAvatarIds([]);
+      return;
+    }
+
+    const updateSuppressedRows = () => {
+      const menuEl = document.querySelector('[role="menu"]') as HTMLElement | null;
+      if (!menuEl) {
+        setSuppressedAvatarIds([]);
+        return;
+      }
+
+      const menuRect = menuEl.getBoundingClientRect();
+      const ids: string[] = [];
+      const rows = listEl.querySelectorAll<HTMLLIElement>('li[data-ticket-id]');
+
+      rows.forEach((row) => {
+        const rowRect = row.getBoundingClientRect();
+        const overlapsMenu = rowRect.top < menuRect.bottom && rowRect.bottom > menuRect.top;
+        if (overlapsMenu && row.dataset.ticketId) ids.push(row.dataset.ticketId);
+      });
+
+      setSuppressedAvatarIds(ids);
+    };
+
+    const rafId = window.requestAnimationFrame(updateSuppressedRows);
+    const scrollHost = listEl.closest('main');
+
+    scrollHost?.addEventListener('scroll', updateSuppressedRows, { passive: true });
+    window.addEventListener('resize', updateSuppressedRows, { passive: true });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      scrollHost?.removeEventListener('scroll', updateSuppressedRows);
+      window.removeEventListener('resize', updateSuppressedRows);
+    };
+  }, [openFilterMenu, filteredTickets.length]);
 
   // Member options for assignee select in the edit modal
   const memberOptions = useMemo(() => {
@@ -638,29 +718,32 @@ export const TicketsPage: React.FC = () => {
   return (
     <AppPage fullWidth>
       {/* ── Header: New Ticket + Search ── */}
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          variant="primary"
-          leftIcon={<FontAwesomeIcon icon={faPlus} />}
-          onClick={() => setShowCreate(true)}
-        >
-          New Ticket
-        </Button>
+      <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="primary"
+            leftIcon={<FontAwesomeIcon icon={faPlus} />}
+            onClick={() => setShowCreate(true)}
+            className="shrink-0"
+          >
+            New Ticket
+          </Button>
 
-        <div className="relative flex-1">
-          <FontAwesomeIcon
-            icon={faSearch}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
-          />
-          <Input
-            label="Search"
-            hideLabel
-            placeholder="Search tickets…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8"
-            size="sm"
-          />
+          <div className="relative min-w-0 flex-1">
+            <FontAwesomeIcon
+              icon={faSearch}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
+            />
+            <Input
+              label="Search"
+              hideLabel
+              placeholder="Search tickets…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8"
+              size="sm"
+            />
+          </div>
         </div>
       </div>
 
@@ -744,140 +827,161 @@ export const TicketsPage: React.FC = () => {
       )}
 
       {/* ── Unified ticket list (GitHub style) ── */}
-      <Card
-        padding="none"
-        style={{ overflow: 'visible' }}
-        className={Capacitor.isNativePlatform() ? 'border-0 shadow-none bg-transparent' : ''}
-      >
+      <Card padding="none" style={{ overflow: 'visible' }}>
         {/* GitHub-style header: Open / Closed tabs + filter dropdowns */}
         <div
-          className={`flex items-center justify-between gap-2 px-4 py-2.5 ${Capacitor.isNativePlatform() ? 'border-b border-neutral-200 dark:border-neutral-700' : 'rounded-t-xl border-b border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800/60'}`}
+          className={`sticky top-14 z-30 px-4 py-2.5 md:relative md:top-auto md:z-30 ${Capacitor.isNativePlatform() ? 'border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80' : 'rounded-t-xl border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-800/70 dark:supports-backdrop-filter:bg-neutral-800/50'}`}
         >
-          {/* Left: status tabs */}
-          <div className="flex items-center gap-4">
-            <button
-              role="tab"
-              aria-selected={statusFilter === 'open'}
-              onClick={() => setStatusFilter('open')}
-              className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                statusFilter === 'open'
-                  ? 'text-neutral-900 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-              }`}
-            >
-              <FontAwesomeIcon icon={faCircleDot} className="text-green-500" />
-              {openCount} Open
-            </button>
-            <button
-              role="tab"
-              aria-selected={statusFilter === 'closed'}
-              onClick={() => setStatusFilter('closed')}
-              className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                statusFilter === 'closed'
-                  ? 'text-neutral-900 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-              }`}
-            >
-              <FontAwesomeIcon icon={faCircleCheck} className="text-purple-500" />
-              {closedCount} Closed
-            </button>
-          </div>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-2">
+            {/* Left: status tabs */}
+            <div className="flex items-center gap-4">
+              <button
+                role="tab"
+                aria-selected={statusFilter === 'open'}
+                onClick={() => setStatusFilter('open')}
+                className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                  statusFilter === 'open'
+                    ? 'text-neutral-900 dark:text-neutral-100'
+                    : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+                }`}
+              >
+                <FontAwesomeIcon icon={faCircleDot} className="text-green-500" />
+                {openCount} Open
+              </button>
+              <button
+                role="tab"
+                aria-selected={statusFilter === 'closed'}
+                onClick={() => setStatusFilter('closed')}
+                className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                  statusFilter === 'closed'
+                    ? 'text-neutral-900 dark:text-neutral-100'
+                    : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+                }`}
+              >
+                <FontAwesomeIcon icon={faCircleCheck} className="text-purple-500" />
+                {closedCount} Closed
+              </button>
+            </div>
 
-          {/* Right: filter dropdowns */}
-          <div className="flex items-center gap-4">
-            {teams.length > 1 && (
-              <FilterDropdown label="Team" activeLabel={activeTeamLabel}>
-                <DropdownItem
-                  onClick={() => setTeamFilter(null)}
-                  className={!teamFilter ? 'font-semibold' : ''}
+            {/* Right: filter dropdowns */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:pl-0">
+              {teams.length > 1 && (
+                <FilterDropdown
+                  label="Team"
+                  activeLabel={activeTeamLabel}
+                  open={openFilterMenu === 'team'}
+                  onOpenChange={(open) => setOpenFilterMenu(open ? 'team' : null)}
                 >
-                  All teams
+                  <DropdownItem
+                    onClick={() => setTeamFilter(null)}
+                    className={!teamFilter ? 'font-semibold' : ''}
+                  >
+                    All teams
+                  </DropdownItem>
+                  <DropdownSeparator />
+                  {teams.map((t: Team) => (
+                    <DropdownItem
+                      key={t.id}
+                      onClick={() => setTeamFilter(t.id)}
+                      className={teamFilter === t.id ? 'font-semibold' : ''}
+                    >
+                      {t.name}
+                    </DropdownItem>
+                  ))}
+                </FilterDropdown>
+              )}
+              <FilterDropdown
+                label="Priority"
+                activeLabel={activePriorityLabel}
+                open={openFilterMenu === 'priority'}
+                onOpenChange={(open) => setOpenFilterMenu(open ? 'priority' : null)}
+              >
+                <DropdownItem
+                  onClick={() => setPriorityFilter(null)}
+                  className={!priorityFilter ? 'font-semibold' : ''}
+                >
+                  Any priority
                 </DropdownItem>
                 <DropdownSeparator />
-                {teams.map((t: Team) => (
+                {PRIORITY_OPTIONS.map((p) => (
                   <DropdownItem
-                    key={t.id}
-                    onClick={() => setTeamFilter(t.id)}
-                    className={teamFilter === t.id ? 'font-semibold' : ''}
+                    key={p.value}
+                    onClick={() => setPriorityFilter(priorityFilter === p.value ? null : p.value)}
+                    className={priorityFilter === p.value ? 'font-semibold' : ''}
                   >
-                    {t.name}
+                    {p.label}
                   </DropdownItem>
                 ))}
               </FilterDropdown>
-            )}
-            <FilterDropdown label="Priority" activeLabel={activePriorityLabel}>
-              <DropdownItem
-                onClick={() => setPriorityFilter(null)}
-                className={!priorityFilter ? 'font-semibold' : ''}
+              <FilterDropdown
+                label="Status"
+                activeLabel={activeStatusDetailLabel}
+                placement="bottom-end"
+                open={openFilterMenu === 'status'}
+                onOpenChange={(open) => setOpenFilterMenu(open ? 'status' : null)}
               >
-                Any priority
-              </DropdownItem>
-              <DropdownSeparator />
-              {PRIORITY_OPTIONS.map((p) => (
                 <DropdownItem
-                  key={p.value}
-                  onClick={() => setPriorityFilter(priorityFilter === p.value ? null : p.value)}
-                  className={priorityFilter === p.value ? 'font-semibold' : ''}
+                  onClick={() => setStatusDetailFilter(null)}
+                  className={!statusDetailFilter ? 'font-semibold' : ''}
                 >
-                  {p.label}
+                  Any status
                 </DropdownItem>
-              ))}
-            </FilterDropdown>
-            <FilterDropdown label="Status" activeLabel={activeStatusDetailLabel}>
-              <DropdownItem
-                onClick={() => setStatusDetailFilter(null)}
-                className={!statusDetailFilter ? 'font-semibold' : ''}
+                <DropdownSeparator />
+                {STATUS_OPTIONS.filter(
+                  (s) => s.value !== 'open' && s.value !== 'closed' && s.value !== 'reviewed',
+                ).map((s) => (
+                  <DropdownItem
+                    key={s.value}
+                    onClick={() =>
+                      setStatusDetailFilter(statusDetailFilter === s.value ? null : s.value)
+                    }
+                    className={statusDetailFilter === s.value ? 'font-semibold' : ''}
+                  >
+                    {s.label}
+                  </DropdownItem>
+                ))}
+              </FilterDropdown>
+              <FilterDropdown
+                label="Assignee"
+                activeLabel={activeAssigneeLabel}
+                placement="bottom-end"
+                open={openFilterMenu === 'assignee'}
+                onOpenChange={(open) => setOpenFilterMenu(open ? 'assignee' : null)}
               >
-                Any status
-              </DropdownItem>
-              <DropdownSeparator />
-              {STATUS_OPTIONS.filter(
-                (s) => s.value !== 'open' && s.value !== 'closed' && s.value !== 'reviewed',
-              ).map((s) => (
                 <DropdownItem
-                  key={s.value}
+                  onClick={() => setAssigneeFilter(null)}
+                  className={assigneeFilter === null ? 'font-semibold' : ''}
+                >
+                  Any
+                </DropdownItem>
+                <DropdownSeparator />
+                <DropdownItem
                   onClick={() =>
-                    setStatusDetailFilter(statusDetailFilter === s.value ? null : s.value)
+                    setAssigneeFilter(assigneeFilter === '__unassigned__' ? null : '__unassigned__')
                   }
-                  className={statusDetailFilter === s.value ? 'font-semibold' : ''}
+                  className={assigneeFilter === '__unassigned__' ? 'font-semibold' : ''}
                 >
-                  {s.label}
+                  Unassigned
                 </DropdownItem>
-              ))}
-            </FilterDropdown>
-            <FilterDropdown label="Assignee" activeLabel={activeAssigneeLabel}>
-              <DropdownItem
-                onClick={() => setAssigneeFilter(null)}
-                className={assigneeFilter === null ? 'font-semibold' : ''}
-              >
-                Any
-              </DropdownItem>
-              <DropdownSeparator />
-              <DropdownItem
-                onClick={() =>
-                  setAssigneeFilter(assigneeFilter === '__unassigned__' ? null : '__unassigned__')
-                }
-                className={assigneeFilter === '__unassigned__' ? 'font-semibold' : ''}
-              >
-                Unassigned
-              </DropdownItem>
-              {sortedMembers.length > 0 && <DropdownSeparator />}
-              {sortedMembers.map((m) => (
-                <DropdownItem
-                  key={m.id}
-                  onClick={() => setAssigneeFilter(assigneeFilter === m.id ? null : m.id)}
-                  className={assigneeFilter === m.id ? 'font-semibold' : ''}
-                >
-                  {m.id === userId ? `${m.name || m.email} (you)` : m.name || m.email}
-                </DropdownItem>
-              ))}
-            </FilterDropdown>
+                {sortedMembers.length > 0 && <DropdownSeparator />}
+                {sortedMembers.map((m) => (
+                  <DropdownItem
+                    key={m.id}
+                    onClick={() => setAssigneeFilter(assigneeFilter === m.id ? null : m.id)}
+                    className={assigneeFilter === m.id ? 'font-semibold' : ''}
+                  >
+                    {m.id === userId ? `${m.name || m.email} (you)` : m.name || m.email}
+                  </DropdownItem>
+                ))}
+              </FilterDropdown>
+            </div>
           </div>
         </div>
 
         {/* Ticket rows */}
         {filteredTickets.length > 0 ? (
           <ul
+            ref={ticketListRef}
             className="divide-y divide-neutral-100 dark:divide-neutral-800"
             style={{ overflow: 'visible' }}
             aria-label={statusFilter === 'open' ? 'Open tickets' : 'Closed tickets'}
@@ -890,6 +994,11 @@ export const TicketsPage: React.FC = () => {
                 assigneeName={getAssigneeName(t.assignedTo)}
                 assigneeId={t.assignedTo}
                 createdByName={getAssigneeName(t.createdBy)}
+                suppressAvatars={
+                  openFilterMenu !== 'team' &&
+                  openFilterMenu !== 'status' &&
+                  suppressedAvatarIds.includes(t.id)
+                }
                 onEditRequest={openEditModal}
                 onDeleteRequest={setDeleteId}
                 onChangeStatusRequest={(ticket) => {
