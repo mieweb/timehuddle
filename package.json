@@ -46,6 +46,7 @@
     "@fortawesome/react-fontawesome": "^3.0.2",
     "@mieweb/ui": "^0.2.4",
     "@mieweb/ychart": "^1.1.0",
+    "@pollenate/react": "^0.2.0",
     "@swc/helpers": "^0.5.17",
     "cmdk": "^1.1.1",
     "motion": "^12.34.3",
