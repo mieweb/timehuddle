@@ -29,6 +29,7 @@ import { pulseVaultRoutes, pulseVaultCompatRoutes } from "./routes/pulsevault.js
 import { presenceRoutes } from "./routes/presence.js";
 import { channelRoutes } from "./routes/channels.js";
 import { tokenRoutes } from "./routes/tokens.js";
+import { startClockMonitor } from "./services/clock-monitor.service.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? true });
@@ -495,6 +496,9 @@ async function bootstrap() {
   await connectDB();
   await ensureMongooseConnected();
   await ensureIndexes();
+  if (process.env.NODE_ENV !== "test") {
+    startClockMonitor();
+  }
   const app = await buildApp();
   const port = Number(process.env.PORT) || 4000;
   await app.listen({ port, host: "0.0.0.0" });

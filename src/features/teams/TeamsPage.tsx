@@ -37,6 +37,10 @@ import {
   ModalHeader,
   ModalTitle,
   Spinner,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   Text,
   Textarea,
 } from '@mieweb/ui';
@@ -48,6 +52,7 @@ import { useSession } from '../../lib/useSession';
 import { usePresence } from '../../lib/usePresence';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { AdminTimesheetPanel } from './AdminTimesheetPanel';
 import { UserAvatar } from '../../ui/UserAvatar';
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
@@ -320,139 +325,168 @@ export const TeamsPage: React.FC = () => {
             )}
           </div>
 
-          {/* Members list */}
-          <div className="py-1">
-            <div className="mb-3 flex items-center justify-between">
-              <Text
-                variant="muted"
-                size="xs"
-                weight="semibold"
-                className="uppercase tracking-widest"
-              >
-                Members ({selectedTeam.members.length})
-              </Text>
-              {isAdmin && !selectedTeam.isPersonal && (
-                <Button variant="link" size="sm" onClick={() => setModal('invite')}>
-                  <FontAwesomeIcon icon={faUserPlus} className="mr-1" />
-                  Invite
-                </Button>
+          {/* Tabs: Members | Timesheet */}
+          <Tabs defaultValue="members" className="mt-2">
+            <TabsList className="w-full">
+              <TabsTrigger value="members" className="flex-1">
+                Members
+              </TabsTrigger>
+              {!selectedTeam.isPersonal && isAdmin && (
+                <TabsTrigger value="timesheet" className="flex-1">
+                  Timesheet
+                </TabsTrigger>
               )}
-            </div>
-            <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-              {selectedTeam.members.map((memberId) => {
-                const m = membersById.get(memberId);
-                const name = m?.name ?? memberId;
-                const username = m?.username ?? null;
-                const email = m?.email ?? '';
-                const image = m?.image ?? null;
-                const isMemberAdmin = selectedTeam.admins.includes(memberId);
-                const isMe = memberId === userId;
+            </TabsList>
 
-                return (
-                  <li key={memberId} className="flex items-center gap-3 py-2.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigate(username ? `/${username}` : `/app/profile/${memberId}`)
-                      }
-                      className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
-                      aria-label={`View ${name}'s profile`}
-                    >
-                      <div className="relative shrink-0">
-                        <UserAvatar name={name} size="sm" src={image} />
-                        {onlineUsers.has(memberId) && (
-                          <span
-                            className="absolute right-0 bottom-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
-                            aria-label={`${name} is online`}
-                          />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <Text size="sm" weight="medium">
-                          {name}
-                          {isMe && (
-                            <Text as="span" variant="muted" size="xs">
-                              {' '}
-                              (you)
+            <TabsContent value="members">
+              <div className="py-1">
+                <div className="mb-3 flex items-center justify-between">
+                  <Text
+                    variant="muted"
+                    size="xs"
+                    weight="semibold"
+                    className="uppercase tracking-widest"
+                  >
+                    Members ({selectedTeam.members.length})
+                  </Text>
+                  {isAdmin && !selectedTeam.isPersonal && (
+                    <Button variant="link" size="sm" onClick={() => setModal('invite')}>
+                      <FontAwesomeIcon icon={faUserPlus} className="mr-1" />
+                      Invite
+                    </Button>
+                  )}
+                </div>
+                <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                  {selectedTeam.members.map((memberId) => {
+                    const m = membersById.get(memberId);
+                    const name = m?.name ?? memberId;
+                    const username = m?.username ?? null;
+                    const email = m?.email ?? '';
+                    const image = m?.image ?? null;
+                    const isMemberAdmin = selectedTeam.admins.includes(memberId);
+                    const isMe = memberId === userId;
+
+                    return (
+                      <li key={memberId} className="flex items-center gap-3 py-2.5">
+                        <Button
+                          variant="ghost"
+                          onClick={() =>
+                            navigate(username ? `/${username}` : `/app/profile/${memberId}`)
+                          }
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                          aria-label={`View ${name}'s profile`}
+                        >
+                          <div className="relative shrink-0">
+                            <UserAvatar name={name} size="sm" src={image} />
+                            {onlineUsers.has(memberId) && (
+                              <span
+                                className="absolute right-0 bottom-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
+                                aria-label={`${name} is online`}
+                              />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <Text size="sm" weight="medium">
+                              {name}
+                              {isMe && (
+                                <Text as="span" variant="muted" size="xs">
+                                  {' '}
+                                  (you)
+                                </Text>
+                              )}
                             </Text>
-                          )}
-                        </Text>
-                        {username && (
-                          <Text variant="muted" size="xs">
-                            @{username}
-                          </Text>
-                        )}
-                        {email && (
-                          <Text variant="muted" size="xs">
-                            {email}
-                          </Text>
-                        )}
-                      </div>
-                    </button>
-                    {isMemberAdmin && (
-                      <Badge variant="warning" size="sm" icon={<FontAwesomeIcon icon={faCrown} />}>
-                        Admin
-                      </Badge>
-                    )}
-                    {isAdmin && !isMe && !selectedTeam.isPersonal && (
-                      <Dropdown
-                        trigger={
-                          <Button variant="ghost" size="icon" aria-label="Member actions">
-                            <FontAwesomeIcon icon={faEllipsisV} className="text-xs" />
-                          </Button>
-                        }
-                        placement="bottom-end"
-                      >
-                        {!isMemberAdmin ? (
-                          <DropdownItem
-                            icon={<FontAwesomeIcon icon={faShield} />}
-                            onClick={() => {
-                              void teamApi
-                                .setMemberRole(selectedTeamId!, memberId, 'admin')
-                                .then(() => {
-                                  refetchTeams();
-                                  void fetchMembers(selectedTeamId);
-                                });
-                            }}
+                            {username && (
+                              <Text variant="muted" size="xs">
+                                @{username}
+                              </Text>
+                            )}
+                            {email && (
+                              <Text variant="muted" size="xs">
+                                {email}
+                              </Text>
+                            )}
+                          </div>
+                        </Button>
+                        {isMemberAdmin && (
+                          <Badge
+                            variant="warning"
+                            size="sm"
+                            icon={<FontAwesomeIcon icon={faCrown} />}
                           >
-                            Make Admin
-                          </DropdownItem>
-                        ) : (
-                          <DropdownItem
-                            icon={<FontAwesomeIcon icon={faShield} />}
-                            onClick={() => {
-                              void teamApi
-                                .setMemberRole(selectedTeamId!, memberId, 'member')
-                                .then(() => {
-                                  refetchTeams();
-                                  void fetchMembers(selectedTeamId);
-                                });
-                            }}
-                          >
-                            Remove Admin
-                          </DropdownItem>
+                            Admin
+                          </Badge>
                         )}
-                        <DropdownItem
-                          icon={<FontAwesomeIcon icon={faKey} />}
-                          onClick={() => setModal({ type: 'password', memberId })}
-                        >
-                          Set Password
-                        </DropdownItem>
-                        <DropdownSeparator />
-                        <DropdownItem
-                          icon={<FontAwesomeIcon icon={faUserMinus} />}
-                          variant="danger"
-                          onClick={() => setModal({ type: 'remove', memberId })}
-                        >
-                          Remove Member
-                        </DropdownItem>
-                      </Dropdown>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+                        {isAdmin && !isMe && !selectedTeam.isPersonal && (
+                          <Dropdown
+                            trigger={
+                              <Button variant="ghost" size="icon" aria-label="Member actions">
+                                <FontAwesomeIcon icon={faEllipsisV} className="text-xs" />
+                              </Button>
+                            }
+                            placement="bottom-end"
+                          >
+                            {!isMemberAdmin ? (
+                              <DropdownItem
+                                icon={<FontAwesomeIcon icon={faShield} />}
+                                onClick={() => {
+                                  void teamApi
+                                    .setMemberRole(selectedTeamId!, memberId, 'admin')
+                                    .then(() => {
+                                      refetchTeams();
+                                      void fetchMembers(selectedTeamId);
+                                    });
+                                }}
+                              >
+                                Make Admin
+                              </DropdownItem>
+                            ) : (
+                              <DropdownItem
+                                icon={<FontAwesomeIcon icon={faShield} />}
+                                onClick={() => {
+                                  void teamApi
+                                    .setMemberRole(selectedTeamId!, memberId, 'member')
+                                    .then(() => {
+                                      refetchTeams();
+                                      void fetchMembers(selectedTeamId);
+                                    });
+                                }}
+                              >
+                                Remove Admin
+                              </DropdownItem>
+                            )}
+                            <DropdownItem
+                              icon={<FontAwesomeIcon icon={faKey} />}
+                              onClick={() => setModal({ type: 'password', memberId })}
+                            >
+                              Set Password
+                            </DropdownItem>
+                            <DropdownSeparator />
+                            <DropdownItem
+                              icon={<FontAwesomeIcon icon={faUserMinus} />}
+                              variant="danger"
+                              onClick={() => setModal({ type: 'remove', memberId })}
+                            >
+                              Remove Member
+                            </DropdownItem>
+                          </Dropdown>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            </TabsContent>
+
+            {!selectedTeam.isPersonal && isAdmin && (
+              <TabsContent value="timesheet">
+                <AdminTimesheetPanel
+                  members={members}
+                  selectedTeamId={selectedTeamId}
+                  teams={teams}
+                />
+              </TabsContent>
+            )}
+          </Tabs>
         </div>
       )}
 

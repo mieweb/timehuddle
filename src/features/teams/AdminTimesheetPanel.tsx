@@ -71,6 +71,19 @@ interface Props {
   teams: SimpleTeam[];
 }
 
+function getSessionWorkSeconds(session: ClockEvent, now: number): number {
+  if (session.endTime === null) {
+    if (typeof session.workSeconds === 'number') return Math.max(0, session.workSeconds);
+    const accumulated = Math.max(0, session.accumulatedTime ?? 0);
+    if (session.isPaused) return accumulated;
+    return accumulated + Math.max(0, Math.floor((now - session.startTime) / 1000));
+  }
+
+  const accumulated = Math.max(0, session.accumulatedTime ?? 0);
+  if (accumulated > 0) return accumulated;
+  return Math.max(0, Math.floor((session.endTime - session.startTime) / 1000));
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, teams }) => {
@@ -148,13 +161,17 @@ export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, 
 
   // Recompute summary from filtered sessions
   const filteredSummary = useMemo(() => {
+    const now = Date.now();
     const completed = filteredSessions.filter((s) => s.endTime !== null);
-    const totalSeconds = filteredSessions.reduce((sum, s) => {
-      if (s.endTime === null) return sum;
-      return sum + Math.floor((s.endTime - s.startTime) / 1000);
-    }, 0);
+    const totalSeconds = filteredSessions.reduce(
+      (sum, s) => sum + getSessionWorkSeconds(s, now),
+      0,
+    );
     const workingDays = new Set(
-      filteredSessions.map((s) => new Date(s.startTime).toISOString().slice(0, 10)),
+      filteredSessions.map((s) => {
+        const sessionStart = s.originalStartTime ?? s.startTime;
+        return new Date(sessionStart).toISOString().slice(0, 10);
+      }),
     ).size;
     return {
       totalSeconds,

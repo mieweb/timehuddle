@@ -312,6 +312,17 @@ export class TimerService {
     return (await coll.findOne({ _id: new ObjectId(sessionId) })) ?? "not-found";
   }
 
+  /** Close the currently running timer for a user and return its session id. */
+  async closeRunningForUser(userId: string, now: number): Promise<string | null> {
+    return this._closeRunningSession(userId, now);
+  }
+
+  /** Read a timer session by id, or null if missing/invalid. */
+  async getSessionById(sessionId: string): Promise<Timer | null> {
+    if (!isValidId(sessionId)) return null;
+    return timersCollection().findOne({ _id: new ObjectId(sessionId) });
+  }
+
   /**
    * Close ALL running sessions for a user in a single updateMany.
    * Called during clock-out — no multi-collection scan needed.

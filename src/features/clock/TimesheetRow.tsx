@@ -27,179 +27,229 @@ interface Props {
   onEdit: (session: ClockEvent) => void;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Returns midnight (local time) for the given date. */
-function startOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
-
-/** Returns the last millisecond of the day (local time). */
-function endOfDay(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
-}
-
-interface DaySegment {
-  /** Calendar date label for this row */
-  date: Date;
-  /** Actual clock-in for this segment — null means it's a continuation */
-  clockIn: Date | null;
-  /** Actual clock-out for this segment — null means it continues into next day (or still active) */
-  clockOut: Date | null;
-  /** Duration in seconds for this segment */
+type TimelineRow = {
+  kind: 'work' | 'break';
+  start: number;
+  end: number | null;
   durationSeconds: number | null;
-  /** Whether this is the very first segment of the session */
-  isFirst: boolean;
-  /** Whether this is the very last segment of the session */
-  isLast: boolean;
-  /** Whether the overall session is still active (no endTime) */
-  isActive: boolean;
-  /** Whether this segment spans more than one day in the original session */
-  isMultiDay: boolean;
-}
+  status: 'Completed' | 'Active' | 'Break Period' | 'On Break';
+  /** Segment is a continuation from the previous calendar day — show "---" for clock-in */
+  isContinuation?: boolean;
+  /** Segment continues into the next calendar day — show "---" for clock-out */
+  isContinued?: boolean;
+};
 
-/**
- * Splits a ClockEvent into per-calendar-day segments (local time).
- * Single-day sessions produce exactly one segment.
- */
-function splitIntoSegments(session: ClockEvent): DaySegment[] {
-  const start = new Date(session.startTime);
-  const end = session.endTime ? new Date(session.endTime) : null;
+function buildTimelineRows(session: ClockEvent, now: number): TimelineRow[] {
+  const rows: TimelineRow[] = [];
+  const sessionStart = session.originalStartTime ?? session.startTime;
+  const sessionEnd = session.endTime ?? now;
+  const rawBreaks = Array.isArray(session.breaks) ? session.breaks : [];
+  const breaks = rawBreaks
+    .filter((b) => typeof b.startTime === 'number')
+    .map((b) => ({
+      startTime: b.startTime,
+      endTime: typeof b.endTime === 'number' ? b.endTime : null,
+    }))
+    .sort((a, b) => a.startTime - b.startTime);
 
-  const startDay = startOfDay(start);
-  const endDay = end ? startOfDay(end) : startDay;
+  let cursor = sessionStart;
+  for (const brk of breaks) {
+    const breakStart = Math.max(cursor, brk.startTime);
+    if (breakStart > cursor) {
+      const durationSeconds = Math.max(0, Math.floor((breakStart - cursor) / 1000));
+      rows.push({
+        kind: 'work',
+        start: cursor,
+        end: breakStart,
+        durationSeconds,
+        status: 'Completed',
+      });
+    }
 
-  // Calculate total duration in milliseconds
-  const totalDurationMs = end ? end.getTime() - start.getTime() : 0;
+    const breakEnd = brk.endTime ?? (session.endTime === null ? null : sessionEnd);
+    const breakDuration =
+      breakEnd === null
+        ? Math.max(0, Math.floor((now - breakStart) / 1000))
+        : Math.max(0, Math.floor((breakEnd - breakStart) / 1000));
 
-  // Count days spanned
-  const totalDays = Math.round((endDay.getTime() - startDay.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+    rows.push({
+      kind: 'break',
+      start: breakStart,
+      end: breakEnd,
+      durationSeconds: breakDuration,
+      status: breakEnd === null ? 'On Break' : 'Break Period',
+    });
 
-  // Determine if the session spans multiple days and exceeds 24 hours
-  const isMultiDay = totalDays > 1 && totalDurationMs >= 24 * 60 * 60 * 1000;
+    if (breakEnd !== null) {
+      cursor = breakEnd;
+    }
+  }
 
-  const segments: DaySegment[] = [];
-
-  for (let i = 0; i < totalDays; i++) {
-    const dayStart = new Date(startDay);
-    dayStart.setDate(dayStart.getDate() + i);
-    const dayEnd = endOfDay(dayStart);
-
-    const isFirst = i === 0;
-    const isLast = i === totalDays - 1;
-    const segmentStart = isFirst ? start : dayStart;
-    // For the last segment use the real end; otherwise clip at end-of-day.
-    // If still active on the last day, segmentEnd is null.
-    const segmentEnd: Date | null = isLast ? end : dayEnd;
-
-    const durationSeconds =
-      segmentEnd !== null
-        ? Math.max(0, Math.floor((segmentEnd.getTime() - segmentStart.getTime()) / 1000))
-        : null;
-
-    segments.push({
-      date: dayStart,
-      clockIn: isFirst ? start : null,
-      clockOut: isLast ? end : dayEnd,
-      durationSeconds,
-      isFirst,
-      isLast,
-      isActive: !session.endTime,
-      isMultiDay,
+  if (session.endTime === null && session.isPaused && !rows.some((row) => row.kind === 'break')) {
+    const breakStart = typeof session.pausedAt === 'number' ? session.pausedAt : session.startTime;
+    rows.push({
+      kind: 'break',
+      start: breakStart,
+      end: null,
+      durationSeconds: Math.max(0, Math.floor((now - breakStart) / 1000)),
+      status: 'On Break',
     });
   }
 
-  return segments;
+  const shouldAddTrailingWork =
+    session.endTime === null ? !session.isPaused && cursor <= sessionEnd : cursor < sessionEnd;
+
+  if (shouldAddTrailingWork) {
+    const end = session.endTime === null ? null : sessionEnd;
+    const durationSeconds =
+      end === null
+        ? Math.max(0, Math.floor((now - cursor) / 1000))
+        : Math.max(0, Math.floor((end - cursor) / 1000));
+    rows.push({
+      kind: 'work',
+      start: cursor,
+      end,
+      durationSeconds,
+      status: end === null ? 'Active' : 'Completed',
+    });
+  }
+
+  return rows.sort((a, b) => b.start - a.start);
+}
+
+/** Returns the next midnight (start of tomorrow, local time) as a ms timestamp. */
+function nextMidnight(ts: number): number {
+  const d = new Date(ts);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+}
+
+/**
+ * Splits timeline rows that cross a calendar-day boundary into per-day segments.
+ * The first segment gets `isContinued = true` (no clock-out shown).
+ * Subsequent segments get `isContinuation = true` (no clock-in shown).
+ * Result is re-sorted descending by start so newest rows appear first.
+ */
+function splitAtMidnight(rows: TimelineRow[]): TimelineRow[] {
+  const result: TimelineRow[] = [];
+  for (const row of rows) {
+    if (row.end === null) {
+      result.push(row);
+      continue;
+    }
+    const startDate = new Date(row.start);
+    const endDate = new Date(row.end);
+    const sameDay =
+      startDate.getFullYear() === endDate.getFullYear() &&
+      startDate.getMonth() === endDate.getMonth() &&
+      startDate.getDate() === endDate.getDate();
+    if (sameDay) {
+      result.push(row);
+      continue;
+    }
+    // Spans at least one midnight — split into per-calendar-day segments.
+    let cursor = row.start;
+    while (true) {
+      const midnight = nextMidnight(cursor);
+      if (midnight >= row.end) {
+        // Final segment
+        result.push({
+          ...row,
+          start: cursor,
+          end: row.end,
+          durationSeconds: Math.max(0, Math.floor((row.end - cursor) / 1000)),
+          isContinuation: cursor !== row.start,
+          isContinued: false,
+        });
+        break;
+      } else {
+        // Non-final segment — clip at midnight
+        result.push({
+          ...row,
+          start: cursor,
+          end: midnight,
+          durationSeconds: Math.max(0, Math.floor((midnight - cursor) / 1000)),
+          isContinuation: cursor !== row.start,
+          isContinued: true,
+        });
+        cursor = midnight;
+      }
+    }
+  }
+  return result.sort((a, b) => b.start - a.start);
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
   const teamName = teams.find((t) => t.id === session.teamId)?.name ?? session.teamId;
-  // clock-in day at bottom) — matching the descending sort of the session list.
-  const segments = splitIntoSegments(session).reverse();
+  const timelineRows = splitAtMidnight(buildTimelineRows(session, Date.now()));
 
   return (
     <>
-      {segments.map((seg, idx) => (
-        <TableRow key={`${session.id}-day-${idx}`}>
-          {/* Date */}
-          <TableCell>
-            <span className="flex items-center gap-1.5">
-              {formatDate(seg.date, true)}
-              {seg.isMultiDay && (
-                <Badge variant="warning" size="sm" aria-label="Multi-day session">
-                  +{segments.length}d
-                </Badge>
+      {timelineRows.map((row, idx) => {
+        const showActions = idx === 0;
+        // Team name belongs on the chronologically-first segment (last in desc-sorted array)
+        const showTeam = idx === timelineRows.length - 1;
+        return (
+          <TableRow key={`${session.id}-${row.kind}-${idx}`}>
+            <TableCell>{formatDate(new Date(row.start), true)}</TableCell>
+            <TableCell>
+              {row.isContinuation ? (
+                <Text variant="muted" size="xs">
+                  ---
+                </Text>
+              ) : (
+                formatTime(new Date(row.start))
               )}
-            </span>
-          </TableCell>
-
-          {/* Clock In */}
-          <TableCell>
-            {seg.clockIn ? (
-              formatTime(seg.clockIn)
-            ) : (
-              <Text variant="muted" size="xs" aria-label="Continued from previous day">
-                ---
-              </Text>
-            )}
-          </TableCell>
-
-          {/* Clock Out */}
-          <TableCell>
-            {seg.isActive && seg.isLast ? (
-              <Text variant="muted" size="xs">
-                —
-              </Text>
-            ) : seg.isLast && seg.clockOut ? (
-              formatTime(seg.clockOut)
-            ) : (
-              <Text variant="muted" size="xs" aria-label="Continued into next day">
-                ---
-              </Text>
-            )}
-          </TableCell>
-
-          {/* Duration */}
-          <TableCell className="font-mono">
-            {seg.durationSeconds !== null ? formatDuration(seg.durationSeconds) : '—'}
-          </TableCell>
-
-          {/* Team — only on first row to avoid repetition */}
-          <TableCell>{seg.isFirst ? teamName : ''}</TableCell>
-
-          {/* Status */}
-          <TableCell>
-            {seg.isActive && seg.isLast ? (
-              <Badge variant="success" size="sm">
-                <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                Active
-              </Badge>
-            ) : seg.isLast ? (
-              <Text variant="muted" size="xs">
-                Completed
-              </Text>
-            ) : (
-              ''
-            )}
-          </TableCell>
-
-          {/* Actions — only on last row */}
-          <TableCell className="text-right">
-            {seg.isLast && (
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="Edit session"
-                onClick={() => onEdit(session)}
-              >
-                <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-              </Button>
-            )}
-          </TableCell>
-        </TableRow>
-      ))}
+            </TableCell>
+            <TableCell>
+              {row.isContinued ? (
+                <Text variant="muted" size="xs">
+                  ---
+                </Text>
+              ) : row.end === null ? (
+                <Text variant="muted" size="xs">
+                  —
+                </Text>
+              ) : (
+                formatTime(new Date(row.end))
+              )}
+            </TableCell>
+            <TableCell className="font-mono">
+              {row.durationSeconds !== null ? formatDuration(row.durationSeconds) : '—'}
+            </TableCell>
+            <TableCell>{showTeam ? teamName : ''}</TableCell>
+            <TableCell>
+              {row.isContinued ? null : row.status === 'Active' ? (
+                <Badge variant="success" size="sm">
+                  <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+                  Active
+                </Badge>
+              ) : row.status === 'On Break' ? (
+                <Badge variant="warning" size="sm">
+                  On Break
+                </Badge>
+              ) : (
+                <Text variant="muted" size="xs">
+                  {row.status}
+                </Text>
+              )}
+            </TableCell>
+            <TableCell className="text-right">
+              {showActions && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Edit session"
+                  onClick={() => onEdit(session)}
+                >
+                  <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+                </Button>
+              )}
+            </TableCell>
+          </TableRow>
+        );
+      })}
     </>
   );
 };

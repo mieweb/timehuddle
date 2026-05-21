@@ -630,7 +630,22 @@ export interface ClockEvent {
   userId: string;
   teamId: string;
   startTime: number;
+  /** @deprecated No longer returned by the API — use startTime. */
+  originalStartTime?: number;
   accumulatedTime: number;
+  breaks?: Array<{
+    startTime: number;
+    endTime: number | null;
+    type?: 'rest' | 'meal';
+    classificationSource?: 'auto' | 'manual';
+    notes?: string;
+  }>;
+  workSeconds?: number;
+  deductedBreakSeconds?: number;
+  totalBreakSeconds?: number;
+  isPaused?: boolean;
+  /** @deprecated No longer set by the API — use breaks[].endTime === null to find active break. */
+  pausedAt?: number | null;
   endTime: number | null;
 }
 
@@ -649,6 +664,28 @@ export const clockApi = {
       body: JSON.stringify({ teamId }),
     }).then((r) => r.event),
 
+  /** Pause an active clock session (break start). */
+  pause: (teamId: string) =>
+    request<{ event: ClockEvent }>('/v1/clock/pause', {
+      method: 'POST',
+      body: JSON.stringify({ teamId }),
+    }).then((r) => r.event),
+
+  /** Resume a paused clock session (break end). */
+  resume: (teamId: string) =>
+    request<{ event: ClockEvent }>('/v1/clock/resume', {
+      method: 'POST',
+      body: JSON.stringify({ teamId }),
+    }).then((r) => r.event),
+
+  /** Get active clock status for a team. */
+  getStatus: (teamId: string) =>
+    request<{
+      event: ClockEvent;
+      workSeconds: number;
+      isPaused: boolean;
+    }>(`/v1/clock/status?teamId=${encodeURIComponent(teamId)}`),
+
   /** Get the current user's active clock event (any team), or null. */
   getActive: () => request<{ event: ClockEvent | null }>('/v1/clock/active').then((r) => r.event),
 
@@ -661,6 +698,7 @@ export const clockApi = {
       sessions: ClockEvent[];
       summary: {
         totalSeconds: number;
+        totalBreakSeconds: number;
         totalSessions: number;
         completedSessions: number;
         averageSessionSeconds: number;
@@ -670,8 +708,15 @@ export const clockApi = {
       `/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startMs=${startMs}&endMs=${endMs}`,
     ),
 
-  /** Update a clock event's start/end timestamps. */
-  updateTimes: (clockEventId: string, data: { startTime?: number; endTime?: number | null }) =>
+  /** Update a clock event's timestamps and optional break intervals. */
+  updateTimes: (
+    clockEventId: string,
+    data: {
+      startTime?: number;
+      endTime?: number | null;
+      breaks?: Array<{ startTime: number; endTime: number | null }>;
+    },
+  ) =>
     request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/times`, {
       method: 'PUT',
       body: JSON.stringify(data),

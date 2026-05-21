@@ -52,9 +52,21 @@ export function toDateString(date: Date): string {
 
 /** Compute elapsed seconds for an active clock event */
 export function getActiveClockSeconds(
-  event: { startTime: number; endTime: number | null } | null,
+  event: {
+    startTime: number;
+    endTime: number | null;
+    isPaused?: boolean;
+    workSeconds?: number;
+    deductedBreakSeconds?: number;
+  } | null,
   nowMs: number,
 ): number {
   if (!event || event.endTime != null) return 0;
-  return Math.max(0, Math.floor((nowMs - event.startTime) / 1000));
+
+  // Paused: freeze at the last computed work snapshot
+  if (event.isPaused) return Math.max(0, event.workSeconds ?? 0);
+
+  // Active: tick live — shift span minus already-deducted meal breaks
+  const deducted = event.deductedBreakSeconds ?? 0;
+  return Math.max(0, Math.floor((nowMs - event.startTime) / 1000) - deducted);
 }
