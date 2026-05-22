@@ -2,6 +2,21 @@ import { ObjectId } from "mongodb";
 
 export type MediaItemType = "video" | "image";
 
+export interface ImageMeta {
+  kind: "image";
+  width: number;
+  height: number;
+}
+
+export interface VideoMeta {
+  kind: "video";
+  width: number;
+  height: number;
+  duration: number;
+}
+
+export type MediaItemMetadata = ImageMeta | VideoMeta;
+
 export interface MediaItem {
   _id: ObjectId;
   userId: string;
@@ -16,11 +31,8 @@ export interface MediaItem {
   caption?: string;
   /** Alt text for images (accessibility) */
   altText?: string;
-  /** Image dimensions */
-  width?: number;
-  height?: number;
-  /** Video duration in seconds */
-  duration?: number;
+
   thumbnail?: string;
+  metadata?: MediaItemMetadata;
   uploadedAt: Date;
 }

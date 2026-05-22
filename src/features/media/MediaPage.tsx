@@ -278,22 +278,6 @@ const DetailsModal: React.FC<DetailsModalProps> = ({
                   {formatBytes(item.size)}
                 </span>
               </div>
-              {item.width && item.height && (
-                <div className="flex justify-between gap-3">
-                  <span>Dimensions</span>
-                  <span className="text-neutral-700 dark:text-neutral-300">
-                    {item.width} × {item.height}
-                  </span>
-                </div>
-              )}
-              {item.duration && (
-                <div className="flex justify-between gap-3">
-                  <span>Duration</span>
-                  <span className="text-neutral-700 dark:text-neutral-300">
-                    {Math.round(item.duration)}s
-                  </span>
-                </div>
-              )}
               <div className="flex justify-between gap-3">
                 <span>Uploaded</span>
                 <span className="text-neutral-700 dark:text-neutral-300">

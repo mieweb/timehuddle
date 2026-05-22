@@ -19,9 +19,6 @@ export function toPublicMediaItem(m: MediaItem) {
     title: m.title ?? null,
     caption: m.caption ?? null,
     altText: m.altText ?? null,
-    width: m.width ?? null,
-    height: m.height ?? null,
-    duration: m.duration ?? null,
     thumbnail: m.thumbnail ?? null,
     uploadedAt: m.uploadedAt.toISOString(),
   };

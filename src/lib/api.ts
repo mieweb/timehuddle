@@ -1090,9 +1090,6 @@ export interface MediaItem {
   title: string | null;
   caption: string | null;
   altText: string | null;
-  width: number | null;
-  height: number | null;
-  duration: number | null;
   thumbnail: string | null;
   uploadedAt: string;
 }
