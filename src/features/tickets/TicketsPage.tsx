@@ -66,7 +66,7 @@ import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
-import { VideoUploadButton } from '../media/VideoUploadButton';
+import { PulseUploadButton } from '../media/PulseUploadButton';
 import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -1338,7 +1338,7 @@ export const TicketsPage: React.FC = () => {
                   entityId={detailsTicket.id}
                   currentUserId={userId ?? undefined}
                 />
-                <VideoUploadButton
+                <PulseUploadButton
                   ticketId={detailsTicket.id}
                   onUploadComplete={() => setDetailsAttachmentRefresh((n) => n + 1)}
                 />

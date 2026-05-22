@@ -21,8 +21,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import * as tus from 'tus-js-client';
 
 import { mediaApi, sessionToken, videoApi, type MediaItem } from '../../lib/api';
+import { MEDIA_UPLOAD_ACCEPT, useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
 import { extractVideoThumbnail, extractThumbnailFromVideoUrl } from '../../lib/videoThumbnail';
-import { useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { ViewportOverlay } from '../../ui/ViewportOverlay';
@@ -481,7 +481,7 @@ export const MediaPage: React.FC = () => {
 
   const { inputProps: mediaInputProps, openFileDialog: openMediaFileDialog } =
     useFileUploadLauncher({
-      accept: 'image/*,video/mp4',
+      accept: MEDIA_UPLOAD_ACCEPT,
       onFile: handleMediaFile,
     });
 

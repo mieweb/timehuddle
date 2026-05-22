@@ -65,12 +65,12 @@ function clearStoredVideoid(ticketId: string): void {
   }
 }
 
-interface VideoUploadButtonProps {
+interface PulseUploadButtonProps {
   ticketId: string;
   onUploadComplete: () => void;
 }
 
-export const VideoUploadButton: React.FC<VideoUploadButtonProps> = ({
+export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
   ticketId,
   onUploadComplete,
 }) => {

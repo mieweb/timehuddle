@@ -6,7 +6,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import { mediaApi, sessionToken, videoApi, type MediaItem } from '../../lib/api';
 import { extractVideoThumbnail } from '../../lib/videoThumbnail';
-import { useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
+import { MEDIA_UPLOAD_ACCEPT, useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
 import { useSession } from '../../lib/useSession';
 import { ViewportOverlay } from '../../ui/ViewportOverlay';
 
@@ -174,7 +174,7 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
 
   const { inputProps: mediaInputProps, openFileDialog: openMediaFileDialog } =
     useFileUploadLauncher({
-      accept: 'image/*,video/mp4',
+      accept: MEDIA_UPLOAD_ACCEPT,
       onFile: handleMediaFile,
     });
 
