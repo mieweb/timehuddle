@@ -116,10 +116,6 @@ export async function userRoutes(app: FastifyInstance) {
     return "member";
   }
 
-  function resolveDefaultOrganizationUserIds(owners: string[], admins: string[]) {
-    return Array.from(new Set([...owners, ...admins]));
-  }
-
   app.get(
     "/admin/organization",
     {
@@ -336,17 +332,9 @@ export async function userRoutes(app: FastifyInstance) {
       const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
       const owners = defaultOrg?.owners ?? [];
       const admins = defaultOrg?.admins ?? [];
-      const organizationUserIds = resolveDefaultOrganizationUserIds(owners, admins);
-
-      if (organizationUserIds.length === 0) {
-        return reply.send({ users: [] });
-      }
 
       const users = await usersCollection()
-        .find(
-          { _id: { $in: organizationUserIds.map((userId) => new ObjectId(userId)) } },
-          { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } }
-        )
+        .find({}, { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } })
         .sort({ name: 1, email: 1 })
         .limit(500)
         .toArray();
@@ -919,17 +907,9 @@ export async function userRoutes(app: FastifyInstance) {
 
       const owners = defaultOrg.owners ?? [];
       const admins = defaultOrg.admins ?? [];
-      const organizationUserIds = resolveDefaultOrganizationUserIds(owners, admins);
-
-      if (organizationUserIds.length === 0) {
-        return reply.send({ users: [] });
-      }
 
       const users = await usersCollection()
-        .find(
-          { _id: { $in: organizationUserIds.map((userId) => new ObjectId(userId)) } },
-          { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } }
-        )
+        .find({}, { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } })
         .sort({ name: 1, email: 1 })
         .limit(500)
         .toArray();

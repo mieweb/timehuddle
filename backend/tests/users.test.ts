@@ -444,7 +444,7 @@ describe("GET /v1/users", () => {
 // ─── GET /v1/organization/users ──────────────────────────────────────────────
 
 describe("GET /v1/organization/users", () => {
-  it("returns only users who belong to the default organization", async () => {
+  it("returns all users with default organization roles", async () => {
     const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
     expect(defaultOrg).toBeTruthy();
 
@@ -465,11 +465,11 @@ describe("GET /v1/organization/users", () => {
 
       expect(res.statusCode).toBe(200);
       const { users } = res.json();
-      expect(users).toHaveLength(2);
-      expect(users.map((user: any) => user.id)).toEqual(expect.arrayContaining([aliceId, bobId]));
-      expect(users.map((user: any) => user.id)).not.toContain(_carolId);
+      const ids = users.map((user: any) => user.id);
+      expect(ids).toEqual(expect.arrayContaining([aliceId, bobId, _carolId]));
       expect(users.find((user: any) => user.id === aliceId)?.role).toBe("owner");
       expect(users.find((user: any) => user.id === bobId)?.role).toBe("admin");
+      expect(users.find((user: any) => user.id === _carolId)?.role).toBe("member");
     } finally {
       await organizationsCollection().updateOne(
         { _id: defaultOrg!._id },
