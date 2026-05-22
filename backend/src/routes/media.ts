@@ -11,6 +11,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const thumbnailsDir = path.resolve(__dirname, "../../uploads/thumbnails");
 const mediaDir = path.resolve(__dirname, "../../uploads/media");
 
+function buildImageFilename(userId: string, ext: string): string {
+  const hex = randomBytes(8).toString("hex");
+  return `${userId}-${hex}.${ext}`;
+}
+
 function buildThumbnailFilename(userId: string): string {
   const hex = randomBytes(8).toString("hex");
   return `${userId}-${hex}.jpg`;
@@ -31,11 +36,6 @@ function imageExtFromMime(mimeType: string): string | null {
     default:
       return null;
   }
-}
-
-function buildImageFilename(userId: string, ext: string): string {
-  const hex = randomBytes(8).toString("hex");
-  return `${userId}-${hex}.${ext}`;
 }
 
 const mediaItemShape = {
