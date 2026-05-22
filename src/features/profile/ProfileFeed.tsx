@@ -1,12 +1,14 @@
-import { faImage, faTrash, faVideo } from '@fortawesome/free-solid-svg-icons';
+import { faFileVideo, faUpload } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Card, Spinner, Text } from '@mieweb/ui';
 import * as tus from 'tus-js-client';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 
 import { mediaApi, sessionToken, videoApi, type MediaItem } from '../../lib/api';
 import { extractVideoThumbnail } from '../../lib/videoThumbnail';
+import { useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
 import { useSession } from '../../lib/useSession';
+import { ViewportOverlay } from '../../ui/ViewportOverlay';
 
 // ─── Upload helpers ───────────────────────────────────────────────────────────
 
@@ -37,40 +39,47 @@ async function uploadFileToLibrary(file: File, onProgress: (pct: number) => void
 
 interface MediaCardProps {
   item: MediaItem;
-  isOwn: boolean;
-  onDelete: (id: string) => void;
+  onOpen: (id: string) => void;
 }
 
-const MediaCard: React.FC<MediaCardProps> = ({ item, isOwn, onDelete }) => {
-  const [deleting, setDeleting] = useState(false);
-
-  const handleDelete = async () => {
-    setDeleting(true);
-    try {
-      await mediaApi.remove(item.id);
-      onDelete(item.id);
-    } finally {
-      setDeleting(false);
-    }
-  };
-
+const MediaCard: React.FC<MediaCardProps> = ({ item, onOpen }) => {
   return (
-    <Card padding="none" className="overflow-hidden">
-      {item.type === 'video' ? (
-        <video
-          src={item.url}
-          controls
-          playsInline
-          className="w-full max-h-72 bg-black object-contain"
-          aria-label={item.title ?? 'Video'}
-        />
-      ) : (
-        <img
-          src={item.url}
-          alt={item.altText ?? item.title ?? 'Media'}
-          className="w-full max-h-72 object-cover"
-        />
-      )}
+    <Card
+      padding="none"
+      className="overflow-hidden"
+      onClick={() => onOpen(item.id)}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${item.title ?? item.type}`}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onOpen(item.id);
+        }
+      }}
+    >
+      <div className="relative aspect-[16/9] w-full overflow-hidden bg-neutral-900">
+        {item.type === 'video' ? (
+          item.thumbnail ? (
+            <img
+              src={item.thumbnail}
+              alt={item.title ?? 'Video thumbnail'}
+              loading="lazy"
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-neutral-400">
+              <FontAwesomeIcon icon={faFileVideo} className="text-4xl" />
+            </div>
+          )
+        ) : (
+          <img
+            src={item.url}
+            alt={item.altText ?? item.title ?? 'Media'}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        )}
+      </div>
       <div className="flex items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           {item.title && (
@@ -91,17 +100,6 @@ const MediaCard: React.FC<MediaCardProps> = ({ item, isOwn, onDelete }) => {
             })}
           </Text>
         </div>
-        {isOwn && (
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label="Delete media item"
-            disabled={deleting}
-            onClick={handleDelete}
-          >
-            <FontAwesomeIcon icon={faTrash} className="text-red-400" />
-          </Button>
-        )}
       </div>
     </Card>
   );
@@ -120,9 +118,7 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
   const [loading, setLoading] = useState(true);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-
-  const videoInputRef = useRef<HTMLInputElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -138,31 +134,37 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
     fetchItems();
   }, [fetchItems]);
 
-  const handleVideoFile = async (file: File) => {
+  const handleMediaFile = async (file: File) => {
     setUploadError(null);
     setUploadProgress(0);
     try {
-      // Start thumbnail extraction in parallel with the upload
-      const thumbnailPromise = extractVideoThumbnail(file).catch(() => null);
+      if (file.type.startsWith('video/')) {
+        // Start thumbnail extraction in parallel with the upload.
+        const thumbnailPromise = extractVideoThumbnail(file).catch(() => null);
 
-      await uploadFileToLibrary(file, setUploadProgress);
+        await uploadFileToLibrary(file, setUploadProgress);
 
-      await new Promise((r) => setTimeout(r, 1500));
-      const freshItems = await mediaApi.listForUser(userId);
-      setItems(freshItems);
+        await new Promise((r) => setTimeout(r, 1500));
+        const freshItems = await mediaApi.listForUser(userId);
+        setItems(freshItems);
 
-      const thumbnailBlob = await thumbnailPromise;
-      if (thumbnailBlob && freshItems.length > 0) {
-        const newest = freshItems[0];
-        if (newest) {
-          try {
-            const updated = await mediaApi.uploadThumbnail(newest.id, thumbnailBlob);
-            setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
-          } catch {
-            // Keep the successful upload and skip thumbnail update failures.
+        const thumbnailBlob = await thumbnailPromise;
+        if (thumbnailBlob && freshItems.length > 0) {
+          const newest = freshItems[0];
+          if (newest) {
+            try {
+              const updated = await mediaApi.uploadThumbnail(newest.id, thumbnailBlob);
+              setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+            } catch {
+              // Keep the successful upload and skip thumbnail update failures.
+            }
           }
         }
+        return;
       }
+
+      const created = await mediaApi.uploadImage(file);
+      setItems((prev) => [created, ...prev]);
     } catch {
       setUploadError('Upload failed. Please try again.');
     } finally {
@@ -170,8 +172,25 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
     }
   };
 
-  const handleDelete = (id: string) => {
-    setItems((prev) => prev.filter((i) => i.id !== id));
+  const { inputProps: mediaInputProps, openFileDialog: openMediaFileDialog } =
+    useFileUploadLauncher({
+      accept: 'image/*,video/mp4',
+      onFile: handleMediaFile,
+    });
+
+  const selectedItem = items.find((item) => item.id === selectedId) ?? null;
+  const selectedIndex = selectedId ? items.findIndex((item) => item.id === selectedId) : -1;
+  const canGoPrevious = selectedIndex > 0;
+  const canGoNext = selectedIndex >= 0 && selectedIndex < items.length - 1;
+
+  const handlePrevious = () => {
+    if (!canGoPrevious) return;
+    setSelectedId(items[selectedIndex - 1]?.id ?? null);
+  };
+
+  const handleNext = () => {
+    if (!canGoNext) return;
+    setSelectedId(items[selectedIndex + 1]?.id ?? null);
   };
 
   if (loading) {
@@ -186,40 +205,18 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
     <div className="flex flex-col gap-4">
       {/* Upload controls — own profile only */}
       {isOwn && (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-end gap-3">
           <Button
             variant="secondary"
             size="sm"
-            aria-label="Upload video to library"
-            leftIcon={<FontAwesomeIcon icon={faVideo} />}
+            aria-label="Upload media to library"
+            leftIcon={<FontAwesomeIcon icon={faUpload} />}
             disabled={uploadProgress !== null}
-            onClick={() => videoInputRef.current?.click()}
+            onClick={openMediaFileDialog}
           >
-            Upload Video
+            Upload
           </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            aria-label="Upload image to library"
-            leftIcon={<FontAwesomeIcon icon={faImage} />}
-            disabled={uploadProgress !== null}
-            onClick={() => imageInputRef.current?.click()}
-          >
-            Upload Image
-          </Button>
-          <input
-            ref={videoInputRef}
-            type="file"
-            accept="video/mp4"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (file) handleVideoFile(file);
-            }}
-          />
-          {/* Image upload — placeholder for future implementation */}
-          <input ref={imageInputRef} type="file" accept="image/*" className="hidden" />
+          <input {...mediaInputProps} />
           {uploadProgress !== null && (
             <Text variant="muted" size="sm">
               Uploading… {uploadProgress}%
@@ -245,9 +242,41 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {items.map((item) => (
-            <MediaCard key={item.id} item={item} isOwn={isOwn} onDelete={handleDelete} />
+            <MediaCard key={item.id} item={item} onOpen={setSelectedId} />
           ))}
         </div>
+      )}
+
+      {selectedItem && (
+        <ViewportOverlay
+          open={!!selectedItem}
+          title={selectedItem.title ?? 'Media'}
+          onClose={() => setSelectedId(null)}
+          onPrevious={handlePrevious}
+          onNext={handleNext}
+          canGoPrevious={canGoPrevious}
+          canGoNext={canGoNext}
+          ariaLabel={selectedItem.title ?? 'Media viewer'}
+        >
+          <div className="flex h-full min-h-0 items-center justify-center bg-black">
+            {selectedItem.type === 'video' ? (
+              <video
+                src={selectedItem.url}
+                controls
+                autoPlay
+                playsInline
+                className="h-full w-full object-contain"
+                aria-label={selectedItem.title ?? 'Video preview'}
+              />
+            ) : (
+              <img
+                src={selectedItem.url}
+                alt={selectedItem.altText ?? selectedItem.title ?? 'Media'}
+                className="h-full w-full object-contain"
+              />
+            )}
+          </div>
+        </ViewportOverlay>
       )}
     </div>
   );

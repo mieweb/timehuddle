@@ -22,6 +22,7 @@ import * as tus from 'tus-js-client';
 
 import { mediaApi, sessionToken, videoApi, type MediaItem } from '../../lib/api';
 import { extractVideoThumbnail, extractThumbnailFromVideoUrl } from '../../lib/videoThumbnail';
+import { useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { ViewportOverlay } from '../../ui/ViewportOverlay';
@@ -422,9 +423,6 @@ export const MediaPage: React.FC = () => {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'video' | 'image'>('all');
 
-  const videoInputRef = useRef<HTMLInputElement>(null);
-  const mediaInputRef = useRef<HTMLInputElement>(null);
-
   const fetchItems = useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
@@ -497,6 +495,12 @@ export const MediaPage: React.FC = () => {
     }
   };
 
+  const { inputProps: mediaInputProps, openFileDialog: openMediaFileDialog } =
+    useFileUploadLauncher({
+      accept: 'image/*,video/mp4',
+      onFile: handleMediaFile,
+    });
+
   const handleUpdated = (updated: MediaItem) => {
     setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
   };
@@ -515,24 +519,14 @@ export const MediaPage: React.FC = () => {
           size="sm"
           leftIcon={<FontAwesomeIcon icon={faUpload} />}
           disabled={uploadProgress !== null}
-          onClick={() => mediaInputRef.current?.click()}
+          onClick={openMediaFileDialog}
           aria-label="Upload media"
         >
           Upload
         </Button>
 
         {/* Hidden file input */}
-        <input
-          ref={mediaInputRef}
-          type="file"
-          accept="image/*,video/mp4"
-          className="hidden"
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-            const file = e.target.files?.[0];
-            e.target.value = '';
-            if (file) handleMediaFile(file);
-          }}
-        />
+        <input {...mediaInputProps} />
 
         {/* Upload status */}
         {uploadProgress !== null && (

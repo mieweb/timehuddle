@@ -1,4 +1,5 @@
 import path from "node:path";
+import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
@@ -22,6 +23,35 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.resolve(__dirname, "../../data/videos");
 
+async function resolveUploadedFilename(ctx: any): Promise<string> {
+  const metadataFilename =
+    ctx?.metadata?.filename ?? ctx?.meta?.filename ?? ctx?.upload?.metadata?.filename;
+
+  if (typeof metadataFilename === "string" && metadataFilename.trim()) {
+    return path.basename(metadataFilename.trim());
+  }
+
+  // Local Pulsevault storage writes original upload metadata to a sidecar.
+  try {
+    const sidecarPath = path.join(dataDir, ctx.videoid, ".pulsevault.json");
+    const raw = await fs.readFile(sidecarPath, "utf8");
+    const parsed = JSON.parse(raw) as { filename?: unknown };
+    if (typeof parsed.filename === "string" && parsed.filename.trim()) {
+      return path.basename(parsed.filename.trim());
+    }
+  } catch {
+    // Ignore and fall back below.
+  }
+
+  return `${ctx.videoid}.mp4`;
+}
+
+function resolveUploadedTitle(filename: string, fallbackVideoid: string): string {
+  const parsed = path.parse(filename).name.trim();
+  const normalized = parsed.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  return normalized || `Video ${fallbackVideoid.slice(0, 8)}`;
+}
+
 // Shared storage instance — used by both the versioned and compat registrations.
 const storage = createLocalStorage({ workspaceDir: dataDir });
 
@@ -39,6 +69,9 @@ async function onUploadCompleteHandler(request: any, ctx: any) {
   const reservation = consumeReservation(ctx.videoid);
   if (!reservation) return;
 
+  const filename = await resolveUploadedFilename(ctx);
+  const title = resolveUploadedTitle(filename, ctx.videoid);
+
   const proto = (request.headers["x-forwarded-proto"] as string | undefined) ?? "http";
   const host =
     (request.headers["x-forwarded-host"] as string | undefined) ??
@@ -52,9 +85,9 @@ async function onUploadCompleteHandler(request: any, ctx: any) {
       mimeType: "video/mp4",
       url: videoUrl,
       videoid: ctx.videoid,
-      filename: `${ctx.videoid}.mp4`,
+      filename,
       size: ctx.size ?? 0,
-      title: `Video ${ctx.videoid.slice(0, 8)}`,
+      title,
     });
   } else {
     await attachmentService.create(
@@ -62,7 +95,7 @@ async function onUploadCompleteHandler(request: any, ctx: any) {
       videoUrl,
       "video",
       { kind: "ticket", id: reservation.context.ticketId },
-      { title: `Video ${ctx.videoid.slice(0, 8)}` }
+      { title }
     );
   }
 }
