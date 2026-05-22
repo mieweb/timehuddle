@@ -13,11 +13,10 @@ import {
   faTrash,
   faUpload,
   faVideo,
-  faXmark,
+  faCopy,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Input, Spinner, Text, Textarea } from '@mieweb/ui';
-import { AnimatePresence, motion } from 'motion/react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import * as tus from 'tus-js-client';
 
@@ -25,6 +24,7 @@ import { mediaApi, sessionToken, videoApi, type MediaItem } from '../../lib/api'
 import { extractVideoThumbnail, extractThumbnailFromVideoUrl } from '../../lib/videoThumbnail';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
+import { ViewportOverlay } from '../../ui/ViewportOverlay';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -117,16 +117,31 @@ const GridItem: React.FC<{
   </button>
 );
 
-// ─── Details drawer ───────────────────────────────────────────────────────────
+// ─── Details modal ────────────────────────────────────────────────────────────
 
-interface DrawerProps {
+interface DetailsModalProps {
   item: MediaItem;
+  open: boolean;
   onClose: () => void;
   onUpdated: (updated: MediaItem) => void;
   onDeleted: (id: string) => void;
+  onPrevious: () => void;
+  onNext: () => void;
+  canGoPrevious: boolean;
+  canGoNext: boolean;
 }
 
-const DetailsDrawer: React.FC<DrawerProps> = ({ item, onClose, onUpdated, onDeleted }) => {
+const DetailsModal: React.FC<DetailsModalProps> = ({
+  item,
+  open,
+  onClose,
+  onUpdated,
+  onDeleted,
+  onPrevious,
+  onNext,
+  canGoPrevious,
+  canGoNext,
+}) => {
   const [title, setTitle] = useState(item.title ?? '');
   const [caption, setCaption] = useState(item.caption ?? '');
   const [altText, setAltText] = useState(item.altText ?? '');
@@ -136,7 +151,6 @@ const DetailsDrawer: React.FC<DrawerProps> = ({ item, onClose, onUpdated, onDele
   const [generatingThumb, setGeneratingThumb] = useState(false);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
 
-  // Reset fields when item changes
   useEffect(() => {
     setTitle(item.title ?? '');
     setCaption(item.caption ?? '');
@@ -187,208 +201,213 @@ const DetailsDrawer: React.FC<DrawerProps> = ({ item, onClose, onUpdated, onDele
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3 dark:border-neutral-700">
-        <Text size="sm" weight="semibold" className="truncate">
-          {item.title ?? item.filename}
-        </Text>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close details panel"
-          className="flex h-7 w-7 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200 transition-colors"
-        >
-          <FontAwesomeIcon icon={faXmark} />
-        </button>
-      </div>
+    <ViewportOverlay
+      open={open}
+      title="Attachment details"
+      onClose={onClose}
+      onPrevious={onPrevious}
+      onNext={onNext}
+      canGoPrevious={canGoPrevious}
+      canGoNext={canGoNext}
+      ariaLabel="Attachment details"
+    >
+      <div className="grid h-full min-h-0 grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(20rem,1fr)]">
+        <div className="flex h-full min-h-0 flex-col bg-neutral-950">
+          <div className="flex min-h-0 flex-1 items-center justify-center p-4">
+            {item.type === 'video' ? (
+              <video
+                ref={previewVideoRef}
+                src={item.url}
+                controls
+                playsInline
+                className="max-h-full w-full object-contain"
+                aria-label={item.title ?? 'Video preview'}
+              />
+            ) : (
+              <img
+                src={item.url}
+                alt={item.altText ?? item.title ?? ''}
+                className="max-h-full w-full object-contain"
+              />
+            )}
+          </div>
 
-      {/* Scrollable body */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {/* Preview */}
-        <div className="bg-neutral-950 flex flex-col items-center justify-center min-h-32 max-h-48 min-[768px]:min-h-40 min-[768px]:max-h-64">
-          {item.type === 'video' ? (
-            <video
-              ref={previewVideoRef}
-              src={item.url}
-              controls
-              playsInline
-              className="max-h-48 w-full object-contain min-[768px]:max-h-64"
-              aria-label={item.title ?? 'Video preview'}
-            />
-          ) : (
-            <img
-              src={item.url}
-              alt={item.altText ?? item.title ?? ''}
-              className="max-h-48 w-full object-contain min-[768px]:max-h-64"
-            />
+          {item.type === 'video' && (
+            <div className="flex items-center gap-2 border-t border-white/10 px-4 py-3">
+              {item.thumbnail && (
+                <img
+                  src={item.thumbnail}
+                  alt="Thumbnail"
+                  className="h-8 w-14 rounded object-cover bg-neutral-800"
+                />
+              )}
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={generatingThumb}
+                onClick={handleGenerateThumbnail}
+                aria-label="Generate thumbnail from video midpoint"
+              >
+                {generatingThumb
+                  ? 'Generating…'
+                  : item.thumbnail
+                    ? 'Regenerate Thumbnail'
+                    : 'Generate Thumbnail'}
+              </Button>
+            </div>
           )}
         </div>
-        {item.type === 'video' && (
-          <div className="border-b border-neutral-200 dark:border-neutral-700 px-4 py-2 flex items-center gap-2">
-            {item.thumbnail && (
-              <img
-                src={item.thumbnail}
-                alt="Thumbnail"
-                className="h-8 w-14 rounded object-cover bg-neutral-800"
-              />
-            )}
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={generatingThumb}
-              onClick={handleGenerateThumbnail}
-              aria-label="Generate thumbnail from video midpoint"
-            >
-              {generatingThumb
-                ? 'Generating…'
-                : item.thumbnail
-                  ? 'Regenerate Thumbnail'
-                  : 'Generate Thumbnail'}
-            </Button>
-          </div>
-        )}
 
-        <div className="flex flex-col gap-5 p-4">
-          {/* File info */}
-          <div className="rounded-lg bg-neutral-50 dark:bg-neutral-800/60 p-3 text-xs text-neutral-500 dark:text-neutral-400 space-y-1">
-            <div className="flex justify-between">
-              <span>File name</span>
-              <span className="text-neutral-700 dark:text-neutral-300 truncate max-w-[55%] text-right">
-                {item.filename}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span>Type</span>
-              <span className="text-neutral-700 dark:text-neutral-300">{item.mimeType}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Size</span>
-              <span className="text-neutral-700 dark:text-neutral-300">
-                {formatBytes(item.size)}
-              </span>
-            </div>
-            {item.width && item.height && (
-              <div className="flex justify-between">
-                <span>Dimensions</span>
-                <span className="text-neutral-700 dark:text-neutral-300">
-                  {item.width} × {item.height}
+        <div className="min-h-0 overflow-y-auto border-t border-neutral-200 bg-white p-4 dark:border-neutral-700 dark:bg-neutral-900 md:border-l md:border-t-0">
+          <div className="space-y-5">
+            <div className="rounded-lg bg-neutral-50 p-3 text-xs text-neutral-500 space-y-1 dark:bg-neutral-800/60 dark:text-neutral-400">
+              <div className="flex justify-between gap-3">
+                <span>File name</span>
+                <span className="max-w-[55%] truncate text-right text-neutral-700 dark:text-neutral-300">
+                  {item.filename}
                 </span>
               </div>
-            )}
-            {item.duration && (
-              <div className="flex justify-between">
-                <span>Duration</span>
+              <div className="flex justify-between gap-3">
+                <span>Type</span>
+                <span className="text-neutral-700 dark:text-neutral-300">{item.mimeType}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span>Size</span>
                 <span className="text-neutral-700 dark:text-neutral-300">
-                  {Math.round(item.duration)}s
+                  {formatBytes(item.size)}
                 </span>
               </div>
-            )}
-            <div className="flex justify-between">
-              <span>Uploaded</span>
-              <span className="text-neutral-700 dark:text-neutral-300">
-                {formatDate(item.uploadedAt)}
-              </span>
+              {item.width && item.height && (
+                <div className="flex justify-between gap-3">
+                  <span>Dimensions</span>
+                  <span className="text-neutral-700 dark:text-neutral-300">
+                    {item.width} × {item.height}
+                  </span>
+                </div>
+              )}
+              {item.duration && (
+                <div className="flex justify-between gap-3">
+                  <span>Duration</span>
+                  <span className="text-neutral-700 dark:text-neutral-300">
+                    {Math.round(item.duration)}s
+                  </span>
+                </div>
+              )}
+              <div className="flex justify-between gap-3">
+                <span>Uploaded</span>
+                <span className="text-neutral-700 dark:text-neutral-300">
+                  {formatDate(item.uploadedAt)}
+                </span>
+              </div>
             </div>
-          </div>
 
-          {/* URL copy */}
-          <div>
-            <label className="mb-1 block text-xs font-medium text-neutral-500 uppercase tracking-wider">
-              File URL
-            </label>
-            <div className="flex gap-2">
-              <input
-                readOnly
-                value={item.url}
-                className="min-w-0 flex-1 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-1.5 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400"
-                aria-label="File URL"
-                onFocus={(e) => e.target.select()}
-              />
-              <Button size="sm" variant="secondary" onClick={copyUrl} aria-label="Copy URL">
-                Copy
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wider text-neutral-500">
+                File URL
+              </label>
+              <div className="relative">
+                <Input
+                  readOnly
+                  value={item.url}
+                  className="min-w-0 pr-11 text-xs"
+                  aria-label="File URL"
+                  onFocus={(e) => e.target.select()}
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={copyUrl}
+                  aria-label="Copy URL"
+                  className="absolute right-1.5 top-1/2 h-8 w-8 -translate-y-1/2 p-0"
+                  title="Copy URL"
+                >
+                  <FontAwesomeIcon icon={faCopy} />
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label
+                  htmlFor="media-title"
+                  className="mb-1 block text-xs font-medium uppercase tracking-wider text-neutral-500"
+                >
+                  Title
+                </label>
+                <Input
+                  id="media-title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Add a title…"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="media-caption"
+                  className="mb-1 block text-xs font-medium uppercase tracking-wider text-neutral-500"
+                >
+                  Caption
+                </label>
+                <Textarea
+                  id="media-caption"
+                  value={caption}
+                  onChange={(e) => setCaption(e.target.value)}
+                  placeholder="Add a caption…"
+                  rows={3}
+                />
+              </div>
+              {item.type === 'image' && (
+                <div>
+                  <label
+                    htmlFor="media-alt"
+                    className="mb-1 block text-xs font-medium uppercase tracking-wider text-neutral-500"
+                  >
+                    Alt Text
+                  </label>
+                  <Input
+                    id="media-alt"
+                    value={altText}
+                    onChange={(e) => setAltText(e.target.value)}
+                    placeholder="Describe this image for screen readers…"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-2 border-t border-neutral-200 pt-4 dark:border-neutral-700">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDelete}
+                disabled={deleting}
+                aria-label="Delete media item"
+                className="text-red-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+              >
+                <FontAwesomeIcon icon={faTrash} className="mr-1.5" />
+                {deleting ? 'Deleting…' : 'Delete'}
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSave}
+                disabled={saving}
+                aria-label="Save metadata changes"
+              >
+                {saved ? (
+                  <>
+                    <FontAwesomeIcon icon={faCheck} className="mr-1.5 text-green-400" />
+                    Saved
+                  </>
+                ) : saving ? (
+                  'Saving…'
+                ) : (
+                  'Save'
+                )}
               </Button>
             </div>
           </div>
-
-          {/* Editable fields */}
-          <div className="space-y-3">
-            <div>
-              <label
-                htmlFor="media-title"
-                className="mb-1 block text-xs font-medium text-neutral-500 uppercase tracking-wider"
-              >
-                Title
-              </label>
-              <Input
-                id="media-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Add a title…"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="media-caption"
-                className="mb-1 block text-xs font-medium text-neutral-500 uppercase tracking-wider"
-              >
-                Caption
-              </label>
-              <Textarea
-                id="media-caption"
-                value={caption}
-                onChange={(e) => setCaption(e.target.value)}
-                placeholder="Add a caption…"
-                rows={3}
-              />
-            </div>
-            {item.type === 'image' && (
-              <div>
-                <label
-                  htmlFor="media-alt"
-                  className="mb-1 block text-xs font-medium text-neutral-500 uppercase tracking-wider"
-                >
-                  Alt Text
-                </label>
-                <Input
-                  id="media-alt"
-                  value={altText}
-                  onChange={(e) => setAltText(e.target.value)}
-                  placeholder="Describe this image for screen readers…"
-                />
-              </div>
-            )}
-          </div>
         </div>
       </div>
-
-      {/* Footer actions */}
-      <div className="border-t border-neutral-200 dark:border-neutral-700 px-4 py-3 flex items-center justify-between gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleDelete}
-          disabled={deleting}
-          aria-label="Delete media item"
-          className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
-        >
-          <FontAwesomeIcon icon={faTrash} className="mr-1.5" />
-          {deleting ? 'Deleting…' : 'Delete'}
-        </Button>
-        <Button size="sm" onClick={handleSave} disabled={saving} aria-label="Save metadata changes">
-          {saved ? (
-            <>
-              <FontAwesomeIcon icon={faCheck} className="mr-1.5 text-green-400" />
-              Saved
-            </>
-          ) : saving ? (
-            'Saving…'
-          ) : (
-            'Save'
-          )}
-        </Button>
-      </div>
-    </div>
+    </ViewportOverlay>
   );
 };
 
@@ -405,8 +424,6 @@ export const MediaPage: React.FC = () => {
 
   const videoInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const drawerRef = useRef<HTMLElement | null>(null);
-  const [drawerHeight, setDrawerHeight] = useState<number | null>(null);
 
   const fetchItems = useCallback(async () => {
     if (!user?.id) return;
@@ -426,60 +443,21 @@ export const MediaPage: React.FC = () => {
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
   const filteredItems = filter === 'all' ? items : items.filter((i) => i.type === filter);
 
-  useEffect(() => {
-    if (!selectedItem) {
-      setDrawerHeight(null);
-      return;
-    }
+  const navigationItems =
+    selectedId && filteredItems.some((item) => item.id === selectedId) ? filteredItems : items;
+  const selectedIndex = navigationItems.findIndex((item) => item.id === selectedId);
+  const canGoPrevious = selectedIndex > 0;
+  const canGoNext = selectedIndex >= 0 && selectedIndex < navigationItems.length - 1;
 
-    const recomputeDrawerHeight = () => {
-      if (window.innerWidth < 768) {
-        setDrawerHeight(null);
-        return;
-      }
+  const handlePrevious = () => {
+    if (!canGoPrevious) return;
+    setSelectedId(navigationItems[selectedIndex - 1]?.id ?? null);
+  };
 
-      const el = drawerRef.current;
-      if (!el) return;
-      const top = el.getBoundingClientRect().top;
-      const bottomGap = 16;
-      const minHeight = 320;
-      const next = Math.max(minHeight, Math.floor(window.innerHeight - top - bottomGap));
-      setDrawerHeight((prev) => (prev === next ? prev : next));
-    };
-
-    const onViewportChange = () => {
-      requestAnimationFrame(recomputeDrawerHeight);
-    };
-
-    recomputeDrawerHeight();
-    window.addEventListener('resize', onViewportChange);
-    window.addEventListener('scroll', onViewportChange, { passive: true });
-
-    return () => {
-      window.removeEventListener('resize', onViewportChange);
-      window.removeEventListener('scroll', onViewportChange);
-    };
-  }, [selectedItem]);
-
-  useEffect(() => {
-    if (!selectedItem || window.innerWidth >= 768) return;
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setSelectedId(null);
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [selectedItem]);
+  const handleNext = () => {
+    if (!canGoNext) return;
+    setSelectedId(navigationItems[selectedIndex + 1]?.id ?? null);
+  };
 
   const handleVideoFile = async (file: File) => {
     setUploadError(null);
@@ -657,42 +635,20 @@ export const MediaPage: React.FC = () => {
           )}
         </div>
 
-        {/* Sticky drawer — scrolls with page, sticks in view */}
-        <AnimatePresence>
-          {selectedItem && (
-            <motion.div
-              key="media-drawer-backdrop"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-40 bg-black/40 min-[768px]:hidden"
-              onClick={() => setSelectedId(null)}
-              aria-hidden="true"
-            />
-          )}
-          {selectedItem && (
-            <motion.aside
-              ref={drawerRef}
-              key="media-drawer"
-              initial={{ opacity: 0, x: 40 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 40 }}
-              transition={{ type: 'spring', stiffness: 340, damping: 32 }}
-              className="fixed inset-x-2 top-2 bottom-2 z-50 min-h-0 rounded-xl border border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900 shadow-xl overflow-hidden flex flex-col min-[768px]:inset-auto min-[768px]:z-auto min-[768px]:w-80 min-[768px]:shrink-0 min-[768px]:sticky min-[768px]:top-4"
-              style={drawerHeight ? { height: `${drawerHeight}px` } : undefined}
-              role="dialog"
-              aria-modal="true"
-              aria-label="Media details"
-            >
-              <DetailsDrawer
-                item={selectedItem}
-                onClose={() => setSelectedId(null)}
-                onUpdated={handleUpdated}
-                onDeleted={handleDeleted}
-              />
-            </motion.aside>
-          )}
-        </AnimatePresence>
+        {/* Modal details */}
+        {selectedItem && (
+          <DetailsModal
+            item={selectedItem}
+            open={!!selectedItem}
+            onClose={() => setSelectedId(null)}
+            onUpdated={handleUpdated}
+            onDeleted={handleDeleted}
+            onPrevious={handlePrevious}
+            onNext={handleNext}
+            canGoPrevious={canGoPrevious}
+            canGoNext={canGoNext}
+          />
+        )}
       </div>
     </AppPage>
   );
