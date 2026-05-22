@@ -8,12 +8,12 @@
  */
 import {
   faCheck,
+  faCopy,
   faFileVideo,
   faImage,
   faTrash,
   faUpload,
   faVideo,
-  faCopy,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Input, Spinner, Text, Textarea } from '@mieweb/ui';
@@ -423,7 +423,7 @@ export const MediaPage: React.FC = () => {
   const [filter, setFilter] = useState<'all' | 'video' | 'image'>('all');
 
   const videoInputRef = useRef<HTMLInputElement>(null);
-  const imageInputRef = useRef<HTMLInputElement>(null);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
 
   const fetchItems = useCallback(async () => {
     if (!user?.id) return;
@@ -459,46 +459,35 @@ export const MediaPage: React.FC = () => {
     setSelectedId(navigationItems[selectedIndex + 1]?.id ?? null);
   };
 
-  const handleVideoFile = async (file: File) => {
+  const handleMediaFile = async (file: File) => {
     setUploadError(null);
     setUploadProgress(0);
-    let freshItems: MediaItem[] = [];
+
     try {
-      // Extract thumbnail client-side (seeks to middle) before the network upload
-      // so we have it ready as soon as the upload completes.
-      const thumbnailPromise = extractVideoThumbnail(file).catch(() => null);
+      if (file.type.startsWith('video/')) {
+        const thumbnailPromise = extractVideoThumbnail(file).catch(() => null);
 
-      await uploadVideoToLibrary(file, setUploadProgress);
+        await uploadVideoToLibrary(file, setUploadProgress);
+        await new Promise((r) => setTimeout(r, 1500));
 
-      // Give the backend a moment to persist the media record
-      await new Promise((r) => setTimeout(r, 1500));
-      freshItems = await mediaApi.list();
-      setItems(freshItems);
+        const freshItems = await mediaApi.list();
+        setItems(freshItems);
 
-      // Upload the thumbnail separately — failures here don't affect the upload banner
-      const thumbnailBlob = await thumbnailPromise;
-      if (thumbnailBlob && freshItems.length > 0) {
-        const newest = freshItems[0];
-        if (newest) {
-          try {
-            const updated = await mediaApi.uploadThumbnail(newest.id, thumbnailBlob);
-            setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
-          } catch {
-            // Thumbnail upload failed silently — user can regenerate from the drawer
+        const thumbnailBlob = await thumbnailPromise;
+        if (thumbnailBlob && freshItems.length > 0) {
+          const newest = freshItems[0];
+          if (newest) {
+            try {
+              const updated = await mediaApi.uploadThumbnail(newest.id, thumbnailBlob);
+              setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+            } catch {
+              // Thumbnail upload failed silently — user can regenerate from the overlay.
+            }
           }
         }
+        return;
       }
-    } catch {
-      setUploadError('Upload failed. Please try again.');
-    } finally {
-      setUploadProgress(null);
-    }
-  };
 
-  const handleImageFile = async (file: File) => {
-    setUploadError(null);
-    setUploadProgress(0);
-    try {
       const created = await mediaApi.uploadImage(file);
       setItems((prev) => [created, ...prev]);
     } catch {
@@ -521,48 +510,27 @@ export const MediaPage: React.FC = () => {
     <AppPage fullWidth>
       {/* Toolbar */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        {/* Upload buttons */}
+        {/* Upload button */}
         <Button
           size="sm"
           leftIcon={<FontAwesomeIcon icon={faUpload} />}
           disabled={uploadProgress !== null}
-          onClick={() => videoInputRef.current?.click()}
-          aria-label="Upload video"
+          onClick={() => mediaInputRef.current?.click()}
+          aria-label="Upload media"
         >
-          Upload Video
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          leftIcon={<FontAwesomeIcon icon={faImage} />}
-          disabled={uploadProgress !== null}
-          onClick={() => imageInputRef.current?.click()}
-          aria-label="Upload image"
-        >
-          Upload Image
+          Upload
         </Button>
 
-        {/* Hidden file inputs */}
+        {/* Hidden file input */}
         <input
-          ref={videoInputRef}
+          ref={mediaInputRef}
           type="file"
-          accept="video/mp4"
+          accept="image/*,video/mp4"
           className="hidden"
-          onChange={(e) => {
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
             const file = e.target.files?.[0];
             e.target.value = '';
-            if (file) handleVideoFile(file);
-          }}
-        />
-        <input
-          ref={imageInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = '';
-            if (file) handleImageFile(file);
+            if (file) handleMediaFile(file);
           }}
         />
 
@@ -576,7 +544,7 @@ export const MediaPage: React.FC = () => {
         <div className="flex-1" />
 
         {/* Filter tabs */}
-        <div className="flex rounded-lg border border-neutral-200 dark:border-neutral-700 overflow-hidden text-sm">
+        <div className="flex overflow-hidden rounded-lg border border-neutral-200 text-sm dark:border-neutral-700">
           {(['all', 'image', 'video'] as const).map((f) => (
             <button
               key={f}
