@@ -2,13 +2,11 @@ import { getDB } from "../lib/db.js";
 import type { User } from "./user.model.js";
 import type { Team } from "./team.model.js";
 import type { Ticket } from "./ticket.model.js";
-import type { ClockEvent } from "./clock.model.js";
+import type { ClockBreak, ClockEvent } from "./clock.model.js";
 import type { Message } from "./message.model.js";
 import type { Notification } from "./notification.model.js";
 import type { Attachment } from "./attachment.model.js";
 import type { Profile } from "./profile.model.js";
-import type { EncryptedOpLogBatch } from "./encrypted-oplog.model.js";
-import type { RecoveryKeyStatus } from "./recovery-key-status.model.js";
 import type { PushSubscription } from "./push-subscription.model.js";
 import type { UserDeviceTokens } from "./device-token.model.js";
 import type { WorkItem } from "./work-item.model.js";
@@ -16,6 +14,8 @@ import type { Timer } from "./timer.model.js";
 import type { ActivityEvent } from "./activity.model.js";
 import type { Channel } from "./channel.model.js";
 import type { ChannelMessage } from "./channel-message.model.js";
+import type { PersonalAccessToken } from "./personal-access-token.model.js";
+import type { Organization } from "./organization.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
 export function usersCollection() {
@@ -27,6 +27,11 @@ export function teamsCollection() {
   return getDB().collection<Team>("teams");
 }
 
+// Organizations
+export function organizationsCollection() {
+  return getDB().collection<Organization>("organizations");
+}
+
 // Tickets
 export function ticketsCollection() {
   return getDB().collection<Ticket>("tickets");
@@ -35,6 +40,11 @@ export function ticketsCollection() {
 // Clock events
 export function clockEventsCollection() {
   return getDB().collection<ClockEvent>("clockevents");
+}
+
+// Clock breaks — separate collection, each document references a clockevents._id
+export function clockBreaksCollection() {
+  return getDB().collection<ClockBreak>("clockbreaks");
 }
 
 // Messages
@@ -55,16 +65,6 @@ export function attachmentsCollection() {
 // Profiles
 export function profilesCollection() {
   return getDB().collection<Profile>("profiles");
-}
-
-// Encrypted op-log batches
-export function encryptedOpLogsCollection() {
-  return getDB().collection<EncryptedOpLogBatch>("encryptedOpLogs");
-}
-
-// Recovery key save-status
-export function recoveryKeyStatusCollection() {
-  return getDB().collection<RecoveryKeyStatus>("recoveryKeyStatus");
 }
 
 // Push subscriptions
@@ -100,4 +100,9 @@ export function channelsCollection() {
 // Channel messages
 export function channelMessagesCollection() {
   return getDB().collection<ChannelMessage>("channelmessages");
+}
+
+// Personal access tokens
+export function personalAccessTokensCollection() {
+  return getDB().collection<PersonalAccessToken>("personal_access_tokens");
 }

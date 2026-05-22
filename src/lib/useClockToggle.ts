@@ -15,6 +15,7 @@ export function useClockToggle() {
 
   const [clockInLoading, setClockInLoading] = useState(false);
   const [clockOutLoading, setClockOutLoading] = useState(false);
+  const [clockPauseLoading, setClockPauseLoading] = useState(false);
 
   const isClockedIn = !!activeClockEvent;
 
@@ -43,5 +44,44 @@ export function useClockToggle() {
     }
   }, [activeClockEvent, selectedTeamId, refetchClock]);
 
-  return { isClockedIn, clockIn, clockOut, clockInLoading, clockOutLoading };
+  const pauseClock = useCallback(async () => {
+    const teamId = activeClockEvent?.teamId ?? selectedTeamId;
+    if (!teamId) return;
+    setClockPauseLoading(true);
+    try {
+      await clockApi.pause(teamId);
+      await refetchClock();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to pause clock. Please try again.');
+    } finally {
+      setClockPauseLoading(false);
+    }
+  }, [activeClockEvent, selectedTeamId, refetchClock]);
+
+  const resumeClock = useCallback(async () => {
+    const teamId = activeClockEvent?.teamId ?? selectedTeamId;
+    if (!teamId) return;
+    setClockPauseLoading(true);
+    try {
+      await clockApi.resume(teamId);
+      await refetchClock();
+    } catch (err) {
+      window.alert(
+        err instanceof Error ? err.message : 'Failed to resume clock. Please try again.',
+      );
+    } finally {
+      setClockPauseLoading(false);
+    }
+  }, [activeClockEvent, selectedTeamId, refetchClock]);
+
+  return {
+    isClockedIn,
+    clockIn,
+    clockOut,
+    pauseClock,
+    resumeClock,
+    clockInLoading,
+    clockOutLoading,
+    clockPauseLoading,
+  };
 }

@@ -3,7 +3,9 @@ import { ObjectId } from "mongodb";
 import { auth } from "../lib/auth.js";
 import { requireAuth } from "../middleware/require-auth.js";
 import { clockService, toPublicClockEvent, subscribe } from "../services/clock.service.js";
+import { findBreaksForEvents } from "../models/clock.model.js";
 import { teamsCollection } from "../models/index.js";
+import { clockController } from "../controllers/clock.controller.js";
 
 // ─── Public shape schema ──────────────────────────────────────────────────────
 
@@ -15,6 +17,23 @@ const clockEventShape = {
     teamId: { type: "string" },
     startTime: { type: "number" },
     accumulatedTime: { type: "number" },
+    breaks: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          startTime: { type: "number" },
+          endTime: { type: "number", nullable: true },
+          type: { type: "string", enum: ["rest", "meal"] },
+          classificationSource: { type: "string", enum: ["auto", "manual"] },
+          notes: { type: "string" },
+        },
+      },
+    },
+    workSeconds: { type: "number" },
+    deductedBreakSeconds: { type: "number" },
+    totalBreakSeconds: { type: "number" },
+    isPaused: { type: "boolean" },
     endTime: { type: "number", nullable: true },
   },
 };
@@ -37,13 +56,7 @@ export async function clockRoutes(app: FastifyInstance) {
         response: { 200: { type: "object", properties: { event: clockEventShape } } },
       },
     },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { teamId } = req.body as { teamId: string };
-      const result = await clockService.start(userId, teamId);
-      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
-      return { event: result };
-    }
+    clockController.start
   );
 
   // POST /v1/clock/stop
@@ -63,14 +76,66 @@ export async function clockRoutes(app: FastifyInstance) {
         response: { 200: { type: "object", properties: { event: clockEventShape } } },
       },
     },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { teamId } = req.body as { teamId: string };
-      const result = await clockService.stop(userId, teamId);
-      if (result === "not-found")
-        return (reply as any).status(404).send({ error: "No active clock event" });
-      return { event: result };
-    }
+    clockController.stop
+  );
+
+  // POST /v1/clock/pause
+  app.post(
+    "/clock/pause",
+    {
+      onRequest: [requireAuth],
+      schema: {
+        tags: ["Clock"],
+        body: {
+          type: "object",
+          required: ["teamId"],
+          properties: {
+            teamId: { type: "string" },
+          },
+        },
+        response: { 200: { type: "object", properties: { event: clockEventShape } } },
+      },
+    },
+    clockController.pause
+  );
+
+  // POST /v1/clock/resume
+  app.post(
+    "/clock/resume",
+    {
+      onRequest: [requireAuth],
+      schema: {
+        tags: ["Clock"],
+        body: {
+          type: "object",
+          required: ["teamId"],
+          properties: {
+            teamId: { type: "string" },
+          },
+        },
+        response: { 200: { type: "object", properties: { event: clockEventShape } } },
+      },
+    },
+    clockController.resume
+  );
+
+  // GET /v1/clock/status?teamId=...
+  app.get(
+    "/clock/status",
+    {
+      onRequest: [requireAuth],
+      schema: {
+        tags: ["Clock"],
+        querystring: {
+          type: "object",
+          required: ["teamId"],
+          properties: {
+            teamId: { type: "string" },
+          },
+        },
+      },
+    },
+    clockController.getStatus
   );
 
   // PUT /v1/clock/:id/times
@@ -86,25 +151,26 @@ export async function clockRoutes(app: FastifyInstance) {
           properties: {
             startTime: { type: "number" },
             endTime: { type: "number", nullable: true },
+            breaks: {
+              type: "array",
+              items: {
+                type: "object",
+                required: ["startTime"],
+                properties: {
+                  startTime: { type: "number" },
+                  endTime: { type: "number", nullable: true },
+                  type: { type: "string", enum: ["rest", "meal"] },
+                  classificationSource: { type: "string", enum: ["auto", "manual"] },
+                  notes: { type: "string" },
+                },
+              },
+            },
           },
         },
         response: { 200: { type: "object", properties: { event: clockEventShape } } },
       },
     },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { id: clockEventId } = req.params as { id: string };
-      const data = req.body as { startTime?: number; endTime?: number | null };
-      const result = await clockService.updateTimes(userId, clockEventId, data);
-      if (result === "not-found")
-        return (reply as any).status(404).send({ error: "Clock event not found" });
-      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
-      if (result === "invalid-range")
-        return (reply as any)
-          .status(422)
-          .send({ error: "Clock-out cannot be earlier than clock-in" });
-      return { event: result };
-    }
+    clockController.updateTimes
   );
 
   // DELETE /v1/clock/:id
@@ -118,15 +184,29 @@ export async function clockRoutes(app: FastifyInstance) {
         response: { 200: { type: "object", properties: { ok: { type: "boolean" } } } },
       },
     },
-    async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { id: clockEventId } = req.params as { id: string };
-      const result = await clockService.deleteEvent(userId, clockEventId);
-      if (result === "not-found")
-        return (reply as any).status(404).send({ error: "Clock event not found" });
-      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
-      return { ok: true };
-    }
+    clockController.deleteEvent
+  );
+
+  // POST /v1/clock/manual — create a completed past clock entry
+  app.post(
+    "/clock/manual",
+    {
+      onRequest: [requireAuth],
+      schema: {
+        tags: ["Clock"],
+        body: {
+          type: "object",
+          required: ["teamId", "startTime", "endTime"],
+          properties: {
+            teamId: { type: "string" },
+            startTime: { type: "number" },
+            endTime: { type: "number" },
+          },
+        },
+        response: { 201: { type: "object", properties: { event: clockEventShape } } },
+      },
+    },
+    clockController.createManual
   );
 
   // GET /v1/clock/timesheet
@@ -147,17 +227,7 @@ export async function clockRoutes(app: FastifyInstance) {
         },
       },
     },
-    async (req, reply) => {
-      const { id: requesterId } = (req as any).user;
-      const { userId, startMs, endMs } = req.query as {
-        userId: string;
-        startMs: number;
-        endMs: number;
-      };
-      const result = await clockService.getTimesheet(requesterId, userId, startMs, endMs);
-      if (result === "forbidden") return (reply as any).status(403).send({ error: "Forbidden" });
-      return result;
-    }
+    clockController.getTimesheet
   );
 
   // GET /v1/clock/active — current user's active event (any team)
@@ -175,11 +245,7 @@ export async function clockRoutes(app: FastifyInstance) {
         },
       },
     },
-    async (req) => {
-      const { id: userId } = (req as any).user;
-      const event = await clockService.getActiveForUser(userId);
-      return { event: event ? toPublicClockEvent(event) : null };
-    }
+    clockController.getActive
   );
 
   // GET /v1/clock/events — all events for current user
@@ -189,11 +255,7 @@ export async function clockRoutes(app: FastifyInstance) {
       onRequest: [requireAuth],
       schema: { tags: ["Clock"] },
     },
-    async (req) => {
-      const { id: userId } = (req as any).user;
-      const events = await clockService.getForUser(userId);
-      return { events: events.map(toPublicClockEvent) };
-    }
+    clockController.getEvents
   );
 
   // GET /v1/clock/ws?teamIds=id1,id2 — WebSocket stream for live team clock state
@@ -250,7 +312,17 @@ export async function clockRoutes(app: FastifyInstance) {
 
     // Send initial snapshot
     const initial = await clockService.getLiveForTeams(teamIds);
-    const snapshot = initial.map(toPublicClockEvent);
+    const initialIds = initial.map((e) => e._id.toHexString());
+    const initialBreaks = await findBreaksForEvents(initialIds);
+    const initialBreaksByEventId = new Map<string, typeof initialBreaks>();
+    for (const b of initialBreaks) {
+      const arr = initialBreaksByEventId.get(b.clockEventId) ?? [];
+      arr.push(b);
+      initialBreaksByEventId.set(b.clockEventId, arr);
+    }
+    const snapshot = initial.map((e) =>
+      toPublicClockEvent(e, initialBreaksByEventId.get(e._id.toHexString()) ?? [])
+    );
     if (socket.readyState === socket.OPEN) {
       socket.send(JSON.stringify({ type: "snapshot", events: snapshot }));
     }

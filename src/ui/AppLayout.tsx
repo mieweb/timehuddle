@@ -29,11 +29,17 @@ import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { OzwellWidget } from '../features/ai/OzwellWidget';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
+import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
+import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
+import { OrganizationPage } from '../features/org/OrganizationPage';
 import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
 import { TeamProvider } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
+import { FeedbackModal } from '../features/feedback/FeedbackModal';
+import { ReportIssueModal } from '../features/feedback/ReportIssueModal';
 import { AppHeader } from './AppHeader';
 import { BottomNav } from './BottomNav';
+import { CommandPalette } from './CommandPalette';
 import { RouterContext } from './router';
 import { SettingsPage } from './SettingsPage';
 import { Sidebar } from './Sidebar';
@@ -58,9 +64,12 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/work': { title: 'Work', component: WorkPage },
   '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
   '/app/teams': { title: 'Teams', component: TeamsPage },
+  '/app/organization': { title: 'Organization', component: OrganizationPage },
   '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/activity': { title: 'Activity Log', component: ActivityLogPage },
+  '/app/admin/organization': { title: 'Organization Admin', component: OrganizationOverviewPage },
+  '/org/members': { title: 'Members', component: OrganizationMembersPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
 };
 
@@ -97,6 +106,16 @@ export const useSidebar = () => useContext(SidebarContext);
 export const MessagesActiveChatContext = createContext<{
   setHasActiveChat: (v: boolean) => void;
 }>({ setHasActiveChat: () => {} });
+
+// ─── App Feedback context ────────────────────────────────────────────────────
+// Modals render here at the root so they escape AppHeader's backdrop-filter
+// containing block. Sidebar triggers both via this context.
+export const AppFeedbackContext = createContext<{
+  openReportIssue: () => void;
+  openFeedback: () => void;
+}>({ openReportIssue: () => {}, openFeedback: () => {} });
+
+export const useAppFeedback = () => useContext(AppFeedbackContext);
 
 // ─── AppLayout ────────────────────────────────────────────────────────────────
 
@@ -200,6 +219,10 @@ export const AppLayout: React.FC = () => {
   // ── Messages active-chat state (set by MessagesPage via context) ──
   const [messagesHasActiveChat, setMessagesHasActiveChat] = useState(false);
 
+  // ── Report Issue modal state ──
+  const [reportIssueOpen, setReportIssueOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+
   // ── Sidebar ──
   const [isExpanded, setIsExpanded] = useState(() => {
     if (typeof window === 'undefined') return true;
@@ -229,48 +252,60 @@ export const AppLayout: React.FC = () => {
   return (
     <RouterContext.Provider value={{ pathname, navigate }}>
       <TeamProvider>
-        <MessagesActiveChatContext.Provider value={{ setHasActiveChat: setMessagesHasActiveChat }}>
-          <SidebarContext.Provider
-            value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+        <CommandPalette />
+        <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
+        <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+        <AppFeedbackContext.Provider
+          value={{
+            openReportIssue: () => setReportIssueOpen(true),
+            openFeedback: () => setFeedbackOpen(true),
+          }}
+        >
+          <MessagesActiveChatContext.Provider
+            value={{ setHasActiveChat: setMessagesHasActiveChat }}
           >
-            <div className="flex h-screen overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-              {/* Mobile backdrop — rendered via portal to escape overflow-hidden */}
-              {isMobileOpen &&
-                createPortal(
-                  <div
-                    className="fixed inset-0 z-[45] bg-black/50 backdrop-blur-sm md:hidden"
-                    onClick={closeMobile}
-                    aria-hidden
-                  />,
-                  document.body,
-                )}
-
-              <Sidebar />
-
-              {/* Content column */}
-              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                <AppHeader title={pageTitle} />
-                <main
-                  ref={mainRef}
-                  className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'pb-20'}` : 'pb-20'} md:pb-0`}
-                >
-                  {profileUserId ? (
-                    <ProfilePage userId={profileUserId} />
-                  ) : profileUsername ? (
-                    <ProfilePage username={profileUsername} />
-                  ) : ticketDetailId ? (
-                    <TicketDetailPage ticketId={ticketDetailId} />
-                  ) : (
-                    route && React.createElement(route.component)
+            <SidebarContext.Provider
+              value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+            >
+              <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+                {/* Mobile backdrop — rendered via portal to escape overflow-hidden */}
+                {isMobileOpen &&
+                  createPortal(
+                    <div
+                      className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
+                      onClick={closeMobile}
+                      aria-hidden
+                    />,
+                    document.body,
                   )}
-                </main>
-              </div>
 
-              {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
-            </div>
-          </SidebarContext.Provider>
-          <OzwellWidget />
-        </MessagesActiveChatContext.Provider>
+                <Sidebar />
+
+                {/* Content column */}
+                <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                  <AppHeader title={pageTitle} />
+                  <main
+                    ref={mainRef}
+                    className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'pb-20'}` : 'pb-20'} md:pb-0`}
+                  >
+                    {profileUserId ? (
+                      <ProfilePage userId={profileUserId} />
+                    ) : profileUsername ? (
+                      <ProfilePage username={profileUsername} />
+                    ) : ticketDetailId ? (
+                      <TicketDetailPage ticketId={ticketDetailId} />
+                    ) : (
+                      route && React.createElement(route.component)
+                    )}
+                  </main>
+                </div>
+
+                {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
+              </div>
+            </SidebarContext.Provider>
+            <OzwellWidget />
+          </MessagesActiveChatContext.Provider>
+        </AppFeedbackContext.Provider>
       </TeamProvider>
     </RouterContext.Provider>
   );

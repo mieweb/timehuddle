@@ -13,6 +13,7 @@ import { ObjectId } from "mongodb";
 import { buildApp } from "../src/server.js";
 import { connectDB, client } from "../src/lib/db.js";
 import { auth } from "../src/lib/auth.js";
+import { clockMonitorService } from "../src/services/clock-monitor.service.js";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -106,6 +107,9 @@ afterAll(async () => {
   const db = client.db();
   await db.collection("teams").deleteOne({ code: "CLOCKTEAM1" });
   await db.collection("clockevents").deleteMany({ teamId });
+  await db.collection("notifications").deleteMany({ userId: workerId });
+  await db.collection("timers").deleteMany({ userId: workerId });
+  await db.collection("workitems").deleteMany({ userId: workerId });
   await Promise.all([purgeUser(WORKER.email), purgeUser(ADMIN.email), purgeUser(OTHER.email)]);
   await app.close();
 });
@@ -178,6 +182,98 @@ describe("GET /v1/clock/active", () => {
   });
 });
 
+// ─── Pause / Resume / Status ────────────────────────────────────────────────
+
+describe("clock break flow", () => {
+  it("pauses and resumes an active clock event", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+
+    const pauseRes = await inject("POST", "/v1/clock/pause", workerCookie, { teamId });
+    expect(pauseRes.statusCode).toBe(200);
+    expect(pauseRes.json().event.isPaused).toBe(true);
+    expect(Array.isArray(pauseRes.json().event.breaks)).toBe(true);
+    expect(pauseRes.json().event.breaks.length).toBeGreaterThan(0);
+    expect(pauseRes.json().event.breaks[0].endTime).toBeNull();
+
+    const statusWhilePaused = await inject(
+      "GET",
+      `/v1/clock/status?teamId=${teamId}`,
+      workerCookie
+    );
+    expect(statusWhilePaused.statusCode).toBe(200);
+    expect(statusWhilePaused.json().isPaused).toBe(true);
+
+    const resumeRes = await inject("POST", "/v1/clock/resume", workerCookie, { teamId });
+    expect(resumeRes.statusCode).toBe(200);
+    expect(resumeRes.json().event.isPaused).toBe(false);
+    expect(Array.isArray(resumeRes.json().event.breaks)).toBe(true);
+    expect(resumeRes.json().event.breaks[0].endTime).not.toBeNull();
+
+    const statusAfterResume = await inject(
+      "GET",
+      `/v1/clock/status?teamId=${teamId}`,
+      workerCookie
+    );
+    expect(statusAfterResume.statusCode).toBe(200);
+    expect(statusAfterResume.json().isPaused).toBe(false);
+
+    const stopRes = await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
+    expect(stopRes.statusCode).toBe(200);
+  });
+
+  it("returns 409 when pausing an already paused clock", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+
+    const firstPause = await inject("POST", "/v1/clock/pause", workerCookie, { teamId });
+    expect(firstPause.statusCode).toBe(200);
+
+    const secondPause = await inject("POST", "/v1/clock/pause", workerCookie, { teamId });
+    expect(secondPause.statusCode).toBe(409);
+
+    await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
+  });
+});
+
+// ─── Monitor enforcement ─────────────────────────────────────────────────────
+
+describe("clock monitor enforcement", () => {
+  it("sends a one-time 4h reminder", async () => {
+    const db = client.db();
+    await db.collection("notifications").deleteMany({ userId: workerId });
+
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const eventId = startRes.json().event.id as string;
+
+    await db.collection("clockevents").updateOne(
+      { _id: new ObjectId(eventId) },
+      {
+        $set: {
+          // Set startTime to 4.5 hours ago so computeWorkSeconds returns > 4h
+          startTime: Date.now() - 4.5 * 60 * 60 * 1000,
+          notifiedAt4h: null,
+        },
+      }
+    );
+
+    const firstRun = await clockMonitorService.checkAndEnforce(Date.now());
+    expect(firstRun.reminded4h).toBeGreaterThanOrEqual(1);
+
+    const secondRun = await clockMonitorService.checkAndEnforce(Date.now());
+    expect(secondRun.reminded4h).toBe(0);
+
+    const reminders = await db
+      .collection("notifications")
+      .find({ userId: workerId, "data.type": "break-reminder-4h" })
+      .toArray();
+    expect(reminders.length).toBe(1);
+
+    await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
+  });
+});
+
 // ─── Attachments (replaces YouTube-specific route) ───────────────────────────
 
 describe("POST /v1/attachments (clock)", () => {
@@ -209,6 +305,9 @@ describe("POST /v1/attachments (clock)", () => {
 
 describe("POST /v1/clock/stop", () => {
   it("clocks out — 200, sets endTime", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+
     const res = await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
     expect(res.statusCode).toBe(200);
     const { event } = res.json();
@@ -304,6 +403,76 @@ describe("PUT /v1/clock/:id/times", () => {
       endTime: base - 1000,
     });
     expect(res.statusCode).toBe(422);
+  });
+
+  it("shrinks overlapping break periods and recalculates totals on edit", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const eventId = startRes.json().event.id as string;
+
+    const db = client.db();
+    const base = Date.now() - 2 * 60 * 60 * 1000;
+    const sessionEnd = base + 90 * 60 * 1000; // 90 min
+    const breakStart = base + 30 * 60 * 1000; // +30 min
+    const breakEnd = base + 60 * 60 * 1000; // +60 min
+
+    await db.collection("clockevents").updateOne(
+      { _id: new ObjectId(eventId) },
+      {
+        $set: {
+          startTime: base,
+          endTime: sessionEnd,
+          accumulatedTime: 60 * 60,
+        },
+      }
+    );
+    // Seed the break in the separate clockbreaks collection (embedded field no longer exists)
+    await db.collection("clockbreaks").insertOne({
+      _id: new ObjectId(),
+      clockEventId: eventId,
+      startTime: breakStart,
+      endTime: breakEnd,
+    });
+
+    const editedEnd = base + 45 * 60 * 1000; // overlaps break; break should shrink to +30..+45
+    const editRes = await inject("PUT", `/v1/clock/${eventId}/times`, workerCookie, {
+      endTime: editedEnd,
+    });
+    expect(editRes.statusCode).toBe(200);
+
+    const updated = editRes.json().event;
+    expect(updated.breaks.length).toBe(1);
+    expect(updated.breaks[0].startTime).toBe(breakStart);
+    expect(updated.breaks[0].endTime).toBe(editedEnd);
+    // 15-min break is classified as "rest" (< 20 min) — not deducted from pay
+    expect(updated.breaks[0].type).toBe("rest");
+    expect(updated.accumulatedTime).toBe(45 * 60); // full 45-min span, nothing deducted
+  });
+
+  it("accepts manual break edits and recalculates session totals", async () => {
+    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
+    expect(startRes.statusCode).toBe(200);
+    const eventId = startRes.json().event.id as string;
+
+    const base = Date.now() - 2 * 60 * 60 * 1000;
+    const sessionEnd = base + 90 * 60 * 1000; // 90 min
+    const breakStart = base + 20 * 60 * 1000;
+    const breakEnd = base + 30 * 60 * 1000;
+
+    const editRes = await inject("PUT", `/v1/clock/${eventId}/times`, workerCookie, {
+      startTime: base,
+      endTime: sessionEnd,
+      breaks: [{ startTime: breakStart, endTime: breakEnd }],
+    });
+    expect(editRes.statusCode).toBe(200);
+
+    const updated = editRes.json().event;
+    expect(updated.breaks.length).toBe(1);
+    expect(updated.breaks[0].startTime).toBe(breakStart);
+    expect(updated.breaks[0].endTime).toBe(breakEnd);
+    // 10-min break is classified as "rest" (< 20 min) — not deducted from pay
+    expect(updated.breaks[0].type).toBe("rest");
+    expect(updated.accumulatedTime).toBe(90 * 60); // full 90-min span, nothing deducted
   });
 
   it("clearing endTime (null) always succeeds regardless of startTime", async () => {
@@ -458,6 +627,26 @@ describe("GET /v1/clock/timesheet", () => {
       adminCookie
     );
     expect(res.statusCode).toBe(200);
+  });
+
+  it("non-admin team member cannot view another member timesheet — 403", async () => {
+    const now = new Date();
+    const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const endMs = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      23,
+      59,
+      59,
+      999
+    ).getTime();
+    const res = await inject(
+      "GET",
+      `/v1/clock/timesheet?userId=${adminId}&startMs=${startMs}&endMs=${endMs}`,
+      workerCookie
+    );
+    expect(res.statusCode).toBe(403);
   });
 
   it("other user gets 403", async () => {

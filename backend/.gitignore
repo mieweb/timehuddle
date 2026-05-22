@@ -36,3 +36,7 @@ coverage/
 
 # Uploaded video files
 data/videos/
+data/avatars/
+data/profile/
+uploads/**
+!uploads/**/.gitkeep

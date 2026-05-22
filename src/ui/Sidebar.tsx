@@ -1,23 +1,28 @@
 /**
  * Sidebar — Collapsible app navigation.
  *
- * Desktop: fixed width panel, animates between 240 px (expanded) and
- * 64 px (collapsed / icon-only) using a spring.
+ * Desktop rail (md+): fixed width panel, animates between 240 px (expanded) and
+ * 64 px (collapsed / icon-only) using a spring. Collapse control lives in the
+ * rail footer.
  *
- * Mobile (< md): hidden by default; slides in as a full-height drawer from
- * the left when isMobileOpen is true in SidebarContext.
+ * Mobile drawer (< md): slides in from the left when isMobileOpen is true.
+ * The drawer always shows icons with labels (never icon-only) and does not
+ * show the rail collapse control — the hamburger/drawer is the primary pattern.
  *
- * Labels fade in/out with AnimatePresence so they never clip during resize.
+ * Labels fade in/out with AnimatePresence on the rail so they never clip during resize.
  */
 import {
   faChevronLeft,
   faChevronRight,
   faClock,
   faBell,
+  faBug,
+  faComments,
   faEnvelope,
   faGauge,
   faGear,
   faListCheck,
+  faSitemap,
   faStopwatch,
   faTable,
   faUsers,
@@ -42,6 +47,7 @@ const isReload = (() => {
 })();
 
 import { useSidebar } from './AppLayout';
+import { useAppFeedback } from './AppLayout';
 import { useRouter } from './router';
 
 // ─── Nav data ─────────────────────────────────────────────────────────────────
@@ -71,6 +77,7 @@ const NAV: NavSection[] = [
     heading: 'Manage',
     items: [
       { icon: faUsers, label: 'Teams', href: '/app/teams' },
+      { icon: faSitemap, label: 'Organization', href: '/app/organization' },
       { icon: faEnvelope, label: 'Messages', href: '/app/messages' },
       { icon: faBell, label: 'Notifications', href: '/app/notifications' },
       { icon: faClockRotateLeft, label: 'Activity Log', href: '/app/activity' },
@@ -85,6 +92,12 @@ const NAV: NavSection[] = [
     ],
   },
 ];
+
+type SidebarContentVariant = 'rail' | 'drawer';
+
+interface SidebarContentProps {
+  variant?: SidebarContentVariant;
+}
 
 // ─── NavLink ─────────────────────────────────────────────────────────────────
 
@@ -142,9 +155,11 @@ const NavLink: React.FC<{ item: NavItem; active: boolean; expanded: boolean }> =
 
 // ─── SidebarContent ───────────────────────────────────────────────────────────
 
-const SidebarContent: React.FC = () => {
-  const { isExpanded, toggle } = useSidebar();
+const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => {
+  const { isExpanded, toggle, closeMobile } = useSidebar();
   const { pathname } = useRouter();
+  const { openReportIssue, openFeedback } = useAppFeedback();
+  const expanded = variant === 'drawer' ? true : isExpanded;
 
   return (
     <div className="flex h-full flex-col">
@@ -152,19 +167,19 @@ const SidebarContent: React.FC = () => {
       <div
         className={[
           'sidebar-brand flex shrink-0 items-center border-b border-neutral-200 px-3 dark:border-neutral-800',
-          isExpanded ? '' : 'justify-center',
+          expanded ? '' : 'justify-center',
         ].join(' ')}
         style={{ minHeight: '4rem' }}
       >
         {' '}
-        <span className="flex min-w-0 items-center gap-3 rounded-md" aria-label="TimeHuddle">
+        <span className="flex min-w-0 items-center gap-3 rounded-md" aria-label="Huddle">
           {/* Icon mark */}
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--mieweb-primary-500)] to-[var(--mieweb-primary-700)] text-sm font-bold text-white shadow-sm">
             TH
           </div>
           {/* Wordmark */}
           <AnimatePresence initial={false}>
-            {isExpanded && (
+            {expanded && (
               <motion.div
                 key="wordmark"
                 initial={{ opacity: 0, width: 0 }}
@@ -174,7 +189,7 @@ const SidebarContent: React.FC = () => {
                 className="overflow-hidden"
               >
                 <p className="whitespace-nowrap text-sm font-semibold leading-none tracking-tight text-neutral-900 dark:text-neutral-100">
-                  TimeHuddle
+                  Huddle
                 </p>
                 <p className="mt-0.5 whitespace-nowrap text-[10px] text-neutral-400 dark:text-neutral-500">
                   Team Collaboration
@@ -191,7 +206,7 @@ const SidebarContent: React.FC = () => {
           <div key={si}>
             {/* Section heading — only shown when expanded */}
             <AnimatePresence initial={false}>
-              {isExpanded && section.heading && (
+              {expanded && section.heading && (
                 <motion.p
                   key="heading"
                   initial={{ opacity: 0, height: 0 }}
@@ -207,47 +222,117 @@ const SidebarContent: React.FC = () => {
             <ul className="space-y-0.5">
               {section.items.map((item) => (
                 <li key={item.label}>
-                  <NavLink item={item} active={pathname === item.href} expanded={isExpanded} />
+                  <NavLink item={item} active={pathname === item.href} expanded={expanded} />
                 </li>
               ))}
+              {si === NAV.length - 1 && (
+                <>
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeMobile();
+                        openReportIssue();
+                      }}
+                      className={[
+                        'group flex h-9 w-full items-center rounded-lg text-sm transition-colors',
+                        'focus:outline-none focus:ring-2 focus:ring-[var(--mieweb-primary-500)]/40',
+                        'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800',
+                        expanded ? 'gap-3 px-2.5' : 'justify-center px-0',
+                      ].join(' ')}
+                      title={!expanded ? 'Report an Issue' : undefined}
+                      aria-label="Report an Issue"
+                    >
+                      <FontAwesomeIcon icon={faBug} className="w-4 shrink-0 text-sm" />
+                      <AnimatePresence initial={false}>
+                        {expanded && (
+                          <motion.span
+                            key="report-label"
+                            initial={{ opacity: 0, width: 0 }}
+                            animate={{ opacity: 1, width: 'auto' }}
+                            exit={{ opacity: 0, width: 0 }}
+                            transition={{ duration: 0.15, ease: 'easeInOut' }}
+                            className="overflow-hidden whitespace-nowrap"
+                          >
+                            Report an Issue
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeMobile();
+                        openFeedback();
+                      }}
+                      className={[
+                        'group flex h-9 w-full items-center rounded-lg text-sm transition-colors',
+                        'focus:outline-none focus:ring-2 focus:ring-[var(--mieweb-primary-500)]/40',
+                        'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800',
+                        expanded ? 'gap-3 px-2.5' : 'justify-center px-0',
+                      ].join(' ')}
+                      title={!expanded ? 'Share Your Feedback' : undefined}
+                      aria-label="Share Your Feedback"
+                    >
+                      <FontAwesomeIcon icon={faComments} className="w-4 shrink-0 text-sm" />
+                      <AnimatePresence initial={false}>
+                        {expanded && (
+                          <motion.span
+                            key="feedback-label"
+                            initial={{ opacity: 0, width: 0 }}
+                            animate={{ opacity: 1, width: 'auto' }}
+                            exit={{ opacity: 0, width: 0 }}
+                            transition={{ duration: 0.15, ease: 'easeInOut' }}
+                            className="overflow-hidden whitespace-nowrap"
+                          >
+                            Share Your Feedback
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    </button>
+                  </li>
+                </>
+              )}
             </ul>
           </div>
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="shrink-0 space-y-0.5 border-t border-neutral-200 px-2 py-3 dark:border-neutral-800">
-        {/* Collapse toggle */}
-        <button
-          type="button"
-          onClick={toggle}
-          title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-          aria-label={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-          className={[
-            'flex h-9 w-full items-center rounded-lg text-sm text-neutral-500 transition-colors hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800',
-            isExpanded ? 'gap-3 px-2.5' : 'justify-center px-0',
-          ].join(' ')}
-        >
-          <FontAwesomeIcon
-            icon={isExpanded ? faChevronLeft : faChevronRight}
-            className="w-4 shrink-0 text-xs"
-          />
-          <AnimatePresence initial={false}>
-            {isExpanded && (
-              <motion.span
-                key="collapse-label"
-                initial={{ opacity: 0, width: 0 }}
-                animate={{ opacity: 1, width: 'auto' }}
-                exit={{ opacity: 0, width: 0 }}
-                transition={{ duration: 0.15, ease: 'easeInOut' }}
-                className="overflow-hidden whitespace-nowrap"
-              >
-                Collapse
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </button>
-      </div>
+      {variant === 'rail' && (
+        <div className="shrink-0 space-y-0.5 border-t border-neutral-200 px-2 py-3 dark:border-neutral-800">
+          <button
+            type="button"
+            onClick={toggle}
+            title={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-label={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            className={[
+              'flex h-9 w-full items-center rounded-lg text-sm text-neutral-500 transition-colors hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800',
+              isExpanded ? 'gap-3 px-2.5' : 'justify-center px-0',
+            ].join(' ')}
+          >
+            <FontAwesomeIcon
+              icon={isExpanded ? faChevronLeft : faChevronRight}
+              className="w-4 shrink-0 text-xs"
+            />
+            <AnimatePresence initial={false}>
+              {isExpanded && (
+                <motion.span
+                  key="collapse-label"
+                  initial={{ opacity: 0, width: 0 }}
+                  animate={{ opacity: 1, width: 'auto' }}
+                  exit={{ opacity: 0, width: 0 }}
+                  transition={{ duration: 0.15, ease: 'easeInOut' }}
+                  className="overflow-hidden whitespace-nowrap"
+                >
+                  Collapse
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </button>
+        </div>
+      )}
     </div>
   );
 };
@@ -266,7 +351,7 @@ export const Sidebar: React.FC = () => {
           animate={{ width: isExpanded ? 240 : 64 }}
           transition={isReload ? { duration: 0 } : { type: 'spring', damping: 28, stiffness: 280 }}
         >
-          <SidebarContent />
+          <SidebarContent variant="rail" />
         </motion.aside>
 
         {/* ── Mobile: slide-in drawer ────────────────────────────────────── */}
@@ -293,7 +378,7 @@ export const Sidebar: React.FC = () => {
                 >
                   ✕
                 </Button>
-                <SidebarContent />
+                <SidebarContent variant="drawer" />
               </motion.aside>
             )}
           </AnimatePresence>,

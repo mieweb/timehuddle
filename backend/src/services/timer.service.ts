@@ -46,47 +46,6 @@ export type PublicSession = ReturnType<typeof toPublicSession>;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Convert a local YYYY-MM-DD string in a given IANA timezone to the UTC epoch
- * ms range [start, end) that covers that local day.
- */
-function localDayBounds(dateStr: string, tz: string): { start: number; end: number } {
-  // Find epoch ms for local midnight in `tz` via Intl probe-and-shift.
-  const isoMidnight = `${dateStr}T00:00:00`;
-  const probe = new Date(isoMidnight + "Z"); // treat as UTC first
-  const offset = getUtcOffsetMs(probe, tz);
-  const startMs = probe.getTime() - offset;
-
-  // End = start + 24 h (handles DST: compute offset at end too)
-  const endProbe = new Date(startMs + 24 * 3600 * 1000);
-  const endOffset = getUtcOffsetMs(endProbe, tz);
-  return { start: startMs, end: startMs + 24 * 3600 * 1000 - (endOffset - offset) };
-}
-
-/**
- * Returns the UTC offset in milliseconds for a Date in a given IANA timezone.
- * A positive offset means UTC is ahead (e.g. UTC+5 → offset = -5h ms).
- */
-function getUtcOffsetMs(date: Date, tz: string): number {
-  // Format the date in the target TZ and in UTC, then diff.
-  const opts: Intl.DateTimeFormatOptions = {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  };
-  const parts = new Intl.DateTimeFormat("en-CA", opts).formatToParts(date);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "0";
-  const localDate = new Date(
-    `${get("year")}-${get("month")}-${get("day")}T${get("hour").replace("24", "00")}:${get("minute")}:${get("second")}Z`
-  );
-  return date.getTime() - localDate.getTime();
-}
-
 /** Convert epoch ms to a UTC "YYYY-MM-DD" date key. */
 export function toUtcDateKey(epochMs: number): string {
   return new Date(epochMs).toISOString().slice(0, 10);
@@ -191,6 +150,7 @@ export class TimerService {
     | "not-found"
     | "forbidden"
     | "already-running"
+    | "invalid-date"
   > {
     if (!isValidId(ticketId)) return "not-found";
     const ticket = await ticketsCollection().findOne({ _id: new ObjectId(ticketId) });
@@ -205,6 +165,11 @@ export class TimerService {
     if (!team) return "forbidden";
 
     const date = toUtcDateKey(now);
+
+    // Prevent starting timers on previous days
+    if (this.isPreviousDate(date)) {
+      return "invalid-date";
+    }
 
     // Ensure WorkItem exists
     const entryResult = await this.getOrCreateEntry(userId, ticketId, date);
@@ -257,12 +222,23 @@ export class TimerService {
   async startTimerForEntry(
     userId: string,
     entryId: string,
-    now: number
-  ): Promise<{ session: Timer; closedSessionId: string | null } | "not-found" | "forbidden"> {
-    if (!isValidId(entryId)) return "not-found";
+    now: number,
+    tz?: string
+  ): Promise<
+    | { type: "success"; session: Timer; closedSessionId: string | null }
+    | { type: "not-found" }
+    | { type: "forbidden" }
+    | { type: "invalid-date" }
+  > {
+    if (!isValidId(entryId)) return { type: "not-found" };
     const entry = await workItemsCollection().findOne({ _id: new ObjectId(entryId) });
-    if (!entry) return "not-found";
-    if (entry.userId !== userId) return "forbidden";
+    if (!entry) return { type: "not-found" };
+    if (entry.userId !== userId) return { type: "forbidden" };
+
+    // Prevent starting timers on previous days
+    if (this.isPreviousDate(entry.date, tz)) {
+      return { type: "invalid-date" };
+    }
 
     let closedSessionId: string | null = null;
     const closeResult = await this._closeRunningSession(userId, now);
@@ -281,7 +257,7 @@ export class TimerService {
 
     try {
       await timersCollection().insertOne(session);
-      return { session, closedSessionId };
+      return { type: "success", session, closedSessionId };
     } catch (err: unknown) {
       if ((err as { code?: number }).code === 11000) {
         const retryClose = await this._closeRunningSession(userId, now);
@@ -292,7 +268,7 @@ export class TimerService {
           createdAt: new Date(),
         };
         await timersCollection().insertOne(session2);
-        return { session: session2, closedSessionId };
+        return { type: "success", session: session2, closedSessionId };
       }
       throw err;
     }
@@ -336,6 +312,17 @@ export class TimerService {
     return (await coll.findOne({ _id: new ObjectId(sessionId) })) ?? "not-found";
   }
 
+  /** Close the currently running timer for a user and return its session id. */
+  async closeRunningForUser(userId: string, now: number): Promise<string | null> {
+    return this._closeRunningSession(userId, now);
+  }
+
+  /** Read a timer session by id, or null if missing/invalid. */
+  async getSessionById(sessionId: string): Promise<Timer | null> {
+    if (!isValidId(sessionId)) return null;
+    return timersCollection().findOne({ _id: new ObjectId(sessionId) });
+  }
+
   /**
    * Close ALL running sessions for a user in a single updateMany.
    * Called during clock-out — no multi-collection scan needed.
@@ -372,11 +359,8 @@ export class TimerService {
   async getDayEntries(
     userId: string,
     dateStr: string,
-    tz: string
+    _tz: string
   ): Promise<Array<{ entry: WorkItem; sessions: Timer[] }>> {
-    const { start, end } = localDayBounds(dateStr, tz);
-
-    // Use UTC date as a prefilter, then refine with timezone-aware boundaries
     const entries = await workItemsCollection().find({ userId, date: dateStr }).toArray();
     if (entries.length === 0) return [];
 
@@ -385,7 +369,7 @@ export class TimerService {
       .find({
         userId,
         workItemId: { $in: entryIds },
-        startTime: { $gte: start, $lt: end },
+        date: dateStr,
       })
       .sort({ startTime: 1 })
       .toArray();
@@ -647,6 +631,24 @@ export class TimerService {
       { $set: { endTime: now, durationSeconds } }
     );
     return running._id.toHexString();
+  }
+
+  /**
+   * Check if the given date is earlier than today.
+   */
+  private isPreviousDate(date: string, tz?: string): boolean {
+    let today: string;
+    if (tz) {
+      try {
+        today = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+      } catch {
+        // Invalid IANA timezone from client — fall back to UTC
+        today = new Date().toISOString().slice(0, 10);
+      }
+    } else {
+      today = new Date().toISOString().slice(0, 10);
+    }
+    return date < today;
   }
 }
 

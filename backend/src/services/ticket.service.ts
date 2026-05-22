@@ -1,5 +1,13 @@
+import { subject } from "@casl/ability";
 import { ObjectId } from "mongodb";
-import { teamsCollection, ticketsCollection, usersCollection } from "../models/index.js";
+import {
+  organizationsCollection,
+  teamsCollection,
+  ticketsCollection,
+  usersCollection,
+} from "../models/index.js";
+import { buildAbilityFor, type AppAction } from "../lib/permissions.js";
+import { DEFAULT_ORG_KEY } from "../lib/org-config.js";
 import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
 import {
   ActivityType,
@@ -18,6 +26,64 @@ function isValidId(id: string): boolean {
 }
 
 export class TicketService {
+  private async resolveOrgRoleForTeam(
+    userId: string,
+    team: { orgId?: string }
+  ): Promise<"owner" | "admin" | "member"> {
+    const org =
+      (team.orgId && isValidId(team.orgId)
+        ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
+        : null) ?? (await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY }));
+
+    if (!org) return "member";
+    if ((org.owners ?? []).includes(userId)) return "owner";
+    if ((org.admins ?? []).includes(userId)) return "admin";
+    return "member";
+  }
+
+  private async buildTeamAbility(userId: string, teamId: string) {
+    if (!isValidId(teamId)) return null;
+    const team = await teamsCollection().findOne({ _id: new ObjectId(teamId) });
+    if (!team) return null;
+
+    const role = await this.resolveOrgRoleForTeam(userId, team);
+    const isTeamMember =
+      (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
+    const scopedTeamIds = isTeamMember ? [teamId] : [];
+
+    return {
+      team,
+      ability: buildAbilityFor({
+        userId,
+        role,
+        teamIds: scopedTeamIds,
+        teamAdminIds: (team.admins ?? []).includes(userId) ? [teamId] : [],
+      }),
+    };
+  }
+
+  async canUserPerformOnTicket(
+    userId: string,
+    ticket: Ticket,
+    action: AppAction
+  ): Promise<boolean> {
+    const context = await this.buildTeamAbility(userId, ticket.teamId);
+    if (!context) return false;
+    return context.ability.can(action, subject("Ticket", ticket));
+  }
+
+  async findAuthorizedTicket(
+    id: string,
+    userId: string,
+    action: AppAction
+  ): Promise<Ticket | OwnerError> {
+    const ticket = await this.findById(id);
+    if (!ticket) return "not-found";
+    const allowed = await this.canUserPerformOnTicket(userId, ticket, action);
+    if (!allowed) return "forbidden";
+    return ticket;
+  }
+
   private async getActor(userId: string): Promise<{ id: string; name: string }> {
     const user = isValidId(userId)
       ? await usersCollection().findOne({ _id: new ObjectId(userId) })
@@ -63,13 +129,39 @@ export class TicketService {
     return ticketsCollection().findOne({ _id: new ObjectId(id) });
   }
 
+  /** Return all tickets the user can see that are flagged sharedWithTimeharbor=true, across all their teams. */
+  async findSharedWithTimeharbor(userId: string): Promise<Ticket[]> {
+    // Find all team IDs the user is a member or admin of
+    const userTeams = await teamsCollection()
+      .find({ $or: [{ members: userId }, { admins: userId }] }, { projection: { _id: 1 } })
+      .toArray();
+    const teamIds = userTeams.map((t) => t._id.toHexString());
+    const baseFilter = {
+      sharedWithTimeharbor: true,
+      status: { $ne: "deleted" as TicketStatus },
+    };
+
+    // Org-elevated users can read shared tickets across all teams.
+    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    const isOrgElevated =
+      (defaultOrg?.owners ?? []).includes(userId) || (defaultOrg?.admins ?? []).includes(userId);
+
+    if (teamIds.length === 0 && !isOrgElevated) return [];
+
+    const query = isOrgElevated ? baseFilter : { ...baseFilter, teamId: { $in: teamIds } };
+    return ticketsCollection()
+      .find({
+        ...query,
+      })
+      .sort({ updatedAt: -1 })
+      .toArray();
+  }
+
   async findByTeam(teamId: string, userId: string): Promise<Ticket[] | "forbidden"> {
-    if (!isValidId(teamId)) return "forbidden";
-    const team = await teamsCollection().findOne({
-      _id: new ObjectId(teamId),
-      $or: [{ members: userId }, { admins: userId }],
-    });
-    if (!team) return "forbidden";
+    const context = await this.buildTeamAbility(userId, teamId);
+    if (!context) return "forbidden";
+    if (!context.ability.can("read", subject("Ticket", { teamId }))) return "forbidden";
+
     return ticketsCollection()
       .find({ teamId, status: { $ne: "deleted" as TicketStatus } })
       .sort({ createdAt: -1 })
@@ -82,12 +174,12 @@ export class TicketService {
     github: string;
     createdBy: string;
   }): Promise<{ id: string } | "forbidden"> {
-    if (!isValidId(data.teamId)) return "forbidden";
-    const team = await teamsCollection().findOne({
-      _id: new ObjectId(data.teamId),
-      $or: [{ members: data.createdBy }, { admins: data.createdBy }],
-    });
-    if (!team) return "forbidden";
+    const context = await this.buildTeamAbility(data.createdBy, data.teamId);
+    if (!context) return "forbidden";
+    if (!context.ability.can("create", subject("Ticket", { teamId: data.teamId }))) {
+      return "forbidden";
+    }
+
     const result = await ticketsCollection().insertOne({
       _id: new ObjectId(),
       teamId: data.teamId,
@@ -111,17 +203,9 @@ export class TicketService {
     userId: string,
     updates: Partial<Pick<Ticket, "title" | "github" | "description">>
   ): Promise<Ticket | OwnerError> {
-    const ticket = await this.findById(id);
-    if (!ticket) return "not-found";
-    if (!isValidId(ticket.teamId)) return "forbidden";
-    const team = await teamsCollection().findOne({
-      _id: new ObjectId(ticket.teamId),
-      $or: [{ members: userId }, { admins: userId }],
-    });
-    if (!team) return "forbidden";
-    // Only the ticket creator or a team admin may edit title/github/description.
-    const isAdmin = (team.admins ?? []).includes(userId);
-    if (ticket.createdBy !== userId && !isAdmin) return "forbidden";
+    const ticket = await this.findAuthorizedTicket(id, userId, "update");
+    if (ticket === "not-found" || ticket === "forbidden") return ticket;
+
     await ticketsCollection().updateOne(
       { _id: new ObjectId(id) },
       { $set: { ...updates, updatedAt: new Date(), updatedBy: userId } }
@@ -142,14 +226,9 @@ export class TicketService {
     userId: string,
     updates: { status?: TicketStatus; priority?: TicketPriority }
   ): Promise<Ticket | OwnerError> {
-    const ticket = await this.findById(id);
-    if (!ticket) return "not-found";
-    if (!isValidId(ticket.teamId)) return "forbidden";
-    const team = await teamsCollection().findOne({
-      _id: new ObjectId(ticket.teamId),
-      $or: [{ members: userId }, { admins: userId }],
-    });
-    if (!team) return "forbidden";
+    const ticket = await this.findAuthorizedTicket(id, userId, "update");
+    if (ticket === "not-found" || ticket === "forbidden") return ticket;
+
     const $set: Record<string, unknown> = { ...updates, updatedAt: new Date(), updatedBy: userId };
     if (updates.status === "reviewed") {
       $set.reviewedBy = userId;
@@ -176,17 +255,9 @@ export class TicketService {
 
   // Soft-delete so Phase 5 clock event cleanup can reference the ID.
   async delete(id: string, userId: string): Promise<"ok" | OwnerError> {
-    const ticket = await this.findById(id);
-    if (!ticket) return "not-found";
-    if (!isValidId(ticket.teamId)) return "forbidden";
-    const team = await teamsCollection().findOne({
-      _id: new ObjectId(ticket.teamId),
-      $or: [{ members: userId }, { admins: userId }],
-    });
-    if (!team) return "forbidden";
-    // Only the ticket creator or a team admin may delete.
-    const isAdmin = (team.admins ?? []).includes(userId);
-    if (ticket.createdBy !== userId && !isAdmin) return "forbidden";
+    const ticket = await this.findAuthorizedTicket(id, userId, "delete");
+    if (ticket === "not-found" || ticket === "forbidden") return ticket;
+
     await ticketsCollection().updateOne(
       { _id: new ObjectId(id) },
       { $set: { status: "deleted" as TicketStatus, updatedAt: new Date() } }
@@ -204,19 +275,17 @@ export class TicketService {
     ticketIds: string[],
     teamId: string,
     status: TicketStatus,
-    adminId: string
+    requesterId: string
   ): Promise<number | "forbidden"> {
-    if (!isValidId(teamId)) return "forbidden";
-    const team = await teamsCollection().findOne({
-      _id: new ObjectId(teamId),
-      admins: adminId,
-    });
-    if (!team) return "forbidden";
+    const context = await this.buildTeamAbility(requesterId, teamId);
+    if (!context) return "forbidden";
+    if (!context.ability.can("batchStatus", subject("Ticket", { teamId }))) return "forbidden";
+
     const validIds = ticketIds.filter(isValidId).map((id) => new ObjectId(id));
     if (validIds.length === 0) return 0;
-    const $set: Record<string, unknown> = { status, updatedAt: new Date(), updatedBy: adminId };
+    const $set: Record<string, unknown> = { status, updatedAt: new Date(), updatedBy: requesterId };
     if (status === "reviewed") {
-      $set.reviewedBy = adminId;
+      $set.reviewedBy = requesterId;
       $set.reviewedAt = new Date();
     }
     const result = await ticketsCollection().updateMany(
@@ -228,7 +297,7 @@ export class TicketService {
       .toArray();
     await Promise.all(
       updatedTickets.map((ticket) =>
-        this.emitTicketUpdatedActivity(adminId, teamId, {
+        this.emitTicketUpdatedActivity(requesterId, teamId, {
           ticketId: ticket._id.toHexString(),
           ticketTitle: ticket.title,
           teamId,
@@ -240,20 +309,18 @@ export class TicketService {
     return result.modifiedCount;
   }
 
-  // Assign ticket: allowed for team admins only.
+  // Assign ticket: allowed for any team member.
   async assign(
     id: string,
     requesterId: string,
     assignedToUserId: string | null
   ): Promise<Ticket | AssignError> {
-    const ticket = await this.findById(id);
-    if (!ticket) return "not-found";
-    if (!isValidId(ticket.teamId)) return "forbidden";
-    const team = await teamsCollection().findOne({
-      _id: new ObjectId(ticket.teamId),
-      admins: requesterId,
-    });
+    const ticket = await this.findAuthorizedTicket(id, requesterId, "assign");
+    if (ticket === "not-found" || ticket === "forbidden") return ticket;
+
+    const team = await teamsCollection().findOne({ _id: new ObjectId(ticket.teamId) });
     if (!team) return "forbidden";
+
     if (assignedToUserId !== null) {
       const allMembers = [...new Set([...(team.members ?? []), ...(team.admins ?? [])])];
       if (!allMembers.includes(assignedToUserId)) return "bad-assignee";

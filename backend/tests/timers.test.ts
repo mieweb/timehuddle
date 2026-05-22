@@ -312,6 +312,23 @@ describe("POST /v1/timers/entries/:id/start", () => {
     });
     expect(res.statusCode).toBe(404);
   });
+
+  it("does not crash on an invalid tz value — falls back to UTC and succeeds", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const createRes = await inject("POST", "/v1/timers/entries", cookieA, {
+      ticketId,
+      date: today,
+    });
+    expect(createRes.statusCode).toBe(201);
+    const tzEntryId = createRes.json().entry.id;
+
+    const res = await inject("POST", `/v1/timers/entries/${tzEntryId}/start`, cookieA, {
+      now: Date.now(),
+      tz: "Not/A_Timezone",
+    });
+    // Should not return 500 — invalid tz falls back to UTC, request succeeds
+    expect(res.statusCode).not.toBe(500);
+  });
 });
 
 // ─── Stop timer session ───────────────────────────────────────────────────────

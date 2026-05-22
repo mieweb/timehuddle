@@ -6,6 +6,7 @@ export interface Profile {
   app: "timeharbor";
   displayName: string;
   avatarUrl?: string;
+  backgroundUrl?: string;
   status: "online" | "offline";
   lastSeenAt?: Date;
   githubUrl?: string;
