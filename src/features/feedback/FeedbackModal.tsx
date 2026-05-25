@@ -1,8 +1,11 @@
 /**
- * FeedbackModal — Embeds the Pollenate feedback page in a modal iframe.
+ * FeedbackModal — Embeds the Pollenate feedback page in a modal iframe (web),
+ * or opens it in the native in-app browser (Capacitor iOS/Android).
  */
+import { Browser } from '@capacitor/browser';
+import { Capacitor } from '@capacitor/core';
 import { Modal, ModalBody, ModalHeader } from '@mieweb/ui';
-import React from 'react';
+import React, { useEffect } from 'react';
 
 const ENV = (import.meta as { env?: Record<string, string> }).env ?? {};
 const FEEDBACK_URL =
@@ -15,7 +18,17 @@ interface Props {
 }
 
 export const FeedbackModal: React.FC<Props> = ({ open, onClose }) => {
-  if (!open) return null;
+  const isNative = Capacitor.isNativePlatform();
+
+  useEffect(() => {
+    if (open && isNative) {
+      Browser.open({ url: FEEDBACK_URL, presentationStyle: 'popover' })
+        .catch(() => Browser.open({ url: FEEDBACK_URL }))
+        .finally(() => onClose());
+    }
+  }, [open, isNative, onClose]);
+
+  if (!open || isNative) return null;
 
   return (
     <Modal open={open} onOpenChange={(isOpen) => !isOpen && onClose()} size="lg">
