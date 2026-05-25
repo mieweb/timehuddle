@@ -18,8 +18,23 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { clockApi, teamApi, ticketApi, timerApi } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
+import {
+  createTicketFromGithub,
+  fetchGithubIssue,
+  isGithubIssueUrl,
+} from '../tickets/githubIssue';
 import { useTeam } from '../../lib/TeamContext';
 import { useRouter } from '../../ui/router';
+
+/** Format a number of seconds into a human-readable string, e.g. "2h 15m" or "45m". */
+function formatDuration(totalSeconds: number): string {
+  const s = Math.max(0, Math.round(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+}
 
 // ── Window interface augmentation ────────────────────────────────────────────
 
@@ -28,6 +43,8 @@ declare global {
     OzwellChatConfig?: {
       apiKey: string;
       debug?: boolean;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      tools?: any[];
     };
     OzwellChat?: {
       open: () => void;
@@ -225,7 +242,7 @@ function injectMobileOverride() {
 export const OzwellWidget: React.FC = () => {
   const { user } = useSession();
   const { pathname, navigate } = useRouter();
-  const { selectedTeam, selectedTeamId, teams, activeClockEvent, refetchClock } = useTeam();
+  const { selectedTeam, selectedTeamId, teams, activeClockEvent, refetchClock, setSelectedTeamId } = useTeam();
 
   // Keep a stable ref to mutable context so the tool handler always has fresh values
   // without needing to re-register the listener on every render.
@@ -238,6 +255,7 @@ export const OzwellWidget: React.FC = () => {
     activeClockEvent,
     refetchClock,
     navigate,
+    setSelectedTeamId,
   });
   useEffect(() => {
     ctxRef.current = {
@@ -249,8 +267,9 @@ export const OzwellWidget: React.FC = () => {
       activeClockEvent,
       refetchClock,
       navigate,
+      setSelectedTeamId,
     };
-  }, [user, pathname, selectedTeam, selectedTeamId, teams, activeClockEvent, refetchClock, navigate]);
+  }, [user, pathname, selectedTeam, selectedTeamId, teams, activeClockEvent, refetchClock, navigate, setSelectedTeamId]);
 
   // ── Effect 1: inject loader script once ───────────────────────────────────
   useEffect(() => {
@@ -306,8 +325,18 @@ export const OzwellWidget: React.FC = () => {
       page: pathname,
       teamId: selectedTeamId,
       teamName: selectedTeam?.name ?? null,
+      today: new Date().toLocaleDateString('en-CA'),
+      // Clock status — Jerry reads this directly instead of calling get_clock_status
+      clockedIn: activeClockEvent != null,
+      clockedInTeamId: activeClockEvent?.teamId ?? null,
+      clockedInTeamName: activeClockEvent
+        ? (teams.find((t) => t.id === activeClockEvent.teamId)?.name ?? null)
+        : null,
+      clockedInSince: activeClockEvent
+        ? new Date(activeClockEvent.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : null,
     });
-  }, [user, pathname, selectedTeam, selectedTeamId]);
+  }, [user, pathname, selectedTeam, selectedTeamId, activeClockEvent, teams]);
 
   // ── Effect 4: tool call handler ───────────────────────────────────────────
   const handleToolCall = useCallback((e: Event) => {
@@ -362,13 +391,79 @@ export const OzwellWidget: React.FC = () => {
           }
 
           // Clock
+          case 'get_clock_sessions': {
+            if (!user?.id) {
+              respond({ success: false, error: 'No user session found' });
+              return;
+            }
+            const todayStr = new Date().toLocaleDateString('en-CA');
+            const startDateStr = String(args.start_date ?? todayStr);
+            const endDateStr = String(args.end_date ?? startDateStr);
+            // Convert local dates to epoch ms boundaries
+            const startMs = new Date(`${startDateStr}T00:00:00`).getTime();
+            const endMs = new Date(`${endDateStr}T23:59:59.999`).getTime();
+            const result = await clockApi.getTimesheet(user.id, startMs, endMs);
+
+            // Resolve team filter: explicit arg takes priority, then selected team
+            const argTeamId = args.team_id ? String(args.team_id) : undefined;
+            const argTeamName = args.team_name ? String(args.team_name).toLowerCase() : undefined;
+            const resolvedByName = argTeamName
+              ? ctx.teams.find((t) => t.name.toLowerCase().includes(argTeamName))
+              : undefined;
+            const filterTeamId = argTeamId ?? resolvedByName?.id ?? ctx.selectedTeamId;
+            const filteredSessions = filterTeamId
+              ? result.sessions.filter((s) => s.teamId === filterTeamId)
+              : result.sessions;
+
+            // Compute work seconds the same way TimesheetPage does (uses accumulatedTime when set)
+            const now = Date.now();
+            const getWorkSeconds = (s: (typeof filteredSessions)[number]): number => {
+              if (!s.endTime) {
+                const acc = Math.max(0, s.accumulatedTime ?? 0);
+                return acc + Math.max(0, Math.floor((now - s.startTime) / 1000));
+              }
+              const acc = Math.max(0, s.accumulatedTime ?? 0);
+              if (acc > 0) return acc;
+              return Math.max(0, Math.floor((s.endTime - s.startTime) / 1000));
+            };
+
+            const totalSeconds = filteredSessions.reduce((sum, s) => sum + getWorkSeconds(s), 0);
+            const sessions = filteredSessions.map((s) => ({
+              id: s.id,
+              date: new Date(s.startTime).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }),
+              clockIn: new Date(s.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              clockOut: s.endTime
+                ? new Date(s.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : 'still clocked in',
+              duration: formatDuration(getWorkSeconds(s)),
+              teamId: s.teamId,
+              team: ctx.teams.find((t) => t.id === s.teamId)?.name ?? s.teamId,
+            }));
+            respond({
+              success: true,
+              data: {
+                startDate: startDateStr,
+                endDate: endDateStr,
+                teamFilter: filterTeamId
+                  ? (ctx.teams.find((t) => t.id === filterTeamId)?.name ?? filterTeamId)
+                  : 'all teams',
+                sessions,
+                totalSessions: filteredSessions.length,
+                grandTotal: formatDuration(totalSeconds),
+              },
+            });
+            break;
+          }
+
           case 'get_clock_status': {
             if (ctx.activeClockEvent) {
+              const elapsedSeconds = (Date.now() - new Date(ctx.activeClockEvent.startTime).getTime()) / 1000;
               respond({
                 success: true,
                 data: {
                   clockedIn: true,
                   since: ctx.activeClockEvent.startTime,
+                  elapsed: formatDuration(elapsedSeconds),
                   eventId: ctx.activeClockEvent.id,
                   teamId: ctx.activeClockEvent.teamId,
                 },
@@ -381,7 +476,11 @@ export const OzwellWidget: React.FC = () => {
 
           case 'clock_in': {
             if (!ctx.selectedTeamId) {
-              respond({ success: false, error: 'No team selected' });
+              const available = ctx.teams.map((t) => `"${t.name}"`).join(', ');
+              respond({
+                success: false,
+                error: `No team selected. Use switch_team first. Available teams: ${available}`,
+              });
               return;
             }
             const event = await clockApi.start(ctx.selectedTeamId);
@@ -444,15 +543,56 @@ export const OzwellWidget: React.FC = () => {
               respond({ success: false, error: 'No team selected' });
               return;
             }
-            const title = String(args.title ?? '');
+            let title = String(args.title ?? '');
+            const githubUrl = String(args.github ?? '');
+            const descriptionArg = args.description ? String(args.description) : undefined;
+
             if (!title) {
               respond({ success: false, error: 'Missing required field: title' });
               return;
             }
+
+            // If the title IS a GitHub URL, auto-fetch the real title + body
+            if (isGithubIssueUrl(title)) {
+              const issue = await fetchGithubIssue(title);
+              const url = title;
+              title = issue?.title ?? title;
+              const description = descriptionArg ?? issue?.body ?? null;
+              const ticket = await createTicketFromGithub({
+                teamId: ctx.selectedTeamId,
+                url,
+                title,
+                description,
+              });
+              window.dispatchEvent(new Event('tickets:refetch'));
+              respond({ success: true, data: ticket });
+              break;
+            }
+
+            // If a separate github URL is provided, use createTicketFromGithub
+            if (githubUrl && isGithubIssueUrl(githubUrl)) {
+              const issue = await fetchGithubIssue(githubUrl);
+              const description = descriptionArg ?? issue?.body ?? null;
+              const ticket = await createTicketFromGithub({
+                teamId: ctx.selectedTeamId,
+                url: githubUrl,
+                title,
+                description,
+              });
+              window.dispatchEvent(new Event('tickets:refetch'));
+              respond({ success: true, data: ticket });
+              break;
+            }
+
+            // Plain ticket
             const ticket = await ticketApi.createTicket({
               teamId: ctx.selectedTeamId,
               title,
             });
+            if (descriptionArg) {
+              await ticketApi.updateTicket(ticket.id, { description: descriptionArg });
+            }
+            window.dispatchEvent(new Event('tickets:refetch'));
             respond({ success: true, data: ticket });
             break;
           }
@@ -490,6 +630,7 @@ export const OzwellWidget: React.FC = () => {
                 priority: args.priority as string | undefined,
               });
             }
+            window.dispatchEvent(new Event('tickets:refetch'));
             respond({ success: true, data: updatedTicket });
             break;
           }
@@ -501,11 +642,57 @@ export const OzwellWidget: React.FC = () => {
               return;
             }
             await ticketApi.deleteTicket(delTicketId);
+            window.dispatchEvent(new Event('tickets:refetch'));
             respond({ success: true });
             break;
           }
 
           // Teams
+          case 'switch_team': {
+            // Try teamId first, then fall back to name match (case-insensitive).
+            // Using explicit truthiness check so empty-string args don't mask the other field.
+            const teamIdArg = args.teamId ? String(args.teamId) : '';
+            const teamNameArg = args.name ? String(args.name) : '';
+
+            if (!teamIdArg && !teamNameArg) {
+              const available = ctx.teams.map((t) => `"${t.name}" (${t.id})`).join(', ');
+              respond({
+                success: false,
+                error: `Provide teamId or name. Available teams: ${available}`,
+              });
+              return;
+            }
+
+            const matchedTeam =
+              (teamIdArg ? ctx.teams.find((t) => t.id === teamIdArg) : undefined) ??
+              (teamNameArg
+                ? ctx.teams.find((t) => t.name.toLowerCase() === teamNameArg.toLowerCase())
+                : undefined);
+
+            if (!matchedTeam) {
+              const query = teamIdArg || teamNameArg;
+              const available = ctx.teams.map((t) => `"${t.name}"`).join(', ');
+              respond({
+                success: false,
+                error: `Team "${query}" not found. Available teams: ${available}`,
+              });
+              return;
+            }
+
+            // Already on this team — nothing to do
+            if (matchedTeam.id === ctx.selectedTeamId) {
+              respond({
+                success: true,
+                data: { id: matchedTeam.id, name: matchedTeam.name, alreadySelected: true },
+              });
+              return;
+            }
+
+            ctx.setSelectedTeamId(matchedTeam.id);
+            respond({ success: true, data: { id: matchedTeam.id, name: matchedTeam.name } });
+            break;
+          }
+
           case 'create_team': {
             const teamName = String(args.name ?? '');
             if (!teamName) {
@@ -547,7 +734,32 @@ export const OzwellWidget: React.FC = () => {
           case 'get_work_items': {
             const date = String(args.date ?? new Date().toLocaleDateString('en-CA'));
             const entries = await timerApi.getDay(date);
-            respond({ success: true, data: entries });
+            const now = Date.now();
+            let grandTotalSeconds = 0;
+            const formatted = entries.map((e) => {
+              const totalSeconds = e.sessions.reduce((sum, s) => {
+                const end = s.endTime ?? now;
+                return sum + (end - s.startTime) / 1000;
+              }, 0);
+              grandTotalSeconds += totalSeconds;
+              return {
+                ticket: e.entry.displayTitle ?? e.entry.ticketId,
+                workItemId: e.entry.id,
+                total: formatDuration(totalSeconds),
+                sessions: e.sessions.map((s) => ({
+                  id: s.id,
+                  start: new Date(s.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  end: s.endTime
+                    ? new Date(s.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    : 'running',
+                  duration: formatDuration((( s.endTime ?? now) - s.startTime) / 1000),
+                })),
+              };
+            });
+            respond({
+              success: true,
+              data: { date, grandTotal: formatDuration(grandTotalSeconds), items: formatted },
+            });
             break;
           }
 
@@ -592,30 +804,98 @@ export const OzwellWidget: React.FC = () => {
           }
 
           /**
-           * Compound action: create a ticket (if no ticketId provided), create a work item
-           * for today, and immediately start the timer. This is the single tool the AI should
-           * call when the user says "start working on X".
+           * Start a timer for an existing ticket.
+           *
+           * Rules enforced here (per product requirements):
+           *   1. Never creates a ticket — use create_ticket first if needed.
+           *   2. Ticket must belong to the currently selected team.
+           *   3. User must be clocked in to the currently selected team.
+           *   4. Reuses an existing work item for today if one exists (idempotent).
            */
           case 'start_ticket_timer': {
-            if (!ctx.selectedTeamId) {
-              respond({ success: false, error: 'No team selected' });
+            const teamId = ctx.selectedTeamId;
+            const teamName = ctx.selectedTeam?.name ?? 'the selected team';
+
+            if (!teamId) {
+              respond({
+                success: false,
+                error: 'No team selected. Use switch_team to select a team first.',
+              });
               return;
             }
-            // Resolve ticketId — caller may pass an existing id or a title to create
+
+            // ── 1. Resolve ticketId (lookup only — never create) ──────────────
             let ticketId = String(args.ticketId ?? '');
             const ticketTitle = String(args.title ?? '');
-            if (!ticketId) {
-              if (!ticketTitle) {
-                respond({ success: false, error: 'Provide ticketId or title' });
+
+            if (!ticketId && !ticketTitle) {
+              respond({ success: false, error: 'Provide ticketId or title to identify the ticket.' });
+              return;
+            }
+
+            // Fetch all tickets for the current team
+            const teamTickets = await ticketApi.getTickets(teamId);
+
+            if (ticketId) {
+              // Validate the provided ID belongs to the current team
+              const belongs = teamTickets.some((t) => t.id === ticketId);
+              if (!belongs) {
+                respond({
+                  success: false,
+                  error:
+                    `Ticket ${ticketId} does not belong to "${teamName}". ` +
+                    `Use switch_team to switch to the correct team, or get_tickets to list tickets for this team.`,
+                });
                 return;
               }
-              const newTicket = await ticketApi.createTicket({ teamId: ctx.selectedTeamId, title: ticketTitle });
-              ticketId = newTicket.id;
+            } else {
+              // Find by title (case-insensitive)
+              const match = teamTickets.find(
+                (t) => t.title.toLowerCase() === ticketTitle.toLowerCase(),
+              );
+              if (!match) {
+                respond({
+                  success: false,
+                  error:
+                    `No ticket titled "${ticketTitle}" found in "${teamName}". ` +
+                    `Use get_tickets to list available tickets, or create_ticket if you want to create a new one.`,
+                });
+                return;
+              }
+              ticketId = match.id;
             }
+
+            // ── 2. Verify user is clocked in to this team ─────────────────────
+            if (!ctx.activeClockEvent) {
+              respond({
+                success: false,
+                error:
+                  `You are not clocked in. Use clock_in to clock in to "${teamName}" first.`,
+              });
+              return;
+            }
+            if (ctx.activeClockEvent.teamId !== teamId) {
+              const clockedTeam = ctx.teams.find((t) => t.id === ctx.activeClockEvent?.teamId);
+              respond({
+                success: false,
+                error:
+                  `You are clocked in to "${clockedTeam?.name ?? ctx.activeClockEvent.teamId}" but the ticket belongs to "${teamName}". ` +
+                  `Use switch_team to switch to the correct team, then clock_out and clock_in again.`,
+              });
+              return;
+            }
+
+            // ── 3. Get or create a work item for today ────────────────────────
             const today = new Date().toLocaleDateString('en-CA');
-            const entry = await timerApi.createEntry({ ticketId, date: today });
+            const todayEntries = await timerApi.getDay(today);
+            const existingDayEntry = todayEntries.find((de) => de.entry.ticketId === ticketId);
+            const entry = existingDayEntry
+              ? existingDayEntry.entry
+              : await timerApi.createEntry({ ticketId, date: today });
+
+            // ── 4. Start the timer ────────────────────────────────────────────
             const session = await timerApi.startSession(entry.id);
-            respond({ success: true, data: { ticket: { id: ticketId }, workItem: entry, session } });
+            respond({ success: true, data: { workItem: entry, session } });
             break;
           }
 

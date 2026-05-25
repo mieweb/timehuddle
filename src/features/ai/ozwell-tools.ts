@@ -96,7 +96,10 @@ export const OZWELL_TOOLS: OzwellTool[] = [
     type: 'function',
     function: {
       name: 'clock_in',
-      description: 'Clock the user in for the currently selected team.',
+      description:
+        'Clock the user in to the currently selected team. ' +
+        'Does NOT switch teams — call switch_team first if the user wants a different team. ' +
+        'Only call this when the user explicitly asks to clock in.',
       parameters: { type: 'object', properties: {}, required: [] },
     },
   },
@@ -152,12 +155,19 @@ export const OZWELL_TOOLS: OzwellTool[] = [
     type: 'function',
     function: {
       name: 'create_ticket',
-      description: 'Create a new ticket in the currently selected team.',
+      description:
+        'Create a new ticket in the currently selected team. Only call this when the user EXPLICITLY asks to create a new ticket. Do NOT call this as part of starting a timer. ' +
+        'If the user provides a GitHub issue or PR URL, pass it as the title — the system will auto-fetch the real title and body from GitHub.',
       parameters: {
         type: 'object',
         properties: {
-          title: { type: 'string', description: 'Ticket title' },
-          description: { type: 'string', description: 'Optional ticket description' },
+          title: {
+            type: 'string',
+            description:
+              'Ticket title. If this is a GitHub issue/PR URL (e.g. https://github.com/org/repo/issues/1), the real title and description will be fetched automatically.',
+          },
+          description: { type: 'string', description: 'Optional description. Omit if a GitHub URL is provided — the body will be fetched automatically.' },
+          github: { type: 'string', description: 'GitHub issue or PR URL to link to this ticket (optional, only provide if the title is NOT already a URL).' },
         },
         required: ['title'],
       },
@@ -209,6 +219,24 @@ export const OZWELL_TOOLS: OzwellTool[] = [
   {
     type: 'function',
     function: {
+      name: 'switch_team',
+      description:
+        'Switch the active team context. Use this whenever the user asks to switch teams, change teams, or select a different team. ' +
+        'This does NOT clock the user in or out — it only changes which team is active in the app. ' +
+        'Responds with alreadySelected: true if the user is already on the requested team.',
+      parameters: {
+        type: 'object',
+        properties: {
+          teamId: { type: 'string', description: 'ID of the team to switch to (preferred)' },
+          name: { type: 'string', description: 'Name of the team to switch to (used if teamId is unknown)' },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'create_team',
       description: 'Create a new team.',
       parameters: {
@@ -248,6 +276,146 @@ export const OZWELL_TOOLS: OzwellTool[] = [
           id: { type: 'string', description: 'Team ID to delete' },
         },
         required: ['id'],
+      },
+    },
+  },
+
+  // ── Clock Sessions ───────────────────────────────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'get_clock_sessions',
+      description:
+        'Get clock-in/clock-out sessions (team attendance records) for a date range. Use this to answer questions about how long the user worked, when they clocked in/out, or to summarise work across multiple days. Returns sessions with start/end times, duration, team name, and a summary total. IMPORTANT: To query a specific team, pass team_id or team_name directly — do NOT call switch_team first.',
+      parameters: {
+        type: 'object',
+        properties: {
+          start_date: {
+            type: 'string',
+            description: 'Start of date range in YYYY-MM-DD format. Defaults to today if omitted.',
+          },
+          end_date: {
+            type: 'string',
+            description:
+              'End of date range in YYYY-MM-DD format (inclusive). Defaults to start_date if omitted.',
+          },
+          team_id: {
+            type: 'string',
+            description: 'Filter results to a specific team by ID. Omit to use the currently selected team.',
+          },
+          team_name: {
+            type: 'string',
+            description: 'Filter results to a specific team by name (case-insensitive partial match). Use this when the user mentions a team by name.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+
+  // ── Work / Timers ───────────────────────────────────────────────────────────
+  {
+    type: 'function',
+    function: {
+      name: 'get_work_items',
+      description:
+        'Get the list of work items (ticket timer rows) for a given date. Returns each work item with its ticket ID, title, and any timer sessions. NOTE: This only returns ticket-level timers, not clock-in/out sessions — use get_clock_sessions for attendance history.',
+      parameters: {
+        type: 'object',
+        properties: {
+          date: {
+            type: 'string',
+            description: 'Local date in YYYY-MM-DD format. Defaults to today if omitted.',
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_work_item',
+      description:
+        'Add an existing ticket to the Work page for a given date, creating a timer row without starting the clock. The ticket must already exist in the selected team.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ticketId: { type: 'string', description: 'ID of the existing ticket to add' },
+          date: {
+            type: 'string',
+            description: 'Local date in YYYY-MM-DD format. Defaults to today if omitted.',
+          },
+          note: { type: 'string', description: 'Optional note to attach to the work item' },
+        },
+        required: ['ticketId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'start_work_timer',
+      description:
+        'Start a timer for an existing work item (identified by its workItemId). The user must already be clocked in. Use start_ticket_timer instead if you only have a ticket title or ID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          workItemId: { type: 'string', description: 'Work item (entry) ID to start the timer for' },
+        },
+        required: ['workItemId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'stop_work_timer',
+      description: 'Stop a currently running timer session by its session ID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sessionId: { type: 'string', description: 'Running timer session ID to stop' },
+        },
+        required: ['sessionId'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_running_timer',
+      description:
+        "Get the user's currently running timer session, or null if no timer is active. Returns the session with its workItemId, startTime, and elapsed seconds.",
+      parameters: { type: 'object', properties: {}, required: [] },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'start_ticket_timer',
+      description:
+        "Start a timer for a specific ticket in the Work page. " +
+        "IMPORTANT RULES: " +
+        "(1) This tool NEVER creates a ticket — if the ticket doesn't exist, tell the user and offer to use create_ticket. " +
+        "(2) The ticket must belong to the currently selected team — if not, use switch_team first. " +
+        "(3) The user must be clocked in to the selected team before a timer can start. " +
+        "(4) A work item row for today is automatically created if one doesn't exist. " +
+        "Recommended flow: get_teams → switch_team → get_clock_status → clock_in (if needed) → get_tickets → start_ticket_timer.",
+      parameters: {
+        type: 'object',
+        properties: {
+          ticketId: {
+            type: 'string',
+            description: 'ID of the ticket to time (preferred). Must belong to the selected team.',
+          },
+          title: {
+            type: 'string',
+            description:
+              'Title of the ticket to look up (used when ticketId is unknown). Must match an existing ticket in the selected team.',
+          },
+        },
+        required: [],
       },
     },
   },

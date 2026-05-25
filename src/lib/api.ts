@@ -98,8 +98,10 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
   const hasBody = options.body != null;
   const token = sessionToken.get();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
-  // Destructure headers out of options so that ...restOptions below does not
+  const timeoutId = setTimeout(
+    () => controller.abort(new Error('Request timed out. Please check your connection and try again.')),
+    8000,
+  );
   // overwrite the merged headers object (which would drop Authorization).
   const { headers: optHeaders, ...restOptions } = options;
   try {
@@ -135,7 +137,10 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
 /** fetch() with an 8-second abort timeout — prevents indefinite hangs on slow connections. */
 async function timedFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const timeoutId = setTimeout(
+    () => controller.abort(new Error('Request timed out. Please check your connection and try again.')),
+    8000,
+  );
   try {
     return await fetch(url, { signal: controller.signal, ...options });
   } finally {
