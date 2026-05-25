@@ -155,6 +155,18 @@ function injectJerryButtonContent() {
   `;
 }
 
+/** Hide tool-call-only turns that the Ozwell platform renders as "(no response)". */
+function hideNoResponseBubbles(root: HTMLElement) {
+  for (const el of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
+    if (el.textContent?.trim() === '(no response)') {
+      const parent = el.parentElement;
+      // Skip inner elements — only hide the outermost wrapper for this text
+      if (parent && parent !== root && parent.textContent?.trim() === '(no response)') continue;
+      el.style.setProperty('display', 'none', 'important');
+    }
+  }
+}
+
 /** Override the loader's full-screen mobile styles — bottom-sheet pattern. */
 function injectMobileOverride() {
   if (document.getElementById(MOBILE_OVERRIDE_STYLE_ID)) return;
@@ -316,7 +328,15 @@ export const OzwellWidget: React.FC = () => {
     return () => document.removeEventListener('ozwell-chat-ready', onReady);
   }, []);
 
-  // ── Effect 3: sync live context to widget ─────────────────────────────────
+  // ── Effect 3: hide "(no response)" tool-call bubbles ──────────────────────
+  useEffect(() => {
+    const observer = new MutationObserver(() => hideNoResponseBubbles(document.body));
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    hideNoResponseBubbles(document.body);
+    return () => observer.disconnect();
+  }, []);
+
+  // ── Effect 4: sync live context to widget ─────────────────────────────────
   useEffect(() => {
     if (!window.OzwellChat?.updateContext) return;
     window.OzwellChat.updateContext({
@@ -338,7 +358,7 @@ export const OzwellWidget: React.FC = () => {
     });
   }, [user, pathname, selectedTeam, selectedTeamId, activeClockEvent, teams]);
 
-  // ── Effect 4: tool call handler ───────────────────────────────────────────
+  // ── Effect 5: tool call handler ───────────────────────────────────────────
   const handleToolCall = useCallback((e: Event) => {
     const { name, arguments: args, respond } = (e as CustomEvent<OzwellToolCallDetail>).detail;
     const ctx = ctxRef.current;
@@ -782,6 +802,7 @@ export const OzwellWidget: React.FC = () => {
               return;
             }
             const result = await timerApi.startSession(entryId);
+            window.dispatchEvent(new Event('work:refetch'));
             respond({ success: true, data: result });
             break;
           }
@@ -793,6 +814,7 @@ export const OzwellWidget: React.FC = () => {
               return;
             }
             const stopped = await timerApi.stopSession(sessionId);
+            window.dispatchEvent(new Event('work:refetch'));
             respond({ success: true, data: stopped });
             break;
           }
@@ -895,6 +917,7 @@ export const OzwellWidget: React.FC = () => {
 
             // ── 4. Start the timer ────────────────────────────────────────────
             const session = await timerApi.startSession(entry.id);
+            window.dispatchEvent(new Event('work:refetch'));
             respond({ success: true, data: { workItem: entry, session } });
             break;
           }
