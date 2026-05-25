@@ -28,6 +28,7 @@ import {
   faUsers,
   faClockRotateLeft,
 } from '@fortawesome/free-solid-svg-icons';
+import { faApple } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button } from '@mieweb/ui';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
@@ -52,10 +53,14 @@ import { useRouter } from './router';
 
 // ─── Nav data ─────────────────────────────────────────────────────────────────
 
+// Update this URL once the TestFlight build is published in App Store Connect.
+const TESTFLIGHT_URL = 'https://testflight.apple.com/join/45w2knYf';
+
 interface NavItem {
   icon: typeof faGear;
   label: string;
   href: string;
+  external?: boolean;
 }
 
 interface NavSection {
@@ -87,6 +92,7 @@ const NAV: NavSection[] = [
     heading: 'System',
 
     items: [
+      { icon: faApple, label: 'TestFlight', href: TESTFLIGHT_URL, external: true },
       { icon: faClock, label: 'Clock', href: '/app/clock' },
       { icon: faGear, label: 'Settings', href: '/app/settings' },
     ],
@@ -112,8 +118,13 @@ const NavLink: React.FC<{ item: NavItem; active: boolean; expanded: boolean }> =
     <button
       type="button"
       onClick={() => {
-        navigate(item.href);
-        closeMobile();
+        if (item.external) {
+          window.open(item.href, '_blank', 'noopener,noreferrer');
+          closeMobile();
+        } else {
+          navigate(item.href);
+          closeMobile();
+        }
       }}
       className={[
         'group flex h-9 w-full items-center rounded-lg text-sm transition-colors',
