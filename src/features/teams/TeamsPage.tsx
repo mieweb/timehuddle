@@ -23,7 +23,6 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  Avatar,
   Badge,
   Button,
   CardTitle,
@@ -54,7 +53,7 @@ import { usePresence } from '../../lib/usePresence';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { AdminTimesheetPanel } from './AdminTimesheetPanel';
-const TeamChart = React.lazy(() => import('./TeamChart').then((m) => ({ default: m.TeamChart })));
+import { UserAvatar } from '../../ui/UserAvatar';
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
 
@@ -332,14 +331,13 @@ export const TeamsPage: React.FC = () => {
               <TabsTrigger value="members" className="flex-1">
                 Members
               </TabsTrigger>
-              {isAdmin && !selectedTeam.isPersonal && (
+              {!selectedTeam.isPersonal && isAdmin && (
                 <TabsTrigger value="timesheet" className="flex-1">
                   Timesheet
                 </TabsTrigger>
               )}
             </TabsList>
 
-            {/* ── Members tab ── */}
             <TabsContent value="members">
               <div className="py-1">
                 <div className="mb-3 flex items-center justify-between">
@@ -364,21 +362,22 @@ export const TeamsPage: React.FC = () => {
                     const name = m?.name ?? memberId;
                     const username = m?.username ?? null;
                     const email = m?.email ?? '';
+                    const image = m?.image ?? null;
                     const isMemberAdmin = selectedTeam.admins.includes(memberId);
                     const isMe = memberId === userId;
 
                     return (
                       <li key={memberId} className="flex items-center gap-3 py-2.5">
-                        <button
-                          type="button"
+                        <Button
+                          variant="ghost"
                           onClick={() =>
                             navigate(username ? `/${username}` : `/app/profile/${memberId}`)
                           }
-                          className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
                           aria-label={`View ${name}'s profile`}
                         >
                           <div className="relative shrink-0">
-                            <Avatar name={name} size="sm" />
+                            <UserAvatar name={name} size="sm" src={image} />
                             {onlineUsers.has(memberId) && (
                               <span
                                 className="absolute right-0 bottom-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
@@ -407,7 +406,7 @@ export const TeamsPage: React.FC = () => {
                               </Text>
                             )}
                           </div>
-                        </button>
+                        </Button>
                         {isMemberAdmin && (
                           <Badge
                             variant="warning"
@@ -476,41 +475,9 @@ export const TeamsPage: React.FC = () => {
                   })}
                 </ul>
               </div>
-
-              {/* Chart inside members tab */}
-              {!selectedTeam.isPersonal && (
-                <div className="mt-4 overflow-hidden">
-                  <div className="py-2">
-                    <CardTitle>Chart</CardTitle>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <React.Suspense
-                      fallback={
-                        <div className="flex items-center justify-center p-8">
-                          <Spinner size="lg" label="Loading chart…" />
-                        </div>
-                      }
-                    >
-                      <TeamChart
-                        teamName={selectedTeam.name}
-                        members={selectedTeam.members.map((memberId) => {
-                          const m = membersById.get(memberId);
-                          return {
-                            id: memberId,
-                            name: m?.name ?? memberId,
-                            email: m?.email,
-                            isAdmin: selectedTeam.admins.includes(memberId),
-                          };
-                        })}
-                      />
-                    </React.Suspense>
-                  </div>
-                </div>
-              )}
             </TabsContent>
 
-            {/* ── Timesheet tab (non-personal teams only) ── */}
-            {isAdmin && !selectedTeam.isPersonal && (
+            {!selectedTeam.isPersonal && isAdmin && (
               <TabsContent value="timesheet">
                 <AdminTimesheetPanel
                   members={members}

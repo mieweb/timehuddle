@@ -118,9 +118,13 @@ jobs:
             git clean -fd
             echo "branch: $(git branch --show-current)"
 
-            echo "=== backend npm install ==="
-            cd backend || { echo "ERROR: backend dir missing"; exit 1; }
+            echo "=== workspace npm install ==="
+            cd /home/pdharamkar/timehuddle || { echo "ERROR: repo dir missing"; exit 1; }
             npm install --no-audit --no-fund || { echo "ERROR: npm install failed"; exit 1; }
+
+            echo "=== backend migrate ==="
+            cd backend || { echo "ERROR: backend dir missing"; exit 1; }
+            npm run migrate || { echo "ERROR: migration failed"; exit 1; }
 
             echo "=== pm2 restart ==="
             sudo pm2 restart timehuddle-api || { echo "ERROR: pm2 restart failed"; exit 1; }
@@ -216,9 +220,13 @@ jobs:
             git clean -fd
             echo "branch: $(git branch --show-current)"
 
-            echo "=== backend npm install ==="
-            cd backend || { echo "ERROR: backend dir missing"; exit 1; }
+            echo "=== workspace npm install ==="
+            cd /home/pdharamkar/timehuddle || { echo "ERROR: repo dir missing"; exit 1; }
             npm install --no-audit --no-fund || { echo "ERROR: npm install failed"; exit 1; }
+
+            echo "=== backend migrate ==="
+            cd backend || { echo "ERROR: backend dir missing"; exit 1; }
+            npm run migrate || { echo "ERROR: migration failed"; exit 1; }
 
             echo "=== pm2 restart ==="
             sudo pm2 restart timehuddle-api || { echo "ERROR: pm2 restart failed"; exit 1; }

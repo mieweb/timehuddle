@@ -175,6 +175,7 @@ export async function timerRoutes(app: FastifyInstance) {
               session: { ...sessionShape, nullable: true },
             },
           },
+          422: err("Cannot start a timer on a previous day"),
           403: err("Forbidden"),
           404: err("Ticket not found"),
         },
@@ -211,8 +212,18 @@ export async function timerRoutes(app: FastifyInstance) {
           entryResult._id.toHexString(),
           Date.now()
         );
-        if (startResult !== "not-found" && startResult !== "forbidden") {
-          session = toPublicSession(startResult.session);
+
+        switch (startResult.type) {
+          case "not-found":
+          case "forbidden":
+            break;
+          case "invalid-date":
+            return reply.status(422).send({ error: "Cannot start a timer on a previous day" });
+          case "success":
+            session = toPublicSession(startResult.session);
+            break;
+          default:
+            throw new Error("Unexpected result type");
         }
       }
 
@@ -243,7 +254,10 @@ export async function timerRoutes(app: FastifyInstance) {
         body: {
           type: "object",
           additionalProperties: false,
-          properties: { now: { type: "number" } },
+          properties: {
+            now: { type: "number" },
+            tz: { type: "string" },
+          },
         },
         response: {
           200: {
@@ -255,22 +269,32 @@ export async function timerRoutes(app: FastifyInstance) {
           },
           404: err("WorkItem not found"),
           403: err("Forbidden"),
+          422: err("Cannot start a timer on a previous day"),
         },
       },
     },
     async (req, reply) => {
       const { id: userId } = (req as any).user;
       const { id: entryId } = req.params as { id: string };
-      const { now = Date.now() } = req.body as { now?: number };
+      const { now = Date.now(), tz } = req.body as { now?: number; tz?: string };
 
-      const result = await timerService.startTimerForEntry(userId, entryId, now);
-      if (result === "not-found") return reply.status(404).send({ error: "WorkItem not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      const result = await timerService.startTimerForEntry(userId, entryId, now, tz);
 
-      return reply.send({
-        session: toPublicSession(result.session),
-        closedSessionId: result.closedSessionId,
-      });
+      switch (result.type) {
+        case "not-found":
+          return reply.status(404).send({ error: "WorkItem not found" });
+        case "forbidden":
+          return reply.status(403).send({ error: "Forbidden" });
+        case "invalid-date":
+          return reply.status(422).send({ error: "Cannot start a timer on a previous day" });
+        case "success":
+          return reply.send({
+            session: toPublicSession(result.session),
+            closedSessionId: result.closedSessionId,
+          });
+        default:
+          throw new Error("Unexpected result type");
+      }
     }
   );
 

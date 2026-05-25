@@ -2,7 +2,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import pulseVault, { createLocalStorage, createMp4Sniffer } from "@mieweb/pulsevault";
+import pulseVault, {
+  createLocalStorage,
+  createMp4Sniffer,
+  buildUploadLink,
+} from "@mieweb/pulsevault";
 import { fromNodeHeaders } from "better-auth/node";
 import { requireAuth } from "../middleware/require-auth.js";
 import { auth } from "../lib/auth.js";
@@ -17,12 +21,12 @@ const dataDir = path.resolve(__dirname, "../../data/videos");
 const storage = createLocalStorage({ workspaceDir: dataDir });
 
 async function authorizeHandler(request: any, ctx: any) {
-  if (ctx.phase === "resolve") return;
+  if (ctx.phase === "resolve") return; // playback is open
   const session = await auth.api.getSession({
     headers: fromNodeHeaders(request.headers as Record<string, string | string[]>),
   });
   if (!session) {
-    throw Object.assign(new Error("Unauthorized"), { statusCode: 401 });
+    throw { statusCode: 401, message: "Unauthorized" };
   }
 }
 
@@ -69,6 +73,7 @@ export async function pulseVaultCompatRoutes(app: FastifyInstance) {
     validatePayload: createMp4Sniffer(storage),
     authorize: openAuthorizeHandler,
     onUploadComplete: onUploadCompleteHandler,
+    decoratorName: "pulseVaultCompat",
   });
 }
 
@@ -99,6 +104,7 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
             type: "object",
             properties: {
               videoid: { type: "string" },
+              uploadLink: { type: "string", description: "pulsecam:// deep link for QR pairing" },
             },
           },
           404: {
@@ -138,7 +144,15 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
       }
 
       reserveVideo(videoid, ticketId, userId);
-      return reply.status(201).send({ videoid });
+
+      const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "http";
+      const host =
+        (req.headers["x-forwarded-host"] as string | undefined) ??
+        (req.headers["host"] as string | undefined) ??
+        "localhost:4000";
+      const uploadLink = buildUploadLink({ server: `${proto}://${host}`, videoid });
+
+      return reply.status(201).send({ videoid, uploadLink });
     }
   );
 
@@ -186,5 +200,6 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
     validatePayload: createMp4Sniffer(storage),
     authorize: authorizeHandler,
     onUploadComplete: onUploadCompleteHandler,
+    decoratorName: "pulseVaultV1",
   });
 }

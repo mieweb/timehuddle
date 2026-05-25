@@ -37,6 +37,22 @@ export async function ensureIndexes() {
   // 5. Timers for a user on a given UTC date
   await timers.createIndex({ userId: 1, date: 1 });
 
+  // ── Clock event indexes ─────────────────────────────────────────────────────
+  const clockEvents = db.collection("clockevents");
+  await clockEvents.createIndex({ userId: 1, teamId: 1, endTime: 1 });
+
+  // ── Clock break indexes ─────────────────────────────────────────────────────
+  const clockBreaks = db.collection("clockbreaks");
+  // Open-break lookup (isPaused check): find the one open break for an event fast
+  await clockBreaks.createIndex({ clockEventId: 1, endTime: 1 });
+  // Ordered retrieval of all breaks for an event
+  await clockBreaks.createIndex({ clockEventId: 1, startTime: 1 });
+  // Prevent concurrent pause from creating multiple open breaks per event
+  await clockBreaks.createIndex(
+    { clockEventId: 1 },
+    { unique: true, partialFilterExpression: { endTime: null }, name: "one_open_break_per_event" }
+  );
+
   // Personal access tokens
   const pats = db.collection("personal_access_tokens");
   await pats.createIndex({ tokenHash: 1 }, { unique: true });

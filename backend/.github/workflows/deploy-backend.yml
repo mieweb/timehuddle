@@ -64,6 +64,9 @@ jobs:
             echo "⚙️  Installing dependencies..."
             sudo npm install --no-audit --no-fund
 
+            echo "🗄️  Running migrations..."
+            sudo npm run migrate
+
             echo "� Writing Firebase service account..."
             echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}' > "$REPO_DIR/firebase-service-account.json"
 

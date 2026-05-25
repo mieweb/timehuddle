@@ -16,10 +16,13 @@ import {
   faChevronRight,
   faClock,
   faBell,
+  faBug,
+  faComments,
   faEnvelope,
   faGauge,
   faGear,
   faListCheck,
+  faSitemap,
   faStopwatch,
   faTable,
   faUsers,
@@ -44,6 +47,7 @@ const isReload = (() => {
 })();
 
 import { useSidebar } from './AppLayout';
+import { useAppFeedback } from './AppLayout';
 import { useRouter } from './router';
 
 // ─── Nav data ─────────────────────────────────────────────────────────────────
@@ -73,6 +77,7 @@ const NAV: NavSection[] = [
     heading: 'Manage',
     items: [
       { icon: faUsers, label: 'Teams', href: '/app/teams' },
+      { icon: faSitemap, label: 'Organization', href: '/app/organization' },
       { icon: faEnvelope, label: 'Messages', href: '/app/messages' },
       { icon: faBell, label: 'Notifications', href: '/app/notifications' },
       { icon: faClockRotateLeft, label: 'Activity Log', href: '/app/activity' },
@@ -151,8 +156,9 @@ const NavLink: React.FC<{ item: NavItem; active: boolean; expanded: boolean }> =
 // ─── SidebarContent ───────────────────────────────────────────────────────────
 
 const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => {
-  const { isExpanded, toggle } = useSidebar();
+  const { isExpanded, toggle, closeMobile } = useSidebar();
   const { pathname } = useRouter();
+  const { openReportIssue, openFeedback } = useAppFeedback();
   const expanded = variant === 'drawer' ? true : isExpanded;
 
   return (
@@ -219,6 +225,76 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
                   <NavLink item={item} active={pathname === item.href} expanded={expanded} />
                 </li>
               ))}
+              {si === NAV.length - 1 && (
+                <>
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeMobile();
+                        openReportIssue();
+                      }}
+                      className={[
+                        'group flex h-9 w-full items-center rounded-lg text-sm transition-colors',
+                        'focus:outline-none focus:ring-2 focus:ring-[var(--mieweb-primary-500)]/40',
+                        'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800',
+                        expanded ? 'gap-3 px-2.5' : 'justify-center px-0',
+                      ].join(' ')}
+                      title={!expanded ? 'Report an Issue' : undefined}
+                      aria-label="Report an Issue"
+                    >
+                      <FontAwesomeIcon icon={faBug} className="w-4 shrink-0 text-sm" />
+                      <AnimatePresence initial={false}>
+                        {expanded && (
+                          <motion.span
+                            key="report-label"
+                            initial={{ opacity: 0, width: 0 }}
+                            animate={{ opacity: 1, width: 'auto' }}
+                            exit={{ opacity: 0, width: 0 }}
+                            transition={{ duration: 0.15, ease: 'easeInOut' }}
+                            className="overflow-hidden whitespace-nowrap"
+                          >
+                            Report an Issue
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeMobile();
+                        openFeedback();
+                      }}
+                      className={[
+                        'group flex h-9 w-full items-center rounded-lg text-sm transition-colors',
+                        'focus:outline-none focus:ring-2 focus:ring-[var(--mieweb-primary-500)]/40',
+                        'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800',
+                        expanded ? 'gap-3 px-2.5' : 'justify-center px-0',
+                      ].join(' ')}
+                      title={!expanded ? 'Share Your Feedback' : undefined}
+                      aria-label="Share Your Feedback"
+                    >
+                      <FontAwesomeIcon icon={faComments} className="w-4 shrink-0 text-sm" />
+                      <AnimatePresence initial={false}>
+                        {expanded && (
+                          <motion.span
+                            key="feedback-label"
+                            initial={{ opacity: 0, width: 0 }}
+                            animate={{ opacity: 1, width: 'auto' }}
+                            exit={{ opacity: 0, width: 0 }}
+                            transition={{ duration: 0.15, ease: 'easeInOut' }}
+                            className="overflow-hidden whitespace-nowrap"
+                          >
+                            Share Your Feedback
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    </button>
+                  </li>
+                </>
+              )}
             </ul>
           </div>
         ))}

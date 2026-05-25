@@ -2,7 +2,7 @@ import { getDB } from "../lib/db.js";
 import type { User } from "./user.model.js";
 import type { Team } from "./team.model.js";
 import type { Ticket } from "./ticket.model.js";
-import type { ClockEvent } from "./clock.model.js";
+import type { ClockBreak, ClockEvent } from "./clock.model.js";
 import type { Message } from "./message.model.js";
 import type { Notification } from "./notification.model.js";
 import type { Attachment } from "./attachment.model.js";
@@ -15,6 +15,7 @@ import type { ActivityEvent } from "./activity.model.js";
 import type { Channel } from "./channel.model.js";
 import type { ChannelMessage } from "./channel-message.model.js";
 import type { PersonalAccessToken } from "./personal-access-token.model.js";
+import type { Organization } from "./organization.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
 export function usersCollection() {
@@ -26,6 +27,11 @@ export function teamsCollection() {
   return getDB().collection<Team>("teams");
 }
 
+// Organizations
+export function organizationsCollection() {
+  return getDB().collection<Organization>("organizations");
+}
+
 // Tickets
 export function ticketsCollection() {
   return getDB().collection<Ticket>("tickets");
@@ -34,6 +40,11 @@ export function ticketsCollection() {
 // Clock events
 export function clockEventsCollection() {
   return getDB().collection<ClockEvent>("clockevents");
+}
+
+// Clock breaks — separate collection, each document references a clockevents._id
+export function clockBreaksCollection() {
+  return getDB().collection<ClockBreak>("clockbreaks");
 }
 
 // Messages
