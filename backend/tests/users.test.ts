@@ -15,6 +15,8 @@ import { ObjectId } from "mongodb";
 import { buildApp } from "../src/server.js";
 import { connectDB, client } from "../src/lib/db.js";
 import { auth } from "../src/lib/auth.js";
+import { organizationsCollection } from "../src/models/index.js";
+import { DEFAULT_ORG_KEY } from "../src/lib/org-config.js";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -436,5 +438,76 @@ describe("GET /v1/users", () => {
     const { users } = res.json();
     expect(users).toHaveLength(1);
     expect(users[0].id).toBe(aliceId);
+  });
+});
+
+// ─── GET /v1/organization/users ──────────────────────────────────────────────
+
+describe("GET /v1/organization/users", () => {
+  it("returns only users who belong to the default organization", async () => {
+    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    expect(defaultOrg).toBeTruthy();
+
+    const originalOwners = defaultOrg!.owners ?? [];
+    const originalAdmins = defaultOrg!.admins ?? [];
+
+    try {
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        { $set: { owners: [aliceId], admins: [bobId], updatedAt: new Date() } }
+      );
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/v1/organization/users",
+        headers: { cookie: aliceCookie },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const { users } = res.json();
+      expect(users).toHaveLength(2);
+      expect(users.map((user: any) => user.id)).toEqual(expect.arrayContaining([aliceId, bobId]));
+      expect(users.map((user: any) => user.id)).not.toContain(_carolId);
+      expect(users.find((user: any) => user.id === aliceId)?.role).toBe("owner");
+      expect(users.find((user: any) => user.id === bobId)?.role).toBe("admin");
+    } finally {
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        { $set: { owners: originalOwners, admins: originalAdmins, updatedAt: new Date() } }
+      );
+    }
+  });
+});
+
+describe("PUT /v1/org/users/:userId", () => {
+  it("returns 404 when reportsToUserId does not exist", async () => {
+    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    expect(defaultOrg).toBeTruthy();
+
+    const originalOwners = defaultOrg!.owners ?? [];
+    const originalAdmins = defaultOrg!.admins ?? [];
+
+    try {
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        { $set: { owners: [aliceId], admins: originalAdmins, updatedAt: new Date() } }
+      );
+
+      const unknownId = "000000000000000000000099";
+      const res = await app.inject({
+        method: "PUT",
+        url: `/v1/org/users/${bobId}`,
+        headers: { cookie: aliceCookie },
+        payload: { reportsToUserId: unknownId },
+      });
+
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error).toBe("Reports-to user not found");
+    } finally {
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        { $set: { owners: originalOwners, admins: originalAdmins, updatedAt: new Date() } }
+      );
+    }
   });
 });

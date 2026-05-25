@@ -1,10 +1,13 @@
 import "dotenv/config";
 import { fileURLToPath } from "url";
+import path from "path";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
+import multipart from "@fastify/multipart"; // Register Fastify multipart plugin for file uploads
+import fastifyStatic from "@fastify/static";
 import { connectDB } from "./lib/db.js";
 import { ensureMongooseConnected } from "./lib/mongoose.js";
 import { ensureIndexes } from "./lib/ensure-indexes.js";
@@ -12,6 +15,7 @@ import { auth } from "./lib/auth.js";
 import { appContext } from "./middleware/app-context.js";
 import { healthRoutes } from "./routes/health.js";
 import { userRoutes } from "./routes/users.js";
+import { orgRoutes } from "./routes/org.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { teamRoutes } from "./routes/teams.js";
 import { clockRoutes } from "./routes/clock.js";
@@ -25,9 +29,18 @@ import { pulseVaultRoutes, pulseVaultCompatRoutes } from "./routes/pulsevault.js
 import { presenceRoutes } from "./routes/presence.js";
 import { channelRoutes } from "./routes/channels.js";
 import { tokenRoutes } from "./routes/tokens.js";
+import { startClockMonitor } from "./services/clock-monitor.service.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? true });
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+  // Register multipart before routes and before Swagger
+  await app.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10 MB
+    },
+  });
 
   // Swagger — must be registered before routes
   await app.register(swagger, {
@@ -65,6 +78,15 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
         { name: "Messages", description: "Admin-member threaded messaging and SSE stream" },
         { name: "Activity", description: "Unified activity log for user and team events" },
       ],
+      components: {
+        securitySchemes: {
+          cookieAuth: {
+            type: "apiKey",
+            in: "cookie",
+            name: "better-auth.session_token",
+          },
+        },
+      },
     },
   });
 
@@ -78,6 +100,13 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     // Expose the bearer token header so Capacitor WebViews can read it after sign-in.
     exposedHeaders: ["set-auth-token"],
+  });
+
+  // Serve all uploaded files from backend/uploads/.
+  await app.register(fastifyStatic, {
+    root: path.resolve(__dirname, "..", "uploads"),
+    prefix: "/uploads/",
+    decorateReply: false,
   });
 
   await app.register(websocket);
@@ -450,6 +479,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
   // App routes
   await app.register(userRoutes, { prefix: "/v1" });
+  await app.register(orgRoutes, { prefix: "/v1" });
   await app.register(teamRoutes, { prefix: "/v1" });
   await app.register(ticketRoutes, { prefix: "/v1" });
   await app.register(clockRoutes, { prefix: "/v1" });
@@ -475,6 +505,9 @@ async function bootstrap() {
   await connectDB();
   await ensureMongooseConnected();
   await ensureIndexes();
+  if (process.env.NODE_ENV !== "test") {
+    startClockMonitor();
+  }
   const app = await buildApp();
   const port = Number(process.env.PORT) || 4000;
   await app.listen({ port, host: "0.0.0.0" });

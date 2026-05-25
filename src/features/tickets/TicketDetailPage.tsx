@@ -7,17 +7,7 @@ import {
   faXmark,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  Avatar,
-  Button,
-  Card,
-  CardContent,
-  Select,
-  Spinner,
-  Text,
-  Textarea,
-  Input,
-} from '@mieweb/ui';
+import { Button, Card, CardContent, Select, Spinner, Text, Textarea, Input } from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
 import {
   activityApi,
@@ -30,6 +20,7 @@ import {
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
+import { UserAvatar } from '../../ui/UserAvatar';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
 import { VideoUploadButton } from '../media/VideoUploadButton';
 
@@ -130,6 +121,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const [descDraft, setDescDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [attachmentRefresh, setAttachmentRefresh] = useState(0);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Load ticket + activity
   useEffect(() => {
@@ -155,7 +147,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     teamApi
       .getMembers(ticket.teamId)
       .then(setMembers)
-      .catch(() => {});
+      .catch(() => setActionError('Failed to load team members. Assignee cannot be changed.'));
   }, [ticket?.teamId]);
 
   // ── Handlers ──
@@ -201,8 +193,13 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
   const handleAssigneeChange = async (assignedToUserId: string) => {
     if (!ticket) return;
-    const updated = await ticketApi.assignTicket(ticket.id, assignedToUserId || null);
-    setTicket(updated);
+    setActionError(null);
+    try {
+      const updated = await ticketApi.assignTicket(ticket.id, assignedToUserId || null);
+      setTicket(updated);
+    } catch {
+      setActionError('Failed to update assignee. You may not have permission.');
+    }
   };
 
   const handleDelete = async () => {
@@ -445,11 +442,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                 <ol className="ticket-activity-list space-y-3" aria-label="Ticket activity">
                   {activity.map((event) => (
                     <li key={event.id} className="ticket-activity-item flex items-start gap-2.5">
-                      <Avatar
-                        size="sm"
-                        name={event.actor.name ?? '?'}
-                        aria-label={event.actor.name ?? 'User'}
-                      />
+                      <UserAvatar size="sm" name={event.actor.name ?? '?'} />
                       <div className="min-w-0">
                         <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
                           {event.actor.name}
@@ -525,6 +518,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                   value={ticket.assignedTo ?? ''}
                   onValueChange={(val: string) => void handleAssigneeChange(val)}
                 />
+                {actionError && <p className="mt-1 text-xs text-red-500">{actionError}</p>}
               </div>
 
               {/* Created by */}
@@ -533,7 +527,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                   Created By
                 </p>
                 <div className="flex items-center gap-2">
-                  <Avatar size="sm" name={creatorName} aria-label={creatorName} />
+                  <UserAvatar size="sm" name={creatorName} />
                   <Text size="sm" className="text-neutral-700 dark:text-neutral-300">
                     {creatorName}
                   </Text>

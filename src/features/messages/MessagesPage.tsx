@@ -16,7 +16,6 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  Avatar,
   Button,
   Card,
   CardContent,
@@ -43,6 +42,7 @@ import {
   type ChannelMessage,
   type Message,
 } from '../../lib/api';
+import { UserAvatar } from '../../ui/UserAvatar';
 
 // ─── MessagesPage ─────────────────────────────────────────────────────────────
 
@@ -94,6 +94,7 @@ export const MessagesPage: React.FC = () => {
   // ── DM state ─────────────────────────────────────────────────────────────────
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [memberNames, setMemberNames] = useState<Record<string, string>>({});
+  const [memberImages, setMemberImages] = useState<Record<string, string | null>>({});
   const [memberNamesLoaded, setMemberNamesLoaded] = useState(false);
   const [selectedAdminId, setSelectedAdminId] = useState<string | null>(null);
   const effectiveAdminId = isAdmin ? userId : selectedAdminId;
@@ -111,6 +112,7 @@ export const MessagesPage: React.FC = () => {
 
   // ── Deep-link / pending thread handling ──────────────────────────────────────
   const pendingOpenPeerRef = useRef<string | null>(null);
+  const pendingDmIntentRef = useRef(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const q = new URLSearchParams(window.location.search);
@@ -118,7 +120,10 @@ export const MessagesPage: React.FC = () => {
     const openPeer = q.get('openPeer');
     if (!openTeam && !openPeer) return;
     if (openTeam) setSelectedTeamId(openTeam);
-    if (openPeer) pendingOpenPeerRef.current = openPeer;
+    if (openPeer) {
+      pendingOpenPeerRef.current = openPeer;
+      pendingDmIntentRef.current = true;
+    }
     window.history.replaceState(null, '', '/app/messages');
   }, []);
 
@@ -129,9 +134,11 @@ export const MessagesPage: React.FC = () => {
     if (selectedTeam.admins.includes(userId) && selectedTeam.members.includes(peer)) {
       setSelectedMemberId(peer);
       setActiveView('dm');
+      pendingDmIntentRef.current = false;
     } else if (selectedTeam.members.includes(userId) && selectedTeam.admins.includes(peer)) {
       setSelectedAdminId(peer);
       setActiveView('dm');
+      pendingDmIntentRef.current = false;
     }
   }, [selectedTeam, userId]);
 
@@ -150,6 +157,7 @@ export const MessagesPage: React.FC = () => {
       const { teamId, adminId, memberId } = parsed;
       if (teamId) setSelectedTeamId(teamId);
       if (adminId && memberId) {
+        pendingDmIntentRef.current = true;
         if (userId === adminId) setSelectedMemberId(memberId);
         else if (userId === memberId) setSelectedAdminId(adminId);
         setActiveView('dm');
@@ -168,6 +176,7 @@ export const MessagesPage: React.FC = () => {
       } = (e as CustomEvent<{ teamId: string; adminId: string; memberId: string }>).detail;
       if (tId) setSelectedTeamId(tId);
       if (aId && mId && userId) {
+        pendingDmIntentRef.current = true;
         if (userId === aId) setSelectedMemberId(mId);
         else if (userId === mId) setSelectedAdminId(aId);
         setActiveView('dm');
@@ -189,8 +198,13 @@ export const MessagesPage: React.FC = () => {
       .getUsers(ids)
       .then((users) => {
         const names: Record<string, string> = {};
-        for (const u of users) names[u.id] = u.name;
+        const images: Record<string, string | null> = {};
+        for (const u of users) {
+          names[u.id] = u.name;
+          images[u.id] = u.image;
+        }
         setMemberNames(names);
+        setMemberImages(images);
         setMemberNamesLoaded(true);
       })
       .catch(() => {
@@ -212,7 +226,9 @@ export const MessagesPage: React.FC = () => {
         const def = cs.find((c) => c.isDefault) ?? cs[0];
         if (def) {
           setSelectedChannelId(def.id);
-          setActiveView('channel');
+          if (!pendingDmIntentRef.current) {
+            setActiveView('channel');
+          }
         } else {
           setSelectedChannelId(null);
         }
@@ -664,7 +680,7 @@ export const MessagesPage: React.FC = () => {
                         }`}
                         aria-label={`Direct message ${m.name}${dmUnread[m.id] ? `, ${dmUnread[m.id]} unread` : ''}`}
                       >
-                        <Avatar name={m.name} size="sm" />
+                        <UserAvatar name={m.name} size="sm" src={memberImages[m.id]} />
                         <span className="flex-1 truncate font-medium">{m.name}</span>
                         {(dmUnread[m.id] ?? 0) > 0 && (
                           <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
@@ -741,7 +757,7 @@ export const MessagesPage: React.FC = () => {
                     return (
                       <div key={msg.id} className={`flex gap-3 ${showHeader ? 'mt-4' : 'mt-0.5'}`}>
                         <div className="w-8 shrink-0">
-                          {showHeader && <Avatar name={msg.senderName} size="sm" />}
+                          {showHeader && <UserAvatar name={msg.senderName} size="sm" />}
                         </div>
                         <div className="min-w-0 flex-1">
                           {showHeader && (
@@ -966,7 +982,7 @@ export const MessagesPage: React.FC = () => {
                             )
                           }
                         />
-                        <Avatar name={m.name} size="sm" />
+                        <UserAvatar name={m.name} size="sm" src={memberImages[m.id]} />
                         <span className="text-sm">{m.name}</span>
                       </label>
                     </li>

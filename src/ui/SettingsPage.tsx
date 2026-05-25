@@ -8,6 +8,7 @@
  */
 import {
   faBell,
+  faBuilding,
   faGear,
   faInfo,
   faKey,
@@ -40,7 +41,9 @@ import {
   unsubscribeFromPush,
 } from '../lib/nativePush';
 import {
+  ApiError,
   authApi,
+  orgAdminApi,
   userApi,
   notificationApi,
   teamApi,
@@ -49,10 +52,12 @@ import {
 } from '../lib/api';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
+import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { AppPage } from './AppPage';
+import { useRouter } from './router';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
@@ -664,8 +669,61 @@ const ApiTokensManager: React.FC = () => {
 
 export const SettingsPage: React.FC = () => {
   const { user, signOut } = useSession();
+  const { navigate } = useRouter();
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const canManageOrganization = hasDefaultOrganizationAdminAccess(user);
+  const [organizationName, setOrganizationName] = useState('');
+  const [organizationOriginalName, setOrganizationOriginalName] = useState('');
+  const [organizationLoading, setOrganizationLoading] = useState(false);
+  const [organizationSaving, setOrganizationSaving] = useState(false);
+  const [organizationError, setOrganizationError] = useState<string | null>(null);
+
+  const loadOrganization = useCallback(async () => {
+    if (!canManageOrganization) return;
+    setOrganizationLoading(true);
+    setOrganizationError(null);
+    try {
+      const organization = await orgAdminApi.getOrganization();
+      setOrganizationName(organization.name);
+      setOrganizationOriginalName(organization.name);
+    } catch (error: unknown) {
+      if (error instanceof ApiError) {
+        setOrganizationError(error.message);
+      } else {
+        setOrganizationError('Failed to load organization settings.');
+      }
+    } finally {
+      setOrganizationLoading(false);
+    }
+  }, [canManageOrganization]);
+
+  useEffect(() => {
+    if (!canManageOrganization) return;
+    void loadOrganization();
+  }, [canManageOrganization, loadOrganization]);
+
+  const hasOrganizationNameChanges =
+    organizationName.trim().length > 0 && organizationName.trim() !== organizationOriginalName;
+
+  const handleSaveOrganizationName = useCallback(async () => {
+    if (!hasOrganizationNameChanges || organizationSaving) return;
+    setOrganizationSaving(true);
+    setOrganizationError(null);
+    try {
+      const updated = await orgAdminApi.updateOrganizationName(organizationName.trim());
+      setOrganizationName(updated.name);
+      setOrganizationOriginalName(updated.name);
+    } catch (error: unknown) {
+      if (error instanceof ApiError) {
+        setOrganizationError(error.message);
+      } else {
+        setOrganizationError('Failed to update organization name.');
+      }
+    } finally {
+      setOrganizationSaving(false);
+    }
+  }, [hasOrganizationNameChanges, organizationName, organizationSaving]);
 
   const handlePasswordReset = async () => {
     if (!user?.email || resetBusy) return;
@@ -721,6 +779,51 @@ export const SettingsPage: React.FC = () => {
       >
         <ApiTokensManager />
       </Section>
+
+      {canManageOrganization && (
+        <Section
+          icon={faBuilding}
+          title="Organization"
+          description="Admin tools for organization members and hierarchy."
+        >
+          <Row label="Name" hint="Set the organization display name">
+            <div className="flex items-center gap-2">
+              <Input
+                label="Organization name"
+                hideLabel
+                size="sm"
+                value={organizationName}
+                onChange={(event) => setOrganizationName(event.target.value)}
+                placeholder={organizationLoading ? 'Loading...' : 'Organization name'}
+                disabled={organizationLoading || organizationSaving}
+                className="w-52"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleSaveOrganizationName()}
+                disabled={!hasOrganizationNameChanges || organizationLoading || organizationSaving}
+                isLoading={organizationSaving}
+                loadingText="Saving..."
+              >
+                Save
+              </Button>
+            </div>
+          </Row>
+          {organizationError && (
+            <div className="px-5 py-3.5">
+              <Text size="xs" className="text-red-600 dark:text-red-400">
+                {organizationError}
+              </Text>
+            </div>
+          )}
+          <Row label="Members" hint="Manage owner, admin, and member access">
+            <Button variant="outline" size="sm" onClick={() => navigate('/org/members')}>
+              Manage
+            </Button>
+          </Row>
+        </Section>
+      )}
 
       {/* Account */}
       <Section icon={faGear} title="Account">

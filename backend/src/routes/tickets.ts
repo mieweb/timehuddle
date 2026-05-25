@@ -3,7 +3,7 @@ import { ObjectId } from "mongodb";
 import { requireAuth } from "../middleware/require-auth.js";
 import { ticketService } from "../services/ticket.service.js";
 import { activityService } from "../services/activity.service.js";
-import { teamsCollection, ticketsCollection, usersCollection } from "../models/index.js";
+import { ticketsCollection, usersCollection } from "../models/index.js";
 import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -168,13 +168,9 @@ export async function ticketRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { id } = req.params as { id: string };
-      const ticket = await ticketService.findById(id);
-      if (!ticket) return reply.status(404).send({ error: "Ticket not found" });
-      const team = await teamsCollection().findOne({
-        _id: new ObjectId(ticket.teamId),
-        members: req.user!.id,
-      });
-      if (!team) return reply.status(403).send({ error: "Not a team member" });
+      const ticket = await ticketService.findAuthorizedTicket(id, req.user!.id, "read");
+      if (ticket === "not-found") return reply.status(404).send({ error: "Ticket not found" });
+      if (ticket === "forbidden") return reply.status(403).send({ error: "Not authorized" });
       return reply.send({ ticket: toPublicTicket(ticket) });
     }
   );
@@ -210,13 +206,9 @@ export async function ticketRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const { limit } = req.query as { limit?: number };
-      const ticket = await ticketService.findById(id);
-      if (!ticket) return reply.status(404).send({ error: "Ticket not found" });
-      const team = await teamsCollection().findOne({
-        _id: new ObjectId(ticket.teamId),
-        members: req.user!.id,
-      });
-      if (!team) return reply.status(403).send({ error: "Not a team member" });
+      const ticket = await ticketService.findAuthorizedTicket(id, req.user!.id, "read");
+      if (ticket === "not-found") return reply.status(404).send({ error: "Ticket not found" });
+      if (ticket === "forbidden") return reply.status(403).send({ error: "Not authorized" });
       return reply.send(await activityService.getTicketActivity(id, limit));
     }
   );
@@ -337,7 +329,7 @@ export async function ticketRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Tickets"],
-        summary: "Batch update ticket status (team admin only)",
+        summary: "Batch update ticket status",
         body: {
           type: "object",
           required: ["ticketIds", "status", "teamId"],
@@ -351,7 +343,7 @@ export async function ticketRoutes(app: FastifyInstance) {
         response: {
           200: { type: "object", properties: { modified: { type: "number" } } },
           ...unauth,
-          403: err("Not a team admin"),
+          403: err("Not authorized"),
         },
       },
     },
@@ -362,7 +354,7 @@ export async function ticketRoutes(app: FastifyInstance) {
         teamId: string;
       };
       const result = await ticketService.batchUpdateStatus(ticketIds, teamId, status, req.user!.id);
-      if (result === "forbidden") return reply.status(403).send({ error: "Not a team admin" });
+      if (result === "forbidden") return reply.status(403).send({ error: "Not authorized" });
       return reply.send({ modified: result });
     }
   );
@@ -402,13 +394,9 @@ export async function ticketRoutes(app: FastifyInstance) {
         description?: string;
         github?: string;
       };
-      const ticket = await ticketService.findById(id);
-      if (!ticket) return reply.status(404).send({ error: "Ticket not found" });
-      const team = await teamsCollection().findOne({
-        _id: new ObjectId(ticket.teamId),
-        $or: [{ members: req.user!.id }, { admins: req.user!.id }],
-      });
-      if (!team) return reply.status(403).send({ error: "Not a team member" });
+      const ticket = await ticketService.findAuthorizedTicket(id, req.user!.id, "update");
+      if (ticket === "not-found") return reply.status(404).send({ error: "Ticket not found" });
+      if (ticket === "forbidden") return reply.status(403).send({ error: "Not authorized" });
 
       const $set: Record<string, unknown> = { updatedAt: new Date() };
       const $inc: Record<string, unknown> = {};
@@ -487,13 +475,10 @@ export async function ticketRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const { shared } = req.body as { shared: boolean };
-      const ticket = await ticketService.findById(id);
-      if (!ticket) return reply.status(404).send({ error: "Ticket not found" });
-      const team = await teamsCollection().findOne({
-        _id: new ObjectId(ticket.teamId),
-        $or: [{ members: req.user!.id }, { admins: req.user!.id }],
-      });
-      if (!team) return reply.status(403).send({ error: "Not a team member" });
+      const ticket = await ticketService.findAuthorizedTicket(id, req.user!.id, "update");
+      if (ticket === "not-found") return reply.status(404).send({ error: "Ticket not found" });
+      if (ticket === "forbidden") return reply.status(403).send({ error: "Not authorized" });
+
       await ticketsCollection().updateOne(
         { _id: new ObjectId(id) },
         { $set: { sharedWithTimeharbor: shared, updatedAt: new Date() } }
@@ -530,18 +515,20 @@ export async function ticketRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { ticketIds, shared } = req.body as { ticketIds: string[]; shared: boolean };
-      // Verify user is a member of every team that owns these tickets
+      // Verify user can update every ticket before bulk edit.
       const validIds = ticketIds.filter((id) => /^[0-9a-f]{24}$/i.test(id));
       const tickets = await ticketsCollection()
         .find({ _id: { $in: validIds.map((id) => new ObjectId(id)) } })
         .toArray();
-      const teamIds = [...new Set(tickets.map((t) => t.teamId))];
-      for (const teamId of teamIds) {
-        const member = await teamsCollection().findOne({
-          _id: new ObjectId(teamId),
-          $or: [{ members: req.user!.id }, { admins: req.user!.id }],
-        });
-        if (!member) return reply.status(403).send({ error: "Not a team member for all tickets" });
+      for (const ticket of tickets) {
+        const allowed = await ticketService.canUserPerformOnTicket(
+          req.user!.id,
+          ticket as Ticket,
+          "update"
+        );
+        if (!allowed) {
+          return reply.status(403).send({ error: "Not authorized for all tickets" });
+        }
       }
       const result = await ticketsCollection().updateMany(
         { _id: { $in: validIds.map((id) => new ObjectId(id)) } },
@@ -571,7 +558,7 @@ export async function ticketRoutes(app: FastifyInstance) {
         response: {
           200: { type: "object", properties: { ticket: ticketShape } },
           ...unauth,
-          403: err("Not a team admin"),
+          403: err("Not authorized"),
           404: err("Ticket not found"),
           422: err("Assignee must be a team member"),
         },
@@ -582,7 +569,7 @@ export async function ticketRoutes(app: FastifyInstance) {
       const { assignedToUserId } = req.body as { assignedToUserId: string | null };
       const result = await ticketService.assign(id, req.user!.id, assignedToUserId);
       if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Not a team admin" });
+      if (result === "forbidden") return reply.status(403).send({ error: "Not authorized" });
       if (result === "bad-assignee")
         return reply.status(422).send({ error: "Assignee must be a team member" });
       return reply.send({ ticket: toPublicTicket(result) });

@@ -99,7 +99,7 @@ test.describe('Tickets', () => {
     await pasteInto(page, 'Ticket title', issueUrl);
 
     const titleInput = page.getByPlaceholder('Ticket title');
-    const urlInput = page.getByPlaceholder('GitHub / Redmine URL (optional)');
+    const urlInput = page.getByPlaceholder('GitHub URL (optional)');
 
     // Title should be auto-populated (not the raw URL)
     await expect(titleInput).toHaveValue(mockTitle, { timeout: 10000 });
@@ -256,5 +256,52 @@ test.describe('Tickets', () => {
 
     // Cleanup
     await deleteTicket(page, 'Details modal ticket');
+  });
+
+  // ── Command Palette ──────────────────────────────────────────────────────────
+
+  test('create a ticket via command palette with GitHub URL', async ({ page }) => {
+    const issueUrl = 'https://github.com/microsoft/vscode/issues/1';
+    const mockTitle = 'E2E Command Palette GitHub Issue';
+    const mockBody = 'This is the issue description from GitHub.';
+
+    // Mock the GitHub API
+    await page.route('**/repos/microsoft/vscode/issues/1', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ title: mockTitle, body: mockBody }),
+      });
+    });
+
+    // Open command palette with Cmd+K (Mac) or Ctrl+K (Windows/Linux)
+    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await page.keyboard.press(`${modifier}+k`);
+
+    // Command palette should be visible
+    const paletteInput = page.getByPlaceholder('Type a command, search, or paste a GitHub URL...');
+    await expect(paletteInput).toBeVisible({ timeout: 5000 });
+
+    // Paste the GitHub URL
+    await paletteInput.fill(issueUrl);
+
+    // Wait for the green preview panel to appear with the title
+    await expect(page.getByText('GitHub issue identified')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(mockTitle)).toBeVisible();
+
+    // Description preview should be visible
+    await expect(page.getByText(mockBody, { exact: false })).toBeVisible();
+
+    // Press Enter to create the ticket
+    await page.keyboard.press('Enter');
+
+    // Should navigate to tickets page
+    await page.waitForURL('**/tickets', { timeout: 10000 });
+
+    // The ticket should appear in the list
+    await expect(page.getByText(mockTitle).first()).toBeVisible({ timeout: 10000 });
+
+    // Cleanup
+    await deleteTicket(page, mockTitle);
   });
 });

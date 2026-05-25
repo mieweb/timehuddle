@@ -24,8 +24,14 @@ export interface TimecoreUser {
   createdAt: string;
   emailVerified: boolean;
   image?: string | null;
+  backgroundUrl?: string | null;
   /** Canonical username — null until the user has claimed one. */
   username: string | null;
+  organizationMembership?: {
+    organizationId: string;
+    organizationKey: string;
+    role: 'owner' | 'admin';
+  } | null;
 }
 
 export interface AuthAccount {
@@ -44,12 +50,25 @@ export interface PublicUser {
   /** Canonical username/handle. Null until the user claims one. */
   username: string | null;
   image: string | null;
+  backgroundUrl: string | null;
   bio: string;
   website: string;
   reportsTo: { id: string; name: string; username: string | null } | null;
   teamMemberships: Array<{ id: string; name: string; role: 'admin' | 'member' }>;
   /** Teams shared between the viewer and this user (non-personal). Empty for own profile. */
   sharedTeams?: Array<{ id: string; name: string; isAdmin: boolean }>;
+}
+
+function toAbsoluteUrl(url: string | null): string | null {
+  if (!url || /^https?:\/\//i.test(url)) return url;
+  return `${TIMECORE_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
+function withAbsoluteImage(user: PublicUser): PublicUser {
+  const image = toAbsoluteUrl(user.image);
+  const backgroundUrl = toAbsoluteUrl(user.backgroundUrl);
+  if (image === user.image && backgroundUrl === user.backgroundUrl) return user;
+  return { ...user, image, backgroundUrl };
 }
 
 /** API error that carries the HTTP status code. */
@@ -243,7 +262,14 @@ export const authApi = {
    */
   getMe: async (): Promise<{ user: TimecoreUser } | null> => {
     try {
-      return await request<{ user: TimecoreUser }>('/v1/me');
+      const data = await request<{ user: TimecoreUser }>('/v1/me');
+      if (data?.user?.image && !/^https?:\/\//i.test(data.user.image)) {
+        data.user.image = `${TIMECORE_BASE_URL}${data.user.image.startsWith('/') ? '' : '/'}${data.user.image}`;
+      }
+      if (data?.user?.backgroundUrl && !/^https?:\/\//i.test(data.user.backgroundUrl)) {
+        data.user.backgroundUrl = `${TIMECORE_BASE_URL}${data.user.backgroundUrl.startsWith('/') ? '' : '/'}${data.user.backgroundUrl}`;
+      }
+      return data;
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return null;
       throw err;
@@ -254,20 +280,93 @@ export const authApi = {
 // ─── User API ─────────────────────────────────────────────────────────────────
 
 export const userApi = {
+  /** Upload a new avatar image for the current user (multipart/form-data). Returns { avatarUrl }. */
+  uploadAvatar: async (blob: Blob): Promise<{ avatarUrl: string }> => {
+    const formData = new FormData();
+    formData.append('avatar', blob, 'avatar.png');
+    const token = sessionToken.get();
+    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/avatar`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+        res.status,
+      );
+    }
+    const data = (await res.json()) as { avatarUrl: string };
+    return { avatarUrl: toAbsoluteUrl(data.avatarUrl) as string };
+  },
+  /** Delete the current user's avatar. */
+
+  deleteAvatar: async (): Promise<void> => {
+    const token = sessionToken.get();
+    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/avatar`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
+  },
+  /** Upload a new background image for the current user (multipart/form-data). Returns { backgroundUrl }. */
+  uploadBackground: async (blob: Blob): Promise<{ backgroundUrl: string }> => {
+    const formData = new FormData();
+    formData.append('background', blob, 'background.jpg');
+    const token = sessionToken.get();
+    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/background`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: formData,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+        res.status,
+      );
+    }
+    const result = (await res.json()) as { backgroundUrl: string };
+    return {
+      backgroundUrl: `${TIMECORE_BASE_URL}${result.backgroundUrl.startsWith('/') ? '' : '/'}${result.backgroundUrl}`,
+    };
+  },
+  /** Delete the current user's background image. */
+  deleteBackground: async (): Promise<void> => {
+    const token = sessionToken.get();
+    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/background`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
+  },
   /** Get a single user's public profile by ID. */
   getUser: (id: string) =>
-    request<{ user: PublicUser }>(`/v1/users/${encodeURIComponent(id)}`).then((r) => r.user),
+    request<{ user: PublicUser }>(`/v1/users/${encodeURIComponent(id)}`).then((r) =>
+      withAbsoluteImage(r.user),
+    ),
 
   /** Get a single user's public profile by username (requires auth). */
   getUserByUsername: (username: string) =>
     request<{ user: PublicUser }>(`/v1/users/by/username/${encodeURIComponent(username)}`).then(
-      (r) => r.user,
+      (r) => withAbsoluteImage(r.user),
     ),
 
   /** Batch-fetch public profiles by ID list (server caps at 200). */
   getUsers: (ids: string[]) =>
     request<{ users: PublicUser[] }>(`/v1/users?ids=${ids.map(encodeURIComponent).join(',')}`).then(
-      (r) => r.users,
+      (r) => r.users.map(withAbsoluteImage),
     ),
 
   /** Update the current user's profile fields. */
@@ -282,6 +381,72 @@ export const userApi = {
       method: 'PUT',
       body: JSON.stringify(data),
     }).then((r) => r.user),
+};
+
+export type DefaultOrganizationRole = 'owner' | 'admin' | 'member';
+
+export interface OrganizationAdminUser {
+  id: string;
+  name: string;
+  email: string;
+  username: string | null;
+  image: string | null;
+  role: DefaultOrganizationRole;
+  reportsToUserId?: string | null;
+}
+
+export interface AdminOrganization {
+  id: string;
+  key: string;
+  name: string;
+  ownersCount?: number;
+  adminsCount?: number;
+}
+
+export const orgAdminApi = {
+  getOrganization: () =>
+    request<{ organization: AdminOrganization }>('/v1/admin/organization').then(
+      (r) => r.organization,
+    ),
+
+  updateOrganizationName: (name: string) =>
+    request<{ organization: AdminOrganization }>('/v1/admin/organization', {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }).then((r) => r.organization),
+
+  listUsers: () =>
+    request<{ users: OrganizationAdminUser[] }>('/v1/admin/organization/users').then(
+      (r) => r.users,
+    ),
+
+  setUserRole: (userId: string, role: DefaultOrganizationRole) =>
+    request<{ user: { id: string; role: DefaultOrganizationRole } }>(
+      `/v1/admin/organization/users/${encodeURIComponent(userId)}/role`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      },
+    ).then((r) => r.user),
+
+  updateReportsTo: (userId: string, reportsTo: string | null) =>
+    request<{ user: { id: string; reportsToUserId: string | null } }>(
+      `/v1/org/users/${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ reportsToUserId: reportsTo }),
+      },
+    ).then((r) => r.user),
+};
+
+// ─── Public Organization API (for all authenticated users) ──────────────────
+
+export const orgApi = {
+  getOrganization: () =>
+    request<{ organization: AdminOrganization }>('/v1/organization').then((r) => r.organization),
+
+  listUsers: () =>
+    request<{ users: OrganizationAdminUser[] }>('/v1/organization/users').then((r) => r.users),
 };
 
 // ─── Username API ─────────────────────────────────────────────────────────────
@@ -394,6 +559,7 @@ export interface TeamMember {
   name: string;
   email: string;
   username: string | null;
+  image: string | null;
 }
 
 export const teamApi = {
@@ -424,8 +590,12 @@ export const teamApi = {
     request<{ ok: boolean }>(`/v1/teams/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   getMembers: (id: string) =>
-    request<{ members: TeamMember[] }>(`/v1/teams/${encodeURIComponent(id)}/members`).then(
-      (r) => r.members,
+    request<{ members: TeamMember[] }>(`/v1/teams/${encodeURIComponent(id)}/members`).then((r) =>
+      r.members.map((m) =>
+        m.image && !/^https?:\/\//i.test(m.image)
+          ? { ...m, image: `${TIMECORE_BASE_URL}${m.image.startsWith('/') ? '' : '/'}${m.image}` }
+          : m,
+      ),
     ),
 
   inviteMember: (id: string, email: string) =>
@@ -460,7 +630,22 @@ export interface ClockEvent {
   userId: string;
   teamId: string;
   startTime: number;
+  /** @deprecated No longer returned by the API — use startTime. */
+  originalStartTime?: number;
   accumulatedTime: number;
+  breaks?: Array<{
+    startTime: number;
+    endTime: number | null;
+    type?: 'rest' | 'meal';
+    classificationSource?: 'auto' | 'manual';
+    notes?: string;
+  }>;
+  workSeconds?: number;
+  deductedBreakSeconds?: number;
+  totalBreakSeconds?: number;
+  isPaused?: boolean;
+  /** @deprecated No longer set by the API — use breaks[].endTime === null to find active break. */
+  pausedAt?: number | null;
   endTime: number | null;
 }
 
@@ -479,6 +664,28 @@ export const clockApi = {
       body: JSON.stringify({ teamId }),
     }).then((r) => r.event),
 
+  /** Pause an active clock session (break start). */
+  pause: (teamId: string) =>
+    request<{ event: ClockEvent }>('/v1/clock/pause', {
+      method: 'POST',
+      body: JSON.stringify({ teamId }),
+    }).then((r) => r.event),
+
+  /** Resume a paused clock session (break end). */
+  resume: (teamId: string) =>
+    request<{ event: ClockEvent }>('/v1/clock/resume', {
+      method: 'POST',
+      body: JSON.stringify({ teamId }),
+    }).then((r) => r.event),
+
+  /** Get active clock status for a team. */
+  getStatus: (teamId: string) =>
+    request<{
+      event: ClockEvent;
+      workSeconds: number;
+      isPaused: boolean;
+    }>(`/v1/clock/status?teamId=${encodeURIComponent(teamId)}`),
+
   /** Get the current user's active clock event (any team), or null. */
   getActive: () => request<{ event: ClockEvent | null }>('/v1/clock/active').then((r) => r.event),
 
@@ -491,6 +698,7 @@ export const clockApi = {
       sessions: ClockEvent[];
       summary: {
         totalSeconds: number;
+        totalBreakSeconds: number;
         totalSessions: number;
         completedSessions: number;
         averageSessionSeconds: number;
@@ -500,8 +708,15 @@ export const clockApi = {
       `/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startMs=${startMs}&endMs=${endMs}`,
     ),
 
-  /** Update a clock event's start/end timestamps. */
-  updateTimes: (clockEventId: string, data: { startTime?: number; endTime?: number | null }) =>
+  /** Update a clock event's timestamps and optional break intervals. */
+  updateTimes: (
+    clockEventId: string,
+    data: {
+      startTime?: number;
+      endTime?: number | null;
+      breaks?: Array<{ startTime: number; endTime: number | null }>;
+    },
+  ) =>
     request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/times`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -744,7 +959,7 @@ export const timerApi = {
   startSession: (entryId: string, now?: number) =>
     request<{ session: Timer; closedSessionId?: string }>(
       `/v1/timers/entries/${encodeURIComponent(entryId)}/start`,
-      { method: 'POST', body: JSON.stringify({ now: now ?? Date.now() }) },
+      { method: 'POST', body: JSON.stringify({ now: now ?? Date.now(), tz: clientTz() }) },
     ),
 
   /** Stop a running timer. */

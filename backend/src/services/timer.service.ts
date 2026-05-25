@@ -150,6 +150,7 @@ export class TimerService {
     | "not-found"
     | "forbidden"
     | "already-running"
+    | "invalid-date"
   > {
     if (!isValidId(ticketId)) return "not-found";
     const ticket = await ticketsCollection().findOne({ _id: new ObjectId(ticketId) });
@@ -164,6 +165,11 @@ export class TimerService {
     if (!team) return "forbidden";
 
     const date = toUtcDateKey(now);
+
+    // Prevent starting timers on previous days
+    if (this.isPreviousDate(date)) {
+      return "invalid-date";
+    }
 
     // Ensure WorkItem exists
     const entryResult = await this.getOrCreateEntry(userId, ticketId, date);
@@ -216,12 +222,23 @@ export class TimerService {
   async startTimerForEntry(
     userId: string,
     entryId: string,
-    now: number
-  ): Promise<{ session: Timer; closedSessionId: string | null } | "not-found" | "forbidden"> {
-    if (!isValidId(entryId)) return "not-found";
+    now: number,
+    tz?: string
+  ): Promise<
+    | { type: "success"; session: Timer; closedSessionId: string | null }
+    | { type: "not-found" }
+    | { type: "forbidden" }
+    | { type: "invalid-date" }
+  > {
+    if (!isValidId(entryId)) return { type: "not-found" };
     const entry = await workItemsCollection().findOne({ _id: new ObjectId(entryId) });
-    if (!entry) return "not-found";
-    if (entry.userId !== userId) return "forbidden";
+    if (!entry) return { type: "not-found" };
+    if (entry.userId !== userId) return { type: "forbidden" };
+
+    // Prevent starting timers on previous days
+    if (this.isPreviousDate(entry.date, tz)) {
+      return { type: "invalid-date" };
+    }
 
     let closedSessionId: string | null = null;
     const closeResult = await this._closeRunningSession(userId, now);
@@ -240,7 +257,7 @@ export class TimerService {
 
     try {
       await timersCollection().insertOne(session);
-      return { session, closedSessionId };
+      return { type: "success", session, closedSessionId };
     } catch (err: unknown) {
       if ((err as { code?: number }).code === 11000) {
         const retryClose = await this._closeRunningSession(userId, now);
@@ -251,7 +268,7 @@ export class TimerService {
           createdAt: new Date(),
         };
         await timersCollection().insertOne(session2);
-        return { session: session2, closedSessionId };
+        return { type: "success", session: session2, closedSessionId };
       }
       throw err;
     }
@@ -293,6 +310,17 @@ export class TimerService {
     }
 
     return (await coll.findOne({ _id: new ObjectId(sessionId) })) ?? "not-found";
+  }
+
+  /** Close the currently running timer for a user and return its session id. */
+  async closeRunningForUser(userId: string, now: number): Promise<string | null> {
+    return this._closeRunningSession(userId, now);
+  }
+
+  /** Read a timer session by id, or null if missing/invalid. */
+  async getSessionById(sessionId: string): Promise<Timer | null> {
+    if (!isValidId(sessionId)) return null;
+    return timersCollection().findOne({ _id: new ObjectId(sessionId) });
   }
 
   /**
@@ -603,6 +631,24 @@ export class TimerService {
       { $set: { endTime: now, durationSeconds } }
     );
     return running._id.toHexString();
+  }
+
+  /**
+   * Check if the given date is earlier than today.
+   */
+  private isPreviousDate(date: string, tz?: string): boolean {
+    let today: string;
+    if (tz) {
+      try {
+        today = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+      } catch {
+        // Invalid IANA timezone from client — fall back to UTC
+        today = new Date().toISOString().slice(0, 10);
+      }
+    } else {
+      today = new Date().toISOString().slice(0, 10);
+    }
+    return date < today;
   }
 }
 
