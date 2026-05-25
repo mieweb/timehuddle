@@ -39,7 +39,7 @@ tools:
       properties:
         path:
           type: string
-          description: "App route path, e.g. /app/dashboard, /app/clock, /app/tickets, /app/work, /app/timesheet, /app/teams, /app/messages, /app/notifications, /app/activity, /app/settings"
+          description: 'App route path, e.g. /app/dashboard, /app/clock, /app/tickets, /app/work, /app/timesheet, /app/teams, /app/messages, /app/notifications, /app/activity, /app/settings'
       required:
         - path
 
@@ -134,7 +134,7 @@ tools:
       properties:
         title:
           type: string
-          description: "Ticket title. If this is a GitHub issue/PR URL (e.g. https://github.com/org/repo/issues/1), the real title and description will be fetched automatically."
+          description: 'Ticket title. If this is a GitHub issue/PR URL (e.g. https://github.com/org/repo/issues/1), the real title and description will be fetched automatically.'
         description:
           type: string
           description: Optional description. Omit if a GitHub URL is provided — the body will be fetched automatically.
@@ -255,16 +255,16 @@ tools:
       properties:
         start_date:
           type: string
-          description: "Start of date range in YYYY-MM-DD format. Defaults to today if omitted."
+          description: 'Start of date range in YYYY-MM-DD format. Defaults to today if omitted.'
         end_date:
           type: string
-          description: "End of date range in YYYY-MM-DD format (inclusive). Defaults to start_date if omitted."
+          description: 'End of date range in YYYY-MM-DD format (inclusive). Defaults to start_date if omitted.'
         team_id:
           type: string
-          description: "Filter results to a specific team by ID. Omit to use the currently selected team."
+          description: 'Filter results to a specific team by ID. Omit to use the currently selected team.'
         team_name:
           type: string
-          description: "Filter results to a specific team by name (case-insensitive partial match). Use this when the user mentions a team by name."
+          description: 'Filter results to a specific team by name (case-insensitive partial match). Use this when the user mentions a team by name.'
       required: []
 
   - name: get_work_items

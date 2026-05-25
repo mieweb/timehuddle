@@ -120,7 +120,10 @@ export const OZWELL_TOOLS: OzwellTool[] = [
         type: 'object',
         properties: {
           id: { type: 'string', description: 'Clock event ID to update' },
-          startTime: { type: 'string', description: 'New start time as ISO 8601 string (optional)' },
+          startTime: {
+            type: 'string',
+            description: 'New start time as ISO 8601 string (optional)',
+          },
           endTime: { type: 'string', description: 'New end time as ISO 8601 string (optional)' },
         },
         required: ['id'],
@@ -166,8 +169,16 @@ export const OZWELL_TOOLS: OzwellTool[] = [
             description:
               'Ticket title. If this is a GitHub issue/PR URL (e.g. https://github.com/org/repo/issues/1), the real title and description will be fetched automatically.',
           },
-          description: { type: 'string', description: 'Optional description. Omit if a GitHub URL is provided — the body will be fetched automatically.' },
-          github: { type: 'string', description: 'GitHub issue or PR URL to link to this ticket (optional, only provide if the title is NOT already a URL).' },
+          description: {
+            type: 'string',
+            description:
+              'Optional description. Omit if a GitHub URL is provided — the body will be fetched automatically.',
+          },
+          github: {
+            type: 'string',
+            description:
+              'GitHub issue or PR URL to link to this ticket (optional, only provide if the title is NOT already a URL).',
+          },
         },
         required: ['title'],
       },
@@ -204,7 +215,8 @@ export const OZWELL_TOOLS: OzwellTool[] = [
     type: 'function',
     function: {
       name: 'delete_ticket',
-      description: 'Delete a ticket by its ID. This cannot be undone — confirm with the user first.',
+      description:
+        'Delete a ticket by its ID. This cannot be undone — confirm with the user first.',
       parameters: {
         type: 'object',
         properties: {
@@ -228,7 +240,10 @@ export const OZWELL_TOOLS: OzwellTool[] = [
         type: 'object',
         properties: {
           teamId: { type: 'string', description: 'ID of the team to switch to (preferred)' },
-          name: { type: 'string', description: 'Name of the team to switch to (used if teamId is unknown)' },
+          name: {
+            type: 'string',
+            description: 'Name of the team to switch to (used if teamId is unknown)',
+          },
         },
         required: [],
       },
@@ -301,11 +316,13 @@ export const OZWELL_TOOLS: OzwellTool[] = [
           },
           team_id: {
             type: 'string',
-            description: 'Filter results to a specific team by ID. Omit to use the currently selected team.',
+            description:
+              'Filter results to a specific team by ID. Omit to use the currently selected team.',
           },
           team_name: {
             type: 'string',
-            description: 'Filter results to a specific team by name (case-insensitive partial match). Use this when the user mentions a team by name.',
+            description:
+              'Filter results to a specific team by name (case-insensitive partial match). Use this when the user mentions a team by name.',
           },
         },
         required: [],
@@ -361,7 +378,10 @@ export const OZWELL_TOOLS: OzwellTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          workItemId: { type: 'string', description: 'Work item (entry) ID to start the timer for' },
+          workItemId: {
+            type: 'string',
+            description: 'Work item (entry) ID to start the timer for',
+          },
         },
         required: ['workItemId'],
       },
@@ -395,13 +415,13 @@ export const OZWELL_TOOLS: OzwellTool[] = [
     function: {
       name: 'start_ticket_timer',
       description:
-        "Start a timer for a specific ticket in the Work page. " +
-        "IMPORTANT RULES: " +
+        'Start a timer for a specific ticket in the Work page. ' +
+        'IMPORTANT RULES: ' +
         "(1) This tool NEVER creates a ticket — if the ticket doesn't exist, tell the user and offer to use create_ticket. " +
-        "(2) The ticket must belong to the currently selected team — if not, use switch_team first. " +
-        "(3) The user must be clocked in to the selected team before a timer can start. " +
+        '(2) The ticket must belong to the currently selected team — if not, use switch_team first. ' +
+        '(3) The user must be clocked in to the selected team before a timer can start. ' +
         "(4) A work item row for today is automatically created if one doesn't exist. " +
-        "Recommended flow: get_teams → switch_team → get_clock_status → clock_in (if needed) → get_tickets → start_ticket_timer.",
+        'Recommended flow: get_teams → switch_team → get_clock_status → clock_in (if needed) → get_tickets → start_ticket_timer.',
       parameters: {
         type: 'object',
         properties: {

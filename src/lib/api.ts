@@ -99,7 +99,8 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
   const token = sessionToken.get();
   const controller = new AbortController();
   const timeoutId = setTimeout(
-    () => controller.abort(new Error('Request timed out. Please check your connection and try again.')),
+    () =>
+      controller.abort(new Error('Request timed out. Please check your connection and try again.')),
     8000,
   );
   // overwrite the merged headers object (which would drop Authorization).
@@ -138,7 +139,8 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
 async function timedFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(
-    () => controller.abort(new Error('Request timed out. Please check your connection and try again.')),
+    () =>
+      controller.abort(new Error('Request timed out. Please check your connection and try again.')),
     8000,
   );
   try {

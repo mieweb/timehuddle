@@ -18,11 +18,7 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { clockApi, teamApi, ticketApi, timerApi } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
-import {
-  createTicketFromGithub,
-  fetchGithubIssue,
-  isGithubIssueUrl,
-} from '../tickets/githubIssue';
+import { createTicketFromGithub, fetchGithubIssue, isGithubIssueUrl } from '../tickets/githubIssue';
 import { useTeam } from '../../lib/TeamContext';
 import { useRouter } from '../../ui/router';
 
@@ -43,8 +39,7 @@ declare global {
     OzwellChatConfig?: {
       apiKey: string;
       debug?: boolean;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      tools?: any[];
+      tools?: unknown[];
     };
     OzwellChat?: {
       open: () => void;
@@ -254,7 +249,8 @@ function injectMobileOverride() {
 export const OzwellWidget: React.FC = () => {
   const { user } = useSession();
   const { pathname, navigate } = useRouter();
-  const { selectedTeam, selectedTeamId, teams, activeClockEvent, refetchClock, setSelectedTeamId } = useTeam();
+  const { selectedTeam, selectedTeamId, teams, activeClockEvent, refetchClock, setSelectedTeamId } =
+    useTeam();
 
   // Keep a stable ref to mutable context so the tool handler always has fresh values
   // without needing to re-register the listener on every render.
@@ -281,7 +277,17 @@ export const OzwellWidget: React.FC = () => {
       navigate,
       setSelectedTeamId,
     };
-  }, [user, pathname, selectedTeam, selectedTeamId, teams, activeClockEvent, refetchClock, navigate, setSelectedTeamId]);
+  }, [
+    user,
+    pathname,
+    selectedTeam,
+    selectedTeamId,
+    teams,
+    activeClockEvent,
+    refetchClock,
+    navigate,
+    setSelectedTeamId,
+  ]);
 
   // ── Effect 1: inject loader script once ───────────────────────────────────
   useEffect(() => {
@@ -353,7 +359,10 @@ export const OzwellWidget: React.FC = () => {
         ? (teams.find((t) => t.id === activeClockEvent.teamId)?.name ?? null)
         : null,
       clockedInSince: activeClockEvent
-        ? new Date(activeClockEvent.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        ? new Date(activeClockEvent.startTime).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          })
         : null,
     });
   }, [user, pathname, selectedTeam, selectedTeamId, activeClockEvent, teams]);
@@ -450,8 +459,15 @@ export const OzwellWidget: React.FC = () => {
             const totalSeconds = filteredSessions.reduce((sum, s) => sum + getWorkSeconds(s), 0);
             const sessions = filteredSessions.map((s) => ({
               id: s.id,
-              date: new Date(s.startTime).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' }),
-              clockIn: new Date(s.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              date: new Date(s.startTime).toLocaleDateString([], {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+              }),
+              clockIn: new Date(s.startTime).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              }),
               clockOut: s.endTime
                 ? new Date(s.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                 : 'still clocked in',
@@ -477,7 +493,8 @@ export const OzwellWidget: React.FC = () => {
 
           case 'get_clock_status': {
             if (ctx.activeClockEvent) {
-              const elapsedSeconds = (Date.now() - new Date(ctx.activeClockEvent.startTime).getTime()) / 1000;
+              const elapsedSeconds =
+                (Date.now() - new Date(ctx.activeClockEvent.startTime).getTime()) / 1000;
               respond({
                 success: true,
                 data: {
@@ -527,7 +544,8 @@ export const OzwellWidget: React.FC = () => {
               return;
             }
             const updates: { startTime?: number; endTime?: number | null } = {};
-            if (args.startTime != null) updates.startTime = new Date(String(args.startTime)).getTime();
+            if (args.startTime != null)
+              updates.startTime = new Date(String(args.startTime)).getTime();
             if (args.endTime != null) updates.endTime = new Date(String(args.endTime)).getTime();
             const updated = await clockApi.updateTimes(entryId, updates);
             ctx.refetchClock();
@@ -768,11 +786,17 @@ export const OzwellWidget: React.FC = () => {
                 total: formatDuration(totalSeconds),
                 sessions: e.sessions.map((s) => ({
                   id: s.id,
-                  start: new Date(s.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  start: new Date(s.startTime).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  }),
                   end: s.endTime
-                    ? new Date(s.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    ? new Date(s.endTime).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })
                     : 'running',
-                  duration: formatDuration((( s.endTime ?? now) - s.startTime) / 1000),
+                  duration: formatDuration(((s.endTime ?? now) - s.startTime) / 1000),
                 })),
               };
             });
@@ -790,7 +814,11 @@ export const OzwellWidget: React.FC = () => {
               return;
             }
             const date = String(args.date ?? new Date().toLocaleDateString('en-CA'));
-            const entry = await timerApi.createEntry({ ticketId, date, note: args.note as string | undefined });
+            const entry = await timerApi.createEntry({
+              ticketId,
+              date,
+              note: args.note as string | undefined,
+            });
             respond({ success: true, data: entry });
             break;
           }
@@ -851,7 +879,10 @@ export const OzwellWidget: React.FC = () => {
             const ticketTitle = String(args.title ?? '');
 
             if (!ticketId && !ticketTitle) {
-              respond({ success: false, error: 'Provide ticketId or title to identify the ticket.' });
+              respond({
+                success: false,
+                error: 'Provide ticketId or title to identify the ticket.',
+              });
               return;
             }
 
@@ -891,8 +922,7 @@ export const OzwellWidget: React.FC = () => {
             if (!ctx.activeClockEvent) {
               respond({
                 success: false,
-                error:
-                  `You are not clocked in. Use clock_in to clock in to "${teamName}" first.`,
+                error: `You are not clocked in. Use clock_in to clock in to "${teamName}" first.`,
               });
               return;
             }

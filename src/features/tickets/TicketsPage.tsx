@@ -870,7 +870,9 @@ export const TicketsPage: React.FC = () => {
                   label="Team"
                   activeLabel={activeTeamLabel}
                   open={openFilterMenu === 'team'}
-                  onOpenChange={(open) => setOpenFilterMenu((prev) => (open ? 'team' : prev === 'team' ? null : prev))}
+                  onOpenChange={(open) =>
+                    setOpenFilterMenu((prev) => (open ? 'team' : prev === 'team' ? null : prev))
+                  }
                 >
                   <DropdownItem
                     onClick={() => setTeamFilter(null)}
@@ -894,7 +896,11 @@ export const TicketsPage: React.FC = () => {
                 label="Priority"
                 activeLabel={activePriorityLabel}
                 open={openFilterMenu === 'priority'}
-                onOpenChange={(open) => setOpenFilterMenu((prev) => (open ? 'priority' : prev === 'priority' ? null : prev))}
+                onOpenChange={(open) =>
+                  setOpenFilterMenu((prev) =>
+                    open ? 'priority' : prev === 'priority' ? null : prev,
+                  )
+                }
               >
                 <DropdownItem
                   onClick={() => setPriorityFilter(null)}
@@ -918,7 +924,9 @@ export const TicketsPage: React.FC = () => {
                 activeLabel={activeStatusDetailLabel}
                 placement="bottom-end"
                 open={openFilterMenu === 'status'}
-                onOpenChange={(open) => setOpenFilterMenu((prev) => (open ? 'status' : prev === 'status' ? null : prev))}
+                onOpenChange={(open) =>
+                  setOpenFilterMenu((prev) => (open ? 'status' : prev === 'status' ? null : prev))
+                }
               >
                 <DropdownItem
                   onClick={() => setStatusDetailFilter(null)}
@@ -946,7 +954,11 @@ export const TicketsPage: React.FC = () => {
                 activeLabel={activeAssigneeLabel}
                 placement="bottom-end"
                 open={openFilterMenu === 'assignee'}
-                onOpenChange={(open) => setOpenFilterMenu((prev) => (open ? 'assignee' : prev === 'assignee' ? null : prev))}
+                onOpenChange={(open) =>
+                  setOpenFilterMenu((prev) =>
+                    open ? 'assignee' : prev === 'assignee' ? null : prev,
+                  )
+                }
               >
                 <DropdownItem
                   onClick={() => setAssigneeFilter(null)}
