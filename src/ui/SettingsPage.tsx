@@ -40,6 +40,7 @@ import {
   subscribeToPush,
   unsubscribeFromPush,
 } from '../lib/nativePush';
+import { useRefresh } from '../lib/RefreshContext';
 import {
   ApiError,
   authApi,
@@ -299,7 +300,7 @@ const PushNotificationsSettings: React.FC = () => {
 
 // ─── Profile editor ───────────────────────────────────────────────────────────
 
-const ProfileEditor: React.FC = () => {
+const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }) => {
   const { user, refetch } = useSession();
   const [name, setName] = useState(user?.name ?? '');
   const [bio, setBio] = useState('');
@@ -668,7 +669,7 @@ const ApiTokensManager: React.FC = () => {
 };
 
 export const SettingsPage: React.FC = () => {
-  const { user, signOut } = useSession();
+  const { user, signOut, refetch } = useSession();
   const { navigate } = useRouter();
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
@@ -678,6 +679,7 @@ export const SettingsPage: React.FC = () => {
   const [organizationLoading, setOrganizationLoading] = useState(false);
   const [organizationSaving, setOrganizationSaving] = useState(false);
   const [organizationError, setOrganizationError] = useState<string | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const loadOrganization = useCallback(async () => {
     if (!canManageOrganization) return;
@@ -702,6 +704,14 @@ export const SettingsPage: React.FC = () => {
     if (!canManageOrganization) return;
     void loadOrganization();
   }, [canManageOrganization, loadOrganization]);
+
+  useRefresh(
+    useCallback(async () => {
+      await refetch();
+      await loadOrganization();
+      setRefreshTrigger((prev) => prev + 1);
+    }, [refetch, loadOrganization]),
+  );
 
   const hasOrganizationNameChanges =
     organizationName.trim().length > 0 && organizationName.trim() !== organizationOriginalName;
@@ -747,7 +757,7 @@ export const SettingsPage: React.FC = () => {
         title="Profile"
         description="Your display name, bio, website, and reporting line."
       >
-        <ProfileEditor />
+        <ProfileEditor refreshTrigger={refreshTrigger} />
       </Section>
 
       {/* Appearance */}

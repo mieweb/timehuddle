@@ -61,6 +61,7 @@ import {
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
+import { useRefresh } from '../../lib/RefreshContext';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
@@ -385,6 +386,9 @@ export const TicketsPage: React.FC = () => {
   useEffect(() => {
     void refetch();
   }, [refetch]);
+
+  // Pull-to-refresh handler
+  useRefresh(refetch);
 
   // Real-time WebSocket connection for ticket updates
   useEffect(() => {

@@ -33,13 +33,16 @@ import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage
 import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
 import { OrganizationPage } from '../features/org/OrganizationPage';
 import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
-import { TeamProvider } from '../lib/TeamContext';
+import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
+import { useSession } from '../lib/useSession';
+import { RefreshProvider } from '../lib/RefreshContext';
 import { FeedbackModal } from '../features/feedback/FeedbackModal';
 import { ReportIssueModal } from '../features/feedback/ReportIssueModal';
 import { AppHeader } from './AppHeader';
 import { BottomNav } from './BottomNav';
 import { CommandPalette } from './CommandPalette';
+import { PullToRefresh } from './PullToRefresh';
 import { RouterContext } from './router';
 import { SettingsPage } from './SettingsPage';
 import { Sidebar } from './Sidebar';
@@ -117,9 +120,13 @@ export const AppFeedbackContext = createContext<{
 
 export const useAppFeedback = () => useContext(AppFeedbackContext);
 
-// ─── AppLayout ────────────────────────────────────────────────────────────────
+// ─── AppLayout Content (with access to Session & Team contexts) ──────────────
 
-export const AppLayout: React.FC = () => {
+const AppLayoutContent: React.FC = () => {
+  // Get global refresh handlers
+  const { refetch: refetchSession } = useSession();
+  const { refetchTeams, refetchClock } = useTeam();
+
   // Apply the saved brand/color theme on every mount, not just on SettingsPage
   useBrand();
   // ── Routing ──
@@ -251,10 +258,10 @@ export const AppLayout: React.FC = () => {
 
   return (
     <RouterContext.Provider value={{ pathname, navigate }}>
-      <TeamProvider>
+      <RefreshProvider globalRefreshHandlers={[refetchSession, refetchTeams, refetchClock]}>
         <CommandPalette />
-        <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
-        <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+      <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
+      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
         <AppFeedbackContext.Provider
           value={{
             openReportIssue: () => setReportIssueOpen(true),
@@ -288,15 +295,17 @@ export const AppLayout: React.FC = () => {
                     ref={mainRef}
                     className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'pb-20'}` : 'pb-20'} md:pb-0`}
                   >
-                    {profileUserId ? (
-                      <ProfilePage userId={profileUserId} />
-                    ) : profileUsername ? (
-                      <ProfilePage username={profileUsername} />
-                    ) : ticketDetailId ? (
-                      <TicketDetailPage ticketId={ticketDetailId} />
-                    ) : (
-                      route && React.createElement(route.component)
-                    )}
+                    <PullToRefresh>
+                      {profileUserId ? (
+                        <ProfilePage userId={profileUserId} />
+                      ) : profileUsername ? (
+                        <ProfilePage username={profileUsername} />
+                      ) : ticketDetailId ? (
+                        <TicketDetailPage ticketId={ticketDetailId} />
+                      ) : (
+                        route && React.createElement(route.component)
+                      )}
+                    </PullToRefresh>
                   </main>
                 </div>
 
@@ -306,7 +315,17 @@ export const AppLayout: React.FC = () => {
             <OzwellWidget />
           </MessagesActiveChatContext.Provider>
         </AppFeedbackContext.Provider>
-      </TeamProvider>
+      </RefreshProvider>
     </RouterContext.Provider>
+  );
+};
+
+// ─── AppLayout (Team wrapper) ─────────────────────────────────────────────────
+
+export const AppLayout: React.FC = () => {
+  return (
+    <TeamProvider>
+      <AppLayoutContent />
+    </TeamProvider>
   );
 };

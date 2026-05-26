@@ -32,6 +32,7 @@ import React, { useEffect, useState } from 'react';
 
 import { ApiError, userApi, type PublicUser } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
+import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 import { UserAvatar } from '../../ui/UserAvatar';
@@ -78,6 +79,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
       })
       .finally(() => setIsReady(true));
   }, [userId, username]);
+
+  useRefresh(
+    React.useCallback(async () => {
+      const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
+      fetch
+        .then((p) => {
+          setProfile(p);
+          setBackgroundUrl(p.backgroundUrl ?? null);
+        })
+        .catch(() => {
+          setProfile(null);
+        });
+    }, [userId, username]),
+  );
 
   if (!isReady) {
     return (

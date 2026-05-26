@@ -25,6 +25,7 @@ import {
 } from '../../lib/api';
 import { hasDefaultOrganizationAdminAccess } from '../../lib/organizationAccess';
 import { useSession } from '../../lib/useSession';
+import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
 import { TeamMembersView } from './TeamMembersView';
 
@@ -57,6 +58,9 @@ export const OrganizationMembersPage: React.FC = () => {
     if (!canAccess) return;
     void loadUsers();
   }, [canAccess, loadUsers]);
+
+  // Pull-to-refresh
+  useRefresh(loadUsers);
 
   const handleRoleChange = useCallback(
     async (targetUserId: string, role: DefaultOrganizationRole) => {
