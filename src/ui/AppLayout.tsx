@@ -12,7 +12,7 @@
  *
  * SidebarContext owns expand/collapse + mobile drawer state.
  */
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -27,6 +27,7 @@ import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
 import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
 import { WorkPage } from '../features/timers/WorkPage';
+import { OzwellWidget } from '../features/ai/OzwellWidget';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
 import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
@@ -143,6 +144,12 @@ export const AppLayout: React.FC = () => {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
+
+  // Scroll the content area back to the top on every route change
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 });
+  }, [pathname]);
 
   // Native push notification tap → navigate to the relevant page
   useEffect(() => {
@@ -278,6 +285,7 @@ export const AppLayout: React.FC = () => {
                 <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                   <AppHeader title={pageTitle} />
                   <main
+                    ref={mainRef}
                     className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'pb-20'}` : 'pb-20'} md:pb-0`}
                   >
                     {profileUserId ? (
@@ -295,6 +303,7 @@ export const AppLayout: React.FC = () => {
                 {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
               </div>
             </SidebarContext.Provider>
+            <OzwellWidget />
           </MessagesActiveChatContext.Provider>
         </AppFeedbackContext.Provider>
       </TeamProvider>

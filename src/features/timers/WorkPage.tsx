@@ -232,6 +232,15 @@ export const WorkPage: React.FC = () => {
   }, [fetchDay]);
 
   useEffect(() => {
+    const handler = () => {
+      void fetchDay();
+      void fetchWeekTotals();
+    };
+    window.addEventListener('work:refetch', handler);
+    return () => window.removeEventListener('work:refetch', handler);
+  }, [fetchDay, fetchWeekTotals]);
+
+  useEffect(() => {
     const previousClockedIn = previousClockedInRef.current;
     previousClockedInRef.current = isClockedIn;
 
