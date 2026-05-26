@@ -36,6 +36,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { clockApi, type ClockEvent } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
+import { useRefresh } from '../../lib/RefreshContext';
 import { formatDuration, formatTime, formatDate, startOfDay } from '../../lib/timeUtils';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
@@ -68,6 +69,17 @@ export const DashboardPage: React.FC = () => {
       .then(setAllEvents)
       .catch(() => setAllEvents([]));
   }, [user]);
+
+  // Pull-to-refresh
+  useRefresh(
+    React.useCallback(async () => {
+      if (!user) return;
+      await clockApi
+        .getEvents()
+        .then(setAllEvents)
+        .catch(() => {});
+    }, [user]),
+  );
 
   // Filter events to the selected team
   const teamEvents = useMemo(

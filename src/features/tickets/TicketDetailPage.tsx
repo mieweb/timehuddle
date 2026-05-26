@@ -18,6 +18,7 @@ import {
   type Ticket,
 } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
+import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 import { UserAvatar } from '../../ui/UserAvatar';
@@ -140,6 +141,24 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
       .catch(() => setError('Ticket not found or you do not have access.'))
       .finally(() => setLoading(false));
   }, [ticketId]);
+
+  useRefresh(
+    React.useCallback(async () => {
+      setLoading(true);
+      try {
+        const [t, a] = await Promise.all([
+          ticketApi.getTicket(ticketId),
+          activityApi.getTicketActivity(ticketId, 50).catch(() => ({ events: [] })),
+        ]);
+        setTicket(t);
+        setActivity(a.events);
+      } catch {
+        setError('Failed to refresh ticket.');
+      } finally {
+        setLoading(false);
+      }
+    }, [ticketId]),
+  );
 
   // Load team members once we have the teamId
   useEffect(() => {
