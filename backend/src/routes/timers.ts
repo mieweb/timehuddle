@@ -570,7 +570,7 @@ export async function timerRoutes(app: FastifyInstance) {
         },
       },
     },
-    async (connection, req) => {
+    async (socket, req) => {
       const { token: queryToken } = req.query as { token?: string };
 
       // Auth: accept Bearer token from query param (Capacitor) or cookie
@@ -579,24 +579,33 @@ export async function timerRoutes(app: FastifyInstance) {
       const session = await auth.api.getSession({ headers });
 
       if (!session?.user) {
-        connection.socket.close(4001, "Unauthorized");
+        console.log('[timers/ws] Unauthorized connection attempt');
+        socket.close(4001, "Unauthorized");
         return;
       }
 
       const userId = session.user.id;
+      console.log(`[timers/ws] User ${userId} connected`);
 
       // Subscribe to timer updates for this user
       const unsubscribe = subscribeToTimerUpdates((updateUserId, event) => {
         if (updateUserId === userId) {
-          connection.socket.send(JSON.stringify({ type: event }));
+          console.log(`[timers/ws] Sending ${event} message to user ${userId}`);
+          if (socket.readyState === socket.OPEN) {
+            socket.send(JSON.stringify({ type: event }));
+          }
         }
       });
 
       // Send initial snapshot
-      connection.socket.send(JSON.stringify({ type: "connected" }));
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify({ type: "connected" }));
+        console.log(`[timers/ws] Sent connected message to user ${userId}`);
+      }
 
       // Clean up on disconnect
-      connection.socket.on("close", () => {
+      socket.on("close", () => {
+        console.log(`[timers/ws] User ${userId} disconnected`);
         unsubscribe();
       });
     }
