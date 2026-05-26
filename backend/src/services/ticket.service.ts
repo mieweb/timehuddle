@@ -25,6 +25,37 @@ function isValidId(id: string): boolean {
   return /^[0-9a-f]{24}$/i.test(id);
 }
 
+// ─── WebSocket Pub/Sub ────────────────────────────────────────────────────────
+
+type TicketListener = (teamId: string, ticket: Ticket | null, action: "update" | "delete") => void;
+const ticketListeners = new Map<string, Set<TicketListener>>();
+
+/** Subscribe to ticket updates for a specific team. Returns unsubscribe function. */
+export function subscribeToTeam(teamId: string, fn: TicketListener): () => void {
+  if (!ticketListeners.has(teamId)) {
+    ticketListeners.set(teamId, new Set());
+  }
+  ticketListeners.get(teamId)!.add(fn);
+  return () => {
+    const listeners = ticketListeners.get(teamId);
+    if (listeners) {
+      listeners.delete(fn);
+      if (listeners.size === 0) ticketListeners.delete(teamId);
+    }
+  };
+}
+
+/** Broadcast a ticket update to all subscribers of the team. */
+function broadcast(teamId: string, ticket: Ticket | null, action: "update" | "delete") {
+  const listeners = ticketListeners.get(teamId);
+  if (!listeners) return;
+  for (const fn of listeners) {
+    fn(teamId, ticket, action);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
 export class TicketService {
   private async resolveOrgRoleForTeam(
     userId: string,
@@ -195,6 +226,8 @@ export class TicketService {
       ticketTitle: data.title,
       teamId: data.teamId,
     });
+    const created = (await this.findById(result.insertedId.toHexString()))!;
+    broadcast(data.teamId, created, "update");
     return { id: result.insertedId.toHexString() };
   }
 
@@ -217,6 +250,7 @@ export class TicketService {
       teamId: updated.teamId,
       action: "edited",
     });
+    broadcast(updated.teamId, updated, "update");
     return updated;
   }
 
@@ -250,6 +284,7 @@ export class TicketService {
       status: updates.status,
       priority: updates.priority,
     });
+    broadcast(updated.teamId, updated, "update");
     return updated;
   }
 
@@ -268,6 +303,7 @@ export class TicketService {
       teamId: ticket.teamId,
       action: "deleted",
     });
+    broadcast(ticket.teamId, null, "delete");
     return "ok";
   }
 
@@ -306,6 +342,8 @@ export class TicketService {
         })
       )
     );
+    // Broadcast each updated ticket
+    updatedTickets.forEach((ticket) => broadcast(teamId, ticket, "update"));
     return result.modifiedCount;
   }
 
@@ -383,6 +421,7 @@ export class TicketService {
       ]);
     }
 
+    broadcast(updated.teamId, updated, "update");
     return updated;
   }
 }

@@ -43,6 +43,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   ApiError,
+  clockApi,
   timerApi,
   ticketApi,
   type DayEntry,
@@ -254,6 +255,43 @@ export const WorkPage: React.FC = () => {
     void fetchDay();
     void fetchWeekTotals();
   }, [fetchDay, fetchWeekTotals, isClockedIn, isToday]);
+
+  // ── Real-time clock updates ──
+
+  useEffect(() => {
+    if (teams.length === 0) return;
+
+    const teamIds = teams.map((t) => t.id);
+    const ws = clockApi.openLiveStream(teamIds);
+
+    ws.onmessage = (event: MessageEvent) => {
+      const data = JSON.parse(event.data);
+      // On any clock event update (timer start/stop), refetch current day and week totals
+      if (data.type === 'update') {
+        void fetchDay();
+        void fetchWeekTotals();
+      }
+    };
+
+    return () => ws.close();
+  }, [teams, fetchDay, fetchWeekTotals]);
+
+  // ── Real-time timer updates ──
+
+  useEffect(() => {
+    const ws = timerApi.openLiveStream();
+
+    ws.onmessage = (event: MessageEvent) => {
+      const data = JSON.parse(event.data);
+      // On timer start/stop/delete, refetch current day and week totals
+      if (data.type === 'update') {
+        void fetchDay();
+        void fetchWeekTotals();
+      }
+    };
+
+    return () => ws.close();
+  }, [fetchDay, fetchWeekTotals]);
 
   // ── Handlers ──
 
@@ -507,17 +545,17 @@ export const WorkPage: React.FC = () => {
     <AppPage fullWidth>
       {/* ── Page Header: week nav + today + week range ── */}
       <div className="flex items-center justify-between gap-3">
-        <Text weight="semibold" className="truncate">
-          {weekRangeLabel}
-        </Text>
-        <div className="flex items-center gap-1 shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handlePrevWeek}
-            aria-label="Previous week"
-            className="shrink-0"
-          >
+          <Text weight="semibold" className="truncate">
+            {weekRangeLabel}
+          </Text>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handlePrevWeek}
+              aria-label="Previous week"
+              className="shrink-0"
+            >
             <FontAwesomeIcon icon={faChevronLeft} className="text-xs" />
           </Button>
           <Button variant="ghost" size="sm" onClick={handleGoToToday} aria-label="Go to today">

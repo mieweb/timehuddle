@@ -80,6 +80,48 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .finally(() => refetchTeams());
   }, [userId, refetchTeams]);
 
+  // Real-time WebSocket connection for team updates
+  useEffect(() => {
+    if (!userId) return;
+
+    const ws = teamApi.openLiveStream();
+
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'snapshot') {
+          // Initial snapshot: replace teams state
+          const newTeams = data.teams as Team[];
+          setTeams(newTeams);
+          setTeamsReady(true);
+        } else if (data.type === 'update') {
+          // Real-time team update — upsert by id
+          const updatedTeam = data.team as Team;
+          setTeams((prev) => {
+            const idx = prev.findIndex((t) => t.id === updatedTeam.id);
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = updatedTeam;
+              return copy;
+            }
+            return [...prev, updatedTeam];
+          });
+        } else if (data.type === 'delete') {
+          // Team deleted — remove from state
+          setTeams((prev) => prev.filter((t) => t.id !== data.teamId));
+        }
+      } catch (err) {
+        console.warn('Failed to parse teams WebSocket message:', err);
+      }
+    };
+
+    // Cleanup: close WebSocket when userId changes or component unmounts
+    return () => {
+      ws.close();
+    };
+  }, [userId]);
+
   // ── Selected team ───────────────────────────────────────────────────────────
 
   const [selectedTeamId, _setSelectedTeamId] = useState<string | null>(null);
@@ -127,7 +169,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [userId, selectedTeam],
   );
 
-  // ── Clock events via REST ───────────────────────────────────────────────────
+  // ── Clock events via WebSocket (real-time) + REST fallback ─────────────────
 
   const [activeClockEvent, setActiveClockEvent] = useState<ClockEvent | null>(null);
   const [clockReady, setClockReady] = useState(false);
@@ -148,9 +190,57 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [userId]);
 
+  // Initial fetch (fallback if WebSocket connection fails)
   useEffect(() => {
     void refetchClock();
-  }, [refetchClock, selectedTeamId]);
+  }, [refetchClock]);
+
+  // Real-time WebSocket connection for clock updates
+  useEffect(() => {
+    if (!userId || !selectedTeamId) {
+      return;
+    }
+
+    const ws = clockApi.openLiveStream([selectedTeamId]);
+
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'snapshot') {
+          // Initial snapshot: find the current user's active event from the array
+          const userEvent =
+            data.events?.find(
+              (e: ClockEvent) => e.userId === userId && e.teamId === selectedTeamId && !e.endTime,
+            ) ?? null;
+          setActiveClockEvent(userEvent);
+          setClockReady(true);
+        } else if (data.type === 'update') {
+          // Real-time update: apply if it's for the current user
+          const updatedEvent = data.event as ClockEvent | null;
+          if (updatedEvent && updatedEvent.userId === userId && updatedEvent.teamId === selectedTeamId) {
+            setActiveClockEvent(updatedEvent);
+          } else if (!updatedEvent) {
+            // Clock out (event is null) — clear active event if it was for this user/team
+            setActiveClockEvent((prev) => {
+              if (prev && prev.teamId === data.teamId) {
+                return null;
+              }
+              return prev;
+            });
+          }
+        }
+      } catch (err) {
+        // Ignore malformed messages
+        console.warn('Failed to parse clock WebSocket message:', err);
+      }
+    };
+
+    // Cleanup: close WebSocket connection when team changes or component unmounts
+    return () => {
+      ws.close();
+    };
+  }, [userId, selectedTeamId, refetchClock]);
 
   // ── Live timer ──────────────────────────────────────────────────────────────
 
