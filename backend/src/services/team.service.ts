@@ -45,6 +45,47 @@ export type TeamError =
   | "user-not-found"
   | "cannot-remove-self";
 
+// ─── WebSocket Pub/Sub ────────────────────────────────────────────────────────
+
+type TeamListener = (userId: string, team: PublicTeam | null, action: "update" | "delete") => void;
+// Map by userId → Set of listeners (each user subscribes to their own teams)
+const teamListeners = new Map<string, Set<TeamListener>>();
+
+/** Subscribe to team updates for a specific user. Returns unsubscribe function. */
+export function subscribeToUser(userId: string, fn: TeamListener): () => void {
+  if (!teamListeners.has(userId)) {
+    teamListeners.set(userId, new Set());
+  }
+  teamListeners.get(userId)!.add(fn);
+  return () => {
+    const listeners = teamListeners.get(userId);
+    if (listeners) {
+      listeners.delete(fn);
+      if (listeners.size === 0) teamListeners.delete(userId);
+    }
+  };
+}
+
+/** Broadcast a team update to all members of the team. */
+function broadcastToTeamMembers(
+  team: (Team & { _id: ObjectId }) | null,
+  action: "update" | "delete"
+) {
+  if (!team) return;
+  const publicTeam = action === "update" ? toPublicTeam(team) : null;
+  const allMembers = Array.from(new Set([...team.members, ...team.admins]));
+
+  for (const userId of allMembers) {
+    const listeners = teamListeners.get(userId);
+    if (!listeners) continue;
+    for (const fn of listeners) {
+      fn(userId, publicTeam, action);
+    }
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 export class TeamService {
@@ -92,7 +133,9 @@ export class TeamService {
     };
     await teamsCollection().insertOne(doc);
     channelService.ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
-    return toPublicTeam(doc);
+    const created = toPublicTeam(doc);
+    broadcastToTeamMembers(doc, "update");
+    return created;
   }
 
   /** Create a new named team with the caller as sole member + admin. */
@@ -115,7 +158,9 @@ export class TeamService {
     };
     await teamsCollection().insertOne(doc);
     channelService.ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
-    return toPublicTeam(doc);
+    const created = toPublicTeam(doc);
+    broadcastToTeamMembers(doc, "update");
+    return created;
   }
 
   /** Join an existing team by code. */
@@ -131,6 +176,7 @@ export class TeamService {
       { $addToSet: { members: userId }, $set: { updatedAt: new Date() } }
     );
     const updated = await teamsCollection().findOne({ _id: team._id });
+    broadcastToTeamMembers(updated!, "update");
     return toPublicTeam(updated!);
   }
 
@@ -148,6 +194,7 @@ export class TeamService {
       { $set: { name: newName, updatedAt: new Date() } }
     );
     const updated = await teamsCollection().findOne({ _id: team._id });
+    broadcastToTeamMembers(updated!, "update");
     return toPublicTeam(updated!);
   }
 
@@ -156,6 +203,7 @@ export class TeamService {
     const team = await teamsCollection().findOne({ _id: new ObjectId(teamId) });
     if (!team) return "not-found";
     if (!team.admins.includes(adminId)) return "forbidden";
+    broadcastToTeamMembers(team, "delete");
     await teamsCollection().deleteOne({ _id: team._id });
     return "ok";
   }
@@ -202,6 +250,8 @@ export class TeamService {
       { _id: team._id },
       { $addToSet: { members: invitedId }, $set: { updatedAt: new Date() } }
     );
+    const updated = await teamsCollection().findOne({ _id: team._id });
+    broadcastToTeamMembers(updated!, "update");
     return "ok";
   }
 
@@ -228,6 +278,8 @@ export class TeamService {
         $set: { updatedAt: new Date() },
       }
     );
+    const updated = await teamsCollection().findOne({ _id: team._id });
+    broadcastToTeamMembers(updated!, "update");
     return "ok";
   }
 
@@ -256,6 +308,8 @@ export class TeamService {
         { $set: { admins: remaining, updatedAt: new Date() } }
       );
     }
+    const updated = await teamsCollection().findOne({ _id: team._id });
+    broadcastToTeamMembers(updated!, "update");
     return "ok";
   }
 

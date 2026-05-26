@@ -538,6 +538,14 @@ export const ticketApi = {
     request<{ totalSeconds: number }>(
       `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
     ).then((r) => r.totalSeconds),
+
+  /** Open a WebSocket connection for live ticket updates. Auto-reconnects on drop. */
+  openLiveStream: (teamIds: string[]): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/tickets/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`;
+      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+    }),
 };
 
 // ─── Team API ─────────────────────────────────────────────────────────────────
@@ -621,6 +629,14 @@ export const teamApi = {
       `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/password`,
       { method: 'PUT', body: JSON.stringify({ newPassword }) },
     ),
+
+  /** Open a WebSocket connection for live team updates. Auto-reconnects on drop. */
+  openLiveStream: (): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/teams/ws`;
+      return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+    }),
 };
 
 // ─── Clock API ────────────────────────────────────────────────────────────────
@@ -1020,6 +1036,16 @@ export const timerApi = {
       method: 'POST',
       body: JSON.stringify({ toDate }),
     }).then((r) => r.created),
+
+  /**
+   * Open a WebSocket connection for real-time timer updates.
+   */
+  openLiveStream: (): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/timers/ws`;
+      return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+    }),
 };
 
 // ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────

@@ -386,6 +386,52 @@ export const TicketsPage: React.FC = () => {
     void refetch();
   }, [refetch]);
 
+  // Real-time WebSocket connection for ticket updates
+  useEffect(() => {
+    if (!teams.length || !userId) return;
+
+    const teamIds = teams.map((t) => t.id);
+    const ws = ticketApi.openLiveStream(teamIds);
+
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'snapshot') {
+          // Initial snapshot for a single team — merge with existing tickets
+          const newTickets = data.tickets as Ticket[];
+          setTickets((prev) => {
+            // Remove tickets from this team, then add the snapshot
+            const filtered = prev.filter((t) => t.teamId !== data.teamId);
+            return [...filtered, ...newTickets];
+          });
+        } else if (data.type === 'update') {
+          // Real-time ticket update — upsert by id
+          const updatedTicket = data.ticket as Ticket;
+          setTickets((prev) => {
+            const idx = prev.findIndex((t) => t.id === updatedTicket.id);
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = updatedTicket;
+              return copy;
+            }
+            return [...prev, updatedTicket];
+          });
+        } else if (data.type === 'delete') {
+          // Ticket deleted — remove from state
+          setTickets((prev) => prev.filter((t) => t.id !== data.ticketId));
+        }
+      } catch (err) {
+        console.warn('Failed to parse tickets WebSocket message:', err);
+      }
+    };
+
+    // Cleanup: close WebSocket when teams change or component unmounts
+    return () => {
+      ws.close();
+    };
+  }, [teams, userId]);
+
   // Listen for external refetch requests (e.g., from CommandPalette)
   useEffect(() => {
     const onRefetch = () => void refetch();
