@@ -33,7 +33,9 @@ export function subscribeToTimerUpdates(fn: TimerListener): () => void {
  * Broadcast a timer update event to all subscribed WebSocket connections.
  */
 function broadcastTimerUpdate(userId: string) {
-  console.log(`[timer.service] Broadcasting timer update for user ${userId} to ${timerListeners.size} listeners`);
+  console.log(
+    `[timer.service] Broadcasting timer update for user ${userId} to ${timerListeners.size} listeners`
+  );
   for (const fn of timerListeners) {
     fn(userId, "update");
   }

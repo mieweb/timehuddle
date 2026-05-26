@@ -253,8 +253,8 @@ const AppLayoutContent: React.FC = () => {
     <RouterContext.Provider value={{ pathname, navigate }}>
       <RefreshProvider globalRefreshHandlers={[refetchSession, refetchTeams, refetchClock]}>
         <CommandPalette />
-      <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
-      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+        <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
+        <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
         <AppFeedbackContext.Provider
           value={{
             openReportIssue: () => setReportIssueOpen(true),

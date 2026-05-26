@@ -579,7 +579,7 @@ export async function timerRoutes(app: FastifyInstance) {
       const session = await auth.api.getSession({ headers });
 
       if (!session?.user) {
-        console.log('[timers/ws] Unauthorized connection attempt');
+        console.log("[timers/ws] Unauthorized connection attempt");
         socket.close(4001, "Unauthorized");
         return;
       }

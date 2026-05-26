@@ -119,7 +119,10 @@ export const NotificationsPage: React.FC = () => {
   useRefresh(
     React.useCallback(async () => {
       if (!user) return;
-      await notificationApi.getInbox().then(setNotifications).catch(() => {});
+      await notificationApi
+        .getInbox()
+        .then(setNotifications)
+        .catch(() => {});
     }, [user]),
   );
 
