@@ -328,7 +328,7 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, refreshTrigger]);
 
   useEffect(() => {
     if (!user?.id) return;
