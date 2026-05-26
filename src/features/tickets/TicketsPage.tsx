@@ -163,6 +163,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
   onShareWithTimeharbor,
 }) => {
   const { navigate } = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
   const { icon, className: iconClass } = statusIconFor(ticket.status);
   const showStatusLabel =
     ticket.status &&
@@ -251,6 +252,8 @@ const TicketRow: React.FC<TicketRowProps> = ({
         )}
         <Dropdown
           className="z-1000 bg-white dark:bg-neutral-800"
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
           trigger={
             <Button
               variant="ghost"
@@ -266,27 +269,27 @@ const TicketRow: React.FC<TicketRowProps> = ({
           <DropdownContent>
             <DropdownItem
               icon={<FontAwesomeIcon icon={faEye} />}
-              onClick={() => navigate(`/app/tickets/${ticket.id}`)}
+              onClick={() => { setMenuOpen(false); navigate(`/app/tickets/${ticket.id}`); }}
             >
               Ticket Details
             </DropdownItem>
             {isCreator && (
               <DropdownItem
                 icon={<FontAwesomeIcon icon={faPen} />}
-                onClick={() => onEditRequest(ticket)}
+                onClick={() => { setMenuOpen(false); onEditRequest(ticket); }}
               >
                 Edit Ticket
               </DropdownItem>
             )}
             <DropdownItem
               icon={<FontAwesomeIcon icon={faRightLeft} />}
-              onClick={() => onChangeStatusRequest(ticket)}
+              onClick={() => { setMenuOpen(false); onChangeStatusRequest(ticket); }}
             >
               Change Status
             </DropdownItem>
             <DropdownItem
               icon={<FontAwesomeIcon icon={faShareFromSquare} />}
-              onClick={() => onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor)}
+              onClick={() => { setMenuOpen(false); onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor); }}
             >
               {ticket.sharedWithTimeharbor ? 'Remove from TimeHarbor' : 'Send to TimeHarbor'}
             </DropdownItem>
@@ -296,7 +299,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
                 <DropdownItem
                   icon={<FontAwesomeIcon icon={faTrash} />}
                   variant="danger"
-                  onClick={() => onDeleteRequest(ticket.id)}
+                  onClick={() => { setMenuOpen(false); onDeleteRequest(ticket.id); }}
                 >
                   Delete Ticket
                 </DropdownItem>
@@ -1102,7 +1105,7 @@ export const TicketsPage: React.FC = () => {
           <ModalTitle>Edit Ticket</ModalTitle>
           <ModalClose />
         </ModalHeader>
-        <ModalBody>
+        <ModalBody className="overscroll-contain">
           <div className="space-y-4">
             <Input
               label={titleFetching ? 'Title (fetching…)' : 'Title'}
