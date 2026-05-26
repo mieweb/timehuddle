@@ -51,6 +51,7 @@ import {
   type Ticket,
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
+import { useRefresh } from '../../lib/RefreshContext';
 import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
@@ -231,6 +232,13 @@ export const WorkPage: React.FC = () => {
   useEffect(() => {
     void fetchDay();
   }, [fetchDay]);
+
+  // Pull-to-refresh: combine both fetches
+  useRefresh(
+    useCallback(async () => {
+      await Promise.all([fetchDay(), fetchWeekTotals()]);
+    }, [fetchDay, fetchWeekTotals]),
+  );
 
   useEffect(() => {
     const previousClockedIn = previousClockedInRef.current;

@@ -37,6 +37,7 @@ import { formatDuration } from '../../lib/timeUtils';
 import { ApiError, clockApi, type ClockEvent } from '../../lib/api';
 import { AppPage } from '../../ui/AppPage';
 import { useSession } from '../../lib/useSession';
+import { useRefresh } from '../../lib/RefreshContext';
 import { AttachmentsPanel } from './AttachmentsPanel';
 import { TimesheetRow } from './TimesheetRow';
 import {
@@ -145,6 +146,9 @@ export const TimesheetPage: React.FC = () => {
   useEffect(() => {
     void fetchData();
   }, [preset]);
+
+  // Pull-to-refresh
+  useRefresh(fetchData);
 
   const openSessionDialog = useCallback((session: ClockEvent) => {
     setActiveSession(session);

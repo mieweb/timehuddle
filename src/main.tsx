@@ -121,7 +121,7 @@ if (Capacitor.isNativePlatform()) {
 _log('App component defined — modules loaded');
 
 const App: React.FC = () => {
-  const { user, loading, needsUsernameClaim } = useSession();
+  const { user, loading: _loading, needsUsernameClaim } = useSession();
 
   // Auto-register push on native (APNs/FCM) and web (VAPID) after login.
   React.useEffect(() => {
@@ -213,14 +213,6 @@ const App: React.FC = () => {
 
   if (resetToken) {
     return <LoginForm initialMode="reset-confirm" />;
-  }
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-neutral-100 dark:bg-neutral-900">
-        <p className="text-sm text-neutral-600 dark:text-neutral-300">Loading…</p>
-      </div>
-    );
   }
 
   if (!user) return <LoginForm />;
