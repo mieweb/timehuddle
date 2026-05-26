@@ -75,7 +75,7 @@ function injectJerryButtonStyles() {
       border-radius: 14px !important;
       box-shadow: 0 4px 16px rgba(245, 166, 35, 0.4) !important;
       flex-direction: column !important;
-      gap: 3px !important;
+      gap: 2px !important;
       animation: jerry-bob 3.5s ease-in-out infinite !important;
     }
     #ozwell-chat-button:hover {
@@ -88,87 +88,30 @@ function injectJerryButtonStyles() {
       0%, 100% { transform: translateY(0px); }
       50%       { transform: translateY(-5px); }
     }
-
-    /* ── Cute oval eyes ──────────────────────────────────── */
     .jerry-eyes {
       display: flex;
-      gap: 6px;
-      align-items: center;
+      gap: 8px;
     }
     .jerry-eye {
-      position: relative;
-      width: 9px;
-      height: 10px;
+      width: 5px;
+      height: 5px;
       border-radius: 50%;
-      background: white;
-      box-shadow: inset 0 1px 2px rgba(0,0,0,0.15);
-      overflow: hidden;
+      background: #3B2000;
       animation: jerry-blink 5s ease-in-out infinite;
       transform-origin: center;
     }
-    .jerry-eye.r { animation-delay: 0.05s; }
-    /* Iris + pupil — position driven by --iris-x/y CSS vars set by mouse tracker */
-    .jerry-eye::before {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(
-        calc(-50% + var(--iris-x, 0px)),
-        calc(-50% + var(--iris-y, 0px))
-      );
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: radial-gradient(circle at 35% 35%, #5a3a1a 0%, #1a0c00 65%);
-      transition: transform 0.06s linear;
-    }
-    /* Shine dot */
-    .jerry-eye::after {
-      content: '';
-      position: absolute;
-      top: 1px;
-      right: 1px;
-      width: 2px;
-      height: 2px;
-      border-radius: 50%;
-      background: rgba(255,255,255,0.95);
-      pointer-events: none;
-      z-index: 1;
-    }
+    .jerry-eye.r { animation-delay: 0.07s; }
     @keyframes jerry-blink {
-      0%, 85%, 100% { transform: scaleY(1); }
-      91%           { transform: scaleY(0.07); }
-    }
-    /* Wink: left eye only squints on hover */
-    #ozwell-chat-button:hover .jerry-eye.l {
-      animation: jerry-wink 0.35s ease-in-out forwards !important;
-    }
-    @keyframes jerry-wink {
-      0%   { transform: scaleY(1); }
-      40%  { transform: scaleY(0.07); }
-      100% { transform: scaleY(1); }
-    }
-
-    /* ── J — the hook is the smile ───────────────────────── */
-    .jerry-face-bottom {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-top: 2px;
+      0%, 88%, 100% { transform: scaleY(1); }
+      93%           { transform: scaleY(0.08); }
     }
     .jerry-j {
-      font-size: 28px;
-      font-weight: 900;
+      font-size: 24px;
+      font-weight: 700;
       line-height: 1;
       color: #3B2000;
       font-family: Georgia, 'Times New Roman', serif;
-      transform: rotate(-5deg);
-      letter-spacing: -1px;
-      user-select: none;
-      text-shadow: 0 1px 2px rgba(0,0,0,0.15);
     }
-
   `;
   document.head.appendChild(style);
 }
@@ -182,46 +125,8 @@ function injectJerryButtonContent() {
       <div class="jerry-eye l"></div>
       <div class="jerry-eye r"></div>
     </div>
-    <div class="jerry-face-bottom">
-      <span class="jerry-j">J</span>
-    </div>
+    <div class="jerry-j">J</div>
   `;
-}
-
-/** Make the irises follow the mouse cursor around the page. */
-let eyeTrackingStarted = false;
-function startEyeTracking() {
-  if (eyeTrackingStarted) return;
-  eyeTrackingStarted = true;
-  const MAX_OFFSET = 2; // px — clamped to sclera bounds
-  let rafPending = false;
-  let lastX = -1;
-  let lastY = -1;
-
-  function update() {
-    rafPending = false;
-    const eyes = document.querySelectorAll<HTMLElement>('.jerry-eye');
-    eyes.forEach((eye) => {
-      const rect = eye.getBoundingClientRect();
-      const cx = rect.left + rect.width / 2;
-      const cy = rect.top + rect.height / 2;
-      const dx = lastX - cx;
-      const dy = lastY - cy;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const ratio = dist > 0 ? Math.min(MAX_OFFSET / dist, 1) : 0;
-      eye.style.setProperty('--iris-x', `${(dx * ratio).toFixed(2)}px`);
-      eye.style.setProperty('--iris-y', `${(dy * ratio).toFixed(2)}px`);
-    });
-  }
-
-  document.addEventListener('mousemove', (e) => {
-    lastX = e.clientX;
-    lastY = e.clientY;
-    if (!rafPending) {
-      rafPending = true;
-      requestAnimationFrame(update);
-    }
-  });
 }
 
 /** Hide tool-call-only turns that the Ozwell platform renders as "(no response)". */
@@ -401,7 +306,6 @@ export const OzwellWidget: React.FC = () => {
     const onReady = () => {
       injectJerryButtonStyles();
       injectJerryButtonContent();
-      startEyeTracking();
     };
     document.addEventListener('ozwell-chat-ready', onReady);
     // Widget may already be ready if this effect runs late
