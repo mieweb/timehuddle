@@ -61,14 +61,18 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
   const isRefreshingRef = useRef(false);
   const startYRef = useRef(0);
   const startXRef = useRef(0);
-  const activeRef = useRef(false);  // true once gesture is confirmed as a pull
+  const activeRef = useRef(false); // true once gesture is confirmed as a pull
   const blockedRef = useRef(false); // true if this touch should be ignored
   const pullYRef = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Keep refs in sync with latest prop/context values
-  useEffect(() => { isMobileOpenRef.current = isMobileOpen; }, [isMobileOpen]);
-  useEffect(() => { triggerRefreshRef.current = triggerRefresh; }, [triggerRefresh]);
+  useEffect(() => {
+    isMobileOpenRef.current = isMobileOpen;
+  }, [isMobileOpen]);
+  useEffect(() => {
+    triggerRefreshRef.current = triggerRefresh;
+  }, [triggerRefresh]);
 
   useEffect(() => {
     setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
@@ -239,9 +243,7 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
       </div>
 
       {/* Page content — normal document flow, no transform, no stacking context */}
-      <div className="min-h-0 flex-1">
-        {children}
-      </div>
+      <div className="min-h-0 flex-1">{children}</div>
     </div>
   );
 };

@@ -218,7 +218,11 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else if (data.type === 'update') {
           // Real-time update: apply if it's for the current user
           const updatedEvent = data.event as ClockEvent | null;
-          if (updatedEvent && updatedEvent.userId === userId && updatedEvent.teamId === selectedTeamId) {
+          if (
+            updatedEvent &&
+            updatedEvent.userId === userId &&
+            updatedEvent.teamId === selectedTeamId
+          ) {
             setActiveClockEvent(updatedEvent);
           } else if (!updatedEvent) {
             // Clock out (event is null) — clear active event if it was for this user/team

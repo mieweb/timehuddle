@@ -269,27 +269,39 @@ const TicketRow: React.FC<TicketRowProps> = ({
           <DropdownContent>
             <DropdownItem
               icon={<FontAwesomeIcon icon={faEye} />}
-              onClick={() => { setMenuOpen(false); navigate(`/app/tickets/${ticket.id}`); }}
+              onClick={() => {
+                setMenuOpen(false);
+                navigate(`/app/tickets/${ticket.id}`);
+              }}
             >
               Ticket Details
             </DropdownItem>
             {isCreator && (
               <DropdownItem
                 icon={<FontAwesomeIcon icon={faPen} />}
-                onClick={() => { setMenuOpen(false); onEditRequest(ticket); }}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onEditRequest(ticket);
+                }}
               >
                 Edit Ticket
               </DropdownItem>
             )}
             <DropdownItem
               icon={<FontAwesomeIcon icon={faRightLeft} />}
-              onClick={() => { setMenuOpen(false); onChangeStatusRequest(ticket); }}
+              onClick={() => {
+                setMenuOpen(false);
+                onChangeStatusRequest(ticket);
+              }}
             >
               Change Status
             </DropdownItem>
             <DropdownItem
               icon={<FontAwesomeIcon icon={faShareFromSquare} />}
-              onClick={() => { setMenuOpen(false); onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor); }}
+              onClick={() => {
+                setMenuOpen(false);
+                onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor);
+              }}
             >
               {ticket.sharedWithTimeharbor ? 'Remove from TimeHarbor' : 'Send to TimeHarbor'}
             </DropdownItem>
@@ -299,7 +311,10 @@ const TicketRow: React.FC<TicketRowProps> = ({
                 <DropdownItem
                   icon={<FontAwesomeIcon icon={faTrash} />}
                   variant="danger"
-                  onClick={() => { setMenuOpen(false); onDeleteRequest(ticket.id); }}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onDeleteRequest(ticket.id);
+                  }}
                 >
                   Delete Ticket
                 </DropdownItem>

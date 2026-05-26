@@ -74,7 +74,10 @@ export const DashboardPage: React.FC = () => {
   useRefresh(
     React.useCallback(async () => {
       if (!user) return;
-      await clockApi.getEvents().then(setAllEvents).catch(() => {});
+      await clockApi
+        .getEvents()
+        .then(setAllEvents)
+        .catch(() => {});
     }, [user]),
   );
 

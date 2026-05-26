@@ -293,12 +293,12 @@ export const WorkPage: React.FC = () => {
     ws.onmessage = (event: MessageEvent) => {
       console.log('[WorkPage] Timer WebSocket message received:', event.data);
       const data = JSON.parse(event.data);
-      
+
       if (data.type === 'connected') {
         console.log('[WorkPage] Timer WebSocket connected successfully');
         return;
       }
-      
+
       // On timer start/stop/delete, refetch current day and week totals
       if (data.type === 'update') {
         console.log('[WorkPage] Refreshing timer data due to update event');
@@ -565,17 +565,17 @@ export const WorkPage: React.FC = () => {
     <AppPage fullWidth>
       {/* ── Page Header: week nav + today + week range ── */}
       <div className="flex items-center justify-between gap-3">
-          <Text weight="semibold" className="truncate">
-            {weekRangeLabel}
-          </Text>
-          <div className="flex items-center gap-1 shrink-0">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handlePrevWeek}
-              aria-label="Previous week"
-              className="shrink-0"
-            >
+        <Text weight="semibold" className="truncate">
+          {weekRangeLabel}
+        </Text>
+        <div className="flex items-center gap-1 shrink-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handlePrevWeek}
+            aria-label="Previous week"
+            className="shrink-0"
+          >
             <FontAwesomeIcon icon={faChevronLeft} className="text-xs" />
           </Button>
           <Button variant="ghost" size="sm" onClick={handleGoToToday} aria-label="Go to today">
