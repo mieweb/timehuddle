@@ -22,13 +22,18 @@ const timerListeners = new Set<TimerListener>();
  */
 export function subscribeToTimerUpdates(fn: TimerListener): () => void {
   timerListeners.add(fn);
-  return () => timerListeners.delete(fn);
+  console.log(`[timer.service] Listener subscribed. Total listeners: ${timerListeners.size}`);
+  return () => {
+    timerListeners.delete(fn);
+    console.log(`[timer.service] Listener unsubscribed. Total listeners: ${timerListeners.size}`);
+  };
 }
 
 /**
  * Broadcast a timer update event to all subscribed WebSocket connections.
  */
 function broadcastTimerUpdate(userId: string) {
+  console.log(`[timer.service] Broadcasting timer update for user ${userId} to ${timerListeners.size} listeners`);
   for (const fn of timerListeners) {
     fn(userId, "update");
   }

@@ -279,18 +279,30 @@ export const WorkPage: React.FC = () => {
   // ── Real-time timer updates ──
 
   useEffect(() => {
+    console.log('[WorkPage] Opening timer WebSocket connection');
     const ws = timerApi.openLiveStream();
 
     ws.onmessage = (event: MessageEvent) => {
+      console.log('[WorkPage] Timer WebSocket message received:', event.data);
       const data = JSON.parse(event.data);
+      
+      if (data.type === 'connected') {
+        console.log('[WorkPage] Timer WebSocket connected successfully');
+        return;
+      }
+      
       // On timer start/stop/delete, refetch current day and week totals
       if (data.type === 'update') {
+        console.log('[WorkPage] Refreshing timer data due to update event');
         void fetchDay();
         void fetchWeekTotals();
       }
     };
 
-    return () => ws.close();
+    return () => {
+      console.log('[WorkPage] Closing timer WebSocket connection');
+      ws.close();
+    };
   }, [fetchDay, fetchWeekTotals]);
 
   // ── Handlers ──
