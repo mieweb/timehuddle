@@ -3,12 +3,11 @@
  * ticket before the TUS upload begins.
  *
  * Flow:
- *   1. POST /v1/pulsevault/reserve — client calls this with a ticketId.
+ *   1. POST /v1/video/reserve — client calls this with target + context.
  *      Server generates a videoid + one-time upload token, stores the mapping
  *      here, returns both to the client.
- *   2. Client embeds the token in the pulsecam:// deep link.
- *      Pulse Cam forwards it as Authorization: Bearer <token> on every TUS
- *      request — allowing the upload to bypass session auth.
+ *   2. Client sends Authorization: Bearer <uploadToken> on TUS upload requests,
+ *      allowing upload authorization without relying on cookie/session transport.
  *   3. onUploadComplete fires — consumeReservation(videoid) returns the stored
  *      { ticketId, userId } and removes the entry so it cannot be replayed.
  */

@@ -1062,18 +1062,26 @@ export const videoApi = {
   /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
   uploadEndpoint: () => `${TIMECORE_BASE_URL.replace(/\/$/, '')}/v1/video/upload`,
 
-  /** Reserve a videoid on the server before starting a TUS upload.
+  /** Reserve a videoid for a ticket upload before starting TUS.
    *  Pass `existingVideoid` when resuming a recording session so the backend
    *  re-registers the same id instead of creating a new one.
    */
   reserve: (ticketId: string, existingVideoid?: string) =>
-    request<{ videoid: string }>('/v1/pulsevault/reserve', {
+    request<{ videoid: string; uploadToken: string; uploadLink?: string }>('/v1/video/reserve', {
       method: 'POST',
-      body: JSON.stringify(existingVideoid ? { ticketId, videoid: existingVideoid } : { ticketId }),
+      body: JSON.stringify(
+        existingVideoid
+          ? { target: 'ticket', ticketId, videoid: existingVideoid }
+          : { target: 'ticket', ticketId },
+      ),
     }),
 
   /** Reserve a videoid for a media library upload (no ticket context). */
-  reserveForLibrary: () => request<{ videoid: string }>('/v1/media/reserve', { method: 'POST' }),
+  reserveForLibrary: () =>
+    request<{ videoid: string; uploadToken: string }>('/v1/video/reserve', {
+      method: 'POST',
+      body: JSON.stringify({ target: 'library' }),
+    }),
 };
 
 // ─── Media Library ────────────────────────────────────────────────────────────

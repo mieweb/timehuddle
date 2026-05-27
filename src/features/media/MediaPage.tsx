@@ -20,7 +20,7 @@ import { Button, Input, Spinner, Text, Textarea } from '@mieweb/ui';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import * as tus from 'tus-js-client';
 
-import { mediaApi, sessionToken, videoApi, type MediaItem } from '../../lib/api';
+import { mediaApi, videoApi, type MediaItem } from '../../lib/api';
 import { MEDIA_UPLOAD_ACCEPT, useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
 import { extractVideoThumbnail, extractThumbnailFromVideoUrl } from '../../lib/videoThumbnail';
 import { useSession } from '../../lib/useSession';
@@ -46,13 +46,13 @@ function formatDate(iso: string): string {
 }
 
 async function uploadVideoToLibrary(file: File, onProgress: (pct: number) => void): Promise<void> {
-  const { videoid } = await videoApi.reserveForLibrary();
+  const { videoid, uploadToken } = await videoApi.reserveForLibrary();
   await new Promise<void>((resolve, reject) => {
     const upload = new tus.Upload(file, {
       endpoint: videoApi.uploadEndpoint(),
       retryDelays: [0, 3000, 5000],
       metadata: { videoid, filename: file.name, filetype: file.type },
-      headers: sessionToken.get() ? { Authorization: `Bearer ${sessionToken.get()}` } : {},
+      headers: { Authorization: `Bearer ${uploadToken}` },
       onProgress(bytesUploaded, bytesTotal) {
         onProgress(Math.round((bytesUploaded / bytesTotal) * 100));
       },

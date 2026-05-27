@@ -19,11 +19,26 @@ import {
   reserveVideo,
   reserveVideoForLibrary,
   getReservation,
+  verifyReservationToken,
   consumeReservation,
 } from "../services/video-reserve.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.resolve(__dirname, "../../data/videos");
+
+type ReserveTarget = "ticket" | "library";
+type ReserveRequestBody = {
+  target?: ReserveTarget;
+  ticketId?: string;
+  videoid?: string;
+};
+
+function extractBearerToken(request: any): string | undefined {
+  const authHeader = request.headers?.authorization;
+  if (typeof authHeader !== "string") return undefined;
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim();
+}
 
 function pulseVaultHttpError(statusCode: number, message: string): Error & { statusCode: number } {
   return Object.assign(new Error(message), { statusCode });
@@ -62,6 +77,13 @@ function resolveUploadedTitle(filename: string, fallbackVideoid: string): string
 const storage = createLocalStorage({ workspaceDir: dataDir });
 
 async function authorizeHandler(request: any, ctx: any) {
+  if (ctx.phase !== "resolve") {
+    const bearerToken = extractBearerToken(request);
+    if (bearerToken && verifyReservationToken(ctx.videoid, bearerToken)) {
+      return;
+    }
+  }
+
   const session = await auth.api.getSession({
     headers: fromNodeHeaders(request.headers as Record<string, string | string[]>),
   });
@@ -132,6 +154,51 @@ async function onUploadCompleteHandler(request: any, ctx: any) {
   }
 }
 
+async function createReserveResponse(
+  req: any,
+  userId: string,
+  body: ReserveRequestBody
+): Promise<{ videoid: string; uploadToken: string; uploadLink?: string }> {
+  const target: ReserveTarget = body.target ?? "ticket";
+
+  if (target === "library") {
+    const videoid = randomUUID();
+    const uploadToken = reserveVideoForLibrary(videoid, userId);
+    return { videoid, uploadToken };
+  }
+
+  if (!body.ticketId) {
+    throw pulseVaultHttpError(400, "ticketId is required for ticket uploads");
+  }
+
+  const ticket = await ticketService.findById(body.ticketId);
+  if (!ticket) {
+    throw pulseVaultHttpError(404, "Ticket not found");
+  }
+
+  let videoid = body.videoid ?? randomUUID();
+
+  if (body.videoid) {
+    const alreadyReady = await storage.resolve(body.videoid);
+    if (alreadyReady) {
+      videoid = randomUUID();
+    } else {
+      await storage.remove?.(body.videoid);
+    }
+  }
+
+  const uploadToken = reserveVideo(videoid, body.ticketId, userId);
+
+  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "http";
+  const host =
+    (req.headers["x-forwarded-host"] as string | undefined) ??
+    (req.headers["host"] as string | undefined) ??
+    "localhost:4000";
+  const uploadLink = buildUploadLink({ server: `${proto}://${host}`, videoid });
+
+  return { videoid, uploadToken, uploadLink };
+}
+
 // Compat: old Pulse Cam configs that saved the bare server URL (http://host:4000) call
 // POST /reserve, POST /upload, PATCH /upload/:id etc. at root level.
 // Pulse Cam has no session — uploads at the compat path are unauthenticated.
@@ -160,21 +227,21 @@ export async function pulseVaultCompatRoutes(app: FastifyInstance) {
 }
 
 export async function pulseVaultRoutes(app: FastifyInstance) {
-  // POST /v1/pulsevault/reserve — authenticated users reserve a videoid for a ticket.
+  // POST /v1/video/reserve — authenticated reserve endpoint for all app uploads.
+  // target=ticket (default): requires ticketId and supports optional videoid for resume.
+  // target=library: reserves a media-library upload id.
   app.post(
-    "/pulsevault/reserve",
+    "/video/reserve",
     {
       onRequest: [requireAuth],
       schema: {
         tags: ["Attachments"],
-        summary: "Reserve a videoid for a TUS video upload attached to a ticket",
+        summary: "Reserve a videoid for ticket or media-library TUS uploads",
         body: {
           type: "object",
-          required: ["ticketId"],
           properties: {
+            target: { type: "string", enum: ["ticket", "library"] },
             ticketId: { type: "string", pattern: "^[0-9a-f]{24}$" },
-            // Optional: client passes an existing videoid to re-register an in-progress
-            // recording session (e.g. after PulseCam is closed and reopened).
             videoid: {
               type: "string",
               pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
@@ -186,8 +253,16 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
             type: "object",
             properties: {
               videoid: { type: "string" },
-              uploadLink: { type: "string", description: "pulsecam:// deep link for QR pairing" },
+              uploadToken: { type: "string" },
+              uploadLink: {
+                type: "string",
+                description: "pulsecam:// deep link for ticket upload pairing",
+              },
             },
+          },
+          400: {
+            type: "object",
+            properties: { error: { type: "string" } },
           },
           404: {
             type: "object",
@@ -197,104 +272,12 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const { ticketId, videoid: existingVideoid } = req.body as {
-        ticketId: string;
-        videoid?: string;
-      };
-      const userId = req.user!.id;
-
-      const ticket = await ticketService.findById(ticketId);
-      if (!ticket) {
-        return reply.status(404).send({ error: "Ticket not found" });
-      }
-
-      // Re-use a client-supplied videoid when the user is resuming a recording session
-      // (e.g. PulseCam was closed before uploading and is now being reopened).
-      // This keeps PulseCam's local segments associated with the same ticket.
-      let videoid = existingVideoid ?? randomUUID();
-
-      if (existingVideoid) {
-        const alreadyReady = await storage.resolve(existingVideoid);
-        if (alreadyReady) {
-          // The previous upload completed — don't overwrite it; start fresh.
-          videoid = randomUUID();
-        } else {
-          // No sidecar or a stale "uploading" entry — clear leftover partial
-          // data so the TUS server can accept a new POST without 409.
-          await storage.remove?.(existingVideoid);
-        }
-      }
-
-      reserveVideo(videoid, ticketId, userId);
-
-      const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "http";
-      const host =
-        (req.headers["x-forwarded-host"] as string | undefined) ??
-        (req.headers["host"] as string | undefined) ??
-        "localhost:4000";
-      const uploadLink = buildUploadLink({ server: `${proto}://${host}`, videoid });
-
-      return reply.status(201).send({ videoid, uploadLink });
-    }
-  );
-
-  // POST /v1/media/reserve — authenticated users reserve a videoid for a library upload.
-  app.post(
-    "/media/reserve",
-    {
-      onRequest: [requireAuth],
-      schema: {
-        tags: ["Media"],
-        summary: "Reserve a videoid for a TUS video upload to the media library",
-        response: {
-          201: {
-            type: "object",
-            properties: { videoid: { type: "string" } },
-          },
-        },
-      },
-    },
-    async (req, reply) => {
-      const userId = req.user!.id;
-      const videoid = randomUUID();
-      reserveVideoForLibrary(videoid, userId);
-      return reply.status(201).send({ videoid });
-    }
-  );
-
-  // POST /v1/video/reserve — Pulse Cam calls {server}/reserve before each upload.
-  // Returns a fresh videoid. If a ticket reservation was already made via
-  // /v1/pulsevault/reserve (per-ticket QR flow), onUploadComplete will pick it up.
-  // Accept empty bodies — Pulse Cam may POST with no body but Content-Type: application/json.
-  app.addContentTypeParser("application/json", { parseAs: "string" }, function (_req, body, done) {
-    if (!body || (body as string).trim() === "") {
-      done(null, {});
-    } else {
-      try {
-        done(null, JSON.parse(body as string));
-      } catch (err) {
-        done(err as Error, undefined);
-      }
-    }
-  });
-
-  app.post(
-    "/video/reserve",
-    {
-      schema: {
-        tags: ["Attachments"],
-        summary: "Pulse Cam: reserve a fresh videoid before TUS upload",
-        response: {
-          200: {
-            type: "object",
-            properties: { videoid: { type: "string" } },
-          },
-        },
-      },
-    },
-    async (_req, reply) => {
-      const videoid = randomUUID();
-      return reply.status(200).send({ videoid });
+      const reserved = await createReserveResponse(
+        req,
+        req.user!.id,
+        (req.body ?? {}) as ReserveRequestBody
+      );
+      return reply.status(201).send(reserved);
     }
   );
 

@@ -4,7 +4,7 @@ import { Button, Card, Spinner, Text } from '@mieweb/ui';
 import * as tus from 'tus-js-client';
 import React, { useCallback, useEffect, useState } from 'react';
 
-import { mediaApi, sessionToken, videoApi, type MediaItem } from '../../lib/api';
+import { mediaApi, videoApi, type MediaItem } from '../../lib/api';
 import { extractVideoThumbnail } from '../../lib/videoThumbnail';
 import { MEDIA_UPLOAD_ACCEPT, useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
 import { useSession } from '../../lib/useSession';
@@ -13,14 +13,14 @@ import { ViewportOverlay } from '../../ui/ViewportOverlay';
 // ─── Upload helpers ───────────────────────────────────────────────────────────
 
 async function uploadFileToLibrary(file: File, onProgress: (pct: number) => void): Promise<string> {
-  const { videoid } = await videoApi.reserveForLibrary();
+  const { videoid, uploadToken } = await videoApi.reserveForLibrary();
 
   await new Promise<void>((resolve, reject) => {
     const upload = new tus.Upload(file, {
       endpoint: videoApi.uploadEndpoint(),
       retryDelays: [0, 3000, 5000],
       metadata: { videoid, filename: file.name, filetype: file.type },
-      headers: sessionToken.get() ? { Authorization: `Bearer ${sessionToken.get()}` } : {},
+      headers: { Authorization: `Bearer ${uploadToken}` },
       onProgress(bytesUploaded, bytesTotal) {
         onProgress(Math.round((bytesUploaded / bytesTotal) * 100));
       },
