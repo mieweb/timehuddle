@@ -67,6 +67,11 @@ const SCRIPT_ID = 'ozwell-loader';
 const MOBILE_OVERRIDE_STYLE_ID = 'ozwell-mobile-override';
 const JERRY_BUTTON_STYLE_ID = 'ozwell-jerry-button';
 const JERRY_IFRAME_STYLE_ID = 'ozwell-jerry-iframe-style';
+const JERRY_NUDGE_STYLE_ID = 'ozwell-jerry-nudge-style';
+const JERRY_NUDGE_ID = 'ozwell-jerry-nudge';
+const JERRY_CHAT_WELCOME_TEXT =
+  "Hi! I'm Jerry, your Huddle assistant. I can help you clock in/out, manage tickets, track time, and navigate the app. How can I help you today?";
+const JERRY_NUDGE_TEXT = 'Help me help you.';
 
 /** Inject CSS for the Jerry animated avatar button. */
 function injectJerryButtonStyles() {
@@ -75,15 +80,21 @@ function injectJerryButtonStyles() {
   style.id = JERRY_BUTTON_STYLE_ID;
   style.textContent = `
     #ozwell-chat-button {
-      background: #F5A623 !important;
-      border-radius: 14px !important;
-      box-shadow: 0 4px 16px rgba(245, 166, 35, 0.4) !important;
-      flex-direction: column !important;
-      gap: 2px !important;
+      background: transparent !important;
+      border: none !important;
+      border-radius: 0 !important;
+      box-shadow: none !important;
       animation: jerry-bob 3.5s ease-in-out infinite !important;
+      width: 90px !important;
+      height: 90px !important;
+      position: fixed !important;
+      overflow: visible !important;
+      display: grid !important;
+      place-items: center !important;
+      padding: 0 !important;
     }
     #ozwell-chat-button:hover {
-      box-shadow: 0 6px 22px rgba(245, 166, 35, 0.55) !important;
+      box-shadow: none !important;
     }
     #ozwell-chat-button.wiggling {
       animation: ozwell-wiggle 0.8s ease-in-out !important;
@@ -92,29 +103,10 @@ function injectJerryButtonStyles() {
       0%, 100% { transform: translateY(0px); }
       50%       { transform: translateY(-5px); }
     }
-    .jerry-eyes {
-      display: flex;
-      gap: 8px;
-    }
-    .jerry-eye {
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: #3B2000;
-      animation: jerry-blink 5s ease-in-out infinite;
-      transform-origin: center;
-    }
-    .jerry-eye.r { animation-delay: 0.07s; }
-    @keyframes jerry-blink {
-      0%, 88%, 100% { transform: scaleY(1); }
-      93%           { transform: scaleY(0.08); }
-    }
-    .jerry-j {
-      font-size: 24px;
-      font-weight: 700;
-      line-height: 1;
-      color: #3B2000;
-      font-family: Georgia, 'Times New Roman', serif;
+    .jerry-clock-logo {
+      width: 78px;
+      height: 78px;
+      display: block;
     }
   `;
   document.head.appendChild(style);
@@ -125,12 +117,79 @@ function injectJerryButtonContent() {
   const button = document.getElementById('ozwell-chat-button');
   if (!button) return;
   button.innerHTML = `
-    <div class="jerry-eyes">
-      <div class="jerry-eye l"></div>
-      <div class="jerry-eye r"></div>
-    </div>
-    <div class="jerry-j">J</div>
+    <svg class="jerry-clock-logo" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+      <rect x="27" y="3" width="10" height="7" rx="2" fill="#0E4B87"></rect>
+      <rect x="45" y="12" width="10" height="7" rx="2" transform="rotate(35 45 12)" fill="#0E4B87"></rect>
+      <circle cx="33" cy="33" r="24" fill="#FFFFFF" stroke="#0E4B87" stroke-width="5" />
+      <path d="M17 45 L11 57 L23 53" fill="#FFFFFF" stroke="#0E4B87" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+      <circle cx="24" cy="31" r="2.7" fill="#0E4B87" />
+      <circle cx="33" cy="31" r="2.7" fill="#0E4B87" />
+      <line x1="33" y1="31" x2="41" y2="23" stroke="#0E4B87" stroke-width="5" stroke-linecap="round" />
+      <path d="M24 40 Q33 47 42 40" fill="none" stroke="#0E4B87" stroke-width="5" stroke-linecap="round" />
+    </svg>
   `;
+}
+
+function injectJerryNudgeStyles() {
+  if (document.getElementById(JERRY_NUDGE_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = JERRY_NUDGE_STYLE_ID;
+  style.textContent = `
+    #${JERRY_NUDGE_ID} {
+      position: fixed;
+      right: 110px;
+      bottom: 42px;
+      max-width: 220px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #ffffff;
+      color: #0b2e57;
+      border: 1px solid #d9e7f5;
+      box-shadow: 0 8px 24px rgba(11, 46, 87, 0.25);
+      font-size: 14px;
+      line-height: 1.3;
+      z-index: 10001;
+      animation: jerry-nudge-in 240ms ease-out;
+      pointer-events: none;
+    }
+    #${JERRY_NUDGE_ID}::after {
+      content: '';
+      position: absolute;
+      right: -6px;
+      bottom: 16px;
+      width: 12px;
+      height: 12px;
+      background: #ffffff;
+      border-right: 1px solid #d9e7f5;
+      border-bottom: 1px solid #d9e7f5;
+      transform: rotate(-45deg);
+    }
+    @keyframes jerry-nudge-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (max-width: 767px) {
+      #${JERRY_NUDGE_ID} {
+        right: 96px;
+        bottom: calc(88px + env(safe-area-inset-bottom));
+        max-width: 190px;
+        font-size: 13px;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function showJerryNudge(text: string) {
+  if (document.getElementById(JERRY_NUDGE_ID)) return;
+  const nudge = document.createElement('div');
+  nudge.id = JERRY_NUDGE_ID;
+  nudge.textContent = text;
+  document.body.appendChild(nudge);
+}
+
+function hideJerryNudge() {
+  document.getElementById(JERRY_NUDGE_ID)?.remove();
 }
 
 /** Keep list/newline formatting readable inside the iframe chat bubbles. */
@@ -155,19 +214,66 @@ function injectIframeMessageStyles() {
   return true;
 }
 
-/** Override the loader's full-screen mobile styles — bottom-sheet pattern. */
+/** Ensure the welcome prompt exists in the widget message list when chat opens. */
+function ensureWelcomePromptInIframe(text: string) {
+  const iframe = document.querySelector('#ozwell-chat-container iframe') as HTMLIFrameElement | null;
+  if (!iframe?.contentDocument) return false;
+
+  const doc = iframe.contentDocument;
+  const messagesEl = doc.getElementById('messages');
+  if (!messagesEl) return false;
+
+  const alreadyShown = Array.from(messagesEl.querySelectorAll('.message')).some(
+    (el) => el.textContent?.trim() === text,
+  );
+  if (alreadyShown) return true;
+
+  const msg = doc.createElement('div');
+  msg.className = 'message welcome';
+  msg.textContent = text;
+  messagesEl.appendChild(msg);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return true;
+}
+
+/** Override loader styles to keep the chat window rounded (not square). */
 function injectMobileOverride() {
   if (document.getElementById(MOBILE_OVERRIDE_STYLE_ID)) return;
   const style = document.createElement('style');
   style.id = MOBILE_OVERRIDE_STYLE_ID;
   style.textContent = `
+    /* Keep a rounded chat-card shape on desktop */
+    #ozwell-chat-wrapper {
+      border-radius: 22px !important;
+      overflow: hidden !important;
+      border: 1px solid #e5e7eb !important;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22) !important;
+    }
+    #ozwell-chat-wrapper.hidden {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      transform: translateY(calc(100% + 64px)) !important;
+      pointer-events: none !important;
+    }
+    #ozwell-chat-wrapper.visible {
+      opacity: 1 !important;
+      visibility: visible !important;
+      transform: translateY(0) !important;
+      pointer-events: auto !important;
+    }
+
     @media (max-width: 767px) {
       /* FAB: sit above the bottom nav bar */
       #ozwell-chat-button {
         bottom: calc(72px + env(safe-area-inset-bottom)) !important;
         right: 20px !important;
-        width: 52px !important;
-        height: 52px !important;
+        width: 78px !important;
+        height: 78px !important;
+      }
+
+      #ozwell-chat-button .jerry-clock-logo {
+        width: 68px;
+        height: 68px;
       }
 
       /* Backdrop that dims the app when chat is open */
@@ -187,31 +293,33 @@ function injectMobileOverride() {
         opacity: 1 !important;
       }
 
-      /* Bottom sheet: slides up from the bottom */
+      /* Rounded floating chat card on mobile */
       #ozwell-chat-wrapper {
         position: fixed !important;
         top: auto !important;
-        left: 0 !important;
-        right: 0 !important;
-        bottom: 0 !important;
-        width: 100% !important;
+        left: 12px !important;
+        right: 12px !important;
+        bottom: calc(12px + env(safe-area-inset-bottom)) !important;
+        width: auto !important;
         height: 72vh !important;
         max-height: 600px !important;
-        border-radius: 20px 20px 0 0 !important;
-        border: none !important;
-        border-top: 1px solid #e5e7eb !important;
-        box-shadow: 0 -4px 32px rgba(0, 0, 0, 0.18) !important;
-        padding-bottom: env(safe-area-inset-bottom) !important;
+        border-radius: 22px !important;
+        border: 1px solid #e5e7eb !important;
+        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28) !important;
+        padding-bottom: 0 !important;
         z-index: 9999 !important;
       }
       #ozwell-chat-wrapper.hidden {
-        opacity: 1 !important;
-        transform: translateY(100%) !important;
+        opacity: 0 !important;
+        visibility: hidden !important;
+        transform: translateY(calc(100% + 64px)) !important;
         pointer-events: none !important;
       }
       #ozwell-chat-wrapper.visible {
         opacity: 1 !important;
+        visibility: visible !important;
         transform: translateY(0) !important;
+        pointer-events: auto !important;
       }
 
       /* Drag handle pill at the top of the sheet */
@@ -299,10 +407,11 @@ export const OzwellWidget: React.FC = () => {
       debug: true, // forced on for debugging
       title: 'Jerry Assistant',
       placeholder: 'Ask Jerry anything...',
-      welcomeMessage: "Hi! I'm Jerry, your Huddle assistant. I can help you clock in/out, manage tickets, track time, and navigate the app. How can I help you today?",
+      welcomeMessage: JERRY_CHAT_WELCOME_TEXT,
     };
 
     injectMobileOverride();
+    injectJerryNudgeStyles();
     injectJerryButtonStyles(); // inject before script so button is styled on creation
 
     const script = document.createElement('script');
@@ -315,27 +424,52 @@ export const OzwellWidget: React.FC = () => {
       document.getElementById(SCRIPT_ID)?.remove();
       document.getElementById(MOBILE_OVERRIDE_STYLE_ID)?.remove();
       document.getElementById(JERRY_BUTTON_STYLE_ID)?.remove();
+      document.getElementById(JERRY_NUDGE_STYLE_ID)?.remove();
+      hideJerryNudge();
       delete window.OzwellChatConfig;
     };
   }, []); // intentionally empty — run once
 
   // ── Effect 2: inject Jerry button once widget is ready ────────────────────
   useEffect(() => {
-    const onReady = () => {
-      injectJerryButtonStyles();
-      injectJerryButtonContent();
-      // Iframe content can initialize shortly after ready; retry briefly.
+    let buttonClickHandler: (() => void) | null = null;
+
+    const runIframeEnhancements = () => {
       let attempts = 0;
       const timer = window.setInterval(() => {
         attempts += 1;
-        const done = injectIframeMessageStyles();
-        if (done || attempts >= 20) window.clearInterval(timer);
+        const styled = injectIframeMessageStyles();
+        const welcomed = ensureWelcomePromptInIframe(JERRY_CHAT_WELCOME_TEXT);
+        if ((styled && welcomed) || attempts >= 20) window.clearInterval(timer);
       }, 150);
     };
+
+    const onReady = () => {
+      injectJerryButtonStyles();
+      injectJerryButtonContent();
+      showJerryNudge(JERRY_NUDGE_TEXT);
+
+      const button = document.getElementById('ozwell-chat-button');
+      if (button && !buttonClickHandler) {
+        buttonClickHandler = () => {
+          hideJerryNudge();
+          runIframeEnhancements();
+        };
+        button.addEventListener('click', buttonClickHandler);
+      }
+
+      runIframeEnhancements();
+    };
+
     document.addEventListener('ozwell-chat-ready', onReady);
     // Widget may already be ready if this effect runs late
     if (document.getElementById('ozwell-chat-button')) onReady();
-    return () => document.removeEventListener('ozwell-chat-ready', onReady);
+
+    return () => {
+      document.removeEventListener('ozwell-chat-ready', onReady);
+      const button = document.getElementById('ozwell-chat-button');
+      if (button && buttonClickHandler) button.removeEventListener('click', buttonClickHandler);
+    };
   }, []);
 
   // ── Effect 3: sync live context to widget ─────────────────────────────────
