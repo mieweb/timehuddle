@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
@@ -376,5 +377,56 @@ describe("media routes", () => {
 
     expect(res.statusCode).toBe(403);
     expect(res.json().error).toBe("Forbidden");
+  });
+
+  it("requires auth for PulseVault resolve playback", async () => {
+    const videoid = randomUUID();
+    const docId = new ObjectId();
+    await mediaItemsCollection().insertOne({
+      _id: docId,
+      userId,
+      type: "video",
+      mimeType: "video/mp4",
+      url: `http://localhost:4000/v1/video/${videoid}`,
+      videoid,
+      filename: "resolve-auth.mp4",
+      size: 321,
+      uploadedAt: new Date(),
+    });
+
+    const res = await app.inject({ method: "GET", url: `/v1/video/${videoid}` });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("enforces shared-team gating for PulseVault media playback", async () => {
+    const videoid = randomUUID();
+    const docId = new ObjectId();
+    await mediaItemsCollection().insertOne({
+      _id: docId,
+      userId: teammateUserId,
+      type: "video",
+      mimeType: "video/mp4",
+      url: `http://localhost:4000/v1/video/${videoid}`,
+      videoid,
+      filename: "resolve-shared.mp4",
+      size: 654,
+      uploadedAt: new Date(),
+    });
+
+    const forbiddenRes = await app.inject({
+      method: "GET",
+      url: `/v1/video/${videoid}`,
+      headers: { cookie: outsiderCookie },
+    });
+    expect(forbiddenRes.statusCode).toBe(403);
+
+    const teammateRes = await app.inject({
+      method: "GET",
+      url: `/v1/video/${videoid}`,
+      headers: { cookie },
+    });
+    // Authorized viewer reaches storage resolution path (often 404 in tests due to no file).
+    expect(teammateRes.statusCode).not.toBe(401);
+    expect(teammateRes.statusCode).not.toBe(403);
   });
 });

@@ -11,6 +11,7 @@ import pulseVault, {
 import { fromNodeHeaders } from "better-auth/node";
 import { requireAuth } from "../middleware/require-auth.js";
 import { auth } from "../lib/auth.js";
+import { mediaItemsCollection, teamsCollection } from "../models/index.js";
 import { ticketService } from "../services/ticket.service.js";
 import { attachmentService } from "../services/attachment.service.js";
 import { mediaService } from "../services/media.service.js";
@@ -23,6 +24,10 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.resolve(__dirname, "../../data/videos");
+
+function pulseVaultHttpError(statusCode: number, message: string): Error & { statusCode: number } {
+  return Object.assign(new Error(message), { statusCode });
+}
 
 async function resolveUploadedFilename(ctx: any): Promise<string> {
   const metadataFilename =
@@ -57,20 +62,38 @@ function resolveUploadedTitle(filename: string, fallbackVideoid: string): string
 const storage = createLocalStorage({ workspaceDir: dataDir });
 
 async function authorizeHandler(request: any, ctx: any) {
-  if (ctx.phase === "resolve") return; // playback is open
   const session = await auth.api.getSession({
     headers: fromNodeHeaders(request.headers as Record<string, string | string[]>),
   });
   if (!session) {
-    throw { statusCode: 401, message: "Unauthorized" };
+    throw pulseVaultHttpError(401, "Unauthorized");
+  }
+
+  if (ctx.phase === "resolve") {
+    // Tighten playback visibility for media library videos to match
+    // /v1/media/user/:userId shared-team gating.
+    const mediaItem = await mediaItemsCollection().findOne({ videoid: ctx.videoid });
+    if (mediaItem) {
+      if (mediaItem.userId === session.user.id) return;
+      const sharedTeam = await teamsCollection().findOne({
+        members: { $all: [session.user.id, mediaItem.userId] },
+        isPersonal: { $ne: true },
+      });
+      if (!sharedTeam) {
+        throw pulseVaultHttpError(403, "Forbidden");
+      }
+    }
+    // Non-media resolve paths still require auth; deeper per-entity auth can be
+    // tightened in a follow-up without reopening public read access.
+    return;
   }
 
   const reservation = getReservation(ctx.videoid);
   if (!reservation) {
-    throw { statusCode: 403, message: "Video reservation required" };
+    throw pulseVaultHttpError(403, "Video reservation required");
   }
   if (reservation.userId !== session.user.id) {
-    throw { statusCode: 403, message: "Forbidden" };
+    throw pulseVaultHttpError(403, "Forbidden");
   }
 }
 
