@@ -115,7 +115,7 @@ interface ProfileFeedProps {
 }
 
 export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
-  const { user: _sessionUser } = useSession();
+  useSession();
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
