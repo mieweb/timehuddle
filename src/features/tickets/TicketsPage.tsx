@@ -707,6 +707,9 @@ export const TicketsPage: React.FC = () => {
     }
   }, [deleteId, refetch]);
 
+  const noFocusRingClass =
+    'ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:border-blue-300 focus-visible:border-blue-300';
+
   if (!teamsReady) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -716,595 +719,611 @@ export const TicketsPage: React.FC = () => {
   }
 
   return (
-    <AppPage fullWidth>
+    <AppPage fullWidth className="flex h-full min-h-0 flex-col">
       {/* ── Header: New Ticket + Search ── */}
-      <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="primary"
-            leftIcon={<FontAwesomeIcon icon={faPlus} />}
-            onClick={() => setShowCreate(true)}
-            className="shrink-0"
-          >
-            New Ticket
-          </Button>
-
-          <div className="relative min-w-0 flex-1">
-            <FontAwesomeIcon
-              icon={faSearch}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
-            />
-            <Input
-              label="Search"
-              hideLabel
-              placeholder="Search tickets…"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8"
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+        <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="primary"
               size="sm"
-            />
+              leftIcon={<FontAwesomeIcon icon={faPlus} />}
+              onClick={() => setShowCreate(true)}
+              className="shrink-0 rounded-lg"
+            >
+              New Ticket
+            </Button>
+
+            <div className="relative min-w-0 flex-1">
+              <FontAwesomeIcon
+                icon={faSearch}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
+              />
+              <Input
+                label="Search"
+                hideLabel
+                placeholder="Search tickets…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`pl-8 rounded-lg ${noFocusRingClass}`}
+                size="sm"
+              />
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* Create ticket form */}
-      {showCreate && (
-        <Card
-          variant="outlined"
-          padding="md"
-          className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20"
-        >
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <Text size="sm" weight="semibold">
-                New Ticket
-              </Text>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowCreate(false)}
-                aria-label="Close"
-              >
-                <FontAwesomeIcon icon={faXmark} />
-              </Button>
+        {/* Create ticket form */}
+        {showCreate && (
+          <Card
+            padding="sm"
+            className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20 shadow-lg shadow-black/10 dark:shadow-black/20"
+          >
+            <CardContent>
+              <div className="flex items-center justify-between pl-2">
+                <Text size="sm" weight="semibold">
+                  New Ticket
+                </Text>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowCreate(false)}
+                  aria-label="Close"
+                  className="h-8 w-8 rounded-full hover:bg-blue-100 dark:hover:bg-blue-800"
+                >
+                  <FontAwesomeIcon icon={faXmark} className="text-xs" />
+                </Button>
+              </div>
+              <div className="mt-2 space-y-2">
+                <Input
+                  label="Title"
+                  hideLabel
+                  size="sm"
+                  placeholder={createTitleFetching ? 'Fetching title…' : 'Ticket title'}
+                  value={createTitle}
+                  onChange={(e) => setCreateTitle(e.target.value)}
+                  className={noFocusRingClass}
+                  autoFocus
+                  disabled={createTitleFetching}
+                  onPaste={(e) => {
+                    const text = (
+                      e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData
+                    )
+                      ?.getData('text')
+                      ?.trim();
+                    if (!text || !isGithubIssueUrl(text)) return;
+                    e.preventDefault();
+                    setCreateGithub(text);
+                    setCreateTitleFetching(true);
+                    void fetchIssueTitle(text).then((title) => {
+                      if (title) setCreateTitle(title);
+                      setCreateTitleFetching(false);
+                    });
+                  }}
+                />
+                <Input
+                  label="GitHub URL"
+                  hideLabel
+                  size="sm"
+                  type="url"
+                  placeholder="GitHub URL (optional)"
+                  value={createGithub}
+                  className={noFocusRingClass}
+                  onChange={(e) => {
+                    const url = e.target.value;
+                    setCreateGithub(url);
+                    if (createFetchTimer.current) clearTimeout(createFetchTimer.current);
+                    if (isGithubIssueUrl(url)) {
+                      createFetchTimer.current = setTimeout(() => {
+                        setCreateTitleFetching(true);
+                        void fetchIssueTitle(url).then((title) => {
+                          if (title) setCreateTitle(title);
+                          setCreateTitleFetching(false);
+                        });
+                      }, 300);
+                    }
+                  }}
+                />
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleCreate}
+                  isLoading={createLoading}
+                  loadingText="Creating…"
+                  disabled={!createTitle.trim()}
+                >
+                  Create Ticket
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── Unified ticket list (GitHub style) ── */}
+        <Card padding="none" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          {/* GitHub-style header: Open / Closed tabs + filter dropdowns */}
+          <div
+            className={`sticky top-0 z-30 px-4 py-4 md:relative md:top-auto md:z-30 ${Capacitor.isNativePlatform() ? 'border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80' : 'rounded-t-xl border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-800/70 dark:supports-backdrop-filter:bg-neutral-800/50'}`}
+          >
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-2">
+              {/* Left: status tabs */}
+              <div className="flex items-center gap-4">
+                <button
+                  role="tab"
+                  aria-selected={statusFilter === 'open'}
+                  onClick={() => setStatusFilter('open')}
+                  className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                    statusFilter === 'open'
+                      ? 'text-neutral-900 dark:text-neutral-100'
+                      : 'text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
+                  }`}
+                >
+                  <FontAwesomeIcon icon={faCircleDot} className="text-green-500" />
+                  {openCount} Open
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={statusFilter === 'closed'}
+                  onClick={() => setStatusFilter('closed')}
+                  className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                    statusFilter === 'closed'
+                      ? 'text-neutral-900 dark:text-neutral-100'
+                      : 'text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
+                  }`}
+                >
+                  <FontAwesomeIcon icon={faCircleCheck} className="text-purple-500" />
+                  {closedCount} Closed
+                </button>
+              </div>
+
+              {/* Right: filter dropdowns */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:pl-0">
+                {teams.length > 1 && (
+                  <FilterDropdown
+                    label="Team"
+                    activeLabel={activeTeamLabel}
+                    open={openFilterMenu === 'team'}
+                    onOpenChange={(open) => setOpenFilterMenu(open ? 'team' : null)}
+                  >
+                    <DropdownItem
+                      onClick={() => setTeamFilter(null)}
+                      className={!teamFilter ? 'font-semibold' : ''}
+                    >
+                      All teams
+                    </DropdownItem>
+                    <DropdownSeparator />
+                    {teams.map((t: Team) => (
+                      <DropdownItem
+                        key={t.id}
+                        onClick={() => setTeamFilter(t.id)}
+                        className={teamFilter === t.id ? 'font-semibold' : ''}
+                      >
+                        {t.name}
+                      </DropdownItem>
+                    ))}
+                  </FilterDropdown>
+                )}
+                <FilterDropdown
+                  label="Priority"
+                  activeLabel={activePriorityLabel}
+                  open={openFilterMenu === 'priority'}
+                  onOpenChange={(open) => setOpenFilterMenu(open ? 'priority' : null)}
+                >
+                  <DropdownItem
+                    onClick={() => setPriorityFilter(null)}
+                    className={!priorityFilter ? 'font-semibold' : ''}
+                  >
+                    Any priority
+                  </DropdownItem>
+                  <DropdownSeparator />
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <DropdownItem
+                      key={p.value}
+                      onClick={() => setPriorityFilter(priorityFilter === p.value ? null : p.value)}
+                      className={priorityFilter === p.value ? 'font-semibold' : ''}
+                    >
+                      {p.label}
+                    </DropdownItem>
+                  ))}
+                </FilterDropdown>
+                <FilterDropdown
+                  label="Status"
+                  activeLabel={activeStatusDetailLabel}
+                  placement="bottom-end"
+                  open={openFilterMenu === 'status'}
+                  onOpenChange={(open) => setOpenFilterMenu(open ? 'status' : null)}
+                >
+                  <DropdownItem
+                    onClick={() => setStatusDetailFilter(null)}
+                    className={!statusDetailFilter ? 'font-semibold' : ''}
+                  >
+                    Any status
+                  </DropdownItem>
+                  <DropdownSeparator />
+                  {STATUS_OPTIONS.filter(
+                    (s) => s.value !== 'open' && s.value !== 'closed' && s.value !== 'reviewed',
+                  ).map((s) => (
+                    <DropdownItem
+                      key={s.value}
+                      onClick={() =>
+                        setStatusDetailFilter(statusDetailFilter === s.value ? null : s.value)
+                      }
+                      className={statusDetailFilter === s.value ? 'font-semibold' : ''}
+                    >
+                      {s.label}
+                    </DropdownItem>
+                  ))}
+                </FilterDropdown>
+                <FilterDropdown
+                  label="Assignee"
+                  activeLabel={activeAssigneeLabel}
+                  placement="bottom-end"
+                  open={openFilterMenu === 'assignee'}
+                  onOpenChange={(open) => setOpenFilterMenu(open ? 'assignee' : null)}
+                >
+                  <DropdownItem
+                    onClick={() => setAssigneeFilter(null)}
+                    className={assigneeFilter === null ? 'font-semibold' : ''}
+                  >
+                    Any
+                  </DropdownItem>
+                  <DropdownSeparator />
+                  <DropdownItem
+                    onClick={() =>
+                      setAssigneeFilter(
+                        assigneeFilter === '__unassigned__' ? null : '__unassigned__',
+                      )
+                    }
+                    className={assigneeFilter === '__unassigned__' ? 'font-semibold' : ''}
+                  >
+                    Unassigned
+                  </DropdownItem>
+                  {sortedMembers.length > 0 && <DropdownSeparator />}
+                  {sortedMembers.map((m) => (
+                    <DropdownItem
+                      key={m.id}
+                      onClick={() => setAssigneeFilter(assigneeFilter === m.id ? null : m.id)}
+                      className={assigneeFilter === m.id ? 'font-semibold' : ''}
+                    >
+                      {m.id === userId ? `${m.name || m.email} (you)` : m.name || m.email}
+                    </DropdownItem>
+                  ))}
+                </FilterDropdown>
+              </div>
             </div>
-            <div className="mt-3 space-y-2">
+          </div>
+
+          <div className="scrollbar-mieweb scrollbar-mieweb-visible min-h-0 flex-1 overflow-y-scroll">
+            {/* Ticket rows */}
+            {filteredTickets.length > 0 ? (
+              <ul
+                ref={ticketListRef}
+                className="divide-y divide-neutral-100 dark:divide-neutral-800"
+                aria-label={statusFilter === 'open' ? 'Open tickets' : 'Closed tickets'}
+              >
+                {filteredTickets.map((t) => (
+                  <TicketRow
+                    key={t.id}
+                    ticket={t}
+                    isCreator={t.createdBy === userId}
+                    assigneeName={getAssigneeName(t.assignedTo)}
+                    assigneeId={t.assignedTo}
+                    createdByName={getAssigneeName(t.createdBy)}
+                    suppressAvatars={
+                      openFilterMenu !== 'team' &&
+                      openFilterMenu !== 'status' &&
+                      suppressedAvatarIds.includes(t.id)
+                    }
+                    onEditRequest={openEditModal}
+                    onDeleteRequest={setDeleteId}
+                    onChangeStatusRequest={(ticket) => {
+                      setChangeStatusTicket(ticket);
+                      setChangeStatusValue(ticket.status || 'open');
+                    }}
+                    onShareWithTimeharbor={async (ticket, shared) => {
+                      try {
+                        await shareTicketWithTimeharbor(ticket.id, shared);
+                        // Optimistically update local state
+                        setTickets((prev) =>
+                          prev.map((t) =>
+                            t.id === ticket.id ? { ...t, sharedWithTimeharbor: shared } : t,
+                          ),
+                        );
+                      } catch {
+                        // Silently ignore — user can retry
+                      }
+                    }}
+                  />
+                ))}
+              </ul>
+            ) : (
+              <div className="px-4 py-10 text-center">
+                <Text variant="muted" size="sm">
+                  {searchQuery
+                    ? 'No tickets match your search.'
+                    : statusFilter === 'open'
+                      ? 'No open tickets. Create one to get started!'
+                      : 'No closed tickets.'}
+                </Text>
+              </div>
+            )}
+          </div>
+        </Card>
+
+        {/* Edit ticket modal (creator only) */}
+        <Modal open={!!editTicket} onOpenChange={(open) => !open && setEditTicket(null)}>
+          <ModalHeader>
+            <ModalTitle>Edit Ticket</ModalTitle>
+            <ModalClose />
+          </ModalHeader>
+          <ModalBody>
+            <div className="space-y-4">
               <Input
-                label="Title"
-                hideLabel
-                placeholder={createTitleFetching ? 'Fetching title…' : 'Ticket title'}
-                value={createTitle}
-                onChange={(e) => setCreateTitle(e.target.value)}
+                label={titleFetching ? 'Title (fetching…)' : 'Title'}
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                className={noFocusRingClass}
                 autoFocus
-                disabled={createTitleFetching}
+                disabled={titleFetching}
                 onPaste={(e) => {
                   const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)
                     ?.getData('text')
                     ?.trim();
                   if (!text || !isGithubIssueUrl(text)) return;
                   e.preventDefault();
-                  setCreateGithub(text);
-                  setCreateTitleFetching(true);
+                  setEditGithub(text);
+                  setTitleFetching(true);
                   void fetchIssueTitle(text).then((title) => {
-                    if (title) setCreateTitle(title);
-                    setCreateTitleFetching(false);
+                    if (title) setEditTitle(title);
+                    setTitleFetching(false);
                   });
                 }}
               />
+              <Textarea
+                label="Description"
+                placeholder="Add a description…"
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                className={noFocusRingClass}
+                autoResize
+                rows={3}
+              />
               <Input
                 label="GitHub URL"
-                hideLabel
                 type="url"
-                placeholder="GitHub URL (optional)"
-                value={createGithub}
+                placeholder="https://github.com/…"
+                value={editGithub}
+                className={noFocusRingClass}
                 onChange={(e) => {
                   const url = e.target.value;
-                  setCreateGithub(url);
-                  if (createFetchTimer.current) clearTimeout(createFetchTimer.current);
+                  setEditGithub(url);
+                  if (editFetchTimer.current) clearTimeout(editFetchTimer.current);
                   if (isGithubIssueUrl(url)) {
-                    createFetchTimer.current = setTimeout(() => {
-                      setCreateTitleFetching(true);
+                    editFetchTimer.current = setTimeout(() => {
+                      setTitleFetching(true);
                       void fetchIssueTitle(url).then((title) => {
-                        if (title) setCreateTitle(title);
-                        setCreateTitleFetching(false);
+                        if (title) setEditTitle(title);
+                        setTitleFetching(false);
                       });
                     }, 300);
                   }
                 }}
               />
-              <Button
-                variant="primary"
-                onClick={handleCreate}
-                isLoading={createLoading}
-                loadingText="Creating…"
-                disabled={!createTitle.trim()}
-              >
-                Create Ticket
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ── Unified ticket list (GitHub style) ── */}
-      <Card padding="none" style={{ overflow: 'visible' }}>
-        {/* GitHub-style header: Open / Closed tabs + filter dropdowns */}
-        <div
-          className={`sticky top-14 z-30 px-4 py-2.5 md:relative md:top-auto md:z-30 ${Capacitor.isNativePlatform() ? 'border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80' : 'rounded-t-xl border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-800/70 dark:supports-backdrop-filter:bg-neutral-800/50'}`}
-        >
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-2">
-            {/* Left: status tabs */}
-            <div className="flex items-center gap-4">
-              <button
-                role="tab"
-                aria-selected={statusFilter === 'open'}
-                onClick={() => setStatusFilter('open')}
-                className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                  statusFilter === 'open'
-                    ? 'text-neutral-900 dark:text-neutral-100'
-                    : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-                }`}
-              >
-                <FontAwesomeIcon icon={faCircleDot} className="text-green-500" />
-                {openCount} Open
-              </button>
-              <button
-                role="tab"
-                aria-selected={statusFilter === 'closed'}
-                onClick={() => setStatusFilter('closed')}
-                className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                  statusFilter === 'closed'
-                    ? 'text-neutral-900 dark:text-neutral-100'
-                    : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-                }`}
-              >
-                <FontAwesomeIcon icon={faCircleCheck} className="text-purple-500" />
-                {closedCount} Closed
-              </button>
-            </div>
-
-            {/* Right: filter dropdowns */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:pl-0">
-              {teams.length > 1 && (
-                <FilterDropdown
-                  label="Team"
-                  activeLabel={activeTeamLabel}
-                  open={openFilterMenu === 'team'}
-                  onOpenChange={(open) => setOpenFilterMenu(open ? 'team' : null)}
-                >
-                  <DropdownItem
-                    onClick={() => setTeamFilter(null)}
-                    className={!teamFilter ? 'font-semibold' : ''}
-                  >
-                    All teams
-                  </DropdownItem>
-                  <DropdownSeparator />
-                  {teams.map((t: Team) => (
-                    <DropdownItem
-                      key={t.id}
-                      onClick={() => setTeamFilter(t.id)}
-                      className={teamFilter === t.id ? 'font-semibold' : ''}
-                    >
-                      {t.name}
-                    </DropdownItem>
-                  ))}
-                </FilterDropdown>
-              )}
-              <FilterDropdown
-                label="Priority"
-                activeLabel={activePriorityLabel}
-                open={openFilterMenu === 'priority'}
-                onOpenChange={(open) => setOpenFilterMenu(open ? 'priority' : null)}
-              >
-                <DropdownItem
-                  onClick={() => setPriorityFilter(null)}
-                  className={!priorityFilter ? 'font-semibold' : ''}
-                >
-                  Any priority
-                </DropdownItem>
-                <DropdownSeparator />
-                {PRIORITY_OPTIONS.map((p) => (
-                  <DropdownItem
-                    key={p.value}
-                    onClick={() => setPriorityFilter(priorityFilter === p.value ? null : p.value)}
-                    className={priorityFilter === p.value ? 'font-semibold' : ''}
-                  >
-                    {p.label}
-                  </DropdownItem>
-                ))}
-              </FilterDropdown>
-              <FilterDropdown
-                label="Status"
-                activeLabel={activeStatusDetailLabel}
-                placement="bottom-end"
-                open={openFilterMenu === 'status'}
-                onOpenChange={(open) => setOpenFilterMenu(open ? 'status' : null)}
-              >
-                <DropdownItem
-                  onClick={() => setStatusDetailFilter(null)}
-                  className={!statusDetailFilter ? 'font-semibold' : ''}
-                >
-                  Any status
-                </DropdownItem>
-                <DropdownSeparator />
-                {STATUS_OPTIONS.filter(
-                  (s) => s.value !== 'open' && s.value !== 'closed' && s.value !== 'reviewed',
-                ).map((s) => (
-                  <DropdownItem
-                    key={s.value}
-                    onClick={() =>
-                      setStatusDetailFilter(statusDetailFilter === s.value ? null : s.value)
-                    }
-                    className={statusDetailFilter === s.value ? 'font-semibold' : ''}
-                  >
-                    {s.label}
-                  </DropdownItem>
-                ))}
-              </FilterDropdown>
-              <FilterDropdown
+              <Select
                 label="Assignee"
-                activeLabel={activeAssigneeLabel}
-                placement="bottom-end"
-                open={openFilterMenu === 'assignee'}
-                onOpenChange={(open) => setOpenFilterMenu(open ? 'assignee' : null)}
-              >
-                <DropdownItem
-                  onClick={() => setAssigneeFilter(null)}
-                  className={assigneeFilter === null ? 'font-semibold' : ''}
-                >
-                  Any
-                </DropdownItem>
-                <DropdownSeparator />
-                <DropdownItem
-                  onClick={() =>
-                    setAssigneeFilter(assigneeFilter === '__unassigned__' ? null : '__unassigned__')
-                  }
-                  className={assigneeFilter === '__unassigned__' ? 'font-semibold' : ''}
-                >
-                  Unassigned
-                </DropdownItem>
-                {sortedMembers.length > 0 && <DropdownSeparator />}
-                {sortedMembers.map((m) => (
-                  <DropdownItem
-                    key={m.id}
-                    onClick={() => setAssigneeFilter(assigneeFilter === m.id ? null : m.id)}
-                    className={assigneeFilter === m.id ? 'font-semibold' : ''}
-                  >
-                    {m.id === userId ? `${m.name || m.email} (you)` : m.name || m.email}
-                  </DropdownItem>
-                ))}
-              </FilterDropdown>
-            </div>
-          </div>
-        </div>
-
-        {/* Ticket rows */}
-        {filteredTickets.length > 0 ? (
-          <ul
-            ref={ticketListRef}
-            className="divide-y divide-neutral-100 dark:divide-neutral-800"
-            style={{ overflow: 'visible' }}
-            aria-label={statusFilter === 'open' ? 'Open tickets' : 'Closed tickets'}
-          >
-            {filteredTickets.map((t) => (
-              <TicketRow
-                key={t.id}
-                ticket={t}
-                isCreator={t.createdBy === userId}
-                assigneeName={getAssigneeName(t.assignedTo)}
-                assigneeId={t.assignedTo}
-                createdByName={getAssigneeName(t.createdBy)}
-                suppressAvatars={
-                  openFilterMenu !== 'team' &&
-                  openFilterMenu !== 'status' &&
-                  suppressedAvatarIds.includes(t.id)
-                }
-                onEditRequest={openEditModal}
-                onDeleteRequest={setDeleteId}
-                onChangeStatusRequest={(ticket) => {
-                  setChangeStatusTicket(ticket);
-                  setChangeStatusValue(ticket.status || 'open');
-                }}
-                onShareWithTimeharbor={async (ticket, shared) => {
-                  try {
-                    await shareTicketWithTimeharbor(ticket.id, shared);
-                    // Optimistically update local state
-                    setTickets((prev) =>
-                      prev.map((t) =>
-                        t.id === ticket.id ? { ...t, sharedWithTimeharbor: shared } : t,
-                      ),
-                    );
-                  } catch {
-                    // Silently ignore — user can retry
-                  }
-                }}
+                options={memberOptions}
+                value={editAssignee}
+                onValueChange={setEditAssignee}
               />
-            ))}
-          </ul>
-        ) : (
-          <div className="px-4 py-10 text-center">
-            <Text variant="muted" size="sm">
-              {searchQuery
-                ? 'No tickets match your search.'
-                : statusFilter === 'open'
-                  ? 'No open tickets. Create one to get started!'
-                  : 'No closed tickets.'}
-            </Text>
-          </div>
-        )}
-      </Card>
-
-      {/* Edit ticket modal (creator only) */}
-      <Modal open={!!editTicket} onOpenChange={(open) => !open && setEditTicket(null)}>
-        <ModalHeader>
-          <ModalTitle>Edit Ticket</ModalTitle>
-          <ModalClose />
-        </ModalHeader>
-        <ModalBody>
-          <div className="space-y-4">
-            <Input
-              label={titleFetching ? 'Title (fetching…)' : 'Title'}
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
-              autoFocus
-              disabled={titleFetching}
-              onPaste={(e) => {
-                const text = (e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData)
-                  ?.getData('text')
-                  ?.trim();
-                if (!text || !isGithubIssueUrl(text)) return;
-                e.preventDefault();
-                setEditGithub(text);
-                setTitleFetching(true);
-                void fetchIssueTitle(text).then((title) => {
-                  if (title) setEditTitle(title);
-                  setTitleFetching(false);
-                });
-              }}
-            />
-            <Textarea
-              label="Description"
-              placeholder="Add a description…"
-              value={editDescription}
-              onChange={(e) => setEditDescription(e.target.value)}
-              autoResize
-              rows={3}
-            />
-            <Input
-              label="GitHub URL"
-              type="url"
-              placeholder="https://github.com/…"
-              value={editGithub}
-              onChange={(e) => {
-                const url = e.target.value;
-                setEditGithub(url);
-                if (editFetchTimer.current) clearTimeout(editFetchTimer.current);
-                if (isGithubIssueUrl(url)) {
-                  editFetchTimer.current = setTimeout(() => {
-                    setTitleFetching(true);
-                    void fetchIssueTitle(url).then((title) => {
-                      if (title) setEditTitle(title);
-                      setTitleFetching(false);
-                    });
-                  }, 300);
-                }
-              }}
-            />
-            <Select
-              label="Assignee"
-              options={memberOptions}
-              value={editAssignee}
-              onValueChange={setEditAssignee}
-            />
-            <Select
-              label="Priority"
-              options={[{ value: '', label: 'No Priority' }, ...PRIORITY_OPTIONS]}
-              value={editPriority}
-              onValueChange={setEditPriority}
-            />
-          </div>
-        </ModalBody>
-        <ModalFooter>
-          <Button variant="outline" onClick={() => setEditTicket(null)}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleSaveEdit}
-            isLoading={editSaving}
-            loadingText="Saving…"
-            disabled={!editTitle.trim()}
-          >
-            Save
-          </Button>
-        </ModalFooter>
-      </Modal>
-
-      {/* Change Status modal */}
-      <Modal
-        open={!!changeStatusTicket}
-        onOpenChange={(open) => !open && setChangeStatusTicket(null)}
-        size="sm"
-      >
-        <ModalHeader>
-          <ModalTitle>Change Status</ModalTitle>
-          <ModalClose />
-        </ModalHeader>
-        <ModalBody>
-          <Select
-            label="Status"
-            options={STATUS_OPTIONS}
-            value={changeStatusValue}
-            onValueChange={setChangeStatusValue}
-          />
-        </ModalBody>
-        <ModalFooter>
-          <Button variant="outline" onClick={() => setChangeStatusTicket(null)}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleSaveStatus}
-            isLoading={changeStatusSaving}
-            loadingText="Saving…"
-          >
-            Save
-          </Button>
-        </ModalFooter>
-      </Modal>
-
-      {/* Ticket Details modal */}
-      {detailsTicket && (
-        <Modal open onOpenChange={(open) => !open && setDetailsTicket(null)}>
-          <ModalHeader>
-            <ModalTitle>Ticket Details</ModalTitle>
-            <ModalClose />
-          </ModalHeader>
-          <ModalBody>
-            <div className="space-y-3">
-              <div>
-                <Text size="xs" variant="muted" weight="medium">
-                  Title
-                </Text>
-                <Text size="sm">{detailsTicket.title}</Text>
-              </div>
-              {detailsTicket.description && (
-                <div>
-                  <Text size="xs" variant="muted" weight="medium">
-                    Description
-                  </Text>
-                  <Text size="sm">{detailsTicket.description}</Text>
-                </div>
-              )}
-              <div className="flex gap-6">
-                <div>
-                  <Text size="xs" variant="muted" weight="medium">
-                    Status
-                  </Text>
-                  <Text size="sm">
-                    {STATUS_OPTIONS.find((s) => s.value === detailsTicket.status)?.label ??
-                      detailsTicket.status ??
-                      'Open'}
-                  </Text>
-                </div>
-                {detailsTicket.priority && (
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Priority
-                    </Text>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span
-                        className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium ${priorityLabelClass(detailsTicket.priority)}`}
-                      />
-                      <Text size="sm">
-                        {detailsTicket.priority.charAt(0).toUpperCase() +
-                          detailsTicket.priority.slice(1)}
-                      </Text>
-                    </div>
-                  </div>
-                )}
-              </div>
-              {detailsTicket.github && (
-                <div>
-                  <Text size="xs" variant="muted" weight="medium">
-                    GitHub
-                  </Text>
-                  <a
-                    href={detailsTicket.github}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-blue-500 hover:underline"
-                  >
-                    {detailsTicket.github}
-                  </a>
-                </div>
-              )}
-              <div className="flex gap-6">
-                <div>
-                  <Text size="xs" variant="muted" weight="medium">
-                    Created By
-                  </Text>
-                  <Text size="sm">
-                    {getAssigneeName(detailsTicket.createdBy) ?? detailsTicket.createdBy}
-                  </Text>
-                </div>
-                <div>
-                  <Text size="xs" variant="muted" weight="medium">
-                    Created At
-                  </Text>
-                  <Text size="sm">
-                    {new Date(detailsTicket.createdAt).toLocaleDateString(undefined, {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric',
-                    })}
-                  </Text>
-                </div>
-              </div>
-              {detailsTicket.assignedTo && (
-                <div>
-                  <Text size="xs" variant="muted" weight="medium">
-                    Assigned To
-                  </Text>
-                  <Text size="sm">
-                    {getAssigneeName(detailsTicket.assignedTo) ?? detailsTicket.assignedTo}
-                  </Text>
-                </div>
-              )}
-              <div className="space-y-1 pt-1">
-                <AttachmentsPanel
-                  key={detailsAttachmentRefresh}
-                  kind="ticket"
-                  entityId={detailsTicket.id}
-                  currentUserId={userId ?? undefined}
-                />
-                <VideoUploadButton
-                  ticketId={detailsTicket.id}
-                  onUploadComplete={() => setDetailsAttachmentRefresh((n) => n + 1)}
-                />
-              </div>
+              <Select
+                label="Priority"
+                options={[{ value: '', label: 'No Priority' }, ...PRIORITY_OPTIONS]}
+                value={editPriority}
+                onValueChange={setEditPriority}
+              />
             </div>
           </ModalBody>
           <ModalFooter>
-            {userId && detailsTicket.assignedTo !== userId && (
-              <Button
-                variant="secondary"
-                onClick={async () => {
-                  await ticketApi.assignTicket(detailsTicket.id, userId);
-                  setDetailsTicket((t) => (t ? { ...t, assignedTo: userId } : t));
-                  void refetch();
-                }}
-              >
-                Assign to me
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => setDetailsTicket(null)}>
-              Close
+            <Button variant="outline" onClick={() => setEditTicket(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleSaveEdit}
+              isLoading={editSaving}
+              loadingText="Saving…"
+              disabled={!editTitle.trim()}
+            >
+              Save
             </Button>
           </ModalFooter>
         </Modal>
-      )}
 
-      {/* Delete confirmation */}
-      <Modal open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)} size="sm">
-        <ModalHeader>
-          <ModalTitle>Delete Ticket?</ModalTitle>
-          <ModalClose />
-        </ModalHeader>
-        <ModalBody>
-          <Text variant="muted" size="sm">
-            This will permanently delete this ticket and remove it from all clock events.
-          </Text>
-        </ModalBody>
-        <ModalFooter>
-          <Button variant="outline" onClick={() => setDeleteId(null)}>
-            Cancel
-          </Button>
-          <Button variant="danger" onClick={handleDelete} isLoading={deleteLoading}>
-            Delete
-          </Button>
-        </ModalFooter>
-      </Modal>
+        {/* Change Status modal */}
+        <Modal
+          open={!!changeStatusTicket}
+          onOpenChange={(open) => !open && setChangeStatusTicket(null)}
+          size="sm"
+        >
+          <ModalHeader>
+            <ModalTitle>Change Status</ModalTitle>
+            <ModalClose />
+          </ModalHeader>
+          <ModalBody>
+            <Select
+              label="Status"
+              options={STATUS_OPTIONS}
+              value={changeStatusValue}
+              onValueChange={setChangeStatusValue}
+            />
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="outline" onClick={() => setChangeStatusTicket(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleSaveStatus}
+              isLoading={changeStatusSaving}
+              loadingText="Saving…"
+            >
+              Save
+            </Button>
+          </ModalFooter>
+        </Modal>
+
+        {/* Ticket Details modal */}
+        {detailsTicket && (
+          <Modal open onOpenChange={(open) => !open && setDetailsTicket(null)}>
+            <ModalHeader>
+              <ModalTitle>Ticket Details</ModalTitle>
+              <ModalClose />
+            </ModalHeader>
+            <ModalBody>
+              <div className="space-y-3">
+                <div>
+                  <Text size="xs" variant="muted" weight="medium">
+                    Title
+                  </Text>
+                  <Text size="sm">{detailsTicket.title}</Text>
+                </div>
+                {detailsTicket.description && (
+                  <div>
+                    <Text size="xs" variant="muted" weight="medium">
+                      Description
+                    </Text>
+                    <Text size="sm">{detailsTicket.description}</Text>
+                  </div>
+                )}
+                <div className="flex gap-6">
+                  <div>
+                    <Text size="xs" variant="muted" weight="medium">
+                      Status
+                    </Text>
+                    <Text size="sm">
+                      {STATUS_OPTIONS.find((s) => s.value === detailsTicket.status)?.label ??
+                        detailsTicket.status ??
+                        'Open'}
+                    </Text>
+                  </div>
+                  {detailsTicket.priority && (
+                    <div>
+                      <Text size="xs" variant="muted" weight="medium">
+                        Priority
+                      </Text>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium ${priorityLabelClass(detailsTicket.priority)}`}
+                        />
+                        <Text size="sm">
+                          {detailsTicket.priority.charAt(0).toUpperCase() +
+                            detailsTicket.priority.slice(1)}
+                        </Text>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {detailsTicket.github && (
+                  <div>
+                    <Text size="xs" variant="muted" weight="medium">
+                      GitHub
+                    </Text>
+                    <a
+                      href={detailsTicket.github}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-500 hover:underline"
+                    >
+                      {detailsTicket.github}
+                    </a>
+                  </div>
+                )}
+                <div className="flex gap-6">
+                  <div>
+                    <Text size="xs" variant="muted" weight="medium">
+                      Created By
+                    </Text>
+                    <Text size="sm">
+                      {getAssigneeName(detailsTicket.createdBy) ?? detailsTicket.createdBy}
+                    </Text>
+                  </div>
+                  <div>
+                    <Text size="xs" variant="muted" weight="medium">
+                      Created At
+                    </Text>
+                    <Text size="sm">
+                      {new Date(detailsTicket.createdAt).toLocaleDateString(undefined, {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </Text>
+                  </div>
+                </div>
+                {detailsTicket.assignedTo && (
+                  <div>
+                    <Text size="xs" variant="muted" weight="medium">
+                      Assigned To
+                    </Text>
+                    <Text size="sm">
+                      {getAssigneeName(detailsTicket.assignedTo) ?? detailsTicket.assignedTo}
+                    </Text>
+                  </div>
+                )}
+                <div className="space-y-1 pt-1">
+                  <AttachmentsPanel
+                    key={detailsAttachmentRefresh}
+                    kind="ticket"
+                    entityId={detailsTicket.id}
+                    currentUserId={userId ?? undefined}
+                  />
+                  <VideoUploadButton
+                    ticketId={detailsTicket.id}
+                    onUploadComplete={() => setDetailsAttachmentRefresh((n) => n + 1)}
+                  />
+                </div>
+              </div>
+            </ModalBody>
+            <ModalFooter>
+              {userId && detailsTicket.assignedTo !== userId && (
+                <Button
+                  variant="secondary"
+                  onClick={async () => {
+                    await ticketApi.assignTicket(detailsTicket.id, userId);
+                    setDetailsTicket((t) => (t ? { ...t, assignedTo: userId } : t));
+                    void refetch();
+                  }}
+                >
+                  Assign to me
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => setDetailsTicket(null)}>
+                Close
+              </Button>
+            </ModalFooter>
+          </Modal>
+        )}
+
+        {/* Delete confirmation */}
+        <Modal open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)} size="sm">
+          <ModalHeader>
+            <ModalTitle>Delete Ticket?</ModalTitle>
+            <ModalClose />
+          </ModalHeader>
+          <ModalBody>
+            <Text variant="muted" size="sm">
+              This will permanently delete this ticket and remove it from all clock events.
+            </Text>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="outline" onClick={() => setDeleteId(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={handleDelete} isLoading={deleteLoading}>
+              Delete
+            </Button>
+          </ModalFooter>
+        </Modal>
+      </div>
     </AppPage>
   );
 };
