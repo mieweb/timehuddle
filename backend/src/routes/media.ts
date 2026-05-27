@@ -10,6 +10,7 @@ import { mediaService } from "../services/media.service.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const thumbnailsDir = path.resolve(__dirname, "../../uploads/thumbnails");
 const mediaDir = path.resolve(__dirname, "../../uploads/media");
+const videosDir = path.resolve(__dirname, "../../data/videos");
 
 function buildImageFilename(userId: string, ext: string): string {
   const hex = randomBytes(8).toString("hex");
@@ -35,6 +36,50 @@ function imageExtFromMime(mimeType: string): string | null {
       return "avif";
     default:
       return null;
+  }
+}
+
+function isAllowedThumbnailMimeType(mimeType: string): boolean {
+  return mimeType === "image/jpeg" || mimeType === "image/png" || mimeType === "image/webp";
+}
+
+function resolveUploadPath(url: string | null, expectedPrefix: string, baseDir: string): string | null {
+  if (!url || !url.startsWith(expectedPrefix)) return null;
+  const rawName = url.slice(expectedPrefix.length);
+  const safeName = path.basename(rawName);
+  if (!safeName) return null;
+  return path.join(baseDir, safeName);
+}
+
+async function cleanupMediaFiles(item: {
+  url: string;
+  thumbnail: string | null;
+  videoid: string | null;
+}): Promise<void> {
+  const cleanupTargets: string[] = [];
+
+  const imagePath = resolveUploadPath(item.url, "/uploads/media/", mediaDir);
+  if (imagePath) cleanupTargets.push(imagePath);
+
+  const thumbnailPath = resolveUploadPath(item.thumbnail, "/uploads/thumbnails/", thumbnailsDir);
+  if (thumbnailPath) cleanupTargets.push(thumbnailPath);
+
+  await Promise.all(
+    cleanupTargets.map(async (targetPath) => {
+      try {
+        await fs.unlink(targetPath);
+      } catch {
+        // Best-effort cleanup: database delete already succeeded.
+      }
+    })
+  );
+
+  if (item.videoid) {
+    try {
+      await fs.rm(path.join(videosDir, item.videoid), { recursive: true, force: true });
+    } catch {
+      // Best-effort cleanup: database delete already succeeded.
+    }
   }
 }
 
@@ -217,8 +262,9 @@ export async function mediaRoutes(app: FastifyInstance) {
       const { id } = req.params as { id: string };
       const userId = req.user!.id;
       const result = await mediaService.remove(userId, id);
-      if (result === "not-found") return reply.status(404).send({ error: "Not found" });
-      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      if (result.status === "not-found") return reply.status(404).send({ error: "Not found" });
+      if (result.status === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      await cleanupMediaFiles(result.item);
       return reply.send({ ok: true });
     }
   );
@@ -294,9 +340,19 @@ export async function mediaRoutes(app: FastifyInstance) {
       const data = await req.file();
       if (!data) return reply.status(400).send({ error: "No file uploaded" });
 
+      if (!isAllowedThumbnailMimeType(data.mimetype)) {
+        return reply.status(400).send({ error: "Unsupported thumbnail type" });
+      }
+
+      const thumbnailBuffer = await data.toBuffer();
+      if (thumbnailBuffer.length === 0) {
+        return reply.status(400).send({ error: "Empty file" });
+      }
+
+      await fs.mkdir(thumbnailsDir, { recursive: true });
       const filename = buildThumbnailFilename(userId);
       const dest = path.join(thumbnailsDir, filename);
-      await fs.writeFile(dest, await data.toBuffer());
+      await fs.writeFile(dest, thumbnailBuffer);
 
       const thumbnailUrl = `/uploads/thumbnails/${filename}`;
 

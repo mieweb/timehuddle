@@ -12,7 +12,7 @@ import { ViewportOverlay } from '../../ui/ViewportOverlay';
 
 // ─── Upload helpers ───────────────────────────────────────────────────────────
 
-async function uploadFileToLibrary(file: File, onProgress: (pct: number) => void): Promise<void> {
+async function uploadFileToLibrary(file: File, onProgress: (pct: number) => void): Promise<string> {
   const { videoid } = await videoApi.reserveForLibrary();
 
   await new Promise<void>((resolve, reject) => {
@@ -33,6 +33,8 @@ async function uploadFileToLibrary(file: File, onProgress: (pct: number) => void
     });
     upload.start();
   });
+
+  return videoid;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -134,6 +136,18 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
     fetchItems();
   }, [fetchItems]);
 
+  const waitForUploadedVideo = useCallback(
+    async (videoid: string): Promise<MediaItem[] | null> => {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const latest = await mediaApi.listForUser(userId);
+        if (latest.some((item) => item.videoid === videoid)) return latest;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      return null;
+    },
+    [userId],
+  );
+
   const handleMediaFile = async (file: File) => {
     setUploadError(null);
     setUploadProgress(0);
@@ -142,22 +156,18 @@ export const ProfileFeed: React.FC<ProfileFeedProps> = ({ userId, isOwn }) => {
         // Start thumbnail extraction in parallel with the upload.
         const thumbnailPromise = extractVideoThumbnail(file).catch(() => null);
 
-        await uploadFileToLibrary(file, setUploadProgress);
-
-        await new Promise((r) => setTimeout(r, 1500));
-        const freshItems = await mediaApi.listForUser(userId);
-        setItems(freshItems);
+        const videoid = await uploadFileToLibrary(file, setUploadProgress);
+        const freshItems = await waitForUploadedVideo(videoid);
+        if (freshItems) setItems(freshItems);
 
         const thumbnailBlob = await thumbnailPromise;
-        if (thumbnailBlob && freshItems.length > 0) {
-          const newest = freshItems[0];
-          if (newest) {
-            try {
-              const updated = await mediaApi.uploadThumbnail(newest.id, thumbnailBlob);
-              setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
-            } catch {
-              // Keep the successful upload and skip thumbnail update failures.
-            }
+        const uploadedVideo = freshItems?.find((item) => item.videoid === videoid);
+        if (thumbnailBlob && uploadedVideo) {
+          try {
+            const updated = await mediaApi.uploadThumbnail(uploadedVideo.id, thumbnailBlob);
+            setItems((prev) => prev.map((i) => (i.id === updated.id ? updated : i)));
+          } catch {
+            // Keep the successful upload and skip thumbnail update failures.
           }
         }
         return;

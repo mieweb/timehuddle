@@ -44,6 +44,17 @@ export interface UpdateMediaItemOpts {
   altText?: string;
 }
 
+const DEFAULT_MEDIA_LIMIT = 50;
+const MAX_MEDIA_LIMIT = 100;
+
+function normalizeLimit(limit: number | undefined): number {
+  if (!Number.isFinite(limit)) return DEFAULT_MEDIA_LIMIT;
+  const safe = Math.trunc(limit as number);
+  if (safe < 1) return 1;
+  if (safe > MAX_MEDIA_LIMIT) return MAX_MEDIA_LIMIT;
+  return safe;
+}
+
 export const mediaService = {
   async create(userId: string, opts: CreateMediaItemOpts): Promise<PublicMediaItem> {
     const doc: MediaItem = {
@@ -65,10 +76,11 @@ export const mediaService = {
   },
 
   async getForUser(userId: string, limit = 50): Promise<PublicMediaItem[]> {
+    const safeLimit = normalizeLimit(limit);
     const docs = await mediaItemsCollection()
       .find({ userId })
       .sort({ uploadedAt: -1 })
-      .limit(limit)
+      .limit(safeLimit)
       .toArray();
     return docs.map(toPublicMediaItem);
   },
@@ -87,14 +99,19 @@ export const mediaService = {
     return "ok";
   },
 
-  async remove(userId: string, id: string): Promise<"ok" | "not-found" | "forbidden"> {
-    if (!isValidId(id)) return "not-found";
+  async remove(
+    userId: string,
+    id: string
+  ): Promise<
+    { status: "ok"; item: PublicMediaItem } | { status: "not-found" } | { status: "forbidden" }
+  > {
+    if (!isValidId(id)) return { status: "not-found" };
     const coll = mediaItemsCollection();
     const doc = await coll.findOne({ _id: new ObjectId(id) });
-    if (!doc) return "not-found";
-    if (doc.userId !== userId) return "forbidden";
+    if (!doc) return { status: "not-found" };
+    if (doc.userId !== userId) return { status: "forbidden" };
     await coll.deleteOne({ _id: doc._id });
-    return "ok";
+    return { status: "ok", item: toPublicMediaItem(doc) };
   },
 
   async setThumbnail(
