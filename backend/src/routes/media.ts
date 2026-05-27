@@ -43,7 +43,11 @@ function isAllowedThumbnailMimeType(mimeType: string): boolean {
   return mimeType === "image/jpeg" || mimeType === "image/png" || mimeType === "image/webp";
 }
 
-function resolveUploadPath(url: string | null, expectedPrefix: string, baseDir: string): string | null {
+function resolveUploadPath(
+  url: string | null,
+  expectedPrefix: string,
+  baseDir: string
+): string | null {
   if (!url || !url.startsWith(expectedPrefix)) return null;
   const rawName = url.slice(expectedPrefix.length);
   const safeName = path.basename(rawName);
@@ -368,7 +372,11 @@ export async function mediaRoutes(app: FastifyInstance) {
         "/uploads/thumbnails/",
         thumbnailsDir
       );
-      const nextThumbnailPath = resolveUploadPath(result.thumbnail, "/uploads/thumbnails/", thumbnailsDir);
+      const nextThumbnailPath = resolveUploadPath(
+        result.thumbnail,
+        "/uploads/thumbnails/",
+        thumbnailsDir
+      );
       if (previousThumbnailPath && previousThumbnailPath !== nextThumbnailPath) {
         try {
           await fs.unlink(previousThumbnailPath);

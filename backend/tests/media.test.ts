@@ -127,7 +127,9 @@ beforeAll(async () => {
 }, 20000);
 
 afterAll(async () => {
-  await mediaItemsCollection().deleteMany({ userId: { $in: [userId, teammateUserId, outsiderUserId] } });
+  await mediaItemsCollection().deleteMany({
+    userId: { $in: [userId, teammateUserId, outsiderUserId] },
+  });
   await teamsCollection().deleteOne({ code: SHARED_TEAM_CODE });
   await purgeUser(TEST_USER.email);
   await purgeUser(TEAMMATE_USER.email);

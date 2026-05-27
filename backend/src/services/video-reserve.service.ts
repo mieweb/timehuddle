@@ -46,7 +46,9 @@ export function verifyReservationToken(videoid: string, token: string): boolean 
 }
 
 /** Non-destructive lookup for reservation ownership checks. */
-export function getReservation(videoid: string): { context: ReservationContext; userId: string } | undefined {
+export function getReservation(
+  videoid: string
+): { context: ReservationContext; userId: string } | undefined {
   const entry = store.get(videoid);
   return entry ? { context: entry.context, userId: entry.userId } : undefined;
 }
