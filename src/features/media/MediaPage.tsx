@@ -204,13 +204,13 @@ const DetailsModal: React.FC<DetailsModalProps> = ({
   return (
     <ViewportOverlay
       open={open}
-      title="Attachment details"
+      title="Media details"
       onClose={onClose}
       onPrevious={onPrevious}
       onNext={onNext}
       canGoPrevious={canGoPrevious}
       canGoNext={canGoNext}
-      ariaLabel="Attachment details"
+      ariaLabel="Media details"
     >
       <div className="grid h-full min-h-0 grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(20rem,1fr)]">
         <div className="flex h-full min-h-0 flex-col bg-neutral-950">
