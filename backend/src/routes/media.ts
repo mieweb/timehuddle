@@ -337,6 +337,9 @@ export async function mediaRoutes(app: FastifyInstance) {
       if (ownership === "not-found") return reply.status(404).send({ error: "Not found" });
       if (ownership === "forbidden") return reply.status(403).send({ error: "Forbidden" });
 
+      const existing = await mediaService.findById(id);
+      const previousThumbnailUrl = existing?.thumbnail ?? null;
+
       const data = await req.file();
       if (!data) return reply.status(400).send({ error: "No file uploaded" });
 
@@ -359,6 +362,21 @@ export async function mediaRoutes(app: FastifyInstance) {
       const result = await mediaService.setThumbnail(userId, id, thumbnailUrl);
       if (result === "not-found") return reply.status(404).send({ error: "Not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+
+      const previousThumbnailPath = resolveUploadPath(
+        previousThumbnailUrl,
+        "/uploads/thumbnails/",
+        thumbnailsDir
+      );
+      const nextThumbnailPath = resolveUploadPath(result.thumbnail, "/uploads/thumbnails/", thumbnailsDir);
+      if (previousThumbnailPath && previousThumbnailPath !== nextThumbnailPath) {
+        try {
+          await fs.unlink(previousThumbnailPath);
+        } catch {
+          // Best-effort cleanup: thumbnail metadata update already succeeded.
+        }
+      }
+
       return reply.send({ item: result });
     }
   );

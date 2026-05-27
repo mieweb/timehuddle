@@ -39,6 +39,7 @@ let outsiderCookie: string;
 let teammateUserId: string;
 let outsiderUserId: string;
 const SHARED_TEAM_CODE = "MEDIA-AUTH-SHARED";
+const SHARED_TEAM_ORG_ID = new ObjectId().toHexString();
 
 async function getSessionCookie(email: string, password: string): Promise<string> {
   const res = (await auth.api.signInEmail({
@@ -115,6 +116,7 @@ beforeAll(async () => {
   await teamsCollection().deleteOne({ code: SHARED_TEAM_CODE });
   await teamsCollection().insertOne({
     _id: new ObjectId(),
+    orgId: SHARED_TEAM_ORG_ID,
     name: "Media Shared Team",
     members: [userId, teammateUserId],
     admins: [userId],
@@ -193,6 +195,58 @@ describe("media routes", () => {
 
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toBe("Unsupported thumbnail type");
+  });
+
+  it("replaces local thumbnail and removes old thumbnail file", async () => {
+    const oldThumbName = `old-thumb-${Date.now()}.jpg`;
+    const oldThumbPath = path.join(thumbnailsDir, oldThumbName);
+    await fs.mkdir(thumbnailsDir, { recursive: true });
+    await fs.writeFile(oldThumbPath, Buffer.from("old-thumb"));
+
+    const docId = new ObjectId();
+    await mediaItemsCollection().insertOne({
+      _id: docId,
+      userId,
+      type: "video",
+      mimeType: "video/mp4",
+      url: "http://localhost:4000/v1/video/replace-thumb-test",
+      videoid: "replace-thumb-test",
+      filename: "replace-thumb-test.mp4",
+      size: 2222,
+      thumbnail: `/uploads/thumbnails/${oldThumbName}`,
+      uploadedAt: new Date(),
+    });
+
+    const { boundary, body } = buildMultipartBody({
+      fieldName: "file",
+      filename: "thumb.jpg",
+      contentType: "image/jpeg",
+      data: Buffer.from("new-thumb"),
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/media/${docId.toHexString()}/thumbnail`,
+      headers: {
+        cookie,
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(await exists(oldThumbPath)).toBe(false);
+
+    const nextThumbnailUrl = res.json().item.thumbnail as string;
+    expect(nextThumbnailUrl).toMatch(/^\/uploads\/thumbnails\//);
+    expect(nextThumbnailUrl).not.toBe(`/uploads/thumbnails/${oldThumbName}`);
+
+    const nextThumbName = path.basename(nextThumbnailUrl);
+    const nextThumbPath = path.join(thumbnailsDir, nextThumbName);
+    expect(await exists(nextThumbPath)).toBe(true);
+
+    // Keep test runs tidy: remove the newly created thumbnail file.
+    await fs.unlink(nextThumbPath).catch(() => {});
   });
 
   it("deletes local files when media item is deleted", async () => {
