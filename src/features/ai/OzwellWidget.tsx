@@ -85,8 +85,8 @@ function injectJerryButtonStyles() {
       border-radius: 0 !important;
       box-shadow: none !important;
       animation: jerry-bob 3.5s ease-in-out infinite !important;
-      width: 90px !important;
-      height: 90px !important;
+      width: 160px !important;
+      height: 160px !important;
       position: fixed !important;
       overflow: visible !important;
       display: grid !important;
@@ -104,9 +104,11 @@ function injectJerryButtonStyles() {
       50%       { transform: translateY(-5px); }
     }
     .jerry-clock-logo {
-      width: 78px;
-      height: 78px;
+      width: 148px;
+      height: 148px;
       display: block;
+      object-fit: contain;
+      filter: brightness(0) invert(1) drop-shadow(0 0 10px rgba(255,255,255,0.6));
     }
   `;
   document.head.appendChild(style);
@@ -117,16 +119,7 @@ function injectJerryButtonContent() {
   const button = document.getElementById('ozwell-chat-button');
   if (!button) return;
   button.innerHTML = `
-    <svg class="jerry-clock-logo" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
-      <rect x="27" y="3" width="10" height="7" rx="2" fill="#0E4B87"></rect>
-      <rect x="45" y="12" width="10" height="7" rx="2" transform="rotate(35 45 12)" fill="#0E4B87"></rect>
-      <circle cx="33" cy="33" r="24" fill="#FFFFFF" stroke="#0E4B87" stroke-width="5" />
-      <path d="M17 45 L11 57 L23 53" fill="#FFFFFF" stroke="#0E4B87" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
-      <circle cx="24" cy="31" r="2.7" fill="#0E4B87" />
-      <circle cx="33" cy="31" r="2.7" fill="#0E4B87" />
-      <line x1="33" y1="31" x2="41" y2="23" stroke="#0E4B87" stroke-width="5" stroke-linecap="round" />
-      <path d="M24 40 Q33 47 42 40" fill="none" stroke="#0E4B87" stroke-width="5" stroke-linecap="round" />
-    </svg>
+    <img class="jerry-clock-logo" src="/jerry-logo.png" alt="Jerry assistant" aria-hidden="true" />
   `;
 }
 
@@ -137,8 +130,8 @@ function injectJerryNudgeStyles() {
   style.textContent = `
     #${JERRY_NUDGE_ID} {
       position: fixed;
-      right: 110px;
-      bottom: 42px;
+      right: 20px;
+      bottom: 155px;
       max-width: 220px;
       padding: 10px 12px;
       border-radius: 12px;
@@ -155,14 +148,14 @@ function injectJerryNudgeStyles() {
     #${JERRY_NUDGE_ID}::after {
       content: '';
       position: absolute;
-      right: -6px;
-      bottom: 16px;
+      right: 80px;
+      bottom: -6px;
       width: 12px;
       height: 12px;
       background: #ffffff;
       border-right: 1px solid #d9e7f5;
       border-bottom: 1px solid #d9e7f5;
-      transform: rotate(-45deg);
+      transform: rotate(45deg);
     }
     @keyframes jerry-nudge-in {
       from { opacity: 0; transform: translateY(6px); }
@@ -170,10 +163,19 @@ function injectJerryNudgeStyles() {
     }
     @media (max-width: 767px) {
       #${JERRY_NUDGE_ID} {
-        right: 96px;
-        bottom: calc(88px + env(safe-area-inset-bottom));
-        max-width: 190px;
+        right: 16px;
+        bottom: calc(204px + env(safe-area-inset-bottom));
+        max-width: 200px;
         font-size: 13px;
+      }
+      #${JERRY_NUDGE_ID}::after {
+        right: 70px;
+        bottom: -6px;
+        border-top: none;
+        border-left: none;
+        border-right: 1px solid #d9e7f5;
+        border-bottom: 1px solid #d9e7f5;
+        transform: rotate(45deg);
       }
     }
   `;
@@ -265,15 +267,17 @@ function injectMobileOverride() {
     @media (max-width: 767px) {
       /* FAB: sit above the bottom nav bar */
       #ozwell-chat-button {
-        bottom: calc(72px + env(safe-area-inset-bottom)) !important;
-        right: 20px !important;
-        width: 78px !important;
-        height: 78px !important;
+        bottom: calc(90px + env(safe-area-inset-bottom)) !important;
+        right: 16px !important;
+        width: 140px !important;
+        height: 140px !important;
       }
 
       #ozwell-chat-button .jerry-clock-logo {
-        width: 68px;
-        height: 68px;
+        width: 128px;
+        height: 128px;
+        object-fit: contain;
+        filter: brightness(0) invert(1) drop-shadow(0 0 10px rgba(255,255,255,0.6));
       }
 
       /* Backdrop that dims the app when chat is open */
@@ -297,17 +301,27 @@ function injectMobileOverride() {
       #ozwell-chat-wrapper {
         position: fixed !important;
         top: auto !important;
-        left: 12px !important;
-        right: 12px !important;
-        bottom: calc(12px + env(safe-area-inset-bottom)) !important;
+        left: 28px !important;
+        right: 4px !important;
+        bottom: calc(246px + env(safe-area-inset-bottom)) !important;
         width: auto !important;
-        height: 72vh !important;
-        max-height: 600px !important;
+        height: 56vh !important;
+        max-height: 460px !important;
         border-radius: 22px !important;
         border: 1px solid #e5e7eb !important;
         box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28) !important;
         padding-bottom: 0 !important;
         z-index: 9999 !important;
+        background: #ffffff !important;
+        overflow: hidden !important;
+      }
+      /* Prevent dark Capacitor WebView background bleeding through the iframe gap */
+      #ozwell-chat-container {
+        background: #ffffff !important;
+        border-radius: 0 0 22px 22px !important;
+      }
+      #ozwell-chat-container iframe {
+        background: #ffffff !important;
       }
       #ozwell-chat-wrapper.hidden {
         opacity: 0 !important;
@@ -322,25 +336,15 @@ function injectMobileOverride() {
         pointer-events: auto !important;
       }
 
-      /* Drag handle pill at the top of the sheet */
-      .ozwell-chat-header::before {
-        content: '' !important;
-        display: block !important;
-        width: 36px !important;
-        height: 4px !important;
-        background: rgba(255,255,255,0.5) !important;
-        border-radius: 2px !important;
-        margin: 0 auto 10px !important;
-      }
       .ozwell-chat-header {
-        padding-top: 12px !important;
-        flex-direction: column !important;
-        align-items: stretch !important;
+        padding-top: 10px !important;
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        align-items: center !important;
       }
       .ozwell-chat-controls {
         display: flex !important;
-        justify-content: flex-end !important;
-        margin-top: -8px !important;
+        margin-left: auto !important;
       }
     }
   `;
