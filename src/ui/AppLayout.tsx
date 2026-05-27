@@ -29,6 +29,7 @@ import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { OzwellWidget } from '../features/ai/OzwellWidget';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
+import { MediaPage } from '../features/media/MediaPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
 import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
 import { OrganizationPage } from '../features/org/OrganizationPage';
@@ -61,19 +62,22 @@ interface RouteConfig {
 }
 
 const ROUTES: Record<string, RouteConfig> = {
-  '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
+  '/app/admin/organization': { title: 'Organization Admin', component: OrganizationOverviewPage },
+
+  '/app/activity': { title: 'Activity Log', component: ActivityLogPage },
   '/app/clock': { title: 'Clock In/Out', component: ClockPage },
-  '/app/tickets': { title: 'Tickets', component: TicketsPage },
-  '/app/work': { title: 'Work', component: WorkPage },
-  '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
-  '/app/teams': { title: 'Teams', component: TeamsPage },
-  '/app/organization': { title: 'Organization', component: OrganizationPage },
+  '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
-  '/app/activity': { title: 'Activity Log', component: ActivityLogPage },
-  '/app/admin/organization': { title: 'Organization Admin', component: OrganizationOverviewPage },
-  '/org/members': { title: 'Members', component: OrganizationMembersPage },
+  '/app/organization': { title: 'Organization', component: OrganizationPage },
+  '/app/media': { title: 'Media Library', component: MediaPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
+  '/app/teams': { title: 'Teams', component: TeamsPage },
+  '/app/tickets': { title: 'Tickets', component: TicketsPage },
+  '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
+  '/app/work': { title: 'Work', component: WorkPage },
+
+  '/org/members': { title: 'Members', component: OrganizationMembersPage },
 };
 
 function match(pathname: string): RouteConfig | null {

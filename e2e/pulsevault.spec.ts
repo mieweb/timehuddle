@@ -92,11 +92,7 @@ function makeDemoMp4(): Buffer {
 
 async function checkReserveEndpoint(request: APIRequestContext) {
   const res = await request.post(`${BACKEND_URL}/v1/video/reserve`);
-  expect(res.status()).toBe(200);
-  const body = await res.json();
-  expect(body).toHaveProperty('videoid');
-  expect(typeof body.videoid).toBe('string');
-  return body.videoid as string;
+  expect(res.status()).toBe(401);
 }
 
 async function checkCompatReserveEndpoint(request: APIRequestContext) {
@@ -134,11 +130,11 @@ async function checkTusOptionsEndpoint(request: APIRequestContext, prefix: '/v1/
 test.describe('PulseVault — API endpoints', () => {
   test.setTimeout(30000);
 
-  test('GET /v1/video/reserve returns a videoid', async ({ request }) => {
+  test('POST /v1/video/reserve requires auth', async ({ request }) => {
     await checkReserveEndpoint(request);
   });
 
-  test('GET /reserve (compat) returns a videoid', async ({ request }) => {
+  test('POST /reserve (compat) returns a videoid', async ({ request }) => {
     await checkCompatReserveEndpoint(request);
   });
 
@@ -191,7 +187,7 @@ test.describe('PulseVault — Ticket video upload', () => {
     await expect(qr).toBeVisible();
   });
 
-  test('QR modal deep link encodes correct videoid and server', async ({ page, request }) => {
+  test('QR modal deep link encodes correct videoid and server', async ({ page }) => {
     // Navigate to ticket detail page
     await page.getByRole('button', { name: TICKET_TITLE }).first().click();
     await page.waitForTimeout(600);
@@ -205,12 +201,14 @@ test.describe('PulseVault — Ticket video upload', () => {
 
     await expect(page.locator('button', { hasText: 'Upload from this device' })).toBeVisible();
 
-    // Verify the /v1/pulsevault/reserve endpoint was called by checking the
-    // reserve endpoint returns a UUID (api health check)
-    const res = await request.post(`${BACKEND_URL}/v1/video/reserve`);
-    expect(res.status()).toBe(200);
-    const { videoid } = await res.json();
+    // Verify authenticated reserve endpoint returns a UUID under the current contract.
+    const res = await page.request.post(`${BACKEND_URL}/v1/video/reserve`, {
+      data: { target: 'library' },
+    });
+    expect(res.status()).toBe(201);
+    const { videoid, uploadToken } = await res.json();
     expect(videoid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(typeof uploadToken).toBe('string');
   });
 
   test('direct MP4 upload from device completes and creates attachment', async ({ page }) => {
