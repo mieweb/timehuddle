@@ -289,6 +289,105 @@ export async function userRoutes(app: FastifyInstance) {
   );
 
   app.get(
+    "/organization/ownership-status",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Get default organization ownership status",
+        security: [{ cookieAuth: [] }],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              hasOwner: { type: "boolean" },
+              installCompleted: { type: "boolean" },
+            },
+          },
+          ...unauthorizedResponse,
+          404: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (_req, reply) => {
+      const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      if (!defaultOrg) return reply.status(404).send({ error: "Default organization not found" });
+
+      return reply.send({
+        hasOwner: (defaultOrg.owners ?? []).length > 0,
+        installCompleted: !!defaultOrg.installCompletedAt,
+      });
+    }
+  );
+
+  app.post(
+    "/organization/install",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Take ownership of default organization when no owner exists",
+        security: [{ cookieAuth: [] }],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              role: { type: "string", enum: ["owner"] },
+            },
+          },
+          ...unauthorizedResponse,
+          404: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+          409: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const userId = req.user!.id;
+
+      // One-time bootstrap gate:
+      // - no owner exists
+      // - install not already marked complete
+      const bootstrapResult = await organizationsCollection().findOneAndUpdate(
+        {
+          key: DEFAULT_ORG_KEY,
+          "owners.0": { $exists: false },
+          installCompletedAt: { $exists: false },
+        },
+        {
+          $set: {
+            owners: [userId],
+            admins: [],
+            installCompletedAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+        { returnDocument: "after" }
+      );
+
+      if (!bootstrapResult) {
+        const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+        if (!defaultOrg) {
+          return reply.status(404).send({ error: "Default organization not found" });
+        }
+        return reply
+          .status(409)
+          .send({ error: "Owner already exists or install is already complete" });
+      }
+
+      return reply.send({ role: "owner" as const });
+    }
+  );
+
+  app.get(
     "/admin/organization/users",
     {
       preHandler: [requireAuth],
