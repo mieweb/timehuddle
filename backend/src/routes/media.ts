@@ -155,7 +155,7 @@ export async function mediaRoutes(app: FastifyInstance) {
     }
   );
 
-  // GET /v1/media?userId=<id> — list media items for a user
+  // GET /v1/media - List media for authorized user
   app.get(
     "/media",
     {
@@ -180,7 +180,7 @@ export async function mediaRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const { limit } = req.query as { userId?: string; limit?: number };
+      const { limit } = req.query as { limit?: number };
       const userId = req.user!.id;
       const items = await mediaService.getForUser(userId, limit ?? 50);
       return reply.send({ items });
