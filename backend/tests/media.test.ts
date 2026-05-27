@@ -7,11 +7,23 @@ import { ObjectId } from "mongodb";
 import { buildApp } from "../src/server.js";
 import { connectDB, client } from "../src/lib/db.js";
 import { auth } from "../src/lib/auth.js";
-import { mediaItemsCollection } from "../src/models/index.js";
+import { mediaItemsCollection, teamsCollection } from "../src/models/index.js";
 
 const TEST_USER = {
   name: "Media Test User",
   email: "media-test-user@test.dev",
+  password: "Password1!",
+};
+
+const TEAMMATE_USER = {
+  name: "Media Teammate User",
+  email: "media-teammate-user@test.dev",
+  password: "Password1!",
+};
+
+const OUTSIDER_USER = {
+  name: "Media Outsider User",
+  email: "media-outsider-user@test.dev",
   password: "Password1!",
 };
 
@@ -23,6 +35,10 @@ const videosDir = path.resolve(__dirname, "../data/videos");
 let app: FastifyInstance;
 let cookie: string;
 let userId: string;
+let outsiderCookie: string;
+let teammateUserId: string;
+let outsiderUserId: string;
+const SHARED_TEAM_CODE = "MEDIA-AUTH-SHARED";
 
 async function getSessionCookie(email: string, password: string): Promise<string> {
   const res = (await auth.api.signInEmail({
@@ -77,18 +93,43 @@ beforeAll(async () => {
   await app.ready();
 
   await purgeUser(TEST_USER.email);
+  await purgeUser(TEAMMATE_USER.email);
+  await purgeUser(OUTSIDER_USER.email);
   await auth.api.signUpEmail({ body: TEST_USER });
+  await auth.api.signUpEmail({ body: TEAMMATE_USER });
+  await auth.api.signUpEmail({ body: OUTSIDER_USER });
 
   const user = await client.db().collection("user").findOne({ email: TEST_USER.email });
+  const teammate = await client.db().collection("user").findOne({ email: TEAMMATE_USER.email });
+  const outsider = await client.db().collection("user").findOne({ email: OUTSIDER_USER.email });
   if (!user) throw new Error("Failed to create media test user");
+  if (!teammate) throw new Error("Failed to create media teammate user");
+  if (!outsider) throw new Error("Failed to create media outsider user");
 
   userId = user._id.toHexString();
+  teammateUserId = teammate._id.toHexString();
+  outsiderUserId = outsider._id.toHexString();
   cookie = await getSessionCookie(TEST_USER.email, TEST_USER.password);
+  outsiderCookie = await getSessionCookie(OUTSIDER_USER.email, OUTSIDER_USER.password);
+
+  await teamsCollection().deleteOne({ code: SHARED_TEAM_CODE });
+  await teamsCollection().insertOne({
+    _id: new ObjectId(),
+    name: "Media Shared Team",
+    members: [userId, teammateUserId],
+    admins: [userId],
+    code: SHARED_TEAM_CODE,
+    isPersonal: false,
+    createdAt: new Date(),
+  });
 }, 20000);
 
 afterAll(async () => {
-  await mediaItemsCollection().deleteMany({ userId });
+  await mediaItemsCollection().deleteMany({ userId: { $in: [userId, teammateUserId, outsiderUserId] } });
+  await teamsCollection().deleteOne({ code: SHARED_TEAM_CODE });
   await purgeUser(TEST_USER.email);
+  await purgeUser(TEAMMATE_USER.email);
+  await purgeUser(OUTSIDER_USER.email);
   await app.close();
 });
 
@@ -195,5 +236,89 @@ describe("media routes", () => {
     expect(await exists(imagePath)).toBe(false);
     expect(await exists(thumbPath)).toBe(false);
     expect(await exists(videoPath)).toBe(false);
+  });
+
+  it("forbids updating another user's media item", async () => {
+    const docId = new ObjectId();
+    await mediaItemsCollection().insertOne({
+      _id: docId,
+      userId: teammateUserId,
+      type: "image",
+      mimeType: "image/png",
+      url: "/uploads/media/teammate-image.png",
+      filename: "teammate-image.png",
+      size: 500,
+      uploadedAt: new Date(),
+    });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/v1/media/${docId.toHexString()}`,
+      headers: { cookie },
+      payload: { title: "Nope" },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error).toBe("Forbidden");
+  });
+
+  it("forbids deleting another user's media item", async () => {
+    const docId = new ObjectId();
+    await mediaItemsCollection().insertOne({
+      _id: docId,
+      userId: teammateUserId,
+      type: "image",
+      mimeType: "image/png",
+      url: "/uploads/media/teammate-delete.png",
+      filename: "teammate-delete.png",
+      size: 600,
+      uploadedAt: new Date(),
+    });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/v1/media/${docId.toHexString()}`,
+      headers: { cookie },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error).toBe("Forbidden");
+  });
+
+  it("allows listing a teammate's media when users share a team", async () => {
+    const docId = new ObjectId();
+    await mediaItemsCollection().insertOne({
+      _id: docId,
+      userId: teammateUserId,
+      type: "image",
+      mimeType: "image/png",
+      url: "/uploads/media/shared-team-image.png",
+      filename: "shared-team-image.png",
+      size: 700,
+      uploadedAt: new Date(),
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/media/user/${teammateUserId}`,
+      headers: { cookie },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(Array.isArray(res.json().items)).toBe(true);
+    expect(res.json().items.some((item: { id: string }) => item.id === docId.toHexString())).toBe(
+      true
+    );
+  });
+
+  it("forbids listing another user's media without a shared team", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/media/user/${teammateUserId}`,
+      headers: { cookie: outsiderCookie },
+    });
+
+    expect(res.statusCode).toBe(403);
+    expect(res.json().error).toBe("Forbidden");
   });
 });

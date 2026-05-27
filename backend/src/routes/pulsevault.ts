@@ -17,6 +17,7 @@ import { mediaService } from "../services/media.service.js";
 import {
   reserveVideo,
   reserveVideoForLibrary,
+  getReservation,
   consumeReservation,
 } from "../services/video-reserve.service.js";
 
@@ -62,6 +63,14 @@ async function authorizeHandler(request: any, ctx: any) {
   });
   if (!session) {
     throw { statusCode: 401, message: "Unauthorized" };
+  }
+
+  const reservation = getReservation(ctx.videoid);
+  if (!reservation) {
+    throw { statusCode: 403, message: "Video reservation required" };
+  }
+  if (reservation.userId !== session.user.id) {
+    throw { statusCode: 403, message: "Forbidden" };
   }
 }
 
