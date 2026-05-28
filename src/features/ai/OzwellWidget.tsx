@@ -211,7 +211,9 @@ function hideJerryNudge() {
 
 /** Keep list/newline formatting readable inside the iframe chat bubbles. */
 function injectIframeMessageStyles() {
-  const iframe = document.querySelector('#ozwell-chat-container iframe') as HTMLIFrameElement | null;
+  const iframe = document.querySelector(
+    '#ozwell-chat-container iframe',
+  ) as HTMLIFrameElement | null;
   if (!iframe?.contentDocument) return false;
 
   const doc = iframe.contentDocument;
@@ -301,7 +303,9 @@ function injectIframeMessageStyles() {
 
 /** Ensure the welcome prompt exists in the widget message list when chat opens. */
 function ensureWelcomePromptInIframe(text: string) {
-  const iframe = document.querySelector('#ozwell-chat-container iframe') as HTMLIFrameElement | null;
+  const iframe = document.querySelector(
+    '#ozwell-chat-container iframe',
+  ) as HTMLIFrameElement | null;
   if (!iframe?.contentDocument) return false;
 
   const doc = iframe.contentDocument;
