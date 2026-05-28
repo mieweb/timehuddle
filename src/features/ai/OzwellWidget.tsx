@@ -39,6 +39,9 @@ declare global {
     OzwellChatConfig?: {
       apiKey: string;
       debug?: boolean;
+      title?: string;
+      placeholder?: string;
+      welcomeMessage?: string;
       tools?: unknown[];
     };
     OzwellChat?: {
@@ -59,10 +62,16 @@ interface OzwellToolCallDetail {
 
 // ── OzwellWidget ─────────────────────────────────────────────────────────────
 
-const LOADER_URL = 'https://ozwellapi.opensource.mieweb.org/embed/ozwell-loader.js';
+const LOADER_URL = 'https://ozwellapi.os.mieweb.org/embed/ozwell-loader.js';
 const SCRIPT_ID = 'ozwell-loader';
 const MOBILE_OVERRIDE_STYLE_ID = 'ozwell-mobile-override';
 const JERRY_BUTTON_STYLE_ID = 'ozwell-jerry-button';
+const JERRY_IFRAME_STYLE_ID = 'ozwell-jerry-iframe-style';
+const JERRY_NUDGE_STYLE_ID = 'ozwell-jerry-nudge-style';
+const JERRY_NUDGE_ID = 'ozwell-jerry-nudge';
+const JERRY_CHAT_WELCOME_TEXT =
+  "Hi! I'm Jerry, your Huddle assistant. I can help you clock in/out, manage tickets, track time, and navigate the app. How can I help you today?";
+const JERRY_NUDGE_TEXT = 'Help me help you.';
 
 /** Inject CSS for the Jerry animated avatar button. */
 function injectJerryButtonStyles() {
@@ -129,96 +138,328 @@ function injectJerryButtonContent() {
   `;
 }
 
-/** Hide tool-call-only turns that the Ozwell platform renders as "(no response)". */
-function hideNoResponseBubbles(root: HTMLElement) {
-  for (const el of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
-    if (el.textContent?.trim() === '(no response)') {
-      const parent = el.parentElement;
-      // Skip inner elements — only hide the outermost wrapper for this text
-      if (parent && parent !== root && parent.textContent?.trim() === '(no response)') continue;
-      el.style.setProperty('display', 'none', 'important');
+function injectJerryNudgeStyles() {
+  if (document.getElementById(JERRY_NUDGE_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = JERRY_NUDGE_STYLE_ID;
+  style.textContent = `
+    #${JERRY_NUDGE_ID} {
+      position: fixed;
+      right: 20px;
+      bottom: 95px;
+      max-width: 220px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: #ffffff;
+      color: #0b2e57;
+      border: 1px solid #d9e7f5;
+      box-shadow: 0 8px 24px rgba(11, 46, 87, 0.25);
+      font-size: 14px;
+      line-height: 1.3;
+      z-index: 10001;
+      animation: jerry-nudge-in 240ms ease-out;
+      pointer-events: none;
     }
-  }
+    #${JERRY_NUDGE_ID}::after {
+      content: '';
+      position: absolute;
+      right: 20px;
+      bottom: -6px;
+      width: 12px;
+      height: 12px;
+      background: #ffffff;
+      border-right: 1px solid #d9e7f5;
+      border-bottom: 1px solid #d9e7f5;
+      transform: rotate(45deg);
+    }
+    @keyframes jerry-nudge-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @media (max-width: 767px) {
+      #${JERRY_NUDGE_ID} {
+        right: 16px;
+        bottom: calc(180px + env(safe-area-inset-bottom));
+        max-width: 200px;
+        font-size: 13px;
+      }
+      #${JERRY_NUDGE_ID}::after {
+        right: 20px;
+        bottom: -6px;
+        border-top: none;
+        border-left: none;
+        border-right: 1px solid #d9e7f5;
+        border-bottom: 1px solid #d9e7f5;
+        transform: rotate(45deg);
+      }
+    }
+  `;
+  document.head.appendChild(style);
 }
 
-/** Override the loader's full-screen mobile styles — bottom-sheet pattern. */
+function showJerryNudge(text: string) {
+  if (document.getElementById(JERRY_NUDGE_ID)) return;
+  const nudge = document.createElement('div');
+  nudge.id = JERRY_NUDGE_ID;
+  nudge.textContent = text;
+  document.body.appendChild(nudge);
+}
+
+function hideJerryNudge() {
+  document.getElementById(JERRY_NUDGE_ID)?.remove();
+}
+
+/** Keep list/newline formatting readable inside the iframe chat bubbles. */
+function injectIframeMessageStyles() {
+  const iframe = document.querySelector(
+    '#ozwell-chat-container iframe',
+  ) as HTMLIFrameElement | null;
+  if (!iframe?.contentDocument) return false;
+
+  const doc = iframe.contentDocument;
+
+  // Get computed primary color from parent document
+  const primaryColor =
+    getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() ||
+    '#27aae1';
+  const primaryForeground =
+    getComputedStyle(document.documentElement)
+      .getPropertyValue('--color-primary-foreground')
+      .trim() || '#ffffff';
+
+  // Set CSS variables directly on iframe's root so they can update
+  if (doc.documentElement) {
+    doc.documentElement.style.setProperty('--app-primary', primaryColor);
+    doc.documentElement.style.setProperty('--app-primary-foreground', primaryForeground);
+  }
+
+  // Find and directly update all send button styles for immediate visual update
+  const submitButtons = doc.querySelectorAll<HTMLButtonElement>(
+    'button[type="submit"], .send-button, form button[type="submit"]',
+  );
+  submitButtons.forEach((button) => {
+    button.style.backgroundColor = primaryColor;
+    button.style.background = primaryColor;
+    button.style.color = primaryForeground;
+    button.style.borderColor = primaryColor;
+  });
+
+  // Only inject style once - it will use the CSS variables
+  if (doc.getElementById(JERRY_IFRAME_STYLE_ID)) return true;
+
+  const style = doc.createElement('style');
+  style.id = JERRY_IFRAME_STYLE_ID;
+  style.textContent = `
+    .message {
+      white-space: pre-line !important;
+      overflow-wrap: anywhere !important;
+      word-break: break-word !important;
+      line-height: 1.45 !important;
+    }
+    /* Override Send button to use app theme color via CSS variables */
+    button[type="submit"],
+    .send-button,
+    button:has(svg[data-icon="paper-plane"]),
+    form button[type="submit"] {
+      background-color: var(--app-primary, #27aae1) !important;
+      background: var(--app-primary, #27aae1) !important;
+      color: var(--app-primary-foreground, #ffffff) !important;
+      border-color: var(--app-primary, #27aae1) !important;
+    }
+    button[type="submit"]:hover,
+    .send-button:hover,
+    button:has(svg[data-icon="paper-plane"]):hover,
+    form button[type="submit"]:hover {
+      opacity: 0.9 !important;
+    }
+  `;
+  doc.head.appendChild(style);
+  return true;
+}
+
+/** Ensure the welcome prompt exists in the widget message list when chat opens. */
+function ensureWelcomePromptInIframe(text: string) {
+  const iframe = document.querySelector(
+    '#ozwell-chat-container iframe',
+  ) as HTMLIFrameElement | null;
+  if (!iframe?.contentDocument) return false;
+
+  const doc = iframe.contentDocument;
+  const messagesEl = doc.getElementById('messages');
+  if (!messagesEl) return false;
+
+  const alreadyShown = Array.from(messagesEl.querySelectorAll('.message')).some(
+    (el) => el.textContent?.trim() === text,
+  );
+  if (alreadyShown) return true;
+
+  const msg = doc.createElement('div');
+  msg.className = 'message welcome';
+  msg.textContent = text;
+  messagesEl.appendChild(msg);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return true;
+}
+
+/** Override loader styles to keep the chat window rounded (not square). */
 function injectMobileOverride() {
   if (document.getElementById(MOBILE_OVERRIDE_STYLE_ID)) return;
   const style = document.createElement('style');
   style.id = MOBILE_OVERRIDE_STYLE_ID;
   style.textContent = `
+    /* Override Ozwell chat header to use app theme colors */
+    .ozwell-chat-header {
+      background: var(--color-primary, #0b2e57) !important;
+      color: var(--color-primary-foreground, #ffffff) !important;
+    }
+    .ozwell-chat-header * {
+      color: var(--color-primary-foreground, #ffffff) !important;
+    }
+    /* Keep Send button using primary color - outer wrapper */
+    #ozwell-chat-wrapper button[type="submit"],
+    #ozwell-chat-wrapper .ozwell-send-button,
+    #ozwell-chat-wrapper .send-button,
+    #ozwell-chat-wrapper button:has(svg[data-icon="paper-plane"]),
+    #ozwell-chat-wrapper form button {
+      background: var(--color-primary, #0b2e57) !important;
+      color: var(--color-primary-foreground, #ffffff) !important;
+      border-color: var(--color-primary, #0b2e57) !important;
+    }
+    #ozwell-chat-wrapper button[type="submit"]:hover,
+    #ozwell-chat-wrapper .ozwell-send-button:hover,
+    #ozwell-chat-wrapper .send-button:hover,
+    #ozwell-chat-wrapper form button:hover {
+      opacity: 0.9 !important;
+    }
+
+    /* Keep a rounded chat-card shape on desktop */
+    #ozwell-chat-wrapper {
+      border-radius: 22px !important;
+      overflow: hidden !important;
+      border: 1px solid #e5e7eb !important;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22) !important;
+    }
+    #ozwell-chat-wrapper.hidden {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      transform: translateY(calc(100% + 64px)) !important;
+      pointer-events: none !important;
+    }
+    #ozwell-chat-wrapper.visible {
+      opacity: 1 !important;
+      visibility: visible !important;
+      transform: translateY(0) !important;
+      pointer-events: auto !important;
+    }
+
     @media (max-width: 767px) {
       /* FAB: sit above the bottom nav bar */
       #ozwell-chat-button {
-        bottom: calc(72px + env(safe-area-inset-bottom)) !important;
-        right: 20px !important;
-        width: 52px !important;
-        height: 52px !important;
+        bottom: calc(90px + env(safe-area-inset-bottom)) !important;
+        right: 16px !important;
+        width: 68px !important;
+        height: 68px !important;
       }
 
-      /* Backdrop that dims the app when chat is open */
+      /* Bottom sheet pattern for mobile - slides up from bottom nav */
+      #ozwell-chat-wrapper {
+        position: fixed !important;
+        top: 120px !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: calc(80px + env(safe-area-inset-bottom)) !important;
+        width: 100% !important;
+        height: auto !important;
+        max-height: none !important;
+        border-radius: 22px 22px 0 0 !important;
+        border: none !important;
+        border-top: 1px solid #e5e7eb !important;
+        box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15) !important;
+        padding-bottom: 0 !important;
+        z-index: 10000 !important;
+        background: #ffffff !important;
+        overflow: hidden !important;
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s !important;
+      }
+
+      /* Backdrop that dims the app - stops at bottom nav */
       #ozwell-chat-wrapper::before {
         content: '' !important;
         display: block !important;
         position: fixed !important;
-        inset: 0 !important;
-        background: rgba(0, 0, 0, 0.45) !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: calc(80px + env(safe-area-inset-bottom)) !important;
+        background: rgba(0, 0, 0, 0.5) !important;
         z-index: -1 !important;
         transition: opacity 0.3s !important;
+        pointer-events: auto !important;
+      }
+
+      #ozwell-chat-wrapper.hidden {
+        opacity: 0 !important;
+        visibility: hidden !important;
+        transform: translateY(100%) !important;
+        pointer-events: none !important;
       }
       #ozwell-chat-wrapper.hidden::before {
         opacity: 0 !important;
+        pointer-events: none !important;
+      }
+
+      #ozwell-chat-wrapper.visible {
+        opacity: 1 !important;
+        visibility: visible !important;
+        transform: translateY(0) !important;
+        pointer-events: auto !important;
       }
       #ozwell-chat-wrapper.visible::before {
         opacity: 1 !important;
       }
 
-      /* Bottom sheet: slides up from the bottom */
-      #ozwell-chat-wrapper {
-        position: fixed !important;
-        top: auto !important;
-        left: 0 !important;
-        right: 0 !important;
-        bottom: 0 !important;
-        width: 100% !important;
-        height: 72vh !important;
-        max-height: 600px !important;
-        border-radius: 20px 20px 0 0 !important;
-        border: none !important;
-        border-top: 1px solid #e5e7eb !important;
-        box-shadow: 0 -4px 32px rgba(0, 0, 0, 0.18) !important;
-        padding-bottom: env(safe-area-inset-bottom) !important;
-        z-index: 9999 !important;
+      /* Prevent dark Capacitor WebView background bleeding through */
+      #ozwell-chat-container {
+        background: #ffffff !important;
+        border-radius: 0 !important;
+        height: 100% !important;
       }
-      #ozwell-chat-wrapper.hidden {
-        opacity: 1 !important;
-        transform: translateY(100%) !important;
-        pointer-events: none !important;
-      }
-      #ozwell-chat-wrapper.visible {
-        opacity: 1 !important;
-        transform: translateY(0) !important;
+      #ozwell-chat-container iframe {
+        background: #ffffff !important;
+        height: 100% !important;
       }
 
-      /* Drag handle pill at the top of the sheet */
-      .ozwell-chat-header::before {
-        content: '' !important;
-        display: block !important;
-        width: 36px !important;
-        height: 4px !important;
-        background: rgba(255,255,255,0.5) !important;
-        border-radius: 2px !important;
-        margin: 0 auto 10px !important;
-      }
       .ozwell-chat-header {
-        padding-top: 12px !important;
-        flex-direction: column !important;
-        align-items: stretch !important;
+        padding: 16px 16px 12px 16px !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        border-bottom: 1px solid #e5e7eb !important;
+        background: var(--color-primary, #0b2e57) !important;
+        color: var(--color-primary-foreground, #ffffff) !important;
+      }
+      .ozwell-chat-header * {
+        color: var(--color-primary-foreground, #ffffff) !important;
       }
       .ozwell-chat-controls {
         display: flex !important;
-        justify-content: flex-end !important;
-        margin-top: -8px !important;
+        margin-left: auto !important;
+        gap: 8px !important;
+      }
+      /* Mobile Send button - comprehensive selectors */
+      #ozwell-chat-wrapper button[type="submit"],
+      #ozwell-chat-wrapper .ozwell-send-button,
+      #ozwell-chat-wrapper .send-button,
+      #ozwell-chat-wrapper button:has(svg[data-icon="paper-plane"]),
+      #ozwell-chat-wrapper form button {
+        background: var(--color-primary, #0b2e57) !important;
+        color: var(--color-primary-foreground, #ffffff) !important;
+        border-color: var(--color-primary, #0b2e57) !important;
+      }
+      #ozwell-chat-wrapper button[type="submit"]:hover,
+      #ozwell-chat-wrapper .send-button:hover,
+      #ozwell-chat-wrapper form button:hover {
+        opacity: 0.9 !important;
       }
     }
   `;
@@ -279,12 +520,17 @@ export const OzwellWidget: React.FC = () => {
 
     if (document.getElementById(SCRIPT_ID)) return; // already injected
 
+    console.log('[Jerry] 🚀 widget initializing with key:', apiKey.slice(0, 14) + '…');
     window.OzwellChatConfig = {
       apiKey,
-      debug: Boolean(env?.DEV),
+      debug: true, // forced on for debugging
+      title: 'Jerry Assistant',
+      placeholder: 'Ask Jerry anything...',
+      welcomeMessage: JERRY_CHAT_WELCOME_TEXT,
     };
 
     injectMobileOverride();
+    injectJerryNudgeStyles();
     injectJerryButtonStyles(); // inject before script so button is styled on creation
 
     const script = document.createElement('script');
@@ -297,31 +543,55 @@ export const OzwellWidget: React.FC = () => {
       document.getElementById(SCRIPT_ID)?.remove();
       document.getElementById(MOBILE_OVERRIDE_STYLE_ID)?.remove();
       document.getElementById(JERRY_BUTTON_STYLE_ID)?.remove();
+      document.getElementById(JERRY_NUDGE_STYLE_ID)?.remove();
+      hideJerryNudge();
       delete window.OzwellChatConfig;
     };
   }, []); // intentionally empty — run once
 
   // ── Effect 2: inject Jerry button once widget is ready ────────────────────
   useEffect(() => {
+    let buttonClickHandler: (() => void) | null = null;
+
+    const runIframeEnhancements = () => {
+      let attempts = 0;
+      const timer = window.setInterval(() => {
+        attempts += 1;
+        const styled = injectIframeMessageStyles();
+        const welcomed = ensureWelcomePromptInIframe(JERRY_CHAT_WELCOME_TEXT);
+        if ((styled && welcomed) || attempts >= 20) window.clearInterval(timer);
+      }, 150);
+    };
+
     const onReady = () => {
       injectJerryButtonStyles();
       injectJerryButtonContent();
+      showJerryNudge(JERRY_NUDGE_TEXT);
+
+      const button = document.getElementById('ozwell-chat-button');
+      if (button && !buttonClickHandler) {
+        buttonClickHandler = () => {
+          hideJerryNudge();
+          runIframeEnhancements();
+        };
+        button.addEventListener('click', buttonClickHandler);
+      }
+
+      runIframeEnhancements();
     };
+
     document.addEventListener('ozwell-chat-ready', onReady);
     // Widget may already be ready if this effect runs late
     if (document.getElementById('ozwell-chat-button')) onReady();
-    return () => document.removeEventListener('ozwell-chat-ready', onReady);
+
+    return () => {
+      document.removeEventListener('ozwell-chat-ready', onReady);
+      const button = document.getElementById('ozwell-chat-button');
+      if (button && buttonClickHandler) button.removeEventListener('click', buttonClickHandler);
+    };
   }, []);
 
-  // ── Effect 3: hide "(no response)" tool-call bubbles ──────────────────────
-  useEffect(() => {
-    const observer = new MutationObserver(() => hideNoResponseBubbles(document.body));
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-    hideNoResponseBubbles(document.body);
-    return () => observer.disconnect();
-  }, []);
-
-  // ── Effect 4: sync live context to widget ─────────────────────────────────
+  // ── Effect 3: sync live context to widget ─────────────────────────────────
   useEffect(() => {
     if (!window.OzwellChat?.updateContext) return;
     window.OzwellChat.updateContext({
@@ -346,10 +616,33 @@ export const OzwellWidget: React.FC = () => {
     });
   }, [user, pathname, selectedTeam, selectedTeamId, activeClockEvent, teams]);
 
+  // ── Effect 4: watch for theme changes and update iframe button color ──────
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      // Theme changed - re-inject iframe styles with new colors
+      injectIframeMessageStyles();
+    });
+
+    // Watch for data-theme attribute changes on <html>
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
   // ── Effect 5: tool call handler ───────────────────────────────────────────
   const handleToolCall = useCallback((e: Event) => {
     const { name, arguments: args, respond } = (e as CustomEvent<OzwellToolCallDetail>).detail;
     const ctx = ctxRef.current;
+
+    console.log('[Jerry] 🔧 tool call received:', name, args);
+
+    const debugRespond = (result: unknown) => {
+      console.log('[Jerry] ✅ debugRespond() called for', name, result);
+      respond(result);
+    };
 
     void (async () => {
       try {
@@ -358,21 +651,21 @@ export const OzwellWidget: React.FC = () => {
           case 'navigate': {
             const path = String(args.path ?? '');
             if (!path.startsWith('/app/')) {
-              respond({ success: false, error: 'Invalid path. Must start with /app/' });
+              debugRespond({ success: false, error: 'Invalid path. Must start with /app/' });
               return;
             }
             ctx.navigate(path);
-            respond({ success: true, data: { path } });
+            debugRespond({ success: true, data: { path } });
             break;
           }
 
           // Read context
           case 'get_current_user': {
             if (!ctx.user) {
-              respond({ success: false, error: 'No user session found' });
+              debugRespond({ success: false, error: 'No user session found' });
               return;
             }
-            respond({
+            debugRespond({
               success: true,
               data: { id: ctx.user.id, name: ctx.user.name, email: ctx.user.email },
             });
@@ -380,28 +673,28 @@ export const OzwellWidget: React.FC = () => {
           }
 
           case 'get_current_page': {
-            respond({ success: true, data: { path: ctx.pathname } });
+            debugRespond({ success: true, data: { path: ctx.pathname } });
             break;
           }
 
           case 'get_current_team': {
             if (!ctx.selectedTeam) {
-              respond({ success: false, error: 'No team selected' });
+              debugRespond({ success: false, error: 'No team selected' });
               return;
             }
-            respond({ success: true, data: ctx.selectedTeam });
+            debugRespond({ success: true, data: ctx.selectedTeam });
             break;
           }
 
           case 'get_teams': {
-            respond({ success: true, data: ctx.teams });
+            debugRespond({ success: true, data: ctx.teams });
             break;
           }
 
           // Clock
           case 'get_clock_sessions': {
             if (!user?.id) {
-              respond({ success: false, error: 'No user session found' });
+              debugRespond({ success: false, error: 'No user session found' });
               return;
             }
             const todayStr = new Date().toLocaleDateString('en-CA');
@@ -454,7 +747,7 @@ export const OzwellWidget: React.FC = () => {
               teamId: s.teamId,
               team: ctx.teams.find((t) => t.id === s.teamId)?.name ?? s.teamId,
             }));
-            respond({
+            debugRespond({
               success: true,
               data: {
                 startDate: startDateStr,
@@ -474,7 +767,7 @@ export const OzwellWidget: React.FC = () => {
             if (ctx.activeClockEvent) {
               const elapsedSeconds =
                 (Date.now() - new Date(ctx.activeClockEvent.startTime).getTime()) / 1000;
-              respond({
+              debugRespond({
                 success: true,
                 data: {
                   clockedIn: true,
@@ -485,7 +778,7 @@ export const OzwellWidget: React.FC = () => {
                 },
               });
             } else {
-              respond({ success: true, data: { clockedIn: false } });
+              debugRespond({ success: true, data: { clockedIn: false } });
             }
             break;
           }
@@ -493,7 +786,7 @@ export const OzwellWidget: React.FC = () => {
           case 'clock_in': {
             if (!ctx.selectedTeamId) {
               const available = ctx.teams.map((t) => `"${t.name}"`).join(', ');
-              respond({
+              debugRespond({
                 success: false,
                 error: `No team selected. Use switch_team first. Available teams: ${available}`,
               });
@@ -501,25 +794,25 @@ export const OzwellWidget: React.FC = () => {
             }
             const event = await clockApi.start(ctx.selectedTeamId);
             ctx.refetchClock();
-            respond({ success: true, data: event });
+            debugRespond({ success: true, data: event });
             break;
           }
 
           case 'clock_out': {
             if (!ctx.selectedTeamId) {
-              respond({ success: false, error: 'No team selected' });
+              debugRespond({ success: false, error: 'No team selected' });
               return;
             }
             const stoppedEvent = await clockApi.stop(ctx.selectedTeamId);
             ctx.refetchClock();
-            respond({ success: true, data: stoppedEvent });
+            debugRespond({ success: true, data: stoppedEvent });
             break;
           }
 
           case 'update_timesheet_entry': {
             const entryId = String(args.id ?? '');
             if (!entryId) {
-              respond({ success: false, error: 'Missing required field: id' });
+              debugRespond({ success: false, error: 'Missing required field: id' });
               return;
             }
             const updates: { startTime?: number; endTime?: number | null } = {};
@@ -528,36 +821,36 @@ export const OzwellWidget: React.FC = () => {
             if (args.endTime != null) updates.endTime = new Date(String(args.endTime)).getTime();
             const updated = await clockApi.updateTimes(entryId, updates);
             ctx.refetchClock();
-            respond({ success: true, data: updated });
+            debugRespond({ success: true, data: updated });
             break;
           }
 
           case 'delete_timesheet_entry': {
             const delId = String(args.id ?? '');
             if (!delId) {
-              respond({ success: false, error: 'Missing required field: id' });
+              debugRespond({ success: false, error: 'Missing required field: id' });
               return;
             }
             await clockApi.deleteEvent(delId);
             ctx.refetchClock();
-            respond({ success: true });
+            debugRespond({ success: true });
             break;
           }
 
           // Tickets
           case 'get_tickets': {
             if (!ctx.selectedTeamId) {
-              respond({ success: false, error: 'No team selected' });
+              debugRespond({ success: false, error: 'No team selected' });
               return;
             }
             const tickets = await ticketApi.getTickets(ctx.selectedTeamId);
-            respond({ success: true, data: tickets });
+            debugRespond({ success: true, data: tickets });
             break;
           }
 
           case 'create_ticket': {
             if (!ctx.selectedTeamId) {
-              respond({ success: false, error: 'No team selected' });
+              debugRespond({ success: false, error: 'No team selected' });
               return;
             }
             let title = String(args.title ?? '');
@@ -565,7 +858,7 @@ export const OzwellWidget: React.FC = () => {
             const descriptionArg = args.description ? String(args.description) : undefined;
 
             if (!title) {
-              respond({ success: false, error: 'Missing required field: title' });
+              debugRespond({ success: false, error: 'Missing required field: title' });
               return;
             }
 
@@ -582,7 +875,7 @@ export const OzwellWidget: React.FC = () => {
                 description,
               });
               window.dispatchEvent(new Event('tickets:refetch'));
-              respond({ success: true, data: ticket });
+              debugRespond({ success: true, data: ticket });
               break;
             }
 
@@ -597,7 +890,7 @@ export const OzwellWidget: React.FC = () => {
                 description,
               });
               window.dispatchEvent(new Event('tickets:refetch'));
-              respond({ success: true, data: ticket });
+              debugRespond({ success: true, data: ticket });
               break;
             }
 
@@ -610,14 +903,14 @@ export const OzwellWidget: React.FC = () => {
               await ticketApi.updateTicket(ticket.id, { description: descriptionArg });
             }
             window.dispatchEvent(new Event('tickets:refetch'));
-            respond({ success: true, data: ticket });
+            debugRespond({ success: true, data: ticket });
             break;
           }
 
           case 'update_ticket': {
             const ticketId = String(args.id ?? '');
             if (!ticketId) {
-              respond({ success: false, error: 'Missing required field: id' });
+              debugRespond({ success: false, error: 'Missing required field: id' });
               return;
             }
             const hasStatusOrPriority = args.status != null || args.priority != null;
@@ -648,19 +941,19 @@ export const OzwellWidget: React.FC = () => {
               });
             }
             window.dispatchEvent(new Event('tickets:refetch'));
-            respond({ success: true, data: updatedTicket });
+            debugRespond({ success: true, data: updatedTicket });
             break;
           }
 
           case 'delete_ticket': {
             const delTicketId = String(args.id ?? '');
             if (!delTicketId) {
-              respond({ success: false, error: 'Missing required field: id' });
+              debugRespond({ success: false, error: 'Missing required field: id' });
               return;
             }
             await ticketApi.deleteTicket(delTicketId);
             window.dispatchEvent(new Event('tickets:refetch'));
-            respond({ success: true });
+            debugRespond({ success: true });
             break;
           }
 
@@ -673,7 +966,7 @@ export const OzwellWidget: React.FC = () => {
 
             if (!teamIdArg && !teamNameArg) {
               const available = ctx.teams.map((t) => `"${t.name}" (${t.id})`).join(', ');
-              respond({
+              debugRespond({
                 success: false,
                 error: `Provide teamId or name. Available teams: ${available}`,
               });
@@ -689,7 +982,7 @@ export const OzwellWidget: React.FC = () => {
             if (!matchedTeam) {
               const query = teamIdArg || teamNameArg;
               const available = ctx.teams.map((t) => `"${t.name}"`).join(', ');
-              respond({
+              debugRespond({
                 success: false,
                 error: `Team "${query}" not found. Available teams: ${available}`,
               });
@@ -698,7 +991,7 @@ export const OzwellWidget: React.FC = () => {
 
             // Already on this team — nothing to do
             if (matchedTeam.id === ctx.selectedTeamId) {
-              respond({
+              debugRespond({
                 success: true,
                 data: { id: matchedTeam.id, name: matchedTeam.name, alreadySelected: true },
               });
@@ -706,21 +999,21 @@ export const OzwellWidget: React.FC = () => {
             }
 
             ctx.setSelectedTeamId(matchedTeam.id);
-            respond({ success: true, data: { id: matchedTeam.id, name: matchedTeam.name } });
+            debugRespond({ success: true, data: { id: matchedTeam.id, name: matchedTeam.name } });
             break;
           }
 
           case 'create_team': {
             const teamName = String(args.name ?? '');
             if (!teamName) {
-              respond({ success: false, error: 'Missing required field: name' });
+              debugRespond({ success: false, error: 'Missing required field: name' });
               return;
             }
             const newTeam = await teamApi.createTeam({
               name: teamName,
               description: args.description as string | undefined,
             });
-            respond({ success: true, data: newTeam });
+            debugRespond({ success: true, data: newTeam });
             break;
           }
 
@@ -728,22 +1021,22 @@ export const OzwellWidget: React.FC = () => {
             const updateTeamId = String(args.id ?? '');
             const newName = String(args.name ?? '');
             if (!updateTeamId || !newName) {
-              respond({ success: false, error: 'Missing required fields: id and name' });
+              debugRespond({ success: false, error: 'Missing required fields: id and name' });
               return;
             }
             const renamedTeam = await teamApi.renameTeam(updateTeamId, newName);
-            respond({ success: true, data: renamedTeam });
+            debugRespond({ success: true, data: renamedTeam });
             break;
           }
 
           case 'delete_team': {
             const delTeamId = String(args.id ?? '');
             if (!delTeamId) {
-              respond({ success: false, error: 'Missing required field: id' });
+              debugRespond({ success: false, error: 'Missing required field: id' });
               return;
             }
             await teamApi.deleteTeam(delTeamId);
-            respond({ success: true });
+            debugRespond({ success: true });
             break;
           }
 
@@ -779,7 +1072,7 @@ export const OzwellWidget: React.FC = () => {
                 })),
               };
             });
-            respond({
+            debugRespond({
               success: true,
               data: { date, grandTotal: formatDuration(grandTotalSeconds), items: formatted },
             });
@@ -789,7 +1082,7 @@ export const OzwellWidget: React.FC = () => {
           case 'create_work_item': {
             const ticketId = String(args.ticketId ?? '');
             if (!ticketId) {
-              respond({ success: false, error: 'Missing required field: ticketId' });
+              debugRespond({ success: false, error: 'Missing required field: ticketId' });
               return;
             }
             const date = String(args.date ?? new Date().toLocaleDateString('en-CA'));
@@ -798,37 +1091,37 @@ export const OzwellWidget: React.FC = () => {
               date,
               note: args.note as string | undefined,
             });
-            respond({ success: true, data: entry });
+            debugRespond({ success: true, data: entry });
             break;
           }
 
           case 'start_work_timer': {
             const entryId = String(args.workItemId ?? '');
             if (!entryId) {
-              respond({ success: false, error: 'Missing required field: workItemId' });
+              debugRespond({ success: false, error: 'Missing required field: workItemId' });
               return;
             }
             const result = await timerApi.startSession(entryId);
             window.dispatchEvent(new Event('work:refetch'));
-            respond({ success: true, data: result });
+            debugRespond({ success: true, data: result });
             break;
           }
 
           case 'stop_work_timer': {
             const sessionId = String(args.sessionId ?? '');
             if (!sessionId) {
-              respond({ success: false, error: 'Missing required field: sessionId' });
+              debugRespond({ success: false, error: 'Missing required field: sessionId' });
               return;
             }
             const stopped = await timerApi.stopSession(sessionId);
             window.dispatchEvent(new Event('work:refetch'));
-            respond({ success: true, data: stopped });
+            debugRespond({ success: true, data: stopped });
             break;
           }
 
           case 'get_running_timer': {
             const running = await timerApi.getRunning();
-            respond({ success: true, data: running ?? null });
+            debugRespond({ success: true, data: running ?? null });
             break;
           }
 
@@ -846,7 +1139,7 @@ export const OzwellWidget: React.FC = () => {
             const teamName = ctx.selectedTeam?.name ?? 'the selected team';
 
             if (!teamId) {
-              respond({
+              debugRespond({
                 success: false,
                 error: 'No team selected. Use switch_team to select a team first.',
               });
@@ -858,7 +1151,7 @@ export const OzwellWidget: React.FC = () => {
             const ticketTitle = String(args.title ?? '');
 
             if (!ticketId && !ticketTitle) {
-              respond({
+              debugRespond({
                 success: false,
                 error: 'Provide ticketId or title to identify the ticket.',
               });
@@ -872,7 +1165,7 @@ export const OzwellWidget: React.FC = () => {
               // Validate the provided ID belongs to the current team
               const belongs = teamTickets.some((t) => t.id === ticketId);
               if (!belongs) {
-                respond({
+                debugRespond({
                   success: false,
                   error:
                     `Ticket ${ticketId} does not belong to "${teamName}". ` +
@@ -886,7 +1179,7 @@ export const OzwellWidget: React.FC = () => {
                 (t) => t.title.toLowerCase() === ticketTitle.toLowerCase(),
               );
               if (!match) {
-                respond({
+                debugRespond({
                   success: false,
                   error:
                     `No ticket titled "${ticketTitle}" found in "${teamName}". ` +
@@ -899,7 +1192,7 @@ export const OzwellWidget: React.FC = () => {
 
             // ── 2. Verify user is clocked in to this team ─────────────────────
             if (!ctx.activeClockEvent) {
-              respond({
+              debugRespond({
                 success: false,
                 error: `You are not clocked in. Use clock_in to clock in to "${teamName}" first.`,
               });
@@ -907,7 +1200,7 @@ export const OzwellWidget: React.FC = () => {
             }
             if (ctx.activeClockEvent.teamId !== teamId) {
               const clockedTeam = ctx.teams.find((t) => t.id === ctx.activeClockEvent?.teamId);
-              respond({
+              debugRespond({
                 success: false,
                 error:
                   `You are clocked in to "${clockedTeam?.name ?? ctx.activeClockEvent.teamId}" but the ticket belongs to "${teamName}". ` +
@@ -927,23 +1220,27 @@ export const OzwellWidget: React.FC = () => {
             // ── 4. Start the timer ────────────────────────────────────────────
             const session = await timerApi.startSession(entry.id);
             window.dispatchEvent(new Event('work:refetch'));
-            respond({ success: true, data: { workItem: entry, session } });
+            debugRespond({ success: true, data: { workItem: entry, session } });
             break;
           }
 
           default:
-            respond({ success: false, error: `Unknown tool: ${name}` });
+            debugRespond({ success: false, error: `Unknown tool: ${name}` });
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'An unexpected error occurred';
-        respond({ success: false, error: message });
+        debugRespond({ success: false, error: message });
       }
     })();
   }, []); // stable — reads ctx via ref
 
   useEffect(() => {
+    console.log('[Jerry] 📡 attaching ozwell-tool-call listener');
     document.addEventListener('ozwell-tool-call', handleToolCall);
-    return () => document.removeEventListener('ozwell-tool-call', handleToolCall);
+    return () => {
+      console.log('[Jerry] 🔌 removing ozwell-tool-call listener');
+      document.removeEventListener('ozwell-tool-call', handleToolCall);
+    };
   }, [handleToolCall]);
 
   return null;
