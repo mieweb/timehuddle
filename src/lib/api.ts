@@ -15,6 +15,11 @@ export const TIMECORE_BASE_URL: string =
 
 const WS_BASE_URL = TIMECORE_BASE_URL.replace(/^http/, 'ws');
 
+const FORCED_TIMEZONE: string | undefined =
+  (typeof import.meta !== 'undefined' &&
+    (import.meta as { env?: Record<string, string> }).env?.VITE_FORCE_TIMEZONE?.trim()) ||
+  undefined;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface TimecoreUser {
@@ -452,6 +457,14 @@ export const orgAdminApi = {
 export const orgApi = {
   getOrganization: () =>
     request<{ organization: AdminOrganization }>('/v1/organization').then((r) => r.organization),
+
+  getOwnershipStatus: () =>
+    request<{ hasOwner: boolean; installCompleted: boolean }>('/v1/organization/ownership-status'),
+
+  takeOwnership: () =>
+    request<{ role: 'owner' }>('/v1/organization/install', {
+      method: 'POST',
+    }),
 
   listUsers: () =>
     request<{ users: OrganizationAdminUser[] }>('/v1/organization/users').then((r) => r.users),
@@ -968,6 +981,15 @@ export interface WeekDay {
 
 /** Returns the browser's IANA timezone string (e.g. "America/New_York"). */
 function clientTz(): string {
+  if (FORCED_TIMEZONE) {
+    try {
+      // Validate the IANA timezone so bad local values do not break API calls.
+      new Intl.DateTimeFormat('en-US', { timeZone: FORCED_TIMEZONE }).format(new Date());
+      return FORCED_TIMEZONE;
+    } catch {
+      // Fall back to browser timezone.
+    }
+  }
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
