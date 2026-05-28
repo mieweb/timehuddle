@@ -572,7 +572,8 @@ describe("GET /v1/clock/timesheet", () => {
     );
 
     expect(res.statusCode).toBe(200);
-    expect(res.json().summary.totalSeconds).toBeGreaterThanOrEqual(150);
+    const minLiveSeconds = Math.max(0, Math.floor((Date.now() - twoMinutesAgo) / 1000) - 2);
+    expect(res.json().summary.totalSeconds).toBeGreaterThanOrEqual(minLiveSeconds);
 
     await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
   });

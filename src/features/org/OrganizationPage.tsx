@@ -1,4 +1,5 @@
 import { Button, Spinner, Text } from '@mieweb/ui';
+import { useRefresh } from '../../lib/RefreshContext';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import {
@@ -40,6 +41,8 @@ export const OrganizationPage: React.FC = () => {
   useEffect(() => {
     void loadOrganizationData();
   }, [loadOrganizationData]);
+
+  useRefresh(loadOrganizationData);
 
   if (!organization && !loading) {
     return (

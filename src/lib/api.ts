@@ -15,6 +15,11 @@ export const TIMECORE_BASE_URL: string =
 
 const WS_BASE_URL = TIMECORE_BASE_URL.replace(/^http/, 'ws');
 
+const FORCED_TIMEZONE: string | undefined =
+  (typeof import.meta !== 'undefined' &&
+    (import.meta as { env?: Record<string, string> }).env?.VITE_FORCE_TIMEZONE?.trim()) ||
+  undefined;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface TimecoreUser {
@@ -96,10 +101,14 @@ export const sessionToken = {
 
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const hasBody = options.body != null;
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const token = sessionToken.get();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
-  // Destructure headers out of options so that ...restOptions below does not
+  const timeoutId = setTimeout(
+    () =>
+      controller.abort(new Error('Request timed out. Please check your connection and try again.')),
+    8000,
+  );
   // overwrite the merged headers object (which would drop Authorization).
   const { headers: optHeaders, ...restOptions } = options;
   try {
@@ -107,7 +116,7 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
       credentials: 'include',
       signal: controller.signal,
       headers: {
-        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+        ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...optHeaders,
       },
@@ -135,7 +144,11 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
 /** fetch() with an 8-second abort timeout — prevents indefinite hangs on slow connections. */
 async function timedFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const timeoutId = setTimeout(
+    () =>
+      controller.abort(new Error('Request timed out. Please check your connection and try again.')),
+    8000,
+  );
   try {
     return await fetch(url, { signal: controller.signal, ...options });
   } finally {
@@ -445,6 +458,14 @@ export const orgApi = {
   getOrganization: () =>
     request<{ organization: AdminOrganization }>('/v1/organization').then((r) => r.organization),
 
+  getOwnershipStatus: () =>
+    request<{ hasOwner: boolean; installCompleted: boolean }>('/v1/organization/ownership-status'),
+
+  takeOwnership: () =>
+    request<{ role: 'owner' }>('/v1/organization/install', {
+      method: 'POST',
+    }),
+
   listUsers: () =>
     request<{ users: OrganizationAdminUser[] }>('/v1/organization/users').then((r) => r.users),
 };
@@ -538,6 +559,14 @@ export const ticketApi = {
     request<{ totalSeconds: number }>(
       `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
     ).then((r) => r.totalSeconds),
+
+  /** Open a WebSocket connection for live ticket updates. Auto-reconnects on drop. */
+  openLiveStream: (teamIds: string[]): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/tickets/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`;
+      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+    }),
 };
 
 // ─── Team API ─────────────────────────────────────────────────────────────────
@@ -621,6 +650,14 @@ export const teamApi = {
       `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/password`,
       { method: 'PUT', body: JSON.stringify({ newPassword }) },
     ),
+
+  /** Open a WebSocket connection for live team updates. Auto-reconnects on drop. */
+  openLiveStream: (): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/teams/ws`;
+      return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+    }),
 };
 
 // ─── Clock API ────────────────────────────────────────────────────────────────
@@ -944,6 +981,15 @@ export interface WeekDay {
 
 /** Returns the browser's IANA timezone string (e.g. "America/New_York"). */
 function clientTz(): string {
+  if (FORCED_TIMEZONE) {
+    try {
+      // Validate the IANA timezone so bad local values do not break API calls.
+      new Intl.DateTimeFormat('en-US', { timeZone: FORCED_TIMEZONE }).format(new Date());
+      return FORCED_TIMEZONE;
+    } catch {
+      // Fall back to browser timezone.
+    }
+  }
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
@@ -1020,20 +1066,117 @@ export const timerApi = {
       method: 'POST',
       body: JSON.stringify({ toDate }),
     }).then((r) => r.created),
+
+  /**
+   * Open a WebSocket connection for real-time timer updates.
+   */
+  openLiveStream: (): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/timers/ws`;
+      return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+    }),
 };
 
 // ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
 
 export const videoApi = {
-  /** Reserve a videoid on the server before starting a TUS upload.
+  /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
+  uploadEndpoint: () => `${TIMECORE_BASE_URL.replace(/\/$/, '')}/v1/video/upload`,
+
+  /** Reserve a videoid for a ticket upload before starting TUS.
    *  Pass `existingVideoid` when resuming a recording session so the backend
    *  re-registers the same id instead of creating a new one.
    */
   reserve: (ticketId: string, existingVideoid?: string) =>
-    request<{ videoid: string }>('/v1/pulsevault/reserve', {
+    request<{ videoid: string; uploadToken: string; uploadLink?: string }>('/v1/video/reserve', {
       method: 'POST',
-      body: JSON.stringify(existingVideoid ? { ticketId, videoid: existingVideoid } : { ticketId }),
+      body: JSON.stringify(
+        existingVideoid
+          ? { target: 'ticket', ticketId, videoid: existingVideoid }
+          : { target: 'ticket', ticketId },
+      ),
     }),
+
+  /** Reserve a videoid for a media library upload (no ticket context). */
+  reserveForLibrary: () =>
+    request<{ videoid: string; uploadToken: string }>('/v1/video/reserve', {
+      method: 'POST',
+      body: JSON.stringify({ target: 'library' }),
+    }),
+};
+
+// ─── Media Library ────────────────────────────────────────────────────────────
+
+export interface MediaItem {
+  id: string;
+  userId: string;
+  type: 'video' | 'image';
+  mimeType: string;
+  url: string;
+  videoid: string | null;
+  filename: string;
+  size: number;
+  title: string | null;
+  caption: string | null;
+  altText: string | null;
+  thumbnail: string | null;
+  uploadedAt: string;
+}
+
+function withAbsoluteMediaItem(item: MediaItem): MediaItem {
+  const thumbnail = toAbsoluteUrl(item.thumbnail);
+  const url = toAbsoluteUrl(item.url) ?? item.url;
+  if (thumbnail === item.thumbnail && url === item.url) return item;
+  return { ...item, thumbnail, url };
+}
+
+export const mediaApi = {
+  /** POST /v1/media — upload image file to media library */
+  uploadImage: async (file: File): Promise<MediaItem> => {
+    const form = new FormData();
+    form.append('file', file, file.name || 'image');
+    const response = await request<{ item: MediaItem }>('/v1/media', {
+      method: 'POST',
+      body: form,
+    });
+    return withAbsoluteMediaItem(response.item);
+  },
+
+  /** GET /v1/media — list media library items for the current user */
+  list: () =>
+    request<{ items: MediaItem[] }>(`/v1/media`).then((r) => r.items.map(withAbsoluteMediaItem)),
+
+  /** GET /v1/media/user/:userId — list media items for a specific profile user */
+  listForUser: (userId: string) =>
+    request<{ items: MediaItem[] }>(`/v1/media/user/${encodeURIComponent(userId)}`).then((r) =>
+      r.items.map(withAbsoluteMediaItem),
+    ),
+
+  /** PATCH /v1/media/:id — update title, caption, altText */
+  update: (id: string, data: { title?: string; caption?: string; altText?: string }) =>
+    request<{ item: MediaItem }>(`/v1/media/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }).then((r) => withAbsoluteMediaItem(r.item)),
+
+  /** DELETE /v1/media/:id */
+  remove: (id: string) =>
+    request<{ ok: boolean }>(`/v1/media/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  /** POST /v1/media/:id/thumbnail — upload a JPEG thumbnail blob */
+  uploadThumbnail: async (id: string, blob: Blob): Promise<MediaItem> => {
+    const form = new FormData();
+    form.append('file', blob, 'thumbnail.jpg');
+    const response = await request<{ item: MediaItem }>(
+      `/v1/media/${encodeURIComponent(id)}/thumbnail`,
+      {
+        method: 'POST',
+        body: form,
+      },
+    );
+    return withAbsoluteMediaItem(response.item);
+  },
 };
 
 // ─── Activity Log ─────────────────────────────────────────────────────────────

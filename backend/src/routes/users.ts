@@ -116,10 +116,6 @@ export async function userRoutes(app: FastifyInstance) {
     return "member";
   }
 
-  function resolveDefaultOrganizationUserIds(owners: string[], admins: string[]) {
-    return Array.from(new Set([...owners, ...admins]));
-  }
-
   app.get(
     "/admin/organization",
     {
@@ -293,6 +289,105 @@ export async function userRoutes(app: FastifyInstance) {
   );
 
   app.get(
+    "/organization/ownership-status",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Get default organization ownership status",
+        security: [{ cookieAuth: [] }],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              hasOwner: { type: "boolean" },
+              installCompleted: { type: "boolean" },
+            },
+          },
+          ...unauthorizedResponse,
+          404: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (_req, reply) => {
+      const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      if (!defaultOrg) return reply.status(404).send({ error: "Default organization not found" });
+
+      return reply.send({
+        hasOwner: (defaultOrg.owners ?? []).length > 0,
+        installCompleted: !!defaultOrg.installCompletedAt,
+      });
+    }
+  );
+
+  app.post(
+    "/organization/install",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Users"],
+        summary: "Take ownership of default organization when no owner exists",
+        security: [{ cookieAuth: [] }],
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              role: { type: "string", enum: ["owner"] },
+            },
+          },
+          ...unauthorizedResponse,
+          404: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+          409: {
+            type: "object",
+            properties: { error: { type: "string" } },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const userId = req.user!.id;
+
+      // One-time bootstrap gate:
+      // - no owner exists
+      // - install not already marked complete
+      const bootstrapResult = await organizationsCollection().findOneAndUpdate(
+        {
+          key: DEFAULT_ORG_KEY,
+          "owners.0": { $exists: false },
+          installCompletedAt: { $exists: false },
+        },
+        {
+          $set: {
+            owners: [userId],
+            admins: [],
+            installCompletedAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+        { returnDocument: "after" }
+      );
+
+      if (!bootstrapResult) {
+        const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+        if (!defaultOrg) {
+          return reply.status(404).send({ error: "Default organization not found" });
+        }
+        return reply
+          .status(409)
+          .send({ error: "Owner already exists or install is already complete" });
+      }
+
+      return reply.send({ role: "owner" as const });
+    }
+  );
+
+  app.get(
     "/admin/organization/users",
     {
       preHandler: [requireAuth],
@@ -336,17 +431,9 @@ export async function userRoutes(app: FastifyInstance) {
       const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
       const owners = defaultOrg?.owners ?? [];
       const admins = defaultOrg?.admins ?? [];
-      const organizationUserIds = resolveDefaultOrganizationUserIds(owners, admins);
-
-      if (organizationUserIds.length === 0) {
-        return reply.send({ users: [] });
-      }
 
       const users = await usersCollection()
-        .find(
-          { _id: { $in: organizationUserIds.map((userId) => new ObjectId(userId)) } },
-          { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } }
-        )
+        .find({}, { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } })
         .sort({ name: 1, email: 1 })
         .limit(500)
         .toArray();
@@ -608,6 +695,7 @@ export async function userRoutes(app: FastifyInstance) {
       name: { type: "string" },
       username: { type: "string", nullable: true },
       image: { type: "string", nullable: true },
+      backgroundUrl: { type: "string", nullable: true },
       bio: { type: "string" },
       website: { type: "string" },
       reportsTo: publicReportsToSchema,
@@ -918,17 +1006,9 @@ export async function userRoutes(app: FastifyInstance) {
 
       const owners = defaultOrg.owners ?? [];
       const admins = defaultOrg.admins ?? [];
-      const organizationUserIds = resolveDefaultOrganizationUserIds(owners, admins);
-
-      if (organizationUserIds.length === 0) {
-        return reply.send({ users: [] });
-      }
 
       const users = await usersCollection()
-        .find(
-          { _id: { $in: organizationUserIds.map((userId) => new ObjectId(userId)) } },
-          { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } }
-        )
+        .find({}, { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } })
         .sort({ name: 1, email: 1 })
         .limit(500)
         .toArray();

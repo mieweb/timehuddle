@@ -18,6 +18,7 @@ import {
   faGauge,
   faGear,
   faListCheck,
+  faPhotoFilm,
   faSitemap,
   faMoon,
   faSpinner,
@@ -80,6 +81,12 @@ const NAV_ITEMS: NavSection[] = [
         keywords: ['organization', 'hierarchy', 'chart', 'structure'],
       },
       { icon: faEnvelope, label: 'Messages', href: '/app/messages', keywords: ['chat', 'inbox'] },
+      {
+        icon: faPhotoFilm,
+        label: 'Media Library',
+        href: '/app/media',
+        keywords: ['media', 'photos', 'videos', 'images', 'library', 'uploads'],
+      },
       {
         icon: faBell,
         label: 'Notifications',

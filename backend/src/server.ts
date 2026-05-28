@@ -17,7 +17,9 @@ import { healthRoutes } from "./routes/health.js";
 import { userRoutes } from "./routes/users.js";
 import { orgRoutes } from "./routes/org.js";
 import { ticketRoutes } from "./routes/tickets.js";
+import { ticketsWsRoutes } from "./routes/tickets-ws.js";
 import { teamRoutes } from "./routes/teams.js";
+import { teamsWsRoutes } from "./routes/teams-ws.js";
 import { clockRoutes } from "./routes/clock.js";
 import { timerRoutes } from "./routes/timers.js";
 import { notificationRoutes } from "./routes/notifications.js";
@@ -26,6 +28,7 @@ import { messageRoutes } from "./routes/messages.js";
 import { activityRoutes } from "./routes/activity.js";
 import { workRoutes } from "./routes/work.js";
 import { pulseVaultRoutes, pulseVaultCompatRoutes } from "./routes/pulsevault.js";
+import { mediaRoutes } from "./routes/media.js";
 import { presenceRoutes } from "./routes/presence.js";
 import { channelRoutes } from "./routes/channels.js";
 import { tokenRoutes } from "./routes/tokens.js";
@@ -480,12 +483,15 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // App routes
   await app.register(userRoutes, { prefix: "/v1" });
   await app.register(orgRoutes, { prefix: "/v1" });
+  await app.register(teamsWsRoutes, { prefix: "/v1" });
   await app.register(teamRoutes, { prefix: "/v1" });
   await app.register(ticketRoutes, { prefix: "/v1" });
+  await app.register(ticketsWsRoutes, { prefix: "/v1" });
   await app.register(clockRoutes, { prefix: "/v1" });
   await app.register(timerRoutes, { prefix: "/v1" });
   await app.register(notificationRoutes, { prefix: "/v1" });
   await app.register(attachmentRoutes, { prefix: "/v1" });
+  await app.register(mediaRoutes, { prefix: "/v1" });
   await app.register(pulseVaultRoutes, { prefix: "/v1" });
   await app.register(messageRoutes, { prefix: "/v1" });
   await app.register(activityRoutes, { prefix: "/v1" });
@@ -493,6 +499,12 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(presenceRoutes, { prefix: "/v1" });
   await app.register(channelRoutes, { prefix: "/v1" });
   await app.register(tokenRoutes, { prefix: "/v1" });
+
+  // Root health/info — must be registered before pulseVaultCompatRoutes so that GET /
+  // does not fall through to the compat /:videoid param route (which would fail UUID validation).
+  app.get("/", async (_req, reply) => {
+    return reply.status(200).send({ service: "timehuddle-backend", status: "ok" });
+  });
 
   // Compat: old Pulse Cam configs saved the bare server URL (http://host:4000) and call
   // POST /reserve, POST /upload, PATCH /upload/:id etc. at root level.
@@ -510,7 +522,7 @@ async function bootstrap() {
   }
   const app = await buildApp();
   const port = Number(process.env.PORT) || 4000;
-  await app.listen({ port, host: "0.0.0.0" });
+  await app.listen({ port, host: "::" });
   console.log(`API running on http://localhost:${port}`);
   console.log(`Swagger UI at http://localhost:${port}/docs`);
 }
