@@ -211,18 +211,21 @@ function hideJerryNudge() {
 
 /** Keep list/newline formatting readable inside the iframe chat bubbles. */
 function injectIframeMessageStyles() {
-  const iframe = document.querySelector('#ozwell-chat-container iframe') as HTMLIFrameElement | null;
+  const iframe = document.querySelector(
+    '#ozwell-chat-container iframe',
+  ) as HTMLIFrameElement | null;
   if (!iframe?.contentDocument) return false;
 
   const doc = iframe.contentDocument;
-  
+
   // Get computed primary color from parent document
-  const primaryColor = getComputedStyle(document.documentElement)
-    .getPropertyValue('--color-primary')
-    .trim() || '#27aae1';
-  const primaryForeground = getComputedStyle(document.documentElement)
-    .getPropertyValue('--color-primary-foreground')
-    .trim() || '#ffffff';
+  const primaryColor =
+    getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() ||
+    '#27aae1';
+  const primaryForeground =
+    getComputedStyle(document.documentElement)
+      .getPropertyValue('--color-primary-foreground')
+      .trim() || '#ffffff';
 
   // Set CSS variables directly on iframe's root so they can update
   if (doc.documentElement) {
@@ -231,8 +234,10 @@ function injectIframeMessageStyles() {
   }
 
   // Find and directly update all send button styles for immediate visual update
-  const submitButtons = doc.querySelectorAll<HTMLButtonElement>('button[type="submit"], .send-button, form button[type="submit"]');
-  submitButtons.forEach(button => {
+  const submitButtons = doc.querySelectorAll<HTMLButtonElement>(
+    'button[type="submit"], .send-button, form button[type="submit"]',
+  );
+  submitButtons.forEach((button) => {
     button.style.backgroundColor = primaryColor;
     button.style.background = primaryColor;
     button.style.color = primaryForeground;
@@ -274,7 +279,9 @@ function injectIframeMessageStyles() {
 
 /** Ensure the welcome prompt exists in the widget message list when chat opens. */
 function ensureWelcomePromptInIframe(text: string) {
-  const iframe = document.querySelector('#ozwell-chat-container iframe') as HTMLIFrameElement | null;
+  const iframe = document.querySelector(
+    '#ozwell-chat-container iframe',
+  ) as HTMLIFrameElement | null;
   if (!iframe?.contentDocument) return false;
 
   const doc = iframe.contentDocument;

@@ -500,8 +500,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
   // Root health/info — must be registered before pulseVaultCompatRoutes so that GET /
   // does not fall through to the compat /:videoid param route (which would fail UUID validation).
-  app.get('/', async (_req, reply) => {
-    return reply.status(200).send({ service: 'timehuddle-backend', status: 'ok' });
+  app.get("/", async (_req, reply) => {
+    return reply.status(200).send({ service: "timehuddle-backend", status: "ok" });
   });
 
   // Compat: old Pulse Cam configs saved the bare server URL (http://host:4000) and call
