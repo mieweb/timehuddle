@@ -34,9 +34,11 @@ import {
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 import {
   checkPushNotificationStatus,
   isPushSupported,
+  isNativePushRegistered,
   subscribeToPush,
   unsubscribeFromPush,
 } from '../lib/nativePush';
@@ -154,8 +156,12 @@ const PushNotificationsSettings: React.FC = () => {
 
   const refreshStatus = useCallback(async () => {
     if (isNative) {
-      // On native we don't have a synchronous way to check if we are subscribed
-      // without a stored token, so treat "supported" as the indicator.
+      try {
+        const { receive } = await PushNotifications.checkPermissions();
+        setEnabled(receive === 'granted' && isNativePushRegistered());
+      } catch {
+        setEnabled(false);
+      }
       return;
     }
     if (!isPushSupported()) {
