@@ -498,6 +498,12 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(channelRoutes, { prefix: "/v1" });
   await app.register(tokenRoutes, { prefix: "/v1" });
 
+  // Root health/info — must be registered before pulseVaultCompatRoutes so that GET /
+  // does not fall through to the compat /:videoid param route (which would fail UUID validation).
+  app.get('/', async (_req, reply) => {
+    return reply.status(200).send({ service: 'timehuddle-backend', status: 'ok' });
+  });
+
   // Compat: old Pulse Cam configs saved the bare server URL (http://host:4000) and call
   // POST /reserve, POST /upload, PATCH /upload/:id etc. at root level.
   await app.register(pulseVaultCompatRoutes);
