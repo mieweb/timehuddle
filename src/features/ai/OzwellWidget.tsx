@@ -80,21 +80,15 @@ function injectJerryButtonStyles() {
   style.id = JERRY_BUTTON_STYLE_ID;
   style.textContent = `
     #ozwell-chat-button {
-      background: transparent !important;
-      border: none !important;
-      border-radius: 0 !important;
-      box-shadow: none !important;
+      background: #F5A623 !important;
+      border-radius: 14px !important;
+      box-shadow: 0 4px 16px rgba(245, 166, 35, 0.4) !important;
+      flex-direction: column !important;
+      gap: 2px !important;
       animation: jerry-bob 3.5s ease-in-out infinite !important;
-      width: 160px !important;
-      height: 160px !important;
-      position: fixed !important;
-      overflow: visible !important;
-      display: grid !important;
-      place-items: center !important;
-      padding: 0 !important;
     }
     #ozwell-chat-button:hover {
-      box-shadow: none !important;
+      box-shadow: 0 6px 22px rgba(245, 166, 35, 0.55) !important;
     }
     #ozwell-chat-button.wiggling {
       animation: ozwell-wiggle 0.8s ease-in-out !important;
@@ -103,15 +97,29 @@ function injectJerryButtonStyles() {
       0%, 100% { transform: translateY(0px); }
       50%       { transform: translateY(-5px); }
     }
-    .jerry-clock-logo {
-      width: 148px;
-      height: 148px;
-      display: block;
-      object-fit: contain;
-      filter: drop-shadow(0 0 6px rgba(255,255,255,1)) drop-shadow(0 0 14px rgba(100,210,255,0.95)) drop-shadow(0 0 28px rgba(56,130,255,0.8)) drop-shadow(0 0 50px rgba(30,80,220,0.5));
+    .jerry-eyes {
+      display: flex;
+      gap: 8px;
     }
-    html[data-theme='dark'] .jerry-clock-logo {
-      filter: brightness(0) invert(1) drop-shadow(0 0 6px rgba(255,255,255,1)) drop-shadow(0 0 14px rgba(100,210,255,0.95)) drop-shadow(0 0 28px rgba(56,130,255,0.8)) drop-shadow(0 0 50px rgba(30,80,220,0.5));
+    .jerry-eye {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #3B2000;
+      animation: jerry-blink 5s ease-in-out infinite;
+      transform-origin: center;
+    }
+    .jerry-eye.r { animation-delay: 0.07s; }
+    @keyframes jerry-blink {
+      0%, 88%, 100% { transform: scaleY(1); }
+      93%           { transform: scaleY(0.08); }
+    }
+    .jerry-j {
+      font-size: 24px;
+      font-weight: 700;
+      line-height: 1;
+      color: #3B2000;
+      font-family: Georgia, 'Times New Roman', serif;
     }
   `;
   document.head.appendChild(style);
@@ -122,7 +130,11 @@ function injectJerryButtonContent() {
   const button = document.getElementById('ozwell-chat-button');
   if (!button) return;
   button.innerHTML = `
-    <img class="jerry-clock-logo" src="/jerry-logo.png" alt="Jerry assistant" aria-hidden="true" />
+    <div class="jerry-eyes">
+      <div class="jerry-eye l"></div>
+      <div class="jerry-eye r"></div>
+    </div>
+    <div class="jerry-j">J</div>
   `;
 }
 
@@ -134,7 +146,7 @@ function injectJerryNudgeStyles() {
     #${JERRY_NUDGE_ID} {
       position: fixed;
       right: 20px;
-      bottom: 155px;
+      bottom: 95px;
       max-width: 220px;
       padding: 10px 12px;
       border-radius: 12px;
@@ -151,7 +163,7 @@ function injectJerryNudgeStyles() {
     #${JERRY_NUDGE_ID}::after {
       content: '';
       position: absolute;
-      right: 80px;
+      right: 20px;
       bottom: -6px;
       width: 12px;
       height: 12px;
@@ -167,12 +179,12 @@ function injectJerryNudgeStyles() {
     @media (max-width: 767px) {
       #${JERRY_NUDGE_ID} {
         right: 16px;
-        bottom: calc(204px + env(safe-area-inset-bottom));
+        bottom: calc(180px + env(safe-area-inset-bottom));
         max-width: 200px;
         font-size: 13px;
       }
       #${JERRY_NUDGE_ID}::after {
-        right: 70px;
+        right: 20px;
         bottom: -6px;
         border-top: none;
         border-left: none;
@@ -203,6 +215,34 @@ function injectIframeMessageStyles() {
   if (!iframe?.contentDocument) return false;
 
   const doc = iframe.contentDocument;
+
+  // Get computed primary color from parent document
+  const primaryColor =
+    getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() ||
+    '#27aae1';
+  const primaryForeground =
+    getComputedStyle(document.documentElement)
+      .getPropertyValue('--color-primary-foreground')
+      .trim() || '#ffffff';
+
+  // Set CSS variables directly on iframe's root so they can update
+  if (doc.documentElement) {
+    doc.documentElement.style.setProperty('--app-primary', primaryColor);
+    doc.documentElement.style.setProperty('--app-primary-foreground', primaryForeground);
+  }
+
+  // Find and directly update all send button styles for immediate visual update
+  const submitButtons = doc.querySelectorAll<HTMLButtonElement>(
+    'button[type="submit"], .send-button, form button[type="submit"]',
+  );
+  submitButtons.forEach((button) => {
+    button.style.backgroundColor = primaryColor;
+    button.style.background = primaryColor;
+    button.style.color = primaryForeground;
+    button.style.borderColor = primaryColor;
+  });
+
+  // Only inject style once - it will use the CSS variables
   if (doc.getElementById(JERRY_IFRAME_STYLE_ID)) return true;
 
   const style = doc.createElement('style');
@@ -213,6 +253,46 @@ function injectIframeMessageStyles() {
       overflow-wrap: anywhere !important;
       word-break: break-word !important;
       line-height: 1.45 !important;
+    }
+    /* Override Send button to use app theme color via CSS variables */
+    button[type="submit"],
+    .send-button,
+    button:has(svg[data-icon="paper-plane"]),
+    form button[type="submit"] {
+      background-color: var(--app-primary, #27aae1) !important;
+      background: var(--app-primary, #27aae1) !important;
+      color: var(--app-primary-foreground, #ffffff) !important;
+      border-color: var(--app-primary, #27aae1) !important;
+    }
+    button[type="submit"]:hover,
+    .send-button:hover,
+    button:has(svg[data-icon="paper-plane"]):hover,
+    form button[type="submit"]:hover {
+      opacity: 0.9 !important;
+    }
+    /* Fix input/placeholder visibility in Capacitor WebView */
+    input, textarea {
+      -webkit-appearance: none !important;
+      appearance: none !important;
+      box-sizing: border-box !important;
+      width: 100% !important;
+      min-width: 0 !important;
+      color: #111827 !important;
+      background: #ffffff !important;
+      opacity: 1 !important;
+    }
+    input::placeholder,
+    textarea::placeholder,
+    input::-webkit-input-placeholder,
+    textarea::-webkit-input-placeholder {
+      color: #9ca3af !important;
+      opacity: 1 !important;
+      -webkit-text-fill-color: #9ca3af !important;
+    }
+    form {
+      display: flex !important;
+      width: 100% !important;
+      overflow: visible !important;
     }
   `;
   doc.head.appendChild(style);
@@ -247,6 +327,31 @@ function injectMobileOverride() {
   const style = document.createElement('style');
   style.id = MOBILE_OVERRIDE_STYLE_ID;
   style.textContent = `
+    /* Override Ozwell chat header to use app theme colors */
+    .ozwell-chat-header {
+      background: var(--color-primary, #0b2e57) !important;
+      color: var(--color-primary-foreground, #ffffff) !important;
+    }
+    .ozwell-chat-header * {
+      color: var(--color-primary-foreground, #ffffff) !important;
+    }
+    /* Keep Send button using primary color - outer wrapper */
+    #ozwell-chat-wrapper button[type="submit"],
+    #ozwell-chat-wrapper .ozwell-send-button,
+    #ozwell-chat-wrapper .send-button,
+    #ozwell-chat-wrapper button:has(svg[data-icon="paper-plane"]),
+    #ozwell-chat-wrapper form button {
+      background: var(--color-primary, #0b2e57) !important;
+      color: var(--color-primary-foreground, #ffffff) !important;
+      border-color: var(--color-primary, #0b2e57) !important;
+    }
+    #ozwell-chat-wrapper button[type="submit"]:hover,
+    #ozwell-chat-wrapper .ozwell-send-button:hover,
+    #ozwell-chat-wrapper .send-button:hover,
+    #ozwell-chat-wrapper form button:hover {
+      opacity: 0.9 !important;
+    }
+
     /* Keep a rounded chat-card shape on desktop */
     #ozwell-chat-wrapper {
       border-radius: 22px !important;
@@ -272,82 +377,109 @@ function injectMobileOverride() {
       #ozwell-chat-button {
         bottom: calc(90px + env(safe-area-inset-bottom)) !important;
         right: 16px !important;
-        width: 140px !important;
-        height: 140px !important;
+        width: 68px !important;
+        height: 68px !important;
       }
 
-      #ozwell-chat-button .jerry-clock-logo {
-        width: 128px;
-        height: 128px;
-        object-fit: contain;
-        filter: brightness(0) invert(1) drop-shadow(0 0 10px rgba(255,255,255,0.6));
+      /* Bottom sheet pattern for mobile - slides up from bottom nav */
+      #ozwell-chat-wrapper {
+        position: fixed !important;
+        top: 120px !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: calc(80px + env(safe-area-inset-bottom)) !important;
+        width: 100% !important;
+        height: auto !important;
+        max-height: none !important;
+        border-radius: 22px 22px 0 0 !important;
+        border: none !important;
+        border-top: 1px solid #e5e7eb !important;
+        box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15) !important;
+        padding-bottom: 0 !important;
+        z-index: 10000 !important;
+        background: #ffffff !important;
+        overflow: hidden !important;
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s !important;
       }
 
-      /* Backdrop that dims the app when chat is open */
+      /* Backdrop that dims the app - stops at bottom nav */
       #ozwell-chat-wrapper::before {
         content: '' !important;
         display: block !important;
         position: fixed !important;
-        inset: 0 !important;
-        background: rgba(0, 0, 0, 0.45) !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: calc(80px + env(safe-area-inset-bottom)) !important;
+        background: rgba(0, 0, 0, 0.5) !important;
         z-index: -1 !important;
         transition: opacity 0.3s !important;
-      }
-      #ozwell-chat-wrapper.hidden::before {
-        opacity: 0 !important;
-      }
-      #ozwell-chat-wrapper.visible::before {
-        opacity: 1 !important;
+        pointer-events: auto !important;
       }
 
-      /* Rounded floating chat card on mobile */
-      #ozwell-chat-wrapper {
-        position: fixed !important;
-        top: auto !important;
-        left: 28px !important;
-        right: 4px !important;
-        bottom: calc(246px + env(safe-area-inset-bottom)) !important;
-        width: auto !important;
-        height: 56vh !important;
-        max-height: 460px !important;
-        border-radius: 22px !important;
-        border: 1px solid #e5e7eb !important;
-        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28) !important;
-        padding-bottom: 0 !important;
-        z-index: 9999 !important;
-        background: #ffffff !important;
-        overflow: hidden !important;
-      }
-      /* Prevent dark Capacitor WebView background bleeding through the iframe gap */
-      #ozwell-chat-container {
-        background: #ffffff !important;
-        border-radius: 0 0 22px 22px !important;
-      }
-      #ozwell-chat-container iframe {
-        background: #ffffff !important;
-      }
       #ozwell-chat-wrapper.hidden {
         opacity: 0 !important;
         visibility: hidden !important;
-        transform: translateY(calc(100% + 64px)) !important;
+        transform: translateY(100%) !important;
         pointer-events: none !important;
       }
+      #ozwell-chat-wrapper.hidden::before {
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+
       #ozwell-chat-wrapper.visible {
         opacity: 1 !important;
         visibility: visible !important;
         transform: translateY(0) !important;
         pointer-events: auto !important;
       }
+      #ozwell-chat-wrapper.visible::before {
+        opacity: 1 !important;
+      }
+
+      /* Prevent dark Capacitor WebView background bleeding through */
+      #ozwell-chat-container {
+        background: #ffffff !important;
+        border-radius: 0 !important;
+        height: 100% !important;
+      }
+      #ozwell-chat-container iframe {
+        background: #ffffff !important;
+        height: 100% !important;
+      }
 
       .ozwell-chat-header {
-        padding-top: 10px !important;
+        padding: 16px 16px 12px 16px !important;
         flex-direction: row !important;
-        flex-wrap: wrap !important;
+        flex-wrap: nowrap !important;
         align-items: center !important;
+        border-bottom: 1px solid #e5e7eb !important;
+        background: var(--color-primary, #0b2e57) !important;
+        color: var(--color-primary-foreground, #ffffff) !important;
+      }
+      .ozwell-chat-header * {
+        color: var(--color-primary-foreground, #ffffff) !important;
       }
       .ozwell-chat-controls {
         display: flex !important;
         margin-left: auto !important;
+        gap: 8px !important;
+      }
+      /* Mobile Send button - comprehensive selectors */
+      #ozwell-chat-wrapper button[type="submit"],
+      #ozwell-chat-wrapper .ozwell-send-button,
+      #ozwell-chat-wrapper .send-button,
+      #ozwell-chat-wrapper button:has(svg[data-icon="paper-plane"]),
+      #ozwell-chat-wrapper form button {
+        background: var(--color-primary, #0b2e57) !important;
+        color: var(--color-primary-foreground, #ffffff) !important;
+        border-color: var(--color-primary, #0b2e57) !important;
+      }
+      #ozwell-chat-wrapper button[type="submit"]:hover,
+      #ozwell-chat-wrapper .send-button:hover,
+      #ozwell-chat-wrapper form button:hover {
+        opacity: 0.9 !important;
       }
     }
   `;
@@ -504,7 +636,23 @@ export const OzwellWidget: React.FC = () => {
     });
   }, [user, pathname, selectedTeam, selectedTeamId, activeClockEvent, teams]);
 
-  // ── Effect 4: tool call handler ───────────────────────────────────────────
+  // ── Effect 4: watch for theme changes and update iframe button color ──────
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      // Theme changed - re-inject iframe styles with new colors
+      injectIframeMessageStyles();
+    });
+
+    // Watch for data-theme attribute changes on <html>
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  // ── Effect 5: tool call handler ───────────────────────────────────────────
   const handleToolCall = useCallback((e: Event) => {
     const { name, arguments: args, respond } = (e as CustomEvent<OzwellToolCallDetail>).detail;
     const ctx = ctxRef.current;
