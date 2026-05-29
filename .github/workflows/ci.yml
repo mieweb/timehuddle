@@ -201,7 +201,13 @@ jobs:
             echo "=== sudo pm2 restart ==="
             sudo pm2 restart timehuddle-api
             sudo pm2 save
-            echo "DEV backend OK"
+
+            echo "=== backend smoke test ==="
+            sleep 3
+            HEALTH=$(curl -s http://localhost:4000/health 2>/dev/null)
+            echo "Health response: $HEALTH"
+            echo "$HEALTH" | grep -q '"status":"ok"' || { echo "ERROR: backend smoke test failed"; exit 1; }
+            echo "DEV backend smoke test passed"
           ENDSSH
 
   verify_dev:
@@ -209,15 +215,18 @@ jobs:
     runs-on: ubuntu-latest
     needs: deploy_dev
     steps:
-      - name: Health check DEV frontend
+      - name: Frontend smoke test - DEV
         run: |
           sleep 5
+          BODY=$(curl -s ${{ secrets.DEPLOY_DEV_URL }}) || BODY=""
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEPLOY_DEV_URL }}) || STATUS="000"
           echo "HTTP status: $STATUS"
           if [ "$STATUS" != "200" ]; then
-            echo "DEV health check failed (HTTP $STATUS)"
+            echo "ERROR: DEV frontend returned HTTP $STATUS"
             exit 1
           fi
+          echo "$BODY" | grep -q "TimeHuddle" || { echo "ERROR: 'TimeHuddle' not found in DEV frontend response — app may not be serving correctly"; exit 1; }
+          echo "DEV frontend smoke test passed"
 
   # ── PROD ─────────────────────────────────────────────────────────────────────
   deploy_prod:
@@ -333,7 +342,13 @@ jobs:
             echo "=== sudo pm2 restart ==="
             sudo pm2 restart timehuddle-api
             sudo pm2 save
-            echo "PROD backend OK"
+
+            echo "=== backend smoke test ==="
+            sleep 3
+            HEALTH=$(curl -s http://localhost:4000/health 2>/dev/null)
+            echo "Health response: $HEALTH"
+            echo "$HEALTH" | grep -q '"status":"ok"' || { echo "ERROR: backend smoke test failed"; exit 1; }
+            echo "PROD backend smoke test passed"
           ENDSSH
 
   verify_prod:
@@ -341,15 +356,18 @@ jobs:
     runs-on: ubuntu-latest
     needs: deploy_prod
     steps:
-      - name: Health check PROD frontend
+      - name: Frontend smoke test - PROD
         run: |
           sleep 5
+          BODY=$(curl -s ${{ secrets.DEPLOY_PROD_URL }}) || BODY=""
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEPLOY_PROD_URL }}) || STATUS="000"
           echo "HTTP status: $STATUS"
           if [ "$STATUS" != "200" ]; then
-            echo "PROD health check failed (HTTP $STATUS)"
+            echo "ERROR: PROD frontend returned HTTP $STATUS"
             exit 1
           fi
+          echo "$BODY" | grep -q "TimeHuddle" || { echo "ERROR: 'TimeHuddle' not found in PROD frontend response — app may not be serving correctly"; exit 1; }
+          echo "PROD frontend smoke test passed"
 
   # ── MASTER ───────────────────────────────────────────────────────────────────
   # Master frontend (huddle:2090) shares the prod backend — no backend redeploy here.
@@ -426,12 +444,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: deploy_master
     steps:
-      - name: Health check MASTER frontend
+      - name: Frontend smoke test - MASTER
         run: |
           sleep 5
+          BODY=$(curl -s ${{ secrets.DEPLOY_MASTER_URL }}) || BODY=""
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${{ secrets.DEPLOY_MASTER_URL }}) || STATUS="000"
           echo "HTTP status: $STATUS"
           if [ "$STATUS" != "200" ]; then
-            echo "MASTER health check failed (HTTP $STATUS)"
+            echo "ERROR: MASTER frontend returned HTTP $STATUS"
             exit 1
           fi
+          echo "$BODY" | grep -q "TimeHuddle" || { echo "ERROR: 'TimeHuddle' not found in MASTER frontend response — app may not be serving correctly"; exit 1; }
+          echo "MASTER frontend smoke test passed"
