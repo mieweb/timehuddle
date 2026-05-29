@@ -187,6 +187,9 @@ jobs:
             cd backend
             sudo npm install --no-audit --no-fund
 
+            echo "=== build backend ==="
+            sudo npm run build
+
             echo "=== migrate ==="
             MONGODB_URI=$(sudo pm2 env 0 2>/dev/null | awk '/^MONGODB_URI:/{print $2}')
             if [ -z "$MONGODB_URI" ]; then
@@ -332,6 +335,9 @@ jobs:
             echo "=== sudo npm install (backend) ==="
             cd backend
             sudo npm install --no-audit --no-fund
+
+            echo "=== build backend ==="
+            sudo npm run build
 
             echo "=== migrate ==="
             MONGODB_URI=$(sudo pm2 env 0 2>/dev/null | awk '/^MONGODB_URI:/{print $2}')
