@@ -227,11 +227,13 @@ export const DashboardPage: React.FC = () => {
 
       {/* Active session banner */}
       {activeClockEvent && (
-        <Alert
-          variant="success"
-          icon={<div className="h-3 w-3 animate-pulse rounded-full bg-green-500" />}
-        >
-          <AlertTitle>Session Active</AlertTitle>
+        <Alert variant="success">
+          <AlertTitle>
+            <span className="flex items-center gap-2">
+              <span className="h-3 w-3 animate-pulse rounded-full bg-green-500 shrink-0" />
+              Session Active
+            </span>
+          </AlertTitle>
           <AlertDescription>
             Started {formatTime(new Date(activeClockEvent.startTime))} •{' '}
             {formatDuration(Math.floor((currentTime - activeClockEvent.startTime) / 1000))}

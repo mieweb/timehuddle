@@ -218,7 +218,7 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
     // Flex-column layout: spacer expands to show the indicator, content fills
     // the rest. Using height instead of CSS transform avoids creating a new
     // stacking context, which would break position:fixed modal backdrops.
-    <div ref={containerRef} className="flex h-full w-full flex-col">
+    <div ref={containerRef} className="flex min-h-full w-full flex-col">
       {/* Pull indicator — spacer height grows to reveal spinner */}
       <div
         aria-hidden
@@ -243,7 +243,7 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ children }) => {
       </div>
 
       {/* Page content — normal document flow, no transform, no stacking context */}
-      <div className="min-h-0 flex-1">{children}</div>
+      <div>{children}</div>
     </div>
   );
 };
