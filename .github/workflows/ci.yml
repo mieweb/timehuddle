@@ -214,18 +214,18 @@ jobs:
             BACKEND_PORT=${BACKEND_PORT:-80}
             echo "Checking http://localhost:${BACKEND_PORT}/health (up to 30s)"
             for attempt in 1 2 3 4 5 6 7 8 9 10; do
-              HEALTH=$(curl -s "http://localhost:${BACKEND_PORT}/health" 2>/dev/null)
+              HEALTH=$(curl -s "http://localhost:${BACKEND_PORT}/health" 2>/dev/null || echo "")
               if echo "$HEALTH" | grep -q '"status":"ok"'; then
                 echo "Health response: $HEALTH"
                 echo "DEV backend smoke test passed (attempt $attempt)"
                 break
               fi
-              echo "Attempt $attempt: not ready yet, waiting 3s..."
-              sleep 3
               if [ $attempt -eq 10 ]; then
                 echo "ERROR: backend smoke test failed after 10 attempts"
                 exit 1
               fi
+              echo "Attempt $attempt: not ready yet, waiting 3s..."
+              sleep 3
             done
           ENDSSH
 
@@ -375,18 +375,18 @@ jobs:
             BACKEND_PORT=${BACKEND_PORT:-80}
             echo "Checking http://localhost:${BACKEND_PORT}/health (up to 30s)"
             for attempt in 1 2 3 4 5 6 7 8 9 10; do
-              HEALTH=$(curl -s "http://localhost:${BACKEND_PORT}/health" 2>/dev/null)
+              HEALTH=$(curl -s "http://localhost:${BACKEND_PORT}/health" 2>/dev/null || echo "")
               if echo "$HEALTH" | grep -q '"status":"ok"'; then
                 echo "Health response: $HEALTH"
                 echo "PROD backend smoke test passed (attempt $attempt)"
                 break
               fi
-              echo "Attempt $attempt: not ready yet, waiting 3s..."
-              sleep 3
               if [ $attempt -eq 10 ]; then
                 echo "ERROR: backend smoke test failed after 10 attempts"
                 exit 1
               fi
+              echo "Attempt $attempt: not ready yet, waiting 3s..."
+              sleep 3
             done
           ENDSSH
 
