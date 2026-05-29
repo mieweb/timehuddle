@@ -3,12 +3,12 @@ import type { ObjectId } from "mongodb";
 // ─── Payload types (one per activity type) ───────────────────────────────────
 
 export interface ClockInPayload {
-  teamId: string;
+  teamId?: string;
   teamName?: string;
 }
 
 export interface ClockOutPayload {
-  teamId: string;
+  teamId?: string;
   teamName?: string;
   durationSeconds?: number;
 }

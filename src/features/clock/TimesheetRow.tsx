@@ -16,14 +16,8 @@ import { type ClockEvent } from '../../lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface Team {
-  id: string;
-  name: string;
-}
-
 interface Props {
   session: ClockEvent;
-  teams: Team[];
   onEdit: (session: ClockEvent) => void;
 }
 
@@ -180,16 +174,13 @@ function splitAtMidnight(rows: TimelineRow[]): TimelineRow[] {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
-  const teamName = teams.find((t) => t.id === session.teamId)?.name ?? session.teamId;
+export const TimesheetRow: React.FC<Props> = ({ session, onEdit }) => {
   const timelineRows = splitAtMidnight(buildTimelineRows(session, Date.now()));
 
   return (
     <>
       {timelineRows.map((row, idx) => {
         const showActions = idx === 0;
-        // Team name belongs on the chronologically-first segment (last in desc-sorted array)
-        const showTeam = idx === timelineRows.length - 1;
         return (
           <TableRow key={`${session.id}-${row.kind}-${idx}`}>
             <TableCell>{formatDate(new Date(row.start), true)}</TableCell>
@@ -218,7 +209,6 @@ export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
             <TableCell className="font-mono">
               {row.durationSeconds !== null ? formatDuration(row.durationSeconds) : '—'}
             </TableCell>
-            <TableCell>{showTeam ? teamName : ''}</TableCell>
             <TableCell>
               {row.isContinued ? null : row.status === 'Active' ? (
                 <Badge variant="success" size="sm">

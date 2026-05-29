@@ -815,26 +815,14 @@ export const OzwellWidget: React.FC = () => {
           }
 
           case 'clock_in': {
-            if (!ctx.selectedTeamId) {
-              const available = ctx.teams.map((t) => `"${t.name}"`).join(', ');
-              debugRespond({
-                success: false,
-                error: `No team selected. Use switch_team first. Available teams: ${available}`,
-              });
-              return;
-            }
-            const event = await clockApi.start(ctx.selectedTeamId);
+            const event = await clockApi.start();
             ctx.refetchClock();
             debugRespond({ success: true, data: event });
             break;
           }
 
           case 'clock_out': {
-            if (!ctx.selectedTeamId) {
-              debugRespond({ success: false, error: 'No team selected' });
-              return;
-            }
-            const stoppedEvent = await clockApi.stop(ctx.selectedTeamId);
+            const stoppedEvent = await clockApi.stop();
             ctx.refetchClock();
             debugRespond({ success: true, data: stoppedEvent });
             break;

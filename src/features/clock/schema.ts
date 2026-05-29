@@ -3,11 +3,11 @@ import { z } from 'zod';
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
 export const clockEventStartSchema = z.object({
-  teamId: z.string().min(1),
+  teamId: z.string().min(1).optional(),
 });
 
 export const clockEventStopSchema = z.object({
-  teamId: z.string().min(1),
+  teamId: z.string().min(1).optional(),
   youtubeShortLink: z.string().optional(),
 });
 
@@ -38,7 +38,7 @@ export type TimesheetQueryInput = z.infer<typeof timesheetQuerySchema>;
 export interface ClockEventDoc {
   _id?: string;
   userId: string;
-  teamId: string;
+  teamId?: string;
   startTime: number;
   accumulatedTime: number;
   endTime: number | null;
@@ -48,7 +48,7 @@ export interface ClockEventDoc {
 export interface SessionDoc {
   _id?: string;
   userId: string;
-  teamId: string;
+  teamId?: string;
   startTime: Date;
   endTime?: Date;
   duration?: number;

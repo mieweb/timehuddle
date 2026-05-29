@@ -129,7 +129,7 @@ export const AdminDayGroup: React.FC<Props> = ({
       {/* ── Expanded session rows ── */}
       {isExpanded &&
         sortedSessions.map((session) => (
-          <TimesheetRow key={session.id} session={session} teams={teams} onEdit={onEdit} />
+          <TimesheetRow key={session.id} session={session} onEdit={onEdit} />
         ))}
     </>
   );

@@ -76,11 +76,7 @@ describe('TimesheetRow', () => {
     render(
       <table>
         <tbody>
-          <TimesheetRow
-            session={session}
-            teams={[{ id: 'team-1', name: 'Mobile test' }]}
-            onEdit={vi.fn()}
-          />
+          <TimesheetRow session={session} onEdit={vi.fn()} />
         </tbody>
       </table>,
     );
@@ -100,11 +96,7 @@ describe('TimesheetRow', () => {
     render(
       <table>
         <tbody>
-          <TimesheetRow
-            session={session}
-            teams={[{ id: 'team-1', name: 'Mobile test' }]}
-            onEdit={onEdit}
-          />
+          <TimesheetRow session={session} onEdit={onEdit} />
         </tbody>
       </table>,
     );
@@ -122,11 +114,7 @@ describe('TimesheetRow', () => {
     render(
       <table>
         <tbody>
-          <TimesheetRow
-            session={session}
-            teams={[{ id: 'team-1', name: 'Night Crew' }]}
-            onEdit={vi.fn()}
-          />
+          <TimesheetRow session={session} onEdit={vi.fn()} />
         </tbody>
       </table>,
     );
@@ -141,8 +129,8 @@ describe('TimesheetRow', () => {
     // "Completed" status only on the newest row (May 21); May 20 is isContinued so no status
     expect(screen.getAllByText('Completed')).toHaveLength(1);
 
-    // Team name on the oldest row (May 20, the original clock-in day)
-    expect(screen.getByText('Night Crew')).toBeTruthy();
+    // Team column was removed from the table; no team label is rendered.
+    expect(screen.queryByText('Night Crew')).toBeNull();
   });
 
   it('shows the edit action on the newest row for a cross-midnight session', () => {
@@ -152,11 +140,7 @@ describe('TimesheetRow', () => {
     render(
       <table>
         <tbody>
-          <TimesheetRow
-            session={session}
-            teams={[{ id: 'team-1', name: 'Night Crew' }]}
-            onEdit={onEdit}
-          />
+          <TimesheetRow session={session} onEdit={onEdit} />
         </tbody>
       </table>,
     );

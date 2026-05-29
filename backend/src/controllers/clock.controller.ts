@@ -6,24 +6,21 @@ import type { ClockBreak } from "../models/clock.model.js";
 export const clockController = {
   async start(req: FastifyRequest, reply: FastifyReply) {
     const userId = req.user!.id;
-    const { teamId } = req.body as { teamId: string };
-    const result = await clockService.start(userId, teamId);
+    const result = await clockService.start(userId);
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
     return { event: result };
   },
 
   async stop(req: FastifyRequest, reply: FastifyReply) {
     const userId = req.user!.id;
-    const { teamId } = req.body as { teamId: string };
-    const result = await clockService.stop(userId, teamId);
+    const result = await clockService.stop(userId);
     if (result === "not-found") return reply.status(404).send({ error: "No active clock event" });
     return { event: result };
   },
 
   async pause(req: FastifyRequest, reply: FastifyReply) {
     const userId = req.user!.id;
-    const { teamId } = req.body as { teamId: string };
-    const result = await clockService.pause(userId, teamId);
+    const result = await clockService.pause(userId);
     if (result === "not-found") return reply.status(404).send({ error: "No active clock event" });
     if (result === "already-paused")
       return reply.status(409).send({ error: "Clock is already paused" });
@@ -32,8 +29,7 @@ export const clockController = {
 
   async resume(req: FastifyRequest, reply: FastifyReply) {
     const userId = req.user!.id;
-    const { teamId } = req.body as { teamId: string };
-    const result = await clockService.resume(userId, teamId);
+    const result = await clockService.resume(userId);
     if (result === "not-found") return reply.status(404).send({ error: "No active clock event" });
     if (result === "not-paused") return reply.status(409).send({ error: "Clock is not paused" });
     return { event: result };
@@ -41,8 +37,7 @@ export const clockController = {
 
   async getStatus(req: FastifyRequest, reply: FastifyReply) {
     const userId = req.user!.id;
-    const { teamId } = req.query as { teamId: string };
-    const result = await clockService.getStatus(userId, teamId);
+    const result = await clockService.getStatus(userId);
     if (result === "not-found") return reply.status(404).send({ error: "No active clock event" });
     return result;
   },
@@ -74,12 +69,11 @@ export const clockController = {
 
   async createManual(req: FastifyRequest, reply: FastifyReply) {
     const userId = req.user!.id;
-    const { teamId, startTime, endTime } = req.body as {
-      teamId: string;
+    const { startTime, endTime } = req.body as {
       startTime: number;
       endTime: number;
     };
-    const result = await clockService.createManual(userId, teamId, startTime, endTime);
+    const result = await clockService.createManual(userId, startTime, endTime);
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
     if (result === "invalid-range")
       return reply

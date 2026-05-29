@@ -106,7 +106,7 @@ function entryTotalSeconds(sessions: Timer[], now: number): number {
 // ─── WorkPage ─────────────────────────────────────────────────────────────────
 
 export const WorkPage: React.FC = () => {
-  const { teams, teamsReady, currentTime, selectedTeamId, activeClockEvent } = useTeam();
+  const { teams, teamsReady, currentTime, activeClockEvent } = useTeam();
   const { isClockedIn, clockIn, clockInLoading } = useClockToggle();
   const previousClockedInRef = useRef(isClockedIn);
   // When clock-in is immediately followed by startTimerForEntry, suppress the
@@ -267,10 +267,7 @@ export const WorkPage: React.FC = () => {
   // ── Real-time clock updates ──
 
   useEffect(() => {
-    if (teams.length === 0) return;
-
-    const teamIds = teams.map((t) => t.id);
-    const ws = clockApi.openLiveStream(teamIds);
+    const ws = clockApi.openLiveStream();
 
     ws.onmessage = (event: MessageEvent) => {
       const data = JSON.parse(event.data);
@@ -282,7 +279,7 @@ export const WorkPage: React.FC = () => {
     };
 
     return () => ws.close();
-  }, [teams, fetchDay, fetchWeekTotals]);
+  }, [fetchDay, fetchWeekTotals]);
 
   // ── Real-time timer updates ──
 
@@ -363,11 +360,6 @@ export const WorkPage: React.FC = () => {
   const handleClockInAndStart = useCallback(async () => {
     if (!pendingStartEntryId) return;
 
-    if (!selectedTeamId) {
-      setClockInPromptError('Select a team before clocking in.');
-      return;
-    }
-
     setClockInPromptError(null);
     skipNextClockInFetchRef.current = true;
     await clockIn();
@@ -377,7 +369,7 @@ export const WorkPage: React.FC = () => {
     setPendingStartEntryId(null);
 
     await startTimerForEntry(entryId);
-  }, [pendingStartEntryId, selectedTeamId, clockIn, startTimerForEntry]);
+  }, [pendingStartEntryId, clockIn, startTimerForEntry]);
 
   const handleStop = useCallback(
     async (sessionId: string) => {
