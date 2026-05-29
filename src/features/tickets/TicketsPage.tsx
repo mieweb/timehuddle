@@ -368,18 +368,44 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
   </Dropdown>
 );
 
+// ─── Ticket skeleton rows ─────────────────────────────────────────────────────
+
+const TicketSkeletonRow: React.FC<{ wide?: boolean }> = ({ wide }) => (
+  <li className="flex items-start gap-3 px-4 py-3">
+    <div className="mt-1 h-3.5 w-3.5 shrink-0 animate-pulse rounded-full bg-neutral-200 dark:bg-neutral-700" />
+    <div className="min-w-0 flex-1 space-y-2">
+      <div
+        className={`h-3.5 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700 ${wide ? 'w-2/3' : 'w-1/2'}`}
+      />
+      <div className="h-2.5 w-1/3 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+    </div>
+  </li>
+);
+
+const TicketListSkeleton: React.FC = () => (
+  <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+    <TicketSkeletonRow wide />
+    <TicketSkeletonRow />
+    <TicketSkeletonRow wide />
+    <TicketSkeletonRow />
+    <TicketSkeletonRow wide />
+  </ul>
+);
+
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
   const { teams, selectedTeamId, teamsReady } = useTeam();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(true);
   // Map from teamId → members for cross-team member lookups
   const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
 
   const refetch = useCallback(async () => {
     if (!teams.length) {
       setTickets([]);
+      setTicketsLoading(false);
       return;
     }
     try {
@@ -398,6 +424,8 @@ export const TicketsPage: React.FC = () => {
       setTickets(merged);
     } catch {
       // keep previous tickets on error
+    } finally {
+      setTicketsLoading(false);
     }
   }, [teams]);
 
@@ -1101,6 +1129,8 @@ export const TicketsPage: React.FC = () => {
               />
             ))}
           </ul>
+        ) : ticketsLoading ? (
+          <TicketListSkeleton />
         ) : (
           <div className="px-4 py-10 text-center">
             <Text variant="muted" size="sm">
