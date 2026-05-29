@@ -1,10 +1,15 @@
 /**
- * FeedbackModal — Embeds the Pollenate feedback page in a modal iframe (web),
- * or opens it in the native in-app browser (Capacitor iOS/Android).
+ * FeedbackModal — Opens the Pollenate feedback page.
+ *
+ * On native (Capacitor iOS/Android): opens in the in-app browser.
+ * On web: opens in a new tab. Embedding via iframe is blocked by the site's
+ * X-Frame-Options: deny header.
  */
 import { Browser } from '@capacitor/browser';
 import { Capacitor } from '@capacitor/core';
-import { Modal, ModalBody, ModalHeader } from '@mieweb/ui';
+import { Button, Modal, ModalBody, ModalHeader } from '@mieweb/ui';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons';
 import React, { useEffect } from 'react';
 
 const ENV = (import.meta as { env?: Record<string, string> }).env ?? {};
@@ -31,30 +36,24 @@ export const FeedbackModal: React.FC<Props> = ({ open, onClose }) => {
   if (!open || isNative) return null;
 
   return (
-    <Modal open={open} onOpenChange={(isOpen) => !isOpen && onClose()} size="lg">
-      <ModalHeader>
-        <div className="flex w-full items-center justify-between">
-          <span>Share Your Feedback</span>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="flex h-6 w-6 items-center justify-center rounded text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
-          >
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">
-              <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
-            </svg>
-          </button>
-        </div>
-      </ModalHeader>
+    <Modal open={open} onOpenChange={(isOpen) => !isOpen && onClose()} size="sm">
+      <ModalHeader>Share Your Feedback</ModalHeader>
       <ModalBody>
-        <iframe
-          src={FEEDBACK_URL}
-          width="100%"
-          height="600"
-          title="Huddle feedback"
-          style={{ border: 'none', borderRadius: '8px', display: 'block' }}
-        />
+        <div className="flex flex-col items-center gap-4 py-6 text-center">
+          <p className="text-sm text-neutral-600 dark:text-neutral-400">
+            Our feedback form opens in a new tab. Your input helps us improve TimeHuddle.
+          </p>
+          <Button
+            variant="primary"
+            rightIcon={<FontAwesomeIcon icon={faArrowUpRightFromSquare} />}
+            onClick={() => {
+              window.open(FEEDBACK_URL, '_blank', 'noopener,noreferrer');
+              onClose();
+            }}
+          >
+            Open Feedback Form
+          </Button>
+        </div>
       </ModalBody>
     </Modal>
   );

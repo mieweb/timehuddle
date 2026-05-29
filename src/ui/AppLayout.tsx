@@ -297,7 +297,7 @@ const AppLayoutContent: React.FC = () => {
                   <AppHeader title={pageTitle} />
                   <main
                     ref={mainRef}
-                    className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'pb-20'}` : 'pb-20'} md:pb-0`}
+                    className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'app-main-scroll'}` : 'app-main-scroll'} md:pb-0`}
                   >
                     <PullToRefresh>
                       {profileUserId ? (

@@ -150,7 +150,9 @@ const PushNotificationsSettings: React.FC = () => {
   const isNative = Capacitor.isNativePlatform();
   const [supported, setSupported] = useState(false);
   const [enabled, setEnabled] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [enableLoading, setEnableLoading] = useState(false);
+  const [disableLoading, setDisableLoading] = useState(false);
+  const [testLoading, setTestLoading] = useState(false);
   // VAPID check is only relevant on the web; always pass on native.
   const [serverHasVapid, setServerHasVapid] = useState<boolean | null>(isNative ? true : null);
 
@@ -186,7 +188,7 @@ const PushNotificationsSettings: React.FC = () => {
   }, [isNative, refreshStatus]);
 
   const handleEnable = async () => {
-    setLoading(true);
+    setEnableLoading(true);
     try {
       await subscribeToPush();
       if (!isNative) await refreshStatus();
@@ -208,13 +210,13 @@ const PushNotificationsSettings: React.FC = () => {
 
       window.alert(detail);
     } finally {
-      setLoading(false);
+      setEnableLoading(false);
     }
   };
 
   const handleDisable = async () => {
     if (!window.confirm('Are you sure you want to disable push notifications?')) return;
-    setLoading(true);
+    setDisableLoading(true);
     try {
       await unsubscribeFromPush();
       if (!isNative) await refreshStatus();
@@ -224,12 +226,12 @@ const PushNotificationsSettings: React.FC = () => {
     } catch {
       window.alert('Failed to disable notifications. Please try again.');
     } finally {
-      setLoading(false);
+      setDisableLoading(false);
     }
   };
 
   const handleTestPush = async () => {
-    setLoading(true);
+    setTestLoading(true);
     try {
       await notificationApi.testPush();
       const successMsg = isNative
@@ -240,7 +242,7 @@ const PushNotificationsSettings: React.FC = () => {
       const msg = err instanceof Error ? err.message : String(err);
       window.alert(`Failed to send test push: ${msg}`);
     } finally {
-      setLoading(false);
+      setTestLoading(false);
     }
   };
 
@@ -262,13 +264,13 @@ const PushNotificationsSettings: React.FC = () => {
           <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200">
             Notifications are enabled. You will receive alerts when team members clock in or out.
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={handleTestPush}
-              disabled={loading}
-              isLoading={loading}
+              disabled={testLoading || disableLoading}
+              isLoading={testLoading}
             >
               Send test push
             </Button>
@@ -276,8 +278,8 @@ const PushNotificationsSettings: React.FC = () => {
               variant="outline"
               size="sm"
               onClick={handleDisable}
-              disabled={loading}
-              isLoading={loading}
+              disabled={testLoading || disableLoading}
+              isLoading={disableLoading}
             >
               Disable notifications
             </Button>
@@ -292,8 +294,8 @@ const PushNotificationsSettings: React.FC = () => {
             variant="primary"
             size="sm"
             onClick={handleEnable}
-            disabled={loading || serverHasVapid === false}
-            isLoading={loading}
+            disabled={enableLoading || serverHasVapid === false}
+            isLoading={enableLoading}
             leftIcon={<FontAwesomeIcon icon={faBell} className="text-xs" />}
           >
             Enable notifications
