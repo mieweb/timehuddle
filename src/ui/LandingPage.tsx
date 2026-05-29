@@ -815,7 +815,6 @@ export const LandingPage: React.FC = () => {
             <span className="text-sm font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
               TimeHuddle
             </span>
-            <span className="text-xs text-neutral-400 dark:text-neutral-500">hi</span>
           </motion.a>
 
           {/* Nav actions */}

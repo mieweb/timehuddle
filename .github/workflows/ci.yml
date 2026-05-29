@@ -213,7 +213,6 @@ jobs:
             HEALTH=$(curl -s "http://localhost:${BACKEND_PORT}/health" 2>/dev/null)
             echo "Health response: $HEALTH"
             echo "$HEALTH" | grep -q '"status":"ok"' || { echo "ERROR: backend smoke test failed"; exit 1; }
-            echo "$HEALTH" | grep -q '"greeting":"hi"' || { echo "ERROR: backend greeting missing"; exit 1; }
             echo "DEV backend smoke test passed"
           ENDSSH
 
@@ -361,7 +360,6 @@ jobs:
             HEALTH=$(curl -s "http://localhost:${BACKEND_PORT}/health" 2>/dev/null)
             echo "Health response: $HEALTH"
             echo "$HEALTH" | grep -q '"status":"ok"' || { echo "ERROR: backend smoke test failed"; exit 1; }
-            echo "$HEALTH" | grep -q '"greeting":"hi"' || { echo "ERROR: backend greeting missing"; exit 1; }
             echo "PROD backend smoke test passed"
           ENDSSH
 
