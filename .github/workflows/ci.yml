@@ -188,7 +188,7 @@ jobs:
             sudo npm install --no-audit --no-fund
 
             echo "=== migrate ==="
-            sudo npm run migrate
+            npm run migrate
 
             echo "=== sudo pm2 list ==="
             sudo pm2 list
@@ -316,7 +316,7 @@ jobs:
             sudo npm install --no-audit --no-fund
 
             echo "=== migrate ==="
-            sudo npm run migrate
+            npm run migrate
 
             echo "=== sudo pm2 list ==="
             sudo pm2 list
