@@ -756,7 +756,7 @@ export const TicketsPage: React.FC = () => {
         {showCreate && (
           <Card
             padding="sm"
-            className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20 shadow-lg shadow-black/10 dark:shadow-black/20"
+            className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20"
           >
             <CardContent>
               <div className="flex items-center justify-between pl-2">
@@ -773,7 +773,19 @@ export const TicketsPage: React.FC = () => {
                   <FontAwesomeIcon icon={faXmark} className="text-xs" />
                 </Button>
               </div>
-              <div className="mt-2 space-y-2">
+              <form
+                className="mt-2 space-y-2"
+                onSubmit={(e: React.FormEvent<HTMLFormElement>) => {
+                  e.preventDefault();
+                  if (!createTitle.trim()) return;
+                  void handleCreate();
+                }}
+                onKeyDown={(e: React.KeyboardEvent<HTMLFormElement>) => {
+                  if (e.key !== 'Escape') return;
+                  e.preventDefault();
+                  setShowCreate(false);
+                }}
+              >
                 <Input
                   label="Title"
                   hideLabel
@@ -826,14 +838,14 @@ export const TicketsPage: React.FC = () => {
                 <Button
                   variant="primary"
                   size="sm"
-                  onClick={handleCreate}
+                  type="submit"
                   isLoading={createLoading}
                   loadingText="Creating…"
                   disabled={!createTitle.trim()}
                 >
                   Create Ticket
                 </Button>
-              </div>
+              </form>
             </CardContent>
           </Card>
         )}
