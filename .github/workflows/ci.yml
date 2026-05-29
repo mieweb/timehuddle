@@ -210,14 +210,23 @@ jobs:
             sudo pm2 save
 
             echo "=== backend smoke test ==="
-            sleep 3
             BACKEND_PORT=$(sudo pm2 env 0 2>/dev/null | awk '/^PORT:/{print $2}')
             BACKEND_PORT=${BACKEND_PORT:-80}
-            echo "Checking http://localhost:${BACKEND_PORT}/health"
-            HEALTH=$(curl -s "http://localhost:${BACKEND_PORT}/health" 2>/dev/null)
-            echo "Health response: $HEALTH"
-            echo "$HEALTH" | grep -q '"status":"ok"' || { echo "ERROR: backend smoke test failed"; exit 1; }
-            echo "DEV backend smoke test passed"
+            echo "Checking http://localhost:${BACKEND_PORT}/health (up to 30s)"
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              HEALTH=$(curl -s "http://localhost:${BACKEND_PORT}/health" 2>/dev/null)
+              if echo "$HEALTH" | grep -q '"status":"ok"'; then
+                echo "Health response: $HEALTH"
+                echo "DEV backend smoke test passed (attempt $attempt)"
+                break
+              fi
+              echo "Attempt $attempt: not ready yet, waiting 3s..."
+              sleep 3
+              if [ $attempt -eq 10 ]; then
+                echo "ERROR: backend smoke test failed after 10 attempts"
+                exit 1
+              fi
+            done
           ENDSSH
 
   verify_dev:
@@ -362,14 +371,23 @@ jobs:
             sudo pm2 save
 
             echo "=== backend smoke test ==="
-            sleep 3
             BACKEND_PORT=$(sudo pm2 env 0 2>/dev/null | awk '/^PORT:/{print $2}')
             BACKEND_PORT=${BACKEND_PORT:-80}
-            echo "Checking http://localhost:${BACKEND_PORT}/health"
-            HEALTH=$(curl -s "http://localhost:${BACKEND_PORT}/health" 2>/dev/null)
-            echo "Health response: $HEALTH"
-            echo "$HEALTH" | grep -q '"status":"ok"' || { echo "ERROR: backend smoke test failed"; exit 1; }
-            echo "PROD backend smoke test passed"
+            echo "Checking http://localhost:${BACKEND_PORT}/health (up to 30s)"
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              HEALTH=$(curl -s "http://localhost:${BACKEND_PORT}/health" 2>/dev/null)
+              if echo "$HEALTH" | grep -q '"status":"ok"'; then
+                echo "Health response: $HEALTH"
+                echo "PROD backend smoke test passed (attempt $attempt)"
+                break
+              fi
+              echo "Attempt $attempt: not ready yet, waiting 3s..."
+              sleep 3
+              if [ $attempt -eq 10 ]; then
+                echo "ERROR: backend smoke test failed after 10 attempts"
+                exit 1
+              fi
+            done
           ENDSSH
 
   verify_prod:
