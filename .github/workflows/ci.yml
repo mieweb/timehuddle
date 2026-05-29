@@ -188,7 +188,12 @@ jobs:
             sudo npm install --no-audit --no-fund
 
             echo "=== migrate ==="
-            npm run migrate
+            MONGODB_URI=$(sudo pm2 env 0 2>/dev/null | awk '/^MONGODB_URI:/{print $2}')
+            if [ -z "$MONGODB_URI" ]; then
+              echo "ERROR: MONGODB_URI not found in pm2 env — migrations skipped safely"
+              MONGODB_URI=$(sudo pm2 env 0 2>/dev/null | grep MONGODB_URI | head -1 | sed 's/.*: //')
+            fi
+            MONGODB_URI="$MONGODB_URI" npm run migrate
 
             echo "=== sudo pm2 list ==="
             sudo pm2 list
@@ -316,7 +321,11 @@ jobs:
             sudo npm install --no-audit --no-fund
 
             echo "=== migrate ==="
-            npm run migrate
+            MONGODB_URI=$(sudo pm2 env 0 2>/dev/null | awk '/^MONGODB_URI:/{print $2}')
+            if [ -z "$MONGODB_URI" ]; then
+              MONGODB_URI=$(sudo pm2 env 0 2>/dev/null | grep MONGODB_URI | head -1 | sed 's/.*: //')
+            fi
+            MONGODB_URI="$MONGODB_URI" npm run migrate
 
             echo "=== sudo pm2 list ==="
             sudo pm2 list
