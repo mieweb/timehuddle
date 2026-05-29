@@ -194,6 +194,40 @@ button:disabled,
   cursor: not-allowed;
 }
 
+/* Custom scrollbar — same look as CommandPalette list */
+.scrollbar-mieweb {
+  scrollbar-width: thin;
+  scrollbar-color: #d4d4d4 transparent;
+}
+html[data-theme='dark'] .scrollbar-mieweb {
+  scrollbar-color: #404040 transparent;
+}
+.scrollbar-mieweb::-webkit-scrollbar {
+  width: 0.5rem;
+}
+.scrollbar-mieweb::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-mieweb::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-color: #d4d4d4;
+}
+html[data-theme='dark'] .scrollbar-mieweb::-webkit-scrollbar-thumb {
+  background-color: #404040;
+}
+.scrollbar-mieweb::-webkit-scrollbar-thumb:hover {
+  background-color: #a3a3a3;
+}
+html[data-theme='dark'] .scrollbar-mieweb::-webkit-scrollbar-thumb:hover {
+  background-color: #525252;
+}
+
+/* Persistent track + thumb (messages, sidebars) — not overlay-only */
+.scrollbar-mieweb-visible {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
 /* Typing indicator dots animation */
 @keyframes typing-dot {
   0%,

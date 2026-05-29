@@ -326,7 +326,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
               <>
                 {/* Name fields (signup only) */}
                 {isSignup && (
-                  <div className="flex gap-3">
+                  <div className="flex items-start gap-3">
                     <Input
                       label="First name"
                       value={firstName}

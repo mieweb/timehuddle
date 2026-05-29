@@ -255,7 +255,7 @@ const PushNotificationsSettings: React.FC = () => {
           <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200">
             Notifications are enabled. You will receive alerts when team members clock in or out.
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -422,7 +422,7 @@ const ProfileEditor: React.FC = () => {
         <Text size="xs" weight="medium" className="mb-1 block">
           Email
         </Text>
-        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-800">
+        <div className="flex min-h-9 items-center rounded-lg border border-neutral-200 bg-neutral-50 px-3 dark:border-neutral-700 dark:bg-neutral-800">
           <Text size="sm" variant="muted">
             {user?.email}
           </Text>
@@ -436,7 +436,7 @@ const ProfileEditor: React.FC = () => {
           <Text size="xs" weight="medium" className="mb-1 block">
             Username
           </Text>
-          <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-800">
+          <div className="flex min-h-9 items-center rounded-lg border border-neutral-200 bg-neutral-50 px-3 dark:border-neutral-700 dark:bg-neutral-800">
             <Text size="sm" variant="muted">
               @{user.username}
             </Text>
@@ -594,7 +594,8 @@ const ApiTokensManager: React.FC = () => {
             onKeyDown={(e) => {
               if (e.key === 'Enter') void handleCreate();
             }}
-            className="flex-1"
+            className="flex-1 text-sm h-8"
+            size="sm"
           />
           <Button
             size="sm"
@@ -602,6 +603,7 @@ const ApiTokensManager: React.FC = () => {
             disabled={!newTokenName.trim() || creating}
             isLoading={creating}
             loadingText="Creating…"
+            className="h-8"
           >
             Generate
           </Button>

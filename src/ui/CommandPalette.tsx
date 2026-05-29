@@ -419,7 +419,7 @@ export const CommandPalette: React.FC = () => {
             </div>
           )}
 
-          <Command.List className="max-h-80 overflow-y-auto p-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-neutral-300 dark:[&::-webkit-scrollbar-thumb]:bg-neutral-700 [&::-webkit-scrollbar-thumb:hover]:bg-neutral-400 dark:[&::-webkit-scrollbar-thumb:hover]:bg-neutral-600">
+          <Command.List className="scrollbar-mieweb max-h-80 overflow-y-auto p-2">
             {!isGithubMode && (
               <>
                 <Command.Empty className="px-4 py-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
