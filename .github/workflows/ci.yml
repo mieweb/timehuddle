@@ -204,7 +204,10 @@ jobs:
 
             echo "=== backend smoke test ==="
             sleep 3
-            HEALTH=$(curl -s http://localhost:4000/health 2>/dev/null)
+            BACKEND_PORT=$(sudo pm2 env 0 2>/dev/null | awk '/^PORT:/{print $2}')
+            BACKEND_PORT=${BACKEND_PORT:-80}
+            echo "Checking http://localhost:${BACKEND_PORT}/health"
+            HEALTH=$(curl -s "http://localhost:${BACKEND_PORT}/health" 2>/dev/null)
             echo "Health response: $HEALTH"
             echo "$HEALTH" | grep -q '"status":"ok"' || { echo "ERROR: backend smoke test failed"; exit 1; }
             echo "DEV backend smoke test passed"
@@ -345,7 +348,10 @@ jobs:
 
             echo "=== backend smoke test ==="
             sleep 3
-            HEALTH=$(curl -s http://localhost:4000/health 2>/dev/null)
+            BACKEND_PORT=$(sudo pm2 env 0 2>/dev/null | awk '/^PORT:/{print $2}')
+            BACKEND_PORT=${BACKEND_PORT:-80}
+            echo "Checking http://localhost:${BACKEND_PORT}/health"
+            HEALTH=$(curl -s "http://localhost:${BACKEND_PORT}/health" 2>/dev/null)
             echo "Health response: $HEALTH"
             echo "$HEALTH" | grep -q '"status":"ok"' || { echo "ERROR: backend smoke test failed"; exit 1; }
             echo "PROD backend smoke test passed"
