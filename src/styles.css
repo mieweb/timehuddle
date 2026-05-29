@@ -32,6 +32,14 @@ html[data-theme='dark'] {
   }
 }
 
+/* Fix native datetime-local (and date/time) pickers in dark mode — without this
+   the browser renders the calendar popup in light mode, making it invisible */
+[data-theme='dark'] input[type='datetime-local'],
+[data-theme='dark'] input[type='date'],
+[data-theme='dark'] input[type='time'] {
+  color-scheme: dark;
+}
+
 /* Prevent iOS Safari from auto-zooming when focusing inputs smaller than 16px */
 @media (max-width: 767px) {
   input,
