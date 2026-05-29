@@ -129,7 +129,7 @@ jobs:
             sudo npm install --no-audit --no-fund
 
             echo "=== sudo npm run build ==="
-            rm -rf dist
+            sudo rm -rf dist
             sudo npm run build
 
             echo "=== sudo pm2 list ==="
@@ -257,7 +257,7 @@ jobs:
             sudo npm install --no-audit --no-fund
 
             echo "=== sudo npm run build ==="
-            rm -rf dist
+            sudo rm -rf dist
             sudo npm run build
 
             echo "=== sudo pm2 list ==="
@@ -384,7 +384,7 @@ jobs:
             sudo npm install --no-audit --no-fund
 
             echo "=== sudo npm run build ==="
-            rm -rf dist
+            sudo rm -rf dist
             sudo npm run build
 
             echo "=== sudo pm2 list ==="
