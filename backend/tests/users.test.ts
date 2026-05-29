@@ -444,7 +444,7 @@ describe("GET /v1/users", () => {
 // ─── GET /v1/organization/users ──────────────────────────────────────────────
 
 describe("GET /v1/organization/users", () => {
-  it("returns only users who belong to the default organization", async () => {
+  it("returns all users with default organization roles", async () => {
     const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
     expect(defaultOrg).toBeTruthy();
 
@@ -465,16 +465,130 @@ describe("GET /v1/organization/users", () => {
 
       expect(res.statusCode).toBe(200);
       const { users } = res.json();
-      expect(users).toHaveLength(2);
-      expect(users.map((user: any) => user.id)).toEqual(expect.arrayContaining([aliceId, bobId]));
-      expect(users.map((user: any) => user.id)).not.toContain(_carolId);
+      const ids = users.map((user: any) => user.id);
+      expect(ids).toEqual(expect.arrayContaining([aliceId, bobId, _carolId]));
       expect(users.find((user: any) => user.id === aliceId)?.role).toBe("owner");
       expect(users.find((user: any) => user.id === bobId)?.role).toBe("admin");
+      expect(users.find((user: any) => user.id === _carolId)?.role).toBe("member");
     } finally {
       await organizationsCollection().updateOne(
         { _id: defaultOrg!._id },
         { $set: { owners: originalOwners, admins: originalAdmins, updatedAt: new Date() } }
       );
+    }
+  });
+});
+
+describe("Default organization ownership bootstrap", () => {
+  it("reports owner absence and allows authenticated user to take ownership", async () => {
+    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    expect(defaultOrg).toBeTruthy();
+
+    const originalOwners = defaultOrg!.owners ?? [];
+    const originalAdmins = defaultOrg!.admins ?? [];
+    const originalInstallCompletedAt = defaultOrg!.installCompletedAt;
+
+    try {
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        {
+          $set: { owners: [], admins: originalAdmins, updatedAt: new Date() },
+          $unset: { installCompletedAt: "" },
+        }
+      );
+
+      const statusRes = await app.inject({
+        method: "GET",
+        url: "/v1/organization/ownership-status",
+        headers: { cookie: aliceCookie },
+      });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().hasOwner).toBe(false);
+      expect(statusRes.json().installCompleted).toBe(false);
+
+      const takeRes = await app.inject({
+        method: "POST",
+        url: "/v1/organization/install",
+        headers: { cookie: aliceCookie },
+      });
+      expect(takeRes.statusCode).toBe(200);
+      expect(takeRes.json().role).toBe("owner");
+
+      const updatedOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      expect(updatedOrg?.owners ?? []).toEqual([aliceId]);
+      expect(updatedOrg?.installCompletedAt).toBeTruthy();
+    } finally {
+      if (originalInstallCompletedAt) {
+        await organizationsCollection().updateOne(
+          { _id: defaultOrg!._id },
+          {
+            $set: {
+              owners: originalOwners,
+              admins: originalAdmins,
+              installCompletedAt: originalInstallCompletedAt,
+              updatedAt: new Date(),
+            },
+          }
+        );
+      } else {
+        await organizationsCollection().updateOne(
+          { _id: defaultOrg!._id },
+          {
+            $set: { owners: originalOwners, admins: originalAdmins, updatedAt: new Date() },
+            $unset: { installCompletedAt: "" },
+          }
+        );
+      }
+    }
+  });
+
+  it("returns 409 when an owner already exists", async () => {
+    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    expect(defaultOrg).toBeTruthy();
+
+    const originalOwners = defaultOrg!.owners ?? [];
+    const originalAdmins = defaultOrg!.admins ?? [];
+    const originalInstallCompletedAt = defaultOrg!.installCompletedAt;
+
+    try {
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        {
+          $set: { owners: [bobId], admins: originalAdmins, updatedAt: new Date() },
+          $unset: { installCompletedAt: "" },
+        }
+      );
+
+      const takeRes = await app.inject({
+        method: "POST",
+        url: "/v1/organization/install",
+        headers: { cookie: aliceCookie },
+      });
+
+      expect(takeRes.statusCode).toBe(409);
+      expect(takeRes.json().error).toBe("Owner already exists or install is already complete");
+    } finally {
+      if (originalInstallCompletedAt) {
+        await organizationsCollection().updateOne(
+          { _id: defaultOrg!._id },
+          {
+            $set: {
+              owners: originalOwners,
+              admins: originalAdmins,
+              installCompletedAt: originalInstallCompletedAt,
+              updatedAt: new Date(),
+            },
+          }
+        );
+      } else {
+        await organizationsCollection().updateOne(
+          { _id: defaultOrg!._id },
+          {
+            $set: { owners: originalOwners, admins: originalAdmins, updatedAt: new Date() },
+            $unset: { installCompletedAt: "" },
+          }
+        );
+      }
     }
   });
 });

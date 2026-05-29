@@ -32,10 +32,12 @@ import React, { useEffect, useState } from 'react';
 
 import { ApiError, userApi, type PublicUser } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
+import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { ProfileActivityFeed } from './ProfileActivityFeed';
+import { ProfileFeed } from './ProfileFeed';
 import { ProfileWorkSnapshot } from './ProfileWorkSnapshot';
 import { WorkSummaryTags } from './WorkSummaryTags';
 
@@ -78,6 +80,20 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
       })
       .finally(() => setIsReady(true));
   }, [userId, username]);
+
+  useRefresh(
+    React.useCallback(async () => {
+      const fetch = userId ? userApi.getUser(userId) : userApi.getUserByUsername(username!);
+      fetch
+        .then((p) => {
+          setProfile(p);
+          setBackgroundUrl(p.backgroundUrl ?? null);
+        })
+        .catch(() => {
+          setProfile(null);
+        });
+    }, [userId, username]),
+  );
 
   if (!isReady) {
     return (
@@ -349,10 +365,13 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
         />
       )}
 
-      {/* Tab rail — Work | Activity */}
+      {/* Tab rail — Feed | Work | Activity */}
       {profile && (
-        <Tabs defaultValue="work" className="w-full">
+        <Tabs defaultValue="feed" className="w-full">
           <TabsList className="mb-4 w-full">
+            <TabsTrigger value="feed" className="flex-1">
+              Feed
+            </TabsTrigger>
             <TabsTrigger value="work" className="flex-1">
               Work
             </TabsTrigger>
@@ -360,6 +379,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
               Activity
             </TabsTrigger>
           </TabsList>
+
+          {/* Feed tab */}
+          <TabsContent value="feed">
+            <ProfileFeed userId={profile.id} isOwn={isOwn} />
+          </TabsContent>
 
           {/* Work tab */}
           <TabsContent value="work" className="flex flex-col gap-4">

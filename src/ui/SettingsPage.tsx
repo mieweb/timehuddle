@@ -34,12 +34,15 @@ import {
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 import {
   checkPushNotificationStatus,
   isPushSupported,
+  isNativePushRegistered,
   subscribeToPush,
   unsubscribeFromPush,
 } from '../lib/nativePush';
+import { useRefresh } from '../lib/RefreshContext';
 import {
   ApiError,
   authApi,
@@ -147,14 +150,20 @@ const PushNotificationsSettings: React.FC = () => {
   const isNative = Capacitor.isNativePlatform();
   const [supported, setSupported] = useState(false);
   const [enabled, setEnabled] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [enableLoading, setEnableLoading] = useState(false);
+  const [disableLoading, setDisableLoading] = useState(false);
+  const [testLoading, setTestLoading] = useState(false);
   // VAPID check is only relevant on the web; always pass on native.
   const [serverHasVapid, setServerHasVapid] = useState<boolean | null>(isNative ? true : null);
 
   const refreshStatus = useCallback(async () => {
     if (isNative) {
-      // On native we don't have a synchronous way to check if we are subscribed
-      // without a stored token, so treat "supported" as the indicator.
+      try {
+        const { receive } = await PushNotifications.checkPermissions();
+        setEnabled(receive === 'granted' && isNativePushRegistered());
+      } catch {
+        setEnabled(false);
+      }
       return;
     }
     if (!isPushSupported()) {
@@ -179,7 +188,7 @@ const PushNotificationsSettings: React.FC = () => {
   }, [isNative, refreshStatus]);
 
   const handleEnable = async () => {
-    setLoading(true);
+    setEnableLoading(true);
     try {
       await subscribeToPush();
       if (!isNative) await refreshStatus();
@@ -201,13 +210,13 @@ const PushNotificationsSettings: React.FC = () => {
 
       window.alert(detail);
     } finally {
-      setLoading(false);
+      setEnableLoading(false);
     }
   };
 
   const handleDisable = async () => {
     if (!window.confirm('Are you sure you want to disable push notifications?')) return;
-    setLoading(true);
+    setDisableLoading(true);
     try {
       await unsubscribeFromPush();
       if (!isNative) await refreshStatus();
@@ -217,12 +226,12 @@ const PushNotificationsSettings: React.FC = () => {
     } catch {
       window.alert('Failed to disable notifications. Please try again.');
     } finally {
-      setLoading(false);
+      setDisableLoading(false);
     }
   };
 
   const handleTestPush = async () => {
-    setLoading(true);
+    setTestLoading(true);
     try {
       await notificationApi.testPush();
       const successMsg = isNative
@@ -233,7 +242,7 @@ const PushNotificationsSettings: React.FC = () => {
       const msg = err instanceof Error ? err.message : String(err);
       window.alert(`Failed to send test push: ${msg}`);
     } finally {
-      setLoading(false);
+      setTestLoading(false);
     }
   };
 
@@ -255,13 +264,13 @@ const PushNotificationsSettings: React.FC = () => {
           <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200">
             Notifications are enabled. You will receive alerts when team members clock in or out.
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={handleTestPush}
-              disabled={loading}
-              isLoading={loading}
+              disabled={testLoading || disableLoading}
+              isLoading={testLoading}
             >
               Send test push
             </Button>
@@ -269,8 +278,8 @@ const PushNotificationsSettings: React.FC = () => {
               variant="outline"
               size="sm"
               onClick={handleDisable}
-              disabled={loading}
-              isLoading={loading}
+              disabled={testLoading || disableLoading}
+              isLoading={disableLoading}
             >
               Disable notifications
             </Button>
@@ -285,8 +294,8 @@ const PushNotificationsSettings: React.FC = () => {
             variant="primary"
             size="sm"
             onClick={handleEnable}
-            disabled={loading || serverHasVapid === false}
-            isLoading={loading}
+            disabled={enableLoading || serverHasVapid === false}
+            isLoading={enableLoading}
             leftIcon={<FontAwesomeIcon icon={faBell} className="text-xs" />}
           >
             Enable notifications
@@ -299,7 +308,7 @@ const PushNotificationsSettings: React.FC = () => {
 
 // ─── Profile editor ───────────────────────────────────────────────────────────
 
-const ProfileEditor: React.FC = () => {
+const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }) => {
   const { user, refetch } = useSession();
   const [name, setName] = useState(user?.name ?? '');
   const [bio, setBio] = useState('');
@@ -327,7 +336,7 @@ const ProfileEditor: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, refreshTrigger]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -668,7 +677,7 @@ const ApiTokensManager: React.FC = () => {
 };
 
 export const SettingsPage: React.FC = () => {
-  const { user, signOut } = useSession();
+  const { user, signOut, refetch } = useSession();
   const { navigate } = useRouter();
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
@@ -678,6 +687,7 @@ export const SettingsPage: React.FC = () => {
   const [organizationLoading, setOrganizationLoading] = useState(false);
   const [organizationSaving, setOrganizationSaving] = useState(false);
   const [organizationError, setOrganizationError] = useState<string | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const loadOrganization = useCallback(async () => {
     if (!canManageOrganization) return;
@@ -702,6 +712,14 @@ export const SettingsPage: React.FC = () => {
     if (!canManageOrganization) return;
     void loadOrganization();
   }, [canManageOrganization, loadOrganization]);
+
+  useRefresh(
+    useCallback(async () => {
+      await refetch();
+      await loadOrganization();
+      setRefreshTrigger((prev) => prev + 1);
+    }, [refetch, loadOrganization]),
+  );
 
   const hasOrganizationNameChanges =
     organizationName.trim().length > 0 && organizationName.trim() !== organizationOriginalName;
@@ -747,7 +765,7 @@ export const SettingsPage: React.FC = () => {
         title="Profile"
         description="Your display name, bio, website, and reporting line."
       >
-        <ProfileEditor />
+        <ProfileEditor refreshTrigger={refreshTrigger} />
       </Section>
 
       {/* Appearance */}

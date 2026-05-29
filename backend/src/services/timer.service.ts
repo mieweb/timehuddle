@@ -12,6 +12,35 @@ function isValidId(id: string): boolean {
   return /^[0-9a-f]{24}$/i.test(id);
 }
 
+// ─── WebSocket Broadcasts ─────────────────────────────────────────────────────
+
+type TimerListener = (userId: string, event: "update") => void;
+const timerListeners = new Set<TimerListener>();
+
+/**
+ * Subscribe to timer updates (start/stop/delete). Returns an unsubscribe function.
+ */
+export function subscribeToTimerUpdates(fn: TimerListener): () => void {
+  timerListeners.add(fn);
+  console.log(`[timer.service] Listener subscribed. Total listeners: ${timerListeners.size}`);
+  return () => {
+    timerListeners.delete(fn);
+    console.log(`[timer.service] Listener unsubscribed. Total listeners: ${timerListeners.size}`);
+  };
+}
+
+/**
+ * Broadcast a timer update event to all subscribed WebSocket connections.
+ */
+function broadcastTimerUpdate(userId: string) {
+  console.log(
+    `[timer.service] Broadcasting timer update for user ${userId} to ${timerListeners.size} listeners`
+  );
+  for (const fn of timerListeners) {
+    fn(userId, "update");
+  }
+}
+
 // ─── Public shapes ────────────────────────────────────────────────────────────
 
 export function toPublicEntry(e: WorkItem, ticketTitle?: string | null) {
@@ -193,6 +222,7 @@ export class TimerService {
 
     try {
       await timersCollection().insertOne(session);
+      broadcastTimerUpdate(userId);
       return { session, closedSessionId };
     } catch (err: unknown) {
       // E11000 — unique partial index violation (another running timer exists)
@@ -206,6 +236,7 @@ export class TimerService {
           createdAt: new Date(),
         };
         await timersCollection().insertOne(session2);
+        broadcastTimerUpdate(userId);
         return { session: session2, closedSessionId };
       }
       throw err;
@@ -257,6 +288,7 @@ export class TimerService {
 
     try {
       await timersCollection().insertOne(session);
+      broadcastTimerUpdate(userId);
       return { type: "success", session, closedSessionId };
     } catch (err: unknown) {
       if ((err as { code?: number }).code === 11000) {
@@ -268,6 +300,7 @@ export class TimerService {
           createdAt: new Date(),
         };
         await timersCollection().insertOne(session2);
+        broadcastTimerUpdate(userId);
         return { type: "success", session: session2, closedSessionId };
       }
       throw err;
@@ -293,12 +326,12 @@ export class TimerService {
     if (session.endTime !== null) return "already-stopped";
 
     const durationSeconds = Math.max(0, Math.floor((now - session.startTime) / 1000));
-    const result = await coll.updateOne(
+    const updateResult = await coll.updateOne(
       { _id: new ObjectId(sessionId), endTime: null },
       { $set: { endTime: now, durationSeconds } }
     );
 
-    if (result.modifiedCount === 0) {
+    if (updateResult.modifiedCount === 0) {
       // Retry once — session may have been closed by clock-out
       const refetched = await coll.findOne({ _id: new ObjectId(sessionId) });
       if (!refetched) return "not-found";
@@ -309,7 +342,11 @@ export class TimerService {
       );
     }
 
-    return (await coll.findOne({ _id: new ObjectId(sessionId) })) ?? "not-found";
+    const result = (await coll.findOne({ _id: new ObjectId(sessionId) })) ?? "not-found";
+    if (result !== "not-found") {
+      broadcastTimerUpdate(userId);
+    }
+    return result;
   }
 
   /** Close the currently running timer for a user and return its session id. */
@@ -473,6 +510,8 @@ export class TimerService {
 
     const sessionsResult = await timersCollection().deleteMany({ workItemId: entryId });
     const entryResult = await workItemsCollection().deleteOne({ _id: entryObjectId, userId });
+
+    broadcastTimerUpdate(userId);
 
     return {
       deletedEntry: entryResult.deletedCount === 1,

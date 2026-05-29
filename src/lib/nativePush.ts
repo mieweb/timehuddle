@@ -39,6 +39,9 @@ export async function subscribeToPush(): Promise<void> {
     throw new Error('Notification permission denied');
   }
 
+  // Clear any stale listeners before adding new ones to prevent stacking.
+  await PushNotifications.removeAllListeners();
+
   const token = await new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error('Timed out waiting for push registration token'));
@@ -80,6 +83,24 @@ export async function subscribeToPush(): Promise<void> {
   });
 
   if (!res.ok) throw new Error(`Server push-subscribe failed: HTTP ${res.status}`);
+  setNativePushRegistered(true);
+}
+
+// ─── Native registration state ─────────────────────────────────────────────
+
+const PUSH_REGISTERED_KEY = 'timehuddle_push_registered_v1';
+
+/** Returns true if a token was successfully sent to the backend on this device. */
+export function isNativePushRegistered(): boolean {
+  return localStorage.getItem(PUSH_REGISTERED_KEY) === '1';
+}
+
+function setNativePushRegistered(value: boolean): void {
+  if (value) {
+    localStorage.setItem(PUSH_REGISTERED_KEY, '1');
+  } else {
+    localStorage.removeItem(PUSH_REGISTERED_KEY);
+  }
 }
 
 // ─── Auto-register on startup ────────────────────────────────────────────────
@@ -170,6 +191,9 @@ async function _autoRegisterWeb(userId: string): Promise<void> {
 }
 
 async function _registerAndSaveToken(): Promise<void> {
+  // Clear any stale listeners before adding new ones to prevent stacking.
+  await PushNotifications.removeAllListeners();
+
   const token = await new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error('Timed out waiting for push token')), 15_000);
 
@@ -212,6 +236,7 @@ async function _registerAndSaveToken(): Promise<void> {
     console.warn(`[nativePush] push-subscribe failed: HTTP ${res.status}`);
   } else {
     console.log('[nativePush] FCM token saved ok');
+    setNativePushRegistered(true);
   }
 }
 
@@ -228,4 +253,5 @@ export async function unsubscribeFromPush(): Promise<void> {
     credentials: 'include',
     headers: { ...(token3 ? { Authorization: `Bearer ${token3}` } : {}) },
   });
+  setNativePushRegistered(false);
 }

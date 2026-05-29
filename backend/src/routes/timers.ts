@@ -7,7 +7,9 @@ import {
   toPublicEntry,
   toPublicSession,
   toUtcDateKey,
+  subscribeToTimerUpdates,
 } from "../services/timer.service.js";
+import { auth } from "../lib/auth.js";
 
 // ─── Response shapes ──────────────────────────────────────────────────────────
 
@@ -548,6 +550,64 @@ export async function timerRoutes(app: FastifyInstance) {
         { projection: { _id: 0, title: 1 } }
       );
       return reply.send({ entry: toPublicEntry(result, updatedTicket?.title ?? null) });
+    }
+  );
+
+  // GET /v1/timers/ws?token=<optional>
+  // WebSocket endpoint for real-time timer updates
+  app.get(
+    "/timers/ws",
+    {
+      websocket: true,
+      schema: {
+        tags: ["Timers"],
+        summary: "WebSocket stream for real-time timer updates",
+        querystring: {
+          type: "object",
+          properties: {
+            token: { type: "string", description: "Optional Bearer token for mobile auth" },
+          },
+        },
+      },
+    },
+    async (socket, req) => {
+      const { token: queryToken } = req.query as { token?: string };
+
+      // Auth: accept Bearer token from query param (Capacitor) or cookie
+      const headers: Record<string, string> = { ...(req.headers as any) };
+      if (queryToken) headers["authorization"] = `Bearer ${queryToken}`;
+      const session = await auth.api.getSession({ headers });
+
+      if (!session?.user) {
+        console.log("[timers/ws] Unauthorized connection attempt");
+        socket.close(4001, "Unauthorized");
+        return;
+      }
+
+      const userId = session.user.id;
+      console.log(`[timers/ws] User ${userId} connected`);
+
+      // Subscribe to timer updates for this user
+      const unsubscribe = subscribeToTimerUpdates((updateUserId, event) => {
+        if (updateUserId === userId) {
+          console.log(`[timers/ws] Sending ${event} message to user ${userId}`);
+          if (socket.readyState === socket.OPEN) {
+            socket.send(JSON.stringify({ type: event }));
+          }
+        }
+      });
+
+      // Send initial snapshot
+      if (socket.readyState === socket.OPEN) {
+        socket.send(JSON.stringify({ type: "connected" }));
+        console.log(`[timers/ws] Sent connected message to user ${userId}`);
+      }
+
+      // Clean up on disconnect
+      socket.on("close", () => {
+        console.log(`[timers/ws] User ${userId} disconnected`);
+        unsubscribe();
+      });
     }
   );
 }

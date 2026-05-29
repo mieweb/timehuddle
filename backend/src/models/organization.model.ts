@@ -6,6 +6,7 @@ export interface Organization {
   key: string;
   owners?: string[];
   admins?: string[];
+  installCompletedAt?: Date;
   createdAt: Date;
   updatedAt?: Date;
 }

@@ -15,7 +15,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import * as tus from 'tus-js-client';
 import React, { useEffect, useRef, useState } from 'react';
 
-import { attachmentApi, TIMECORE_BASE_URL, sessionToken, videoApi } from '../../lib/api';
+import { attachmentApi, TIMECORE_BASE_URL, videoApi } from '../../lib/api';
 
 /**
  * The Pulse Cam server base for deep links.
@@ -65,12 +65,12 @@ function clearStoredVideoid(ticketId: string): void {
   }
 }
 
-interface VideoUploadButtonProps {
+interface PulseUploadButtonProps {
   ticketId: string;
   onUploadComplete: () => void;
 }
 
-export const VideoUploadButton: React.FC<VideoUploadButtonProps> = ({
+export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
   ticketId,
   onUploadComplete,
 }) => {
@@ -82,6 +82,7 @@ export const VideoUploadButton: React.FC<VideoUploadButtonProps> = ({
   const [modalOpen, setModalOpen] = useState(false);
   const [uploadLink, setUploadLink] = useState<string | null>(null);
   const [videoid, setVideoid] = useState<string | null>(null);
+  const [uploadToken, setUploadToken] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reserving, setReserving] = useState(false);
@@ -115,12 +116,13 @@ export const VideoUploadButton: React.FC<VideoUploadButtonProps> = ({
       // Re-use any videoid already stored for this ticket so PulseCam can resume
       // a recording session that was interrupted before uploading.
       const existingVideoid = getStoredVideoid(ticketId) ?? undefined;
-      const { videoid } = await videoApi.reserve(ticketId, existingVideoid);
+      const { videoid, uploadToken } = await videoApi.reserve(ticketId, existingVideoid);
       setStoredVideoid(ticketId, videoid);
       // Build deep link client-side so it always uses TIMECORE_BASE_URL
       // (the same URL the Capacitor app already talks to).
       const link = buildUploadDeepLink(videoid);
       setVideoid(videoid);
+      setUploadToken(uploadToken);
       setUploadLink(link);
       return { videoid, uploadLink: link };
     } catch {
@@ -154,22 +156,22 @@ export const VideoUploadButton: React.FC<VideoUploadButtonProps> = ({
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file || !videoid) return;
+    if (!file || !videoid || !uploadToken) return;
 
     setError(null);
     setProgress(0);
 
-    const token = sessionToken.get();
     const upload = new tus.Upload(file, {
-      endpoint: `${TIMECORE_BASE_URL}/v1/video/upload`,
+      endpoint: videoApi.uploadEndpoint(),
       retryDelays: [0, 3000, 5000, 10000],
       metadata: { filename: file.name, filetype: file.type, videoid },
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: { Authorization: `Bearer ${uploadToken}` },
       onProgress(bytesUploaded, bytesTotal) {
         setProgress(Math.round((bytesUploaded / bytesTotal) * 100));
       },
       onSuccess() {
         clearStoredVideoid(ticketId);
+        setUploadToken(null);
         setProgress(null);
         onUploadComplete();
       },

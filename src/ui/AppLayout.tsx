@@ -12,7 +12,7 @@
  *
  * SidebarContext owns expand/collapse + mobile drawer state.
  */
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -27,18 +27,23 @@ import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
 import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
 import { WorkPage } from '../features/timers/WorkPage';
+import { OzwellWidget } from '../features/ai/OzwellWidget';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
+import { MediaPage } from '../features/media/MediaPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
 import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
 import { OrganizationPage } from '../features/org/OrganizationPage';
 import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
-import { TeamProvider } from '../lib/TeamContext';
+import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
+import { useSession } from '../lib/useSession';
+import { RefreshProvider } from '../lib/RefreshContext';
 import { FeedbackModal } from '../features/feedback/FeedbackModal';
 import { ReportIssueModal } from '../features/feedback/ReportIssueModal';
 import { AppHeader } from './AppHeader';
 import { BottomNav } from './BottomNav';
 import { CommandPalette } from './CommandPalette';
+import { PullToRefresh } from './PullToRefresh';
 import { RouterContext } from './router';
 import { SettingsPage } from './SettingsPage';
 import { Sidebar } from './Sidebar';
@@ -57,19 +62,22 @@ interface RouteConfig {
 }
 
 const ROUTES: Record<string, RouteConfig> = {
-  '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
+  '/app/admin/organization': { title: 'Organization Admin', component: OrganizationOverviewPage },
+
+  '/app/activity': { title: 'Activity Log', component: ActivityLogPage },
   '/app/clock': { title: 'Clock In/Out', component: ClockPage },
-  '/app/tickets': { title: 'Tickets', component: TicketsPage },
-  '/app/work': { title: 'Work', component: WorkPage },
-  '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
-  '/app/teams': { title: 'Teams', component: TeamsPage },
-  '/app/organization': { title: 'Organization', component: OrganizationPage },
+  '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
-  '/app/activity': { title: 'Activity Log', component: ActivityLogPage },
-  '/app/admin/organization': { title: 'Organization Admin', component: OrganizationOverviewPage },
-  '/org/members': { title: 'Members', component: OrganizationMembersPage },
+  '/app/organization': { title: 'Organization', component: OrganizationPage },
+  '/app/media': { title: 'Media Library', component: MediaPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
+  '/app/teams': { title: 'Teams', component: TeamsPage },
+  '/app/tickets': { title: 'Tickets', component: TicketsPage },
+  '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
+  '/app/work': { title: 'Work', component: WorkPage },
+
+  '/org/members': { title: 'Members', component: OrganizationMembersPage },
 };
 
 function match(pathname: string): RouteConfig | null {
@@ -116,9 +124,13 @@ export const AppFeedbackContext = createContext<{
 
 export const useAppFeedback = () => useContext(AppFeedbackContext);
 
-// ─── AppLayout ────────────────────────────────────────────────────────────────
+// ─── AppLayout Content (with access to Session & Team contexts) ──────────────
 
-export const AppLayout: React.FC = () => {
+const AppLayoutContent: React.FC = () => {
+  // Get global refresh handlers
+  const { refetch: refetchSession } = useSession();
+  const { refetchTeams, refetchClock } = useTeam();
+
   // Apply the saved brand/color theme on every mount, not just on SettingsPage
   useBrand();
   // ── Routing ──
@@ -143,6 +155,12 @@ export const AppLayout: React.FC = () => {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
+
+  // Scroll the content area back to the top on every route change
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 });
+  }, [pathname]);
 
   // Native push notification tap → navigate to the relevant page
   useEffect(() => {
@@ -244,7 +262,7 @@ export const AppLayout: React.FC = () => {
 
   return (
     <RouterContext.Provider value={{ pathname, navigate }}>
-      <TeamProvider>
+      <RefreshProvider globalRefreshHandlers={[refetchSession, refetchTeams, refetchClock]}>
         <CommandPalette />
         <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
         <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
@@ -278,26 +296,40 @@ export const AppLayout: React.FC = () => {
                 <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
                   <AppHeader title={pageTitle} />
                   <main
-                    className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'pb-20'}` : 'pb-20'} md:pb-0`}
+                    ref={mainRef}
+                    className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'app-main-scroll'}` : 'app-main-scroll'} md:pb-0`}
                   >
-                    {profileUserId ? (
-                      <ProfilePage userId={profileUserId} />
-                    ) : profileUsername ? (
-                      <ProfilePage username={profileUsername} />
-                    ) : ticketDetailId ? (
-                      <TicketDetailPage ticketId={ticketDetailId} />
-                    ) : (
-                      route && React.createElement(route.component)
-                    )}
+                    <PullToRefresh>
+                      {profileUserId ? (
+                        <ProfilePage userId={profileUserId} />
+                      ) : profileUsername ? (
+                        <ProfilePage username={profileUsername} />
+                      ) : ticketDetailId ? (
+                        <TicketDetailPage ticketId={ticketDetailId} />
+                      ) : (
+                        route && React.createElement(route.component)
+                      )}
+                    </PullToRefresh>
                   </main>
                 </div>
 
                 {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
               </div>
             </SidebarContext.Provider>
+            <OzwellWidget />
           </MessagesActiveChatContext.Provider>
         </AppFeedbackContext.Provider>
-      </TeamProvider>
+      </RefreshProvider>
     </RouterContext.Provider>
+  );
+};
+
+// ─── AppLayout (Team wrapper) ─────────────────────────────────────────────────
+
+export const AppLayout: React.FC = () => {
+  return (
+    <TeamProvider>
+      <AppLayoutContent />
+    </TeamProvider>
   );
 };

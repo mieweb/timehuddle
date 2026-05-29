@@ -43,6 +43,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   ApiError,
+  clockApi,
   timerApi,
   ticketApi,
   type DayEntry,
@@ -50,6 +51,7 @@ import {
   type Ticket,
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
+import { useRefresh } from '../../lib/RefreshContext';
 import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
@@ -231,6 +233,22 @@ export const WorkPage: React.FC = () => {
     void fetchDay();
   }, [fetchDay]);
 
+  // Pull-to-refresh: combine both fetches
+  useRefresh(
+    useCallback(async () => {
+      await Promise.all([fetchDay(), fetchWeekTotals()]);
+    }, [fetchDay, fetchWeekTotals]),
+  );
+
+  useEffect(() => {
+    const handler = () => {
+      void fetchDay();
+      void fetchWeekTotals();
+    };
+    window.addEventListener('work:refetch', handler);
+    return () => window.removeEventListener('work:refetch', handler);
+  }, [fetchDay, fetchWeekTotals]);
+
   useEffect(() => {
     const previousClockedIn = previousClockedInRef.current;
     previousClockedInRef.current = isClockedIn;
@@ -245,6 +263,55 @@ export const WorkPage: React.FC = () => {
     void fetchDay();
     void fetchWeekTotals();
   }, [fetchDay, fetchWeekTotals, isClockedIn, isToday]);
+
+  // ── Real-time clock updates ──
+
+  useEffect(() => {
+    if (teams.length === 0) return;
+
+    const teamIds = teams.map((t) => t.id);
+    const ws = clockApi.openLiveStream(teamIds);
+
+    ws.onmessage = (event: MessageEvent) => {
+      const data = JSON.parse(event.data);
+      // On any clock event update (timer start/stop), refetch current day and week totals
+      if (data.type === 'update') {
+        void fetchDay();
+        void fetchWeekTotals();
+      }
+    };
+
+    return () => ws.close();
+  }, [teams, fetchDay, fetchWeekTotals]);
+
+  // ── Real-time timer updates ──
+
+  useEffect(() => {
+    console.log('[WorkPage] Opening timer WebSocket connection');
+    const ws = timerApi.openLiveStream();
+
+    ws.onmessage = (event: MessageEvent) => {
+      console.log('[WorkPage] Timer WebSocket message received:', event.data);
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'connected') {
+        console.log('[WorkPage] Timer WebSocket connected successfully');
+        return;
+      }
+
+      // On timer start/stop/delete, refetch current day and week totals
+      if (data.type === 'update') {
+        console.log('[WorkPage] Refreshing timer data due to update event');
+        void fetchDay();
+        void fetchWeekTotals();
+      }
+    };
+
+    return () => {
+      console.log('[WorkPage] Closing timer WebSocket connection');
+      ws.close();
+    };
+  }, [fetchDay, fetchWeekTotals]);
 
   // ── Handlers ──
 

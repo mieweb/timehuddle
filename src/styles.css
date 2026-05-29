@@ -25,6 +25,21 @@ html[data-theme='dark'] {
   padding-bottom: max(env(safe-area-inset-bottom), 0px);
 }
 
+/* Main scroll area on mobile — clears bottom nav + home indicator */
+@media not (min-width: 768px) {
+  .app-main-scroll {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Fix native datetime-local (and date/time) pickers in dark mode — without this
+   the browser renders the calendar popup in light mode, making it invisible */
+[data-theme='dark'] input[type='datetime-local'],
+[data-theme='dark'] input[type='date'],
+[data-theme='dark'] input[type='time'] {
+  color-scheme: dark;
+}
+
 /* Prevent iOS Safari from auto-zooming when focusing inputs smaller than 16px */
 @media (max-width: 767px) {
   input,

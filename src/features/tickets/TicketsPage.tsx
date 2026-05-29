@@ -61,11 +61,12 @@ import {
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
+import { useRefresh } from '../../lib/RefreshContext';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
-import { VideoUploadButton } from '../media/VideoUploadButton';
+import { PulseUploadButton } from '../media/PulseUploadButton';
 import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -162,6 +163,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
   onShareWithTimeharbor,
 }) => {
   const { navigate } = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
   const { icon, className: iconClass } = statusIconFor(ticket.status);
   const showStatusLabel =
     ticket.status &&
@@ -250,6 +252,8 @@ const TicketRow: React.FC<TicketRowProps> = ({
         )}
         <Dropdown
           className="z-1000 bg-white dark:bg-neutral-800"
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
           trigger={
             <Button
               variant="ghost"
@@ -265,27 +269,39 @@ const TicketRow: React.FC<TicketRowProps> = ({
           <DropdownContent>
             <DropdownItem
               icon={<FontAwesomeIcon icon={faEye} />}
-              onClick={() => navigate(`/app/tickets/${ticket.id}`)}
+              onClick={() => {
+                setMenuOpen(false);
+                navigate(`/app/tickets/${ticket.id}`);
+              }}
             >
               Ticket Details
             </DropdownItem>
             {isCreator && (
               <DropdownItem
                 icon={<FontAwesomeIcon icon={faPen} />}
-                onClick={() => onEditRequest(ticket)}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onEditRequest(ticket);
+                }}
               >
                 Edit Ticket
               </DropdownItem>
             )}
             <DropdownItem
               icon={<FontAwesomeIcon icon={faRightLeft} />}
-              onClick={() => onChangeStatusRequest(ticket)}
+              onClick={() => {
+                setMenuOpen(false);
+                onChangeStatusRequest(ticket);
+              }}
             >
               Change Status
             </DropdownItem>
             <DropdownItem
               icon={<FontAwesomeIcon icon={faShareFromSquare} />}
-              onClick={() => onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor)}
+              onClick={() => {
+                setMenuOpen(false);
+                onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor);
+              }}
             >
               {ticket.sharedWithTimeharbor ? 'Remove from TimeHarbor' : 'Send to TimeHarbor'}
             </DropdownItem>
@@ -295,7 +311,10 @@ const TicketRow: React.FC<TicketRowProps> = ({
                 <DropdownItem
                   icon={<FontAwesomeIcon icon={faTrash} />}
                   variant="danger"
-                  onClick={() => onDeleteRequest(ticket.id)}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onDeleteRequest(ticket.id);
+                  }}
                 >
                   Delete Ticket
                 </DropdownItem>
@@ -385,6 +404,55 @@ export const TicketsPage: React.FC = () => {
   useEffect(() => {
     void refetch();
   }, [refetch]);
+
+  // Pull-to-refresh handler
+  useRefresh(refetch);
+
+  // Real-time WebSocket connection for ticket updates
+  useEffect(() => {
+    if (!teams.length || !userId) return;
+
+    const teamIds = teams.map((t) => t.id);
+    const ws = ticketApi.openLiveStream(teamIds);
+
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'snapshot') {
+          // Initial snapshot for a single team — merge with existing tickets
+          const newTickets = data.tickets as Ticket[];
+          setTickets((prev) => {
+            // Remove tickets from this team, then add the snapshot
+            const filtered = prev.filter((t) => t.teamId !== data.teamId);
+            return [...filtered, ...newTickets];
+          });
+        } else if (data.type === 'update') {
+          // Real-time ticket update — upsert by id
+          const updatedTicket = data.ticket as Ticket;
+          setTickets((prev) => {
+            const idx = prev.findIndex((t) => t.id === updatedTicket.id);
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = updatedTicket;
+              return copy;
+            }
+            return [...prev, updatedTicket];
+          });
+        } else if (data.type === 'delete') {
+          // Ticket deleted — remove from state
+          setTickets((prev) => prev.filter((t) => t.id !== data.ticketId));
+        }
+      } catch (err) {
+        console.warn('Failed to parse tickets WebSocket message:', err);
+      }
+    };
+
+    // Cleanup: close WebSocket when teams change or component unmounts
+    return () => {
+      ws.close();
+    };
+  }, [teams, userId]);
 
   // Listen for external refetch requests (e.g., from CommandPalette)
   useEffect(() => {
@@ -870,7 +938,9 @@ export const TicketsPage: React.FC = () => {
                   label="Team"
                   activeLabel={activeTeamLabel}
                   open={openFilterMenu === 'team'}
-                  onOpenChange={(open) => setOpenFilterMenu(open ? 'team' : null)}
+                  onOpenChange={(open) =>
+                    setOpenFilterMenu((prev) => (open ? 'team' : prev === 'team' ? null : prev))
+                  }
                 >
                   <DropdownItem
                     onClick={() => setTeamFilter(null)}
@@ -894,7 +964,11 @@ export const TicketsPage: React.FC = () => {
                 label="Priority"
                 activeLabel={activePriorityLabel}
                 open={openFilterMenu === 'priority'}
-                onOpenChange={(open) => setOpenFilterMenu(open ? 'priority' : null)}
+                onOpenChange={(open) =>
+                  setOpenFilterMenu((prev) =>
+                    open ? 'priority' : prev === 'priority' ? null : prev,
+                  )
+                }
               >
                 <DropdownItem
                   onClick={() => setPriorityFilter(null)}
@@ -918,7 +992,9 @@ export const TicketsPage: React.FC = () => {
                 activeLabel={activeStatusDetailLabel}
                 placement="bottom-end"
                 open={openFilterMenu === 'status'}
-                onOpenChange={(open) => setOpenFilterMenu(open ? 'status' : null)}
+                onOpenChange={(open) =>
+                  setOpenFilterMenu((prev) => (open ? 'status' : prev === 'status' ? null : prev))
+                }
               >
                 <DropdownItem
                   onClick={() => setStatusDetailFilter(null)}
@@ -946,7 +1022,11 @@ export const TicketsPage: React.FC = () => {
                 activeLabel={activeAssigneeLabel}
                 placement="bottom-end"
                 open={openFilterMenu === 'assignee'}
-                onOpenChange={(open) => setOpenFilterMenu(open ? 'assignee' : null)}
+                onOpenChange={(open) =>
+                  setOpenFilterMenu((prev) =>
+                    open ? 'assignee' : prev === 'assignee' ? null : prev,
+                  )
+                }
               >
                 <DropdownItem
                   onClick={() => setAssigneeFilter(null)}
@@ -1040,7 +1120,7 @@ export const TicketsPage: React.FC = () => {
           <ModalTitle>Edit Ticket</ModalTitle>
           <ModalClose />
         </ModalHeader>
-        <ModalBody>
+        <ModalBody className="overscroll-contain">
           <div className="space-y-4">
             <Input
               label={titleFetching ? 'Title (fetching…)' : 'Title'}
@@ -1258,7 +1338,7 @@ export const TicketsPage: React.FC = () => {
                   entityId={detailsTicket.id}
                   currentUserId={userId ?? undefined}
                 />
-                <VideoUploadButton
+                <PulseUploadButton
                   ticketId={detailsTicket.id}
                   onUploadComplete={() => setDetailsAttachmentRefresh((n) => n + 1)}
                 />
