@@ -4,6 +4,7 @@ import {
   attachmentsCollection,
   clockBreaksCollection,
   clockEventsCollection,
+  profilesCollection,
   teamsCollection,
   usersCollection,
 } from "../models/index.js";
@@ -223,6 +224,39 @@ export type PublicClockEvent = ReturnType<typeof toPublicClockEvent>;
 // ─── ClockService ─────────────────────────────────────────────────────────────
 
 export class ClockService {
+  /** Notify all team admins when a clock session is added or updated. */
+  private async notifyClockAdmins(
+    actorUserId: string,
+    teamId: string,
+    startTime: number,
+    action: "added" | "updated" | "deleted"
+  ): Promise<void> {
+    const team = await teamsCollection().findOne({ _id: new ObjectId(teamId) });
+    if (!team || !team.admins || team.admins.length === 0) return;
+
+    const profile = await profilesCollection().findOne({ userId: actorUserId, app: "timeharbor" });
+    const actorName =
+      profile?.displayName ||
+      (await usersCollection().findOne({ _id: new ObjectId(actorUserId) }))?.name ||
+      "A team member";
+    const date = new Date(startTime).toISOString().slice(0, 10);
+
+    await Promise.all(
+      team.admins.map((adminId) =>
+        notificationService.create({
+          userId: adminId,
+          title: "Timesheet Update",
+          body: `${actorName} has ${action} a clock session for ${date}`,
+          notificationData: {
+            type: "clock-session-changed",
+            teamId,
+            date,
+          },
+        })
+      )
+    );
+  }
+
   /** Return the active (open) clock event for a user in a team, or null. */
   async getActive(userId: string, teamId: string): Promise<ClockEvent | null> {
     return findActiveClockEventByUserTeam(userId, teamId);
@@ -563,6 +597,11 @@ export class ClockService {
 
     const updated = await coll.findOne({ _id: event._id });
     const updatedBreaks = await findBreaksForEvent(clockEventId);
+    if (updated) {
+      this.notifyClockAdmins(requesterId, event.teamId, updated.startTime, "updated").catch(
+        (err) => console.error("[clock.service] notify admins failed:", err)
+      );
+    }
     return updated ? toPublicClockEvent(updated, updatedBreaks) : "not-found";
   }
 
@@ -595,6 +634,10 @@ export class ClockService {
     if (event.endTime === null) {
       broadcast(event.teamId, null);
     }
+
+    this.notifyClockAdmins(requesterId, event.teamId, event.startTime, "deleted").catch((err) =>
+      console.error("[clock.service] notify admins failed:", err)
+    );
 
     return "ok";
   }
@@ -633,6 +676,9 @@ export class ClockService {
 
     const created = await coll.findOne({ _id: result.insertedId });
     if (!created) return "forbidden";
+    this.notifyClockAdmins(userId, teamId, startTime, "added").catch((err) =>
+      console.error("[clock.service] notify admins failed:", err)
+    );
     return toPublicClockEvent(created, []);
   }
 

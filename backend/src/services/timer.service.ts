@@ -4,7 +4,10 @@ import {
   timersCollection,
   ticketsCollection,
   teamsCollection,
+  profilesCollection,
+  usersCollection,
 } from "../models/index.js";
+import { notificationService } from "./notification.service.js";
 import type { WorkItem } from "../models/work-item.model.js";
 import type { Timer } from "../models/timer.model.js";
 
@@ -83,6 +86,43 @@ export function toUtcDateKey(epochMs: number): string {
 // ─── TimerService ─────────────────────────────────────────────────────────────
 
 export class TimerService {
+  /** Notify all team admins when a timesheet entry is created, updated, or deleted. */
+  private async notifyTimesheetAdmins(
+    actorUserId: string,
+    ticketId: string,
+    date: string,
+    action: "added" | "updated" | "deleted"
+  ): Promise<void> {
+    if (!isValidId(ticketId)) return;
+    const ticket = await ticketsCollection().findOne({ _id: new ObjectId(ticketId) });
+    if (!ticket || !isValidId(ticket.teamId)) return;
+
+    const team = await teamsCollection().findOne({ _id: new ObjectId(ticket.teamId) });
+    if (!team || !team.admins || team.admins.length === 0) return;
+
+    const profile = await profilesCollection().findOne({ userId: actorUserId, app: "timeharbor" });
+    const actorName =
+      profile?.displayName ||
+      (await usersCollection().findOne({ _id: new ObjectId(actorUserId) }))?.name ||
+      "A team member";
+
+    await Promise.all(
+      team.admins.map((adminId) =>
+        notificationService.create({
+          userId: adminId,
+          title: "Timesheet Update",
+          body: `${actorName} has ${action} a timesheet entry for ${date}`,
+          notificationData: {
+            type: "timesheet-entry-changed",
+            ticketId,
+            date,
+            teamId: ticket.teamId,
+          },
+        })
+      )
+    );
+  }
+
   /**
    * Create a new WorkItem for { userId, ticketId, date }.
    * Returns "not-found" if the ticket does not exist or "forbidden" if the
@@ -114,6 +154,9 @@ export class TimerService {
       createdAt: new Date(),
     };
     await workItemsCollection().insertOne(doc);
+    this.notifyTimesheetAdmins(userId, ticketId, date, "added").catch((err) =>
+      console.error("[timer.service] notify admins failed:", err)
+    );
     return doc;
   }
 
@@ -512,6 +555,9 @@ export class TimerService {
     const entryResult = await workItemsCollection().deleteOne({ _id: entryObjectId, userId });
 
     broadcastTimerUpdate(userId);
+    this.notifyTimesheetAdmins(userId, entry.ticketId, entry.date, "deleted").catch((err) =>
+      console.error("[timer.service] notify admins failed:", err)
+    );
 
     return {
       deletedEntry: entryResult.deletedCount === 1,
@@ -592,7 +638,13 @@ export class TimerService {
       }
     }
 
-    return (await workItemsCollection().findOne({ _id: entryOid }))!;
+    const updated = (await workItemsCollection().findOne({ _id: entryOid }))!;
+    const finalTicketId =
+      updates.ticketId && updates.ticketId !== entry.ticketId ? updates.ticketId : entry.ticketId;
+    this.notifyTimesheetAdmins(userId, finalTicketId, updated.date, "updated").catch((err) =>
+      console.error("[timer.service] notify admins failed:", err)
+    );
+    return updated;
   }
 
   /**
