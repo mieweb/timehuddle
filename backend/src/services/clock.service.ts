@@ -598,8 +598,8 @@ export class ClockService {
     const updated = await coll.findOne({ _id: event._id });
     const updatedBreaks = await findBreaksForEvent(clockEventId);
     if (updated) {
-      this.notifyClockAdmins(requesterId, event.teamId, updated.startTime, "updated").catch(
-        (err) => console.error("[clock.service] notify admins failed:", err)
+      this.notifyClockAdmins(requesterId, event.teamId, updated.startTime, "updated").catch((err) =>
+        console.error("[clock.service] notify admins failed:", err)
       );
     }
     return updated ? toPublicClockEvent(updated, updatedBreaks) : "not-found";

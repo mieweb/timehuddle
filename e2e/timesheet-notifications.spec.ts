@@ -105,7 +105,7 @@ async function createManualClockSession(
 ): Promise<{ id: string; startTime: number }> {
   const now = Date.now();
   const startTime = now - 3_600_000; // 1 hour ago
-  const endTime = now - 1_800_000;   // 30 min ago
+  const endTime = now - 1_800_000; // 30 min ago
   const res = await page.request.post(`${API_BASE}/clock/manual`, {
     data: { teamId, startTime, endTime },
   });
@@ -214,7 +214,7 @@ test.describe('Clock Session Notifications', () => {
       await bobPage.request.put(`${API_BASE}/clock/${eventId}/times`, {
         data: {
           startTime: now - 7_200_000, // 2 hours ago
-          endTime: now - 3_600_000,   // 1 hour ago
+          endTime: now - 3_600_000, // 1 hour ago
         },
       });
 
