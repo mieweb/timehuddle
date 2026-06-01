@@ -1143,6 +1143,8 @@ export const TicketsPage: React.FC = () => {
                   />
                 ))}
               </ul>
+            ) : ticketsLoading ? (
+              <TicketListSkeleton />
             ) : (
               <div className="px-4 py-10 text-center">
                 <Text variant="muted" size="sm">
