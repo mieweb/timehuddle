@@ -1,4 +1,11 @@
 /**
+ * ATTIC — removed from TimeHuddle on 2026-06-01.
+ * Reason: Jerry AI integration removed from app. Kept for reuse in other projects.
+ * Original location: src/features/ai/OzwellWidget.tsx
+ * Companion file: ozwell-tools.ts (also in .attic/)
+ */
+
+/**
  * OzwellWidget — mounts the Ozwell AI chat widget into the authenticated shell.
  *
  * Architecture:

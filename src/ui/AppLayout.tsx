@@ -27,7 +27,6 @@ import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
 import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
 import { WorkPage } from '../features/timers/WorkPage';
-import { OzwellWidget } from '../features/ai/OzwellWidget';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
 import { MediaPage } from '../features/media/MediaPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
@@ -316,7 +315,6 @@ const AppLayoutContent: React.FC = () => {
                 {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
               </div>
             </SidebarContext.Provider>
-            <OzwellWidget />
           </MessagesActiveChatContext.Provider>
         </AppFeedbackContext.Provider>
       </RefreshProvider>
