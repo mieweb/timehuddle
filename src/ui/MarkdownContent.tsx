@@ -47,7 +47,9 @@ const markdownComponents: Components = {
     const isBlock = className?.includes('language-');
     if (isBlock) {
       return (
-        <code className={`block overflow-x-auto rounded-md bg-neutral-100 p-3 font-mono text-xs text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 ${className ?? ''}`}>
+        <code
+          className={`block overflow-x-auto rounded-md bg-neutral-100 p-3 font-mono text-xs text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200 ${className ?? ''}`}
+        >
           {children}
         </code>
       );
@@ -58,9 +60,7 @@ const markdownComponents: Components = {
       </code>
     );
   },
-  pre: ({ children }) => (
-    <pre className="mb-2 overflow-x-auto last:mb-0">{children}</pre>
-  ),
+  pre: ({ children }) => <pre className="mb-2 overflow-x-auto last:mb-0">{children}</pre>,
   hr: () => <hr className="my-3 border-neutral-200 dark:border-neutral-700" />,
   table: ({ children }) => (
     <div className="mb-2 overflow-x-auto last:mb-0">
@@ -88,10 +88,7 @@ interface MarkdownContentProps {
 
 export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, className }) => (
   <div className={className}>
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm, remarkBreaks]}
-      components={markdownComponents}
-    >
+    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
       {content}
     </ReactMarkdown>
   </div>

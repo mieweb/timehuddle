@@ -1248,7 +1248,6 @@ export const TicketsPage: React.FC = () => {
           </ModalFooter>
         </Modal>
 
-
         {/* Change Status modal */}
         <Modal
           open={!!changeStatusTicket}

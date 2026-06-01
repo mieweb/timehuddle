@@ -87,12 +87,7 @@ function resolveNotificationTarget(
   const data = (doc.data ?? {}) as Record<string, unknown>;
 
   if (data.type === 'message' && data.teamId && data.adminId && data.memberId) {
-    openMessageThread(
-      String(data.teamId),
-      String(data.adminId),
-      String(data.memberId),
-      navigate,
-    );
+    openMessageThread(String(data.teamId), String(data.adminId), String(data.memberId), navigate);
     return;
   }
 
