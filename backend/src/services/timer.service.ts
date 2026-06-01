@@ -103,7 +103,9 @@ export class TimerService {
     const profile = await profilesCollection().findOne({ userId: actorUserId, app: "timeharbor" });
     const actorName =
       profile?.displayName ||
-      (await usersCollection().findOne({ _id: new ObjectId(actorUserId) }))?.name ||
+      (isValidId(actorUserId)
+        ? (await usersCollection().findOne({ _id: new ObjectId(actorUserId) }))?.name
+        : undefined) ||
       "A team member";
 
     await Promise.all(
@@ -638,7 +640,8 @@ export class TimerService {
       }
     }
 
-    const updated = (await workItemsCollection().findOne({ _id: entryOid }))!;
+    const updated = await workItemsCollection().findOne({ _id: entryOid });
+    if (!updated) return "not-found";
     const finalTicketId =
       updates.ticketId && updates.ticketId !== entry.ticketId ? updates.ticketId : entry.ticketId;
     this.notifyTimesheetAdmins(userId, finalTicketId, updated.date, "updated").catch((err) =>

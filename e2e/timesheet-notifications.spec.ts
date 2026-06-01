@@ -1,7 +1,7 @@
 /**
  * Timesheet Notification E2E
  *
- * Verifies that team admins receive push notifications when a team member:
+ * Verifies that team admins receive inbox notifications when a team member:
  *  - Adds a manual clock session
  *  - Edits a clock session
  *  - Deletes a clock session
@@ -50,6 +50,9 @@ async function loginAs(page: Page, email: string, password: string) {
 
 async function getNotifications(page: Page): Promise<Notification[]> {
   const res = await page.request.get(`${API_BASE}/notifications`);
+  if (!res.ok()) {
+    throw new Error(`getNotifications failed: ${res.status()} ${await res.text()}`);
+  }
   const body = (await res.json()) as { notifications: Notification[] };
   return body.notifications ?? [];
 }
@@ -109,6 +112,9 @@ async function createManualClockSession(
   const res = await page.request.post(`${API_BASE}/clock/manual`, {
     data: { teamId, startTime, endTime },
   });
+  if (!res.ok()) {
+    throw new Error(`createManualClockSession failed: ${res.status()} ${await res.text()}`);
+  }
   const { event } = (await res.json()) as { event: { id: string; startTime: number } };
   return { id: event.id, startTime: event.startTime };
 }
@@ -117,6 +123,9 @@ async function createTicketInDevelopers(page: Page, teamId: string): Promise<str
   const res = await page.request.post(`${API_BASE}/tickets`, {
     data: { teamId, title: `E2E notification test ticket ${Date.now()}` },
   });
+  if (!res.ok()) {
+    throw new Error(`createTicketInDevelopers failed: ${res.status()} ${await res.text()}`);
+  }
   const { ticket } = (await res.json()) as { ticket: { id: string } };
   return ticket.id;
 }
@@ -125,6 +134,9 @@ async function createWorkEntry(page: Page, ticketId: string, date: string): Prom
   const res = await page.request.post(`${API_BASE}/timers/entries`, {
     data: { ticketId, date, note: 'e2e notification test' },
   });
+  if (!res.ok()) {
+    throw new Error(`createWorkEntry failed: ${res.status()} ${await res.text()}`);
+  }
   const { entry } = (await res.json()) as { entry: { id: string } };
   return entry.id;
 }
