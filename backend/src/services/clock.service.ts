@@ -224,20 +224,23 @@ export type PublicClockEvent = ReturnType<typeof toPublicClockEvent>;
 // ─── ClockService ─────────────────────────────────────────────────────────────
 
 export class ClockService {
-  /** Notify all team admins when a clock session is added or updated. */
+  /** Notify all team admins when a clock session is added, updated, or deleted. */
   private async notifyClockAdmins(
     actorUserId: string,
     teamId: string,
     startTime: number,
     action: "added" | "updated" | "deleted"
   ): Promise<void> {
+    if (!isValidId(teamId)) return;
     const team = await teamsCollection().findOne({ _id: new ObjectId(teamId) });
     if (!team || !team.admins || team.admins.length === 0) return;
 
     const profile = await profilesCollection().findOne({ userId: actorUserId, app: "timeharbor" });
     const actorName =
       profile?.displayName ||
-      (await usersCollection().findOne({ _id: new ObjectId(actorUserId) }))?.name ||
+      (isValidId(actorUserId)
+        ? (await usersCollection().findOne({ _id: new ObjectId(actorUserId) }))?.name
+        : undefined) ||
       "A team member";
     const date = new Date(startTime).toISOString().slice(0, 10);
 
