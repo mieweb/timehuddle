@@ -23,6 +23,7 @@ import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { useRefresh } from '../../lib/RefreshContext';
 
 function timeAgo(date: Date | string | undefined): string {
   if (!date) return '';
@@ -147,6 +148,16 @@ export const NotificationsPage: React.FC = () => {
     };
     return () => es.close();
   }, [user]);
+
+  useRefresh(
+    React.useCallback(async () => {
+      if (!user) return;
+      await notificationApi
+        .getInbox()
+        .then(setNotifications)
+        .catch(() => {});
+    }, [user]),
+  );
 
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);

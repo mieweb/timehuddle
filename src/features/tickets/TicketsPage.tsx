@@ -61,11 +61,12 @@ import {
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
+import { useRefresh } from '../../lib/RefreshContext';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
-import { VideoUploadButton } from '../media/VideoUploadButton';
+import { PulseUploadButton } from '../media/PulseUploadButton';
 import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -162,6 +163,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
   onShareWithTimeharbor,
 }) => {
   const { navigate } = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
   const { icon, className: iconClass } = statusIconFor(ticket.status);
   const showStatusLabel =
     ticket.status &&
@@ -250,6 +252,8 @@ const TicketRow: React.FC<TicketRowProps> = ({
         )}
         <Dropdown
           className="z-1000 bg-white dark:bg-neutral-800"
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
           trigger={
             <Button
               variant="ghost"
@@ -265,27 +269,39 @@ const TicketRow: React.FC<TicketRowProps> = ({
           <DropdownContent>
             <DropdownItem
               icon={<FontAwesomeIcon icon={faEye} />}
-              onClick={() => navigate(`/app/tickets/${ticket.id}`)}
+              onClick={() => {
+                setMenuOpen(false);
+                navigate(`/app/tickets/${ticket.id}`);
+              }}
             >
               Ticket Details
             </DropdownItem>
             {isCreator && (
               <DropdownItem
                 icon={<FontAwesomeIcon icon={faPen} />}
-                onClick={() => onEditRequest(ticket)}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onEditRequest(ticket);
+                }}
               >
                 Edit Ticket
               </DropdownItem>
             )}
             <DropdownItem
               icon={<FontAwesomeIcon icon={faRightLeft} />}
-              onClick={() => onChangeStatusRequest(ticket)}
+              onClick={() => {
+                setMenuOpen(false);
+                onChangeStatusRequest(ticket);
+              }}
             >
               Change Status
             </DropdownItem>
             <DropdownItem
               icon={<FontAwesomeIcon icon={faShareFromSquare} />}
-              onClick={() => onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor)}
+              onClick={() => {
+                setMenuOpen(false);
+                onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor);
+              }}
             >
               {ticket.sharedWithTimeharbor ? 'Remove from TimeHarbor' : 'Send to TimeHarbor'}
             </DropdownItem>
@@ -295,7 +311,10 @@ const TicketRow: React.FC<TicketRowProps> = ({
                 <DropdownItem
                   icon={<FontAwesomeIcon icon={faTrash} />}
                   variant="danger"
-                  onClick={() => onDeleteRequest(ticket.id)}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onDeleteRequest(ticket.id);
+                  }}
                 >
                   Delete Ticket
                 </DropdownItem>
@@ -349,18 +368,44 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
   </Dropdown>
 );
 
+// ─── Ticket skeleton rows ─────────────────────────────────────────────────────
+
+const TicketSkeletonRow: React.FC<{ wide?: boolean }> = ({ wide }) => (
+  <li className="flex items-start gap-3 px-4 py-3">
+    <div className="mt-1 h-3.5 w-3.5 shrink-0 animate-pulse rounded-full bg-neutral-200 dark:bg-neutral-700" />
+    <div className="min-w-0 flex-1 space-y-2">
+      <div
+        className={`h-3.5 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700 ${wide ? 'w-2/3' : 'w-1/2'}`}
+      />
+      <div className="h-2.5 w-1/3 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
+    </div>
+  </li>
+);
+
+const TicketListSkeleton: React.FC = () => (
+  <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+    <TicketSkeletonRow wide />
+    <TicketSkeletonRow />
+    <TicketSkeletonRow wide />
+    <TicketSkeletonRow />
+    <TicketSkeletonRow wide />
+  </ul>
+);
+
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
   const { teams, selectedTeamId, teamsReady } = useTeam();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(true);
   // Map from teamId → members for cross-team member lookups
   const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
 
   const refetch = useCallback(async () => {
     if (!teams.length) {
       setTickets([]);
+      setTicketsLoading(false);
       return;
     }
     try {
@@ -379,12 +424,63 @@ export const TicketsPage: React.FC = () => {
       setTickets(merged);
     } catch {
       // keep previous tickets on error
+    } finally {
+      setTicketsLoading(false);
     }
   }, [teams]);
 
   useEffect(() => {
     void refetch();
   }, [refetch]);
+
+  // Pull-to-refresh handler
+  useRefresh(refetch);
+
+  // Real-time WebSocket connection for ticket updates
+  useEffect(() => {
+    if (!teams.length || !userId) return;
+
+    const teamIds = teams.map((t) => t.id);
+    const ws = ticketApi.openLiveStream(teamIds);
+
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'snapshot') {
+          // Initial snapshot for a single team — merge with existing tickets
+          const newTickets = data.tickets as Ticket[];
+          setTickets((prev) => {
+            // Remove tickets from this team, then add the snapshot
+            const filtered = prev.filter((t) => t.teamId !== data.teamId);
+            return [...filtered, ...newTickets];
+          });
+        } else if (data.type === 'update') {
+          // Real-time ticket update — upsert by id
+          const updatedTicket = data.ticket as Ticket;
+          setTickets((prev) => {
+            const idx = prev.findIndex((t) => t.id === updatedTicket.id);
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = updatedTicket;
+              return copy;
+            }
+            return [...prev, updatedTicket];
+          });
+        } else if (data.type === 'delete') {
+          // Ticket deleted — remove from state
+          setTickets((prev) => prev.filter((t) => t.id !== data.ticketId));
+        }
+      } catch (err) {
+        console.warn('Failed to parse tickets WebSocket message:', err);
+      }
+    };
+
+    // Cleanup: close WebSocket when teams change or component unmounts
+    return () => {
+      ws.close();
+    };
+  }, [teams, userId]);
 
   // Listen for external refetch requests (e.g., from CommandPalette)
   useEffect(() => {
@@ -1150,6 +1246,7 @@ export const TicketsPage: React.FC = () => {
           </ModalFooter>
         </Modal>
 
+
         {/* Change Status modal */}
         <Modal
           open={!!changeStatusTicket}
@@ -1288,7 +1385,7 @@ export const TicketsPage: React.FC = () => {
                     entityId={detailsTicket.id}
                     currentUserId={userId ?? undefined}
                   />
-                  <VideoUploadButton
+                  <PulseUploadButton
                     ticketId={detailsTicket.id}
                     onUploadComplete={() => setDetailsAttachmentRefresh((n) => n + 1)}
                   />

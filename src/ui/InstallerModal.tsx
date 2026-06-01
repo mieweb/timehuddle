@@ -1,0 +1,83 @@
+import React, { useId, useState } from 'react';
+
+import { orgApi } from '../lib/api';
+import { useSession } from '../lib/useSession';
+import { Button, Text } from '@mieweb/ui';
+
+type Props = {
+  onTaken: () => void;
+};
+
+export const InstallerModal: React.FC<Props> = ({ onTaken }) => {
+  const { refetch } = useSession();
+  const labelId = useId();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function navigateToMembers() {
+    const targetPath = '/org/members';
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState(null, '', targetPath);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+  }
+
+  const handleTakeOwnership = async () => {
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      await orgApi.takeOwnership();
+      await refetch();
+      onTaken();
+      navigateToMembers();
+    } catch (err) {
+      setError((err as Error).message || 'Unable to take ownership');
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={labelId}
+    >
+      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl dark:bg-neutral-900">
+        <div className="mb-6 space-y-2">
+          <h2
+            id={labelId}
+            className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50"
+          >
+            Organization Ownership Required
+          </h2>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            No owner exists for the default organization. Take ownership to unlock organization
+            administration.
+          </p>
+        </div>
+
+        {error && (
+          <Text variant="destructive" size="xs" weight="medium" as="div" role="alert">
+            {error}
+          </Text>
+        )}
+
+        <div className="mt-4">
+          <Button
+            variant="primary"
+            fullWidth
+            type="button"
+            onClick={handleTakeOwnership}
+            isLoading={loading}
+            loadingText="Taking ownership..."
+          >
+            Take Ownership
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};

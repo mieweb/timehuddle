@@ -49,6 +49,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { teamApi, type TeamMember } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
+import { useRefresh } from '../../lib/RefreshContext';
 import { usePresence } from '../../lib/usePresence';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
@@ -81,6 +82,13 @@ export const TeamsPage: React.FC = () => {
   useEffect(() => {
     void fetchMembers(selectedTeamId);
   }, [selectedTeamId, fetchMembers]);
+
+  // Pull-to-refresh: refetch members + teams
+  useRefresh(
+    useCallback(async () => {
+      await Promise.all([fetchMembers(selectedTeamId), refetchTeams()]);
+    }, [fetchMembers, selectedTeamId, refetchTeams]),
+  );
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId) ?? null;
 
