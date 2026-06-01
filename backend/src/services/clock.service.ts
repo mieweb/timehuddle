@@ -246,7 +246,7 @@ export class ClockService {
         notificationService.create({
           userId: adminId,
           title: "Timesheet Update",
-          body: `${actorName} has ${action} a clock session for ${date}`,
+          body: `${actorName} has ${action} a clock session for ${date} in ${team.name}`,
           notificationData: {
             type: "clock-session-changed",
             teamId,

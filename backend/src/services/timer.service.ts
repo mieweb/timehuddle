@@ -111,7 +111,7 @@ export class TimerService {
         notificationService.create({
           userId: adminId,
           title: "Timesheet Update",
-          body: `${actorName} has ${action} a timesheet entry for ${date}`,
+          body: `${actorName} has ${action} a timesheet entry for ${date} in ${team.name}`,
           notificationData: {
             type: "timesheet-entry-changed",
             ticketId,
