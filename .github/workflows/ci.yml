@@ -116,10 +116,10 @@ jobs:
             STASH_OUT=$(git stash 2>&1)
             echo "$STASH_OUT"
 
-            echo "=== git fetch + pull → dev ==="
+            echo "=== git fetch + pull → development ==="
             git fetch origin
-            git checkout dev
-            git pull origin dev
+            git checkout development
+            git pull origin development
 
             echo "=== git stash pop ==="
             echo "$STASH_OUT" | grep -q "No local changes to save" || git stash pop
@@ -171,10 +171,10 @@ jobs:
             STASH_OUT=$(git stash 2>&1)
             echo "$STASH_OUT"
 
-            echo "=== git fetch + pull → dev ==="
+            echo "=== git fetch + pull → development ==="
             git fetch origin
-            git checkout dev
-            git pull origin dev
+            git checkout development
+            git pull origin development
 
             echo "=== git stash pop ==="
             echo "$STASH_OUT" | grep -q "No local changes to save" || git stash pop
