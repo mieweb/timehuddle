@@ -98,7 +98,12 @@ class ClockMonitorService {
         );
         if (locked.modifiedCount === 1) {
           autoClockedOut += 1;
-          const wasAgreed = event.shiftReminderResponse === "agreed";
+          // Re-read shiftReminderResponse from DB after acquiring the lock.
+          // The user may have responded via /shift-respond between the initial
+          // activeEvents query and this updateOne, so the in-memory value could
+          // be stale and cause the wrong user/admin message to be sent.
+          const fresh = await coll.findOne({ _id: event._id });
+          const wasAgreed = fresh?.shiftReminderResponse === "agreed";
 
           // Delegate to clockService.stop() — closes timers, classifies breaks, notifies admins
           await clockService.stop(event.userId, event.teamId);

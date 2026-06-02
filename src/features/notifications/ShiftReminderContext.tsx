@@ -128,8 +128,8 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
           <div className="space-y-3">
             <Text size="sm">{pendingNotif?.body}</Text>
             <Text size="sm" variant="muted">
-              Agreeing will automatically clock you out when you reach 8 hours of work
-              time. Choosing &ldquo;Continue Working&rdquo; will send another reminder in
+              Agreeing will automatically clock you out when you reach the auto-clockout
+              threshold. Choosing &ldquo;Continue Working&rdquo; will send another reminder in
               2 hours.
             </Text>
             {respondError && (

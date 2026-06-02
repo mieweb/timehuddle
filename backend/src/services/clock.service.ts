@@ -806,17 +806,20 @@ export async function respondToShiftReminder(
   if (event.userId !== userId) return "forbidden";
 
   if (action === "agree") {
-    // Mark response — shiftAutoClockoutWorkSecs stays set, monitor will clock out at the threshold
-    await coll.updateOne(
-      { _id: event._id },
+    // Mark response — shiftAutoClockoutWorkSecs stays set, monitor will clock out at the threshold.
+    // Guard endTime: null so a concurrent auto-clockout doesn't update a closed event.
+    const result = await coll.updateOne(
+      { _id: event._id, endTime: null },
       { $set: { shiftReminderResponse: "agreed" } }
     );
+    if (result.modifiedCount === 0) return "already-closed";
   } else {
-    // Disagree: cancel the upcoming auto-clockout; schedule next reminder 2h from now (in work-seconds)
+    // Disagree: cancel the upcoming auto-clockout; schedule next reminder 2h from now (in work-seconds).
+    // Guard endTime: null so a concurrent auto-clockout doesn't update a closed event.
     const breaks = await findBreaksForEvent(clockEventId);
     const currentWorkSecs = computeWorkSeconds(event, breaks, Date.now());
-    await coll.updateOne(
-      { _id: event._id },
+    const result = await coll.updateOne(
+      { _id: event._id, endTime: null },
       {
         $set: {
           shiftReminderResponse: "disagreed",
@@ -825,6 +828,7 @@ export async function respondToShiftReminder(
         },
       }
     );
+    if (result.modifiedCount === 0) return "already-closed";
   }
 
   // Delete the notification after processing

@@ -52,7 +52,8 @@ async function login(page: import('@playwright/test').Page): Promise<string> {
   await page.waitForURL('**/dashboard', { timeout: 15000 });
   // The frontend stores the better-auth Bearer token in localStorage
   const token = await page.evaluate(() => localStorage.getItem('timecore_session_token'));
-  return token ?? '';
+  if (!token) throw new Error('Expected timecore_session_token in localStorage after login');
+  return token;
 }
 
 function authHeaders(token: string) {

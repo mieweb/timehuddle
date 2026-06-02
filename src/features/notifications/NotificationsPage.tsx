@@ -185,7 +185,7 @@ export const NotificationsPage: React.FC = () => {
         /* ignore */
       }
     },
-    [selectMode, toggleSelect, navigate],
+    [selectMode, toggleSelect, navigate, openShiftReminderModal],
   );
 
   const handleMarkAllRead = useCallback(async () => {

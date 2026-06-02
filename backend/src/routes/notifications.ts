@@ -111,8 +111,10 @@ export async function notificationRoutes(app: FastifyInstance) {
     const result = await respondToShiftReminder(session.user.id, id, parsed.data.action);
     if (result === "not-found") return reply.status(404).send({ error: "Not found" });
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
-    if (result === "bad-request") return reply.status(400).send({ error: "Not a shift-end reminder" });
-    if (result === "already-closed") return reply.status(409).send({ error: "Clock session already closed" });
+    if (result === "bad-request")
+      return reply.status(400).send({ error: "Not a shift-end reminder" });
+    if (result === "already-closed")
+      return reply.status(409).send({ error: "Clock session already closed" });
     return reply.send({ ok: true });
   });
 
