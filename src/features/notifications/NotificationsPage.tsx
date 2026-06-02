@@ -23,6 +23,7 @@ import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useShiftReminder } from './ShiftReminderContext';
 
 function timeAgo(date: Date | string | undefined): string {
   if (!date) return '';
@@ -92,6 +93,7 @@ export const NotificationsPage: React.FC = () => {
   const [markAllLoading, setMarkAllLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [respondLoading, setRespondLoading] = useState(false);
+  const { openModal: openShiftReminderModal } = useShiftReminder();
 
   // Fetch inbox + open SSE for real-time delivery
   useEffect(() => {
@@ -115,6 +117,16 @@ export const NotificationsPage: React.FC = () => {
     };
     return () => es.close();
   }, [user]);
+
+  // Remove notifications handled by the global ShiftReminderModal
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { id } = (e as CustomEvent<{ id: string }>).detail;
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+    };
+    window.addEventListener('timehuddle:shiftReminderHandled', handler);
+    return () => window.removeEventListener('timehuddle:shiftReminderHandled', handler);
+  }, []);
 
   useRefresh(
     React.useCallback(async () => {
@@ -160,6 +172,12 @@ export const NotificationsPage: React.FC = () => {
           setInviteError(null);
           return;
         }
+        if (data.type === 'shift-end-reminder') {
+          await notificationApi.markOneRead(doc.id);
+          setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
+          openShiftReminderModal(doc);
+          return;
+        }
         await notificationApi.markOneRead(doc.id);
         setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
         resolveNotificationTarget(doc, navigate);
@@ -167,7 +185,7 @@ export const NotificationsPage: React.FC = () => {
         /* ignore */
       }
     },
-    [selectMode, toggleSelect, navigate],
+    [selectMode, toggleSelect, navigate, openShiftReminderModal],
   );
 
   const handleMarkAllRead = useCallback(async () => {

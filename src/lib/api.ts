@@ -888,6 +888,13 @@ export const notificationApi = {
       body: JSON.stringify({ action }),
     }),
 
+  /** Agree or disagree to the shift-end auto-clockout reminder. */
+  respondToShiftReminder: (id: string, action: 'agree' | 'disagree') =>
+    request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/shift-respond`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+
   /** Send a test push notification to the requesting user's devices. */
   testPush: () => request<{ ok: boolean }>('/v1/notifications/test-push', { method: 'POST' }),
 
