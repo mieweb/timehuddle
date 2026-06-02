@@ -3,9 +3,14 @@ import { z } from "zod";
 import { auth } from "../lib/auth.js";
 import { notificationService, subscribe } from "../services/notification.service.js";
 import { pushService } from "../services/push.service.js";
+import { respondToShiftReminder } from "../services/clock.service.js";
 
 const deleteSchema = z.object({
   ids: z.array(z.string().min(1)).min(1),
+});
+
+const shiftRespondSchema = z.object({
+  action: z.enum(["agree", "disagree"]),
 });
 
 const inviteRespondSchema = z.object({
@@ -89,6 +94,25 @@ export async function notificationRoutes(app: FastifyInstance) {
     if (result === "not-found") return reply.status(404).send({ error: "Not found" });
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
     if (result === "bad-request") return reply.status(400).send({ error: "Not a team invite" });
+    return reply.send({ ok: true });
+  });
+
+  // POST /v1/notifications/:id/shift-respond — agree or disagree to shift-end auto-clockout
+  app.post("/notifications/:id/shift-respond", async (req, reply) => {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
+
+    const { id } = req.params as { id: string };
+    const parsed = shiftRespondSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid" });
+    }
+
+    const result = await respondToShiftReminder(session.user.id, id, parsed.data.action);
+    if (result === "not-found") return reply.status(404).send({ error: "Not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    if (result === "bad-request") return reply.status(400).send({ error: "Not a shift-end reminder" });
+    if (result === "already-closed") return reply.status(409).send({ error: "Clock session already closed" });
     return reply.send({ ok: true });
   });
 

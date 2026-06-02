@@ -92,6 +92,8 @@ export const NotificationsPage: React.FC = () => {
   const [markAllLoading, setMarkAllLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [respondLoading, setRespondLoading] = useState(false);
+  const [shiftReminderNotif, setShiftReminderNotif] = useState<Notification | null>(null);
+  const [shiftRespondError, setShiftRespondError] = useState<string | null>(null);
 
   // Fetch inbox + open SSE for real-time delivery
   useEffect(() => {
@@ -160,6 +162,13 @@ export const NotificationsPage: React.FC = () => {
           setInviteError(null);
           return;
         }
+        if (data.type === 'shift-end-reminder') {
+          await notificationApi.markOneRead(doc.id);
+          setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
+          setShiftReminderNotif(doc);
+          setShiftRespondError(null);
+          return;
+        }
         await notificationApi.markOneRead(doc.id);
         setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
         resolveNotificationTarget(doc, navigate);
@@ -204,6 +213,28 @@ export const NotificationsPage: React.FC = () => {
     setInvitePreview(null);
     setInviteError(null);
   }, []);
+
+  const closeShiftReminderModal = useCallback(() => {
+    setShiftReminderNotif(null);
+    setShiftRespondError(null);
+  }, []);
+
+  const handleShiftReminderAction = useCallback(
+    async (action: 'agree' | 'disagree') => {
+      if (!shiftReminderNotif) return;
+      setRespondLoading(true);
+      try {
+        await notificationApi.respondToShiftReminder(shiftReminderNotif.id, action);
+        setNotifications((prev) => prev.filter((n) => n.id !== shiftReminderNotif.id));
+        closeShiftReminderModal();
+      } catch (e: any) {
+        setShiftRespondError(e?.message || 'Failed to process response');
+      } finally {
+        setRespondLoading(false);
+      }
+    },
+    [shiftReminderNotif, closeShiftReminderModal],
+  );
 
   const handleInviteAction = useCallback(
     async (action: 'join' | 'ignore') => {
@@ -455,6 +486,49 @@ export const NotificationsPage: React.FC = () => {
             disabled={invitePreview?.alreadyMember}
           >
             {invitePreview?.alreadyMember ? 'Already in team' : 'Join'}
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      <Modal
+        open={!!shiftReminderNotif}
+        onOpenChange={(open) => !open && closeShiftReminderModal()}
+        size="lg"
+      >
+        <ModalHeader>
+          <ModalTitle>Shift End Reminder</ModalTitle>
+          <ModalClose />
+        </ModalHeader>
+        <ModalBody>
+          <div className="space-y-3">
+            <Text size="sm">{shiftReminderNotif?.body}</Text>
+            <Text size="sm" variant="muted">
+              Agreeing will automatically clock you out when you reach 8 hours of work time.
+              Choosing &ldquo;Continue Working&rdquo; will send another reminder in 2 hours.
+            </Text>
+            {shiftRespondError && (
+              <Text size="sm" variant="destructive">
+                {shiftRespondError}
+              </Text>
+            )}
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="outline"
+            onClick={() => handleShiftReminderAction('disagree')}
+            isLoading={respondLoading}
+            aria-label="Continue working — reminder in 2 hours"
+          >
+            Continue Working
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => handleShiftReminderAction('agree')}
+            isLoading={respondLoading}
+            aria-label="Agree to auto clock out at 8 hours"
+          >
+            Agree to Clock Out
           </Button>
         </ModalFooter>
       </Modal>

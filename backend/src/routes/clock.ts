@@ -35,6 +35,9 @@ const clockEventShape = {
     totalBreakSeconds: { type: "number" },
     isPaused: { type: "boolean" },
     endTime: { type: "number", nullable: true },
+    shiftReminderResponse: { type: "string", nullable: true },
+    shiftAutoClockoutWorkSecs: { type: "number", nullable: true },
+    shiftNextReminderWorkSecs: { type: "number", nullable: true },
   },
 };
 

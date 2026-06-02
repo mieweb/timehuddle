@@ -4,6 +4,7 @@ import {
   attachmentsCollection,
   clockBreaksCollection,
   clockEventsCollection,
+  notificationsCollection,
   profilesCollection,
   teamsCollection,
   usersCollection,
@@ -216,6 +217,9 @@ export function toPublicClockEvent(e: ClockEvent, breaks: ClockBreakInterval[]) 
     totalBreakSeconds,
     isPaused,
     endTime,
+    shiftReminderResponse: e.shiftReminderResponse ?? null,
+    shiftAutoClockoutWorkSecs: e.shiftAutoClockoutWorkSecs ?? null,
+    shiftNextReminderWorkSecs: e.shiftNextReminderWorkSecs ?? null,
   };
 }
 
@@ -768,3 +772,66 @@ export class ClockService {
 }
 
 export const clockService = new ClockService();
+
+/**
+ * Handle a user's agree/disagree response to a shift-end reminder notification.
+ * Called from the notifications route: POST /v1/notifications/:id/shift-respond
+ *
+ * agree   — marks response; shiftAutoClockoutWorkSecs stays → monitor clocks out at 8h mark
+ * disagree — clears the 8h threshold; schedules next reminder 2h from now in work-seconds
+ */
+export async function respondToShiftReminder(
+  userId: string,
+  notificationId: string,
+  action: "agree" | "disagree"
+): Promise<"ok" | "not-found" | "forbidden" | "bad-request" | "already-closed"> {
+  if (!ObjectId.isValid(notificationId)) return "not-found";
+
+  const notification = await notificationsCollection().findOne({
+    _id: new ObjectId(notificationId),
+  });
+  if (!notification) return "not-found";
+  if (notification.userId !== userId) return "forbidden";
+
+  const data = (notification.data ?? {}) as Record<string, unknown>;
+  if (data.type !== "shift-end-reminder") return "bad-request";
+
+  const clockEventId = typeof data.clockEventId === "string" ? data.clockEventId : "";
+  if (!clockEventId || !ObjectId.isValid(clockEventId)) return "bad-request";
+
+  const coll = clockEventsCollection();
+  const event = await coll.findOne({ _id: new ObjectId(clockEventId) });
+  if (!event) return "not-found";
+  if (event.endTime !== null) return "already-closed";
+  if (event.userId !== userId) return "forbidden";
+
+  if (action === "agree") {
+    // Mark response — shiftAutoClockoutWorkSecs stays set, monitor will clock out at the threshold
+    await coll.updateOne(
+      { _id: event._id },
+      { $set: { shiftReminderResponse: "agreed" } }
+    );
+  } else {
+    // Disagree: cancel the upcoming auto-clockout; schedule next reminder 2h from now (in work-seconds)
+    const breaks = await findBreaksForEvent(clockEventId);
+    const currentWorkSecs = computeWorkSeconds(event, breaks, Date.now());
+    await coll.updateOne(
+      { _id: event._id },
+      {
+        $set: {
+          shiftReminderResponse: "disagreed",
+          shiftAutoClockoutWorkSecs: null,
+          shiftNextReminderWorkSecs: currentWorkSecs + 2 * 3600,
+        },
+      }
+    );
+  }
+
+  // Delete the notification after processing
+  await notificationsCollection().deleteOne({
+    _id: new ObjectId(notificationId),
+    userId,
+  });
+
+  return "ok";
+}
