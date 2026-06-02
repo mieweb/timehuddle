@@ -27,6 +27,8 @@ let adminCookie: string;
 let otherCookie: string;
 let workerId: string;
 let adminId: string;
+let otherId: string;
+let teamId: string;
 let clockEventId: string;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -83,6 +85,7 @@ beforeAll(async () => {
 
   workerId = String((await db.collection("user").findOne({ email: WORKER.email }))!._id);
   adminId = String((await db.collection("user").findOne({ email: ADMIN.email }))!._id);
+  otherId = String((await db.collection("user").findOne({ email: OTHER.email }))!._id);
 
   // Create test team
   const teamDoc = {
@@ -104,7 +107,7 @@ beforeAll(async () => {
 afterAll(async () => {
   const db = client.db();
   await db.collection("teams").deleteOne({ code: "CLOCKTEAM1" });
-  await db.collection("clockevents").deleteMany({ userId: workerId });
+  await db.collection("clockevents").deleteMany({ userId: { $in: [workerId, adminId, otherId] } });
   await db.collection("notifications").deleteMany({ userId: workerId });
   await db.collection("timers").deleteMany({ userId: workerId });
   await db.collection("workitems").deleteMany({ userId: workerId });
