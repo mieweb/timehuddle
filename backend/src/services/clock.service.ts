@@ -259,8 +259,8 @@ export class ClockService {
   }
 
   /** Return the active (open) clock event for a user in a team, or null. */
-  async getActive(userId: string, teamId: string): Promise<ClockEvent | null> {
-    return findActiveClockEventByUserTeam(userId, teamId);
+  async getActive(userId: string, _teamId: string): Promise<ClockEvent | null> {
+    return findActiveClockEventByUser(userId);
   }
 
   /** Return the active clock event across any team for the user. */
@@ -555,7 +555,7 @@ export class ClockService {
 
     const updated = await coll.findOne({ _id: event._id });
     const updatedBreaks = await findBreaksForEvent(clockEventId);
-    if (updated) {
+    if (updated && event.teamId) {
       this.notifyClockAdmins(requesterId, event.teamId, updated.startTime, "updated").catch((err) =>
         console.error("[clock.service] notify admins failed:", err)
       );
@@ -594,9 +594,11 @@ export class ClockService {
       broadcast(event.userId, null);
     }
 
-    this.notifyClockAdmins(requesterId, event.teamId, event.startTime, "deleted").catch((err) =>
-      console.error("[clock.service] notify admins failed:", err)
-    );
+    if (event.teamId) {
+      this.notifyClockAdmins(requesterId, event.teamId, event.startTime, "deleted").catch((err) =>
+        console.error("[clock.service] notify admins failed:", err)
+      );
+    }
 
     return "ok";
   }
@@ -608,7 +610,8 @@ export class ClockService {
   async createManual(
     userId: string,
     startTime: number,
-    endTime: number
+    endTime: number,
+    teamId?: string
   ): Promise<PublicClockEvent | "forbidden" | "invalid-range"> {
     const now = Date.now();
     if (startTime > now || endTime > now) return "invalid-range";
@@ -619,6 +622,7 @@ export class ClockService {
     const result = await coll.insertOne({
       _id: new ObjectId(),
       userId,
+      ...(teamId ? { teamId } : {}),
       startTime,
       accumulatedTime,
       endTime,
@@ -626,9 +630,11 @@ export class ClockService {
 
     const created = await coll.findOne({ _id: result.insertedId });
     if (!created) return "forbidden";
-    this.notifyClockAdmins(userId, teamId, startTime, "added").catch((err) =>
-      console.error("[clock.service] notify admins failed:", err)
-    );
+    if (teamId) {
+      this.notifyClockAdmins(userId, teamId, startTime, "added").catch((err) =>
+        console.error("[clock.service] notify admins failed:", err)
+      );
+    }
     return toPublicClockEvent(created, []);
   }
 
