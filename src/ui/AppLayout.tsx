@@ -39,6 +39,7 @@ import { useSession } from '../lib/useSession';
 import { RefreshProvider } from '../lib/RefreshContext';
 import { FeedbackModal } from '../features/feedback/FeedbackModal';
 import { ReportIssueModal } from '../features/feedback/ReportIssueModal';
+import { ShiftReminderProvider } from '../features/notifications/ShiftReminderContext';
 import { AppHeader } from './AppHeader';
 import { BottomNav } from './BottomNav';
 import { CommandPalette } from './CommandPalette';
@@ -265,6 +266,7 @@ const AppLayoutContent: React.FC = () => {
         <CommandPalette />
         <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
         <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+        <ShiftReminderProvider>
         <AppFeedbackContext.Provider
           value={{
             openReportIssue: () => setReportIssueOpen(true),
@@ -317,6 +319,7 @@ const AppLayoutContent: React.FC = () => {
             </SidebarContext.Provider>
           </MessagesActiveChatContext.Provider>
         </AppFeedbackContext.Provider>
+        </ShiftReminderProvider>
       </RefreshProvider>
     </RouterContext.Provider>
   );

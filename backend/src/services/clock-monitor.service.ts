@@ -119,8 +119,10 @@ class ClockMonitorService {
             },
           });
 
-          // Additional admin notification with reason
-          if (!wasAgreed) {
+          // Notify admins — different message depending on whether user agreed or ignored
+          if (wasAgreed) {
+            await _notifyAdminsShiftAgreed(event.userId, event.teamId);
+          } else {
             await _notifyAdminsShiftIgnored(event.userId, event.teamId);
           }
         }
@@ -166,6 +168,40 @@ class ClockMonitorService {
 
     return { reminded4h, reminded7h45m, reminded2hCycle, autoClockedOut };
   }
+}
+
+/** Send an admin notification when a user was auto-clocked out after agreeing to the reminder. */
+async function _notifyAdminsShiftAgreed(userId: string, teamId: string): Promise<void> {
+  if (!ObjectId.isValid(teamId)) return;
+  const team = await teamsCollection().findOne({ _id: new ObjectId(teamId) });
+  if (!team || !team.admins || team.admins.length === 0) return;
+
+  const user = ObjectId.isValid(userId)
+    ? await usersCollection().findOne({ _id: new ObjectId(userId) })
+    : null;
+  const userName = user?.name ?? user?.email?.split("@")[0] ?? "A team member";
+
+  await Promise.all(
+    (team.admins as string[])
+      .filter((adminId) => adminId !== userId)
+      .map((adminId) =>
+        notificationService
+          .create({
+            userId: adminId,
+            title: "Auto Clocked Out",
+            body: `${userName} was automatically clocked out of ${team.name} after agreeing to the shift-end reminder.`,
+            notificationData: {
+              type: "auto-clock-out-admin",
+              userId,
+              userName,
+              teamId,
+              teamName: team.name,
+              url: "/app/clock",
+            },
+          })
+          .catch(() => {})
+      )
+  );
 }
 
 /** Send an admin notification when a user was auto-clocked out without responding. */
