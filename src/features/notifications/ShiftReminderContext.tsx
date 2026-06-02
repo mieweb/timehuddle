@@ -61,10 +61,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
     ws.onmessage = (e) => {
       try {
         const n = JSON.parse(e.data) as Notification;
-        if (
-          n.data?.type === 'shift-end-reminder' &&
-          !shownIds.current.has(n.id)
-        ) {
+        if (n.data?.type === 'shift-end-reminder' && !shownIds.current.has(n.id)) {
           shownIds.current.add(n.id);
           setPendingNotif(n);
           setRespondError(null);
@@ -101,9 +98,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
           }),
         );
       } catch (err: unknown) {
-        setRespondError(
-          err instanceof Error ? err.message : 'Failed to process response',
-        );
+        setRespondError(err instanceof Error ? err.message : 'Failed to process response');
       } finally {
         setRespondLoading(false);
       }
@@ -115,11 +110,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
     <ShiftReminderContext.Provider value={{ openModal, closeModal }}>
       {children}
 
-      <Modal
-        open={!!pendingNotif}
-        onOpenChange={(open) => !open && closeModal()}
-        size="lg"
-      >
+      <Modal open={!!pendingNotif} onOpenChange={(open) => !open && closeModal()} size="lg">
         <ModalHeader>
           <ModalTitle>Shift End Reminder</ModalTitle>
           <ModalClose />
@@ -128,9 +119,8 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
           <div className="space-y-3">
             <Text size="sm">{pendingNotif?.body}</Text>
             <Text size="sm" variant="muted">
-              Agreeing will automatically clock you out when you reach the auto-clockout
-              threshold. Choosing &ldquo;Continue Working&rdquo; will send another reminder in
-              2 hours.
+              Agreeing will automatically clock you out when you reach the auto-clockout threshold.
+              Choosing &ldquo;Continue Working&rdquo; will send another reminder in 2 hours.
             </Text>
             {respondError && (
               <Text size="sm" variant="destructive">

@@ -83,7 +83,7 @@ async function loginViaApi(
       'Content-Type': 'application/json',
       // better-auth's CSRF protection requires a trusted Origin header.
       // Browser requests include this automatically; Node.js fetch does not.
-      'Origin': 'http://localhost:3000',
+      Origin: 'http://localhost:3000',
     },
     body: JSON.stringify({ email, password }),
   });
@@ -92,10 +92,7 @@ async function loginViaApi(
   return body.token;
 }
 
-async function ensureClockedOut(
-  page: import('@playwright/test').Page,
-  token: string,
-) {
+async function ensureClockedOut(page: import('@playwright/test').Page, token: string) {
   const res = await page.request.get(`${API_BASE}/clock/active`, {
     headers: authHeaders(token),
   });
@@ -119,9 +116,7 @@ async function clearShiftReminderNotifications(
     notifications: Array<{ id: string; data?: Record<string, unknown> }>;
   };
   const ids = notifications
-    .filter((n) =>
-      n.data?.type === 'shift-end-reminder' || n.data?.type === 'auto-clock-out',
-    )
+    .filter((n) => n.data?.type === 'shift-end-reminder' || n.data?.type === 'auto-clock-out')
     .map((n) => n.id);
   if (ids.length === 0) return;
   await page.request.delete(`${API_BASE}/notifications`, {
@@ -239,9 +234,7 @@ test.describe('Shift-End Reminder', () => {
     await expect(dialog.getByRole('heading', { name: 'Shift End Reminder' })).toBeVisible();
 
     // Body — the notification message
-    await expect(
-      dialog.getByText('You have worked 7 hours 45 minutes'),
-    ).toBeVisible();
+    await expect(dialog.getByText('You have worked 7 hours 45 minutes')).toBeVisible();
 
     // Explanatory sub-text
     await expect(
@@ -250,12 +243,8 @@ test.describe('Shift-End Reminder', () => {
     await expect(dialog.getByText(/another reminder in 2 hours/)).toBeVisible();
 
     // Both action buttons (scoped to dialog to avoid matching notification row text)
-    await expect(
-      dialog.getByRole('button', { name: /Continue Working/i }),
-    ).toBeVisible();
-    await expect(
-      dialog.getByRole('button', { name: /Agree to.*clock out/i }),
-    ).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /Continue Working/i })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /Agree to.*clock out/i })).toBeVisible();
 
     // Close button in modal header
     await expect(dialog.getByRole('button', { name: /close/i })).toBeVisible();
@@ -276,7 +265,10 @@ test.describe('Shift-End Reminder', () => {
     await page.reload();
 
     // Open modal
-    await page.getByRole('button', { name: /Shift End Reminder/ }).first().click();
+    await page
+      .getByRole('button', { name: /Shift End Reminder/ })
+      .first()
+      .click();
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 5000 });
 
@@ -287,9 +279,9 @@ test.describe('Shift-End Reminder', () => {
     await expect(dialog).not.toBeVisible({ timeout: 8000 });
 
     // Notification removed from list
-    await expect(
-      page.getByRole('button', { name: /Shift End Reminder/ }),
-    ).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: /Shift End Reminder/ })).not.toBeVisible({
+      timeout: 5000,
+    });
 
     // ── Verify backend state ───────────────────────────────────────────────
     const clockRes = await page.request.get(`${API_BASE}/clock/active`, {
@@ -337,7 +329,10 @@ test.describe('Shift-End Reminder', () => {
     await page.reload();
 
     // Open modal
-    await page.getByRole('button', { name: /Shift End Reminder/ }).first().click();
+    await page
+      .getByRole('button', { name: /Shift End Reminder/ })
+      .first()
+      .click();
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 5000 });
 
@@ -348,9 +343,9 @@ test.describe('Shift-End Reminder', () => {
     await expect(dialog).not.toBeVisible({ timeout: 8000 });
 
     // Notification removed from list
-    await expect(
-      page.getByRole('button', { name: /Shift End Reminder/ }),
-    ).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: /Shift End Reminder/ })).not.toBeVisible({
+      timeout: 5000,
+    });
 
     // ── Verify backend state ───────────────────────────────────────────────
     const clockRes = await page.request.get(`${API_BASE}/clock/active`, {
@@ -393,7 +388,10 @@ test.describe('Shift-End Reminder', () => {
     await page.reload();
 
     // Open modal and agree
-    await page.getByRole('button', { name: /Shift End Reminder/ }).first().click();
+    await page
+      .getByRole('button', { name: /Shift End Reminder/ })
+      .first()
+      .click();
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 5000 });
     await dialog.getByRole('button', { name: /Agree to.*clock out/i }).click();
@@ -431,7 +429,12 @@ test.describe('Shift-End Reminder', () => {
         event: { id: string } | null;
       };
       const { notifications } = (await notifPollRes.json()) as {
-        notifications: Array<{ id: string; title: string; body: string; data?: Record<string, unknown> }>;
+        notifications: Array<{
+          id: string;
+          title: string;
+          body: string;
+          data?: Record<string, unknown>;
+        }>;
       };
 
       const autoNotif = notifications.find((n) => n.data?.type === 'auto-clock-out');
@@ -457,9 +460,9 @@ test.describe('Shift-End Reminder', () => {
     await expect(autoNotifRow).toContainText('automatically clocked out as you agreed');
 
     // No lingering shift-end-reminder in the list
-    await expect(
-      page.getByRole('button', { name: /Shift End Reminder/ }),
-    ).not.toBeVisible({ timeout: 3000 });
+    await expect(page.getByRole('button', { name: /Shift End Reminder/ })).not.toBeVisible({
+      timeout: 3000,
+    });
   });
 
   // ── Test 5: global modal — appears on dashboard (not just notifications page) ──
@@ -511,7 +514,10 @@ test.describe('Shift-End Reminder', () => {
     await page.reload();
 
     // Open modal and choose Continue Working
-    await page.getByRole('button', { name: /Shift End Reminder/ }).first().click();
+    await page
+      .getByRole('button', { name: /Shift End Reminder/ })
+      .first()
+      .click();
     const dialog = page.locator('[role="dialog"]');
     await expect(dialog).toBeVisible({ timeout: 5000 });
     await dialog.getByRole('button', { name: /Continue Working/i }).click();
@@ -563,7 +569,10 @@ test.describe('Shift-End Reminder', () => {
     const { event: finalEvent } = (await finalRes.json()) as {
       event: { workSeconds: number; shiftAutoClockoutWorkSecs: number | null } | null;
     };
-    expect(finalEvent, 'session must still be active past 8h after Continue Working').not.toBeNull();
+    expect(
+      finalEvent,
+      'session must still be active past 8h after Continue Working',
+    ).not.toBeNull();
     expect(finalEvent!.shiftAutoClockoutWorkSecs).toBeNull();
     expect(finalEvent!.workSeconds).toBeGreaterThan(28800); // past 8h
   });
@@ -669,7 +678,10 @@ test.describe('Shift-End Reminder', () => {
         headers: authHeaders(authToken),
       });
       const { event } = (await res.json()) as { event: unknown | null };
-      if (!event) { autoClockedOut = true; break; }
+      if (!event) {
+        autoClockedOut = true;
+        break;
+      }
     }
     expect(autoClockedOut, 'Carol should be auto-clocked out within 60s').toBe(true);
 
@@ -688,7 +700,10 @@ test.describe('Shift-End Reminder', () => {
 
     const adminNotif = aliceNotifs.find((n) => n.data?.type === 'auto-clock-out-admin');
 
-    expect(adminNotif, 'Alice (co-admin) should receive an auto-clock-out-admin notification').toBeTruthy();
+    expect(
+      adminNotif,
+      'Alice (co-admin) should receive an auto-clock-out-admin notification',
+    ).toBeTruthy();
     expect(adminNotif!.title).toBe('Auto Clocked Out');
     // Body should mention Carol agreed — NOT the "no response" wording
     expect(adminNotif!.body).toContain('Carol Dev');

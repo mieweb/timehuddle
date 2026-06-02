@@ -476,7 +476,6 @@ export const NotificationsPage: React.FC = () => {
           </Button>
         </ModalFooter>
       </Modal>
-
     </AppPage>
   );
 };
