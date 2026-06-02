@@ -1162,7 +1162,7 @@ export const OzwellWidget: React.FC = () => {
            * Rules enforced here (per product requirements):
            *   1. Never creates a ticket — use create_ticket first if needed.
            *   2. Ticket must belong to the currently selected team.
-           *   3. User must be clocked in to the currently selected team.
+           *   3. User must have an active clock event (team-scoped or user-scoped).
            *   4. Reuses an existing work item for today if one exists (idempotent).
            */
           case 'start_ticket_timer': {
@@ -1221,7 +1221,7 @@ export const OzwellWidget: React.FC = () => {
               ticketId = match.id;
             }
 
-            // ── 2. Verify user is clocked in to this team ─────────────────────
+            // ── 2. Verify user is clocked in (team-scoped or user-scoped) ─────
             if (!ctx.activeClockEvent) {
               debugRespond({
                 success: false,
@@ -1229,7 +1229,7 @@ export const OzwellWidget: React.FC = () => {
               });
               return;
             }
-            if (ctx.activeClockEvent.teamId !== teamId) {
+            if (ctx.activeClockEvent.teamId && ctx.activeClockEvent.teamId !== teamId) {
               const clockedTeam = ctx.teams.find((t) => t.id === ctx.activeClockEvent?.teamId);
               debugRespond({
                 success: false,
