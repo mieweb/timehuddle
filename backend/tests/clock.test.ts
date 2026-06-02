@@ -28,7 +28,6 @@ let otherCookie: string;
 let workerId: string;
 let adminId: string;
 let otherId: string;
-let teamId: string;
 let clockEventId: string;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
