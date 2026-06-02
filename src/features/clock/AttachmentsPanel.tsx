@@ -121,7 +121,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
     <div className="attachments-panel mt-3">
       <div className="attachments-header flex items-center justify-between mb-2">
         <Text size="sm" className="font-medium flex items-center gap-1">
-          <FontAwesomeIcon icon={faLink} className="text-muted-foreground" />
+          <FontAwesomeIcon icon={faLink} size="sm" />
           Links
         </Text>
         <Button
@@ -130,7 +130,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
           onClick={() => setShowForm((v) => !v)}
           aria-label="Add link"
         >
-          <FontAwesomeIcon icon={faPlus} className="mr-1" />
+          <FontAwesomeIcon icon={faPlus} size="sm" />
           Add
         </Button>
       </div>

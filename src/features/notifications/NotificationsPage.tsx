@@ -19,6 +19,7 @@ import {
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { notificationApi, type Notification, type TeamInvitePreview } from '../../lib/api';
+import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
@@ -57,12 +58,39 @@ function normalizeAppPath(path: string): string {
   return `/app${path}`;
 }
 
+function openMessageThread(
+  teamId: string,
+  adminId: string,
+  memberId: string,
+  navigate: (path: string) => void,
+): void {
+  try {
+    sessionStorage.setItem(
+      MESSAGES_PENDING_THREAD_KEY,
+      JSON.stringify({ teamId, adminId, memberId }),
+    );
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(
+    new CustomEvent('timehuddle:openThread', {
+      detail: { teamId, adminId, memberId },
+    }),
+  );
+  navigate('/app/messages');
+}
+
 function resolveNotificationTarget(
   doc: Notification | undefined,
   navigate: (path: string) => void,
 ): void {
   if (!doc) return;
   const data = (doc.data ?? {}) as Record<string, unknown>;
+
+  if (data.type === 'message' && data.teamId && data.adminId && data.memberId) {
+    openMessageThread(String(data.teamId), String(data.adminId), String(data.memberId), navigate);
+    return;
+  }
 
   if (typeof data.url === 'string' && data.url.length > 0) {
     const u = data.url as string;

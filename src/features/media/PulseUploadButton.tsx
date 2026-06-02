@@ -206,14 +206,14 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
 
       <Button
         size="sm"
-        variant="outline"
+        variant="secondary"
         disabled={isUploading || reserving}
         onClick={handleClick}
         aria-label="Upload video to this ticket"
         className="px-2 py-0.5 text-xs"
       >
-        <FontAwesomeIcon icon={isNative ? faVideo : faQrcode} className="mr-1" />
-        {reserving ? 'Preparing…' : isUploading ? `${progress}%` : 'Pulse'}
+        <FontAwesomeIcon icon={isNative ? faVideo : faQrcode} />
+        {reserving ? 'Preparing…' : isUploading ? `${progress}%` : 'Upload video with Pulse'}
       </Button>
 
       {/* Device upload progress bar */}
