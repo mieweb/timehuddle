@@ -97,7 +97,7 @@ function resolveNotificationTarget(
       window.location.href = u;
       return;
     }
-    navigate(normalizeAppPath(u.split('?')[0]));
+    navigate(normalizeAppPath(u));
     return;
   }
 
