@@ -154,7 +154,7 @@ Core fields used by app code:
 - `teamId: string`
 - `startTime: number` (epoch ms — immutable shift start, never mutated after clock-in)
 - `accumulatedTime: number` (seconds — net paid time: full shift span minus deducted meal breaks; written at clock-out)
-- `notifiedAt4h?: number | null` (epoch ms of 4-hour break reminder notification)
+- `autoClockoutAgreed?: boolean | null` (`true` = user consented to auto-clockout at 8h via the shift-end modal)
 - `endTime: number | null` (`null` = session still active)
 
 > Break intervals are **no longer embedded** in `clockevents`. They are stored as separate documents in the `clockbreaks` collection (see below).

@@ -34,29 +34,39 @@ async function login(page: import('@playwright/test').Page) {
   await page.waitForURL('**/dashboard', { timeout: 15000 });
 }
 
+/** Read the bearer token from localStorage for authenticated API calls. */
+async function authHeaders(page: import('@playwright/test').Page): Promise<Record<string, string>> {
+  const token = await page.evaluate(() => localStorage.getItem('timecore_session_token'));
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 /** Stop any active clock session so each test starts clean. */
 async function ensureClockedOut(page: import('@playwright/test').Page) {
-  const res = await page.request.get(`${API_BASE}/clock/active`);
+  const headers = await authHeaders(page);
+  const res = await page.request.get(`${API_BASE}/clock/active`, { headers });
   const { event } = (await res.json()) as { event: { teamId: string } | null };
   if (!event) return;
   await page.request.post(`${API_BASE}/clock/stop`, {
+    headers,
     data: { teamId: event.teamId },
   });
 }
 
-/** Fetch alice's first team and clock in. Returns the new event id. */
+/** Fetch bob's first team and clock in. Returns the new event id and auth headers. */
 async function clockIn(
   page: import('@playwright/test').Page,
-): Promise<{ eventId: string; teamId: string }> {
-  const teamsRes = await page.request.get(`${API_BASE}/teams`);
+): Promise<{ eventId: string; teamId: string; headers: Record<string, string> }> {
+  const headers = await authHeaders(page);
+  const teamsRes = await page.request.get(`${API_BASE}/teams`, { headers });
   const { teams } = (await teamsRes.json()) as { teams: { id: string }[] };
   const teamId = teams[0].id;
 
   const startRes = await page.request.post(`${API_BASE}/clock/start`, {
+    headers,
     data: { teamId },
   });
   const { event } = (await startRes.json()) as { event: { id: string } };
-  return { eventId: event.id, teamId };
+  return { eventId: event.id, teamId, headers };
 }
 
 type ClockBreakShape = {
@@ -86,7 +96,9 @@ async function updateTimes(
     breaks: { startTime: number; endTime: number }[];
   },
 ): Promise<PublicClockEvent> {
+  const headers = await authHeaders(page);
   const res = await page.request.put(`${API_BASE}/clock/${eventId}/times`, {
+    headers,
     data: opts,
   });
   const { event } = (await res.json()) as { event: PublicClockEvent };
@@ -112,10 +124,11 @@ test.describe('Clock Break Classification', () => {
   // ── Test 1: Live pause → resume ───────────────────────────────────────────
 
   test('live pause/resume auto-classifies short break as rest', async ({ page }) => {
-    const { teamId } = await clockIn(page);
+    const { teamId, headers } = await clockIn(page);
 
     // Pause
     const pauseRes = await page.request.post(`${API_BASE}/clock/pause`, {
+      headers,
       data: { teamId },
     });
     const { event: paused } = (await pauseRes.json()) as { event: PublicClockEvent };
@@ -126,6 +139,7 @@ test.describe('Clock Break Classification', () => {
 
     // Resume
     const resumeRes = await page.request.post(`${API_BASE}/clock/resume`, {
+      headers,
       data: { teamId },
     });
     const { event: resumed } = (await resumeRes.json()) as { event: PublicClockEvent };

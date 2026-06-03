@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, dev, prod]
+    branches: [main, dev, prod, master]
 
 jobs:
   frontend:
