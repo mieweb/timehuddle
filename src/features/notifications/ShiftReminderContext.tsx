@@ -105,7 +105,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
     return () => {
       cancelled = true;
     };
-  // Re-run once clockReady flips to true so we have the authoritative clock state
+    // Re-run once clockReady flips to true so we have the authoritative clock state
   }, [user?.id, clockReady]);
 
   useEffect(() => {
