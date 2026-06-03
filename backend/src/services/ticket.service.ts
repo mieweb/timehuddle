@@ -1,6 +1,7 @@
 import { subject } from "@casl/ability";
 import { ObjectId } from "mongodb";
 import {
+  enterprisesCollection,
   orgMembersCollection,
   organizationsCollection,
   teamsCollection,
@@ -8,7 +9,6 @@ import {
   usersCollection,
 } from "../models/index.js";
 import { buildAbilityFor, type AppAction } from "../lib/permissions.js";
-import { DEFAULT_ORG_KEY } from "../lib/org-config.js";
 import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
 import {
   ActivityType,
@@ -62,21 +62,35 @@ export class TicketService {
     userId: string,
     team: { orgId?: string }
   ): Promise<"owner" | "admin" | "member"> {
-    if (team.orgId && isValidId(team.orgId)) {
-      const membership = await orgMembersCollection().findOne({ orgId: team.orgId, userId });
-      if (membership?.role === "owner") return "owner";
-      if (membership?.role === "admin") return "admin";
+    if (!team.orgId || !isValidId(team.orgId)) return "member";
+    const membership = await orgMembersCollection().findOne({ orgId: team.orgId, userId });
+    if (membership?.role === "owner") return "owner";
+    if (membership?.role === "admin") return "admin";
+    return "member";
+  }
+
+  private async isEnterpriseElevatedForTeamOrg(
+    userId: string,
+    team: { orgId?: string }
+  ): Promise<{ elevated: boolean; enterpriseId: string | null }> {
+    if (!team.orgId || !isValidId(team.orgId)) {
+      return { elevated: false, enterpriseId: null };
     }
 
-    const org =
-      (team.orgId && isValidId(team.orgId)
-        ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
-        : null) ?? (await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY }));
+    const org = await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) });
+    const enterpriseId = org?.enterpriseId ?? null;
+    if (!enterpriseId || !isValidId(enterpriseId)) {
+      return { elevated: false, enterpriseId: null };
+    }
 
-    if (!org) return "member";
-    if ((org.owners ?? []).includes(userId)) return "owner";
-    if ((org.admins ?? []).includes(userId)) return "admin";
-    return "member";
+    const enterprise = await enterprisesCollection().findOne({ _id: new ObjectId(enterpriseId) });
+    if (!enterprise) {
+      return { elevated: false, enterpriseId };
+    }
+
+    const elevated =
+      (enterprise.owners ?? []).includes(userId) || (enterprise.admins ?? []).includes(userId);
+    return { elevated, enterpriseId };
   }
 
   private async buildTeamAbility(userId: string, teamId: string) {
@@ -85,9 +99,11 @@ export class TicketService {
     if (!team) return null;
 
     const role = await this.resolveOrgRoleForTeam(userId, team);
+    const enterpriseScope = await this.isEnterpriseElevatedForTeamOrg(userId, team);
     const isTeamMember =
       (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
-    const scopedTeamIds = isTeamMember ? [teamId] : [];
+    const isOrgElevated = role === "owner" || role === "admin";
+    const scopedTeamIds = isTeamMember || isOrgElevated || enterpriseScope.elevated ? [teamId] : [];
 
     return {
       team,
@@ -95,6 +111,9 @@ export class TicketService {
         userId,
         role,
         teamIds: scopedTeamIds,
+        orgIds: team.orgId ? [team.orgId] : [],
+        enterpriseIds: enterpriseScope.enterpriseId ? [enterpriseScope.enterpriseId] : [],
+        isEnterpriseElevated: enterpriseScope.elevated,
         teamAdminIds: (team.admins ?? []).includes(userId) ? [teamId] : [],
       }),
     };
@@ -179,20 +198,43 @@ export class TicketService {
       status: { $ne: "deleted" as TicketStatus },
     };
 
-    // Org-elevated users can read shared tickets across all teams.
-    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
-    const defaultMembership = defaultOrg
-      ? await orgMembersCollection().findOne({ orgId: defaultOrg._id.toHexString(), userId })
-      : null;
-    const isOrgElevated =
-      defaultMembership?.role === "owner" ||
-      defaultMembership?.role === "admin" ||
-      (defaultOrg?.owners ?? []).includes(userId) ||
-      (defaultOrg?.admins ?? []).includes(userId);
+    const [orgElevatedMemberships, enterpriseElevated] = await Promise.all([
+      orgMembersCollection()
+        .find({ userId, role: { $in: ["owner", "admin"] } }, { projection: { orgId: 1 } })
+        .toArray(),
+      enterprisesCollection()
+        .find({ $or: [{ owners: userId }, { admins: userId }] }, { projection: { _id: 1 } })
+        .toArray(),
+    ]);
 
-    if (teamIds.length === 0 && !isOrgElevated) return [];
+    const enterpriseIds = enterpriseElevated.map((enterprise) => enterprise._id.toHexString());
+    const enterpriseOrgIds = enterpriseIds.length
+      ? (
+          await organizationsCollection()
+            .find({ enterpriseId: { $in: enterpriseIds } }, { projection: { _id: 1 } })
+            .toArray()
+        ).map((org) => org._id.toHexString())
+      : [];
 
-    const query = isOrgElevated ? baseFilter : { ...baseFilter, teamId: { $in: teamIds } };
+    const elevatedOrgIds = Array.from(
+      new Set([
+        ...orgElevatedMemberships.map((membership) => membership.orgId),
+        ...enterpriseOrgIds,
+      ])
+    );
+
+    const elevatedTeamIds = elevatedOrgIds.length
+      ? (
+          await teamsCollection()
+            .find({ orgId: { $in: elevatedOrgIds } }, { projection: { _id: 1 } })
+            .toArray()
+        ).map((team) => team._id.toHexString())
+      : [];
+
+    const visibleTeamIds = Array.from(new Set([...teamIds, ...elevatedTeamIds]));
+    if (visibleTeamIds.length === 0) return [];
+
+    const query = { ...baseFilter, teamId: { $in: visibleTeamIds } };
     return ticketsCollection()
       .find({
         ...query,

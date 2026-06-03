@@ -105,6 +105,16 @@ beforeAll(async () => {
   await db.collection("organizations").insertOne(orgDoc);
   orgId = orgDoc._id.toHexString();
 
+  await db.collection("org_members").insertOne({
+    _id: new ObjectId(),
+    orgId,
+    userId: orgAdminId,
+    role: "admin",
+    auto: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
   // Create a test team in timecore's teams collection
   const teamDoc = {
     _id: new ObjectId(),
@@ -132,6 +142,7 @@ afterAll(async () => {
   await db.collection("tickets").deleteMany({ teamId });
   await db.collection("teams").deleteOne({ _id: new ObjectId(teamId) });
   if (orgId) {
+    await db.collection("org_members").deleteMany({ orgId });
     await db.collection("organizations").deleteOne({ _id: new ObjectId(orgId) });
   }
   await Promise.all([
