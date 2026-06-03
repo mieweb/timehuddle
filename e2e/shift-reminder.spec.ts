@@ -14,6 +14,22 @@
  *    2. Jane clicks "Continue Working" → modal closes, no flag set
  *    3. Advance DB time past 8h mark, verify no auto-clockout job was scheduled
  *    4. Verify Jane is still clocked in
+ *
+ *  Scenario C — Missed reminder → auto-clocked out at 8h:
+ *    1. Seed a clock event starting 8h+ ago (user was offline the whole time)
+ *    2. Insert the persisted shift-end-reminder notification directly in DB
+ *       (simulating what the Agenda job would have done while the tab was closed)
+ *    3. Insert the shift-missed-clockout Agenda job as past-due
+ *    4. Agenda fires the missed-clockout job → user is auto-clocked out
+ *    5. Verify the "Auto Clock-Out" inbox notification was created
+ *
+ *  Scenario D — Missed reminder → returns before 8h → modal appears on load:
+ *    1. Seed a clock event starting 7h50m ago (past 7h45m reminder window)
+ *    2. Insert the persisted shift-end-reminder notification in DB (unread)
+ *    3. User navigates to the app — ShiftReminderContext detects the unread
+ *       notification on mount and opens the modal
+ *    4. User clicks "Continue Working" → modal closes, notification marked read
+ *    5. Verify the notification is now read in DB and user is still clocked in
  */
 
 import { MongoClient, ObjectId } from 'mongodb';
@@ -121,6 +137,58 @@ async function isClockedIn(userId: string): Promise<boolean> {
       endTime: null,
     });
     return ev !== null;
+  });
+}
+
+/**
+ * Insert a persisted shift-end-reminder notification into the DB, simulating
+ * what notificationService.create would have done while the user was offline.
+ * Returns the inserted notification _id as a hex string.
+ */
+async function seedShiftEndReminderNotification(
+  eventId: string,
+  userId: string,
+  teamId: string,
+): Promise<string> {
+  return withDb(async (db) => {
+    const notifId = new ObjectId();
+    await db.collection('notifications').insertOne({
+      _id: notifId,
+      userId,
+      title: 'TiméHuddle',
+      body: 'You are approaching 8 hours. Would you like to continue working or clock out?',
+      data: { type: 'shift-end-reminder', clockEventId: eventId, teamId, url: '/app/clock' },
+      read: false,
+      createdAt: new Date(),
+    });
+    return notifId.toHexString();
+  });
+}
+
+/**
+ * Insert a shift-missed-clockout Agenda job as past-due so Agenda picks it up
+ * on its very next poll, simulating the 8h auto-clockout for an offline user.
+ */
+async function seedMissedClockout(
+  clockEventId: string,
+  userId: string,
+  teamId: string,
+): Promise<void> {
+  await withDb(async (db) => {
+    await db.collection('agendajobs').deleteMany({
+      name: 'shift-missed-clockout',
+      'data.clockEventId': clockEventId,
+    });
+    await db.collection('agendajobs').insertOne({
+      name: 'shift-missed-clockout',
+      data: { clockEventId, userId, teamId },
+      nextRunAt: new Date(Date.now() - 1000),
+      priority: 0,
+      lockedAt: null,
+      lastRunAt: null,
+      lastFinishedAt: null,
+      disabled: false,
+    });
   });
 }
 
@@ -325,5 +393,141 @@ test.describe('Shift Reminder', () => {
     await expect.poll(() => page.title(), { timeout: 5000 }).toMatch(/^0?8:/);
 
     await expect(page.getByRole('button', { name: 'Clock in' })).not.toBeVisible();
+  });
+
+  // ── Scenario C ───────────────────────────────────────────────────────────
+
+  test('Missed reminder → shift-missed-clockout auto-clocks out at 8h', async ({ page }) => {
+    await login(page);
+    await ensureClockedOut(page);
+    const { eventId, teamId } = await clockIn(page);
+
+    // Wind the clock event back 8h+1m — simulates the user having been clocked
+    // in since early morning and offline the entire shift-end window
+    const eightHoursOneMinAgo = Date.now() - (8 * 3600_000 + 60_000);
+    await withDb(async (db) => {
+      await db
+        .collection('clockevents')
+        .updateOne({ _id: new ObjectId(eventId) }, { $set: { startTime: eightHoursOneMinAgo } });
+    });
+
+    // Simulate the shift-end-reminder notification that was persisted to DB
+    // while the user's tab was closed (7h45m job ran, user was offline)
+    await seedShiftEndReminderNotification(eventId, TEST_USER_ID, teamId);
+
+    // Insert the shift-missed-clockout job as past-due — the 8h window has elapsed
+    await seedMissedClockout(eventId, TEST_USER_ID, teamId);
+
+    // Agenda processes every 30s — wait up to 45s for the missed-clockout to fire
+    await expect
+      .poll(async () => isClockedIn(TEST_USER_ID), { timeout: 45000, intervals: [1000] })
+      .toBe(false);
+
+    // The shift-missed-clockout job updates the existing shift-end-reminder
+    // notification in-place (title, body, data.type → auto-clock-out, read → true)
+    // rather than creating a second notification. Poll until that single document
+    // has been updated before navigating to avoid a race where the UI loads first.
+    await expect
+      .poll(
+        async () => {
+          const notif = await withDb(async (db) =>
+            db.collection('notifications').findOne({
+              userId: TEST_USER_ID,
+              'data.type': 'auto-clock-out',
+              'data.clockEventId': eventId,
+              read: true,
+            }),
+          );
+          return notif !== null;
+        },
+        { timeout: 15000, intervals: [500] },
+      )
+      .toBe(true);
+
+    // Re-fetch to assert the updated notification content
+    const autoNotif = await withDb(async (db) =>
+      db.collection('notifications').findOne({
+        userId: TEST_USER_ID,
+        'data.type': 'auto-clock-out',
+        'data.clockEventId': eventId,
+      }),
+    );
+    expect(autoNotif).not.toBeNull();
+    expect(autoNotif?.body).toMatch(/automatically clocked out/i);
+
+    // ── UI verification ──────────────────────────────────────────────────────
+    // Navigate to clock page — user should see clocked-out state.
+    // ShiftReminderContext guards against showing the modal when the clock event
+    // is already closed (activeClockEvent is null after clockReady).
+    await page.goto('/app/clock');
+    await expect(page.getByRole('button', { name: 'Clock in' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Ready to work')).toBeVisible({ timeout: 5000 });
+    // Use exact match to avoid matching "Agree to Clock Out" in any residual modal
+    await expect(page.getByRole('button', { name: 'Clock out', exact: true })).not.toBeVisible();
+
+    // The shift-end-reminder modal must NOT appear — the notification is read
+    // and there is no active clock event so ShiftReminderContext skips it
+    await expect(page.getByRole('dialog', { name: 'Shift End Reminder' })).not.toBeVisible({
+      timeout: 3000,
+    });
+
+    // Confirm the API reports no active session
+    const headers = await authHeaders(page);
+    const res = await page.request.get(`${API_BASE}/clock/active`, { headers });
+    const { event } = (await res.json()) as { event: unknown };
+    expect(event).toBeNull();
+  });
+
+  // ── Scenario D ───────────────────────────────────────────────────────────
+
+  test('Missed reminder (tab closed) → modal appears on return before 8h', async ({ page }) => {
+    await login(page);
+    await ensureClockedOut(page);
+    const { eventId, teamId } = await clockIn(page);
+
+    // Wind clock event back 7h50m — the 7h45m reminder fired while user was
+    // offline, but the 8h auto-clockout window has not yet elapsed
+    const sevenHoursFiftyAgo = Date.now() - (7 * 3600_000 + 50 * 60_000);
+    await withDb(async (db) => {
+      await db
+        .collection('clockevents')
+        .updateOne({ _id: new ObjectId(eventId) }, { $set: { startTime: sevenHoursFiftyAgo } });
+    });
+
+    // Persist the shift-end-reminder notification as if the Agenda job ran while
+    // the tab was closed (user was offline at 7h45m)
+    const notifId = await seedShiftEndReminderNotification(eventId, TEST_USER_ID, teamId);
+
+    // Navigate to the app — ShiftReminderContext checks the notification inbox
+    // on mount and surfaces the missed reminder modal
+    await page.goto('/app/dashboard');
+
+    await expect(page.getByRole('dialog', { name: 'Shift End Reminder' })).toBeVisible({
+      timeout: 10000,
+    });
+
+    // User clicks "Continue Working" — modal closes, notification is marked read
+    await page.getByRole('button', { name: /continue working/i }).click();
+
+    await expect(page.getByRole('dialog', { name: 'Shift End Reminder' })).not.toBeVisible({
+      timeout: 5000,
+    });
+
+    // Verify the notification was marked as read in the DB
+    const notifAfter = await withDb(async (db) =>
+      db.collection('notifications').findOne({ _id: new ObjectId(notifId) }),
+    );
+    expect(notifAfter?.read).toBe(true);
+
+    // User is still clocked in (no auto-clockout agreed)
+    expect(await isClockedIn(TEST_USER_ID)).toBe(true);
+
+    // Navigating back to dashboard a second time must NOT re-show the modal
+    // (dedup set and read flag both prevent a second appearance)
+    await page.goto('/app/clock');
+    await page.goto('/app/dashboard');
+    await expect(page.getByRole('dialog', { name: 'Shift End Reminder' })).not.toBeVisible({
+      timeout: 3000,
+    });
   });
 });

@@ -2,14 +2,21 @@
  * ShiftReminderContext — global provider for the shift-end reminder modal.
  *
  * Mounts once in AppLayoutContent so the modal is reachable from every page.
- * When a `shift-end-reminder` notification arrives via the WebSocket stream the
- * modal pops up automatically, regardless of which page the user is on.
+ * The modal is triggered in two ways:
+ *  1. Live SSE: a `shift-end-reminder` notification arrives on the WebSocket
+ *     stream while the user's tab is open.
+ *  2. Missed: on app load, we check the notification inbox for any unread
+ *     `shift-end-reminder` notifications (i.e. the user was offline when the
+ *     job fired). If found the modal pops up so they can still respond.
+ *     If the 8-hour window has already elapsed, the server's `shift-missed-clockout`
+ *     job will have auto-clocked them out, so no modal is shown in that case.
  *
  * Architecture:
- * - Shift reminders are broadcast-only (NOT persisted to the notification inbox).
  * - "Continue Working" is a pure UI action — no API call needed.
  * - "Agree to Clock Out" calls POST /v1/clock/events/:id/agree-clockout which
  *   sets a flag on the clock event; the clock-monitor job fires the clockout at 8h.
+ * - After any response the persisted notification is marked as read so it
+ *   doesn't reappear on the next session.
  */
 import {
   Button,
@@ -24,6 +31,7 @@ import {
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { ApiError, notificationApi, type Notification } from '../../lib/api';
+import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -48,6 +56,7 @@ export function useShiftReminder(): ShiftReminderCtx {
 
 export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useSession();
+  const { activeClockEvent, clockReady } = useTeam();
   const [pendingNotif, setPendingNotif] = useState<Notification | null>(null);
   const [respondLoading, setRespondLoading] = useState(false);
   const [respondError, setRespondError] = useState<string | null>(null);
@@ -62,6 +71,43 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     shownIds.current = new Set();
   }, [user?.id]);
+
+  // On mount (and whenever clock state is ready), check the notification inbox
+  // for any unread shift-end-reminder that was persisted while the tab was
+  // closed. This surfaces the "missed notification" modal on return.
+  //
+  // Guard: only show the modal if the user is *still clocked in* for that
+  // event. If the clock event is already closed (shift-missed-clockout fired
+  // while they were offline), the modal is meaningless and skipped.
+  useEffect(() => {
+    if (!user || !clockReady) return;
+    let cancelled = false;
+    notificationApi
+      .getInbox()
+      .then((notifications: Notification[]) => {
+        if (cancelled) return;
+        const missed = notifications.find(
+          (n: Notification) => !n.read && n.data?.type === 'shift-end-reminder',
+        );
+        if (!missed) return;
+        const clockEventId = missed.data?.clockEventId as string | undefined;
+        // Skip if the clock event is already closed — auto-clockout already ran
+        if (!activeClockEvent || activeClockEvent.id !== clockEventId) return;
+        const dedupeKey = clockEventId ?? missed.id;
+        if (shownIds.current.has(dedupeKey)) return;
+        shownIds.current.add(dedupeKey);
+        setPendingNotif(missed);
+        setRespondError(null);
+      })
+      .catch(() => {
+        /* silently ignore — the inbox may not be available yet */
+      });
+    return () => {
+      cancelled = true;
+    };
+  // Re-run once clockReady flips to true so we have the authoritative clock state
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, clockReady]);
 
   useEffect(() => {
     if (!user) return;
@@ -101,8 +147,17 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
     async (action: 'agree' | 'disagree') => {
       if (!pendingNotif) return;
 
+      // Helper: mark the persisted notification as read if it has a real DB id.
+      // SSE-only notifications use a synthetic `shift-reminder-*` id — skip those.
+      const markRead = () => {
+        if (pendingNotif.id && !pendingNotif.id.startsWith('shift-reminder-')) {
+          notificationApi.markOneRead(pendingNotif.id).catch(() => {});
+        }
+      };
+
       if (action === 'disagree') {
-        // "Continue Working" — purely local, no server call.
+        // "Continue Working" — purely local, no server call. Just mark as read.
+        markRead();
         closeModal();
         return;
       }
@@ -117,6 +172,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
       setRespondLoading(true);
       try {
         await notificationApi.agreeClockout(clockEventId);
+        markRead();
         closeModal();
       } catch (err: unknown) {
         // 404 means the clock event is already ended (e.g. cleaned up by a test

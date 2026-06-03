@@ -26,6 +26,7 @@ import { emitActivity } from "./activity.service.js";
 import {
   scheduleClockJobs,
   cancelClockJobs,
+  cancelClockJobsByName,
   scheduleAutoClockout,
   rescheduleClockJobs,
 } from "./agenda.service.js";
@@ -829,10 +830,13 @@ export class ClockService {
     if (event.userId !== userId) return "forbidden";
     if (event.endTime !== null) return "not-found"; // already clocked out
     await coll.updateOne({ _id: event._id }, { $set: { autoClockoutAgreed: true } });
-    // Schedule the 8h auto-clockout job now that the user has agreed
+    // Schedule the 8h auto-clockout job now that the user has agreed.
+    // Also cancel the missed-clockout job since the agreed path handles it.
     scheduleAutoClockout(clockEventId, userId, event.teamId, event.startTime).catch((err) =>
       console.error("[agenda] scheduleAutoClockout failed:", err)
     );
+    // Cancel the missed-clockout safety net — the agreed job takes over
+    cancelClockJobsByName(clockEventId, "shift-missed-clockout").catch(() => {});
     return "ok";
   }
 }
@@ -879,6 +883,8 @@ export async function respondToShiftReminder(
       { $set: { shiftReminderResponse: "agreed" } }
     );
     if (result.modifiedCount === 0) return "already-closed";
+    // Cancel the missed-clockout safety net — the agreed path handles clockout
+    cancelClockJobsByName(clockEventId, "shift-missed-clockout").catch(() => {});
   } else {
     // Disagree: cancel the upcoming auto-clockout; schedule next reminder 2h from now (in work-seconds).
     // Guard endTime: null so a concurrent auto-clockout doesn't update a closed event.
@@ -895,6 +901,8 @@ export async function respondToShiftReminder(
       }
     );
     if (result.modifiedCount === 0) return "already-closed";
+    // User chose to continue working — cancel the missed-clockout safety net
+    cancelClockJobsByName(clockEventId, "shift-missed-clockout").catch(() => {});
   }
 
   // Delete the notification after processing
