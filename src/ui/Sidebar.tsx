@@ -14,7 +14,6 @@
 import {
   faChevronLeft,
   faChevronRight,
-  faBuilding,
   faClock,
   faBell,
   faBug,
@@ -34,7 +33,7 @@ import { faApple } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button } from '@mieweb/ui';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
-import React, { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import { createPortal } from 'react-dom';
 
 // Detect page reload once at module load time (before React mounts).
@@ -51,7 +50,6 @@ const isReload = (() => {
 
 import { useSidebar } from './AppLayout';
 import { useAppFeedback } from './AppLayout';
-import { enterpriseApi } from '../lib/api';
 import { useRouter } from './router';
 
 // ─── Nav data ─────────────────────────────────────────────────────────────────
@@ -175,41 +173,6 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
   const { pathname } = useRouter();
   const { openReportIssue, openFeedback } = useAppFeedback();
   const expanded = variant === 'drawer' ? true : isExpanded;
-  const [hasEnterpriseAdminAccess, setHasEnterpriseAdminAccess] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    enterpriseApi
-      .list()
-      .then((enterprises) => {
-        if (cancelled) return;
-        setHasEnterpriseAdminAccess(enterprises.length > 0);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setHasEnterpriseAdminAccess(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const navSections = useMemo(
-    () =>
-      NAV.map((section) => {
-        if (section.heading !== 'System' || !hasEnterpriseAdminAccess) return section;
-        return {
-          ...section,
-          items: [
-            ...section.items,
-            { icon: faBuilding, label: 'Enterprise', href: '/app/enterprise' },
-          ],
-        };
-      }),
-    [hasEnterpriseAdminAccess],
-  );
 
   return (
     <div className="flex h-full flex-col">
@@ -252,7 +215,7 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
 
       {/* Nav */}
       <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-4" aria-label="Main navigation">
-        {navSections.map((section, si) => (
+        {NAV.map((section, si) => (
           <div key={si}>
             {/* Section heading — only shown when expanded */}
             <AnimatePresence initial={false}>
