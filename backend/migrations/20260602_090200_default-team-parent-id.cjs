@@ -2,10 +2,7 @@ module.exports = {
   async up(db) {
     await db.collection("teams").updateMany(
       {
-        $or: [
-          { parentTeamId: { $exists: false } },
-          { parentTeamId: undefined },
-        ],
+        $or: [{ parentTeamId: { $exists: false } }, { parentTeamId: undefined }],
       },
       {
         $set: {

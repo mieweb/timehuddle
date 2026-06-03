@@ -220,7 +220,9 @@ export class OrgService {
     userId: string,
     role: OrgMembershipRole = "member",
     auto = false
-  ): Promise<{ orgId: string; userId: string; role: OrgMembershipRole; auto: boolean } | "not-found"> {
+  ): Promise<
+    { orgId: string; userId: string; role: OrgMembershipRole; auto: boolean } | "not-found"
+  > {
     if (!isValidId(orgId)) return "not-found";
 
     const org = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
@@ -264,10 +266,7 @@ export class OrgService {
         .find({ $or: [{ owners: userId }, { admins: userId }] }, { projection: { _id: 1 } })
         .toArray(),
       teamsCollection()
-        .find(
-          { $or: [{ members: userId }, { admins: userId }] },
-          { projection: { orgId: 1 } }
-        )
+        .find({ $or: [{ members: userId }, { admins: userId }] }, { projection: { orgId: 1 } })
         .toArray(),
     ]);
 
@@ -340,9 +339,7 @@ export class OrgService {
       })),
       ...missingLegacyIds.map((userId) => ({
         userId,
-        role: (org.owners ?? []).includes(userId)
-          ? ("owner" as const)
-          : ("admin" as const),
+        role: (org.owners ?? []).includes(userId) ? ("owner" as const) : ("admin" as const),
         auto: false,
       })),
     ];
@@ -474,7 +471,8 @@ export class OrgService {
     if (!enterprise) return "not-found";
 
     const isEnterpriseAdmin =
-      (enterprise.owners ?? []).includes(data.userId) || (enterprise.admins ?? []).includes(data.userId);
+      (enterprise.owners ?? []).includes(data.userId) ||
+      (enterprise.admins ?? []).includes(data.userId);
     if (!isEnterpriseAdmin) return "forbidden";
 
     const trimmedName = data.name.trim();

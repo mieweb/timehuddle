@@ -30,7 +30,10 @@ export const enterpriseController = {
   },
 
   async setMemberRole(
-    req: FastifyRequest<{ Params: { id: string; userId: string }; Body: { role: "owner" | "admin" } }>,
+    req: FastifyRequest<{
+      Params: { id: string; userId: string };
+      Body: { role: "owner" | "admin" };
+    }>,
     reply: FastifyReply
   ) {
     const result = await enterpriseService.setEnterpriseRole(

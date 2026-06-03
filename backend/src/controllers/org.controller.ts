@@ -29,7 +29,8 @@ export const orgController = {
     });
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
     if (result === "not-found") return reply.status(404).send({ error: "Enterprise not found" });
-    if (result === "conflict") return reply.status(409).send({ error: "Organization key/slug already exists" });
+    if (result === "conflict")
+      return reply.status(409).send({ error: "Organization key/slug already exists" });
     return reply.status(201).send({ organization: result });
   },
 
@@ -71,7 +72,10 @@ export const orgController = {
   },
 
   async setMemberRole(
-    req: FastifyRequest<{ Params: { id: string; userId: string }; Body: { role: "owner" | "admin" | "member" } }>,
+    req: FastifyRequest<{
+      Params: { id: string; userId: string };
+      Body: { role: "owner" | "admin" | "member" };
+    }>,
     reply: FastifyReply
   ) {
     const result = await orgService.setOrgRole(
