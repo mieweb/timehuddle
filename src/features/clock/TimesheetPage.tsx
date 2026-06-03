@@ -498,7 +498,7 @@ export const TimesheetPage: React.FC = () => {
                 <Text variant="muted" size="xs">
                   Total Hours
                 </Text>
-                <Text size="lg" weight="semibold">
+                <Text size="lg" weight="semibold" data-testid="stat-total-hours">
                   {formatDuration(filteredSummary.totalSeconds)}
                 </Text>
               </CardContent>

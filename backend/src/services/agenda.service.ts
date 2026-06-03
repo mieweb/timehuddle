@@ -13,7 +13,7 @@
 import { Agenda, type Job } from "agenda";
 import { MongoBackend } from "@agendajs/mongo-backend";
 import { ObjectId } from "mongodb";
-import { clockEventsCollection } from "../models/index.js";
+import { clockEventsCollection, notificationsCollection } from "../models/index.js";
 import { notificationService, broadcastToUser } from "./notification.service.js";
 
 interface ClockJobData {
@@ -64,8 +64,9 @@ export async function initAgenda(): Promise<void> {
   });
 
   // ── Job: 7h45m shift-end reminder ────────────────────────────────────────
-  // Broadcast-only (not saved to inbox). The user sees a modal to either
-  // "Continue Working" (no-op) or "Agree to Clock Out" (schedules auto-clockout).
+  // Broadcasts via SSE (for connected users) AND persists to notification inbox
+  // (so offline users see the modal when they return). Also schedules a
+  // shift-missed-clockout job at 8h to auto-clockout users who never respond.
   _agenda.define("shift-end-reminder", async (job: Job) => {
     const { clockEventId, userId, teamId } = job.attrs.data as ClockJobData;
     const event = await clockEventsCollection().findOne({
@@ -74,18 +75,34 @@ export async function initAgenda(): Promise<void> {
     });
     if (!event) return; // already clocked out
     if (event.autoClockoutAgreed) return; // already agreed — no need to prompt again
-    broadcastToUser(userId, {
-      id: `shift-reminder-${clockEventId}`,
+
+    const body = "You are approaching 8 hours. Would you like to continue working or clock out?";
+
+    // Persist to inbox so offline users see it on return
+    const persisted = await notificationService.create({
       userId,
       title: "TiméHuddle",
-      body: "You are approaching 8 hours. Would you like to continue working or clock out?",
+      body,
+      notificationData: { type: "shift-end-reminder", clockEventId, teamId, url: "/app/clock" },
+    });
+
+    // Also broadcast directly for connected clients (gives them the modal immediately
+    // rather than waiting for the next notification poll).
+    broadcastToUser(userId, {
+      id: persisted.id,
+      userId,
+      title: "TiméHuddle",
+      body,
       data: { type: "shift-end-reminder", clockEventId, teamId, url: "/app/clock" },
       read: false,
-      createdAt: new Date().toISOString(),
+      createdAt: persisted.createdAt,
     });
+
+    // Schedule missed-clockout at 8h — fires if the user never responds
+    await scheduleMissedClockout(clockEventId, userId, teamId, event.startTime);
   });
 
-  // ── Job: 8h auto-clockout ─────────────────────────────────────────────────
+  // ── Job: 8h auto-clockout (agreed) ───────────────────────────────────────
   // Only runs if the user clicked "Agree to Clock Out" (autoClockoutAgreed=true).
   // Dynamic import of clockService breaks the circular dependency.
   _agenda.define("shift-auto-clockout", async (job: Job) => {
@@ -100,9 +117,45 @@ export async function initAgenda(): Promise<void> {
     await clockService.stop(userId, teamId);
   });
 
+  // ── Job: 8h missed auto-clockout ─────────────────────────────────────────
+  // Fires at startTime + 8h for users who never responded to the shift-end
+  // reminder (i.e., were offline / ignored it). Does NOT fire if the user
+  // explicitly clicked "Continue Working" (shiftReminderResponse === "disagreed").
+  _agenda.define("shift-missed-clockout", async (job: Job) => {
+    const { clockEventId, userId, teamId } = job.attrs.data as ClockJobData;
+    const event = await clockEventsCollection().findOne({
+      _id: new ObjectId(clockEventId),
+      endTime: null,
+    });
+    if (!event) return; // already clocked out
+    // Respect the user's explicit "Continue Working" choice
+    if (event.shiftReminderResponse === "disagreed") return;
+    // The agreed path is handled by shift-auto-clockout; avoid double-clocking
+    if (event.autoClockoutAgreed) return;
+
+    const { clockService } = await import("./clock.service.js");
+    await clockService.stop(userId, teamId);
+
+    // Update the existing shift-end-reminder notification in-place: change its
+    // title/body to describe the auto-clock-out outcome and mark it as read.
+    // This keeps exactly one notification in the inbox instead of creating a
+    // separate "auto-clock-out" entry alongside the original reminder.
+    await notificationsCollection().updateOne(
+      { userId, "data.clockEventId": clockEventId, "data.type": "shift-end-reminder" },
+      {
+        $set: {
+          read: true,
+          title: "TiméHuddle — Auto Clock-Out",
+          body: "You were automatically clocked out after 8 hours because the shift-end reminder was not acknowledged.",
+          "data.type": "auto-clock-out",
+        },
+      }
+    );
+  });
+
   await _agenda.start();
   console.log(
-    "[agenda] started — jobs: shift-4h-reminder, shift-end-reminder, shift-auto-clockout"
+    "[agenda] started — jobs: shift-4h-reminder, shift-end-reminder, shift-auto-clockout, shift-missed-clockout"
   );
 }
 
@@ -188,7 +241,35 @@ export async function scheduleAutoClockout(
     .save();
 }
 
+/**
+ * Schedule the 8h missed-clockout job. Called from the shift-end-reminder job
+ * handler to auto-clockout users who never respond (were offline / ignored the
+ * modal). Cancelled when user agrees or disagrees.
+ */
+export async function scheduleMissedClockout(
+  clockEventId: string,
+  userId: string,
+  teamId: string,
+  startTimeMs: number
+): Promise<void> {
+  const data: ClockJobData = { clockEventId, userId, teamId };
+  const missedAt = new Date(startTimeMs + AUTO_CLOCKOUT_MS);
+  // If already past 8h, fire in 30s to give the user a brief moment to respond
+  const fireAt = missedAt.getTime() > Date.now() ? missedAt : new Date(Date.now() + 30_000);
+
+  await _agenda
+    .create("shift-missed-clockout", data)
+    .unique({ "data.clockEventId": clockEventId, name: "shift-missed-clockout" })
+    .schedule(fireAt)
+    .save();
+}
+
 /** Cancel all pending Agenda jobs for a clock event (manual clock-out or delete). */
 export async function cancelClockJobs(clockEventId: string): Promise<void> {
   await _agenda.cancel({ data: { clockEventId } });
+}
+
+/** Cancel a single named Agenda job for a clock event. */
+export async function cancelClockJobsByName(clockEventId: string, name: string): Promise<void> {
+  await _agenda.cancel({ name, data: { clockEventId } });
 }
