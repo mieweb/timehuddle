@@ -114,7 +114,7 @@ export const OrganizationMembersPage: React.FC = () => {
           <div>
             <CardTitle>Members</CardTitle>
             <Text variant="muted" size="sm">
-              Manage owner/admin/member role assignments for the default organization.
+              Manage role assignments for the current organization.
             </Text>
           </div>
         </CardHeader>
