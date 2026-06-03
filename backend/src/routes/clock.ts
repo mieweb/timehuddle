@@ -261,6 +261,13 @@ export async function clockRoutes(app: FastifyInstance) {
     clockController.getEvents
   );
 
+  // POST /v1/clock/events/:eventId/agree-clockout — user consents to auto-clockout at 8h
+  app.post(
+    "/clock/events/:eventId/agree-clockout",
+    { onRequest: [requireAuth], schema: { tags: ["Clock"] } },
+    clockController.agreeClockout
+  );
+
   // GET /v1/clock/ws?teamIds=id1,id2 — WebSocket stream for live team clock state
   app.get("/clock/ws", { websocket: true }, async (socket, req) => {
     const { token: queryToken, teamIds: teamIdsParam } = req.query as {

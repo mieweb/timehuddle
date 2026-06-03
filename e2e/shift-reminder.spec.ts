@@ -1,718 +1,329 @@
 /**
- * Shift-End Reminder E2E Tests
+ * Shift Reminder E2E Tests
  *
- * Tests the full shift-end reminder flow end-to-end:
+ * Verifies the Agenda-based shift reminder behaviour for Jane Doe:
  *
- *  Setup:
- *    - Login as Carol Dev (carol@example.com)
- *    - Clock in to get an active clock event
- *    - Backdating startTime via PUT /clock/:id/times (endTime: null keeps event active)
- *      to 7h 44m 30s ago — the ClockMonitorService fires every 30s, so Check B
- *      (SEVEN_HOURS_45_MIN_SECONDS = 27900) will trigger within the next tick.
+ *  Scenario A — "Agree to Clock Out":
+ *    1. Seed Jane's clock event to 7h44m30s ago → shift-end modal fires in ~30s
+ *    2. Jane clicks "Agree to Clock Out" → API sets autoClockoutAgreed=true
+ *    3. Seed the Agenda job to fire in 5s → Jane is auto-clocked out
+ *    4. Verify Jane has no active clock session
  *
- *  Tests:
- *    1. Notification appears — verifies the modal shows with correct title, body,
- *       explanatory subtext, "Continue Working" button, and "Agree to Clock Out" button.
- *    2. "Continue Working" path — modal closes, notification removed, clock still active,
- *       shiftNextReminderWorkSecs is scheduled 2h out.
- *    3. "Agree to Clock Out" path — modal closes, notification removed, clock still active
- *       (monitor will handle the eventual auto-clockout at 8h), shiftReminderResponse = agreed.
- *
- *  Polling strategy: after backdating, poll GET /v1/notifications every 5s up to 90s.
- *  The monitor runs every 30s so the notification should appear within 35-65s.
- *
- *  NOTE: Carol is an admin of the "Developers" team in seed data, which means she can
- *  edit her own clock event times and will also receive admin notifications when shift
- *  reminders are ignored.
+ *  Scenario B — "Continue Working":
+ *    1. Seed Jane's clock event to 7h44m30s ago → shift-end modal fires in ~30s
+ *    2. Jane clicks "Continue Working" → modal closes, no flag set
+ *    3. Advance DB time past 8h mark, verify no auto-clockout job was scheduled
+ *    4. Verify Jane is still clocked in
  */
 
+import { MongoClient, ObjectId } from 'mongodb';
 import { expect, test } from '@playwright/test';
 
-const CAROL_EMAIL = 'carol@example.com';
-const CAROL_PASSWORD = 'Password1!';
-// Alice is a co-admin of Carol's "Developers" team in seed data
-const ALICE_EMAIL = 'alice@example.com';
-const ALICE_PASSWORD = 'Password1!';
+const TEST_EMAIL = 'bob@example.com';
+const TEST_PASSWORD = 'Password1!';
+// Bob's userId is stable — seeded once and never changes
+const TEST_USER_ID = '69f4f84156731a5f77a8a8a4';
 const API_BASE = 'http://localhost:4000/v1';
+const MONGO_URI = 'mongodb://127.0.0.1:27017/timehuddle';
 
-// 7h 44m 30s — next monitor tick (≤30s) pushes workSeconds past 7h 45m = 27900s
-const BACKDATE_SECS = 7 * 3600 + 44 * 60 + 30;
-const POLL_INTERVAL_MS = 5000;
-const POLL_MAX_ATTEMPTS = 18; // 18 × 5s = 90s timeout
+// ─── DB helpers ───────────────────────────────────────────────────────────────
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Login and return the session Bearer token from localStorage. */
-async function login(page: import('@playwright/test').Page): Promise<string> {
-  await page.goto('/app');
-  await page.waitForSelector('input[type="email"]', { timeout: 10000 });
-  await page.fill('input[type="email"]', CAROL_EMAIL);
-  await page.fill('input[type="password"]', CAROL_PASSWORD);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.waitForURL('**/dashboard', { timeout: 15000 });
-  // The frontend stores the better-auth Bearer token in localStorage
-  const token = await page.evaluate(() => localStorage.getItem('timecore_session_token'));
-  if (!token) throw new Error('Expected timecore_session_token in localStorage after login');
-  return token;
+async function withDb<T>(
+  fn: (db: ReturnType<MongoClient['db']>, client: MongoClient) => Promise<T>,
+): Promise<T> {
+  const client = await MongoClient.connect(MONGO_URI);
+  try {
+    return await fn(client.db(), client);
+  } finally {
+    await client.close();
+  }
 }
 
-function authHeaders(token: string) {
-  return { Authorization: `Bearer ${token}` };
+/** Close any active Bob session and wipe his pending Agenda jobs. */
+async function resetUser(userId: string) {
+  await withDb(async (db) => {
+    await db
+      .collection('clockevents')
+      .updateMany({ userId, endTime: null }, { $set: { endTime: Date.now(), accumulatedTime: 0 } });
+    await db.collection('agendajobs').deleteMany({ 'data.userId': userId });
+  });
 }
 
 /**
- * Login via the better-auth API directly using native fetch (NOT page.request).
- *
- * IMPORTANT: Do NOT use page.request here. page.request shares the browser's
- * cookie jar, so signing in as Alice would set Alice's session cookie in the
- * browser. That contaminated cookie would then override Carol's Bearer-token
- * auth on subsequent requests made by the app (e.g. /v1/me on page load),
- * causing useSession() to return null and breaking the ShiftReminderContext WS.
- *
- * Using the Node.js global fetch keeps the HTTP request completely isolated
- * from the browser's storage state.
+ * Adjust an existing clock event's startTime so the shift-end-reminder Agenda
+ * job fires in ~fireInMs ms, inserting the job directly into MongoDB.
+ * eventId and teamId come from the API clock-in response.
  */
-async function loginViaApi(
-  _page: import('@playwright/test').Page,
-  email: string,
-  password: string,
-): Promise<string> {
-  const res = await fetch('http://localhost:4000/api/auth/sign-in/email', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      // better-auth's CSRF protection requires a trusted Origin header.
-      // Browser requests include this automatically; Node.js fetch does not.
-      Origin: 'http://localhost:3000',
-    },
-    body: JSON.stringify({ email, password }),
-  });
-  const body = (await res.json()) as { token?: string };
-  if (!res.ok || !body.token) throw new Error(`loginViaApi failed for ${email}: ${res.status}`);
-  return body.token;
-}
+async function seedShiftEndReminder(
+  eventId: string,
+  userId: string,
+  teamId: string,
+  fireInMs = 0,
+): Promise<void> {
+  await withDb(async (db) => {
+    const shiftEndMs = 7 * 3600_000 + 45 * 60_000;
+    // Set nextRunAt slightly in the past so Agenda picks it up on its very next poll
+    const fireAt = new Date(Date.now() + fireInMs);
+    const startTime = fireAt.getTime() - shiftEndMs;
 
-async function ensureClockedOut(page: import('@playwright/test').Page, token: string) {
-  const res = await page.request.get(`${API_BASE}/clock/active`, {
-    headers: authHeaders(token),
-  });
-  const body = (await res.json()) as { event: { teamId: string } | null };
-  if (!body.event) return;
-  await page.request.post(`${API_BASE}/clock/stop`, {
-    headers: authHeaders(token),
-    data: { teamId: body.event.teamId },
-  });
-}
+    await db
+      .collection('clockevents')
+      .updateOne({ _id: new ObjectId(eventId) }, { $set: { startTime } });
 
-/** Delete leftover shift-end-reminder and auto-clock-out notifications from prior runs. */
-async function clearShiftReminderNotifications(
-  page: import('@playwright/test').Page,
-  token: string,
-) {
-  const res = await page.request.get(`${API_BASE}/notifications`, {
-    headers: authHeaders(token),
-  });
-  const { notifications } = (await res.json()) as {
-    notifications: Array<{ id: string; data?: Record<string, unknown> }>;
-  };
-  const ids = notifications
-    .filter((n) => n.data?.type === 'shift-end-reminder' || n.data?.type === 'auto-clock-out')
-    .map((n) => n.id);
-  if (ids.length === 0) return;
-  await page.request.delete(`${API_BASE}/notifications`, {
-    headers: authHeaders(token),
-    data: { ids },
+    // Cancel any stale Agenda jobs for this event, then insert the new one
+    await db.collection('agendajobs').deleteMany({ 'data.clockEventId': eventId });
+    await db.collection('agendajobs').insertOne({
+      name: 'shift-end-reminder',
+      data: { clockEventId: eventId, userId, teamId },
+      // Past-due by 1s — Agenda picks it up on the very next poll
+      nextRunAt: new Date(Date.now() - 1000),
+      priority: 0,
+      lockedAt: null,
+      lastRunAt: null,
+      lastFinishedAt: null,
+      disabled: false,
+    });
   });
 }
 
+/**
+ * Schedule the auto-clockout Agenda job to fire in fireInMs ms for an existing event.
+ * NOTE: autoClockoutAgreed is set server-side when Jane clicks "Agree to Clock Out"
+ * via the API. This helper only inserts the raw Agenda job for timing control.
+ */
+async function seedAutoClockout(clockEventId: string, userId: string, teamId: string) {
+  await withDb(async (db) => {
+    await db.collection('agendajobs').updateOne(
+      { name: 'shift-auto-clockout', 'data.clockEventId': clockEventId },
+      {
+        $set: {
+          name: 'shift-auto-clockout',
+          data: { clockEventId, userId, teamId },
+          // Past-due by 1s — Agenda picks it up on the very next poll
+          nextRunAt: new Date(Date.now() - 1000),
+          priority: 0,
+          lockedAt: null,
+          lastRunAt: null,
+          lastFinishedAt: null,
+          disabled: false,
+        },
+      },
+      { upsert: true },
+    );
+  });
+}
+
+/** Returns true if the user has an active (endTime=null) clock session. */
+async function isClockedIn(userId: string): Promise<boolean> {
+  return withDb(async (db) => {
+    const ev = await db.collection('clockevents').findOne({
+      userId,
+      endTime: null,
+    });
+    return ev !== null;
+  });
+}
+
+// ─── Login ────────────────────────────────────────────────────────────────────
+
+async function login(page: import('@playwright/test').Page) {
+  await page.goto('/app');
+  await page.waitForSelector('input[type="email"]', { timeout: 10000 });
+  await page.fill('input[type="email"]', TEST_EMAIL);
+  await page.fill('input[type="password"]', TEST_PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.waitForURL('**/dashboard', { timeout: 15000 });
+}
+
+/**
+ * Return the Authorization header map for direct API calls.
+ * The frontend stores the bearer token in localStorage after sign-in.
+ */
+async function authHeaders(page: import('@playwright/test').Page): Promise<Record<string, string>> {
+  const token = await page.evaluate(() => localStorage.getItem('timecore_session_token'));
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** Clock in using the API and return { eventId, teamId }. */
 async function clockIn(
   page: import('@playwright/test').Page,
-  token: string,
-  teamId?: string,
 ): Promise<{ eventId: string; teamId: string }> {
-  if (!teamId) {
-    const teamsRes = await page.request.get(`${API_BASE}/teams`, {
-      headers: authHeaders(token),
-    });
-    const { teams } = (await teamsRes.json()) as { teams: { id: string }[] };
-    teamId = teams[0].id;
-  }
+  const headers = await authHeaders(page);
+  const teamsRes = await page.request.get(`${API_BASE}/teams`, { headers });
+  const { teams } = (await teamsRes.json()) as { teams: { id: string }[] };
+  const teamId = teams[0].id;
+
   const startRes = await page.request.post(`${API_BASE}/clock/start`, {
-    headers: authHeaders(token),
+    headers,
     data: { teamId },
   });
   const { event } = (await startRes.json()) as { event: { id: string } };
   return { eventId: event.id, teamId };
 }
 
-/** Backdate the clock event's startTime while keeping it active (endTime: null). */
-async function backdateEvent(
-  page: import('@playwright/test').Page,
-  token: string,
-  eventId: string,
-  backdateSecs: number,
-) {
-  const res = await page.request.put(`${API_BASE}/clock/${eventId}/times`, {
-    headers: authHeaders(token),
-    data: {
-      startTime: Date.now() - backdateSecs * 1000,
-      endTime: null,
-    },
+/** Stop any active clock session so each test starts clean. */
+async function ensureClockedOut(page: import('@playwright/test').Page) {
+  const headers = await authHeaders(page);
+  const res = await page.request.get(`${API_BASE}/clock/active`, { headers });
+  const { event } = (await res.json()) as { event: { teamId: string } | null };
+  if (!event) return;
+  await page.request.post(`${API_BASE}/clock/stop`, {
+    headers,
+    data: { teamId: event.teamId },
   });
-  expect(res.ok(), `backdateEvent failed: ${await res.text()}`).toBe(true);
-}
-
-/** Poll notifications until a shift-end-reminder appears or timeout. */
-async function waitForShiftReminder(
-  page: import('@playwright/test').Page,
-  token: string,
-): Promise<boolean> {
-  for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
-    await page.waitForTimeout(POLL_INTERVAL_MS);
-    const res = await page.request.get(`${API_BASE}/notifications`, {
-      headers: authHeaders(token),
-    });
-    const { notifications } = (await res.json()) as {
-      notifications: Array<{ data?: Record<string, unknown> }>;
-    };
-    if (notifications.some((n) => n.data?.type === 'shift-end-reminder')) return true;
-  }
-  return false;
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test.describe('Shift-End Reminder', () => {
+test.describe('Shift Reminder', () => {
   test.describe.configure({ mode: 'serial' });
+  test.setTimeout(120_000);
 
-  // 3 min: up to 90s polling + UI interaction + buffer
-  test.setTimeout(180_000);
-
-  let authToken = '';
-
-  test.beforeEach(async ({ page }) => {
-    authToken = await login(page);
-    await ensureClockedOut(page, authToken);
-    await clearShiftReminderNotifications(page, authToken);
+  test.beforeEach(async () => {
+    // Clean up any leftover DB state from a previous test run
+    await resetUser(TEST_USER_ID);
   });
 
-  test.afterEach(async ({ page }) => {
-    await ensureClockedOut(page, authToken);
+  test.afterEach(async () => {
+    await resetUser(TEST_USER_ID);
   });
 
-  // ── Test 1: notification appears + modal content ───────────────────────────
+  // ── Scenario A ────────────────────────────────────────────────────────────
 
-  test('shift-end reminder notification appears within 90s of reaching 7h 45m', async ({
-    page,
-  }) => {
-    // Clock in and backdate to just before the 7h 45m threshold
-    const { eventId } = await clockIn(page, authToken);
-    await backdateEvent(page, authToken, eventId, BACKDATE_SECS);
+  test('Agree to Clock Out → auto-clocks out at 8h', async ({ page }) => {
+    await login(page);
+    await ensureClockedOut(page);
+    const { eventId, teamId } = await clockIn(page);
 
-    // Navigate to notifications page while we poll
-    await page.goto('/app/notifications');
+    // Seed the reminder job as past-due — Agenda picks it on its very next poll
+    await seedShiftEndReminder(eventId, TEST_USER_ID, teamId);
 
-    // Wait for the monitor to fire
-    const found = await waitForShiftReminder(page, authToken);
-    expect(found, 'shift-end-reminder notification should appear within 90s').toBe(true);
+    // Wait for the SSE push to reach the UI and open the modal (≤45s for Agenda)
+    await expect(page.getByRole('dialog', { name: 'Shift End Reminder' })).toBeVisible({
+      timeout: 45000,
+    });
 
-    // Reload to pick up the new notification
-    await page.reload();
-
-    // ── Notification row ───────────────────────────────────────────────────
-    const notifRow = page.getByRole('button', { name: /Shift End Reminder/ }).first();
-    await expect(notifRow).toBeVisible({ timeout: 10000 });
-    await expect(notifRow).toContainText('You have worked 7 hours 45 minutes');
-
-    // ── Click to open modal ────────────────────────────────────────────────
-    await notifRow.click();
-
-    const dialog = page.locator('[role="dialog"]');
-    await expect(dialog).toBeVisible({ timeout: 5000 });
-
-    // Title
-    await expect(dialog.getByRole('heading', { name: 'Shift End Reminder' })).toBeVisible();
-
-    // Body — the notification message
-    await expect(dialog.getByText('You have worked 7 hours 45 minutes')).toBeVisible();
-
-    // Explanatory sub-text
-    await expect(
-      dialog.getByText(/Agreeing will automatically clock you out when you reach 8 hours/),
-    ).toBeVisible();
-    await expect(dialog.getByText(/another reminder in 2 hours/)).toBeVisible();
-
-    // Both action buttons (scoped to dialog to avoid matching notification row text)
-    await expect(dialog.getByRole('button', { name: /Continue Working/i })).toBeVisible();
-    await expect(dialog.getByRole('button', { name: /Agree to.*clock out/i })).toBeVisible();
-
-    // Close button in modal header
-    await expect(dialog.getByRole('button', { name: /close/i })).toBeVisible();
-  });
-
-  // ── Test 2: "Continue Working" (disagree) path ────────────────────────────
-
-  test('"Continue Working" closes modal, removes notification, schedules 2h reminder', async ({
-    page,
-  }) => {
-    const { eventId } = await clockIn(page, authToken);
-    await backdateEvent(page, authToken, eventId, BACKDATE_SECS);
-
-    await page.goto('/app/notifications');
-    const found = await waitForShiftReminder(page, authToken);
-    expect(found, 'shift-end-reminder notification should appear within 90s').toBe(true);
-
-    await page.reload();
-
-    // Open modal
-    await page
-      .getByRole('button', { name: /Shift End Reminder/ })
-      .first()
-      .click();
-    const dialog = page.locator('[role="dialog"]');
-    await expect(dialog).toBeVisible({ timeout: 5000 });
-
-    // Click "Continue Working"
-    await dialog.getByRole('button', { name: /Continue Working/i }).click();
+    // Click "Agree to Clock Out" — POSTs /clock/events/:id/agree-clockout
+    await page.getByRole('button', { name: /agree to.*clock out/i }).click();
 
     // Modal should close
-    await expect(dialog).not.toBeVisible({ timeout: 8000 });
-
-    // Notification removed from list
-    await expect(page.getByRole('button', { name: /Shift End Reminder/ })).not.toBeVisible({
+    await expect(page.getByRole('dialog', { name: 'Shift End Reminder' })).not.toBeVisible({
       timeout: 5000,
     });
 
-    // ── Verify backend state ───────────────────────────────────────────────
-    const clockRes = await page.request.get(`${API_BASE}/clock/active`, {
-      headers: authHeaders(authToken),
+    // Advance startTime to exactly 8h ago so the auto-clockout fires at the 8h mark.
+    // (The reminder seeded it at 7h45m ago; production would wait for the remaining 15m.)
+    const eightHoursAgo = Date.now() - 8 * 3600_000;
+    await withDb(async (db) => {
+      await db
+        .collection('clockevents')
+        .updateOne({ _id: new ObjectId(eventId) }, { $set: { startTime: eightHoursAgo } });
     });
-    const { event } = (await clockRes.json()) as {
-      event: {
-        id: string;
-        workSeconds: number;
-        shiftReminderResponse?: string;
-        shiftNextReminderWorkSecs?: number | null;
-        shiftAutoClockoutWorkSecs?: number | null;
-      } | null;
-    };
 
-    // Clock session still active (not clocked out)
-    expect(event, 'clock session should still be active after Continue Working').not.toBeNull();
-    expect(event!.id).toBe(eventId);
+    // Override the scheduled auto-clockout job to be past-due so Agenda picks it immediately
+    await seedAutoClockout(eventId, TEST_USER_ID, teamId);
 
-    // Response recorded as disagreed
-    expect(event!.shiftReminderResponse).toBe('disagreed');
+    // Agenda processes every 30s — give it up to 45s to fire the clockout
+    await expect
+      .poll(async () => isClockedIn(TEST_USER_ID), { timeout: 45000, intervals: [1000] })
+      .toBe(false);
 
-    // Auto-clockout threshold cleared
-    expect(event!.shiftAutoClockoutWorkSecs).toBeNull();
+    // Verify the ended session lasted ≥8h:
+    //  - endTime − startTime (ms) ≥ 8h  → confirms startTime was advanced correctly
+    //  - accumulatedTime (seconds)  ≥ 8h → confirms clockService.stop() computed the right span
+    const { durationMs, accumulatedTime } = await withDb(async (db) => {
+      const ev = await db.collection('clockevents').findOne({ _id: new ObjectId(eventId) });
+      return {
+        durationMs: ev && ev.endTime != null ? ev.endTime - ev.startTime : 0,
+        accumulatedTime: ev?.accumulatedTime ?? 0,
+      };
+    });
+    expect(durationMs).toBeGreaterThanOrEqual(8 * 3600_000); // ms
+    expect(accumulatedTime).toBeGreaterThanOrEqual(8 * 3600); // seconds
 
-    // Next reminder scheduled ~2h out from current work time
-    expect(event!.shiftNextReminderWorkSecs).toBeGreaterThan(0);
-    // Should be roughly currentWorkSecs + 2h (7200s); we know work is ~7h45m = 27900s
-    const expectedMin = 27900 + 7200 - 120; // slight tolerance
-    expect(event!.shiftNextReminderWorkSecs).toBeGreaterThan(expectedMin);
+    // Confirm the API also reports no active session
+    const headers = await authHeaders(page);
+    const res = await page.request.get(`${API_BASE}/clock/active`, { headers });
+    const { event } = (await res.json()) as { event: unknown };
+    expect(event).toBeNull();
+
+    // ── UI verification ──────────────────────────────────────────────────────
+    // Navigate to the clock page and confirm it shows the clocked-out state
+    await page.goto('/app/clock');
+    await expect(page.getByRole('button', { name: 'Clock in' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Ready to work')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Clock out' })).not.toBeVisible();
   });
 
-  // ── Test 3: "Agree to Clock Out" path ────────────────────────────────────
+  // ── Scenario B ────────────────────────────────────────────────────────────
 
-  test('"Agree to Clock Out" closes modal, removes notification, records agreed response', async ({
-    page,
-  }) => {
-    const { eventId } = await clockIn(page, authToken);
-    await backdateEvent(page, authToken, eventId, BACKDATE_SECS);
+  test('Continue Working → stays clocked in past 8h', async ({ page }) => {
+    await login(page);
+    await ensureClockedOut(page);
+    const { eventId, teamId } = await clockIn(page);
 
-    await page.goto('/app/notifications');
-    const found = await waitForShiftReminder(page, authToken);
-    expect(found, 'shift-end-reminder notification should appear within 90s').toBe(true);
+    // Seed the reminder job as past-due — Agenda picks it on its very next poll
+    await seedShiftEndReminder(eventId, TEST_USER_ID, teamId);
 
-    await page.reload();
+    // Wait for the modal to appear
+    await expect(page.getByRole('dialog', { name: 'Shift End Reminder' })).toBeVisible({
+      timeout: 45000,
+    });
 
-    // Open modal
-    await page
-      .getByRole('button', { name: /Shift End Reminder/ })
-      .first()
-      .click();
-    const dialog = page.locator('[role="dialog"]');
-    await expect(dialog).toBeVisible({ timeout: 5000 });
-
-    // Click "Agree to Clock Out"
-    await dialog.getByRole('button', { name: /Agree to.*clock out/i }).click();
+    // Click "Continue Working" — purely local, no API call, no flag set
+    await page.getByRole('button', { name: /continue working/i }).click();
 
     // Modal should close
-    await expect(dialog).not.toBeVisible({ timeout: 8000 });
-
-    // Notification removed from list
-    await expect(page.getByRole('button', { name: /Shift End Reminder/ })).not.toBeVisible({
+    await expect(page.getByRole('dialog', { name: 'Shift End Reminder' })).not.toBeVisible({
       timeout: 5000,
     });
 
-    // ── Verify backend state ───────────────────────────────────────────────
-    const clockRes = await page.request.get(`${API_BASE}/clock/active`, {
-      headers: authHeaders(authToken),
+    // Verify autoClockoutAgreed was NOT set on the event
+    const agreed = await withDb(async (db) => {
+      const ev = await db.collection('clockevents').findOne({
+        _id: new ObjectId(eventId),
+      });
+      return ev?.autoClockoutAgreed ?? false;
     });
-    const { event } = (await clockRes.json()) as {
-      event: {
-        id: string;
-        shiftReminderResponse?: string;
-        shiftAutoClockoutWorkSecs?: number | null;
-      } | null;
-    };
+    expect(agreed).toBeFalsy();
 
-    // Session still active — monitor handles the eventual clockout at 8h
-    expect(event, 'clock session should still be active — monitor clocks out at 8h').not.toBeNull();
-    expect(event!.id).toBe(eventId);
-
-    // Response recorded as agreed
-    expect(event!.shiftReminderResponse).toBe('agreed');
-
-    // Auto-clockout threshold still armed at 28800 (8h)
-    expect(event!.shiftAutoClockoutWorkSecs).toBe(28800);
-  });
-
-  // ── Test 4: agree → monitor auto-clocks out + sends "Auto Clocked Out" notification ───
-
-  test('"Agree to Clock Out" triggers auto-clockout at 8h and sends Auto Clocked Out notification', async ({
-    page,
-  }) => {
-    test.setTimeout(240_000);
-
-    // Clock in and backdate to just before 7h 45m to trigger reminder
-    const { eventId } = await clockIn(page, authToken);
-    await backdateEvent(page, authToken, eventId, BACKDATE_SECS);
-
-    await page.goto('/app/notifications');
-    const found = await waitForShiftReminder(page, authToken);
-    expect(found, 'shift-end-reminder notification should appear within 90s').toBe(true);
-
-    await page.reload();
-
-    // Open modal and agree
-    await page
-      .getByRole('button', { name: /Shift End Reminder/ })
-      .first()
-      .click();
-    const dialog = page.locator('[role="dialog"]');
-    await expect(dialog).toBeVisible({ timeout: 5000 });
-    await dialog.getByRole('button', { name: /Agree to.*clock out/i }).click();
-    await expect(dialog).not.toBeVisible({ timeout: 8000 });
-
-    // Verify agreed state
-    const clockRes1 = await page.request.get(`${API_BASE}/clock/active`, {
-      headers: authHeaders(authToken),
-    });
-    const { event: agreedEvent } = (await clockRes1.json()) as {
-      event: {
-        id: string;
-        shiftReminderResponse?: string;
-        shiftAutoClockoutWorkSecs?: number | null;
-      } | null;
-    };
-    expect(agreedEvent, 'event should still be active after agreeing').not.toBeNull();
-    expect(agreedEvent!.shiftReminderResponse).toBe('agreed');
-    expect(agreedEvent!.shiftAutoClockoutWorkSecs).toBe(28800);
-
-    // Backdate to 8h 01m so monitor fires Check C (workSeconds ≥ shiftAutoClockoutWorkSecs)
-    await backdateEvent(page, authToken, eventId, 8 * 3600 + 60);
-
-    // Poll up to 60s for the auto-clockout + "Auto Clocked Out" notification
-    let autoClockedOut = false;
-    let autoNotifBody = '';
-    for (let i = 0; i < 12; i++) {
-      await page.waitForTimeout(5000);
-
-      const [clockPollRes, notifPollRes] = await Promise.all([
-        page.request.get(`${API_BASE}/clock/active`, { headers: authHeaders(authToken) }),
-        page.request.get(`${API_BASE}/notifications`, { headers: authHeaders(authToken) }),
-      ]);
-      const { event: pollEvent } = (await clockPollRes.json()) as {
-        event: { id: string } | null;
-      };
-      const { notifications } = (await notifPollRes.json()) as {
-        notifications: Array<{
-          id: string;
-          title: string;
-          body: string;
-          data?: Record<string, unknown>;
-        }>;
-      };
-
-      const autoNotif = notifications.find((n) => n.data?.type === 'auto-clock-out');
-      if (!pollEvent && autoNotif) {
-        autoClockedOut = true;
-        autoNotifBody = autoNotif.body;
-        break;
-      }
-    }
-
-    expect(autoClockedOut, 'monitor should auto-clock-out and send notification within 60s').toBe(
-      true,
+    // Verify NO auto-clockout Agenda job was scheduled
+    const jobCount = await withDb(async (db) =>
+      db.collection('agendajobs').countDocuments({
+        name: 'shift-auto-clockout',
+        'data.clockEventId': eventId,
+      }),
     );
+    expect(jobCount).toBe(0);
 
-    // Notification body should acknowledge the user agreed
-    expect(autoNotifBody).toContain('automatically clocked out as you agreed');
-
-    // ── Verify in UI ───────────────────────────────────────────────────────
-    await page.reload();
-
-    const autoNotifRow = page.getByRole('button', { name: /Auto Clocked Out/ }).first();
-    await expect(autoNotifRow).toBeVisible({ timeout: 5000 });
-    await expect(autoNotifRow).toContainText('automatically clocked out as you agreed');
-
-    // No lingering shift-end-reminder in the list
-    await expect(page.getByRole('button', { name: /Shift End Reminder/ })).not.toBeVisible({
-      timeout: 3000,
+    // Move startTime 8h+ into the past — if any stale job existed it would now fire
+    await withDb(async (db) => {
+      await db
+        .collection('clockevents')
+        .updateOne(
+          { _id: new ObjectId(eventId) },
+          { $set: { startTime: Date.now() - 8 * 3600_000 - 60_000 } },
+        );
     });
-  });
 
-  // ── Test 5: global modal — appears on dashboard (not just notifications page) ──
+    // Give Agenda one full poll cycle to confirm no job fires
+    await page.waitForTimeout(35000);
 
-  test('shift-end reminder modal pops up automatically on dashboard via global WebSocket', async ({
-    page,
-  }) => {
-    const { eventId } = await clockIn(page, authToken);
-    await backdateEvent(page, authToken, eventId, BACKDATE_SECS);
+    // User should still be clocked in (DB check)
+    expect(await isClockedIn(TEST_USER_ID)).toBe(true);
 
-    // Navigate to the dashboard — NOT the notifications page.
-    // The global ShiftReminderProvider opens a WebSocket stream that auto-opens
-    // the modal on any page when a shift-end-reminder arrives.
-    await page.goto('/app/dashboard');
+    // ── UI verification — timer still running past 8h ───────────────────────
+    // Navigate to the clock page; the frontend fetches the fresh startTime
+    // (8h+60s ago) and renders the elapsed counter.
+    await page.goto('/app/clock');
+    await expect(page.getByRole('button', { name: 'Clock out' })).toBeVisible({ timeout: 10000 });
 
-    // The modal should pop up automatically within 90s (monitor fires every 30s)
-    const dialog = page.locator('[role="dialog"]');
-    await expect(dialog).toBeVisible({ timeout: 90_000 });
+    // "Session active — 08:01:XX" — confirms elapsed time is 8+ hours
+    await expect(page.getByText(/Session active — 0?8:/)).toBeVisible({ timeout: 5000 });
 
-    // Verify it is the shift reminder modal
-    await expect(dialog.getByRole('heading', { name: 'Shift End Reminder' })).toBeVisible();
-    await expect(dialog.getByText(/You have worked 7 hours 45 minutes/)).toBeVisible();
-    await expect(dialog.getByText(/Agreeing will automatically clock you out/)).toBeVisible();
-    await expect(dialog.getByRole('button', { name: /Continue Working/i })).toBeVisible();
-    await expect(dialog.getByRole('button', { name: /Agree to.*clock out/i })).toBeVisible();
+    // Page title also carries the elapsed time: "08:01:XX · Clock In/Out …"
+    await expect.poll(() => page.title(), { timeout: 5000 }).toMatch(/^0?8:/);
 
-    // Dismiss via "Continue Working" — we never navigated to notifications
-    await dialog.getByRole('button', { name: /Continue Working/i }).click();
-    await expect(dialog).not.toBeVisible({ timeout: 8000 });
-
-    // Confirm the user remained on the dashboard throughout
-    expect(page.url()).toContain('/app/dashboard');
-  });
-
-  // ── Test 6: "Continue Working" DISARMS auto-clockout — stays active past 8h ──
-
-  test('"Continue Working" disarms auto-clockout — session stays active past 8 hours', async ({
-    page,
-  }) => {
-    test.setTimeout(240_000);
-
-    const { eventId } = await clockIn(page, authToken);
-    await backdateEvent(page, authToken, eventId, BACKDATE_SECS);
-
-    await page.goto('/app/notifications');
-    const found = await waitForShiftReminder(page, authToken);
-    expect(found, 'shift-end-reminder notification should appear within 90s').toBe(true);
-
-    await page.reload();
-
-    // Open modal and choose Continue Working
-    await page
-      .getByRole('button', { name: /Shift End Reminder/ })
-      .first()
-      .click();
-    const dialog = page.locator('[role="dialog"]');
-    await expect(dialog).toBeVisible({ timeout: 5000 });
-    await dialog.getByRole('button', { name: /Continue Working/i }).click();
-    await expect(dialog).not.toBeVisible({ timeout: 8000 });
-
-    // Verify auto-clockout is disarmed
-    const clockRes1 = await page.request.get(`${API_BASE}/clock/active`, {
-      headers: authHeaders(authToken),
-    });
-    const { event: disagreedEvent } = (await clockRes1.json()) as {
-      event: {
-        id: string;
-        shiftReminderResponse?: string;
-        shiftAutoClockoutWorkSecs?: number | null;
-        shiftNextReminderWorkSecs?: number | null;
-      } | null;
-    };
-    expect(disagreedEvent, 'session should still be active').not.toBeNull();
-    expect(disagreedEvent!.shiftReminderResponse).toBe('disagreed');
-    expect(disagreedEvent!.shiftAutoClockoutWorkSecs).toBeNull(); // disarmed
-    expect(disagreedEvent!.shiftNextReminderWorkSecs).toBeGreaterThan(0); // 2h repeat armed
-
-    // Backdate past 8h — the monitor should NOT clock out
-    await backdateEvent(page, authToken, eventId, 8 * 3600 + 60);
-
-    // Poll for 45s — if the monitor fires, it must NOT clock out
-    let clockedOutUnexpectedly = false;
-    for (let i = 0; i < 9; i++) {
-      await page.waitForTimeout(5000);
-      const pollRes = await page.request.get(`${API_BASE}/clock/active`, {
-        headers: authHeaders(authToken),
-      });
-      const { event: pollEvent } = (await pollRes.json()) as { event: { id: string } | null };
-      if (!pollEvent) {
-        clockedOutUnexpectedly = true;
-        break;
-      }
-    }
-
-    expect(
-      clockedOutUnexpectedly,
-      '"Continue Working" should NOT trigger auto-clockout at 8h — auto-clockout was disarmed',
-    ).toBe(false);
-
-    // Final confirmation: session is still running
-    const finalRes = await page.request.get(`${API_BASE}/clock/active`, {
-      headers: authHeaders(authToken),
-    });
-    const { event: finalEvent } = (await finalRes.json()) as {
-      event: { workSeconds: number; shiftAutoClockoutWorkSecs: number | null } | null;
-    };
-    expect(
-      finalEvent,
-      'session must still be active past 8h after Continue Working',
-    ).not.toBeNull();
-    expect(finalEvent!.shiftAutoClockoutWorkSecs).toBeNull();
-    expect(finalEvent!.workSeconds).toBeGreaterThan(28800); // past 8h
-  });
-
-  // ── Test 7: admin receives notification when user agrees and is auto-clocked out ──
-
-  test('admin receives auto-clock-out notification when user agrees and is clocked out at 8h', async ({
-    page,
-  }) => {
-    test.setTimeout(240_000);
-
-    // ── Cleanup: delete any leftover test teams from prior failed runs ───────
-    const carolTeamsRes = await page.request.get(`${API_BASE}/teams`, {
-      headers: authHeaders(authToken),
-    });
-    const { teams: carolTeams } = (await carolTeamsRes.json()) as {
-      teams: { id: string; name: string }[];
-    };
-    for (const t of carolTeams) {
-      if (t.name === 'e2e-admin-notif-test') {
-        await page.request.delete(`${API_BASE}/teams/${t.id}`, {
-          headers: authHeaders(authToken),
-        });
-      }
-    }
-
-    // ── Setup: create a shared team with Alice as co-admin ──────────────────
-    const createTeamRes = await page.request.post(`${API_BASE}/teams`, {
-      headers: authHeaders(authToken),
-      data: { name: 'e2e-admin-notif-test' },
-    });
-    expect(createTeamRes.ok(), 'create shared team failed').toBe(true);
-    const { team: sharedTeam } = (await createTeamRes.json()) as { team: { id: string } };
-    const sharedTeamId = sharedTeam.id;
-
-    // Invite Alice directly (adds her as a member)
-    const inviteRes = await page.request.post(`${API_BASE}/teams/${sharedTeamId}/invite`, {
-      headers: authHeaders(authToken),
-      data: { email: ALICE_EMAIL },
-    });
-    expect(inviteRes.ok(), 'invite Alice failed').toBe(true);
-
-    // Find Alice's userId from the members list
-    const membersRes = await page.request.get(`${API_BASE}/teams/${sharedTeamId}/members`, {
-      headers: authHeaders(authToken),
-    });
-    const { members } = (await membersRes.json()) as {
-      members: Array<{ id: string; email: string }>;
-    };
-    const aliceMember = members.find((m) => m.email === ALICE_EMAIL);
-    expect(aliceMember, 'Alice should appear in team members').toBeTruthy();
-
-    // Promote Alice to admin
-    const roleRes = await page.request.put(
-      `${API_BASE}/teams/${sharedTeamId}/members/${aliceMember!.id}/role`,
-      { headers: authHeaders(authToken), data: { role: 'admin' } },
-    );
-    expect(roleRes.ok(), 'promote Alice to admin failed').toBe(true);
-
-    // Clear any stale auto-clock-out-admin notifications from Alice's inbox
-    const aliceToken = await loginViaApi(page, ALICE_EMAIL, ALICE_PASSWORD);
-    const aliceStaleRes = await page.request.get(`${API_BASE}/notifications`, {
-      headers: authHeaders(aliceToken),
-    });
-    const { notifications: aliceStale } = (await aliceStaleRes.json()) as {
-      notifications: Array<{ id: string; data?: Record<string, unknown> }>;
-    };
-    const staleIds = aliceStale
-      .filter((n) => n.data?.type === 'auto-clock-out-admin')
-      .map((n) => n.id);
-    if (staleIds.length > 0) {
-      await page.request.delete(`${API_BASE}/notifications`, {
-        headers: authHeaders(aliceToken),
-        data: { ids: staleIds },
-      });
-    }
-
-    // Clock Carol into the shared team (not her default Personal team)
-    const { eventId } = await clockIn(page, authToken, sharedTeamId);
-    await backdateEvent(page, authToken, eventId, BACKDATE_SECS);
-
-    // ── Navigate to dashboard and wait for the global modal ─────────────────
-    // ShiftReminderProvider opens a WebSocket on any page and auto-opens the
-    // modal when a shift-end-reminder arrives — no need to click a list button.
-    await page.goto('/app/dashboard');
-
-    const dialog = page.locator('[role="dialog"]');
-    await expect(dialog).toBeVisible({ timeout: 90_000 });
-    await expect(dialog.getByRole('heading', { name: 'Shift End Reminder' })).toBeVisible();
-
-    // Agree to clock out via the global modal
-    await dialog.getByRole('button', { name: /Agree to.*clock out/i }).click();
-    await expect(dialog).not.toBeVisible({ timeout: 8000 });
-
-    // Backdate past 8h so monitor triggers auto-clockout
-    await backdateEvent(page, authToken, eventId, 8 * 3600 + 60);
-
-    // Poll until Carol is clocked out (confirms Check C ran)
-    let autoClockedOut = false;
-    for (let i = 0; i < 12; i++) {
-      await page.waitForTimeout(5000);
-      const res = await page.request.get(`${API_BASE}/clock/active`, {
-        headers: authHeaders(authToken),
-      });
-      const { event } = (await res.json()) as { event: unknown | null };
-      if (!event) {
-        autoClockedOut = true;
-        break;
-      }
-    }
-    expect(autoClockedOut, 'Carol should be auto-clocked out within 60s').toBe(true);
-
-    // ── Verify Alice (co-admin) received an admin notification ─────────────
-    // (aliceToken already obtained above for stale-notification cleanup)
-
-    // Give the notification a moment to persist
-    await page.waitForTimeout(2000);
-
-    const aliceNotifRes = await page.request.get(`${API_BASE}/notifications`, {
-      headers: authHeaders(aliceToken),
-    });
-    const { notifications: aliceNotifs } = (await aliceNotifRes.json()) as {
-      notifications: Array<{ title: string; body: string; data?: Record<string, unknown> }>;
-    };
-
-    const adminNotif = aliceNotifs.find((n) => n.data?.type === 'auto-clock-out-admin');
-
-    expect(
-      adminNotif,
-      'Alice (co-admin) should receive an auto-clock-out-admin notification',
-    ).toBeTruthy();
-    expect(adminNotif!.title).toBe('Auto Clocked Out');
-    // Body should mention Carol agreed — NOT the "no response" wording
-    expect(adminNotif!.body).toContain('Carol Dev');
-    expect(adminNotif!.body).toContain('after agreeing to the shift-end reminder');
-    expect(adminNotif!.body).not.toContain('no response');
-
-    // ── Cleanup: delete the shared team ─────────────────────────────────────
-    await page.request.delete(`${API_BASE}/teams/${sharedTeamId}`, {
-      headers: authHeaders(authToken),
-    });
+    await expect(page.getByRole('button', { name: 'Clock in' })).not.toBeVisible();
   });
 });

@@ -23,6 +23,12 @@ import { ActivityType } from "../models/activity.model.js";
 
 import { notificationService } from "./notification.service.js";
 import { emitActivity } from "./activity.service.js";
+import {
+  scheduleClockJobs,
+  cancelClockJobs,
+  scheduleAutoClockout,
+  rescheduleClockJobs,
+} from "./agenda.service.js";
 
 /** 20-minute threshold: breaks ≥ this are non-compensable meal breaks (deducted). */
 const MEAL_BREAK_THRESHOLD_SECONDS = 20 * 60;
@@ -304,7 +310,7 @@ export class ClockService {
       teamId,
       startTime: now,
       accumulatedTime: 0,
-      notifiedAt4h: null,
+      autoClockoutAgreed: null,
       endTime: null,
     });
 
@@ -312,6 +318,10 @@ export class ClockService {
     if (!created) return "forbidden";
     const pub = toPublicClockEvent(created, []);
     broadcast(teamId, pub);
+    // Schedule 4h break reminder and 7h45m shift-end reminder
+    scheduleClockJobs(created._id.toHexString(), userId, teamId, now).catch((err) =>
+      console.error("[agenda] scheduleClockJobs failed:", err)
+    );
 
     // Notify team admins
     const user = isValidId(userId)
@@ -357,6 +367,8 @@ export class ClockService {
 
     const now = Date.now();
     const eventId = event._id.toHexString();
+    // Cancel any pending scheduled jobs for this clock session
+    cancelClockJobs(eventId).catch((err) => console.error("[agenda] cancelClockJobs failed:", err));
 
     // Close any open timer sessions for this user
     await timerService.closeAllForUser(userId, now);
@@ -422,6 +434,22 @@ export class ClockService {
             .catch(() => {})
         )
       );
+
+      // Also notify the user who clocked out
+      notificationService
+        .create({
+          userId,
+          title: "TiméHuddle",
+          body: `You clocked out of ${team.name} (${durationText})`,
+          notificationData: {
+            type: "clock-out-self",
+            teamName: team.name,
+            teamId,
+            duration: durationText,
+            url: `/app/clock`,
+          },
+        })
+        .catch(() => {});
 
       void emitActivity({
         userId,
@@ -590,7 +618,9 @@ export class ClockService {
 
     // Update the clock event itself
     const $set: Record<string, unknown> = {};
-    if (typeof data.startTime === "number") $set.startTime = data.startTime;
+    if (typeof data.startTime === "number") {
+      $set.startTime = data.startTime;
+    }
     if (data.endTime === null) $set.endTime = null;
     else if (typeof data.endTime === "number") $set.endTime = data.endTime;
 
@@ -601,6 +631,17 @@ export class ClockService {
     }
 
     if (Object.keys($set).length > 0) await coll.updateOne({ _id: event._id }, { $set });
+
+    // Re-schedule Agenda jobs when startTime changes on an active session
+    if (typeof data.startTime === "number" && event.endTime === null) {
+      rescheduleClockJobs(
+        clockEventId,
+        event.userId,
+        event.teamId,
+        data.startTime,
+        event.autoClockoutAgreed === true
+      ).catch((err) => console.error("[agenda] rescheduleClockJobs failed:", err));
+    }
 
     const updated = await coll.findOne({ _id: event._id });
     const updatedBreaks = await findBreaksForEvent(clockEventId);
@@ -631,7 +672,10 @@ export class ClockService {
     }
 
     await coll.deleteOne({ _id: event._id });
-    // Delete all breaks for this event
+    // Cancel any pending scheduled jobs and delete all breaks for this event
+    cancelClockJobs(clockEventId).catch((err) =>
+      console.error("[agenda] cancelClockJobs on delete failed:", err)
+    );
     await clockBreaksCollection().deleteMany({ clockEventId });
     await attachmentsCollection().deleteMany({
       "attachedTo.kind": "clock",
@@ -768,6 +812,28 @@ export class ClockService {
         workingDays: uniqueDates.size,
       },
     };
+  }
+
+  /**
+   * Mark the user's active clock event as "agreed to clock out".
+   * The clock-monitor job will auto-clockout this session when it reaches 8h.
+   */
+  async agreeAutoClockout(
+    userId: string,
+    clockEventId: string
+  ): Promise<"ok" | "not-found" | "forbidden"> {
+    if (!isValidId(clockEventId)) return "not-found";
+    const coll = clockEventsCollection();
+    const event = await coll.findOne({ _id: new ObjectId(clockEventId) });
+    if (!event) return "not-found";
+    if (event.userId !== userId) return "forbidden";
+    if (event.endTime !== null) return "not-found"; // already clocked out
+    await coll.updateOne({ _id: event._id }, { $set: { autoClockoutAgreed: true } });
+    // Schedule the 8h auto-clockout job now that the user has agreed
+    scheduleAutoClockout(clockEventId, userId, event.teamId, event.startTime).catch((err) =>
+      console.error("[agenda] scheduleAutoClockout failed:", err)
+    );
+    return "ok";
   }
 }
 

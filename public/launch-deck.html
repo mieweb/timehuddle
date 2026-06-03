@@ -1,708 +1,1333 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Huddle — Launch Deck</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Huddle — Launch Deck</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
 
-    :root {
-      --orange: #F5A623;
-      --orange-dark: #D4891A;
-      --dark: #0F1117;
-      --dark2: #1A1D27;
-      --dark3: #242736;
-      --card: #1E2130;
-      --text: #F0F2F8;
-      --muted: #8A8FA8;
-      --accent: #6C63FF;
-      --green: #22C55E;
-      --blue: #3B82F6;
-      --red: #EF4444;
-    }
+      :root {
+        --orange: #f5a623;
+        --orange-dark: #d4891a;
+        --dark: #0f1117;
+        --dark2: #1a1d27;
+        --dark3: #242736;
+        --card: #1e2130;
+        --text: #f0f2f8;
+        --muted: #8a8fa8;
+        --accent: #6c63ff;
+        --green: #22c55e;
+        --blue: #3b82f6;
+        --red: #ef4444;
+      }
 
-    html, body {
-      width: 100%; height: 100%;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--dark);
-      color: var(--text);
-      overflow: hidden;
-    }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: var(--dark);
+        color: var(--text);
+        overflow: hidden;
+      }
 
-    /* ── Slide container ── */
-    .deck { width: 100vw; height: 100vh; position: relative; }
+      /* ── Slide container ── */
+      .deck {
+        width: 100vw;
+        height: 100vh;
+        position: relative;
+      }
 
-    .slide {
-      position: absolute; inset: 0;
-      display: flex; flex-direction: column;
-      justify-content: center; align-items: center;
-      padding: 60px;
-      opacity: 0; pointer-events: none;
-      transition: opacity 0.5s ease, transform 0.5s ease;
-      transform: translateX(40px);
-      text-align: center;
-    }
-    .slide.active {
-      opacity: 1; pointer-events: all;
-      transform: translateX(0);
-    }
-    .slide.prev {
-      opacity: 0; transform: translateX(-40px);
-    }
+      .slide {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 60px;
+        opacity: 0;
+        pointer-events: none;
+        transition:
+          opacity 0.5s ease,
+          transform 0.5s ease;
+        transform: translateX(40px);
+        text-align: center;
+      }
+      .slide.active {
+        opacity: 1;
+        pointer-events: all;
+        transform: translateX(0);
+      }
+      .slide.prev {
+        opacity: 0;
+        transform: translateX(-40px);
+      }
 
-    /* ── Typography ── */
-    .eyebrow {
-      font-size: 13px; letter-spacing: 3px; text-transform: uppercase;
-      color: var(--orange); font-weight: 600; margin-bottom: 18px;
-    }
-    h1 { font-size: clamp(2.4rem, 5vw, 4rem); font-weight: 800; line-height: 1.1; }
-    h2 { font-size: clamp(1.8rem, 3.5vw, 2.8rem); font-weight: 700; line-height: 1.15; }
-    h3 { font-size: clamp(1rem, 2vw, 1.4rem); font-weight: 600; }
-    p  { font-size: clamp(0.95rem, 1.5vw, 1.15rem); color: var(--muted); line-height: 1.7; max-width: 700px; }
+      /* ── Typography ── */
+      .eyebrow {
+        font-size: 13px;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: var(--orange);
+        font-weight: 600;
+        margin-bottom: 18px;
+      }
+      h1 {
+        font-size: clamp(2.4rem, 5vw, 4rem);
+        font-weight: 800;
+        line-height: 1.1;
+      }
+      h2 {
+        font-size: clamp(1.8rem, 3.5vw, 2.8rem);
+        font-weight: 700;
+        line-height: 1.15;
+      }
+      h3 {
+        font-size: clamp(1rem, 2vw, 1.4rem);
+        font-weight: 600;
+      }
+      p {
+        font-size: clamp(0.95rem, 1.5vw, 1.15rem);
+        color: var(--muted);
+        line-height: 1.7;
+        max-width: 700px;
+      }
 
-    .highlight { color: var(--orange); }
-    .accent    { color: var(--accent); }
-    .green     { color: var(--green); }
+      .highlight {
+        color: var(--orange);
+      }
+      .accent {
+        color: var(--accent);
+      }
+      .green {
+        color: var(--green);
+      }
 
-    /* ── Cards / grids ── */
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; max-width: 900px; margin-top: 36px; }
-    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; width: 100%; max-width: 960px; margin-top: 36px; }
-    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; width: 100%; max-width: 960px; margin-top: 36px; }
+      /* ── Cards / grids ── */
+      .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        width: 100%;
+        max-width: 900px;
+        margin-top: 36px;
+      }
+      .grid-3 {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 18px;
+        width: 100%;
+        max-width: 960px;
+        margin-top: 36px;
+      }
+      .grid-4 {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+        width: 100%;
+        max-width: 960px;
+        margin-top: 36px;
+      }
 
-    .card {
-      background: var(--card);
-      border: 1px solid rgba(255,255,255,0.07);
-      border-radius: 16px;
-      padding: 24px 20px;
-      text-align: left;
-      transition: transform 0.2s, border-color 0.2s;
-    }
-    .card:hover { transform: translateY(-3px); border-color: rgba(245,166,35,0.3); }
-    .card .icon { font-size: 2rem; margin-bottom: 12px; }
-    .card h3 { font-size: 1rem; margin-bottom: 6px; }
-    .card p  { font-size: 0.85rem; color: var(--muted); }
+      .card {
+        background: var(--card);
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 16px;
+        padding: 24px 20px;
+        text-align: left;
+        transition:
+          transform 0.2s,
+          border-color 0.2s;
+      }
+      .card:hover {
+        transform: translateY(-3px);
+        border-color: rgba(245, 166, 35, 0.3);
+      }
+      .card .icon {
+        font-size: 2rem;
+        margin-bottom: 12px;
+      }
+      .card h3 {
+        font-size: 1rem;
+        margin-bottom: 6px;
+      }
+      .card p {
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
 
-    /* ── Special slide backgrounds ── */
-    .slide-hero { background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(245,166,35,0.15) 0%, transparent 70%), var(--dark); }
-    .slide-dark { background: var(--dark2); }
-    .slide-accent { background: radial-gradient(ellipse 70% 50% at 50% 100%, rgba(108,99,255,0.15) 0%, transparent 70%), var(--dark); }
-    .slide-problem { background: radial-gradient(ellipse 70% 50% at 0% 50%, rgba(239,68,68,0.1) 0%, transparent 60%), var(--dark); }
-    .slide-green { background: radial-gradient(ellipse 70% 50% at 100% 50%, rgba(34,197,94,0.1) 0%, transparent 60%), var(--dark); }
+      /* ── Special slide backgrounds ── */
+      .slide-hero {
+        background:
+          radial-gradient(ellipse 80% 60% at 50% 0%, rgba(245, 166, 35, 0.15) 0%, transparent 70%),
+          var(--dark);
+      }
+      .slide-dark {
+        background: var(--dark2);
+      }
+      .slide-accent {
+        background:
+          radial-gradient(
+            ellipse 70% 50% at 50% 100%,
+            rgba(108, 99, 255, 0.15) 0%,
+            transparent 70%
+          ),
+          var(--dark);
+      }
+      .slide-problem {
+        background:
+          radial-gradient(ellipse 70% 50% at 0% 50%, rgba(239, 68, 68, 0.1) 0%, transparent 60%),
+          var(--dark);
+      }
+      .slide-green {
+        background:
+          radial-gradient(ellipse 70% 50% at 100% 50%, rgba(34, 197, 94, 0.1) 0%, transparent 60%),
+          var(--dark);
+      }
 
-    /* ── Logo / brand ── */
-    .logo-mark {
-      width: 72px; height: 72px; border-radius: 18px;
-      background: linear-gradient(135deg, var(--orange), var(--orange-dark));
-      display: flex; align-items: center; justify-content: center;
-      font-size: 2rem; margin: 0 auto 24px;
-      box-shadow: 0 8px 32px rgba(245,166,35,0.4);
-    }
+      /* ── Logo / brand ── */
+      .logo-mark {
+        width: 72px;
+        height: 72px;
+        border-radius: 18px;
+        background: linear-gradient(135deg, var(--orange), var(--orange-dark));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        margin: 0 auto 24px;
+        box-shadow: 0 8px 32px rgba(245, 166, 35, 0.4);
+      }
 
-    /* ── Problem numbers ── */
-    .stat-row { display: flex; gap: 32px; margin-top: 32px; }
-    .stat { text-align: center; }
-    .stat .num { font-size: 3rem; font-weight: 800; color: var(--orange); line-height: 1; }
-    .stat .label { font-size: 0.8rem; color: var(--muted); margin-top: 6px; text-transform: uppercase; letter-spacing: 1px; }
+      /* ── Problem numbers ── */
+      .stat-row {
+        display: flex;
+        gap: 32px;
+        margin-top: 32px;
+      }
+      .stat {
+        text-align: center;
+      }
+      .stat .num {
+        font-size: 3rem;
+        font-weight: 800;
+        color: var(--orange);
+        line-height: 1;
+      }
+      .stat .label {
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-top: 6px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
 
-    /* ── Timeline / flow ── */
-    .flow { display: flex; align-items: center; gap: 0; margin-top: 36px; max-width: 900px; width: 100%; }
-    .flow-step { flex: 1; background: var(--card); border-radius: 14px; padding: 18px 16px; text-align: center; font-size: 0.85rem; border: 1px solid rgba(255,255,255,0.06); }
-    .flow-step .num { width: 28px; height: 28px; background: var(--orange); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; margin: 0 auto 8px; color: #000; }
-    .flow-arrow { color: var(--muted); font-size: 1.2rem; padding: 0 6px; flex-shrink: 0; }
+      /* ── Timeline / flow ── */
+      .flow {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        margin-top: 36px;
+        max-width: 900px;
+        width: 100%;
+      }
+      .flow-step {
+        flex: 1;
+        background: var(--card);
+        border-radius: 14px;
+        padding: 18px 16px;
+        text-align: center;
+        font-size: 0.85rem;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+      .flow-step .num {
+        width: 28px;
+        height: 28px;
+        background: var(--orange);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.75rem;
+        font-weight: 700;
+        margin: 0 auto 8px;
+        color: #000;
+      }
+      .flow-arrow {
+        color: var(--muted);
+        font-size: 1.2rem;
+        padding: 0 6px;
+        flex-shrink: 0;
+      }
 
-    /* ── Pill badges ── */
-    .pill { display: inline-block; background: rgba(245,166,35,0.15); color: var(--orange); border: 1px solid rgba(245,166,35,0.3); border-radius: 999px; padding: 4px 14px; font-size: 0.8rem; font-weight: 600; margin: 4px; }
-    .pill.blue { background: rgba(59,130,246,0.15); color: var(--blue); border-color: rgba(59,130,246,0.3); }
-    .pill.green { background: rgba(34,197,94,0.15); color: var(--green); border-color: rgba(34,197,94,0.3); }
-    .pill.purple { background: rgba(108,99,255,0.15); color: var(--accent); border-color: rgba(108,99,255,0.3); }
+      /* ── Pill badges ── */
+      .pill {
+        display: inline-block;
+        background: rgba(245, 166, 35, 0.15);
+        color: var(--orange);
+        border: 1px solid rgba(245, 166, 35, 0.3);
+        border-radius: 999px;
+        padding: 4px 14px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin: 4px;
+      }
+      .pill.blue {
+        background: rgba(59, 130, 246, 0.15);
+        color: var(--blue);
+        border-color: rgba(59, 130, 246, 0.3);
+      }
+      .pill.green {
+        background: rgba(34, 197, 94, 0.15);
+        color: var(--green);
+        border-color: rgba(34, 197, 94, 0.3);
+      }
+      .pill.purple {
+        background: rgba(108, 99, 255, 0.15);
+        color: var(--accent);
+        border-color: rgba(108, 99, 255, 0.3);
+      }
 
-    /* ── Coming soon badge ── */
-    .soon { display: inline-block; background: rgba(245,166,35,0.2); color: var(--orange); font-size: 0.7rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; padding: 2px 10px; border-radius: 999px; margin-left: 8px; vertical-align: middle; }
+      /* ── Coming soon badge ── */
+      .soon {
+        display: inline-block;
+        background: rgba(245, 166, 35, 0.2);
+        color: var(--orange);
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        padding: 2px 10px;
+        border-radius: 999px;
+        margin-left: 8px;
+        vertical-align: middle;
+      }
 
-    /* ── Quote ── */
-    .quote { font-size: clamp(1.1rem, 2.2vw, 1.5rem); font-style: italic; color: var(--text); max-width: 720px; line-height: 1.6; margin: 20px 0; }
-    .quote::before { content: '"'; color: var(--orange); font-size: 3rem; line-height: 0; vertical-align: -0.5rem; margin-right: 6px; }
-    .quote::after  { content: '"'; color: var(--orange); font-size: 3rem; line-height: 0; vertical-align: -0.5rem; margin-left: 6px; }
+      /* ── Quote ── */
+      .quote {
+        font-size: clamp(1.1rem, 2.2vw, 1.5rem);
+        font-style: italic;
+        color: var(--text);
+        max-width: 720px;
+        line-height: 1.6;
+        margin: 20px 0;
+      }
+      .quote::before {
+        content: '"';
+        color: var(--orange);
+        font-size: 3rem;
+        line-height: 0;
+        vertical-align: -0.5rem;
+        margin-right: 6px;
+      }
+      .quote::after {
+        content: '"';
+        color: var(--orange);
+        font-size: 3rem;
+        line-height: 0;
+        vertical-align: -0.5rem;
+        margin-left: 6px;
+      }
 
-    /* ── Collection table ── */
-    .coll-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; max-width: 900px; width: 100%; margin-top: 28px; }
-    .coll-item { background: var(--card); border-radius: 10px; padding: 12px 14px; font-size: 0.78rem; border-left: 3px solid var(--orange); }
-    .coll-item .name { font-weight: 700; color: var(--text); margin-bottom: 3px; }
-    .coll-item .desc { color: var(--muted); font-size: 0.72rem; }
+      /* ── Collection table ── */
+      .coll-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        max-width: 900px;
+        width: 100%;
+        margin-top: 28px;
+      }
+      .coll-item {
+        background: var(--card);
+        border-radius: 10px;
+        padding: 12px 14px;
+        font-size: 0.78rem;
+        border-left: 3px solid var(--orange);
+      }
+      .coll-item .name {
+        font-weight: 700;
+        color: var(--text);
+        margin-bottom: 3px;
+      }
+      .coll-item .desc {
+        color: var(--muted);
+        font-size: 0.72rem;
+      }
 
-    /* ── Navigation ── */
-    .nav {
-      position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
-      display: flex; align-items: center; gap: 16px;
-      background: rgba(30,33,48,0.9); backdrop-filter: blur(12px);
-      border: 1px solid rgba(255,255,255,0.1); border-radius: 999px;
-      padding: 10px 20px; z-index: 100;
-    }
-    .nav button {
-      background: none; border: none; cursor: pointer;
-      color: var(--muted); font-size: 1.1rem; padding: 4px 10px;
-      border-radius: 6px; transition: color 0.2s, background 0.2s;
-    }
-    .nav button:hover { color: var(--text); background: rgba(255,255,255,0.08); }
-    .nav .counter { font-size: 0.8rem; color: var(--muted); min-width: 52px; text-align: center; }
-    .dots { display: flex; gap: 6px; align-items: center; }
-    .dot { width: 6px; height: 6px; border-radius: 50%; background: rgba(255,255,255,0.2); transition: background 0.3s, width 0.3s; cursor: pointer; }
-    .dot.active { background: var(--orange); width: 18px; border-radius: 3px; }
+      /* ── Navigation ── */
+      .nav {
+        position: fixed;
+        bottom: 28px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        background: rgba(30, 33, 48, 0.9);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 999px;
+        padding: 10px 20px;
+        z-index: 100;
+      }
+      .nav button {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--muted);
+        font-size: 1.1rem;
+        padding: 4px 10px;
+        border-radius: 6px;
+        transition:
+          color 0.2s,
+          background 0.2s;
+      }
+      .nav button:hover {
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .nav .counter {
+        font-size: 0.8rem;
+        color: var(--muted);
+        min-width: 52px;
+        text-align: center;
+      }
+      .dots {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.2);
+        transition:
+          background 0.3s,
+          width 0.3s;
+        cursor: pointer;
+      }
+      .dot.active {
+        background: var(--orange);
+        width: 18px;
+        border-radius: 3px;
+      }
 
-    /* ── Keyboard hint ── */
-    .kb { position: fixed; top: 20px; right: 24px; font-size: 0.72rem; color: rgba(255,255,255,0.2); }
+      /* ── Keyboard hint ── */
+      .kb {
+        position: fixed;
+        top: 20px;
+        right: 24px;
+        font-size: 0.72rem;
+        color: rgba(255, 255, 255, 0.2);
+      }
 
-    /* ── Divider ── */
-    .divider { width: 60px; height: 3px; background: var(--orange); border-radius: 2px; margin: 16px auto; }
+      /* ── Divider ── */
+      .divider {
+        width: 60px;
+        height: 3px;
+        background: var(--orange);
+        border-radius: 2px;
+        margin: 16px auto;
+      }
 
-    /* ── Stacked list ── */
-    .list { list-style: none; text-align: left; margin-top: 28px; max-width: 680px; width: 100%; }
-    .list li { display: flex; align-items: flex-start; gap: 12px; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.95rem; color: var(--muted); }
-    .list li:last-child { border-bottom: none; }
-    .list li .bullet { color: var(--orange); font-size: 1.2rem; flex-shrink: 0; margin-top: 1px; }
-    .list li strong { color: var(--text); display: block; margin-bottom: 2px; }
+      /* ── Stacked list ── */
+      .list {
+        list-style: none;
+        text-align: left;
+        margin-top: 28px;
+        max-width: 680px;
+        width: 100%;
+      }
+      .list li {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        font-size: 0.95rem;
+        color: var(--muted);
+      }
+      .list li:last-child {
+        border-bottom: none;
+      }
+      .list li .bullet {
+        color: var(--orange);
+        font-size: 1.2rem;
+        flex-shrink: 0;
+        margin-top: 1px;
+      }
+      .list li strong {
+        color: var(--text);
+        display: block;
+        margin-bottom: 2px;
+      }
 
-    /* ── Full-width note ── */
-    .note { background: rgba(245,166,35,0.08); border: 1px solid rgba(245,166,35,0.2); border-radius: 12px; padding: 16px 20px; max-width: 700px; margin-top: 24px; font-size: 0.9rem; color: var(--muted); }
+      /* ── Full-width note ── */
+      .note {
+        background: rgba(245, 166, 35, 0.08);
+        border: 1px solid rgba(245, 166, 35, 0.2);
+        border-radius: 12px;
+        padding: 16px 20px;
+        max-width: 700px;
+        margin-top: 24px;
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
 
-    /* ── Scrollable tall slides ── */
-    .slide.scrollable { overflow-y: auto; justify-content: flex-start; padding-top: 80px; }
-  </style>
-</head>
-<body>
-
-<div class="deck" id="deck">
-
-  <!-- ══════════════════════════════════════════════════
+      /* ── Scrollable tall slides ── */
+      .slide.scrollable {
+        overflow-y: auto;
+        justify-content: flex-start;
+        padding-top: 80px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="deck" id="deck">
+      <!-- ══════════════════════════════════════════════════
        SLIDE 1 — HERO
   ══════════════════════════════════════════════════ -->
-  <div class="slide slide-hero active" id="s1">
-    <div class="logo-mark">⏱</div>
-    <div class="eyebrow">Product Launch · 2026</div>
-    <h1><span class="highlight">Huddle</span></h1>
-    <div class="divider"></div>
-    <p style="font-size:1.2rem; color: var(--text); margin-top: 12px;">
-      The time tracker that works <span class="highlight">as you work</span> — no logging, no guessing, no lost hours.
-    </p>
-    <div style="margin-top: 32px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
-      <span class="pill">Clock In / Out</span>
-      <span class="pill blue">Ticket Tracking</span>
-      <span class="pill green">Timesheets</span>
-      <span class="pill purple">Jerry AI</span>
-      <span class="pill">Pulse Video</span>
-      <span class="pill blue">Team Management</span>
-    </div>
-  </div>
+      <div class="slide slide-hero active" id="s1">
+        <div class="logo-mark">⏱</div>
+        <div class="eyebrow">Product Launch · 2026</div>
+        <h1><span class="highlight">Huddle</span></h1>
+        <div class="divider"></div>
+        <p style="font-size: 1.2rem; color: var(--text); margin-top: 12px">
+          The time tracker that works <span class="highlight">as you work</span> — no logging, no
+          guessing, no lost hours.
+        </p>
+        <div
+          style="
+            margin-top: 32px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+          "
+        >
+          <span class="pill">Clock In / Out</span>
+          <span class="pill blue">Ticket Tracking</span>
+          <span class="pill green">Timesheets</span>
+          <span class="pill purple">Jerry AI</span>
+          <span class="pill">Pulse Video</span>
+          <span class="pill blue">Team Management</span>
+        </div>
+      </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 2 — THE PROBLEM
   ══════════════════════════════════════════════════ -->
-  <div class="slide slide-problem" id="s2">
-    <div class="eyebrow">The Problem We're Solving</div>
-    <h2>Time disappears.<br/><span class="highlight">No one knows where it went.</span></h2>
-    <div class="divider"></div>
-    <p>Most teams track time as an afterthought — filled in at the end of the day from memory, inaccurate, and disconnected from the actual work that was done.</p>
-    <div class="stat-row">
-      <div class="stat"><div class="num">67%</div><div class="label">of workers can't recall what they worked on 2 days ago</div></div>
-      <div class="stat"><div class="num">4.5h</div><div class="label">average weekly time lost to poor time tracking</div></div>
-      <div class="stat"><div class="num">$50k+</div><div class="label">annual cost per team of untracked billable hours</div></div>
-    </div>
-  </div>
+      <div class="slide slide-problem" id="s2">
+        <div class="eyebrow">The Problem We're Solving</div>
+        <h2>Time disappears.<br /><span class="highlight">No one knows where it went.</span></h2>
+        <div class="divider"></div>
+        <p>
+          Most teams track time as an afterthought — filled in at the end of the day from memory,
+          inaccurate, and disconnected from the actual work that was done.
+        </p>
+        <div class="stat-row">
+          <div class="stat">
+            <div class="num">67%</div>
+            <div class="label">of workers can't recall what they worked on 2 days ago</div>
+          </div>
+          <div class="stat">
+            <div class="num">4.5h</div>
+            <div class="label">average weekly time lost to poor time tracking</div>
+          </div>
+          <div class="stat">
+            <div class="num">$50k+</div>
+            <div class="label">annual cost per team of untracked billable hours</div>
+          </div>
+        </div>
+      </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 3 — VISION
   ══════════════════════════════════════════════════ -->
-  <div class="slide slide-dark" id="s3">
-    <div class="eyebrow">Our Vision</div>
-    <h2>A world where time tracking<br/><span class="highlight">runs itself.</span></h2>
-    <div class="divider"></div>
-    <div class="quote">What if your work tool just knew what you were doing — and recorded it for you?</div>
-    <p style="margin-top: 16px;">
-      Huddle is built on the belief that people shouldn't have to remember what they did.
-      The system should capture it live — as it happens — so you can focus entirely on the work itself.
-    </p>
-    <div style="margin-top: 28px; display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;">
-      <div style="background: var(--card); border-radius: 12px; padding: 14px 20px; font-size: 0.85rem; border: 1px solid rgba(255,255,255,0.07);">
-        <div style="color: var(--orange); font-weight: 700; margin-bottom: 4px;">Today</div>
-        <div style="color: var(--muted);">Clock in/out · Tickets · Timers</div>
+      <div class="slide slide-dark" id="s3">
+        <div class="eyebrow">Our Vision</div>
+        <h2>A world where time tracking<br /><span class="highlight">runs itself.</span></h2>
+        <div class="divider"></div>
+        <div class="quote">
+          What if your work tool just knew what you were doing — and recorded it for you?
+        </div>
+        <p style="margin-top: 16px">
+          Huddle is built on the belief that people shouldn't have to remember what they did. The
+          system should capture it live — as it happens — so you can focus entirely on the work
+          itself.
+        </p>
+        <div
+          style="
+            margin-top: 28px;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            justify-content: center;
+          "
+        >
+          <div
+            style="
+              background: var(--card);
+              border-radius: 12px;
+              padding: 14px 20px;
+              font-size: 0.85rem;
+              border: 1px solid rgba(255, 255, 255, 0.07);
+            "
+          >
+            <div style="color: var(--orange); font-weight: 700; margin-bottom: 4px">Today</div>
+            <div style="color: var(--muted)">Clock in/out · Tickets · Timers</div>
+          </div>
+          <div
+            style="
+              background: var(--card);
+              border-radius: 12px;
+              padding: 14px 20px;
+              font-size: 0.85rem;
+              border: 1px solid rgba(245, 166, 35, 0.3);
+            "
+          >
+            <div style="color: var(--orange); font-weight: 700; margin-bottom: 4px">Soon</div>
+            <div style="color: var(--muted)">Pulse · Jerry AI · ActivityWatch</div>
+          </div>
+          <div
+            style="
+              background: var(--card);
+              border-radius: 12px;
+              padding: 14px 20px;
+              font-size: 0.85rem;
+              border: 1px solid rgba(255, 255, 255, 0.07);
+            "
+          >
+            <div style="color: var(--orange); font-weight: 700; margin-bottom: 4px">Future</div>
+            <div style="color: var(--muted)">Fully autonomous time capture</div>
+          </div>
+        </div>
       </div>
-      <div style="background: var(--card); border-radius: 12px; padding: 14px 20px; font-size: 0.85rem; border: 1px solid rgba(245,166,35,0.3);">
-        <div style="color: var(--orange); font-weight: 700; margin-bottom: 4px;">Soon</div>
-        <div style="color: var(--muted);">Pulse · Jerry AI · ActivityWatch</div>
-      </div>
-      <div style="background: var(--card); border-radius: 12px; padding: 14px 20px; font-size: 0.85rem; border: 1px solid rgba(255,255,255,0.07);">
-        <div style="color: var(--orange); font-weight: 700; margin-bottom: 4px;">Future</div>
-        <div style="color: var(--muted);">Fully autonomous time capture</div>
-      </div>
-    </div>
-  </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 4 — WHAT IS THE APP
   ══════════════════════════════════════════════════ -->
-  <div class="slide" id="s4">
-    <div class="eyebrow">What Is Huddle?</div>
-    <h2>A complete work tracking platform<br/>for <span class="highlight">teams and individuals.</span></h2>
-    <div class="divider"></div>
-    <div class="grid-3">
-      <div class="card">
-        <div class="icon">🕐</div>
-        <h3>Clock In / Out</h3>
-        <p>One-tap start and stop. Every session logged with exact timestamps — no forms to fill.</p>
+      <div class="slide" id="s4">
+        <div class="eyebrow">What Is Huddle?</div>
+        <h2>
+          A complete work tracking platform<br />for
+          <span class="highlight">teams and individuals.</span>
+        </h2>
+        <div class="divider"></div>
+        <div class="grid-3">
+          <div class="card">
+            <div class="icon">🕐</div>
+            <h3>Clock In / Out</h3>
+            <p>
+              One-tap start and stop. Every session logged with exact timestamps — no forms to fill.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🎫</div>
+            <h3>Ticket Tracking</h3>
+            <p>
+              Create tickets for each piece of work. Start a timer per ticket. See exactly where
+              your hours went.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">📊</div>
+            <h3>Timesheets</h3>
+            <p>Auto-generated timesheets by day, week, or range. No manual entry ever.</p>
+          </div>
+          <div class="card">
+            <div class="icon">👥</div>
+            <h3>Team Management</h3>
+            <p>
+              Create teams, invite members, assign roles. Admins see live status of who's clocked
+              in.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">💬</div>
+            <h3>Direct Messaging</h3>
+            <p>
+              Message teammates with ticket context attached — keep conversations tied to the work.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🔔</div>
+            <h3>Smart Notifications</h3>
+            <p>
+              Clock-in/out alerts, break reminders, push notifications on mobile — always in the
+              loop.
+            </p>
+          </div>
+        </div>
       </div>
-      <div class="card">
-        <div class="icon">🎫</div>
-        <h3>Ticket Tracking</h3>
-        <p>Create tickets for each piece of work. Start a timer per ticket. See exactly where your hours went.</p>
-      </div>
-      <div class="card">
-        <div class="icon">📊</div>
-        <h3>Timesheets</h3>
-        <p>Auto-generated timesheets by day, week, or range. No manual entry ever.</p>
-      </div>
-      <div class="card">
-        <div class="icon">👥</div>
-        <h3>Team Management</h3>
-        <p>Create teams, invite members, assign roles. Admins see live status of who's clocked in.</p>
-      </div>
-      <div class="card">
-        <div class="icon">💬</div>
-        <h3>Direct Messaging</h3>
-        <p>Message teammates with ticket context attached — keep conversations tied to the work.</p>
-      </div>
-      <div class="card">
-        <div class="icon">🔔</div>
-        <h3>Smart Notifications</h3>
-        <p>Clock-in/out alerts, break reminders, push notifications on mobile — always in the loop.</p>
-      </div>
-    </div>
-  </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 5 — HOW IT WORKS (USER FLOW)
   ══════════════════════════════════════════════════ -->
-  <div class="slide" id="s5">
-    <div class="eyebrow">How It Works</div>
-    <h2>From <span class="highlight">sign-in</span> to <span class="highlight">timesheet</span> in seconds.</h2>
-    <div class="divider"></div>
-    <div class="flow">
-      <div class="flow-step"><div class="num">1</div><div style="font-weight:600; margin-bottom:4px;">Sign In</div><div style="color:var(--muted);font-size:0.78rem;">Email or GitHub. Claim your username once.</div></div>
-      <div class="flow-arrow">→</div>
-      <div class="flow-step"><div class="num">2</div><div style="font-weight:600; margin-bottom:4px;">Join a Team</div><div style="color:var(--muted);font-size:0.78rem;">Create or get invited. Org hierarchy handled automatically.</div></div>
-      <div class="flow-arrow">→</div>
-      <div class="flow-step"><div class="num">3</div><div style="font-weight:600; margin-bottom:4px;">Clock In</div><div style="color:var(--muted);font-size:0.78rem;">One tap. Team admins see you go live instantly.</div></div>
-      <div class="flow-arrow">→</div>
-      <div class="flow-step"><div class="num">4</div><div style="font-weight:600; margin-bottom:4px;">Track Tickets</div><div style="color:var(--muted);font-size:0.78rem;">Start a timer on what you're working on right now.</div></div>
-      <div class="flow-arrow">→</div>
-      <div class="flow-step"><div class="num">5</div><div style="font-weight:600; margin-bottom:4px;">Clock Out</div><div style="color:var(--muted);font-size:0.78rem;">All timers close. Timesheet is ready — no extra steps.</div></div>
-    </div>
-    <div class="note" style="margin-top: 30px;">
-      💡 Jerry AI can do all of this for you with a single voice command — "Clock me in to the design team and start a timer on the homepage ticket."
-    </div>
-  </div>
+      <div class="slide" id="s5">
+        <div class="eyebrow">How It Works</div>
+        <h2>
+          From <span class="highlight">sign-in</span> to <span class="highlight">timesheet</span> in
+          seconds.
+        </h2>
+        <div class="divider"></div>
+        <div class="flow">
+          <div class="flow-step">
+            <div class="num">1</div>
+            <div style="font-weight: 600; margin-bottom: 4px">Sign In</div>
+            <div style="color: var(--muted); font-size: 0.78rem">
+              Email or GitHub. Claim your username once.
+            </div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="num">2</div>
+            <div style="font-weight: 600; margin-bottom: 4px">Join a Team</div>
+            <div style="color: var(--muted); font-size: 0.78rem">
+              Create or get invited. Org hierarchy handled automatically.
+            </div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="num">3</div>
+            <div style="font-weight: 600; margin-bottom: 4px">Clock In</div>
+            <div style="color: var(--muted); font-size: 0.78rem">
+              One tap. Team admins see you go live instantly.
+            </div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="num">4</div>
+            <div style="font-weight: 600; margin-bottom: 4px">Track Tickets</div>
+            <div style="color: var(--muted); font-size: 0.78rem">
+              Start a timer on what you're working on right now.
+            </div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-step">
+            <div class="num">5</div>
+            <div style="font-weight: 600; margin-bottom: 4px">Clock Out</div>
+            <div style="color: var(--muted); font-size: 0.78rem">
+              All timers close. Timesheet is ready — no extra steps.
+            </div>
+          </div>
+        </div>
+        <div class="note" style="margin-top: 30px">
+          💡 Jerry AI can do all of this for you with a single voice command — "Clock me in to the
+          design team and start a timer on the homepage ticket."
+        </div>
+      </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 6 — JERRY AI
   ══════════════════════════════════════════════════ -->
-  <div class="slide slide-accent" id="s6">
-    <div class="eyebrow">Meet Jerry <span class="soon">Coming Soon</span></div>
-    <h2>Your AI assistant that<br/><span class="highlight">runs the app for you.</span></h2>
-    <div class="divider"></div>
-    <p>Jerry is built into the app as a floating chat bubble. You talk to Jerry in plain English — Jerry takes action.</p>
-    <div class="grid-2" style="margin-top: 28px; max-width: 780px;">
-      <div class="card">
-        <div class="icon">🤖</div>
-        <h3>Powered by Ozwell AI</h3>
-        <p>Enterprise-grade AI backbone from MIE. Jerry understands context — your team, your current page, your active timer.</p>
+      <div class="slide slide-accent" id="s6">
+        <div class="eyebrow">Meet Jerry <span class="soon">Coming Soon</span></div>
+        <h2>Your AI assistant that<br /><span class="highlight">runs the app for you.</span></h2>
+        <div class="divider"></div>
+        <p>
+          Jerry is built into the app as a floating chat bubble. You talk to Jerry in plain English
+          — Jerry takes action.
+        </p>
+        <div class="grid-2" style="margin-top: 28px; max-width: 780px">
+          <div class="card">
+            <div class="icon">🤖</div>
+            <h3>Powered by Ozwell AI</h3>
+            <p>
+              Enterprise-grade AI backbone from MIE. Jerry understands context — your team, your
+              current page, your active timer.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🛠️</div>
+            <h3>Full App Control</h3>
+            <p>
+              Jerry can clock you in, create tickets, start/stop timers, switch teams, update
+              timesheets — everything the app can do.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🌐</div>
+            <h3>GitHub Integration</h3>
+            <p>
+              Paste a GitHub issue URL. Jerry auto-fetches the title and description and creates the
+              ticket instantly.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🔒</div>
+            <h3>Safe by Design</h3>
+            <p>
+              Jerry always confirms before deleting anything. Never shows internal IDs. Never acts
+              beyond explicit intent.
+            </p>
+          </div>
+        </div>
       </div>
-      <div class="card">
-        <div class="icon">🛠️</div>
-        <h3>Full App Control</h3>
-        <p>Jerry can clock you in, create tickets, start/stop timers, switch teams, update timesheets — everything the app can do.</p>
-      </div>
-      <div class="card">
-        <div class="icon">🌐</div>
-        <h3>GitHub Integration</h3>
-        <p>Paste a GitHub issue URL. Jerry auto-fetches the title and description and creates the ticket instantly.</p>
-      </div>
-      <div class="card">
-        <div class="icon">🔒</div>
-        <h3>Safe by Design</h3>
-        <p>Jerry always confirms before deleting anything. Never shows internal IDs. Never acts beyond explicit intent.</p>
-      </div>
-    </div>
-  </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 7 — PULSE
   ══════════════════════════════════════════════════ -->
-  <div class="slide slide-green" id="s7">
-    <div class="eyebrow">Pulse <span class="soon">Coming Soon</span></div>
-    <h2>Video proof of work,<br/><span class="highlight">attached to every ticket.</span></h2>
-    <div class="divider"></div>
-    <p>Pulse lets you record screen or camera video while you work and attach it directly to a ticket — so reviewers and managers can see the work, not just the time.</p>
-    <div class="grid-3" style="margin-top: 28px;">
-      <div class="card">
-        <div class="icon">📱</div>
-        <h3>Native Deep Link</h3>
-        <p>On mobile, tap to open Pulse Cam directly. Records and uploads to the ticket automatically.</p>
+      <div class="slide slide-green" id="s7">
+        <div class="eyebrow">Pulse <span class="soon">Coming Soon</span></div>
+        <h2>Video proof of work,<br /><span class="highlight">attached to every ticket.</span></h2>
+        <div class="divider"></div>
+        <p>
+          Pulse lets you record screen or camera video while you work and attach it directly to a
+          ticket — so reviewers and managers can see the work, not just the time.
+        </p>
+        <div class="grid-3" style="margin-top: 28px">
+          <div class="card">
+            <div class="icon">📱</div>
+            <h3>Native Deep Link</h3>
+            <p>
+              On mobile, tap to open Pulse Cam directly. Records and uploads to the ticket
+              automatically.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">📷</div>
+            <h3>QR Code on Web</h3>
+            <p>
+              On desktop, a QR code appears — scan with your phone to record and upload from mobile.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">⏸️</div>
+            <h3>Resumable Uploads</h3>
+            <p>
+              Interrupted upload? No problem. Pulse resumes from exactly where it stopped — no
+              re-recording needed.
+            </p>
+          </div>
+        </div>
       </div>
-      <div class="card">
-        <div class="icon">📷</div>
-        <h3>QR Code on Web</h3>
-        <p>On desktop, a QR code appears — scan with your phone to record and upload from mobile.</p>
-      </div>
-      <div class="card">
-        <div class="icon">⏸️</div>
-        <h3>Resumable Uploads</h3>
-        <p>Interrupted upload? No problem. Pulse resumes from exactly where it stopped — no re-recording needed.</p>
-      </div>
-    </div>
-  </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 8 — ACTIVITY WATCH
   ══════════════════════════════════════════════════ -->
-  <div class="slide slide-dark" id="s8">
-    <div class="eyebrow">ActivityWatch <span class="soon">Coming Soon</span></div>
-    <h2>Time tracking that<br/><span class="highlight">watches itself.</span></h2>
-    <div class="divider"></div>
-    <p>ActivityWatch will automatically detect what you're working on — which app, which website, which file — and suggest or auto-fill your time entries. Zero manual input.</p>
-    <div class="grid-2" style="max-width: 700px; margin-top: 28px;">
-      <div class="card">
-        <div class="icon">👁️</div>
-        <h3>Passive Detection</h3>
-        <p>Runs in the background. Detects active application, browser tab, and focus time automatically.</p>
+      <div class="slide slide-dark" id="s8">
+        <div class="eyebrow">ActivityWatch <span class="soon">Coming Soon</span></div>
+        <h2>Time tracking that<br /><span class="highlight">watches itself.</span></h2>
+        <div class="divider"></div>
+        <p>
+          ActivityWatch will automatically detect what you're working on — which app, which website,
+          which file — and suggest or auto-fill your time entries. Zero manual input.
+        </p>
+        <div class="grid-2" style="max-width: 700px; margin-top: 28px">
+          <div class="card">
+            <div class="icon">👁️</div>
+            <h3>Passive Detection</h3>
+            <p>
+              Runs in the background. Detects active application, browser tab, and focus time
+              automatically.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🔗</div>
+            <h3>Ticket Matching</h3>
+            <p>
+              Matches detected activity to your open tickets and suggests timer assignments — you
+              just confirm.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🧠</div>
+            <h3>AI Suggestions</h3>
+            <p>
+              Jerry learns your patterns and proactively suggests "You were in VS Code for 2h — link
+              to the API ticket?"
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🛡️</div>
+            <h3>Privacy First</h3>
+            <p>
+              Activity data stays on your device. Only the time assignments you approve are sent to
+              the server.
+            </p>
+          </div>
+        </div>
       </div>
-      <div class="card">
-        <div class="icon">🔗</div>
-        <h3>Ticket Matching</h3>
-        <p>Matches detected activity to your open tickets and suggests timer assignments — you just confirm.</p>
-      </div>
-      <div class="card">
-        <div class="icon">🧠</div>
-        <h3>AI Suggestions</h3>
-        <p>Jerry learns your patterns and proactively suggests "You were in VS Code for 2h — link to the API ticket?"</p>
-      </div>
-      <div class="card">
-        <div class="icon">🛡️</div>
-        <h3>Privacy First</h3>
-        <p>Activity data stays on your device. Only the time assignments you approve are sent to the server.</p>
-      </div>
-    </div>
-  </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 9 — WHO IS IT FOR
   ══════════════════════════════════════════════════ -->
-  <div class="slide" id="s9">
-    <div class="eyebrow">Who Is It For?</div>
-    <h2>Built for <span class="highlight">everyone</span> who works<br/>and needs to know where time went.</h2>
-    <div class="divider"></div>
-    <div class="grid-2" style="max-width: 860px;">
-      <div class="card">
-        <div class="icon">🧑‍💻</div>
-        <h3>Individual Contributors</h3>
-        <p>Developers, designers, writers — anyone who needs to prove their time or bill by the hour. No spreadsheets, no memory games.</p>
+      <div class="slide" id="s9">
+        <div class="eyebrow">Who Is It For?</div>
+        <h2>
+          Built for <span class="highlight">everyone</span> who works<br />and needs to know where
+          time went.
+        </h2>
+        <div class="divider"></div>
+        <div class="grid-2" style="max-width: 860px">
+          <div class="card">
+            <div class="icon">🧑‍💻</div>
+            <h3>Individual Contributors</h3>
+            <p>
+              Developers, designers, writers — anyone who needs to prove their time or bill by the
+              hour. No spreadsheets, no memory games.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🏢</div>
+            <h3>Organisations & HR</h3>
+            <p>
+              Track compliance, enforce break rules, auto-generate timesheets for payroll. Real-time
+              visibility into team presence.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">👩‍💼</div>
+            <h3>Team Managers</h3>
+            <p>
+              See who's clocked in live, get notified on clock-in/out, view time breakdowns per
+              ticket, per person, per week.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🏗️</div>
+            <h3>Agencies & Freelancers</h3>
+            <p>
+              Multi-team support, ticket-level time tracking, and video evidence — everything needed
+              for transparent client billing.
+            </p>
+          </div>
+        </div>
       </div>
-      <div class="card">
-        <div class="icon">🏢</div>
-        <h3>Organisations & HR</h3>
-        <p>Track compliance, enforce break rules, auto-generate timesheets for payroll. Real-time visibility into team presence.</p>
-      </div>
-      <div class="card">
-        <div class="icon">👩‍💼</div>
-        <h3>Team Managers</h3>
-        <p>See who's clocked in live, get notified on clock-in/out, view time breakdowns per ticket, per person, per week.</p>
-      </div>
-      <div class="card">
-        <div class="icon">🏗️</div>
-        <h3>Agencies & Freelancers</h3>
-        <p>Multi-team support, ticket-level time tracking, and video evidence — everything needed for transparent client billing.</p>
-      </div>
-    </div>
-  </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 10 — SECURITY & TRUST
   ══════════════════════════════════════════════════ -->
-  <div class="slide slide-dark" id="s10">
-    <div class="eyebrow">Security & Trust</div>
-    <h2>Built secure<br/><span class="highlight">from the ground up.</span></h2>
-    <div class="divider"></div>
-    <div class="grid-3" style="max-width: 900px;">
-      <div class="card">
-        <div class="icon">🍪</div>
-        <h3>httpOnly Cookies</h3>
-        <p>Session tokens are stored in server-only cookies. JavaScript on the page can never read them — protecting against XSS attacks.</p>
+      <div class="slide slide-dark" id="s10">
+        <div class="eyebrow">Security & Trust</div>
+        <h2>Built secure<br /><span class="highlight">from the ground up.</span></h2>
+        <div class="divider"></div>
+        <div class="grid-3" style="max-width: 900px">
+          <div class="card">
+            <div class="icon">🍪</div>
+            <h3>httpOnly Cookies</h3>
+            <p>
+              Session tokens are stored in server-only cookies. JavaScript on the page can never
+              read them — protecting against XSS attacks.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">📱</div>
+            <h3>Native Bearer Tokens</h3>
+            <p>
+              Mobile apps use a separate secure token flow — no cookie confusion in native WebViews.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🔑</div>
+            <h3>OAuth + GitHub</h3>
+            <p>
+              Sign in with GitHub or email/password. Passwords are bcrypt-hashed — never stored in
+              plain text.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🌐</div>
+            <h3>OIDC Provider</h3>
+            <p>
+              Full OpenID Connect support — other trusted apps in the ecosystem can authenticate
+              through Huddle.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🔐</div>
+            <h3>API Tokens</h3>
+            <p>
+              Personal access tokens for programmatic access — scoped, revokable, and never stored
+              in raw form.
+            </p>
+          </div>
+          <div class="card">
+            <div class="icon">🛡️</div>
+            <h3>Role-Based Access</h3>
+            <p>
+              Admin and member roles per team. Only owners and admins can edit/delete clock events
+              and manage members.
+            </p>
+          </div>
+        </div>
       </div>
-      <div class="card">
-        <div class="icon">📱</div>
-        <h3>Native Bearer Tokens</h3>
-        <p>Mobile apps use a separate secure token flow — no cookie confusion in native WebViews.</p>
-      </div>
-      <div class="card">
-        <div class="icon">🔑</div>
-        <h3>OAuth + GitHub</h3>
-        <p>Sign in with GitHub or email/password. Passwords are bcrypt-hashed — never stored in plain text.</p>
-      </div>
-      <div class="card">
-        <div class="icon">🌐</div>
-        <h3>OIDC Provider</h3>
-        <p>Full OpenID Connect support — other trusted apps in the ecosystem can authenticate through Huddle.</p>
-      </div>
-      <div class="card">
-        <div class="icon">🔐</div>
-        <h3>API Tokens</h3>
-        <p>Personal access tokens for programmatic access — scoped, revokable, and never stored in raw form.</p>
-      </div>
-      <div class="card">
-        <div class="icon">🛡️</div>
-        <h3>Role-Based Access</h3>
-        <p>Admin and member roles per team. Only owners and admins can edit/delete clock events and manage members.</p>
-      </div>
-    </div>
-  </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 11 — TECH STACK (SIMPLE)
   ══════════════════════════════════════════════════ -->
-  <div class="slide" id="s11">
-    <div class="eyebrow">Technology</div>
-    <h2>Modern stack.<br/><span class="highlight">Built to scale.</span></h2>
-    <div class="divider"></div>
-    <div class="grid-4" style="max-width: 960px;">
-      <div class="card" style="text-align:center;">
-        <div class="icon">⚛️</div>
-        <h3>React 19</h3>
-        <p>Latest concurrent UI engine. Instant updates, no flicker.</p>
+      <div class="slide" id="s11">
+        <div class="eyebrow">Technology</div>
+        <h2>Modern stack.<br /><span class="highlight">Built to scale.</span></h2>
+        <div class="divider"></div>
+        <div class="grid-4" style="max-width: 960px">
+          <div class="card" style="text-align: center">
+            <div class="icon">⚛️</div>
+            <h3>React 19</h3>
+            <p>Latest concurrent UI engine. Instant updates, no flicker.</p>
+          </div>
+          <div class="card" style="text-align: center">
+            <div class="icon">⚡</div>
+            <h3>Fastify v5</h3>
+            <p>Fastest Node.js HTTP server. Handles thousands of requests per second.</p>
+          </div>
+          <div class="card" style="text-align: center">
+            <div class="icon">🍃</div>
+            <h3>MongoDB</h3>
+            <p>Flexible document database. Perfect for event-driven time data.</p>
+          </div>
+          <div class="card" style="text-align: center">
+            <div class="icon">📱</div>
+            <h3>Capacitor</h3>
+            <p>One codebase. Runs on iOS, Android, and web without rewriting.</p>
+          </div>
+          <div class="card" style="text-align: center">
+            <div class="icon">🔴</div>
+            <h3>Real-time SSE</h3>
+            <p>Server-Sent Events push live clock state and notifications instantly.</p>
+          </div>
+          <div class="card" style="text-align: center">
+            <div class="icon">📦</div>
+            <h3>TypeScript</h3>
+            <p>End-to-end type safety. Frontend and backend speak the same language.</p>
+          </div>
+          <div class="card" style="text-align: center">
+            <div class="icon">🎨</div>
+            <h3>Tailwind CSS 4</h3>
+            <p>Utility-first styling. Consistent design system out of the box.</p>
+          </div>
+          <div class="card" style="text-align: center">
+            <div class="icon">🐳</div>
+            <h3>Docker</h3>
+            <p>One command to run everything locally. Same environment in production.</p>
+          </div>
+        </div>
       </div>
-      <div class="card" style="text-align:center;">
-        <div class="icon">⚡</div>
-        <h3>Fastify v5</h3>
-        <p>Fastest Node.js HTTP server. Handles thousands of requests per second.</p>
-      </div>
-      <div class="card" style="text-align:center;">
-        <div class="icon">🍃</div>
-        <h3>MongoDB</h3>
-        <p>Flexible document database. Perfect for event-driven time data.</p>
-      </div>
-      <div class="card" style="text-align:center;">
-        <div class="icon">📱</div>
-        <h3>Capacitor</h3>
-        <p>One codebase. Runs on iOS, Android, and web without rewriting.</p>
-      </div>
-      <div class="card" style="text-align:center;">
-        <div class="icon">🔴</div>
-        <h3>Real-time SSE</h3>
-        <p>Server-Sent Events push live clock state and notifications instantly.</p>
-      </div>
-      <div class="card" style="text-align:center;">
-        <div class="icon">📦</div>
-        <h3>TypeScript</h3>
-        <p>End-to-end type safety. Frontend and backend speak the same language.</p>
-      </div>
-      <div class="card" style="text-align:center;">
-        <div class="icon">🎨</div>
-        <h3>Tailwind CSS 4</h3>
-        <p>Utility-first styling. Consistent design system out of the box.</p>
-      </div>
-      <div class="card" style="text-align:center;">
-        <div class="icon">🐳</div>
-        <h3>Docker</h3>
-        <p>One command to run everything locally. Same environment in production.</p>
-      </div>
-    </div>
-  </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 12 — PLATFORM AVAILABILITY
   ══════════════════════════════════════════════════ -->
-  <div class="slide slide-dark" id="s12">
-    <div class="eyebrow">Platform Availability</div>
-    <h2>One app.<br/><span class="highlight">Every platform.</span></h2>
-    <div class="divider"></div>
-    <p>Huddle runs on the same codebase across all three platforms — no feature gaps, no second-class experience.</p>
-    <div class="grid-3" style="max-width: 740px; margin-top: 32px;">
-      <div class="card" style="text-align:center;">
-        <div class="icon">🌐</div>
-        <h3>Web</h3>
-        <p style="font-size:0.82rem;">Full app at any browser. No install required. Works offline-ready.</p>
-        <div style="margin-top:10px;"><span class="pill green" style="font-size:0.72rem;">Live Now</span></div>
+      <div class="slide slide-dark" id="s12">
+        <div class="eyebrow">Platform Availability</div>
+        <h2>One app.<br /><span class="highlight">Every platform.</span></h2>
+        <div class="divider"></div>
+        <p>
+          Huddle runs on the same codebase across all three platforms — no feature gaps, no
+          second-class experience.
+        </p>
+        <div class="grid-3" style="max-width: 740px; margin-top: 32px">
+          <div class="card" style="text-align: center">
+            <div class="icon">🌐</div>
+            <h3>Web</h3>
+            <p style="font-size: 0.82rem">
+              Full app at any browser. No install required. Works offline-ready.
+            </p>
+            <div style="margin-top: 10px">
+              <span class="pill green" style="font-size: 0.72rem">Live Now</span>
+            </div>
+          </div>
+          <div class="card" style="text-align: center">
+            <div class="icon">🤖</div>
+            <h3>Android</h3>
+            <p style="font-size: 0.82rem">
+              Native Android app via Capacitor. Push notifications, deep links, Pulse Cam.
+            </p>
+            <div style="margin-top: 10px">
+              <span class="pill green" style="font-size: 0.72rem">Live Now</span>
+            </div>
+          </div>
+          <div class="card" style="text-align: center">
+            <div class="icon">🍎</div>
+            <h3>iOS</h3>
+            <p style="font-size: 0.82rem">
+              Native iOS app. Same features, same codebase, full App Store release.
+            </p>
+            <div style="margin-top: 10px">
+              <span class="pill green" style="font-size: 0.72rem">Live Now</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="card" style="text-align:center;">
-        <div class="icon">🤖</div>
-        <h3>Android</h3>
-        <p style="font-size:0.82rem;">Native Android app via Capacitor. Push notifications, deep links, Pulse Cam.</p>
-        <div style="margin-top:10px;"><span class="pill green" style="font-size:0.72rem;">Live Now</span></div>
-      </div>
-      <div class="card" style="text-align:center;">
-        <div class="icon">🍎</div>
-        <h3>iOS</h3>
-        <p style="font-size:0.82rem;">Native iOS app. Same features, same codebase, full App Store release.</p>
-        <div style="margin-top:10px;"><span class="pill green" style="font-size:0.72rem;">Live Now</span></div>
-      </div>
-    </div>
-  </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 13 — HOW TO ADOPT
   ══════════════════════════════════════════════════ -->
-  <div class="slide" id="s13">
-    <div class="eyebrow">How to Adopt</div>
-    <h2>Up and running<br/>in <span class="highlight">under 10 minutes.</span></h2>
-    <div class="divider"></div>
-    <ul class="list">
-      <li>
-        <span class="bullet">1</span>
-        <div><strong>Sign Up</strong> Go to the app URL. Create an account with email or GitHub. Claim your username.</div>
-      </li>
-      <li>
-        <span class="bullet">2</span>
-        <div><strong>Create Your Organisation</strong> Set up your org. Invite your first team admin.</div>
-      </li>
-      <li>
-        <span class="bullet">3</span>
-        <div><strong>Create Teams</strong> One team per department or project. Each team has its own clock state, tickets, and channels.</div>
-      </li>
-      <li>
-        <span class="bullet">4</span>
-        <div><strong>Invite Members</strong> Share an invite link or add by email. Members can join from web or mobile app.</div>
-      </li>
-      <li>
-        <span class="bullet">5</span>
-        <div><strong>Start Tracking</strong> Clock in → create tickets → start timers → clock out. Timesheets generate automatically.</div>
-      </li>
-      <li>
-        <span class="bullet">6</span>
-        <div><strong>Enable Jerry AI</strong> Set your Ozwell agent key. Jerry is live — your team can talk to the app from day one.</div>
-      </li>
-    </ul>
-  </div>
+      <div class="slide" id="s13">
+        <div class="eyebrow">How to Adopt</div>
+        <h2>Up and running<br />in <span class="highlight">under 10 minutes.</span></h2>
+        <div class="divider"></div>
+        <ul class="list">
+          <li>
+            <span class="bullet">1</span>
+            <div>
+              <strong>Sign Up</strong> Go to the app URL. Create an account with email or GitHub.
+              Claim your username.
+            </div>
+          </li>
+          <li>
+            <span class="bullet">2</span>
+            <div>
+              <strong>Create Your Organisation</strong> Set up your org. Invite your first team
+              admin.
+            </div>
+          </li>
+          <li>
+            <span class="bullet">3</span>
+            <div>
+              <strong>Create Teams</strong> One team per department or project. Each team has its
+              own clock state, tickets, and channels.
+            </div>
+          </li>
+          <li>
+            <span class="bullet">4</span>
+            <div>
+              <strong>Invite Members</strong> Share an invite link or add by email. Members can join
+              from web or mobile app.
+            </div>
+          </li>
+          <li>
+            <span class="bullet">5</span>
+            <div>
+              <strong>Start Tracking</strong> Clock in → create tickets → start timers → clock out.
+              Timesheets generate automatically.
+            </div>
+          </li>
+          <li>
+            <span class="bullet">6</span>
+            <div>
+              <strong>Enable Jerry AI</strong> Set your Ozwell agent key. Jerry is live — your team
+              can talk to the app from day one.
+            </div>
+          </li>
+        </ul>
+      </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 14 — THE BIGGER PICTURE
   ══════════════════════════════════════════════════ -->
-  <div class="slide slide-accent" id="s14">
-    <div class="eyebrow">The Bigger Picture</div>
-    <h2>Not just a time tracker.<br/><span class="highlight">A work intelligence platform.</span></h2>
-    <div class="divider"></div>
-    <p>Huddle is the foundation. Every feature we add — Pulse, Jerry, ActivityWatch — pushes toward the same north star:</p>
-    <div class="quote" style="margin-top: 24px;">Your organisation should always know what was worked on, for how long, and why — without anyone having to remember.</div>
-    <div class="grid-3" style="max-width: 780px; margin-top: 28px;">
-      <div class="card" style="text-align:center; border-color: rgba(245,166,35,0.3);">
-        <div style="font-size:2rem; margin-bottom:8px;">📍</div>
-        <h3>Where</h3>
-        <p style="font-size:0.82rem;">Which team, which ticket, which project — captured automatically.</p>
+      <div class="slide slide-accent" id="s14">
+        <div class="eyebrow">The Bigger Picture</div>
+        <h2>
+          Not just a time tracker.<br /><span class="highlight">A work intelligence platform.</span>
+        </h2>
+        <div class="divider"></div>
+        <p>
+          Huddle is the foundation. Every feature we add — Pulse, Jerry, ActivityWatch — pushes
+          toward the same north star:
+        </p>
+        <div class="quote" style="margin-top: 24px">
+          Your organisation should always know what was worked on, for how long, and why — without
+          anyone having to remember.
+        </div>
+        <div class="grid-3" style="max-width: 780px; margin-top: 28px">
+          <div class="card" style="text-align: center; border-color: rgba(245, 166, 35, 0.3)">
+            <div style="font-size: 2rem; margin-bottom: 8px">📍</div>
+            <h3>Where</h3>
+            <p style="font-size: 0.82rem">
+              Which team, which ticket, which project — captured automatically.
+            </p>
+          </div>
+          <div class="card" style="text-align: center; border-color: rgba(108, 99, 255, 0.3)">
+            <div style="font-size: 2rem; margin-bottom: 8px">⏱️</div>
+            <h3>How Long</h3>
+            <p style="font-size: 0.82rem">
+              Exact millisecond precision. Breaks excluded. Overruns flagged.
+            </p>
+          </div>
+          <div class="card" style="text-align: center; border-color: rgba(34, 197, 94, 0.3)">
+            <div style="font-size: 2rem; margin-bottom: 8px">🎥</div>
+            <h3>Proof</h3>
+            <p style="font-size: 0.82rem">
+              Video evidence via Pulse. See the work, not just the time.
+            </p>
+          </div>
+        </div>
       </div>
-      <div class="card" style="text-align:center; border-color: rgba(108,99,255,0.3);">
-        <div style="font-size:2rem; margin-bottom:8px;">⏱️</div>
-        <h3>How Long</h3>
-        <p style="font-size:0.82rem;">Exact millisecond precision. Breaks excluded. Overruns flagged.</p>
-      </div>
-      <div class="card" style="text-align:center; border-color: rgba(34,197,94,0.3);">
-        <div style="font-size:2rem; margin-bottom:8px;">🎥</div>
-        <h3>Proof</h3>
-        <p style="font-size:0.82rem;">Video evidence via Pulse. See the work, not just the time.</p>
-      </div>
-    </div>
-  </div>
 
-  <!-- ══════════════════════════════════════════════════
+      <!-- ══════════════════════════════════════════════════
        SLIDE 15 — CLOSING / CTA
   ══════════════════════════════════════════════════ -->
-  <div class="slide slide-hero" id="s15">
-    <div class="logo-mark">⏱</div>
-    <div class="eyebrow">Ready to Launch</div>
-    <h1>Let's <span class="highlight">Huddle.</span></h1>
-    <div class="divider"></div>
-    <p style="font-size: 1.1rem; color: var(--text);">
-      Huddle is live. The team is ready. The vision is clear.<br/>
-      Time to put it in the hands of the people who need it most.
-    </p>
-    <div style="margin-top: 36px; display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;">
-      <div style="background: var(--card); border-radius: 14px; padding: 16px 24px; border: 1px solid rgba(245,166,35,0.3); text-align:left; min-width: 180px;">
-        <div style="color:var(--orange); font-size:0.75rem; font-weight:700; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">App URL</div>
-        <div style="font-size: 0.9rem; color: var(--text);">localhost:3000</div>
-      </div>
-      <div style="background: var(--card); border-radius: 14px; padding: 16px 24px; border: 1px solid rgba(255,255,255,0.08); text-align:left; min-width: 180px;">
-        <div style="color:var(--orange); font-size:0.75rem; font-weight:700; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">Platforms</div>
-        <div style="font-size: 0.9rem; color: var(--text);">Web · iOS · Android</div>
-      </div>
-      <div style="background: var(--card); border-radius: 14px; padding: 16px 24px; border: 1px solid rgba(255,255,255,0.08); text-align:left; min-width: 180px;">
-        <div style="color:var(--orange); font-size:0.75rem; font-weight:700; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;">Auth</div>
-        <div style="font-size: 0.9rem; color: var(--text);">Email · GitHub · OAuth</div>
+      <div class="slide slide-hero" id="s15">
+        <div class="logo-mark">⏱</div>
+        <div class="eyebrow">Ready to Launch</div>
+        <h1>Let's <span class="highlight">Huddle.</span></h1>
+        <div class="divider"></div>
+        <p style="font-size: 1.1rem; color: var(--text)">
+          Huddle is live. The team is ready. The vision is clear.<br />
+          Time to put it in the hands of the people who need it most.
+        </p>
+        <div
+          style="
+            margin-top: 36px;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            justify-content: center;
+          "
+        >
+          <div
+            style="
+              background: var(--card);
+              border-radius: 14px;
+              padding: 16px 24px;
+              border: 1px solid rgba(245, 166, 35, 0.3);
+              text-align: left;
+              min-width: 180px;
+            "
+          >
+            <div
+              style="
+                color: var(--orange);
+                font-size: 0.75rem;
+                font-weight: 700;
+                letter-spacing: 2px;
+                text-transform: uppercase;
+                margin-bottom: 6px;
+              "
+            >
+              App URL
+            </div>
+            <div style="font-size: 0.9rem; color: var(--text)">localhost:3000</div>
+          </div>
+          <div
+            style="
+              background: var(--card);
+              border-radius: 14px;
+              padding: 16px 24px;
+              border: 1px solid rgba(255, 255, 255, 0.08);
+              text-align: left;
+              min-width: 180px;
+            "
+          >
+            <div
+              style="
+                color: var(--orange);
+                font-size: 0.75rem;
+                font-weight: 700;
+                letter-spacing: 2px;
+                text-transform: uppercase;
+                margin-bottom: 6px;
+              "
+            >
+              Platforms
+            </div>
+            <div style="font-size: 0.9rem; color: var(--text)">Web · iOS · Android</div>
+          </div>
+          <div
+            style="
+              background: var(--card);
+              border-radius: 14px;
+              padding: 16px 24px;
+              border: 1px solid rgba(255, 255, 255, 0.08);
+              text-align: left;
+              min-width: 180px;
+            "
+          >
+            <div
+              style="
+                color: var(--orange);
+                font-size: 0.75rem;
+                font-weight: 700;
+                letter-spacing: 2px;
+                text-transform: uppercase;
+                margin-bottom: 6px;
+              "
+            >
+              Auth
+            </div>
+            <div style="font-size: 0.9rem; color: var(--text)">Email · GitHub · OAuth</div>
+          </div>
+        </div>
+        <div
+          style="
+            margin-top: 28px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+          "
+        >
+          <span class="pill green">Clock In/Out ✓</span>
+          <span class="pill green">Ticket Timers ✓</span>
+          <span class="pill green">Timesheets ✓</span>
+          <span class="pill green">Teams ✓</span>
+          <span class="pill green">Notifications ✓</span>
+          <span class="pill">Pulse 🔜</span>
+          <span class="pill purple">Jerry AI 🔜</span>
+          <span class="pill blue">ActivityWatch 🔜</span>
+        </div>
       </div>
     </div>
-    <div style="margin-top: 28px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
-      <span class="pill green">Clock In/Out ✓</span>
-      <span class="pill green">Ticket Timers ✓</span>
-      <span class="pill green">Timesheets ✓</span>
-      <span class="pill green">Teams ✓</span>
-      <span class="pill green">Notifications ✓</span>
-      <span class="pill">Pulse 🔜</span>
-      <span class="pill purple">Jerry AI 🔜</span>
-      <span class="pill blue">ActivityWatch 🔜</span>
+
+    <!-- ── Navigation ── -->
+    <div class="nav">
+      <button id="prevBtn" onclick="go(-1)">←</button>
+      <div class="dots" id="dots"></div>
+      <span class="counter" id="counter">1 / 15</span>
+      <button id="nextBtn" onclick="go(1)">→</button>
     </div>
-  </div>
 
-</div>
+    <div class="kb">← → arrow keys to navigate</div>
 
-<!-- ── Navigation ── -->
-<div class="nav">
-  <button id="prevBtn" onclick="go(-1)">←</button>
-  <div class="dots" id="dots"></div>
-  <span class="counter" id="counter">1 / 15</span>
-  <button id="nextBtn" onclick="go(1)">→</button>
-</div>
+    <script>
+      const slides = Array.from(document.querySelectorAll('.slide'));
+      const dotsEl = document.getElementById('dots');
+      const counterEl = document.getElementById('counter');
+      let current = 0;
 
-<div class="kb">← → arrow keys to navigate</div>
+      // Build dots
+      slides.forEach((_, i) => {
+        const d = document.createElement('div');
+        d.className = 'dot' + (i === 0 ? ' active' : '');
+        d.onclick = () => goTo(i);
+        dotsEl.appendChild(d);
+      });
 
-<script>
-  const slides = Array.from(document.querySelectorAll('.slide'));
-  const dotsEl = document.getElementById('dots');
-  const counterEl = document.getElementById('counter');
-  let current = 0;
+      function goTo(idx) {
+        slides[current].classList.remove('active');
+        slides[current].classList.add('prev');
+        setTimeout(() => slides[current >= 0 ? current : 0].classList.remove('prev'), 500);
 
-  // Build dots
-  slides.forEach((_, i) => {
-    const d = document.createElement('div');
-    d.className = 'dot' + (i === 0 ? ' active' : '');
-    d.onclick = () => goTo(i);
-    dotsEl.appendChild(d);
-  });
+        const prev = current;
+        current = Math.max(0, Math.min(slides.length - 1, idx));
 
-  function goTo(idx) {
-    slides[current].classList.remove('active');
-    slides[current].classList.add('prev');
-    setTimeout(() => slides[current >= 0 ? current : 0].classList.remove('prev'), 500);
+        slides[prev].classList.remove('active');
+        setTimeout(() => slides[prev].classList.remove('prev'), 500);
+        slides[current].classList.add('active');
 
-    const prev = current;
-    current = Math.max(0, Math.min(slides.length - 1, idx));
+        document
+          .querySelectorAll('.dot')
+          .forEach((d, i) => d.classList.toggle('active', i === current));
+        counterEl.textContent = `${current + 1} / ${slides.length}`;
+      }
 
-    slides[prev].classList.remove('active');
-    setTimeout(() => slides[prev].classList.remove('prev'), 500);
-    slides[current].classList.add('active');
+      function go(dir) {
+        goTo(current + dir);
+      }
 
-    document.querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('active', i === current));
-    counterEl.textContent = `${current + 1} / ${slides.length}`;
-  }
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') go(1);
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') go(-1);
+      });
 
-  function go(dir) { goTo(current + dir); }
-
-  document.addEventListener('keydown', e => {
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') go(1);
-    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   go(-1);
-  });
-
-  // Touch swipe
-  let touchX = 0;
-  document.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; });
-  document.addEventListener('touchend',   e => {
-    const dx = e.changedTouches[0].clientX - touchX;
-    if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
-  });
-</script>
-</body>
+      // Touch swipe
+      let touchX = 0;
+      document.addEventListener('touchstart', (e) => {
+        touchX = e.touches[0].clientX;
+      });
+      document.addEventListener('touchend', (e) => {
+        const dx = e.changedTouches[0].clientX - touchX;
+        if (Math.abs(dx) > 50) go(dx < 0 ? 1 : -1);
+      });
+    </script>
+  </body>
 </html>

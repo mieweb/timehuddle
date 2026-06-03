@@ -13,7 +13,6 @@ import { ObjectId } from "mongodb";
 import { buildApp } from "../src/server.js";
 import { connectDB, client } from "../src/lib/db.js";
 import { auth } from "../src/lib/auth.js";
-import { clockMonitorService } from "../src/services/clock-monitor.service.js";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -231,44 +230,6 @@ describe("clock break flow", () => {
 
     const secondPause = await inject("POST", "/v1/clock/pause", workerCookie, { teamId });
     expect(secondPause.statusCode).toBe(409);
-
-    await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
-  });
-});
-
-// ─── Monitor enforcement ─────────────────────────────────────────────────────
-
-describe("clock monitor enforcement", () => {
-  it("sends a one-time 4h reminder", async () => {
-    const db = client.db();
-    await db.collection("notifications").deleteMany({ userId: workerId });
-
-    const startRes = await inject("POST", "/v1/clock/start", workerCookie, { teamId });
-    expect(startRes.statusCode).toBe(200);
-    const eventId = startRes.json().event.id as string;
-
-    await db.collection("clockevents").updateOne(
-      { _id: new ObjectId(eventId) },
-      {
-        $set: {
-          // Set startTime to 4.5 hours ago so computeWorkSeconds returns > 4h
-          startTime: Date.now() - 4.5 * 60 * 60 * 1000,
-          notifiedAt4h: null,
-        },
-      }
-    );
-
-    const firstRun = await clockMonitorService.checkAndEnforce(Date.now());
-    expect(firstRun.reminded4h).toBeGreaterThanOrEqual(1);
-
-    const secondRun = await clockMonitorService.checkAndEnforce(Date.now());
-    expect(secondRun.reminded4h).toBe(0);
-
-    const reminders = await db
-      .collection("notifications")
-      .find({ userId: workerId, "data.type": "break-reminder-4h" })
-      .toArray();
-    expect(reminders.length).toBe(1);
 
     await inject("POST", "/v1/clock/stop", workerCookie, { teamId });
   });

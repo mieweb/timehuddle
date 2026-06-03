@@ -514,13 +514,13 @@ At boot (`backend/src/server.ts`), the backend runs:
 1. `connectDB()` — native MongoDB driver connection
 2. `ensureMongooseConnected()` — Mongoose connection (for `tickets`)
 3. `ensureIndexes()` — creates operational indexes if missing
-4. `startClockMonitor()` — starts background 30-second interval
+4. `initAgenda()` — starts the Agenda.js MongoDB-backed job scheduler
 
-**ClockMonitorService** runs every 30 seconds in production. It:
+**Agenda** runs three job types:
 
-- Finds all active clock events (where `endTime` is null)
-- Sends a 4-hour break-reminder notification if elapsed time ≥ 4 h and `notifiedAt4h` is not set
-- Auto-closes any session that has exceeded the configured maximum shift duration
+- Fires a 4-hour break-reminder notification (`shift-4h-reminder`)
+- Opens the shift-end modal at 7h 45m (`shift-end-reminder`)
+- Auto-clocks-out the session at 8h if the user agreed (`shift-auto-clockout`)
 
 ---
 

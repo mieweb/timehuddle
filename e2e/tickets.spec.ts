@@ -184,7 +184,7 @@ test.describe('Tickets', () => {
 
     // The status badge on the row should update
     const updatedRow = page.locator('li').filter({ hasText: 'Status test ticket' });
-    await expect(updatedRow.getByText('In Progress')).toBeVisible();
+    await expect(updatedRow.getByText('In Progress').first()).toBeVisible();
 
     // Cleanup
     await deleteTicket(page, 'Status test ticket');
