@@ -43,12 +43,24 @@ import { AppPage } from '../../ui/AppPage';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function getSessionWorkSeconds(event: ClockEvent, now: number): number {
+  // For completed sessions, prefer accumulatedTime (break-excluded) then fall back
+  if (event.endTime !== null) {
+    if (event.accumulatedTime > 0) return event.accumulatedTime;
+    return Math.max(0, Math.floor((event.endTime - event.startTime) / 1000));
+  }
+  // For active sessions
+  if (typeof event.workSeconds === 'number') return Math.max(0, event.workSeconds);
+  const accumulated = Math.max(0, event.accumulatedTime ?? 0);
+  if (event.isPaused) return accumulated;
+  return accumulated + Math.max(0, Math.floor((now - event.startTime) / 1000));
+}
+
 function computeHours(events: ClockEvent[], after: number, now: number): number {
   let total = 0;
   for (const e of events) {
     if (e.startTime < after) continue;
-    const end = e.endTime ?? now;
-    total += (end - e.startTime) / 1000;
+    total += getSessionWorkSeconds(e, now);
   }
   return total;
 }
@@ -170,7 +182,7 @@ export const DashboardPage: React.FC = () => {
               <Text variant="muted" size="xs">
                 Today
               </Text>
-              <Text size="lg" weight="semibold">
+              <Text size="lg" weight="semibold" data-testid="stat-today">
                 {formatDuration(todayHours)}
               </Text>
             </div>
@@ -185,7 +197,7 @@ export const DashboardPage: React.FC = () => {
               <Text variant="muted" size="xs">
                 This Week
               </Text>
-              <Text size="lg" weight="semibold">
+              <Text size="lg" weight="semibold" data-testid="stat-week">
                 {formatDuration(weekHours)}
               </Text>
             </div>
