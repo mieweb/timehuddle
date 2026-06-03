@@ -14,7 +14,9 @@ module.exports = {
       const owners = org.owners || [];
       const admins = org.admins || [];
 
-      const teamDocs = await teams.find({ orgId }, { projection: { members: 1, admins: 1 } }).toArray();
+      const teamDocs = await teams
+        .find({ orgId }, { projection: { members: 1, admins: 1 } })
+        .toArray();
       const teamMembers = new Set();
       for (const team of teamDocs) {
         for (const memberId of team.members || []) teamMembers.add(memberId);
@@ -23,7 +25,11 @@ module.exports = {
 
       const members = new Set([...owners, ...admins, ...teamMembers]);
       for (const userId of members) {
-        const role = owners.includes(userId) ? "owner" : admins.includes(userId) ? "admin" : "member";
+        const role = owners.includes(userId)
+          ? "owner"
+          : admins.includes(userId)
+            ? "admin"
+            : "member";
         const auto = role === "member";
         await orgMembers.updateOne(
           { orgId, userId },
@@ -47,6 +53,9 @@ module.exports = {
   },
 
   async down(db) {
-    await db.collection("org_members").drop().catch(() => {});
+    await db
+      .collection("org_members")
+      .drop()
+      .catch(() => {});
   },
 };

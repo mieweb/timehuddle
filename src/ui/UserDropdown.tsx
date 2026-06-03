@@ -97,7 +97,9 @@ export const UserDropdown: React.FC = () => {
     (enterpriseId: string) => {
       setSelectedEnterpriseId(enterpriseId);
       localStorage.setItem(ENTERPRISE_KEY, enterpriseId);
-      const firstOrg = organizations.find((organization) => organization.enterpriseId === enterpriseId);
+      const firstOrg = organizations.find(
+        (organization) => organization.enterpriseId === enterpriseId,
+      );
       if (firstOrg) {
         setSelectedOrgId(firstOrg.id);
       }

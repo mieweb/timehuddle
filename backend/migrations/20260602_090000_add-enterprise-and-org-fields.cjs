@@ -1,7 +1,8 @@
 const { ObjectId } = require("mongodb");
 
 const DEFAULT_ORG_KEY = process.env.DEFAULT_ORG_KEY || "default";
-const DEFAULT_ENTERPRISE_SLUG = process.env.DEFAULT_ENTERPRISE_SLUG || `${DEFAULT_ORG_KEY}-enterprise`;
+const DEFAULT_ENTERPRISE_SLUG =
+  process.env.DEFAULT_ENTERPRISE_SLUG || `${DEFAULT_ORG_KEY}-enterprise`;
 const DEFAULT_ENTERPRISE_NAME = process.env.DEFAULT_ENTERPRISE_NAME || "Default Enterprise";
 
 module.exports = {
@@ -55,11 +56,7 @@ module.exports = {
             slug: {
               $cond: [
                 {
-                  $or: [
-                    { $eq: ["$slug", null] },
-                    { $eq: ["$slug", ""] },
-                    { $not: ["$slug"] },
-                  ],
+                  $or: [{ $eq: ["$slug", null] }, { $eq: ["$slug", ""] }, { $not: ["$slug"] }],
                 },
                 "$key",
                 "$slug",

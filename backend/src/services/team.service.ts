@@ -193,9 +193,10 @@ export class TeamService {
       { _id: team._id },
       { $addToSet: { members: userId }, $set: { updatedAt: new Date() } }
     );
-    const org = team.orgId && /^[0-9a-f]{24}$/i.test(team.orgId)
-      ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
-      : null;
+    const org =
+      team.orgId && /^[0-9a-f]{24}$/i.test(team.orgId)
+        ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
+        : null;
     if (org?.allowAutoJoin !== false) {
       await orgService.addOrgMember(team.orgId, userId, "member", true);
     }
@@ -274,9 +275,10 @@ export class TeamService {
       { _id: team._id },
       { $addToSet: { members: invitedId }, $set: { updatedAt: new Date() } }
     );
-    const org = team.orgId && /^[0-9a-f]{24}$/i.test(team.orgId)
-      ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
-      : null;
+    const org =
+      team.orgId && /^[0-9a-f]{24}$/i.test(team.orgId)
+        ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
+        : null;
     if (org?.allowAutoJoin !== false) {
       await orgService.addOrgMember(team.orgId, invitedId, "member", true);
     }
