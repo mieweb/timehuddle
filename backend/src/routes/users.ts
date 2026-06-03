@@ -2,6 +2,7 @@ import { ObjectId } from "mongodb";
 import { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
 import {
+  orgMembersCollection,
   organizationsCollection,
   profilesCollection,
   usersCollection,
@@ -84,6 +85,18 @@ export async function userRoutes(app: FastifyInstance) {
   } | null> {
     const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
     if (!defaultOrg) return null;
+
+    const membership = await orgMembersCollection().findOne({
+      orgId: defaultOrg._id.toHexString(),
+      userId,
+    });
+    if (membership?.role === "owner" || membership?.role === "admin") {
+      return {
+        organizationId: defaultOrg._id.toHexString(),
+        organizationKey: defaultOrg.key,
+        role: membership.role,
+      };
+    }
 
     const owners = defaultOrg.owners ?? [];
     if (owners.includes(userId)) {

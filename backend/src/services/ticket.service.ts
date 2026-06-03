@@ -1,6 +1,7 @@
 import { subject } from "@casl/ability";
 import { ObjectId } from "mongodb";
 import {
+  orgMembersCollection,
   organizationsCollection,
   teamsCollection,
   ticketsCollection,
@@ -61,6 +62,12 @@ export class TicketService {
     userId: string,
     team: { orgId?: string }
   ): Promise<"owner" | "admin" | "member"> {
+    if (team.orgId && isValidId(team.orgId)) {
+      const membership = await orgMembersCollection().findOne({ orgId: team.orgId, userId });
+      if (membership?.role === "owner") return "owner";
+      if (membership?.role === "admin") return "admin";
+    }
+
     const org =
       (team.orgId && isValidId(team.orgId)
         ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
@@ -174,8 +181,14 @@ export class TicketService {
 
     // Org-elevated users can read shared tickets across all teams.
     const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    const defaultMembership = defaultOrg
+      ? await orgMembersCollection().findOne({ orgId: defaultOrg._id.toHexString(), userId })
+      : null;
     const isOrgElevated =
-      (defaultOrg?.owners ?? []).includes(userId) || (defaultOrg?.admins ?? []).includes(userId);
+      defaultMembership?.role === "owner" ||
+      defaultMembership?.role === "admin" ||
+      (defaultOrg?.owners ?? []).includes(userId) ||
+      (defaultOrg?.admins ?? []).includes(userId);
 
     if (teamIds.length === 0 && !isOrgElevated) return [];
 
