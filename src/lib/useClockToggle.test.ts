@@ -32,6 +32,9 @@ function setupTeam(
 ) {
   mockUseTeam.mockReturnValue({
     teams: [],
+    organizations: [],
+    selectedOrgId: null,
+    setSelectedOrgId: vi.fn(),
     teamsReady: true,
     refetchTeams: vi.fn(),
     selectedTeamId: 'selectedTeamId' in opts ? (opts.selectedTeamId ?? null) : 'team1',

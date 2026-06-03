@@ -7,6 +7,7 @@ import {
   CardTitle,
   Select,
   Spinner,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -20,9 +21,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ApiError,
   orgAdminApi,
+  orgApi,
   type DefaultOrganizationRole,
   type OrganizationAdminUser,
 } from '../../lib/api';
+import { useTeam } from '../../lib/TeamContext';
 import { hasDefaultOrganizationAdminAccess } from '../../lib/organizationAccess';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -31,11 +34,14 @@ import { TeamMembersView } from './TeamMembersView';
 
 export const OrganizationMembersPage: React.FC = () => {
   const { user } = useSession();
+  const { selectedOrgId } = useTeam();
   const canAccess = hasDefaultOrganizationAdminAccess(user);
   const [users, setUsers] = useState<OrganizationAdminUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [allowAutoJoin, setAllowAutoJoin] = useState(true);
+  const [savingAutoJoin, setSavingAutoJoin] = useState(false);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -43,6 +49,10 @@ export const OrganizationMembersPage: React.FC = () => {
     try {
       const result = await orgAdminApi.listUsers();
       setUsers(result);
+      if (selectedOrgId) {
+        const organization = await orgApi.getOrganizationById(selectedOrgId);
+        setAllowAutoJoin(organization.allowAutoJoin);
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
@@ -52,7 +62,7 @@ export const OrganizationMembersPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedOrgId]);
 
   useEffect(() => {
     if (!canAccess) return;
@@ -114,14 +124,45 @@ export const OrganizationMembersPage: React.FC = () => {
             <Text variant="muted" size="sm">
               Assign roles directly from this table.
             </Text>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => void loadUsers()}
-              disabled={loading}
-            >
-              Refresh
-            </Button>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Text variant="muted" size="sm">
+                  Auto-Join
+                </Text>
+                <Switch
+                  checked={allowAutoJoin}
+                  disabled={savingAutoJoin || !selectedOrgId}
+                  aria-label="Toggle organization auto-join"
+                  onCheckedChange={async (checked) => {
+                    if (!selectedOrgId) return;
+                    const previous = allowAutoJoin;
+                    setAllowAutoJoin(checked);
+                    setSavingAutoJoin(true);
+                    setError(null);
+                    try {
+                      await orgApi.updateSettings(selectedOrgId, checked);
+                    } catch (err) {
+                      setAllowAutoJoin(previous);
+                      if (err instanceof ApiError) {
+                        setError(err.message);
+                      } else {
+                        setError('Failed to update auto-join setting');
+                      }
+                    } finally {
+                      setSavingAutoJoin(false);
+                    }
+                  }}
+                />
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void loadUsers()}
+                disabled={loading}
+              >
+                Refresh
+              </Button>
+            </div>
           </div>
 
           {error && (

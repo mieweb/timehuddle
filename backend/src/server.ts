@@ -16,6 +16,8 @@ import { appContext } from "./middleware/app-context.js";
 import { healthRoutes } from "./routes/health.js";
 import { userRoutes } from "./routes/users.js";
 import { orgRoutes } from "./routes/org.js";
+import { organizationsRoutes } from "./routes/organizations.js";
+import { enterpriseRoutes } from "./routes/enterprises.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { ticketsWsRoutes } from "./routes/tickets-ws.js";
 import { teamRoutes } from "./routes/teams.js";
@@ -483,6 +485,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // App routes
   await app.register(userRoutes, { prefix: "/v1" });
   await app.register(orgRoutes, { prefix: "/v1" });
+  await app.register(organizationsRoutes, { prefix: "/v1" });
+  await app.register(enterpriseRoutes, { prefix: "/v1" });
   await app.register(teamsWsRoutes, { prefix: "/v1" });
   await app.register(teamRoutes, { prefix: "/v1" });
   await app.register(ticketRoutes, { prefix: "/v1" });

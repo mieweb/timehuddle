@@ -37,6 +37,15 @@ export interface TimecoreUser {
     organizationKey: string;
     role: 'owner' | 'admin';
   } | null;
+  organizations?: Array<{
+    id: string;
+    name: string;
+    key: string;
+    slug: string;
+    enterpriseId: string | null;
+    role: 'owner' | 'admin' | 'member';
+    allowAutoJoin: boolean;
+  }>;
 }
 
 export interface AuthAccount {
@@ -455,6 +464,84 @@ export const orgAdminApi = {
 // ─── Public Organization API (for all authenticated users) ──────────────────
 
 export const orgApi = {
+  listOrganizations: () =>
+    request<{
+      organizations: Array<{
+        id: string;
+        enterpriseId: string | null;
+        key: string;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+      }>;
+    }>('/v1/organizations').then((r) => r.organizations),
+
+  createOrganization: (data: {
+    enterpriseId: string;
+    name: string;
+    key?: string;
+    slug?: string;
+    allowAutoJoin?: boolean;
+  }) =>
+    request<{
+      organization: {
+        id: string;
+        enterpriseId: string | null;
+        key: string;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+      };
+    }>('/v1/organizations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.organization),
+
+  getOrganizationById: (id: string) =>
+    request<{
+      organization: {
+        id: string;
+        enterpriseId: string | null;
+        key: string;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+        canManage: boolean;
+      };
+    }>(`/v1/organizations/${encodeURIComponent(id)}`).then((r) => r.organization),
+
+  updateSettings: (id: string, allowAutoJoin: boolean) =>
+    request<{ organization: { orgId: string; allowAutoJoin: boolean } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/settings`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ allowAutoJoin }),
+      },
+    ).then((r) => r.organization),
+
+  joinOrganization: (id: string) =>
+    request<{ membership: { orgId: string; role: 'owner' | 'admin' | 'member' } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/join`,
+      { method: 'POST' },
+    ).then((r) => r.membership),
+
+  listMembers: (id: string) =>
+    request<{ users: OrganizationAdminUser[] }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members`,
+    ).then((r) => r.users),
+
+  setMemberRole: (id: string, userId: string, role: DefaultOrganizationRole) =>
+    request<{ user: { userId: string; role: DefaultOrganizationRole } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      },
+    ).then((r) => r.user),
+
   getOrganization: () =>
     request<{ organization: AdminOrganization }>('/v1/organization').then((r) => r.organization),
 
@@ -468,6 +555,49 @@ export const orgApi = {
 
   listUsers: () =>
     request<{ users: OrganizationAdminUser[] }>('/v1/organization/users').then((r) => r.users),
+};
+
+export const enterpriseApi = {
+  list: () =>
+    request<{
+      enterprises: Array<{ id: string; name: string; slug: string; role: 'owner' | 'admin' }>;
+    }>('/v1/enterprises').then((r) => r.enterprises),
+
+  create: (data: { name: string; slug?: string }) =>
+    request<{
+      enterprise: {
+        id: string;
+        name: string;
+        slug: string;
+        role: 'owner' | 'admin';
+        owners: string[];
+        admins: string[];
+      };
+    }>('/v1/enterprises', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.enterprise),
+
+  get: (id: string) =>
+    request<{
+      enterprise: {
+        id: string;
+        name: string;
+        slug: string;
+        role: 'owner' | 'admin';
+        owners: string[];
+        admins: string[];
+      };
+    }>(`/v1/enterprises/${encodeURIComponent(id)}`).then((r) => r.enterprise),
+
+  setMemberRole: (id: string, userId: string, role: 'owner' | 'admin') =>
+    request<{ user: { userId: string; role: 'owner' | 'admin' } }>(
+      `/v1/enterprises/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      },
+    ).then((r) => r.user),
 };
 
 // ─── Username API ─────────────────────────────────────────────────────────────
@@ -573,6 +703,8 @@ export const ticketApi = {
 
 export interface Team {
   id: string;
+  orgId: string;
+  parentTeamId: string | null;
   name: string;
   description: string | null;
   members: string[];
@@ -597,11 +729,19 @@ export const teamApi = {
   ensurePersonal: () =>
     request<{ team: Team }>('/v1/teams/ensure-personal', { method: 'POST' }).then((r) => r.team),
 
-  createTeam: (data: { name: string; description?: string }) =>
+  createTeam: (data: {
+    name: string;
+    description?: string;
+    orgId?: string;
+    parentTeamId?: string | null;
+  }) =>
     request<{ team: Team }>('/v1/teams', {
       method: 'POST',
       body: JSON.stringify(data),
     }).then((r) => r.team),
+
+  getSubTeams: (id: string) =>
+    request<{ teams: Team[] }>(`/v1/teams/${encodeURIComponent(id)}/subteams`).then((r) => r.teams),
 
   joinTeam: (teamCode: string) =>
     request<{ team: Team }>('/v1/teams/join', {

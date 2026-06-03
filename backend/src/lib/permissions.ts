@@ -15,12 +15,15 @@ export type AppAction =
   | "assign"
   | "review";
 
-export type AppSubject = "Ticket" | "Team" | "User" | "all";
+export type AppSubject = "Ticket" | "Team" | "User" | "Organization" | "Enterprise" | "all";
 
 export type PermissionContext = {
   userId: string;
   role: AppRole | "member";
   teamIds: string[];
+  orgIds?: string[];
+  enterpriseIds?: string[];
+  isEnterpriseElevated?: boolean;
   teamAdminIds?: string[];
 };
 
@@ -40,6 +43,14 @@ export function buildAbilityFor(context: PermissionContext): AppAbility {
     can("create", "Ticket", teamScope);
     can(["update", "assign", "review", "comment", "batchStatus"], "Ticket", teamScope);
     can("delete", "Ticket", { ...teamScope, createdBy: context.userId });
+  }
+
+  if ((context.orgIds ?? []).length > 0) {
+    can("read", "Organization", { id: { $in: context.orgIds } });
+  }
+
+  if ((context.enterpriseIds ?? []).length > 0 || context.isEnterpriseElevated) {
+    can("read", "Enterprise");
   }
 
   return build();
