@@ -106,7 +106,6 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
       cancelled = true;
     };
   // Re-run once clockReady flips to true so we have the authoritative clock state
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, clockReady]);
 
   useEffect(() => {
