@@ -545,14 +545,6 @@ export const orgApi = {
   getOrganization: () =>
     request<{ organization: AdminOrganization }>('/v1/organization').then((r) => r.organization),
 
-  getOwnershipStatus: () =>
-    request<{ hasOwner: boolean; installCompleted: boolean }>('/v1/organization/ownership-status'),
-
-  takeOwnership: () =>
-    request<{ role: 'owner' }>('/v1/organization/install', {
-      method: 'POST',
-    }),
-
   listUsers: () =>
     request<{ users: OrganizationAdminUser[] }>('/v1/organization/users').then((r) => r.users),
 };
@@ -598,6 +590,14 @@ export const enterpriseApi = {
         body: JSON.stringify({ role }),
       },
     ).then((r) => r.user),
+
+  getOwnershipStatus: () =>
+    request<{ hasOwner: boolean; installCompleted: boolean }>('/v1/install-status'),
+
+  takeOwnership: () =>
+    request<{ role: 'owner' }>('/v1/install', {
+      method: 'POST',
+    }),
 };
 
 // ─── Username API ─────────────────────────────────────────────────────────────

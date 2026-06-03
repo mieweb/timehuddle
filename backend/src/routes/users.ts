@@ -2,6 +2,8 @@ import { ObjectId } from "mongodb";
 import { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
 import {
+  enterprisesCollection,
+  installationsCollection,
   orgMembersCollection,
   organizationsCollection,
   profilesCollection,
@@ -11,6 +13,7 @@ import {
 import { DEFAULT_ORG_KEY } from "../lib/org-config.js";
 import { userService } from "../services/user.service.js";
 import { profileController } from "../controllers/profile.controller.js";
+import { orgService } from "../services/org.service.js";
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -77,6 +80,22 @@ const publicTeamMembershipSchema = {
 
 export async function userRoutes(app: FastifyInstance) {
   type DefaultOrganizationRole = "owner" | "admin" | "member";
+  const INSTALLATION_DOC_ID = "Installation" as const;
+
+  async function getInstallationState() {
+    return installationsCollection().findOne({ _id: INSTALLATION_DOC_ID });
+  }
+
+  async function markInstallationCompleted(userId: string, at: Date) {
+    await installationsCollection().updateOne(
+      { _id: INSTALLATION_DOC_ID },
+      {
+        $setOnInsert: { _id: INSTALLATION_DOC_ID, createdAt: at },
+        $set: { completedAt: at, completedByUserId: userId, updatedAt: at },
+      },
+      { upsert: true }
+    );
+  }
 
   async function resolveDefaultOrganizationMembership(userId: string): Promise<{
     organizationId: string;
@@ -302,12 +321,12 @@ export async function userRoutes(app: FastifyInstance) {
   );
 
   app.get(
-    "/organization/ownership-status",
+    "/install-status",
     {
       preHandler: [requireAuth],
       schema: {
         tags: ["Users"],
-        summary: "Get default organization ownership status",
+        summary: "Get installation status",
         security: [{ cookieAuth: [] }],
         response: {
           200: {
@@ -326,23 +345,23 @@ export async function userRoutes(app: FastifyInstance) {
       },
     },
     async (_req, reply) => {
-      const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
-      if (!defaultOrg) return reply.status(404).send({ error: "Default organization not found" });
+      const installation = await getInstallationState();
+      const completed = !!installation?.completedAt;
 
       return reply.send({
-        hasOwner: (defaultOrg.owners ?? []).length > 0,
-        installCompleted: !!defaultOrg.installCompletedAt,
+        hasOwner: completed,
+        installCompleted: completed,
       });
     }
   );
 
   app.post(
-    "/organization/install",
+    "/install",
     {
       preHandler: [requireAuth],
       schema: {
         tags: ["Users"],
-        summary: "Take ownership of default organization when no owner exists",
+        summary: "Complete initial installation and take ownership",
         security: [{ cookieAuth: [] }],
         response: {
           200: {
@@ -365,36 +384,72 @@ export async function userRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = req.user!.id;
+      const now = new Date();
+      const defaultOrg = await orgService.ensureDefaultOrganization();
+      const defaultEnterpriseId = defaultOrg.enterpriseId!;
 
-      // One-time bootstrap gate:
-      // - no owner exists
-      // - install not already marked complete
-      const bootstrapResult = await organizationsCollection().findOneAndUpdate(
+      const installation = await getInstallationState();
+      if (installation?.completedAt) {
+        return reply
+          .status(409)
+          .send({ error: "Owner already exists or install is already complete" });
+      }
+
+      const enterpriseUpdateResult = await enterprisesCollection().updateOne(
         {
-          key: DEFAULT_ORG_KEY,
+          _id: new ObjectId(defaultEnterpriseId),
           "owners.0": { $exists: false },
-          installCompletedAt: { $exists: false },
         },
         {
           $set: {
             owners: [userId],
             admins: [],
-            installCompletedAt: new Date(),
-            updatedAt: new Date(),
+            updatedAt: now,
           },
-        },
-        { returnDocument: "after" }
+        }
       );
 
-      if (!bootstrapResult) {
-        const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
-        if (!defaultOrg) {
-          return reply.status(404).send({ error: "Default organization not found" });
-        }
+      if (enterpriseUpdateResult.matchedCount === 0) {
         return reply
           .status(409)
           .send({ error: "Owner already exists or install is already complete" });
       }
+
+      // Migration compatibility: ensure all existing orgs are attached to an enterprise.
+      const orgsMissingEnterpriseFilter = {
+        $or: [{ enterpriseId: { $exists: false } }, { enterpriseId: null }, { enterpriseId: "" }],
+      } as any;
+      await organizationsCollection().updateMany(orgsMissingEnterpriseFilter, {
+        $set: { enterpriseId: defaultEnterpriseId, updatedAt: now },
+      });
+
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg._id },
+        {
+          $set: {
+            owners: [userId],
+            admins: [],
+            updatedAt: now,
+          },
+        }
+      );
+
+      await orgMembersCollection().updateOne(
+        { orgId: defaultOrg._id.toHexString(), userId },
+        {
+          $setOnInsert: { _id: new ObjectId(), createdAt: now },
+          $set: {
+            orgId: defaultOrg._id.toHexString(),
+            userId,
+            role: "owner",
+            auto: false,
+            updatedAt: now,
+          },
+        },
+        { upsert: true }
+      );
+
+      await markInstallationCompleted(userId, now);
 
       return reply.send({ role: "owner" as const });
     }
