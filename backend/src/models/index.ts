@@ -19,6 +19,7 @@ import type { Organization } from "./organization.model.js";
 import type { MediaItem } from "./media-item.model.js";
 import type { Enterprise } from "./enterprise.model.js";
 import type { OrgMembership } from "./org-membership.model.js";
+import type { Installation } from "./installation.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
 export function usersCollection() {
@@ -38,6 +39,11 @@ export function organizationsCollection() {
 // Enterprises
 export function enterprisesCollection() {
   return getDB().collection<Enterprise>("enterprises");
+}
+
+// Installation lifecycle state
+export function installationsCollection() {
+  return getDB().collection<Installation>("app_settings");
 }
 
 // Organization memberships

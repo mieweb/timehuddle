@@ -9,7 +9,6 @@ export interface Organization {
   owners?: string[];
   admins?: string[];
   allowAutoJoin?: boolean;
-  installCompletedAt?: Date;
   createdAt: Date;
   updatedAt?: Date;
 }

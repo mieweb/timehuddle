@@ -35,6 +35,7 @@ import { presenceRoutes } from "./routes/presence.js";
 import { channelRoutes } from "./routes/channels.js";
 import { tokenRoutes } from "./routes/tokens.js";
 import { startClockMonitor } from "./services/clock-monitor.service.js";
+import { orgService } from "./services/org.service.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? true });
@@ -520,6 +521,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 async function bootstrap() {
   await connectDB();
   await ensureMongooseConnected();
+  await orgService.ensureDefaultOrganization();
   await ensureIndexes();
   if (process.env.NODE_ENV !== "test") {
     startClockMonitor();

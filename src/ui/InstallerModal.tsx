@@ -1,6 +1,6 @@
 import React, { useId, useState } from 'react';
 
-import { orgApi } from '../lib/api';
+import { enterpriseApi } from '../lib/api';
 import { useSession } from '../lib/useSession';
 import { Button, Text } from '@mieweb/ui';
 
@@ -28,12 +28,12 @@ export const InstallerModal: React.FC<Props> = ({ onTaken }) => {
     setError(null);
 
     try {
-      await orgApi.takeOwnership();
+      await enterpriseApi.takeOwnership();
       await refetch();
       onTaken();
       navigateToMembers();
     } catch (err) {
-      setError((err as Error).message || 'Unable to take ownership');
+      setError((err as Error).message || 'Unable to complete initial setup');
       setLoading(false);
     }
   };
@@ -51,11 +51,11 @@ export const InstallerModal: React.FC<Props> = ({ onTaken }) => {
             id={labelId}
             className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50"
           >
-            Organization Ownership Required
+            Complete Initial Setup
           </h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
-            No owner exists for the default organization. Take ownership to unlock organization
-            administration.
+            Finish setup for your default enterprise and organization so administration can be
+            enabled.
           </p>
         </div>
 
@@ -72,9 +72,9 @@ export const InstallerModal: React.FC<Props> = ({ onTaken }) => {
             type="button"
             onClick={handleTakeOwnership}
             isLoading={loading}
-            loadingText="Taking ownership..."
+            loadingText="Completing setup..."
           >
-            Take Ownership
+            Complete Setup
           </Button>
         </div>
       </div>
