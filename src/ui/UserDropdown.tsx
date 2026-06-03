@@ -4,6 +4,7 @@
  * Uses @mieweb/ui Dropdown, Avatar, and DropdownItem components.
  */
 import {
+  faBuilding,
   faCheck,
   faCircleUser,
   faRightFromBracket,
@@ -11,16 +12,13 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Dropdown, DropdownItem, DropdownSeparator, Text } from '@mieweb/ui';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
-import { enterpriseApi } from '../lib/api';
 import { useTeam } from '../lib/TeamContext';
 import { useSession } from '../lib/useSession';
 import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
 import { useRouter } from './router';
 import { UserAvatar } from './UserAvatar';
-
-const ENTERPRISE_KEY = 'app:selectedEnterpriseId';
 
 // ─── UserDropdown ─────────────────────────────────────────────────────────────
 
@@ -28,6 +26,7 @@ export const UserDropdown: React.FC = () => {
   const { user, signOut } = useSession();
   const {
     teams,
+    enterprises,
     organizations,
     selectedOrgId,
     setSelectedOrgId,
@@ -37,10 +36,6 @@ export const UserDropdown: React.FC = () => {
   } = useTeam();
   const email = user?.email;
   const [open, setOpen] = useState(false);
-  const [selectedEnterpriseId, setSelectedEnterpriseId] = useState<string | null>(() =>
-    typeof window !== 'undefined' ? localStorage.getItem(ENTERPRISE_KEY) : null,
-  );
-  const [enterprises, setEnterprises] = useState<Array<{ id: string; name: string }>>([]);
 
   const { navigate } = useRouter();
 
@@ -70,21 +65,6 @@ export const UserDropdown: React.FC = () => {
   const truncated = displayName.length > 22 ? `${displayName.slice(0, 20)}…` : displayName;
   const showOrganizationAdmin = hasDefaultOrganizationAdminAccess(user);
 
-  useEffect(() => {
-    enterpriseApi
-      .list()
-      .then((items) => setEnterprises(items.map((item) => ({ id: item.id, name: item.name }))))
-      .catch(() => {});
-  }, []);
-
-  const organizationOptions = useMemo(
-    () =>
-      selectedEnterpriseId
-        ? organizations.filter((organization) => organization.enterpriseId === selectedEnterpriseId)
-        : organizations,
-    [organizations, selectedEnterpriseId],
-  );
-
   const handleSelectOrganization = useCallback(
     (organizationId: string) => {
       setSelectedOrgId(organizationId);
@@ -93,24 +73,14 @@ export const UserDropdown: React.FC = () => {
     [setSelectedOrgId],
   );
 
-  const handleSelectEnterprise = useCallback(
-    (enterpriseId: string) => {
-      setSelectedEnterpriseId(enterpriseId);
-      localStorage.setItem(ENTERPRISE_KEY, enterpriseId);
-      const firstOrg = organizations.find(
-        (organization) => organization.enterpriseId === enterpriseId,
-      );
-      if (firstOrg) {
-        setSelectedOrgId(firstOrg.id);
-      }
-      setOpen(false);
-    },
-    [organizations, setSelectedOrgId],
-  );
-
   const handleOrganizationMembers = useCallback(() => {
     setOpen(false);
     navigate('/org/members');
+  }, [navigate]);
+
+  const handleEnterprisePage = useCallback(() => {
+    setOpen(false);
+    navigate('/app/enterprise');
   }, [navigate]);
 
   return (
@@ -151,6 +121,28 @@ export const UserDropdown: React.FC = () => {
         Profile
       </DropdownItem>
 
+      {organizations.length > 0 && (
+        <>
+          <DropdownSeparator />
+          {organizations.map((organization) => (
+            <DropdownItem
+              key={organization.id}
+              onClick={() => handleSelectOrganization(organization.id)}
+            >
+              <span className="flex items-center gap-2">
+                <FontAwesomeIcon
+                  icon={faCheck}
+                  className={`text-xs text-primary-600 transition-opacity ${
+                    organization.id === selectedOrgId ? 'opacity-100' : 'opacity-0'
+                  }`}
+                />
+                <span>{organization.name}</span>
+              </span>
+            </DropdownItem>
+          ))}
+        </>
+      )}
+
       {teamsReady && teams.length > 0 && (
         <>
           <DropdownSeparator />
@@ -170,47 +162,6 @@ export const UserDropdown: React.FC = () => {
         </>
       )}
 
-      {enterprises.length > 0 && (
-        <>
-          <DropdownSeparator />
-          {enterprises.map((enterprise) => (
-            <DropdownItem key={enterprise.id} onClick={() => handleSelectEnterprise(enterprise.id)}>
-              <span className="flex items-center gap-2">
-                <FontAwesomeIcon
-                  icon={faCheck}
-                  className={`text-xs text-primary-600 transition-opacity ${
-                    enterprise.id === selectedEnterpriseId ? 'opacity-100' : 'opacity-0'
-                  }`}
-                />
-                <span>{enterprise.name}</span>
-              </span>
-            </DropdownItem>
-          ))}
-        </>
-      )}
-
-      {organizationOptions.length > 0 && (
-        <>
-          <DropdownSeparator />
-          {organizationOptions.map((organization) => (
-            <DropdownItem
-              key={organization.id}
-              onClick={() => handleSelectOrganization(organization.id)}
-            >
-              <span className="flex items-center gap-2">
-                <FontAwesomeIcon
-                  icon={faCheck}
-                  className={`text-xs text-primary-600 transition-opacity ${
-                    organization.id === selectedOrgId ? 'opacity-100' : 'opacity-0'
-                  }`}
-                />
-                <span>{organization.name}</span>
-              </span>
-            </DropdownItem>
-          ))}
-        </>
-      )}
-
       {showOrganizationAdmin && (
         <>
           <DropdownSeparator />
@@ -219,6 +170,15 @@ export const UserDropdown: React.FC = () => {
             onClick={handleOrganizationMembers}
           >
             Members
+          </DropdownItem>
+        </>
+      )}
+
+      {enterprises.length > 0 && (
+        <>
+          <DropdownSeparator />
+          <DropdownItem icon={<FontAwesomeIcon icon={faBuilding} />} onClick={handleEnterprisePage}>
+            Enterprise
           </DropdownItem>
         </>
       )}
