@@ -124,6 +124,11 @@ export const UserDropdown: React.FC = () => {
       {organizations.length > 0 && (
         <>
           <DropdownSeparator />
+          <div className="px-3 py-1">
+            <Text variant="muted" size="xs" className="text-center uppercase tracking-wide">
+              Organization
+            </Text>
+          </div>
           {organizations.map((organization) => (
             <DropdownItem
               key={organization.id}
@@ -146,6 +151,11 @@ export const UserDropdown: React.FC = () => {
       {teamsReady && teams.length > 0 && (
         <>
           <DropdownSeparator />
+          <div className="px-3 py-1">
+            <Text variant="muted" size="xs" className="text-center uppercase tracking-wide">
+              Team
+            </Text>
+          </div>
           {teams.map((team) => (
             <DropdownItem key={team.id} onClick={() => handleSelectTeam(team.id)}>
               <span className="flex items-center gap-2">
@@ -162,9 +172,19 @@ export const UserDropdown: React.FC = () => {
         </>
       )}
 
-      {showOrganizationAdmin && (
+      {(showOrganizationAdmin || enterprises.length > 0) && (
         <>
           <DropdownSeparator />
+          <div className="px-3 py-1">
+            <Text variant="muted" size="xs" className="text-center uppercase tracking-wide">
+              Admin
+            </Text>
+          </div>
+        </>
+      )}
+
+      {showOrganizationAdmin && (
+        <>
           <DropdownItem
             icon={<FontAwesomeIcon icon={faUsers} />}
             onClick={handleOrganizationMembers}
@@ -176,7 +196,6 @@ export const UserDropdown: React.FC = () => {
 
       {enterprises.length > 0 && (
         <>
-          <DropdownSeparator />
           <DropdownItem icon={<FontAwesomeIcon icon={faBuilding} />} onClick={handleEnterprisePage}>
             Enterprise
           </DropdownItem>
