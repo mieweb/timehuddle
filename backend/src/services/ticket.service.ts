@@ -444,7 +444,7 @@ export class TicketService {
         notificationService
           .create({
             userId: assignedToUserId,
-            title: "TiméHuddle",
+            title: "Huddle",
             body: `${requesterName} assigned you "${ticket.title}"`,
             notificationData: {
               type: "ticket-assigned",

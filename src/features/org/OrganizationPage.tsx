@@ -2,11 +2,7 @@ import { Button, Spinner, Text } from '@mieweb/ui';
 import { useRefresh } from '../../lib/RefreshContext';
 import React, { useCallback, useEffect, useState } from 'react';
 
-import {
-  ApiError,
-  orgApi,
-  type OrganizationAdminUser,
-} from '../../lib/api';
+import { ApiError, orgApi, type OrganizationAdminUser } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { AppPage } from '../../ui/AppPage';
 

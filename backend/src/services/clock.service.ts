@@ -335,7 +335,7 @@ export class ClockService {
         notificationService
           .create({
             userId: adminId,
-            title: "TiméHuddle",
+            title: "Huddle",
             body: `${userName} clocked in to ${team.name}`,
             notificationData: {
               type: "clock-in",
@@ -420,7 +420,7 @@ export class ClockService {
           notificationService
             .create({
               userId: adminId,
-              title: "TiméHuddle",
+              title: "Huddle",
               body: `${userName} clocked out of ${team.name} (${durationText})`,
               notificationData: {
                 type: "clock-out",
@@ -440,7 +440,7 @@ export class ClockService {
       notificationService
         .create({
           userId,
-          title: "TiméHuddle",
+          title: "Huddle",
           body: `You clocked out of ${team.name} (${durationText})`,
           notificationData: {
             type: "clock-out-self",

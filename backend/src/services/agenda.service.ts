@@ -52,7 +52,7 @@ export async function initAgenda(): Promise<void> {
     if (!event) return; // already clocked out — nothing to do
     await notificationService.create({
       userId,
-      title: "TiméHuddle",
+      title: "Huddle",
       body: "Take a break. You have worked for 4 hours.",
       notificationData: {
         type: "break-reminder-4h",
@@ -81,7 +81,7 @@ export async function initAgenda(): Promise<void> {
     // Persist to inbox so offline users see it on return
     const persisted = await notificationService.create({
       userId,
-      title: "TiméHuddle",
+      title: "Huddle",
       body,
       notificationData: { type: "shift-end-reminder", clockEventId, teamId, url: "/app/clock" },
     });
@@ -91,7 +91,7 @@ export async function initAgenda(): Promise<void> {
     broadcastToUser(userId, {
       id: persisted.id,
       userId,
-      title: "TiméHuddle",
+      title: "Huddle",
       body,
       data: { type: "shift-end-reminder", clockEventId, teamId, url: "/app/clock" },
       read: false,
@@ -145,7 +145,7 @@ export async function initAgenda(): Promise<void> {
       {
         $set: {
           read: true,
-          title: "TiméHuddle — Auto Clock-Out",
+          title: "Huddle — Auto Clock-Out",
           body: "You were automatically clocked out after 8 hours because the shift-end reminder was not acknowledged.",
           "data.type": "auto-clock-out",
         },
