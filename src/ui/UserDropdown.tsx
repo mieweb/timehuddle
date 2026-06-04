@@ -118,14 +118,18 @@ export const UserDropdown: React.FC = () => {
       <DropdownSeparator />
 
       <DropdownItem icon={<FontAwesomeIcon icon={faCircleUser} />} onClick={handleProfile}>
-        Profile
+        <span className="font-normal">Profile</span>
       </DropdownItem>
 
       {organizations.length > 0 && (
         <>
           <DropdownSeparator />
           <div className="px-3 py-1">
-            <Text variant="muted" size="xs" className="text-center uppercase tracking-wide">
+            <Text
+              variant="muted"
+              size="xs"
+              className="text-left font-semibold uppercase tracking-wide"
+            >
               Organization
             </Text>
           </div>
@@ -141,7 +145,7 @@ export const UserDropdown: React.FC = () => {
                     organization.id === selectedOrgId ? 'opacity-100' : 'opacity-0'
                   }`}
                 />
-                <span>{organization.name}</span>
+                <span className="font-normal">{organization.name}</span>
               </span>
             </DropdownItem>
           ))}
@@ -152,7 +156,11 @@ export const UserDropdown: React.FC = () => {
         <>
           <DropdownSeparator />
           <div className="px-3 py-1">
-            <Text variant="muted" size="xs" className="text-center uppercase tracking-wide">
+            <Text
+              variant="muted"
+              size="xs"
+              className="text-left font-semibold uppercase tracking-wide"
+            >
               Team
             </Text>
           </div>
@@ -165,7 +173,7 @@ export const UserDropdown: React.FC = () => {
                     team.id === selectedTeam?.id ? 'opacity-100' : 'opacity-0'
                   }`}
                 />
-                <span>{team.name}</span>
+                <span className="font-normal">{team.name}</span>
               </span>
             </DropdownItem>
           ))}
@@ -176,7 +184,11 @@ export const UserDropdown: React.FC = () => {
         <>
           <DropdownSeparator />
           <div className="px-3 py-1">
-            <Text variant="muted" size="xs" className="text-center uppercase tracking-wide">
+            <Text
+              variant="muted"
+              size="xs"
+              className="text-left font-semibold uppercase tracking-wide"
+            >
               Admin
             </Text>
           </div>
@@ -189,7 +201,7 @@ export const UserDropdown: React.FC = () => {
             icon={<FontAwesomeIcon icon={faUsers} />}
             onClick={handleOrganizationMembers}
           >
-            Members
+            <span className="font-normal">Members</span>
           </DropdownItem>
         </>
       )}
@@ -197,7 +209,7 @@ export const UserDropdown: React.FC = () => {
       {enterprises.length > 0 && (
         <>
           <DropdownItem icon={<FontAwesomeIcon icon={faBuilding} />} onClick={handleEnterprisePage}>
-            Enterprise
+            <span className="font-normal">Enterprise</span>
           </DropdownItem>
         </>
       )}
@@ -209,7 +221,7 @@ export const UserDropdown: React.FC = () => {
         variant="danger"
         onClick={handleLogout}
       >
-        Sign out
+        <span className="font-normal">Sign out</span>
       </DropdownItem>
     </Dropdown>
   );
