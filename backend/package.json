@@ -21,6 +21,7 @@
     "format:fix": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"scripts/**/*.ts\""
   },
   "dependencies": {
+    "@agendajs/mongo-backend": "^4.0.2",
     "@better-auth/core": "^1.6.9",
     "@casl/ability": "^6.8.1",
     "@casl/mongoose": "^8.0.5",
@@ -33,7 +34,6 @@
     "@mieweb/pulsevault": "^0.0.2",
     "@noble/ciphers": "^2.2.0",
     "@parse/node-apn": "^7.1.0",
-    "@agendajs/mongo-backend": "^4.0.2",
     "@timehuddle/youtube": "*",
     "agenda": "^6.2.5",
     "bcrypt": "^6.0.0",

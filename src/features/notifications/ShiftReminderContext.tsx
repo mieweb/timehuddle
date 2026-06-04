@@ -137,6 +137,31 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
     setRespondError(null);
   }, []);
 
+  // Push notification tap (web SW postMessage or native Capacitor) dispatches
+  // 'timehuddle:openShiftReminder' — find the matching inbox notification and open the modal.
+  useEffect(() => {
+    if (!user) return;
+    const handler = (e: Event) => {
+      const { clockEventId } = (e as CustomEvent<{ clockEventId?: string; teamId?: string }>)
+        .detail;
+      notificationApi
+        .getInbox()
+        .then((notifications: Notification[]) => {
+          const match = notifications.find(
+            (n) => n.data?.type === 'shift-end-reminder' && n.data?.clockEventId === clockEventId,
+          );
+          if (!match) return;
+          const dedupeKey = clockEventId ?? match.id;
+          // Allow re-opening via tap even if already deduped in this session
+          shownIds.current.delete(dedupeKey);
+          openModal(match);
+        })
+        .catch(() => {});
+    };
+    window.addEventListener('timehuddle:openShiftReminder', handler);
+    return () => window.removeEventListener('timehuddle:openShiftReminder', handler);
+  }, [user, openModal]);
+
   const closeModal = useCallback(() => {
     setPendingNotif(null);
     setRespondError(null);

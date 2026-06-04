@@ -367,7 +367,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
 
       {/* Tab rail — Feed | Work | Activity */}
       {profile && (
-        <Tabs defaultValue="feed" className="w-full">
+        <Tabs
+          defaultValue={new URLSearchParams(window.location.search).get('tab') ?? 'feed'}
+          className="w-full"
+        >
           <TabsList className="mb-4 w-full">
             <TabsTrigger value="feed" className="flex-1">
               Feed
