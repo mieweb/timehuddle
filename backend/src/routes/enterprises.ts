@@ -48,6 +48,25 @@ export async function enterpriseRoutes(app: FastifyInstance) {
   );
 
   app.put(
+    "/enterprises/:id",
+    {
+      schema: {
+        tags: ["Organization"],
+        summary: "Update enterprise name",
+        params: { type: "object", properties: { id: { type: "string" } } },
+        body: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            name: { type: "string", minLength: 1, maxLength: 120 },
+          },
+        },
+      },
+    },
+    enterpriseController.updateName
+  );
+
+  app.put(
     "/enterprises/:id/members/:userId",
     {
       schema: {

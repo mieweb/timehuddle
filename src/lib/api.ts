@@ -582,6 +582,21 @@ export const enterpriseApi = {
       };
     }>(`/v1/enterprises/${encodeURIComponent(id)}`).then((r) => r.enterprise),
 
+  updateName: (id: string, name: string) =>
+    request<{
+      enterprise: {
+        id: string;
+        name: string;
+        slug: string;
+        role: 'owner' | 'admin';
+        owners: string[];
+        admins: string[];
+      };
+    }>(`/v1/enterprises/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }).then((r) => r.enterprise),
+
   setMemberRole: (id: string, userId: string, role: 'owner' | 'admin') =>
     request<{ user: { userId: string; role: 'owner' | 'admin' } }>(
       `/v1/enterprises/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,

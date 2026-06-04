@@ -121,6 +121,43 @@ export class EnterpriseService {
 
     return { userId: targetUserId, role };
   }
+
+  async updateEnterpriseName(
+    requesterUserId: string,
+    enterpriseId: string,
+    input: { name: string }
+  ): Promise<EnterpriseDetail | "not-found" | "forbidden"> {
+    if (!isValidId(enterpriseId)) return "not-found";
+
+    const enterprise = await enterprisesCollection().findOne({ _id: new ObjectId(enterpriseId) });
+    if (!enterprise) return "not-found";
+
+    const owners = enterprise.owners ?? [];
+    const admins = enterprise.admins ?? [];
+    const role = owners.includes(requesterUserId) ? "owner" : admins.includes(requesterUserId) ? "admin" : null;
+    if (!role) return "forbidden";
+
+    const name = input.name.trim();
+
+    await enterprisesCollection().updateOne(
+      { _id: enterprise._id },
+      {
+        $set: {
+          name,
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    return {
+      id: enterprise._id.toHexString(),
+      name,
+      slug: enterprise.slug,
+      role,
+      owners,
+      admins,
+    };
+  }
 }
 
 export const enterpriseService = new EnterpriseService();
