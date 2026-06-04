@@ -255,9 +255,52 @@ export class OrgService {
     return { orgId, userId, role: nextRole, auto: nextAuto };
   }
 
-  async isSlugAvailable(slug: string): Promise<boolean> {
-    const existing = await organizationsCollection().findOne({ slug }, { projection: { _id: 1 } });
+  async isSlugAvailable(slug: string, excludeOrgId?: string): Promise<boolean> {
+    const filter: Record<string, unknown> = { slug };
+    if (excludeOrgId && isValidId(excludeOrgId))
+      filter["_id"] = { $ne: new ObjectId(excludeOrgId) };
+    const existing = await organizationsCollection().findOne(filter, { projection: { _id: 1 } });
     return existing === null;
+  }
+
+  async updateOrganization(
+    userId: string,
+    orgId: string,
+    input: { name?: string; slug?: string; allowAutoJoin?: boolean }
+  ): Promise<OrgSummary | "not-found" | "forbidden" | "conflict"> {
+    if (!isValidId(orgId)) return "not-found";
+
+    const membership = await this.getOrgMembership(orgId, userId);
+    if (!membership || !ELEVATED_ROLES.includes(membership.role)) return "forbidden";
+
+    const org = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
+    if (!org) return "not-found";
+
+    const updates: Partial<Organization & { updatedAt: Date }> = { updatedAt: new Date() };
+
+    if (input.name !== undefined) {
+      const trimmed = input.name.trim();
+      if (trimmed) updates.name = trimmed;
+    }
+
+    if (input.slug !== undefined) {
+      const newSlug = slugify(input.slug) || org.slug;
+      if (newSlug !== org.slug) {
+        const conflict = await organizationsCollection().findOne(
+          { slug: newSlug, _id: { $ne: new ObjectId(orgId) } },
+          { projection: { _id: 1 } }
+        );
+        if (conflict) return "conflict";
+      }
+      updates.slug = newSlug;
+    }
+
+    if (input.allowAutoJoin !== undefined) updates.allowAutoJoin = input.allowAutoJoin;
+
+    await organizationsCollection().updateOne({ _id: new ObjectId(orgId) }, { $set: updates });
+    const updated = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
+    if (!updated) return "not-found";
+    return toOrgSummary(updated, membership.role);
   }
 
   async listOrganizationsForUser(userId: string): Promise<OrgSummary[]> {

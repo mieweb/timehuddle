@@ -463,10 +463,13 @@ export const orgAdminApi = {
 // ─── Public Organization API (for all authenticated users) ──────────────────
 
 export const orgApi = {
-  checkSlugAvailability: (slug: string) =>
-    request<{ available: boolean }>(
-      `/v1/organizations/check-slug?slug=${encodeURIComponent(slug)}`,
-    ).then((r) => r.available),
+  checkSlugAvailability: (slug: string, excludeId?: string) => {
+    const params = new URLSearchParams({ slug });
+    if (excludeId) params.set('excludeId', excludeId);
+    return request<{ available: boolean }>(
+      `/v1/organizations/check-slug?${params.toString()}`,
+    ).then((r) => r.available);
+  },
 
   listOrganizations: () =>
     request<{
@@ -497,6 +500,24 @@ export const orgApi = {
       };
     }>('/v1/organizations', {
       method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.organization),
+
+  updateOrganization: (
+    id: string,
+    data: { name?: string; slug?: string; allowAutoJoin?: boolean },
+  ) =>
+    request<{
+      organization: {
+        id: string;
+        enterpriseId: string | null;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+      };
+    }>(`/v1/organizations/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
       body: JSON.stringify(data),
     }).then((r) => r.organization),
 
