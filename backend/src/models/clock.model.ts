@@ -31,8 +31,16 @@ export interface ClockEvent {
   teamId: string;
   startTime: number; // epoch ms — shift start (mutable via updateTimes)
   accumulatedTime: number; // seconds — computed at clock-out (span minus deducted breaks)
-  notifiedAt4h?: number | null; // epoch ms when 4h reminder was sent
+  autoClockoutAgreed?: boolean | null; // true = user chose "Agree to Clock Out" — auto-clockout fires at 8h
   endTime: number | null; // epoch ms — null = still clocked in
+  /** epoch ms when the 7h45m shift-end reminder was first sent */
+  notifiedAt7h45m?: number | null;
+  /** work-second threshold: auto-clockout fires when workSeconds >= this value */
+  shiftAutoClockoutWorkSecs?: number | null;
+  /** work-second threshold: next 2h repeat reminder fires when workSeconds >= this value */
+  shiftNextReminderWorkSecs?: number | null;
+  /** last user response to a shift-end reminder; used for the admin notification message */
+  shiftReminderResponse?: "agreed" | "disagreed" | null;
 }
 
 // ─── ClockEvent helpers ────────────────────────────────────────────────────────

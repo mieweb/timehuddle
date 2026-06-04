@@ -27,7 +27,6 @@ import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
 import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
 import { WorkPage } from '../features/timers/WorkPage';
-import { OzwellWidget } from '../features/ai/OzwellWidget';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
 import { MediaPage } from '../features/media/MediaPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
@@ -38,6 +37,7 @@ import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
 import { RefreshProvider } from '../lib/RefreshContext';
+import { ShiftReminderProvider } from '../features/notifications/ShiftReminderContext';
 import { FeedbackModal } from '../features/feedback/FeedbackModal';
 import { ReportIssueModal } from '../features/feedback/ReportIssueModal';
 import { AppHeader } from './AppHeader';
@@ -266,59 +266,60 @@ const AppLayoutContent: React.FC = () => {
         <CommandPalette />
         <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
         <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-        <AppFeedbackContext.Provider
-          value={{
-            openReportIssue: () => setReportIssueOpen(true),
-            openFeedback: () => setFeedbackOpen(true),
-          }}
-        >
-          <MessagesActiveChatContext.Provider
-            value={{ setHasActiveChat: setMessagesHasActiveChat }}
+        <ShiftReminderProvider>
+          <AppFeedbackContext.Provider
+            value={{
+              openReportIssue: () => setReportIssueOpen(true),
+              openFeedback: () => setFeedbackOpen(true),
+            }}
           >
-            <SidebarContext.Provider
-              value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+            <MessagesActiveChatContext.Provider
+              value={{ setHasActiveChat: setMessagesHasActiveChat }}
             >
-              <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-                {/* Mobile backdrop — rendered via portal to escape overflow-hidden */}
-                {isMobileOpen &&
-                  createPortal(
-                    <div
-                      className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
-                      onClick={closeMobile}
-                      aria-hidden
-                    />,
-                    document.body,
-                  )}
+              <SidebarContext.Provider
+                value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+              >
+                <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+                  {/* Mobile backdrop — rendered via portal to escape overflow-hidden */}
+                  {isMobileOpen &&
+                    createPortal(
+                      <div
+                        className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
+                        onClick={closeMobile}
+                        aria-hidden
+                      />,
+                      document.body,
+                    )}
 
-                <Sidebar />
+                  <Sidebar />
 
-                {/* Content column */}
-                <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                  <AppHeader title={pageTitle} />
-                  <main
-                    ref={mainRef}
-                    className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'app-main-scroll'}` : 'app-main-scroll'} md:pb-0`}
-                  >
-                    <PullToRefresh>
-                      {profileUserId ? (
-                        <ProfilePage userId={profileUserId} />
-                      ) : profileUsername ? (
-                        <ProfilePage username={profileUsername} />
-                      ) : ticketDetailId ? (
-                        <TicketDetailPage ticketId={ticketDetailId} />
-                      ) : (
-                        route && React.createElement(route.component)
-                      )}
-                    </PullToRefresh>
-                  </main>
+                  {/* Content column */}
+                  <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                    <AppHeader title={pageTitle} />
+                    <main
+                      ref={mainRef}
+                      className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'app-main-scroll'}` : 'app-main-scroll'} md:pb-0`}
+                    >
+                      <PullToRefresh>
+                        {profileUserId ? (
+                          <ProfilePage userId={profileUserId} />
+                        ) : profileUsername ? (
+                          <ProfilePage username={profileUsername} />
+                        ) : ticketDetailId ? (
+                          <TicketDetailPage ticketId={ticketDetailId} />
+                        ) : (
+                          route && React.createElement(route.component)
+                        )}
+                      </PullToRefresh>
+                    </main>
+                  </div>
+
+                  {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
                 </div>
-
-                {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
-              </div>
-            </SidebarContext.Provider>
-            <OzwellWidget />
-          </MessagesActiveChatContext.Provider>
-        </AppFeedbackContext.Provider>
+              </SidebarContext.Provider>
+            </MessagesActiveChatContext.Provider>
+          </AppFeedbackContext.Provider>
+        </ShiftReminderProvider>
       </RefreshProvider>
     </RouterContext.Provider>
   );

@@ -430,161 +430,184 @@ export const TimesheetPage: React.FC = () => {
   }
 
   return (
-    <AppPage>
-      {/* Date range filter + Add Entry */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {presets.map((p) => (
-            <Button
-              key={p.key}
-              variant={preset === p.key ? 'primary' : 'outline'}
-              size="sm"
-              onClick={() => setPreset(p.key)}
-            >
-              {p.label}
-            </Button>
-          ))}
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          leftIcon={<FontAwesomeIcon icon={faPlus} />}
-          onClick={openAddEntry}
-          disabled={teamOptions.length === 0}
-        >
-          Add Entry
-        </Button>
-      </div>
-
-      {/* Custom date inputs */}
-      {preset === 'custom' && (
-        <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end">
-          <Input
-            label="Start"
-            type="date"
-            value={customStart}
-            onChange={(e) => setCustomStart(e.target.value)}
-            size="sm"
-          />
-          <Input
-            label="End"
-            type="date"
-            value={customEnd}
-            onChange={(e) => setCustomEnd(e.target.value)}
-            size="sm"
-          />
+    <AppPage className="flex h-full min-h-0 flex-col">
+      {/* Fixed top: filters + summary stats */}
+      <div className="flex shrink-0 flex-col gap-3">
+        {/* Date range filter + Add Entry */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {presets.map((p) => (
+              <Button
+                key={p.key}
+                variant={preset === p.key ? 'primary' : 'secondary'}
+                size="sm"
+                onClick={() => setPreset(p.key)}
+                className="rounded-full transition-all duration-200 font-medium"
+              >
+                {p.label}
+              </Button>
+            ))}
+          </div>
           <Button
             variant="primary"
             size="sm"
-            onClick={fetchData}
-            disabled={loading || !customStart || !customEnd}
-            isLoading={loading}
-            loadingText="Applying…"
-            className="w-full md:w-auto"
+            leftIcon={<FontAwesomeIcon icon={faPlus} />}
+            onClick={openAddEntry}
+            disabled={teamOptions.length === 0}
           >
-            Apply
+            Add Entry
           </Button>
         </div>
-      )}
 
-      {/* Summary stats */}
-      {data && (
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          <Card>
-            <CardContent>
-              <Text variant="muted" size="xs">
-                Total Hours
-              </Text>
-              <Text size="lg" weight="semibold">
-                {formatDuration(filteredSummary.totalSeconds)}
-              </Text>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent>
-              <Text variant="muted" size="xs">
-                Break Hours
-              </Text>
-              <Text size="lg" weight="semibold">
-                {formatDuration(filteredSummary.totalBreakSeconds)}
-              </Text>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent>
-              <Text variant="muted" size="xs">
-                Sessions
-              </Text>
-              <Text size="lg" weight="semibold">
-                {filteredSummary.totalSessions}
-              </Text>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent>
-              <Text variant="muted" size="xs">
-                Avg Session
-              </Text>
-              <Text size="lg" weight="semibold">
-                {formatDuration(filteredSummary.averageSessionSeconds)}
-              </Text>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent>
-              <Text variant="muted" size="xs">
-                Working Days
-              </Text>
-              <Text size="lg" weight="semibold">
-                {filteredSummary.workingDays}
-              </Text>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+        {/* Custom date inputs */}
+        {preset === 'custom' && (
+          <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-end">
+            <Input
+              label="Start"
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              size="sm"
+            />
+            <Input
+              label="End"
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              size="sm"
+            />
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={fetchData}
+              disabled={loading || !customStart || !customEnd}
+              isLoading={loading}
+              loadingText="Applying…"
+              className="w-full md:w-auto"
+            >
+              Apply
+            </Button>
+          </div>
+        )}
 
-      {/* Loading */}
-      {loading && (
-        <div className="flex items-center justify-center p-8">
-          <Spinner label="Loading timesheet…" />
-        </div>
-      )}
+        {/* Summary stats */}
+        {data && (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+            <Card>
+              <CardContent>
+                <Text variant="muted" size="xs">
+                  Total Hours
+                </Text>
+                <Text size="lg" weight="semibold" data-testid="stat-total-hours">
+                  {formatDuration(filteredSummary.totalSeconds)}
+                </Text>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent>
+                <Text variant="muted" size="xs">
+                  Break Hours
+                </Text>
+                <Text size="lg" weight="semibold">
+                  {formatDuration(filteredSummary.totalBreakSeconds)}
+                </Text>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent>
+                <Text variant="muted" size="xs">
+                  Sessions
+                </Text>
+                <Text size="lg" weight="semibold">
+                  {filteredSummary.totalSessions}
+                </Text>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent>
+                <Text variant="muted" size="xs">
+                  Avg Session
+                </Text>
+                <Text size="lg" weight="semibold">
+                  {formatDuration(filteredSummary.averageSessionSeconds)}
+                </Text>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent>
+                <Text variant="muted" size="xs">
+                  Working Days
+                </Text>
+                <Text size="lg" weight="semibold">
+                  {filteredSummary.workingDays}
+                </Text>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
-      {/* Error */}
-      {error && (
-        <Alert variant="danger" dismissible>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+        {/* Loading */}
+        {loading && (
+          <div className="flex items-center justify-center p-8">
+            <Spinner label="Loading timesheet…" />
+          </div>
+        )}
 
-      {/* Sessions list */}
-      {data && filteredSessions.length > 0 && (
-        <Card padding="none">
-          <CardHeader className="px-5 py-3">
-            <CardTitle className="text-sm">Sessions ({filteredSessions.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table responsive>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Clock In</TableHead>
-                  <TableHead>Clock Out</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead>Team</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="w-16 text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredSessions.map((s) => (
-                  <TimesheetRow key={s.id} session={s} teams={teams} onEdit={openSessionDialog} />
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
+        {/* Error */}
+        {error && (
+          <Alert variant="danger" dismissible>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+      </div>
+
+      {/* Flexible bottom: sessions list / empty state */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        {data && filteredSessions.length > 0 && (
+          <Card padding="none" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <CardHeader className="flex flex-row shrink-0 items-center gap-2 px-5 py-3">
+              <CardTitle className="text-sm">Sessions</CardTitle>
+              <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                {filteredSessions.length}
+              </span>
+            </CardHeader>
+            <div className="scrollbar-mieweb scrollbar-mieweb-visible min-h-0 flex-1 overflow-x-auto overflow-y-scroll">
+              <Table responsive={false}>
+                <TableHeader className="sticky top-0 z-10 [&_th]:bg-card">
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Clock In</TableHead>
+                    <TableHead>Clock Out</TableHead>
+                    <TableHead>Duration</TableHead>
+                    <TableHead>Team</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="w-16 text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredSessions.map((s) => (
+                    <TimesheetRow key={s.id} session={s} teams={teams} onEdit={openSessionDialog} />
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </Card>
+        )}
+
+        {data && filteredSessions.length === 0 && !loading && (
+          <Card variant="outlined" padding="lg" className="border-dashed text-center">
+            <CardContent>
+              <FontAwesomeIcon
+                icon={faCalendar}
+                className="mb-2 text-2xl text-neutral-300 dark:text-neutral-600"
+              />
+              <Text variant="muted" size="sm">
+                No clock events in this date range.
+              </Text>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       <Modal
         open={sessionDialogOpen}
@@ -821,20 +844,6 @@ export const TimesheetPage: React.FC = () => {
           </div>
         </ModalFooter>
       </Modal>
-
-      {data && filteredSessions.length === 0 && !loading && (
-        <Card variant="outlined" padding="lg" className="border-dashed text-center">
-          <CardContent>
-            <FontAwesomeIcon
-              icon={faCalendar}
-              className="mb-2 text-2xl text-neutral-300 dark:text-neutral-600"
-            />
-            <Text variant="muted" size="sm">
-              No clock events in this date range.
-            </Text>
-          </CardContent>
-        </Card>
-      )}
     </AppPage>
   );
 };

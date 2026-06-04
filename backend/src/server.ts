@@ -32,7 +32,7 @@ import { mediaRoutes } from "./routes/media.js";
 import { presenceRoutes } from "./routes/presence.js";
 import { channelRoutes } from "./routes/channels.js";
 import { tokenRoutes } from "./routes/tokens.js";
-import { startClockMonitor } from "./services/clock-monitor.service.js";
+import { initAgenda, stopAgenda } from "./services/agenda.service.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? true });
@@ -518,9 +518,14 @@ async function bootstrap() {
   await ensureMongooseConnected();
   await ensureIndexes();
   if (process.env.NODE_ENV !== "test") {
-    startClockMonitor();
+    await initAgenda();
   }
   const app = await buildApp();
+  app.addHook("onClose", async () => {
+    if (process.env.NODE_ENV !== "test") {
+      await stopAgenda();
+    }
+  });
   const port = Number(process.env.PORT) || 4000;
   await app.listen({ port, host: "::" });
   console.log(`API running on http://localhost:${port}`);

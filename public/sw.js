@@ -76,15 +76,14 @@ self.addEventListener('notificationclick', function (event) {
     clients
       .matchAll({ type: 'window', includeUncontrolled: true })
       .then(function (windowClients) {
-        const pathPrefix = urlToOpen.split('?')[0] || urlToOpen;
-        for (let i = 0; i < windowClients.length; i++) {
-          const client = windowClients[i];
-          if (client.url.includes(pathPrefix) && 'focus' in client) {
-            return client.navigate(urlToOpen).then((c) => c?.focus());
-          }
+        const abs = new URL(urlToOpen, self.location.origin).href;
+        // Navigate the first open app window (regardless of its current URL) and focus it.
+        // This ensures clicking a notification always brings the user to the right page
+        // even if they are currently on a different route.
+        if (windowClients.length > 0 && 'navigate' in windowClients[0]) {
+          return windowClients[0].navigate(abs).then((c) => c?.focus());
         }
         if (clients.openWindow) {
-          const abs = new URL(urlToOpen, self.location.origin).href;
           return clients.openWindow(abs);
         }
       })

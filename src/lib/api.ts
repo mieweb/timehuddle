@@ -888,6 +888,15 @@ export const notificationApi = {
       body: JSON.stringify({ action }),
     }),
 
+  /** Consent to auto-clockout at 8h — called when user clicks "Agree to Clock Out" on the shift reminder. */
+  agreeClockout: (clockEventId: string) =>
+    request<{ ok: boolean }>(
+      `/v1/clock/events/${encodeURIComponent(clockEventId)}/agree-clockout`,
+      {
+        method: 'POST',
+      },
+    ),
+
   /** Send a test push notification to the requesting user's devices. */
   testPush: () => request<{ ok: boolean }>('/v1/notifications/test-push', { method: 'POST' }),
 

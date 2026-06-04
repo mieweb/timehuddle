@@ -124,4 +124,13 @@ export const clockController = {
       ),
     };
   },
+
+  async agreeClockout(req: FastifyRequest, reply: FastifyReply) {
+    const userId = req.user!.id;
+    const { eventId } = req.params as { eventId: string };
+    const result = await clockService.agreeAutoClockout(userId, eventId);
+    if (result === "not-found") return reply.status(404).send({ error: "Not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    return reply.send({ ok: true });
+  },
 };

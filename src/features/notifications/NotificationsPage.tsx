@@ -19,10 +19,12 @@ import {
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { notificationApi, type Notification, type TeamInvitePreview } from '../../lib/api';
+import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useShiftReminder } from './ShiftReminderContext';
 
 function timeAgo(date: Date | string | undefined): string {
   if (!date) return '';
@@ -56,12 +58,39 @@ function normalizeAppPath(path: string): string {
   return `/app${path}`;
 }
 
+function openMessageThread(
+  teamId: string,
+  adminId: string,
+  memberId: string,
+  navigate: (path: string) => void,
+): void {
+  try {
+    sessionStorage.setItem(
+      MESSAGES_PENDING_THREAD_KEY,
+      JSON.stringify({ teamId, adminId, memberId }),
+    );
+  } catch {
+    /* ignore */
+  }
+  window.dispatchEvent(
+    new CustomEvent('timehuddle:openThread', {
+      detail: { teamId, adminId, memberId },
+    }),
+  );
+  navigate('/app/messages');
+}
+
 function resolveNotificationTarget(
   doc: Notification | undefined,
   navigate: (path: string) => void,
 ): void {
   if (!doc) return;
   const data = (doc.data ?? {}) as Record<string, unknown>;
+
+  if (data.type === 'message' && data.teamId && data.adminId && data.memberId) {
+    openMessageThread(String(data.teamId), String(data.adminId), String(data.memberId), navigate);
+    return;
+  }
 
   if (typeof data.url === 'string' && data.url.length > 0) {
     const u = data.url as string;
@@ -92,6 +121,7 @@ export const NotificationsPage: React.FC = () => {
   const [markAllLoading, setMarkAllLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [respondLoading, setRespondLoading] = useState(false);
+  const { openModal: openShiftReminderModal } = useShiftReminder();
 
   // Fetch inbox + open SSE for real-time delivery
   useEffect(() => {
@@ -115,6 +145,16 @@ export const NotificationsPage: React.FC = () => {
     };
     return () => es.close();
   }, [user]);
+
+  // Remove notifications handled by the global ShiftReminderModal
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { id } = (e as CustomEvent<{ id: string }>).detail;
+      setNotifications((prev) => prev.filter((n) => n.id !== id));
+    };
+    window.addEventListener('timehuddle:shiftReminderHandled', handler);
+    return () => window.removeEventListener('timehuddle:shiftReminderHandled', handler);
+  }, []);
 
   useRefresh(
     React.useCallback(async () => {
@@ -160,6 +200,12 @@ export const NotificationsPage: React.FC = () => {
           setInviteError(null);
           return;
         }
+        if (data.type === 'shift-end-reminder') {
+          await notificationApi.markOneRead(doc.id);
+          setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
+          openShiftReminderModal(doc);
+          return;
+        }
         await notificationApi.markOneRead(doc.id);
         setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
         resolveNotificationTarget(doc, navigate);
@@ -167,7 +213,7 @@ export const NotificationsPage: React.FC = () => {
         /* ignore */
       }
     },
-    [selectMode, toggleSelect, navigate],
+    [selectMode, toggleSelect, navigate, openShiftReminderModal],
   );
 
   const handleMarkAllRead = useCallback(async () => {
