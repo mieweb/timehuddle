@@ -451,7 +451,7 @@ describe("GET /v1/users", () => {
 
 describe("GET /v1/organization/users", () => {
   it("returns all users with default organization roles", async () => {
-    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
     expect(defaultOrg).toBeTruthy();
 
     const originalOwners = defaultOrg!.owners ?? [];
@@ -487,7 +487,7 @@ describe("GET /v1/organization/users", () => {
 
 describe("Default enterprise ownership bootstrap", () => {
   it("reports owner absence and allows authenticated user to take ownership", async () => {
-    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
     expect(defaultOrg).toBeTruthy();
     expect(defaultOrg?.enterpriseId).toBeTruthy();
 
@@ -579,7 +579,7 @@ describe("Default enterprise ownership bootstrap", () => {
   });
 
   it("backfills enterpriseId for migrated organizations during install", async () => {
-    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
     expect(defaultOrg).toBeTruthy();
     expect(defaultOrg?.enterpriseId).toBeTruthy();
 
@@ -672,7 +672,7 @@ describe("Default enterprise ownership bootstrap", () => {
   });
 
   it("returns 409 when an enterprise owner already exists", async () => {
-    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
     expect(defaultOrg).toBeTruthy();
     expect(defaultOrg?.enterpriseId).toBeTruthy();
 
@@ -731,7 +731,7 @@ describe("Default enterprise ownership bootstrap", () => {
 
 describe("PUT /v1/org/users/:userId", () => {
   it("returns 404 when reportsToUserId does not exist", async () => {
-    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
     expect(defaultOrg).toBeTruthy();
 
     const originalOwners = defaultOrg!.owners ?? [];
