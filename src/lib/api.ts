@@ -579,6 +579,7 @@ export const enterpriseApi = {
         role: 'owner' | 'admin';
         owners: string[];
         admins: string[];
+        members: Array<{ id: string; name: string; username: string | null; role: 'owner' | 'admin' }>;
       };
     }>(`/v1/enterprises/${encodeURIComponent(id)}`).then((r) => r.enterprise),
 
@@ -591,11 +592,23 @@ export const enterpriseApi = {
         role: 'owner' | 'admin';
         owners: string[];
         admins: string[];
+        members: Array<{ id: string; name: string; username: string | null; role: 'owner' | 'admin' }>;
       };
     }>(`/v1/enterprises/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify({ name }),
     }).then((r) => r.enterprise),
+
+  searchUsers: (id: string, q: string) =>
+    request<{ users: Array<{ id: string; name: string; username: string | null }> }>(
+      `/v1/enterprises/${encodeURIComponent(id)}/users/search?q=${encodeURIComponent(q)}`,
+    ).then((r) => r.users),
+
+  removeMember: (id: string, userId: string) =>
+    request<{ userId: string }>(
+      `/v1/enterprises/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' },
+    ),
 
   setMemberRole: (id: string, userId: string, role: 'owner' | 'admin') =>
     request<{ user: { userId: string; role: 'owner' | 'admin' } }>(

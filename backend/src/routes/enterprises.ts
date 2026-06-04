@@ -47,6 +47,34 @@ export async function enterpriseRoutes(app: FastifyInstance) {
     enterpriseController.get
   );
 
+  app.get(
+    "/enterprises/:id/users/search",
+    {
+      schema: {
+        tags: ["Organization"],
+        summary: "Search users to add to an enterprise",
+        params: { type: "object", properties: { id: { type: "string" } } },
+        querystring: { type: "object", properties: { q: { type: "string" } } },
+      },
+    },
+    enterpriseController.searchUsers
+  );
+
+  app.delete(
+    "/enterprises/:id/members/:userId",
+    {
+      schema: {
+        tags: ["Organization"],
+        summary: "Remove enterprise member",
+        params: {
+          type: "object",
+          properties: { id: { type: "string" }, userId: { type: "string" } },
+        },
+      },
+    },
+    enterpriseController.removeMember
+  );
+
   app.put(
     "/enterprises/:id",
     {

@@ -51,6 +51,31 @@ export const enterpriseController = {
     return reply.send({ user: result });
   },
 
+  async searchUsers(
+    req: FastifyRequest<{ Params: { id: string }; Querystring: { q?: string } }>,
+    reply: FastifyReply
+  ) {
+    const result = await enterpriseService.searchUsers(
+      req.user!.id,
+      req.params.id,
+      req.query.q ?? ""
+    );
+    if (result === "not-found") return reply.status(404).send({ error: "Enterprise not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    return reply.send({ users: result });
+  },
+
+  async removeMember(
+    req: FastifyRequest<{ Params: { id: string; userId: string } }>,
+    reply: FastifyReply
+  ) {
+    const result = await enterpriseService.removeMember(req.user!.id, req.params.id, req.params.userId);
+    if (result === "not-found") return reply.status(404).send({ error: "Enterprise not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    if (result === "last-owner") return reply.status(400).send({ error: "Cannot remove the last owner" });
+    return reply.send({ userId: result.userId });
+  },
+
   async updateName(
     req: FastifyRequest<{
       Params: { id: string };

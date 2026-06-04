@@ -1,5 +1,5 @@
 import { ObjectId } from "mongodb";
-import { enterprisesCollection } from "../models/index.js";
+import { enterprisesCollection, usersCollection } from "../models/index.js";
 import { slugify } from "../lib/slug.js";
 
 export type EnterpriseSummary = {
@@ -9,9 +9,17 @@ export type EnterpriseSummary = {
   role: "owner" | "admin";
 };
 
+export type EnterpriseMember = {
+  id: string;
+  name: string;
+  username: string | null;
+  role: "owner" | "admin";
+};
+
 export type EnterpriseDetail = EnterpriseSummary & {
   owners: string[];
   admins: string[];
+  members: EnterpriseMember[];
 };
 
 function isValidId(id: string): boolean {
@@ -47,6 +55,29 @@ export class EnterpriseService {
     const role = owners.includes(userId) ? "owner" : admins.includes(userId) ? "admin" : null;
     if (!role) return "forbidden";
 
+    const allMemberIds = [...new Set([...owners, ...admins])];
+    const userDocs = allMemberIds.length
+      ? await usersCollection()
+          .find({ _id: { $in: allMemberIds.map((id) => new ObjectId(id)) } })
+          .project<{ _id: ObjectId; name: string; username?: string | null }>({
+            _id: 1,
+            name: 1,
+            username: 1,
+          })
+          .toArray()
+      : [];
+    const userMap = new Map(userDocs.map((u) => [u._id.toHexString(), u]));
+
+    const members: EnterpriseMember[] = allMemberIds.map((id) => {
+      const user = userMap.get(id);
+      return {
+        id,
+        name: user?.name ?? id,
+        username: user?.username ?? null,
+        role: owners.includes(id) ? "owner" : "admin",
+      };
+    });
+
     return {
       id: enterprise._id.toHexString(),
       name: enterprise.name,
@@ -54,6 +85,7 @@ export class EnterpriseService {
       role,
       owners,
       admins,
+      members,
     };
   }
 
@@ -86,6 +118,7 @@ export class EnterpriseService {
       role: "owner",
       owners: enterprise.owners,
       admins: enterprise.admins,
+      members: [{ id: userId, name: userId, username: null, role: "owner" }],
     };
   }
 
@@ -122,6 +155,71 @@ export class EnterpriseService {
     return { userId: targetUserId, role };
   }
 
+  async searchUsers(
+    requesterUserId: string,
+    enterpriseId: string,
+    query: string
+  ): Promise<Array<{ id: string; name: string; username: string | null }> | "not-found" | "forbidden"> {
+    if (!isValidId(enterpriseId)) return "not-found";
+    const enterprise = await enterprisesCollection().findOne({ _id: new ObjectId(enterpriseId) });
+    if (!enterprise) return "not-found";
+    const owners = enterprise.owners ?? [];
+    const admins = enterprise.admins ?? [];
+    if (!owners.includes(requesterUserId) && !admins.includes(requesterUserId)) return "forbidden";
+
+    const q = query.trim();
+    const filter = q
+      ? {
+          $or: [
+            { name: { $regex: q, $options: "i" } },
+            { username: { $regex: q, $options: "i" } },
+            { email: { $regex: q, $options: "i" } },
+          ],
+        }
+      : {};
+
+    const users = await usersCollection()
+      .find(filter)
+      .project<{ _id: ObjectId; name: string; username?: string | null }>({ _id: 1, name: 1, username: 1 })
+      .sort({ name: 1 })
+      .limit(20)
+      .toArray();
+
+    return users.map((u) => ({
+      id: u._id.toHexString(),
+      name: u.name,
+      username: u.username ?? null,
+    }));
+  }
+
+  async removeMember(
+    requesterUserId: string,
+    enterpriseId: string,
+    targetUserId: string
+  ): Promise<{ userId: string } | "not-found" | "forbidden" | "last-owner"> {
+    if (!isValidId(enterpriseId)) return "not-found";
+
+    const enterprise = await enterprisesCollection().findOne({ _id: new ObjectId(enterpriseId) });
+    if (!enterprise) return "not-found";
+    if (!(enterprise.owners ?? []).includes(requesterUserId)) return "forbidden";
+
+    const owners = new Set(enterprise.owners ?? []);
+    const admins = new Set(enterprise.admins ?? []);
+
+    // Prevent removing the last owner
+    if (owners.has(targetUserId) && owners.size === 1 && admins.size === 0) return "last-owner";
+
+    owners.delete(targetUserId);
+    admins.delete(targetUserId);
+
+    await enterprisesCollection().updateOne(
+      { _id: enterprise._id },
+      { $set: { owners: Array.from(owners), admins: Array.from(admins), updatedAt: new Date() } }
+    );
+
+    return { userId: targetUserId };
+  }
+
   async updateEnterpriseName(
     requesterUserId: string,
     enterpriseId: string,
@@ -149,6 +247,19 @@ export class EnterpriseService {
       }
     );
 
+    const allMemberIds = [...new Set([...owners, ...admins])];
+    const userDocs = allMemberIds.length
+      ? await usersCollection()
+          .find({ _id: { $in: allMemberIds.map((id) => new ObjectId(id)) } })
+          .project<{ _id: ObjectId; name: string; username?: string | null }>({ _id: 1, name: 1, username: 1 })
+          .toArray()
+      : [];
+    const userMap = new Map(userDocs.map((u) => [u._id.toHexString(), u]));
+    const members: EnterpriseMember[] = allMemberIds.map((id) => {
+      const user = userMap.get(id);
+      return { id, name: user?.name ?? id, username: user?.username ?? null, role: owners.includes(id) ? "owner" : "admin" };
+    });
+
     return {
       id: enterprise._id.toHexString(),
       name,
@@ -156,6 +267,7 @@ export class EnterpriseService {
       role,
       owners,
       admins,
+      members,
     };
   }
 }
