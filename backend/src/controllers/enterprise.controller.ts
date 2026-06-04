@@ -50,4 +50,21 @@ export const enterpriseController = {
     }
     return reply.send({ user: result });
   },
+
+  async updateName(
+    req: FastifyRequest<{
+      Params: { id: string };
+      Body: { name: string };
+    }>,
+    reply: FastifyReply
+  ) {
+    const result = await enterpriseService.updateEnterpriseName(req.user!.id, req.params.id, req.body);
+    if (result === "not-found") {
+      return reply.status(404).send({ error: "Enterprise not found" });
+    }
+    if (result === "forbidden") {
+      return reply.status(403).send({ error: "Forbidden" });
+    }
+    return reply.send({ enterprise: result });
+  },
 };
