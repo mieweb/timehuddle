@@ -122,7 +122,7 @@ async function clockOut(page: Page, teamId: string): Promise<void> {
   if (!res.ok()) throw new Error(`Clock out failed: ${res.status()} ${await res.text()}`);
 }
 
-async function ensureClockedOut(page: Page, teamId: string): Promise<void> {
+async function ensureClockedOut(page: Page, _teamId: string): Promise<void> {
   const res = await page.request.get(`${API_BASE}/clock/active`);
   const { event } = (await res.json()) as { event: { teamId: string } | null };
   if (!event) return;
