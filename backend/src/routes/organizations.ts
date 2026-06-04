@@ -16,6 +16,28 @@ export async function organizationsRoutes(app: FastifyInstance) {
     orgController.list
   );
 
+  app.get(
+    "/organizations/check-slug",
+    {
+      schema: {
+        tags: ["Organization"],
+        summary: "Check if an organization slug is available",
+        querystring: {
+          type: "object",
+          required: ["slug"],
+          properties: { slug: { type: "string", minLength: 1, maxLength: 120 } },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: { available: { type: "boolean" } },
+          },
+        },
+      },
+    },
+    orgController.checkSlug
+  );
+
   app.post(
     "/organizations",
     {
@@ -28,7 +50,6 @@ export async function organizationsRoutes(app: FastifyInstance) {
           properties: {
             enterpriseId: { type: "string", pattern: "^[0-9a-f]{24}$" },
             name: { type: "string", minLength: 1, maxLength: 120 },
-            key: { type: "string", minLength: 1, maxLength: 120 },
             slug: { type: "string", minLength: 1, maxLength: 120 },
             allowAutoJoin: { type: "boolean" },
           },

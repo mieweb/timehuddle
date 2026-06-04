@@ -14,7 +14,7 @@ import {
   Switch,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ApiError, enterpriseApi, orgApi } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
@@ -27,6 +27,16 @@ const roleOptions = [
   { value: 'owner', label: 'Owner' },
   { value: 'admin', label: 'Admin' },
 ];
+
+function slugify(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 64);
+}
 
 export const EnterprisePage: React.FC = () => {
   const {
@@ -49,9 +59,14 @@ export const EnterprisePage: React.FC = () => {
   const [createOrgOpen, setCreateOrgOpen] = useState(false);
   const [orgName, setOrgName] = useState('');
   const [orgSlug, setOrgSlug] = useState('');
+  const [orgSlugEdited, setOrgSlugEdited] = useState(false);
+  const [orgSlugStatus, setOrgSlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>(
+    'idle',
+  );
   const [orgAllowAutoJoin, setOrgAllowAutoJoin] = useState(true);
   const [orgSaving, setOrgSaving] = useState(false);
   const [orgError, setOrgError] = useState<string | null>(null);
+  const slugCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedRole = getEnterpriseRole(enterprises, selectedEnterpriseId);
   const selectedOrganizations = useMemo(
@@ -168,6 +183,8 @@ export const EnterprisePage: React.FC = () => {
       setCreateOrgOpen(false);
       setOrgName('');
       setOrgSlug('');
+      setOrgSlugEdited(false);
+      setOrgSlugStatus('idle');
       setOrgAllowAutoJoin(true);
     } catch (err) {
       setOrgError(err instanceof ApiError ? err.message : 'Failed to create organization');
@@ -182,6 +199,44 @@ export const EnterprisePage: React.FC = () => {
     selectedEnterpriseId,
     setSelectedOrgId,
   ]);
+
+  const handleOrgNameChange = useCallback(
+    (name: string) => {
+      setOrgName(name);
+      if (!orgSlugEdited) {
+        const derived = slugify(name);
+        setOrgSlug(derived);
+        if (slugCheckTimer.current) clearTimeout(slugCheckTimer.current);
+        if (!derived) {
+          setOrgSlugStatus('idle');
+          return;
+        }
+        setOrgSlugStatus('checking');
+        slugCheckTimer.current = setTimeout(() => {
+          void orgApi.checkSlugAvailability(derived).then((available) => {
+            setOrgSlugStatus(available ? 'available' : 'taken');
+          });
+        }, 400);
+      }
+    },
+    [orgSlugEdited],
+  );
+
+  const handleOrgSlugChange = useCallback((slug: string) => {
+    setOrgSlug(slug);
+    setOrgSlugEdited(true);
+    if (slugCheckTimer.current) clearTimeout(slugCheckTimer.current);
+    if (!slug.trim()) {
+      setOrgSlugStatus('idle');
+      return;
+    }
+    setOrgSlugStatus('checking');
+    slugCheckTimer.current = setTimeout(() => {
+      void orgApi.checkSlugAvailability(slug.trim()).then((available) => {
+        setOrgSlugStatus(available ? 'available' : 'taken');
+      });
+    }, 400);
+  }, []);
 
   const handleChangeRole = useCallback(
     async (userId: string, role: 'owner' | 'admin') => {
@@ -406,17 +461,34 @@ export const EnterprisePage: React.FC = () => {
           <Input
             label="Name"
             value={orgName}
-            onChange={(e) => setOrgName(e.target.value)}
+            onChange={(e) => handleOrgNameChange(e.target.value)}
             placeholder="Design Systems"
             disabled={orgSaving}
           />
-          <Input
-            label="Slug"
-            value={orgSlug}
-            onChange={(e) => setOrgSlug(e.target.value)}
-            placeholder="design-systems"
-            disabled={orgSaving}
-          />
+          <div>
+            <Input
+              label="Slug"
+              value={orgSlug}
+              onChange={(e) => handleOrgSlugChange(e.target.value)}
+              placeholder="design-systems"
+              disabled={orgSaving}
+            />
+            {orgSlugStatus === 'checking' && (
+              <Text size="xs" variant="muted" className="mt-1">
+                Checking availability…
+              </Text>
+            )}
+            {orgSlugStatus === 'available' && (
+              <Text size="xs" className="mt-1 text-green-600 dark:text-green-400">
+                ✓ Slug is available
+              </Text>
+            )}
+            {orgSlugStatus === 'taken' && (
+              <Text size="xs" className="mt-1 text-red-600 dark:text-red-400">
+                ✗ Slug is already taken
+              </Text>
+            )}
+          </div>
           <div className="flex items-center justify-between rounded-xl border border-neutral-200/70 px-3 py-2 dark:border-neutral-800">
             <div>
               <Text size="sm" weight="medium">
@@ -441,7 +513,7 @@ export const EnterprisePage: React.FC = () => {
           <Button
             variant="primary"
             onClick={() => void handleCreateOrg()}
-            disabled={orgSaving || !orgName.trim()}
+            disabled={orgSaving || !orgName.trim() || orgSlugStatus === 'taken'}
           >
             {orgSaving ? 'Creating…' : 'Create'}
           </Button>
