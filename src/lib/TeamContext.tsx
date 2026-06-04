@@ -47,7 +47,6 @@ export interface TeamContextValue {
   organizations: Array<{
     id: string;
     enterpriseId: string | null;
-    key: string;
     name: string;
     slug: string;
     allowAutoJoin: boolean;
@@ -107,7 +106,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     Array<{
       id: string;
       enterpriseId: string | null;
-      key: string;
       name: string;
       slug: string;
       allowAutoJoin: boolean;

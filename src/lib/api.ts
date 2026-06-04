@@ -463,12 +463,16 @@ export const orgAdminApi = {
 // ─── Public Organization API (for all authenticated users) ──────────────────
 
 export const orgApi = {
+  checkSlugAvailability: (slug: string) =>
+    request<{ available: boolean }>(
+      `/v1/organizations/check-slug?slug=${encodeURIComponent(slug)}`,
+    ).then((r) => r.available),
+
   listOrganizations: () =>
     request<{
       organizations: Array<{
         id: string;
         enterpriseId: string | null;
-        key: string;
         name: string;
         slug: string;
         allowAutoJoin: boolean;
@@ -479,7 +483,6 @@ export const orgApi = {
   createOrganization: (data: {
     enterpriseId: string;
     name: string;
-    key?: string;
     slug?: string;
     allowAutoJoin?: boolean;
   }) =>
@@ -487,7 +490,6 @@ export const orgApi = {
       organization: {
         id: string;
         enterpriseId: string | null;
-        key: string;
         name: string;
         slug: string;
         allowAutoJoin: boolean;
@@ -503,7 +505,6 @@ export const orgApi = {
       organization: {
         id: string;
         enterpriseId: string | null;
-        key: string;
         name: string;
         slug: string;
         allowAutoJoin: boolean;

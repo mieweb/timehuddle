@@ -7,6 +7,11 @@ export const orgController = {
     return reply.send({ organizations });
   },
 
+  async checkSlug(req: FastifyRequest<{ Querystring: { slug: string } }>, reply: FastifyReply) {
+    const available = await orgService.isSlugAvailable(req.query.slug);
+    return reply.send({ available });
+  },
+
   async create(
     req: FastifyRequest<{
       Body: {

@@ -58,5 +58,9 @@ export async function ensureIndexes() {
   await pats.createIndex({ tokenHash: 1 }, { unique: true });
   await pats.createIndex({ userId: 1 });
 
+  // ── Enterprise / Organization slug uniqueness ───────────────────────────────
+  await db.collection("enterprises").createIndex({ slug: 1 }, { unique: true });
+  await db.collection("organizations").createIndex({ slug: 1 }, { unique: true });
+
   console.log("MongoDB indexes ensured");
 }

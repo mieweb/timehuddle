@@ -255,6 +255,11 @@ export class OrgService {
     return { orgId, userId, role: nextRole, auto: nextAuto };
   }
 
+  async isSlugAvailable(slug: string): Promise<boolean> {
+    const existing = await organizationsCollection().findOne({ slug }, { projection: { _id: 1 } });
+    return existing === null;
+  }
+
   async listOrganizationsForUser(userId: string): Promise<OrgSummary[]> {
     const [memberships, ownedOrAdminOrgs, teamOrgs] = await Promise.all([
       orgMembersCollection().find({ userId }).toArray(),
