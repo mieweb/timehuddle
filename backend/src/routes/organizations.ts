@@ -25,7 +25,10 @@ export async function organizationsRoutes(app: FastifyInstance) {
         querystring: {
           type: "object",
           required: ["slug"],
-          properties: { slug: { type: "string", minLength: 1, maxLength: 120 } },
+          properties: {
+            slug: { type: "string", minLength: 1, maxLength: 120 },
+            excludeId: { type: "string" },
+          },
         },
         response: {
           200: {
@@ -36,6 +39,26 @@ export async function organizationsRoutes(app: FastifyInstance) {
       },
     },
     orgController.checkSlug
+  );
+
+  app.patch(
+    "/organizations/:id",
+    {
+      schema: {
+        tags: ["Organization"],
+        summary: "Update organization name, slug, or settings",
+        params: { type: "object", properties: { id: { type: "string" } } },
+        body: {
+          type: "object",
+          properties: {
+            name: { type: "string", minLength: 1, maxLength: 120 },
+            slug: { type: "string", minLength: 1, maxLength: 120 },
+            allowAutoJoin: { type: "boolean" },
+          },
+        },
+      },
+    },
+    orgController.update
   );
 
   app.post(

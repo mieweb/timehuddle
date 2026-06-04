@@ -7,9 +7,27 @@ export const orgController = {
     return reply.send({ organizations });
   },
 
-  async checkSlug(req: FastifyRequest<{ Querystring: { slug: string } }>, reply: FastifyReply) {
-    const available = await orgService.isSlugAvailable(req.query.slug);
+  async checkSlug(
+    req: FastifyRequest<{ Querystring: { slug: string; excludeId?: string } }>,
+    reply: FastifyReply
+  ) {
+    const available = await orgService.isSlugAvailable(req.query.slug, req.query.excludeId);
     return reply.send({ available });
+  },
+
+  async update(
+    req: FastifyRequest<{
+      Params: { id: string };
+      Body: { name?: string; slug?: string; allowAutoJoin?: boolean };
+    }>,
+    reply: FastifyReply
+  ) {
+    const result = await orgService.updateOrganization(req.user!.id, req.params.id, req.body);
+    if (result === "not-found") return reply.status(404).send({ error: "Organization not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    if (result === "conflict")
+      return reply.status(409).send({ error: "Organization slug already exists" });
+    return reply.send({ organization: result });
   },
 
   async create(

@@ -68,6 +68,19 @@ export const EnterprisePage: React.FC = () => {
   const [orgError, setOrgError] = useState<string | null>(null);
   const slugCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Edit org modal ──────────────────────────────────────────────────────────
+  type OrgItem = (typeof organizations)[number];
+  const [editOrg, setEditOrg] = useState<OrgItem | null>(null);
+  const [editOrgName, setEditOrgName] = useState('');
+  const [editOrgSlug, setEditOrgSlug] = useState('');
+  const [editOrgSlugStatus, setEditOrgSlugStatus] = useState<
+    'idle' | 'checking' | 'available' | 'taken'
+  >('idle');
+  const [editOrgAllowAutoJoin, setEditOrgAllowAutoJoin] = useState(true);
+  const [editOrgSaving, setEditOrgSaving] = useState(false);
+  const [editOrgError, setEditOrgError] = useState<string | null>(null);
+  const editSlugCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const selectedRole = getEnterpriseRole(enterprises, selectedEnterpriseId);
   const selectedOrganizations = useMemo(
     () =>
@@ -237,6 +250,52 @@ export const EnterprisePage: React.FC = () => {
       });
     }, 400);
   }, []);
+
+  const handleOpenEditOrg = useCallback((org: OrgItem) => {
+    setEditOrg(org);
+    setEditOrgName(org.name);
+    setEditOrgSlug(org.slug);
+    setEditOrgSlugStatus('idle');
+    setEditOrgAllowAutoJoin(org.allowAutoJoin);
+    setEditOrgError(null);
+  }, []);
+
+  const handleEditOrgSlugChange = useCallback(
+    (slug: string) => {
+      setEditOrgSlug(slug);
+      if (editSlugCheckTimer.current) clearTimeout(editSlugCheckTimer.current);
+      if (!slug.trim() || slug.trim() === editOrg?.slug) {
+        setEditOrgSlugStatus('idle');
+        return;
+      }
+      setEditOrgSlugStatus('checking');
+      editSlugCheckTimer.current = setTimeout(() => {
+        void orgApi.checkSlugAvailability(slug.trim(), editOrg?.id).then((available) => {
+          setEditOrgSlugStatus(available ? 'available' : 'taken');
+        });
+      }, 400);
+    },
+    [editOrg],
+  );
+
+  const handleSaveEditOrg = useCallback(async () => {
+    if (!editOrg) return;
+    setEditOrgSaving(true);
+    setEditOrgError(null);
+    try {
+      await orgApi.updateOrganization(editOrg.id, {
+        name: editOrgName.trim() || undefined,
+        slug: editOrgSlug.trim() !== editOrg.slug ? editOrgSlug.trim() : undefined,
+        allowAutoJoin: editOrgAllowAutoJoin,
+      });
+      refetchOrganizations();
+      setEditOrg(null);
+    } catch (err) {
+      setEditOrgError(err instanceof ApiError ? err.message : 'Failed to update organization');
+    } finally {
+      setEditOrgSaving(false);
+    }
+  }, [editOrg, editOrgAllowAutoJoin, editOrgName, editOrgSlug, refetchOrganizations]);
 
   const handleChangeRole = useCallback(
     async (userId: string, role: 'owner' | 'admin') => {
@@ -430,9 +489,18 @@ export const EnterprisePage: React.FC = () => {
             <CardContent className="space-y-3">
               {selectedOrganizations.length > 0 ? (
                 selectedOrganizations.map((org) => (
-                  <Text key={org.id} size="sm">
-                    {org.name}
-                  </Text>
+                  <button
+                    key={org.id}
+                    onClick={() => handleOpenEditOrg(org)}
+                    className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                  >
+                    <Text size="sm" weight="medium">
+                      {org.name}
+                    </Text>
+                    <Text size="xs" variant="muted">
+                      {org.slug}
+                    </Text>
+                  </button>
                 ))
               ) : (
                 <Text variant="muted" size="sm">
@@ -516,6 +584,84 @@ export const EnterprisePage: React.FC = () => {
             disabled={orgSaving || !orgName.trim() || orgSlugStatus === 'taken'}
           >
             {orgSaving ? 'Creating…' : 'Create'}
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      <Modal
+        open={!!editOrg}
+        onOpenChange={(open) => {
+          if (!open) setEditOrg(null);
+        }}
+      >
+        <ModalHeader>Edit Organization</ModalHeader>
+        <ModalBody className="space-y-4">
+          {editOrgError && (
+            <Text
+              size="sm"
+              className="rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-950/30 dark:text-red-300"
+            >
+              {editOrgError}
+            </Text>
+          )}
+          <Input
+            label="Name"
+            value={editOrgName}
+            onChange={(e) => setEditOrgName(e.target.value)}
+            placeholder="Design Systems"
+            disabled={editOrgSaving}
+          />
+          <div>
+            <Input
+              label="Slug"
+              value={editOrgSlug}
+              onChange={(e) => handleEditOrgSlugChange(e.target.value)}
+              placeholder="design-systems"
+              disabled={editOrgSaving}
+            />
+            {editOrgSlugStatus === 'checking' && (
+              <Text size="xs" variant="muted" className="mt-1">
+                Checking availability…
+              </Text>
+            )}
+            {editOrgSlugStatus === 'available' && (
+              <Text size="xs" className="mt-1 text-green-600 dark:text-green-400">
+                ✓ Slug is available
+              </Text>
+            )}
+            {editOrgSlugStatus === 'taken' && (
+              <Text size="xs" className="mt-1 text-red-600 dark:text-red-400">
+                ✗ Slug is already taken
+              </Text>
+            )}
+          </div>
+          <div className="flex items-center justify-between rounded-xl border border-neutral-200/70 px-3 py-2 dark:border-neutral-800">
+            <div>
+              <Text size="sm" weight="medium">
+                Allow Auto-Join
+              </Text>
+              <Text variant="muted" size="xs">
+                New team joins can automatically create org membership.
+              </Text>
+            </div>
+            <Switch
+              checked={editOrgAllowAutoJoin}
+              onCheckedChange={setEditOrgAllowAutoJoin}
+              disabled={editOrgSaving}
+              aria-label="Toggle organization auto-join"
+            />
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="outline" onClick={() => setEditOrg(null)} disabled={editOrgSaving}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => void handleSaveEditOrg()}
+            disabled={editOrgSaving || !editOrgName.trim() || editOrgSlugStatus === 'taken'}
+          >
+            {editOrgSaving ? 'Saving…' : 'Save'}
           </Button>
         </ModalFooter>
       </Modal>
