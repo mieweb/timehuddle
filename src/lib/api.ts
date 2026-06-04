@@ -1047,9 +1047,9 @@ export const timerApi = {
   /** Get all entries + sessions for today in local time. */
   getToday: () => {
     const tz = clientTz();
-    return request<{ entries: DayEntry[] }>(
-      `/v1/timers/today?tz=${encodeURIComponent(tz)}`,
-    ).then((r) => r.entries);
+    return request<{ entries: DayEntry[] }>(`/v1/timers/today?tz=${encodeURIComponent(tz)}`).then(
+      (r) => r.entries,
+    );
   },
 
   /** Get all entries + sessions for a local day (YYYY-MM-DD). */

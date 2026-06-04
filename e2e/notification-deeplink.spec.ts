@@ -103,10 +103,7 @@ async function teardownTestTeam(alicePage: Page, teamId: string): Promise<void> 
 
 // ─── Clock helpers ─────────────────────────────────────────────────────────────
 
-async function clockIn(
-  page: Page,
-  teamId: string,
-): Promise<{ eventId: string }> {
+async function clockIn(page: Page, teamId: string): Promise<{ eventId: string }> {
   const res = await page.request.post(`${API_BASE}/clock/start`, {
     data: { teamId },
   });
@@ -198,10 +195,7 @@ test.describe('Notification deep-links', () => {
     await clockIn(bobPage, teamId);
     await clockOut(bobPage, teamId);
 
-    const notif = await waitForNotification(
-      bobPage,
-      (n) => n.data?.type === 'clock-out-self',
-    );
+    const notif = await waitForNotification(bobPage, (n) => n.data?.type === 'clock-out-self');
 
     expect(notif.data?.url).toBe(`/app/profile/${BOB_USER_ID}?tab=work`);
   });

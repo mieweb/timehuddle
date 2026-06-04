@@ -9,7 +9,12 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { timerApi, ticketApi, type DayEntry, type Ticket } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
-import { formatDuration, formatTime, formatTimer, getActiveClockSeconds } from '../../lib/timeUtils';
+import {
+  formatDuration,
+  formatTime,
+  formatTimer,
+  getActiveClockSeconds,
+} from '../../lib/timeUtils';
 import { useRouter } from '../../ui/router';
 
 export function TodayStatusCard() {
@@ -19,7 +24,10 @@ export function TodayStatusCard() {
   const [runningTicket, setRunningTicket] = useState<Ticket | null>(null);
 
   const fetchToday = useCallback(() => {
-    timerApi.getToday().then(setTodayEntries).catch(() => {});
+    timerApi
+      .getToday()
+      .then(setTodayEntries)
+      .catch(() => {});
   }, []);
 
   // Fetch on mount and whenever clock-in state changes
@@ -41,16 +49,17 @@ export function TodayStatusCard() {
       setRunningTicket(null);
       return;
     }
-    ticketApi.getTicket(runningEntry.entry.ticketId).then(setRunningTicket).catch(() => setRunningTicket(null));
+    ticketApi
+      .getTicket(runningEntry.entry.ticketId)
+      .then(setRunningTicket)
+      .catch(() => setRunningTicket(null));
   }, [todayEntries]);
 
   // Not clocked in — hide card entirely
   if (!activeClockEvent) return null;
 
   // Find the entry with a running session (endTime === null)
-  const runningEntry = todayEntries.find((de) =>
-    de.sessions.some((s) => s.endTime === null),
-  );
+  const runningEntry = todayEntries.find((de) => de.sessions.some((s) => s.endTime === null));
   const runningSession = runningEntry?.sessions.find((s) => s.endTime === null) ?? null;
 
   const clockedInSeconds = getActiveClockSeconds(activeClockEvent, currentTime);
