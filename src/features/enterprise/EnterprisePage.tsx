@@ -1,22 +1,25 @@
 import {
-  Badge,
   Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   Input,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
   Select,
   Spinner,
+  Switch,
   Text,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { ApiError, enterpriseApi } from '../../lib/api';
+import { ApiError, enterpriseApi, orgApi } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { getEnterpriseRole } from '../../lib/organizationAccess';
 import { AppPage } from '../../ui/AppPage';
-import { useRouter } from '../../ui/router';
 
 type EnterpriseDetail = Awaited<ReturnType<typeof enterpriseApi.get>>;
 
@@ -26,13 +29,13 @@ const roleOptions = [
 ];
 
 export const EnterprisePage: React.FC = () => {
-  const { navigate } = useRouter();
   const {
     enterprises,
     organizations,
     selectedEnterpriseId,
-    setSelectedEnterpriseId,
     refetchEnterprises,
+    refetchOrganizations,
+    setSelectedOrgId,
   } = useTeam();
   const [enterprise, setEnterprise] = useState<EnterpriseDetail | null>(null);
   const [loading, setLoading] = useState(false);
@@ -42,7 +45,13 @@ export const EnterprisePage: React.FC = () => {
   const [memberUserId, setMemberUserId] = useState('');
   const [memberRole, setMemberRole] = useState<'owner' | 'admin'>('admin');
   const [memberSaving, setMemberSaving] = useState<Record<string, boolean>>({});
-  const [userOptions, setUserOptions] = useState<Array<{ value: string; label: string }>>([]);;
+  const [userOptions, setUserOptions] = useState<Array<{ value: string; label: string }>>([]);
+  const [createOrgOpen, setCreateOrgOpen] = useState(false);
+  const [orgName, setOrgName] = useState('');
+  const [orgSlug, setOrgSlug] = useState('');
+  const [orgAllowAutoJoin, setOrgAllowAutoJoin] = useState(true);
+  const [orgSaving, setOrgSaving] = useState(false);
+  const [orgError, setOrgError] = useState<string | null>(null);
 
   const selectedRole = getEnterpriseRole(enterprises, selectedEnterpriseId);
   const selectedOrganizations = useMemo(
@@ -85,10 +94,12 @@ export const EnterprisePage: React.FC = () => {
     void enterpriseApi
       .searchUsers(selectedEnterpriseId, '')
       .then((users) =>
-        setUserOptions(users.map((u) => ({
-          value: u.id,
-          label: u.username ? `${u.name} (@${u.username})` : u.name,
-        })))
+        setUserOptions(
+          users.map((u) => ({
+            value: u.id,
+            label: u.username ? `${u.name} (@${u.username})` : u.name,
+          })),
+        ),
       )
       .catch(() => {
         /* silently ignore */
@@ -140,6 +151,37 @@ export const EnterprisePage: React.FC = () => {
       setSaving(false);
     }
   }, [loadEnterprise, memberRole, memberUserId, selectedEnterpriseId]);
+
+  const handleCreateOrg = useCallback(async () => {
+    if (!selectedEnterpriseId || !orgName.trim()) return;
+    setOrgSaving(true);
+    setOrgError(null);
+    try {
+      const org = await orgApi.createOrganization({
+        enterpriseId: selectedEnterpriseId,
+        name: orgName.trim(),
+        slug: orgSlug.trim() || undefined,
+        allowAutoJoin: orgAllowAutoJoin,
+      });
+      refetchOrganizations();
+      setSelectedOrgId(org.id);
+      setCreateOrgOpen(false);
+      setOrgName('');
+      setOrgSlug('');
+      setOrgAllowAutoJoin(true);
+    } catch (err) {
+      setOrgError(err instanceof ApiError ? err.message : 'Failed to create organization');
+    } finally {
+      setOrgSaving(false);
+    }
+  }, [
+    orgAllowAutoJoin,
+    orgName,
+    orgSlug,
+    refetchOrganizations,
+    selectedEnterpriseId,
+    setSelectedOrgId,
+  ]);
 
   const handleChangeRole = useCallback(
     async (userId: string, role: 'owner' | 'admin') => {
@@ -236,15 +278,29 @@ export const EnterprisePage: React.FC = () => {
                     <CardTitle>Members</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
-                    {(enterprise.members ?? [
-                      ...enterprise.owners.map((id) => ({ id, name: id, username: null, role: 'owner' as const })),
-                      ...enterprise.admins.map((id) => ({ id, name: id, username: null, role: 'admin' as const })),
-                    ]).map((member) => (
+                    {(
+                      enterprise.members ?? [
+                        ...enterprise.owners.map((id) => ({
+                          id,
+                          name: id,
+                          username: null,
+                          role: 'owner' as const,
+                        })),
+                        ...enterprise.admins.map((id) => ({
+                          id,
+                          name: id,
+                          username: null,
+                          role: 'admin' as const,
+                        })),
+                      ]
+                    ).map((member) => (
                       <div key={member.id} className="flex items-center gap-2">
                         <Text size="sm" className="min-w-0 flex-1 truncate">
                           {member.name}
                           {member.username && (
-                            <span className="ml-1 text-xs text-neutral-400">@{member.username}</span>
+                            <span className="ml-1 text-xs text-neutral-400">
+                              @{member.username}
+                            </span>
                           )}
                         </Text>
                         <Select
@@ -314,33 +370,83 @@ export const EnterprisePage: React.FC = () => {
         <div className="space-y-4">
           <Card padding="lg" className="space-y-4">
             <CardHeader>
-              <CardTitle>Switch Scope</CardTitle>
-              <Text variant="muted" size="sm">
-                Jump between enterprise scopes or continue into organization setup.
-              </Text>
+              <CardTitle>Organizations</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {enterprises.map((item) => (
-                <Button
-                  key={item.id}
-                  variant={item.id === selectedEnterpriseId ? 'primary' : 'outline'}
-                  fullWidth
-                  onClick={() => setSelectedEnterpriseId(item.id)}
-                >
-                  {item.name}
-                </Button>
-              ))}
-              <Button
-                variant="secondary"
-                fullWidth
-                onClick={() => navigate('/app/organization/create')}
-              >
-                Create Or Join Organization
+              {selectedOrganizations.length > 0 ? (
+                selectedOrganizations.map((org) => (
+                  <Text key={org.id} size="sm">
+                    {org.name}
+                  </Text>
+                ))
+              ) : (
+                <Text variant="muted" size="sm">
+                  No organizations yet.
+                </Text>
+              )}
+              <Button variant="secondary" fullWidth onClick={() => setCreateOrgOpen(true)}>
+                Create Organization
               </Button>
             </CardContent>
           </Card>
         </div>
       </div>
+
+      <Modal open={createOrgOpen} onOpenChange={setCreateOrgOpen}>
+        <ModalHeader>Create Organization</ModalHeader>
+        <ModalBody className="space-y-4">
+          {orgError && (
+            <Text
+              size="sm"
+              className="rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-950/30 dark:text-red-300"
+            >
+              {orgError}
+            </Text>
+          )}
+          <Input
+            label="Name"
+            value={orgName}
+            onChange={(e) => setOrgName(e.target.value)}
+            placeholder="Design Systems"
+            disabled={orgSaving}
+          />
+          <Input
+            label="Slug"
+            value={orgSlug}
+            onChange={(e) => setOrgSlug(e.target.value)}
+            placeholder="design-systems"
+            disabled={orgSaving}
+          />
+          <div className="flex items-center justify-between rounded-xl border border-neutral-200/70 px-3 py-2 dark:border-neutral-800">
+            <div>
+              <Text size="sm" weight="medium">
+                Allow Auto-Join
+              </Text>
+              <Text variant="muted" size="xs">
+                New team joins can automatically create org membership.
+              </Text>
+            </div>
+            <Switch
+              checked={orgAllowAutoJoin}
+              onCheckedChange={setOrgAllowAutoJoin}
+              disabled={orgSaving}
+              aria-label="Toggle organization auto-join"
+            />
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="outline" onClick={() => setCreateOrgOpen(false)} disabled={orgSaving}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => void handleCreateOrg()}
+            disabled={orgSaving || !orgName.trim()}
+          >
+            {orgSaving ? 'Creating…' : 'Create'}
+          </Button>
+        </ModalFooter>
+      </Modal>
     </AppPage>
   );
 };

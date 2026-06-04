@@ -34,13 +34,12 @@ export interface TimecoreUser {
   username: string | null;
   organizationMembership?: {
     organizationId: string;
-    organizationKey: string;
+    organizationSlug: string;
     role: 'owner' | 'admin';
   } | null;
   organizations?: Array<{
     id: string;
     name: string;
-    key: string;
     slug: string;
     enterpriseId: string | null;
     role: 'owner' | 'admin' | 'member';
@@ -579,7 +578,12 @@ export const enterpriseApi = {
         role: 'owner' | 'admin';
         owners: string[];
         admins: string[];
-        members: Array<{ id: string; name: string; username: string | null; role: 'owner' | 'admin' }>;
+        members: Array<{
+          id: string;
+          name: string;
+          username: string | null;
+          role: 'owner' | 'admin';
+        }>;
       };
     }>(`/v1/enterprises/${encodeURIComponent(id)}`).then((r) => r.enterprise),
 
@@ -592,7 +596,12 @@ export const enterpriseApi = {
         role: 'owner' | 'admin';
         owners: string[];
         admins: string[];
-        members: Array<{ id: string; name: string; username: string | null; role: 'owner' | 'admin' }>;
+        members: Array<{
+          id: string;
+          name: string;
+          username: string | null;
+          role: 'owner' | 'admin';
+        }>;
       };
     }>(`/v1/enterprises/${encodeURIComponent(id)}`, {
       method: 'PUT',

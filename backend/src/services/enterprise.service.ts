@@ -159,7 +159,9 @@ export class EnterpriseService {
     requesterUserId: string,
     enterpriseId: string,
     query: string
-  ): Promise<Array<{ id: string; name: string; username: string | null }> | "not-found" | "forbidden"> {
+  ): Promise<
+    Array<{ id: string; name: string; username: string | null }> | "not-found" | "forbidden"
+  > {
     if (!isValidId(enterpriseId)) return "not-found";
     const enterprise = await enterprisesCollection().findOne({ _id: new ObjectId(enterpriseId) });
     if (!enterprise) return "not-found";
@@ -180,7 +182,11 @@ export class EnterpriseService {
 
     const users = await usersCollection()
       .find(filter)
-      .project<{ _id: ObjectId; name: string; username?: string | null }>({ _id: 1, name: 1, username: 1 })
+      .project<{
+        _id: ObjectId;
+        name: string;
+        username?: string | null;
+      }>({ _id: 1, name: 1, username: 1 })
       .sort({ name: 1 })
       .limit(20)
       .toArray();
@@ -232,7 +238,11 @@ export class EnterpriseService {
 
     const owners = enterprise.owners ?? [];
     const admins = enterprise.admins ?? [];
-    const role = owners.includes(requesterUserId) ? "owner" : admins.includes(requesterUserId) ? "admin" : null;
+    const role = owners.includes(requesterUserId)
+      ? "owner"
+      : admins.includes(requesterUserId)
+        ? "admin"
+        : null;
     if (!role) return "forbidden";
 
     const name = input.name.trim();
@@ -251,13 +261,22 @@ export class EnterpriseService {
     const userDocs = allMemberIds.length
       ? await usersCollection()
           .find({ _id: { $in: allMemberIds.map((id) => new ObjectId(id)) } })
-          .project<{ _id: ObjectId; name: string; username?: string | null }>({ _id: 1, name: 1, username: 1 })
+          .project<{ _id: ObjectId; name: string; username?: string | null }>({
+            _id: 1,
+            name: 1,
+            username: 1,
+          })
           .toArray()
       : [];
     const userMap = new Map(userDocs.map((u) => [u._id.toHexString(), u]));
     const members: EnterpriseMember[] = allMemberIds.map((id) => {
       const user = userMap.get(id);
-      return { id, name: user?.name ?? id, username: user?.username ?? null, role: owners.includes(id) ? "owner" : "admin" };
+      return {
+        id,
+        name: user?.name ?? id,
+        username: user?.username ?? null,
+        role: owners.includes(id) ? "owner" : "admin",
+      };
     });
 
     return {
