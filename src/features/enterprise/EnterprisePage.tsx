@@ -41,6 +41,8 @@ export const EnterprisePage: React.FC = () => {
   const [enterpriseName, setEnterpriseName] = useState('');
   const [memberUserId, setMemberUserId] = useState('');
   const [memberRole, setMemberRole] = useState<'owner' | 'admin'>('admin');
+  const [memberSaving, setMemberSaving] = useState<Record<string, boolean>>({});
+  const [userOptions, setUserOptions] = useState<Array<{ value: string; label: string }>>([]);;
 
   const selectedRole = getEnterpriseRole(enterprises, selectedEnterpriseId);
   const selectedOrganizations = useMemo(
@@ -77,6 +79,21 @@ export const EnterprisePage: React.FC = () => {
   useEffect(() => {
     void loadEnterprise();
   }, [loadEnterprise]);
+
+  useEffect(() => {
+    if (!selectedEnterpriseId || selectedRole !== 'owner') return;
+    void enterpriseApi
+      .searchUsers(selectedEnterpriseId, '')
+      .then((users) =>
+        setUserOptions(users.map((u) => ({
+          value: u.id,
+          label: u.username ? `${u.name} (@${u.username})` : u.name,
+        })))
+      )
+      .catch(() => {
+        /* silently ignore */
+      });
+  }, [selectedEnterpriseId, selectedRole]);
 
   const handleSaveName = useCallback(async () => {
     if (!selectedEnterpriseId) return;
@@ -124,6 +141,40 @@ export const EnterprisePage: React.FC = () => {
     }
   }, [loadEnterprise, memberRole, memberUserId, selectedEnterpriseId]);
 
+  const handleChangeRole = useCallback(
+    async (userId: string, role: 'owner' | 'admin') => {
+      if (!selectedEnterpriseId) return;
+      setMemberSaving((prev) => ({ ...prev, [userId]: true }));
+      setError(null);
+      try {
+        await enterpriseApi.setMemberRole(selectedEnterpriseId, userId, role);
+        await loadEnterprise();
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : 'Failed to update role');
+      } finally {
+        setMemberSaving((prev) => ({ ...prev, [userId]: false }));
+      }
+    },
+    [loadEnterprise, selectedEnterpriseId],
+  );
+
+  const handleRemoveMember = useCallback(
+    async (userId: string) => {
+      if (!selectedEnterpriseId) return;
+      setMemberSaving((prev) => ({ ...prev, [userId]: true }));
+      setError(null);
+      try {
+        await enterpriseApi.removeMember(selectedEnterpriseId, userId);
+        await loadEnterprise();
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : 'Failed to remove member');
+      } finally {
+        setMemberSaving((prev) => ({ ...prev, [userId]: false }));
+      }
+    },
+    [loadEnterprise, selectedEnterpriseId],
+  );
+
   return (
     <AppPage>
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(20rem,1fr)]">
@@ -131,7 +182,7 @@ export const EnterprisePage: React.FC = () => {
           <CardHeader>
             <CardTitle>{enterprise?.name || 'Enterprise Admin'}</CardTitle>
             <Text variant="muted" size="sm">
-              Inspect the selected enterprise and manage elevated membership.
+              Manage the enterprise.
             </Text>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -150,20 +201,12 @@ export const EnterprisePage: React.FC = () => {
               </div>
             ) : enterprise ? (
               <div className="space-y-4">
-                <Card padding="md">
-                  <CardContent className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline">{selectedOrganizations.length} organizations</Badge>
-                    <Badge variant="secondary">{enterprise.slug}</Badge>
-                    <Badge variant="outline">{enterprise.role}</Badge>
-                  </CardContent>
-                </Card>
-
-                <Card padding="md" className="border border-neutral-200/70 dark:border-neutral-800">
+                <Card className="border border-neutral-200/70 dark:border-neutral-800">
                   <CardHeader>
                     <CardTitle>Name</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="flex items-end gap-3">
+                    <div className="flex items-end gap-1">
                       <div className="flex-1">
                         <Input
                           value={enterpriseName}
@@ -188,76 +231,75 @@ export const EnterprisePage: React.FC = () => {
                   </CardContent>
                 </Card>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Card padding="md" className="border border-neutral-200/70 dark:border-neutral-800">
-                    <CardContent className="space-y-2">
-                      <Text variant="muted" size="xs">
-                        Owners
-                      </Text>
-                      <div className="flex flex-wrap gap-2">
-                        {enterprise.owners.map((ownerId) => (
-                          <Badge key={ownerId} variant="secondary">
-                            {ownerId}
-                          </Badge>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card
-                    padding="md"
-                    className="border border-neutral-200/70 dark:border-neutral-800"
-                  >
-                    <CardContent className="space-y-2">
-                      <Text variant="muted" size="xs">
-                        Admins
-                      </Text>
-                      <div className="flex flex-wrap gap-2">
-                        {enterprise.admins.length > 0 ? (
-                          enterprise.admins.map((adminId) => (
-                            <Badge key={adminId} variant="outline">
-                              {adminId}
-                            </Badge>
-                          ))
-                        ) : (
-                          <Text variant="muted" size="sm">
-                            No enterprise admins yet.
-                          </Text>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
                 <Card padding="md" className="border border-neutral-200/70 dark:border-neutral-800">
                   <CardHeader>
-                    <CardTitle>Manage Enterprise Members</CardTitle>
-                    <Text variant="muted" size="xs">
-                      The current API assigns enterprise roles by user ID. Owners can promote or
-                      demote elevated members here.
-                    </Text>
+                    <CardTitle>Members</CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-3">
-                    <Input
-                      label="User ID"
-                      value={memberUserId}
-                      onChange={(e) => setMemberUserId(e.target.value)}
-                      placeholder="665f0d3fd2be7e1f1d3f88b2"
-                      disabled={selectedRole !== 'owner' || saving}
-                    />
-                    <Select
-                      label="Role"
-                      value={memberRole}
-                      onValueChange={(value) => setMemberRole(value as 'owner' | 'admin')}
-                      options={roleOptions}
-                      disabled={selectedRole !== 'owner' || saving}
-                    />
-                    <Button
-                      variant="primary"
-                      onClick={() => void handleAssignRole()}
-                      disabled={selectedRole !== 'owner' || saving || !memberUserId.trim()}
-                    >
-                      Apply Role
-                    </Button>
+                  <CardContent className="space-y-2">
+                    {(enterprise.members ?? [
+                      ...enterprise.owners.map((id) => ({ id, name: id, username: null, role: 'owner' as const })),
+                      ...enterprise.admins.map((id) => ({ id, name: id, username: null, role: 'admin' as const })),
+                    ]).map((member) => (
+                      <div key={member.id} className="flex items-center gap-2">
+                        <Text size="sm" className="min-w-0 flex-1 truncate">
+                          {member.name}
+                          {member.username && (
+                            <span className="ml-1 text-xs text-neutral-400">@{member.username}</span>
+                          )}
+                        </Text>
+                        <Select
+                          value={member.role}
+                          onValueChange={(value) =>
+                            void handleChangeRole(member.id, value as 'owner' | 'admin')
+                          }
+                          options={roleOptions}
+                          disabled={selectedRole !== 'owner' || !!memberSaving[member.id]}
+                        />
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => void handleRemoveMember(member.id)}
+                          disabled={selectedRole !== 'owner' || !!memberSaving[member.id]}
+                          aria-label={`Remove ${member.name}`}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+
+                    {selectedRole === 'owner' && (
+                      <div className="space-y-2 pt-2">
+                        <div className="flex items-end gap-2">
+                          <div className="flex-1">
+                            <Select
+                              label="Add Member"
+                              placeholder="Search by name or username…"
+                              searchable
+                              searchPlaceholder="Type to search users…"
+                              noResultsText="No users found"
+                              value={memberUserId}
+                              onValueChange={(value) => setMemberUserId(value)}
+                              options={userOptions}
+                              disabled={saving}
+                            />
+                          </div>
+                          <Select
+                            value={memberRole}
+                            onValueChange={(value) => setMemberRole(value as 'owner' | 'admin')}
+                            options={roleOptions}
+                            disabled={saving}
+                          />
+                        </div>
+                        <Button
+                          variant="primary"
+                          fullWidth
+                          onClick={() => void handleAssignRole()}
+                          disabled={saving || !memberUserId.trim()}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
