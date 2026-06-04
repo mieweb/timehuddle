@@ -12,7 +12,6 @@ export const orgController = {
       Body: {
         enterpriseId: string;
         name: string;
-        key?: string;
         slug?: string;
         allowAutoJoin?: boolean;
       };
@@ -23,14 +22,13 @@ export const orgController = {
       enterpriseId: req.body.enterpriseId,
       userId: req.user!.id,
       name: req.body.name,
-      key: req.body.key,
       slug: req.body.slug,
       allowAutoJoin: req.body.allowAutoJoin,
     });
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
     if (result === "not-found") return reply.status(404).send({ error: "Enterprise not found" });
     if (result === "conflict")
-      return reply.status(409).send({ error: "Organization key/slug already exists" });
+      return reply.status(409).send({ error: "Organization slug already exists" });
     return reply.status(201).send({ organization: result });
   },
 

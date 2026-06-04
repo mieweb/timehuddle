@@ -36,7 +36,7 @@ const userSessionSchema = {
       type: ["object", "null"],
       properties: {
         organizationId: { type: "string" },
-        organizationKey: { type: "string" },
+        organizationSlug: { type: "string" },
         role: { type: "string", enum: ["owner", "admin"] },
       },
     },
@@ -99,10 +99,10 @@ export async function userRoutes(app: FastifyInstance) {
 
   async function resolveDefaultOrganizationMembership(userId: string): Promise<{
     organizationId: string;
-    organizationKey: string;
+    organizationSlug: string;
     role: "owner" | "admin";
   } | null> {
-    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
     if (!defaultOrg) return null;
 
     const membership = await orgMembersCollection().findOne({
@@ -112,7 +112,7 @@ export async function userRoutes(app: FastifyInstance) {
     if (membership?.role === "owner" || membership?.role === "admin") {
       return {
         organizationId: defaultOrg._id.toHexString(),
-        organizationKey: defaultOrg.key,
+        organizationSlug: defaultOrg.slug,
         role: membership.role,
       };
     }
@@ -121,7 +121,7 @@ export async function userRoutes(app: FastifyInstance) {
     if (owners.includes(userId)) {
       return {
         organizationId: defaultOrg._id.toHexString(),
-        organizationKey: defaultOrg.key,
+        organizationSlug: defaultOrg.slug,
         role: "owner",
       };
     }
@@ -130,7 +130,7 @@ export async function userRoutes(app: FastifyInstance) {
     if (admins.includes(userId)) {
       return {
         organizationId: defaultOrg._id.toHexString(),
-        organizationKey: defaultOrg.key,
+        organizationSlug: defaultOrg.slug,
         role: "admin",
       };
     }
@@ -164,7 +164,7 @@ export async function userRoutes(app: FastifyInstance) {
                 type: "object",
                 properties: {
                   id: { type: "string" },
-                  key: { type: "string" },
+                  slug: { type: "string" },
                   name: { type: "string" },
                   ownersCount: { type: "number" },
                   adminsCount: { type: "number" },
@@ -188,13 +188,13 @@ export async function userRoutes(app: FastifyInstance) {
       const requesterMembership = await resolveDefaultOrganizationMembership(req.user!.id);
       if (!requesterMembership) return reply.status(403).send({ error: "Forbidden" });
 
-      const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
       if (!defaultOrg) return reply.status(404).send({ error: "Default organization not found" });
 
       return reply.send({
         organization: {
           id: defaultOrg._id.toHexString(),
-          key: defaultOrg.key,
+          slug: defaultOrg.slug,
           name: defaultOrg.name,
           ownersCount: (defaultOrg.owners ?? []).length,
           adminsCount: (defaultOrg.admins ?? []).length,
@@ -226,7 +226,7 @@ export async function userRoutes(app: FastifyInstance) {
                 type: "object",
                 properties: {
                   id: { type: "string" },
-                  key: { type: "string" },
+                  slug: { type: "string" },
                   name: { type: "string" },
                 },
               },
@@ -256,7 +256,7 @@ export async function userRoutes(app: FastifyInstance) {
       const nextName = name.trim();
       if (!nextName) return reply.status(400).send({ error: "Organization name is required" });
 
-      const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
       if (!defaultOrg) return reply.status(404).send({ error: "Default organization not found" });
 
       await organizationsCollection().updateOne(
@@ -267,7 +267,7 @@ export async function userRoutes(app: FastifyInstance) {
       return reply.send({
         organization: {
           id: defaultOrg._id.toHexString(),
-          key: defaultOrg.key,
+          slug: defaultOrg.slug,
           name: nextName,
         },
       });
@@ -292,7 +292,7 @@ export async function userRoutes(app: FastifyInstance) {
                 type: "object",
                 properties: {
                   id: { type: "string" },
-                  key: { type: "string" },
+                  slug: { type: "string" },
                   name: { type: "string" },
                 },
               },
@@ -307,13 +307,13 @@ export async function userRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
       if (!defaultOrg) return reply.status(404).send({ error: "Default organization not found" });
 
       return reply.send({
         organization: {
           id: defaultOrg._id.toHexString(),
-          key: defaultOrg.key,
+          slug: defaultOrg.slug,
           name: defaultOrg.name,
         },
       });
@@ -496,7 +496,7 @@ export async function userRoutes(app: FastifyInstance) {
       const requesterMembership = await resolveDefaultOrganizationMembership(req.user!.id);
       if (!requesterMembership) return reply.status(403).send({ error: "Forbidden" });
 
-      const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
       const owners = defaultOrg?.owners ?? [];
       const admins = defaultOrg?.admins ?? [];
 
@@ -580,7 +580,7 @@ export async function userRoutes(app: FastifyInstance) {
 
       const [targetUser, defaultOrg] = await Promise.all([
         usersCollection().findOne({ _id: new ObjectId(userId) }),
-        organizationsCollection().findOne({ key: DEFAULT_ORG_KEY }),
+        organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY }),
       ]);
 
       if (!targetUser) return reply.status(404).send({ error: "User not found" });
@@ -1069,7 +1069,7 @@ export async function userRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
       if (!defaultOrg) return reply.status(404).send({ error: "Organization not found" });
 
       const owners = defaultOrg.owners ?? [];

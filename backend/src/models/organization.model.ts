@@ -4,8 +4,7 @@ export interface Organization {
   _id: ObjectId;
   enterpriseId?: string;
   name: string;
-  key: string;
-  slug?: string;
+  slug: string;
   owners?: string[];
   admins?: string[];
   allowAutoJoin?: boolean;

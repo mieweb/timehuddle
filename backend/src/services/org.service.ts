@@ -27,7 +27,6 @@ export type OrgUserReportsToUpdateResult =
 export type OrgSummary = {
   id: string;
   enterpriseId: string | null;
-  key: string;
   name: string;
   slug: string;
   allowAutoJoin: boolean;
@@ -84,9 +83,8 @@ function toOrgSummary(
   return {
     id: org._id.toHexString(),
     enterpriseId: org.enterpriseId ?? null,
-    key: org.key,
     name: org.name,
-    slug: org.slug ?? org.key,
+    slug: org.slug,
     allowAutoJoin: org.allowAutoJoin !== false,
     role,
   };
@@ -113,11 +111,10 @@ export class OrgService {
 
   async ensureDefaultOrganization(): Promise<Organization & { _id: ObjectId }> {
     const defaultEnterprise = await this.ensureDefaultEnterprise();
-    const existing = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    const existing = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
     if (existing) {
       const updates: Partial<Organization> = {};
       if (!existing.enterpriseId) updates.enterpriseId = defaultEnterprise._id.toHexString();
-      if (!existing.slug) updates.slug = existing.key;
       if (existing.allowAutoJoin === undefined) updates.allowAutoJoin = true;
 
       if (Object.keys(updates).length > 0) {
@@ -133,7 +130,6 @@ export class OrgService {
     const org: Organization & { _id: ObjectId } = {
       _id: new ObjectId(),
       enterpriseId: defaultEnterprise._id.toHexString(),
-      key: DEFAULT_ORG_KEY,
       slug: DEFAULT_ORG_KEY,
       name: DEFAULT_ORG_NAME,
       owners: [],
@@ -459,7 +455,6 @@ export class OrgService {
     enterpriseId: string;
     userId: string;
     name: string;
-    key?: string;
     slug?: string;
     allowAutoJoin?: boolean;
   }): Promise<OrgSummary | "forbidden" | "not-found" | "conflict"> {
@@ -477,16 +472,14 @@ export class OrgService {
 
     const trimmedName = data.name.trim();
     const slug = slugify(data.slug ?? trimmedName) || `org-${Date.now()}`;
-    const key = slugify(data.key ?? trimmedName).replace(/-/g, "_") || `org_${Date.now()}`;
 
-    const conflict = await organizationsCollection().findOne({ $or: [{ slug }, { key }] });
+    const conflict = await organizationsCollection().findOne({ slug });
     if (conflict) return "conflict";
 
     const now = new Date();
     const org: Organization & { _id: ObjectId } = {
       _id: new ObjectId(),
       enterpriseId: data.enterpriseId,
-      key,
       slug,
       name: trimmedName,
       owners: [data.userId],
@@ -502,7 +495,7 @@ export class OrgService {
 
   private async resolveDefaultOrganizationMembership(userId: string): Promise<{
     organizationId: string;
-    organizationKey: string;
+    organizationSlug: string;
     role: "owner" | "admin";
   } | null> {
     const defaultOrg = await this.ensureDefaultOrganization();
@@ -513,7 +506,7 @@ export class OrgService {
 
     return {
       organizationId: defaultOrg._id.toHexString(),
-      organizationKey: defaultOrg.key,
+      organizationSlug: defaultOrg.slug,
       role: membership.role,
     };
   }
@@ -530,7 +523,7 @@ export class OrgService {
 
     const [user, defaultOrg] = await Promise.all([
       usersCollection().findOne({ _id: new ObjectId(userId) }),
-      organizationsCollection().findOne({ key: DEFAULT_ORG_KEY }),
+      organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY }),
     ]);
 
     if (!defaultOrg) return "default-organization-not-found";
