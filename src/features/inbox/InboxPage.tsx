@@ -168,16 +168,19 @@ export const InboxPage: React.FC<InboxPageProps> = ({ initialEmail }) => {
 
       <main className="w-full flex-1 px-4 py-6">
         {/* Email lookup form */}
-        <form onSubmit={handleLookup} className="mb-6 flex gap-2">
-          <Input
-            label="Email"
-            hideLabel
-            type="email"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Enter email to check inbox…"
-          />
-          <Button variant="primary" type="submit" disabled={!inputValue.trim()}>
+        <form onSubmit={handleLookup} className="mb-6 flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <Input
+              label="Email"
+              hideLabel
+              size="sm"
+              type="email"
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              placeholder="Enter email to check inbox…"
+            />
+          </div>
+          <Button variant="primary" size="sm" type="submit" disabled={!inputValue.trim()}>
             Check
           </Button>
         </form>

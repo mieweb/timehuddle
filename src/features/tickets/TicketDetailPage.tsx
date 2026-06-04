@@ -20,6 +20,7 @@ import {
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
+import { MarkdownContent } from '../../ui/MarkdownContent';
 import { useRouter } from '../../ui/router';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
@@ -270,11 +271,11 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
       <div className="ticket-detail-back mb-4">
         <button
           aria-label="Back to tickets"
-          className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+          className="p-2 rounded-full border border-neutral-200 dark:border-neutral-700 border-0.5 text-xs inline-flex items-center gap-2 text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 bg-neutral-100 dark:bg-neutral-800 font-medium"
           onClick={() => navigate('/app/tickets')}
         >
-          <FontAwesomeIcon icon={faArrowLeft} className="h-3.5 w-3.5" />
-          Tickets
+          <FontAwesomeIcon icon={faArrowLeft} size="sm" />
+          TICKETS
         </button>
       </div>
 
@@ -346,13 +347,13 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
       </div>
 
       {/* Main layout: 2/3 + 1/3 */}
-      <div className="ticket-detail-layout flex flex-col gap-6 lg:flex-row lg:items-start">
+      <div className="ticket-detail-layout flex flex-col gap-3 lg:flex-row lg:items-start">
         {/* ── Left column: body ── */}
-        <div className="ticket-detail-body min-w-0 flex-1 space-y-6">
+        <div className="ticket-detail-body min-w-0 flex-1 space-y-3">
           {/* GitHub link */}
           {ticket.github && (
             <Card>
-              <CardContent className="ticket-github-link py-3">
+              <CardContent className="ticket-github-link">
                 <a
                   href={ticket.github}
                   target="_blank"
@@ -369,7 +370,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
           {/* Description */}
           <Card>
-            <CardContent className="ticket-description-section py-4">
+            <CardContent className="ticket-description-section">
               <div className="ticket-description-header flex items-center justify-between mb-2">
                 <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300">
                   Description
@@ -383,7 +384,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                       setEditingDesc(true);
                     }}
                   >
-                    <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" />
+                    <FontAwesomeIcon icon={faPen} size="sm" />
                   </button>
                 )}
               </div>
@@ -394,6 +395,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                     aria-label="Ticket description"
                     rows={6}
                     value={descDraft}
+                    placeholder="Supports Markdown (headings, lists, links, code, etc.)"
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
                       setDescDraft(e.target.value)
                     }
@@ -404,7 +406,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                     <Button size="sm" onClick={saveDescription} disabled={saving}>
                       Save
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => setEditingDesc(false)}>
+                    <Button size="sm" variant="secondary" onClick={() => setEditingDesc(false)}>
                       Cancel
                     </Button>
                   </div>
@@ -412,12 +414,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
               ) : (
                 <div className="ticket-description-body">
                   {ticket.description ? (
-                    <Text
-                      size="sm"
-                      className="whitespace-pre-wrap text-neutral-700 dark:text-neutral-300"
-                    >
-                      {ticket.description}
-                    </Text>
+                    <MarkdownContent content={ticket.description} />
                   ) : (
                     <Text size="sm" className="italic text-neutral-400">
                       No description provided.
@@ -430,7 +427,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
           {/* Attachments */}
           <Card>
-            <CardContent className="ticket-attachments-section py-4">
+            <CardContent className="ticket-attachments-section">
               <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
                 Attachments
               </Text>
@@ -449,7 +446,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
           {/* Activity log */}
           <Card>
-            <CardContent className="ticket-activity-section py-4">
+            <CardContent className="ticket-activity-section">
               <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
                 Activity
               </Text>
@@ -458,10 +455,10 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                   No activity yet.
                 </Text>
               ) : (
-                <ol className="ticket-activity-list space-y-3" aria-label="Ticket activity">
+                <ol className="ticket-activity-list space-y-4" aria-label="Ticket activity">
                   {activity.map((event) => (
-                    <li key={event.id} className="ticket-activity-item flex items-start gap-2.5">
-                      <UserAvatar size="sm" name={event.actor.name ?? '?'} />
+                    <li key={event.id} className="ticket-activity-item flex items-start gap-2">
+                      <UserAvatar size="xs" name={event.actor.name ?? '?'} />
                       <div className="min-w-0">
                         <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
                           {event.actor.name}
@@ -483,16 +480,16 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
         {/* ── Right column: sidebar ── */}
         <aside
-          className="ticket-detail-sidebar w-full lg:w-72 lg:flex-shrink-0 space-y-4"
+          className="ticket-detail-sidebar w-full lg:w-72 lg:shrink-0 space-y-3"
           aria-label="Ticket details sidebar"
         >
           <Card>
-            <CardContent className="ticket-sidebar-fields py-4 space-y-4">
+            <CardContent className="ticket-sidebar-fields space-y-3">
               {/* Status */}
               <div className="ticket-sidebar-field-status">
                 <label
                   htmlFor="ticket-status"
-                  className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400 mb-1"
+                  className="font-semibold text-neutral-700 dark:text-neutral-300 text-xs"
                 >
                   Status
                 </label>
@@ -509,7 +506,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
               <div className="ticket-sidebar-field-priority">
                 <label
                   htmlFor="ticket-priority"
-                  className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400 mb-1"
+                  className="font-semibold text-neutral-700 dark:text-neutral-300 text-xs"
                 >
                   Priority
                 </label>
@@ -526,7 +523,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
               <div className="ticket-sidebar-field-assignee">
                 <label
                   htmlFor="ticket-assignee"
-                  className="block text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400 mb-1"
+                  className="font-semibold text-neutral-700 dark:text-neutral-300 text-xs"
                 >
                   Assignee
                 </label>
@@ -541,12 +538,15 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
               </div>
 
               {/* Created by */}
-              <div className="ticket-sidebar-field-creator">
-                <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400 mb-1">
+              <div className="ticket-sidebar-field-creator mt-5">
+                <Text
+                  size="sm"
+                  className="font-semibold text-neutral-700 dark:text-neutral-300 text-xs"
+                >
                   Created By
-                </p>
-                <div className="flex items-center gap-2">
-                  <UserAvatar size="sm" name={creatorName} />
+                </Text>
+                <div className="flex items-center gap-2 mt-2">
+                  <UserAvatar size="xs" name={creatorName} />
                   <Text size="sm" className="text-neutral-700 dark:text-neutral-300">
                     {creatorName}
                   </Text>
@@ -554,10 +554,13 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
               </div>
 
               {/* Dates */}
-              <div className="ticket-sidebar-dates space-y-1">
-                <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+              <div className="ticket-sidebar-dates space-y-1 mt-5">
+                <Text
+                  size="sm"
+                  className="font-semibold text-neutral-700 dark:text-neutral-300 text-xs"
+                >
                   Dates
-                </p>
+                </Text>
                 <Text size="sm" className="text-neutral-600 dark:text-neutral-400">
                   Created: {formatDate(ticket.createdAt)}
                 </Text>
@@ -594,20 +597,18 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
           {/* Danger zone */}
           {canEdit && (
             <Card>
-              <CardContent className="ticket-sidebar-danger py-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-red-500 mb-3">
+              <CardContent className="ticket-sidebar-danger">
+                <Text size="sm" className="font-semibold text-red-500 mb-3">
                   Danger Zone
-                </p>
-                <Button
-                  variant="danger"
-                  size="sm"
+                </Text>
+                <button
                   aria-label="Delete ticket"
                   onClick={() => void handleDelete()}
-                  className="w-full"
+                  className="inline-flex items-center text-sm w-full justify-center gap-2 bg-destructive-500 dark:bg-destructive-900 text-white dark:text-destructive-100 hover:bg-destructive-600 p-2 font-medium rounded-md"
                 >
-                  <FontAwesomeIcon icon={faTrash} className="mr-1.5 h-3.5 w-3.5" />
+                  <FontAwesomeIcon icon={faTrash} size="sm" />
                   Delete Ticket
-                </Button>
+                </button>
               </CardContent>
             </Card>
           )}

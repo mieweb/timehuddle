@@ -35,6 +35,9 @@ const clockEventShape = {
     totalBreakSeconds: { type: "number" },
     isPaused: { type: "boolean" },
     endTime: { type: "number", nullable: true },
+    shiftReminderResponse: { type: "string", nullable: true },
+    shiftAutoClockoutWorkSecs: { type: "number", nullable: true },
+    shiftNextReminderWorkSecs: { type: "number", nullable: true },
   },
 };
 
@@ -256,6 +259,13 @@ export async function clockRoutes(app: FastifyInstance) {
       schema: { tags: ["Clock"] },
     },
     clockController.getEvents
+  );
+
+  // POST /v1/clock/events/:eventId/agree-clockout — user consents to auto-clockout at 8h
+  app.post(
+    "/clock/events/:eventId/agree-clockout",
+    { onRequest: [requireAuth], schema: { tags: ["Clock"] } },
+    clockController.agreeClockout
   );
 
   // GET /v1/clock/ws?teamIds=id1,id2 — WebSocket stream for live team clock state

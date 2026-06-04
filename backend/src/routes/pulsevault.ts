@@ -119,19 +119,23 @@ async function authorizeHandler(request: any, ctx: any) {
   }
 }
 
-async function onUploadCompleteHandler(request: any, ctx: any) {
+function buildVideoUrl(request: any, videoid: string, videoPath: string): string {
+  const proto = (request.headers["x-forwarded-proto"] as string | undefined) ?? "http";
+  const host =
+    (request.headers["x-forwarded-host"] as string | undefined) ??
+    (request.headers["host"] as string | undefined) ??
+    "localhost:4000";
+  return `${proto}://${host}${videoPath}${videoid}`;
+}
+
+async function onUploadCompleteHandler(request: any, ctx: any, videoPath = "/v1/video/") {
   const reservation = consumeReservation(ctx.videoid);
   if (!reservation) return;
 
   const filename = await resolveUploadedFilename(ctx);
   const title = resolveUploadedTitle(filename, ctx.videoid);
 
-  const proto = (request.headers["x-forwarded-proto"] as string | undefined) ?? "http";
-  const host =
-    (request.headers["x-forwarded-host"] as string | undefined) ??
-    (request.headers["host"] as string | undefined) ??
-    "localhost:4000";
-  const videoUrl = `${proto}://${host}/v1/video/${ctx.videoid}`;
+  const videoUrl = buildVideoUrl(request, ctx.videoid, videoPath);
 
   if (reservation.context.kind === "library") {
     await mediaService.create(reservation.userId, {
@@ -221,7 +225,7 @@ export async function pulseVaultCompatRoutes(app: FastifyInstance) {
     allowedExtensions: [".mp4"],
     validatePayload: createMp4Sniffer(storage),
     authorize: openAuthorizeHandler,
-    onUploadComplete: onUploadCompleteHandler,
+    onUploadComplete: (req: any, ctx: any) => onUploadCompleteHandler(req, ctx, "/"),
     decoratorName: "pulseVaultCompat",
   });
 }

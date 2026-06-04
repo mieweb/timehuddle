@@ -33,6 +33,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
+import { AppPage } from '../../ui/AppPage';
 import { MessagesActiveChatContext } from '../../ui/AppLayout';
 import {
   channelApi,
@@ -43,6 +44,29 @@ import {
   type Message,
 } from '../../lib/api';
 import { UserAvatar } from '../../ui/UserAvatar';
+
+const GROUP_GAP_MS = 5 * 60 * 1000;
+
+/** Vertical gap between consecutive messages from the same sender (mt-1). */
+function messageGroupMarginTop(index: number, sameSenderAsPrev: boolean): string {
+  if (index === 0) return '';
+  return sameSenderAsPrev ? 'mt-1' : 'mt-2';
+}
+
+/** iMessage-style corner radii for grouped DM bubbles. */
+function dmBubbleRadius(isMe: boolean, isFirstInGroup: boolean, isLastInGroup: boolean): string {
+  const only = isFirstInGroup && isLastInGroup;
+  if (isMe) {
+    if (only) return 'rounded-xl';
+    if (isFirstInGroup) return 'rounded-t-xl rounded-bl-xl rounded-br-md';
+    if (isLastInGroup) return 'rounded-tl-xl rounded-bl-xl rounded-tr-xl rounded-br-none';
+    return 'rounded-tl-xl rounded-bl-xl rounded-tr-md rounded-br-md';
+  }
+  if (only) return 'rounded-xl';
+  if (isFirstInGroup) return 'rounded-t-xl rounded-br-xl rounded-bl-md';
+  if (isLastInGroup) return 'rounded-tr-xl rounded-br-xl rounded-tl-xl rounded-bl-none';
+  return 'rounded-tr-xl rounded-br-xl rounded-tl-md rounded-bl-md';
+}
 
 // ─── MessagesPage ─────────────────────────────────────────────────────────────
 
@@ -566,263 +590,153 @@ export const MessagesPage: React.FC = () => {
   const selectedChannel = channels.find((c) => c.id === selectedChannelId);
 
   return (
-    <div className="flex h-full w-full flex-col md:mx-auto md:max-w-4xl md:p-6">
-      <div className="flex min-h-0 flex-1 gap-0 overflow-hidden md:gap-4">
-        {/* ── Sidebar ─────────────────────────────────────────────────────── */}
-        <Card
-          padding="none"
-          className={`overflow-y-auto rounded-none border-0 shadow-none md:block md:w-56 md:shrink-0 md:rounded-lg md:border md:shadow ${
-            hasActiveChat ? 'hidden' : 'w-full'
-          }`}
-        >
-          {/* Channels section */}
-          <CardHeader className="px-4 pb-1 pt-3">
-            <div className="flex items-center justify-between">
+    <>
+      <AppPage noPadding className="flex h-full w-full flex-col md:p-6">
+        <div className="flex min-h-0 flex-1 gap-0 overflow-hidden md:gap-2">
+          {/* ── Sidebar ─────────────────────────────────────────────────────── */}
+          <Card
+            padding="none"
+            className={`scrollbar-mieweb scrollbar-mieweb-visible rounded-none border-0 shadow-none md:block md:w-56 md:shrink-0 md:rounded-xl md:border md:shadow ${
+              hasActiveChat ? 'hidden' : 'w-full'
+            }`}
+          >
+            {/* Channels section */}
+            <CardHeader className="px-4 pr-0 py-2 ">
+              <div className="flex items-center justify-between">
+                <Text
+                  size="xs"
+                  weight="semibold"
+                  className="uppercase tracking-widest text-neutral-400"
+                >
+                  Channels
+                </Text>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateChannel(true)}
+                  className="flex items-center justify-center h-8 w-8 rounded-full text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+                  aria-label="Create channel"
+                >
+                  <FontAwesomeIcon icon={faPlus} className="text-xs" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {channels.length === 0 ? (
+                <div className="px-4 py-3">
+                  <Text variant="muted" size="xs">
+                    No channels yet.
+                  </Text>
+                </div>
+              ) : (
+                <ul>
+                  {channels.map((ch) => {
+                    const isSel = selectedChannelId === ch.id && activeView === 'channel';
+                    const unread = channelUnread[ch.id] ?? 0;
+                    return (
+                      <li key={ch.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedChannelId(ch.id);
+                            setActiveView('channel');
+                          }}
+                          className={`flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors rounded-r-lg ${
+                            isSel
+                              ? 'bg-blue-50 font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
+                              : 'text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800'
+                          }`}
+                          aria-label={`Channel ${ch.name}${unread > 0 ? `, ${unread} unread` : ''}`}
+                        >
+                          <FontAwesomeIcon
+                            icon={faHashtag}
+                            className="shrink-0 text-xs text-neutral-400"
+                          />
+                          <span className="flex-1 truncate">{ch.name}</span>
+                          {unread > 0 && (
+                            <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
+                              {unread > 99 ? '99+' : unread}
+                            </span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </CardContent>
+
+            {/* Divider */}
+            <div className="mx-4 my-2 border-t border-neutral-100 dark:border-neutral-800" />
+
+            {/* Direct Messages section */}
+            <CardHeader className="px-4 py-3">
               <Text
                 size="xs"
                 weight="semibold"
                 className="uppercase tracking-widest text-neutral-400"
               >
-                Channels
+                {isAdmin ? 'Members' : 'Admins'}
               </Text>
-              <button
-                type="button"
-                onClick={() => setShowCreateChannel(true)}
-                className="flex items-center justify-center rounded p-0.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
-                aria-label="Create channel"
-              >
-                <FontAwesomeIcon icon={faPlus} className="text-xs" />
-              </button>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            {channels.length === 0 ? (
-              <div className="px-4 py-3">
-                <Text variant="muted" size="xs">
-                  No channels yet.
-                </Text>
-              </div>
-            ) : (
-              <ul>
-                {channels.map((ch) => {
-                  const isSel = selectedChannelId === ch.id && activeView === 'channel';
-                  const unread = channelUnread[ch.id] ?? 0;
-                  return (
-                    <li key={ch.id}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedChannelId(ch.id);
-                          setActiveView('channel');
-                        }}
-                        className={`flex w-full items-center gap-2 px-4 py-2 text-left text-sm transition-colors ${
-                          isSel
-                            ? 'bg-blue-50 font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
-                            : 'text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800'
-                        }`}
-                        aria-label={`Channel ${ch.name}${unread > 0 ? `, ${unread} unread` : ''}`}
-                      >
-                        <FontAwesomeIcon
-                          icon={faHashtag}
-                          className="shrink-0 text-xs text-neutral-400"
-                        />
-                        <span className="flex-1 truncate">{ch.name}</span>
-                        {unread > 0 && (
-                          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
-                            {unread > 99 ? '99+' : unread}
-                          </span>
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </CardContent>
-
-          {/* Divider */}
-          <div className="mx-4 my-2 border-t border-neutral-100 dark:border-neutral-800" />
-
-          {/* Direct Messages section */}
-          <CardHeader className="px-4 pb-1 pt-1">
-            <Text
-              size="xs"
-              weight="semibold"
-              className="uppercase tracking-widest text-neutral-400"
-            >
-              {isAdmin ? 'Members' : 'Admins'}
-            </Text>
-          </CardHeader>
-          <CardContent className="p-0">
-            {!memberNamesLoaded ? (
-              <div className="flex items-center justify-center py-6">
-                <Spinner size="sm" label="Loading…" />
-              </div>
-            ) : (
-              <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                {threadMembers.map((m) => {
-                  const isSelected =
-                    activeView === 'dm' &&
-                    (isAdmin ? selectedMemberId === m.id : selectedAdminId === m.id);
-                  return (
-                    <li key={m.id}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (isAdmin) setSelectedMemberId(m.id);
-                          else setSelectedAdminId(m.id);
-                          setActiveView('dm');
-                        }}
-                        className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors ${
-                          isSelected
-                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
-                            : 'text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800'
-                        }`}
-                        aria-label={`Direct message ${m.name}${dmUnread[m.id] ? `, ${dmUnread[m.id]} unread` : ''}`}
-                      >
-                        <UserAvatar name={m.name} size="sm" src={memberImages[m.id]} />
-                        <span className="flex-1 truncate font-medium">{m.name}</span>
-                        {(dmUnread[m.id] ?? 0) > 0 && (
-                          <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
-                            {(dmUnread[m.id] ?? 0) > 99 ? '99+' : dmUnread[m.id]}
-                          </span>
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-                {threadMembers.length === 0 && (
-                  <li className="px-4 py-6 text-center">
-                    <Text variant="muted" size="sm">
-                      {isAdmin ? 'No members yet.' : 'No admins yet.'}
-                    </Text>
-                  </li>
-                )}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ── Chat area ────────────────────────────────────────────────────── */}
-        <Card
-          padding="none"
-          className={`flex min-w-0 flex-col rounded-none border-0 shadow-none md:flex-1 md:rounded-lg md:border md:shadow ${hasActiveChat ? 'flex-1' : 'hidden md:flex'}`}
-        >
-          {activeView === 'channel' && selectedChannel ? (
-            <>
-              {/* Channel header — sticky */}
-              <CardHeader className="sticky top-0 z-10 flex-row items-center gap-2 bg-white px-4 py-3 dark:bg-neutral-900">
-                <button
-                  type="button"
-                  onClick={handleBack}
-                  className="flex items-center justify-center rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 md:hidden"
-                  aria-label="Back to list"
-                >
-                  <FontAwesomeIcon icon={faArrowLeft} className="text-sm" />
-                </button>
-                <FontAwesomeIcon icon={faHashtag} className="text-neutral-400" />
-                <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
-                  {selectedChannel.name}
-                </span>
-                {selectedChannel.description && (
-                  <Text size="xs" variant="muted" className="ml-2 hidden md:block">
-                    {selectedChannel.description}
-                  </Text>
-                )}
-              </CardHeader>
-
-              {/* Channel messages — Slack-style */}
-              <div
-                ref={channelScrollRef}
-                className="flex-1 overflow-y-auto px-4 pb-[96px] pt-3 md:pb-3"
-              >
-                <div ref={channelTopSentinelRef} className="flex justify-center py-1">
-                  {channelLoadingMore && <Spinner size="sm" label="Loading older messages…" />}
+            </CardHeader>
+            <CardContent className="p-0">
+              {!memberNamesLoaded ? (
+                <div className="flex items-center justify-center py-6">
+                  <Spinner size="sm" label="Loading…" />
                 </div>
-                {channelMessages.length === 0 && (
-                  <div className="flex h-full items-center justify-center">
-                    <Text variant="muted" size="sm">
-                      No messages yet. Start the conversation!
-                    </Text>
-                  </div>
-                )}
-                <div className="space-y-1">
-                  {channelMessages.map((msg, i) => {
-                    const prev = channelMessages[i - 1];
-                    const showHeader =
-                      !prev ||
-                      prev.fromUserId !== msg.fromUserId ||
-                      new Date(msg.createdAt).getTime() - new Date(prev.createdAt).getTime() >
-                        5 * 60 * 1000;
+              ) : (
+                <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                  {threadMembers.map((m) => {
+                    const isSelected =
+                      activeView === 'dm' &&
+                      (isAdmin ? selectedMemberId === m.id : selectedAdminId === m.id);
                     return (
-                      <div key={msg.id} className={`flex gap-3 ${showHeader ? 'mt-4' : 'mt-0.5'}`}>
-                        <div className="w-8 shrink-0">
-                          {showHeader && <UserAvatar name={msg.senderName} size="sm" />}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          {showHeader && (
-                            <div className="mb-0.5 flex items-baseline gap-2">
-                              <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
-                                {msg.senderName}
-                              </span>
-                              <span className="text-[10px] text-neutral-400">
-                                {new Date(msg.createdAt).toLocaleTimeString('en-US', {
-                                  hour: 'numeric',
-                                  minute: '2-digit',
-                                })}
-                              </span>
-                            </div>
+                      <li key={m.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isAdmin) setSelectedMemberId(m.id);
+                            else setSelectedAdminId(m.id);
+                            setActiveView('dm');
+                          }}
+                          className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors rounded-r-lg ${
+                            isSelected
+                              ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
+                              : 'text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800'
+                          }`}
+                          aria-label={`Direct message ${m.name}${dmUnread[m.id] ? `, ${dmUnread[m.id]} unread` : ''}`}
+                        >
+                          <UserAvatar name={m.name} size="sm" src={memberImages[m.id]} />
+                          <span className="flex-1 truncate font-medium">{m.name}</span>
+                          {(dmUnread[m.id] ?? 0) > 0 && (
+                            <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-bold text-white">
+                              {(dmUnread[m.id] ?? 0) > 99 ? '99+' : dmUnread[m.id]}
+                            </span>
                           )}
-                          <p className="text-sm text-neutral-800 dark:text-neutral-200">
-                            {msg.text}
-                          </p>
-                        </div>
-                      </div>
+                        </button>
+                      </li>
                     );
                   })}
-                  <div ref={channelEndRef} />
-                </div>
-              </div>
+                  {threadMembers.length === 0 && (
+                    <li className="px-4 py-6 text-center">
+                      <Text variant="muted" size="sm">
+                        {isAdmin ? 'No members yet.' : 'No admins yet.'}
+                      </Text>
+                    </li>
+                  )}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
 
-              {/* Channel compose — fixed bottom on mobile */}
-              <div className="fixed bottom-0 left-0 right-0 border-t border-neutral-100 bg-white px-3 pb-[env(safe-area-inset-bottom,16px)] pt-3 dark:border-neutral-800 dark:bg-neutral-900 md:relative md:bottom-auto md:left-auto md:right-auto md:px-3 md:pb-3">
-                {channelSendError && (
-                  <p className="mb-2 text-xs text-red-500">{channelSendError}</p>
-                )}
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <Input
-                      label="Message"
-                      hideLabel
-                      placeholder={`Message #${selectedChannel.name}`}
-                      value={channelMessageText}
-                      onChange={(e) => {
-                        setChannelMessageText(e.target.value);
-                        setChannelSendError(null);
-                      }}
-                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleChannelSend()}
-                      size="sm"
-                      className="w-full"
-                    />
-                  </div>
-                  <Button
-                    variant="primary"
-                    size="icon"
-                    onClick={handleChannelSend}
-                    disabled={channelSendLoading || !channelMessageText.trim()}
-                    isLoading={channelSendLoading}
-                    aria-label="Send message"
-                  >
-                    <FontAwesomeIcon icon={faPaperPlane} className="text-xs" />
-                  </Button>
-                </div>
-              </div>
-            </>
-          ) : activeView === 'dm' && hasThread ? (
-            <>
-              {/* DM header — sticky */}
-              <CardHeader className="sticky top-0 z-10 bg-white px-4 py-3 dark:bg-neutral-900">
-                <div className="flex items-center gap-2">
+          {/* ── Chat area ────────────────────────────────────────────────────── */}
+          <Card
+            padding="none"
+            className={`flex min-w-0 flex-col rounded-none border-0 shadow-none md:flex-1 md:rounded-xl md:border md:shadow ${hasActiveChat ? 'flex-1' : 'hidden md:flex'}`}
+          >
+            {activeView === 'channel' && selectedChannel ? (
+              <>
+                {/* Channel header — sticky */}
+                <CardHeader className="sticky top-0 z-10 flex-row items-center gap-2 bg-white px-4 py-3 dark:bg-neutral-900">
                   <button
                     type="button"
                     onClick={handleBack}
@@ -831,97 +745,221 @@ export const MessagesPage: React.FC = () => {
                   >
                     <FontAwesomeIcon icon={faArrowLeft} className="text-sm" />
                   </button>
-                  <span className="text-sm font-semibold">
-                    {memberNames[isAdmin ? selectedMemberId! : selectedAdminId!] ?? 'Chat'}
+                  <FontAwesomeIcon icon={faHashtag} className="text-neutral-400" />
+                  <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+                    {selectedChannel.name}
                   </span>
-                </div>
-              </CardHeader>
-
-              {/* DM messages */}
-              <div
-                ref={scrollContainerRef}
-                className="flex-1 overflow-y-auto px-5 pb-[96px] pt-4 md:pb-4"
-              >
-                <div ref={topSentinelRef} className="flex justify-center py-2">
-                  {loadingMore && <Spinner size="sm" label="Loading older messages…" />}
-                </div>
-                {messages.length === 0 && (
-                  <div className="flex h-full items-center justify-center">
-                    <Text variant="muted" size="sm">
-                      No messages yet. Start the conversation!
+                  {selectedChannel.description && (
+                    <Text size="xs" variant="muted" className="ml-2 hidden md:block">
+                      {selectedChannel.description}
                     </Text>
-                  </div>
-                )}
-                <div className="space-y-3">
-                  {messages.map((msg) => {
-                    const isMe = msg.fromUserId === userId;
-                    return (
-                      <div
-                        key={msg.id}
-                        className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div
-                          className={`max-w-[75%] rounded-xl px-3 py-2 text-sm ${
-                            isMe
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200'
-                          }`}
-                        >
-                          <p>{msg.text}</p>
-                          <p
-                            className={`mt-1 text-[10px] ${isMe ? 'text-blue-200' : 'text-neutral-400'}`}
-                          >
-                            {new Date(msg.createdAt).toLocaleTimeString('en-US', {
-                              hour: 'numeric',
-                              minute: '2-digit',
-                            })}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div ref={messagesEndRef} />
-                </div>
-              </div>
+                  )}
+                </CardHeader>
 
-              {/* DM compose — fixed bottom on mobile */}
-              <div className="fixed bottom-0 left-0 right-0 border-t border-neutral-100 bg-white px-3 pb-[env(safe-area-inset-bottom,16px)] pt-3 dark:border-neutral-800 dark:bg-neutral-900 md:relative md:bottom-auto md:left-auto md:right-auto md:px-3 md:pb-3">
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <Input
-                      label="Message"
-                      hideLabel
-                      placeholder="Type a message…"
-                      value={messageText}
-                      onChange={(e) => setMessageText(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                      size="sm"
-                      className="w-full"
-                    />
+                {/* Channel messages — Slack-style */}
+                <div
+                  ref={channelScrollRef}
+                  className="scrollbar-mieweb scrollbar-mieweb-visible flex-1 px-4 pb-[96px] pt-3 md:pb-3"
+                >
+                  <div ref={channelTopSentinelRef} className="flex justify-center py-1">
+                    {channelLoadingMore && <Spinner size="sm" label="Loading older messages…" />}
                   </div>
-                  <Button
-                    variant="primary"
-                    size="icon"
-                    onClick={handleSend}
-                    disabled={sendLoading || !messageText.trim()}
-                    isLoading={sendLoading}
-                    aria-label="Send message"
-                  >
-                    <FontAwesomeIcon icon={faPaperPlane} className="text-xs" />
-                  </Button>
+                  {channelMessages.length === 0 && (
+                    <div className="flex h-full items-center justify-center">
+                      <Text variant="muted" size="sm">
+                        No messages yet. Start the conversation!
+                      </Text>
+                    </div>
+                  )}
+                  <div>
+                    {channelMessages.map((msg, i) => {
+                      const prev = channelMessages[i - 1];
+                      const sameSenderAsPrev =
+                        !!prev &&
+                        prev.fromUserId === msg.fromUserId &&
+                        new Date(msg.createdAt).getTime() - new Date(prev.createdAt).getTime() <=
+                          GROUP_GAP_MS;
+                      const showHeader = !sameSenderAsPrev;
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex gap-3 ${messageGroupMarginTop(i, sameSenderAsPrev)}`}
+                        >
+                          <div className="w-8 shrink-0">
+                            {showHeader && <UserAvatar name={msg.senderName} size="sm" />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            {showHeader && (
+                              <div className="mb-0.5 flex items-baseline gap-2">
+                                <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
+                                  {msg.senderName}
+                                </span>
+                                <span className="text-[10px] text-neutral-400">
+                                  {new Date(msg.createdAt).toLocaleTimeString('en-US', {
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                  })}
+                                </span>
+                              </div>
+                            )}
+                            <p className="text-sm text-neutral-800 dark:text-neutral-200">
+                              {msg.text}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={channelEndRef} />
+                  </div>
                 </div>
-              </div>
-            </>
-          ) : (
-            <CardContent className="flex flex-1 flex-col items-center justify-center gap-2 text-neutral-400">
-              <FontAwesomeIcon icon={faEnvelope} className="text-3xl" />
-              <Text variant="muted" size="sm">
-                Select a channel or direct message
-              </Text>
-            </CardContent>
-          )}
-        </Card>
-      </div>
+
+                {/* Channel compose — fixed bottom on mobile */}
+                <div className="fixed bottom-0 left-0 right-0 border-t border-neutral-100 bg-white px-3 pb-[env(safe-area-inset-bottom,16px)] pt-3 dark:border-neutral-800 dark:bg-neutral-900 md:relative md:bottom-auto md:left-auto md:right-auto md:px-3 md:pb-3">
+                  {channelSendError && (
+                    <p className="mb-2 text-xs text-red-500">{channelSendError}</p>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <Input
+                        label="Message"
+                        hideLabel
+                        placeholder={`Message #${selectedChannel.name}`}
+                        value={channelMessageText}
+                        onChange={(e) => {
+                          setChannelMessageText(e.target.value);
+                          setChannelSendError(null);
+                        }}
+                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleChannelSend()}
+                        size="sm"
+                        className="h-10 w-full"
+                      />
+                    </div>
+                    <Button
+                      variant="primary"
+                      size="icon"
+                      onClick={handleChannelSend}
+                      disabled={channelSendLoading || !channelMessageText.trim()}
+                      isLoading={channelSendLoading}
+                      aria-label="Send message"
+                    >
+                      <FontAwesomeIcon icon={faPaperPlane} className="text-xs" />
+                    </Button>
+                  </div>
+                </div>
+              </>
+            ) : activeView === 'dm' && hasThread ? (
+              <>
+                {/* DM header — sticky */}
+                <CardHeader className="sticky top-0 z-10 bg-white px-4 py-3 dark:bg-neutral-900">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleBack}
+                      className="flex items-center justify-center rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 md:hidden"
+                      aria-label="Back to list"
+                    >
+                      <FontAwesomeIcon icon={faArrowLeft} className="text-sm" />
+                    </button>
+                    <span className="text-sm font-semibold">
+                      {memberNames[isAdmin ? selectedMemberId! : selectedAdminId!] ?? 'Chat'}
+                    </span>
+                  </div>
+                </CardHeader>
+
+                {/* DM messages */}
+                <div
+                  ref={scrollContainerRef}
+                  className="scrollbar-mieweb scrollbar-mieweb-visible flex-1 px-4 pb-[96px] pt-4 md:pb-4"
+                >
+                  <div ref={topSentinelRef} className="flex justify-center py-2">
+                    {loadingMore && <Spinner size="sm" label="Loading older messages…" />}
+                  </div>
+                  {messages.length === 0 && (
+                    <div className="flex h-full items-center justify-center">
+                      <Text variant="muted" size="sm">
+                        No messages yet. Start the conversation!
+                      </Text>
+                    </div>
+                  )}
+                  <div>
+                    {messages.map((msg, i) => {
+                      const isMe = msg.fromUserId === userId;
+                      const prev = messages[i - 1];
+                      const next = messages[i + 1];
+                      const sameSenderAsPrev = prev?.fromUserId === msg.fromUserId;
+                      const sameSenderAsNext = next?.fromUserId === msg.fromUserId;
+                      const isFirstInGroup = !sameSenderAsPrev;
+                      const isLastInGroup = !sameSenderAsNext;
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`flex ${isMe ? 'justify-end' : 'justify-start'} ${messageGroupMarginTop(i, !!sameSenderAsPrev)}`}
+                        >
+                          <div
+                            className={`max-w-[75%] px-3 py-2 text-sm ${dmBubbleRadius(isMe, isFirstInGroup, isLastInGroup)} ${
+                              isMe
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-neutral-100 text-neutral-800 dark:bg-neutral-800 dark:text-neutral-200'
+                            }`}
+                          >
+                            <p>{msg.text}</p>
+                            {isLastInGroup && (
+                              <p
+                                className={`mt-1 text-[10px] ${isMe ? 'text-blue-200' : 'text-neutral-400'}`}
+                              >
+                                {new Date(msg.createdAt).toLocaleTimeString('en-US', {
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                })}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div ref={messagesEndRef} />
+                  </div>
+                </div>
+
+                {/* DM compose — fixed bottom on mobile */}
+                <div className="fixed bottom-0 left-0 right-0 border-t border-neutral-100 bg-white px-3 pb-[env(safe-area-inset-bottom,16px)] pt-3 dark:border-neutral-800 dark:bg-neutral-900 md:relative md:bottom-auto md:left-auto md:right-auto md:px-3 md:pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <Input
+                        label="Message"
+                        hideLabel
+                        placeholder="Type a message…"
+                        value={messageText}
+                        onChange={(e) => setMessageText(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                        size="sm"
+                        className="h-10 w-full"
+                      />
+                    </div>
+                    <Button
+                      variant="primary"
+                      size="icon"
+                      onClick={handleSend}
+                      disabled={sendLoading || !messageText.trim()}
+                      isLoading={sendLoading}
+                      aria-label="Send message"
+                    >
+                      <FontAwesomeIcon icon={faPaperPlane} className="text-xs" />
+                    </Button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <CardContent className="flex flex-1 flex-col items-center justify-center gap-2 text-neutral-400">
+                <FontAwesomeIcon icon={faEnvelope} className="text-3xl" />
+                <Text variant="muted" size="sm">
+                  Select a channel or direct message
+                </Text>
+              </CardContent>
+            )}
+          </Card>
+        </div>
+      </AppPage>
 
       {/* Create channel modal */}
       <Modal
@@ -945,6 +983,7 @@ export const MessagesPage: React.FC = () => {
             )}
             <Input
               label="Channel name"
+              size="sm"
               placeholder="e.g. engineering"
               value={newChannelName}
               onChange={(e) => {
@@ -955,6 +994,7 @@ export const MessagesPage: React.FC = () => {
             />
             <Input
               label="Description (optional)"
+              size="sm"
               placeholder="What is this channel for?"
               value={newChannelDesc}
               onChange={(e) => setNewChannelDesc(e.target.value)}
@@ -968,7 +1008,7 @@ export const MessagesPage: React.FC = () => {
                 <Text size="xs" variant="muted" className="mb-3 block">
                   Leave all unchecked to create a team-wide channel.
                 </Text>
-                <ul className="max-h-48 overflow-y-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
+                <ul className="scrollbar-mieweb scrollbar-mieweb-visible max-h-48 rounded-lg border border-neutral-200 dark:border-neutral-700">
                   {threadMembers.map((m) => (
                     <li key={m.id}>
                       <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-neutral-50 dark:hover:bg-neutral-800">
@@ -1018,6 +1058,6 @@ export const MessagesPage: React.FC = () => {
           </Button>
         </ModalFooter>
       </Modal>
-    </div>
+    </>
   );
 };

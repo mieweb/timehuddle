@@ -202,7 +202,10 @@ test.describe('PulseVault — Ticket video upload', () => {
     await expect(page.locator('button', { hasText: 'Upload from this device' })).toBeVisible();
 
     // Verify authenticated reserve endpoint returns a UUID under the current contract.
+    const token = await page.evaluate(() => localStorage.getItem('timecore_session_token'));
+    const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
     const res = await page.request.post(`${BACKEND_URL}/v1/video/reserve`, {
+      headers: authHeader,
       data: { target: 'library' },
     });
     expect(res.status()).toBe(201);
