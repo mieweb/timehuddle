@@ -146,7 +146,7 @@ const AppLayoutContent: React.FC = () => {
 
   const navigate = useCallback((path: string) => {
     window.history.pushState(null, '', path);
-    setPathname(path);
+    setPathname(path.split('?')[0]);
   }, []);
 
   // Keep in sync with browser back/forward
@@ -183,10 +183,16 @@ const AppLayoutContent: React.FC = () => {
           }),
         );
         navigate('/app/messages');
+      } else if (data.type === 'shift-end-reminder') {
+        window.dispatchEvent(
+          new CustomEvent('timehuddle:openShiftReminder', {
+            detail: { clockEventId: data.clockEventId, teamId: data.teamId },
+          }),
+        );
       } else if (data.url) {
         const safePath = data.url.split('?')[0];
         if (safePath.startsWith('/app/')) {
-          navigate(safePath);
+          navigate(data.url); // preserve query string (e.g. ?tab=work)
         }
       }
     })
@@ -200,6 +206,21 @@ const AppLayoutContent: React.FC = () => {
       handle?.remove();
     };
   }, [navigate]);
+
+  // Web push: service worker posts a message to open the shift-end-reminder modal
+  // without navigating away from the current page.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'timehuddle:openShiftReminder') {
+        window.dispatchEvent(
+          new CustomEvent('timehuddle:openShiftReminder', { detail: event.data }),
+        );
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
+  }, []);
 
   // Parameterized profile route — /app/profile/:userId
   const profileUserId = pathname.startsWith('/app/profile/')
