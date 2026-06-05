@@ -43,7 +43,6 @@ import {
   ModalHeader,
   ModalTitle,
   Select,
-  Spinner,
   Text,
   Textarea,
   type DropdownPlacement,
@@ -848,14 +847,6 @@ export const TicketsPage: React.FC = () => {
   const noFocusRingClass =
     'ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:border-blue-300 focus-visible:border-blue-300';
 
-  if (!teamsReady) {
-    return (
-      <div className="flex items-center justify-center p-12">
-        <Spinner size="lg" label="Loading…" />
-      </div>
-    );
-  }
-
   return (
     <AppPage fullWidth className="flex h-full min-h-0 flex-col">
       {/* ── Header: New Ticket + Search ── */}
@@ -1008,7 +999,7 @@ export const TicketsPage: React.FC = () => {
                   }`}
                 >
                   <FontAwesomeIcon icon={faCircleDot} className="text-green-500" />
-                  {openCount} Open
+                  {ticketsLoading ? '…' : openCount} Open
                 </button>
                 <button
                   role="tab"
@@ -1021,7 +1012,7 @@ export const TicketsPage: React.FC = () => {
                   }`}
                 >
                   <FontAwesomeIcon icon={faCircleCheck} className="text-purple-500" />
-                  {closedCount} Closed
+                  {ticketsLoading ? '…' : closedCount} Closed
                 </button>
               </div>
 
