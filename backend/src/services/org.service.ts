@@ -91,6 +91,41 @@ function toOrgSummary(
 }
 
 export class OrgService {
+  private async getEnterpriseRoleForOrg(
+    userId: string,
+    org: Organization & { _id: ObjectId }
+  ): Promise<"owner" | "admin" | null> {
+    if (!org.enterpriseId || !isValidId(org.enterpriseId)) return null;
+
+    const enterprise = await enterprisesCollection().findOne({
+      _id: new ObjectId(org.enterpriseId),
+    });
+    if (!enterprise) return null;
+    if ((enterprise.owners ?? []).includes(userId)) return "owner";
+    if ((enterprise.admins ?? []).includes(userId)) return "admin";
+    return null;
+  }
+
+  private async canManageOrg(
+    userId: string,
+    org: Organization & { _id: ObjectId }
+  ): Promise<{
+    canManage: boolean;
+    role: OrgMembershipRole | null;
+  }> {
+    const membership = await this.getOrgMembership(org._id.toHexString(), userId);
+    if (membership && ELEVATED_ROLES.includes(membership.role)) {
+      return { canManage: true, role: membership.role };
+    }
+
+    const enterpriseRole = await this.getEnterpriseRoleForOrg(userId, org);
+    if (enterpriseRole) {
+      return { canManage: true, role: enterpriseRole };
+    }
+
+    return { canManage: false, role: membership?.role ?? null };
+  }
+
   async ensureDefaultEnterprise(): Promise<Enterprise & { _id: ObjectId }> {
     const existing = await enterprisesCollection().findOne({ slug: DEFAULT_ENTERPRISE_SLUG });
     if (existing) return existing;
@@ -270,11 +305,11 @@ export class OrgService {
   ): Promise<OrgSummary | "not-found" | "forbidden" | "conflict"> {
     if (!isValidId(orgId)) return "not-found";
 
-    const membership = await this.getOrgMembership(orgId, userId);
-    if (!membership || !ELEVATED_ROLES.includes(membership.role)) return "forbidden";
-
     const org = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
     if (!org) return "not-found";
+
+    const access = await this.canManageOrg(userId, org);
+    if (!access.canManage) return "forbidden";
 
     const updates: Partial<Organization & { updatedAt: Date }> = { updatedAt: new Date() };
 
@@ -300,11 +335,11 @@ export class OrgService {
     await organizationsCollection().updateOne({ _id: new ObjectId(orgId) }, { $set: updates });
     const updated = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
     if (!updated) return "not-found";
-    return toOrgSummary(updated, membership.role);
+    return toOrgSummary(updated, access.role);
   }
 
   async listOrganizationsForUser(userId: string): Promise<OrgSummary[]> {
-    const [memberships, ownedOrAdminOrgs, teamOrgs] = await Promise.all([
+    const [memberships, ownedOrAdminOrgs, teamOrgs, enterpriseManagedOrgs] = await Promise.all([
       orgMembersCollection().find({ userId }).toArray(),
       organizationsCollection()
         .find({ $or: [{ owners: userId }, { admins: userId }] }, { projection: { _id: 1 } })
@@ -312,12 +347,23 @@ export class OrgService {
       teamsCollection()
         .find({ $or: [{ members: userId }, { admins: userId }] }, { projection: { orgId: 1 } })
         .toArray(),
+      (async () => {
+        const enterpriseDocs = await enterprisesCollection()
+          .find({ $or: [{ owners: userId }, { admins: userId }] }, { projection: { _id: 1 } })
+          .toArray();
+        const enterpriseIds = enterpriseDocs.map((enterprise) => enterprise._id.toHexString());
+        if (enterpriseIds.length === 0) return [] as Array<{ _id: ObjectId }>;
+        return organizationsCollection()
+          .find({ enterpriseId: { $in: enterpriseIds } }, { projection: { _id: 1 } })
+          .toArray();
+      })(),
     ]);
 
     const orgIds = uniqueIds([
       ...memberships.map((membership) => membership.orgId),
       ...ownedOrAdminOrgs.map((org) => org._id.toHexString()),
       ...teamOrgs.map((team) => team.orgId).filter((orgId): orgId is string => !!orgId),
+      ...enterpriseManagedOrgs.map((org) => org._id.toHexString()),
     ]).filter(isValidId);
 
     if (orgIds.length === 0) return [];
@@ -330,7 +376,10 @@ export class OrgService {
     const summaries = await Promise.all(
       organizations.map(async (org) => {
         const membership = await this.getOrgMembership(org._id.toHexString(), userId);
-        return toOrgSummary(org, membership?.role ?? "member");
+        if (membership) return toOrgSummary(org, membership.role);
+
+        const enterpriseRole = await this.getEnterpriseRoleForOrg(userId, org);
+        return toOrgSummary(org, enterpriseRole ?? "member");
       })
     );
 
@@ -350,9 +399,12 @@ export class OrgService {
     if (!accessibleOrgIds.includes(orgId)) return "forbidden";
 
     const membership = await this.getOrgMembership(orgId, userId);
+    const enterpriseRole = await this.getEnterpriseRoleForOrg(userId, org);
+    const canManage =
+      (!!membership && ELEVATED_ROLES.includes(membership.role)) || !!enterpriseRole;
     return {
-      ...toOrgSummary(org, membership?.role ?? "member"),
-      canManage: !!membership && ELEVATED_ROLES.includes(membership.role),
+      ...toOrgSummary(org, membership?.role ?? enterpriseRole ?? "member"),
+      canManage,
     };
   }
 
@@ -360,15 +412,13 @@ export class OrgService {
     orgId: string,
     requesterUserId: string
   ): Promise<OrgMemberSummary[] | "not-found" | "forbidden"> {
-    const requesterMembership = await this.getOrgMembership(orgId, requesterUserId);
-    if (!requesterMembership || !ELEVATED_ROLES.includes(requesterMembership.role)) {
-      return "forbidden";
-    }
-
     const org = isValidId(orgId)
       ? await organizationsCollection().findOne({ _id: new ObjectId(orgId) })
       : null;
     if (!org) return "not-found";
+
+    const access = await this.canManageOrg(requesterUserId, org);
+    if (!access.canManage) return "forbidden";
 
     const membershipDocs = await orgMembersCollection().find({ orgId }).toArray();
     const legacyIds = uniqueIds([...(org.owners ?? []), ...(org.admins ?? [])]);
@@ -424,10 +474,6 @@ export class OrgService {
     targetUserId: string,
     role: OrgMembershipRole
   ): Promise<OrgMembershipUpdateResult> {
-    const requesterMembership = await this.getOrgMembership(orgId, requesterUserId);
-    if (!requesterMembership || !ELEVATED_ROLES.includes(requesterMembership.role)) {
-      return "forbidden";
-    }
     if (!isValidId(orgId)) return "not-found";
     if (!isValidId(targetUserId)) return "user-not-found";
 
@@ -437,6 +483,10 @@ export class OrgService {
       orgMembersCollection().find({ orgId }).toArray(),
     ]);
     if (!org) return "not-found";
+
+    const access = await this.canManageOrg(requesterUserId, org);
+    if (!access.canManage) return "forbidden";
+
     if (!targetUser) return "user-not-found";
 
     const elevatedUserIds = new Set<string>([
@@ -467,11 +517,13 @@ export class OrgService {
     orgId: string,
     allowAutoJoin: boolean
   ): Promise<OrgAllowAutoJoinResult> {
-    const requesterMembership = await this.getOrgMembership(orgId, requesterUserId);
-    if (!requesterMembership || !ELEVATED_ROLES.includes(requesterMembership.role)) {
-      return "forbidden";
-    }
     if (!isValidId(orgId)) return "not-found";
+
+    const org = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
+    if (!org) return "not-found";
+
+    const access = await this.canManageOrg(requesterUserId, org);
+    if (!access.canManage) return "forbidden";
 
     const result = await organizationsCollection().findOneAndUpdate(
       { _id: new ObjectId(orgId) },

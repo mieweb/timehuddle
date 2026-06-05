@@ -563,6 +563,15 @@ export const orgApi = {
       },
     ).then((r) => r.user),
 
+  updateReportsTo: (userId: string, reportsTo: string | null) =>
+    request<{ user: { id: string; reportsToUserId: string | null } }>(
+      `/v1/org/users/${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ reportsToUserId: reportsTo }),
+      },
+    ).then((r) => r.user),
+
   getOrganization: () =>
     request<{ organization: AdminOrganization }>('/v1/organization').then((r) => r.organization),
 

@@ -20,6 +20,7 @@ import { ApiError, enterpriseApi, orgApi } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { getEnterpriseRole } from '../../lib/organizationAccess';
 import { AppPage } from '../../ui/AppPage';
+import { useRouter } from '../../ui/router';
 
 type EnterpriseDetail = Awaited<ReturnType<typeof enterpriseApi.get>>;
 
@@ -43,10 +44,12 @@ export const EnterprisePage: React.FC = () => {
     enterprises,
     organizations,
     selectedEnterpriseId,
+    setSelectedEnterpriseId,
     refetchEnterprises,
     refetchOrganizations,
     setSelectedOrgId,
   } = useTeam();
+  const { navigate } = useRouter();
   const [enterprise, setEnterprise] = useState<EnterpriseDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -118,7 +121,7 @@ export const EnterprisePage: React.FC = () => {
   }, [loadEnterprise]);
 
   useEffect(() => {
-    if (!selectedEnterpriseId || selectedRole !== 'owner') return;
+    if (!selectedEnterpriseId || !selectedRole) return;
     void enterpriseApi
       .searchUsers(selectedEnterpriseId, '')
       .then((users) =>
@@ -259,6 +262,18 @@ export const EnterprisePage: React.FC = () => {
     setEditOrgAllowAutoJoin(org.allowAutoJoin);
     setEditOrgError(null);
   }, []);
+
+  const handleOpenOrgMembers = useCallback(
+    (org: OrgItem) => {
+      setSelectedOrgId(org.id);
+      if (org.enterpriseId) {
+        setSelectedEnterpriseId(org.enterpriseId);
+      }
+      setEditOrg(null);
+      navigate('/org/members');
+    },
+    [navigate, setSelectedEnterpriseId, setSelectedOrgId],
+  );
 
   const handleEditOrgSlugChange = useCallback(
     (slug: string) => {
@@ -489,18 +504,21 @@ export const EnterprisePage: React.FC = () => {
             <CardContent className="space-y-3">
               {selectedOrganizations.length > 0 ? (
                 selectedOrganizations.map((org) => (
-                  <button
+                  <Button
+                    variant="outline"
                     key={org.id}
                     onClick={() => handleOpenEditOrg(org)}
-                    className="w-full rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                    className="w-full justify-start rounded-lg px-3 py-2 text-left"
                   >
-                    <Text size="sm" weight="medium">
-                      {org.name}
-                    </Text>
-                    <Text size="xs" variant="muted">
-                      {org.slug}
-                    </Text>
-                  </button>
+                    <div className="text-left">
+                      <Text size="sm" weight="medium">
+                        {org.name}
+                      </Text>
+                      <Text size="xs" variant="muted">
+                        {org.slug}
+                      </Text>
+                    </div>
+                  </Button>
                 ))
               ) : (
                 <Text variant="muted" size="sm">
@@ -591,7 +609,9 @@ export const EnterprisePage: React.FC = () => {
       <Modal
         open={!!editOrg}
         onOpenChange={(open) => {
-          if (!open) setEditOrg(null);
+          if (!open) {
+            setEditOrg(null);
+          }
         }}
       >
         <ModalHeader>Edit Organization</ModalHeader>
@@ -651,6 +671,17 @@ export const EnterprisePage: React.FC = () => {
               aria-label="Toggle organization auto-join"
             />
           </div>
+
+          {editOrg && (
+            <div className="rounded-xl border border-neutral-200/70 p-3 dark:border-neutral-800">
+              <Text size="sm" variant="muted" className="mb-2">
+                Add and manage organization members on the Members page.
+              </Text>
+              <Button variant="secondary" onClick={() => handleOpenOrgMembers(editOrg)}>
+                Open Members Page
+              </Button>
+            </div>
+          )}
         </ModalBody>
         <ModalFooter>
           <Button variant="outline" onClick={() => setEditOrg(null)} disabled={editOrgSaving}>
