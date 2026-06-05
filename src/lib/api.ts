@@ -781,7 +781,57 @@ export const clockApi = {
     }),
 };
 
-// ─── Notifications ────────────────────────────────────────────────────────────
+// ─── Team Dashboard API ───────────────────────────────────────────────────────
+
+export interface TeamMemberClockStatus {
+  userId: string;
+  name: string;
+  image: string | null;
+  isClockedIn: boolean;
+  isOnBreak: boolean;
+  activeClockStart: number | null;
+  todaySeconds: number;
+}
+
+export interface TeamRunningTimer {
+  timerId: string;
+  workItemId: string;
+  userId: string;
+  userName: string;
+  userImage: string | null;
+  ticketId: string;
+  ticketTitle: string;
+  startTime: number;
+}
+
+export const teamDashboardApi = {
+  getTeamClockStatus: (teamId: string) =>
+    request<{ members: TeamMemberClockStatus[] }>(
+      `/v1/clock/team-status?teamId=${encodeURIComponent(teamId)}`,
+    ).then((r) =>
+      r.members.map((m) =>
+        m.image && !/^https?:\/\//i.test(m.image)
+          ? { ...m, image: `${TIMECORE_BASE_URL}${m.image.startsWith('/') ? '' : '/'}${m.image}` }
+          : m,
+      ),
+    ),
+
+  getTeamRunningTimers: (teamId: string) =>
+    request<{ timers: TeamRunningTimer[] }>(
+      `/v1/timers/team-running?teamId=${encodeURIComponent(teamId)}`,
+    ).then((r) =>
+      r.timers.map((t) =>
+        t.userImage && !/^https?:\/\//i.test(t.userImage)
+          ? {
+              ...t,
+              userImage: `${TIMECORE_BASE_URL}${t.userImage.startsWith('/') ? '' : '/'}${t.userImage}`,
+            }
+          : t,
+      ),
+    ),
+};
+
+
 
 export interface Notification {
   id: string;

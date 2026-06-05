@@ -457,7 +457,57 @@ export async function timerRoutes(app: FastifyInstance) {
     }
   );
 
-  // GET /v1/timers/today?tz= — shorthand for today's day view
+  // GET /v1/timers/team-running?teamId=xxx — running timers for all team members
+  app.get(
+    "/timers/team-running",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Timers"],
+        summary: "Get all running timers for members of a team",
+        querystring: {
+          type: "object",
+          required: ["teamId"],
+          properties: { teamId: { type: "string" } },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              timers: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    timerId: { type: "string" },
+                    workItemId: { type: "string" },
+                    userId: { type: "string" },
+                    userName: { type: "string" },
+                    userImage: { type: "string", nullable: true },
+                    ticketId: { type: "string" },
+                    ticketTitle: { type: "string" },
+                    startTime: { type: "number" },
+                  },
+                },
+              },
+            },
+          },
+          403: err("Forbidden"),
+          404: err("Team not found"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id: userId } = (req as any).user;
+      const { teamId } = req.query as { teamId: string };
+      const result = await timerService.getTeamRunningTimers(userId, teamId);
+      if (result === "not-found") return reply.code(404).send({ error: "Team not found" });
+      if (result === "forbidden") return reply.code(403).send({ error: "Forbidden" });
+      return reply.send({ timers: result });
+    }
+  );
+
+
   app.get(
     "/timers/today",
     {
