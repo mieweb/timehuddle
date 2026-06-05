@@ -195,21 +195,21 @@ export const UserDropdown: React.FC = () => {
         </>
       )}
 
-      {showOrganizationAdmin && (
+      {enterprises.length > 0 && (
+        <>
+          <DropdownItem icon={<FontAwesomeIcon icon={faBuilding} />} onClick={handleEnterprisePage}>
+            <span className="font-normal">Enterprise</span>
+          </DropdownItem>
+        </>
+      )}
+
+      {(showOrganizationAdmin || enterprises.length > 0) && (
         <>
           <DropdownItem
             icon={<FontAwesomeIcon icon={faUsers} />}
             onClick={handleOrganizationMembers}
           >
             <span className="font-normal">Members</span>
-          </DropdownItem>
-        </>
-      )}
-
-      {enterprises.length > 0 && (
-        <>
-          <DropdownItem icon={<FontAwesomeIcon icon={faBuilding} />} onClick={handleEnterprisePage}>
-            <span className="font-normal">Enterprise</span>
           </DropdownItem>
         </>
       )}
