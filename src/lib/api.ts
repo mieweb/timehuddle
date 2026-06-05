@@ -563,6 +563,14 @@ export const orgApi = {
       },
     ).then((r) => r.user),
 
+  removeMember: (id: string, userId: string) =>
+    request<{ user: { userId: string } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      {
+        method: 'DELETE',
+      },
+    ).then((r) => r.user),
+
   updateReportsTo: (userId: string, reportsTo: string | null) =>
     request<{ user: { id: string; reportsToUserId: string | null } }>(
       `/v1/org/users/${encodeURIComponent(userId)}`,

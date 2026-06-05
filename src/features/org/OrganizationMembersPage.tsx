@@ -148,6 +148,27 @@ export const OrganizationMembersPage: React.FC = () => {
     }
   }, [loadUsers, memberRole, memberUserId, selectedOrgId]);
 
+  const handleRemoveMember = useCallback(
+    async (targetUserId: string) => {
+      if (!selectedOrgId) return;
+      setSavingUserId(targetUserId);
+      setError(null);
+      try {
+        await orgApi.removeMember(selectedOrgId, targetUserId);
+        await loadUsers();
+      } catch (err) {
+        if (err instanceof ApiError) {
+          setError(err.message);
+        } else {
+          setError('Failed to remove member');
+        }
+      } finally {
+        setSavingUserId(null);
+      }
+    },
+    [loadUsers, selectedOrgId],
+  );
+
   const roleOptions = useMemo(
     () => [
       { value: 'owner', label: 'Owner' },
@@ -303,6 +324,7 @@ export const OrganizationMembersPage: React.FC = () => {
                   <TableHead>Username</TableHead>
                   <TableHead className="w-48">Role</TableHead>
                   <TableHead className="w-48">Reports To</TableHead>
+                  <TableHead className="w-32">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -381,12 +403,23 @@ export const OrganizationMembersPage: React.FC = () => {
                           />
                         </div>
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => void handleRemoveMember(orgUser.id)}
+                          disabled={isSaving || !canManage}
+                          aria-label={`Remove ${orgUser.name} from organization`}
+                        >
+                          Remove
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
                 {visibleUsers.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5}>
+                    <TableCell colSpan={6}>
                       <Text size="sm" variant="muted" className="py-2">
                         No members match your search.
                       </Text>

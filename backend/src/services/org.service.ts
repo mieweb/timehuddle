@@ -51,6 +51,14 @@ export type OrgMembershipUpdateResult =
   | "user-not-found"
   | "last-elevated";
 
+export type OrgMembershipRemoveResult =
+  | { userId: string }
+  | "forbidden"
+  | "not-found"
+  | "user-not-found"
+  | "not-member"
+  | "last-elevated";
+
 export type OrgJoinResult =
   | { orgId: string; role: OrgMembershipRole }
   | "not-found"
@@ -510,6 +518,52 @@ export class OrgService {
 
     await this.addOrgMember(orgId, targetUserId, role, false);
     return { userId: targetUserId, role };
+  }
+
+  async removeOrgMember(
+    requesterUserId: string,
+    orgId: string,
+    targetUserId: string
+  ): Promise<OrgMembershipRemoveResult> {
+    if (!isValidId(orgId)) return "not-found";
+    if (!isValidId(targetUserId)) return "user-not-found";
+
+    const [org, targetUser, membershipDocs] = await Promise.all([
+      organizationsCollection().findOne({ _id: new ObjectId(orgId) }),
+      usersCollection().findOne({ _id: new ObjectId(targetUserId) }),
+      orgMembersCollection().find({ orgId }).toArray(),
+    ]);
+
+    if (!org) return "not-found";
+
+    const access = await this.canManageOrg(requesterUserId, org);
+    if (!access.canManage) return "forbidden";
+
+    if (!targetUser) return "user-not-found";
+
+    const currentRole = await this.getOrgMembership(orgId, targetUserId);
+    if (!currentRole) return "not-member";
+
+    const elevatedUserIds = new Set<string>([
+      ...(org.owners ?? []),
+      ...(org.admins ?? []),
+      ...membershipDocs
+        .filter((membership) => ELEVATED_ROLES.includes(membership.role))
+        .map((membership) => membership.userId),
+    ]);
+
+    if (
+      ELEVATED_ROLES.includes(currentRole.role) &&
+      elevatedUserIds.size === 1 &&
+      elevatedUserIds.has(targetUserId)
+    ) {
+      return "last-elevated";
+    }
+
+    await orgMembersCollection().deleteMany({ orgId, userId: targetUserId });
+    await this.syncLegacyRoleArrays(orgId, targetUserId, "member");
+
+    return { userId: targetUserId };
   }
 
   async setAllowAutoJoin(

@@ -114,6 +114,21 @@ export const orgController = {
     return reply.send({ user: result });
   },
 
+  async removeMember(
+    req: FastifyRequest<{ Params: { id: string; userId: string } }>,
+    reply: FastifyReply
+  ) {
+    const result = await orgService.removeOrgMember(req.user!.id, req.params.id, req.params.userId);
+    if (result === "not-found") return reply.status(404).send({ error: "Organization not found" });
+    if (result === "user-not-found") return reply.status(404).send({ error: "User not found" });
+    if (result === "not-member") return reply.status(404).send({ error: "Member not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    if (result === "last-elevated") {
+      return reply.status(400).send({ error: "At least one owner or admin is required" });
+    }
+    return reply.send({ user: result });
+  },
+
   async updateOrgUserReportsTo(
     req: FastifyRequest<{
       Params: { userId: string };

@@ -154,4 +154,19 @@ export async function organizationsRoutes(app: FastifyInstance) {
     },
     orgController.setMemberRole
   );
+
+  app.delete(
+    "/organizations/:id/members/:userId",
+    {
+      schema: {
+        tags: ["Organization"],
+        summary: "Remove organization member",
+        params: {
+          type: "object",
+          properties: { id: { type: "string" }, userId: { type: "string" } },
+        },
+      },
+    },
+    orgController.removeMember
+  );
 }

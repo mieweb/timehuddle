@@ -200,4 +200,20 @@ describe("organizations routes", () => {
     expect(orgMember).not.toBeNull();
     expect(orgMember?.role).toBe("member");
   });
+
+  it("allows enterprise admin to remove a member from organization", async () => {
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/v1/organizations/${organizationId}/members/${memberId}`,
+      headers: { cookie: enterpriseAdminCookie },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const db = client.db();
+    const orgMember = await db.collection("org_members").findOne({
+      orgId: organizationId,
+      userId: memberId,
+    });
+    expect(orgMember).toBeNull();
+  });
 });
