@@ -66,16 +66,20 @@ export const TeamsPage: React.FC = () => {
 
   // Fetch members for selected team
   const [members, setMembers] = useState<TeamMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
   const fetchMembers = useCallback(async (teamId: string | null) => {
     if (!teamId) {
       setMembers([]);
       return;
     }
+    setMembersLoading(true);
     try {
       const data = await teamApi.getMembers(teamId);
       setMembers(data);
     } catch {
       setMembers([]);
+    } finally {
+      setMembersLoading(false);
     }
   }, []);
 
@@ -364,8 +368,13 @@ export const TeamsPage: React.FC = () => {
                     </Button>
                   )}
                 </div>
+                {membersLoading ? (
+                  <div className="flex justify-center py-6">
+                    <Spinner size="sm" label="Loading members…" />
+                  </div>
+                ) : null}
                 <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                  {selectedTeam.members.map((memberId) => {
+                  {!membersLoading && selectedTeam.members.map((memberId) => {
                     const m = membersById.get(memberId);
                     const name = m?.name ?? memberId;
                     const username = m?.username ?? null;
