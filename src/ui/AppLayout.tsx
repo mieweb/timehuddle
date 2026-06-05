@@ -156,7 +156,7 @@ const AppLayoutContent: React.FC = () => {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  // Scroll the content area back to the top on every route change
+  // Scroll the content area back to the top on every route change.
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0 });
@@ -322,6 +322,21 @@ const AppLayoutContent: React.FC = () => {
                       className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'app-main-scroll'}` : 'app-main-scroll'} md:pb-0`}
                     >
                       <PullToRefresh>
+                        {/* TicketsPage is always mounted to avoid unmount/remount flicker.
+                            When inactive, it is visually hidden and positioned out of flow
+                            so `display:none` stacking-context invalidation is avoided. */}
+                        <div
+                          className={
+                            !profileUserId &&
+                            !profileUsername &&
+                            !ticketDetailId &&
+                            pathname === '/app/tickets'
+                              ? 'w-full'
+                              : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
+                          }
+                        >
+                          <TicketsPage />
+                        </div>
                         {profileUserId ? (
                           <ProfilePage userId={profileUserId} />
                         ) : profileUsername ? (
@@ -329,7 +344,9 @@ const AppLayoutContent: React.FC = () => {
                         ) : ticketDetailId ? (
                           <TicketDetailPage ticketId={ticketDetailId} />
                         ) : (
-                          route && React.createElement(route.component)
+                          route &&
+                          route.component !== TicketsPage &&
+                          React.createElement(route.component)
                         )}
                       </PullToRefresh>
                     </main>
