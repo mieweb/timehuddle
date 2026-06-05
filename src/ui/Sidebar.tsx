@@ -246,7 +246,11 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
                       type="button"
                       onClick={() => {
                         closeMobile();
-                        window.open(`${REPO_URL}/issues/new/choose`, '_blank', 'noopener,noreferrer');
+                        window.open(
+                          `${REPO_URL}/issues/new/choose`,
+                          '_blank',
+                          'noopener,noreferrer',
+                        );
                       }}
                       className={[
                         'group flex h-9 w-full items-center rounded-lg text-sm transition-colors',
