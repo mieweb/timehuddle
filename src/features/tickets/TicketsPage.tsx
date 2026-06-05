@@ -352,6 +352,13 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
 }) => {
   const [open, setOpen] = React.useState(false);
 
+  // On narrow/native screens the filter bar wraps, so filters that prefer
+  // bottom-end (right-aligned) can end up on the left side of the screen.
+  // bottom-end with right:0 would then extend the menu off the left edge.
+  // Force bottom-start on mobile/Capacitor so menus always open to the right.
+  const effectivePlacement =
+    (Capacitor.isNativePlatform() || window.innerWidth < 768) ? 'bottom-start' : placement;
+
   // Close when another dropdown in the group becomes active
   React.useEffect(() => {
     if (activeMenuId !== null && activeMenuId !== undefined && activeMenuId !== menuId) {
@@ -383,7 +390,7 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
           <FontAwesomeIcon icon={faChevronDown} className="text-[10px]" />
         </button>
       }
-      placement={placement}
+      placement={effectivePlacement}
       className="z-1000 max-w-[calc(100vw-1rem)] bg-white dark:bg-neutral-800"
     >
       {/* Clicking any item bubbles up to this div and closes the dropdown */}

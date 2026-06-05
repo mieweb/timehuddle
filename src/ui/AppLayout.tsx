@@ -331,7 +331,7 @@ const AppLayoutContent: React.FC = () => {
                             !profileUsername &&
                             !ticketDetailId &&
                             pathname === '/app/tickets'
-                              ? 'w-full'
+                              ? 'h-full w-full flex flex-col'
                               : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
                           }
                         >
