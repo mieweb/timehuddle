@@ -13,5 +13,6 @@ export default defineConfig({
     launchOptions: {
       slowMo: process.env.PWSLOWMO ? parseInt(process.env.PWSLOWMO, 10) : 0,
     },
+    video: process.env.PWVIDEO ? 'on' : 'off',
   },
 });

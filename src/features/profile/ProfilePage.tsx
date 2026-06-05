@@ -40,6 +40,7 @@ import { ProfileActivityFeed } from './ProfileActivityFeed';
 import { ProfileFeed } from './ProfileFeed';
 import { ProfileWorkSnapshot } from './ProfileWorkSnapshot';
 import { WorkSummaryTags } from './WorkSummaryTags';
+import { TodayStatusCard } from '../timers/TodayStatusCard';
 
 type ProfilePageProps = { userId: string; username?: never } | { username: string; userId?: never };
 
@@ -367,7 +368,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
 
       {/* Tab rail — Feed | Work | Activity */}
       {profile && (
-        <Tabs defaultValue="feed" className="w-full">
+        <Tabs
+          defaultValue={new URLSearchParams(window.location.search).get('tab') ?? 'feed'}
+          className="w-full"
+        >
           <TabsList className="mb-4 w-full">
             <TabsTrigger value="feed" className="flex-1">
               Feed
@@ -387,6 +391,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
 
           {/* Work tab */}
           <TabsContent value="work" className="flex flex-col gap-4">
+            {/* Today's clock status — own profile only */}
+            {isOwn && <TodayStatusCard />}
+
             {/* 48 h work summary */}
             <WorkSummaryTags userId={profile.id} />
 

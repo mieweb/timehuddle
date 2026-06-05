@@ -55,6 +55,7 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
+import { TodayStatusCard } from './TodayStatusCard';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -592,6 +593,9 @@ export const WorkPage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* ── Today Status Card ── */}
+      <TodayStatusCard />
 
       {/* ── Week Strip + Add Button ── */}
       <div className="flex flex-col gap-2 sm:gap-0">

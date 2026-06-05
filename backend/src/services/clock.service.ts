@@ -343,7 +343,7 @@ export class ClockService {
               userName,
               teamName: team.name,
               teamId,
-              url: `/app/clock`,
+              url: `/app/profile/${userId}?tab=work`,
             },
           })
           .catch(() => {})
@@ -429,7 +429,7 @@ export class ClockService {
                 teamName: team.name,
                 teamId,
                 duration: durationText,
-                url: `/app/clock`,
+                url: `/app/profile/${userId}?tab=work`,
               },
             })
             .catch(() => {})
@@ -447,7 +447,7 @@ export class ClockService {
             teamName: team.name,
             teamId,
             duration: durationText,
-            url: `/app/clock`,
+            url: `/app/profile/${userId}?tab=work`,
           },
         })
         .catch(() => {});

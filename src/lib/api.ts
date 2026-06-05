@@ -1252,6 +1252,14 @@ export const timerApi = {
   /** Get the currently running timer for the authenticated user, or null. */
   getRunning: () => request<{ session: Timer | null }>('/v1/timers/running').then((r) => r.session),
 
+  /** Get all entries + sessions for today in local time. */
+  getToday: () => {
+    const tz = clientTz();
+    return request<{ entries: DayEntry[] }>(`/v1/timers/today?tz=${encodeURIComponent(tz)}`).then(
+      (r) => r.entries,
+    );
+  },
+
   /** Get all entries + sessions for a local day (YYYY-MM-DD). */
   getDay: (date: string) => {
     const tz = clientTz();
