@@ -357,7 +357,7 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
   // bottom-end with right:0 would then extend the menu off the left edge.
   // Force bottom-start on mobile/Capacitor so menus always open to the right.
   const effectivePlacement =
-    (Capacitor.isNativePlatform() || window.innerWidth < 768) ? 'bottom-start' : placement;
+    Capacitor.isNativePlatform() || window.innerWidth < 768 ? 'bottom-start' : placement;
 
   // Close when another dropdown in the group becomes active
   React.useEffect(() => {
