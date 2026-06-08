@@ -18,6 +18,7 @@ import {
   type Ticket,
 } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
+import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
 import { MarkdownContent } from '../../ui/MarkdownContent';
@@ -109,6 +110,7 @@ interface TicketDetailPageProps {
 export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) => {
   const { navigate } = useRouter();
   const { user } = useSession();
+  const { teams } = useTeam();
 
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -589,7 +591,7 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
           {ticket.teamId && (
             <div className="ticket-sidebar-badges flex flex-wrap gap-1.5">
               <span className="inline-flex items-center rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                Team: {ticket.teamId.slice(-6)}
+                Team: {teams.find((t) => t.id === ticket.teamId)?.name ?? ticket.teamId}
               </span>
             </div>
           )}
