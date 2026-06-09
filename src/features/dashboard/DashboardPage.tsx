@@ -73,7 +73,9 @@ export const DashboardPage: React.FC = () => {
     try {
       const [t, m, r] = await Promise.all([
         ticketApi.getTickets(selectedTeamId).catch(() => [] as Ticket[]),
-        teamDashboardApi.getTeamClockStatus(selectedTeamId).catch(() => [] as TeamMemberClockStatus[]),
+        teamDashboardApi
+          .getTeamClockStatus(selectedTeamId)
+          .catch(() => [] as TeamMemberClockStatus[]),
         teamDashboardApi.getTeamRunningTimers(selectedTeamId).catch(() => [] as TeamRunningTimer[]),
       ]);
       setTickets(t);
@@ -275,7 +277,9 @@ export const DashboardPage: React.FC = () => {
                 High priority
               </Text>
               <Text size="lg" weight="semibold" className="text-red-600 dark:text-red-400">
-                {String(highPriority.filter((t) => t.status !== 'closed' && t.status !== 'done').length)}
+                {String(
+                  highPriority.filter((t) => t.status !== 'closed' && t.status !== 'done').length,
+                )}
               </Text>
               {overdue.length > 0 && (
                 <Text variant="muted" size="xs" className="mt-0.5">
@@ -406,7 +410,9 @@ export const DashboardPage: React.FC = () => {
                       <span
                         className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium capitalize ${priorityColor}`}
                       >
-                        {ticket.priority === 'urgent' ? 'High' : ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1)}
+                        {ticket.priority === 'urgent'
+                          ? 'High'
+                          : ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1)}
                       </span>
                     )}
                     <div className="min-w-0 flex-1">
@@ -421,7 +427,11 @@ export const DashboardPage: React.FC = () => {
                       </div>
                     </div>
                     <div className="shrink-0 text-right">
-                      <Text size="xs" weight="medium" className="font-mono text-green-600 dark:text-green-400">
+                      <Text
+                        size="xs"
+                        weight="medium"
+                        className="font-mono text-green-600 dark:text-green-400"
+                      >
                         {formatTimer(elapsedSec)}
                       </Text>
                     </div>
@@ -456,7 +466,8 @@ export const DashboardPage: React.FC = () => {
                       <UserAvatar name={member.name} src={member.image} size="sm" />
                       <div className="min-w-0 flex-1">
                         <Text size="sm" weight="medium">
-                          {member.name.split(' ')[0]}{member.name.split(' ')[1] ? ` ${member.name.split(' ')[1][0]}.` : ''}
+                          {member.name.split(' ')[0]}
+                          {member.name.split(' ')[1] ? ` ${member.name.split(' ')[1][0]}.` : ''}
                         </Text>
                         <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
                           <div
@@ -497,9 +508,10 @@ interface MemberRowProps {
 }
 
 const MemberRow: React.FC<MemberRowProps> = ({ member, currentTime, isAdmin }) => {
-  const sessionSeconds = member.isClockedIn && member.activeClockStart
-    ? Math.floor((currentTime - member.activeClockStart) / 1000)
-    : member.todaySeconds;
+  const sessionSeconds =
+    member.isClockedIn && member.activeClockStart
+      ? Math.floor((currentTime - member.activeClockStart) / 1000)
+      : member.todaySeconds;
 
   return (
     <li className="flex items-center gap-3 px-5 py-3">

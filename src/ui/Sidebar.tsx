@@ -247,7 +247,6 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
                       onClick={() => {
                         closeMobile();
                         openReportIssue();
-                  
                       }}
                       className={[
                         'group flex h-9 w-full items-center rounded-lg text-sm transition-colors',

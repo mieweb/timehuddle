@@ -9,7 +9,14 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Badge, Card, CardContent, Text } from '@mieweb/ui';
 import { useCallback, useEffect, useState } from 'react';
 
-import { clockApi, timerApi, ticketApi, type ClockEvent, type DayEntry, type Ticket } from '../../lib/api';
+import {
+  clockApi,
+  timerApi,
+  ticketApi,
+  type ClockEvent,
+  type DayEntry,
+  type Ticket,
+} from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import {

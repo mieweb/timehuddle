@@ -834,8 +834,6 @@ export const teamDashboardApi = {
     ),
 };
 
-
-
 export interface Notification {
   id: string;
   userId: string;
@@ -1101,9 +1099,9 @@ export const timerApi = {
   getToday: (userId?: string) => {
     const tz = clientTz();
     const userParam = userId ? `&userId=${encodeURIComponent(userId)}` : '';
-    return request<{ entries: DayEntry[] }>(`/v1/timers/today?tz=${encodeURIComponent(tz)}${userParam}`).then(
-      (r) => r.entries,
-    );
+    return request<{ entries: DayEntry[] }>(
+      `/v1/timers/today?tz=${encodeURIComponent(tz)}${userParam}`,
+    ).then((r) => r.entries);
   },
 
   /** Get all entries + sessions for a local day (YYYY-MM-DD). */
