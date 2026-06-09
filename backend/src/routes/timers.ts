@@ -167,6 +167,7 @@ export async function timerRoutes(app: FastifyInstance) {
             date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
             note: { type: "string" },
             startNow: { type: "boolean", default: false },
+            notifyAdmins: { type: "boolean", default: true },
           },
         },
         response: {
@@ -185,14 +186,15 @@ export async function timerRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { id: userId } = (req as any).user;
-      const { ticketId, date, note, startNow } = req.body as {
+      const { ticketId, date, note, startNow, notifyAdmins = true } = req.body as {
         ticketId: string;
         date: string;
         note?: string;
         startNow?: boolean;
+        notifyAdmins?: boolean;
       };
 
-      const entryResult = await timerService.getOrCreateEntry(userId, ticketId, date);
+      const entryResult = await timerService.createEntry(userId, ticketId, date, notifyAdmins);
       if (entryResult === "not-found") return reply.status(404).send({ error: "Ticket not found" });
       if (entryResult === "forbidden") return reply.status(403).send({ error: "Forbidden" });
 
@@ -354,7 +356,7 @@ export async function timerRoutes(app: FastifyInstance) {
           required: ["id"],
           properties: { id: { type: "string" } },
         },
-        body: {
+        querystring: {
           type: "object",
           additionalProperties: false,
           properties: {
@@ -377,7 +379,7 @@ export async function timerRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id: userId } = (req as any).user;
       const { id: entryId } = req.params as { id: string };
-      const { notifyAdmins = true } = req.body as { notifyAdmins?: boolean };
+      const { notifyAdmins = true } = req.query as { notifyAdmins?: boolean };
 
       const result = await timerService.deleteEntry(userId, entryId, notifyAdmins);
       if (result === "not-found") return reply.status(404).send({ error: "WorkItem not found" });

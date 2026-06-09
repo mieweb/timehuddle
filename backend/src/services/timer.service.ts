@@ -136,7 +136,8 @@ export class TimerService {
   async createEntry(
     userId: string,
     ticketId: string,
-    date: string // UTC "YYYY-MM-DD"
+    date: string, // UTC "YYYY-MM-DD"
+    notifyAdmins = true
   ): Promise<WorkItem | "not-found" | "forbidden"> {
     if (!isValidId(ticketId)) return "not-found";
     const ticket = await ticketsCollection().findOne({ _id: new ObjectId(ticketId) });
@@ -159,8 +160,11 @@ export class TimerService {
       createdAt: new Date(),
     };
     await workItemsCollection().insertOne(doc);
-    // Notification removed: Only updateEntry (actual timesheet edits) should notify admins.
-    // Use getOrCreateEntry for silent creation (e.g., timer start, Work tab add).
+    if (notifyAdmins) {
+      this.notifyTimesheetAdmins(userId, ticketId, date, "added").catch((err) =>
+        console.error("[timer.service] notify admins failed:", err)
+      );
+    }
     return doc;
   }
 

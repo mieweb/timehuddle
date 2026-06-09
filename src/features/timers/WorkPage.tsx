@@ -398,6 +398,7 @@ export const WorkPage: React.FC = () => {
         ticketId: newEntryTicketId,
         date: selectedDate,
         note: newEntryNote.trim() ? newEntryNote.trim() : undefined,
+        notifyAdmins: false,
       });
       setShowNewEntry(false);
       setNewEntryTicketId('');
