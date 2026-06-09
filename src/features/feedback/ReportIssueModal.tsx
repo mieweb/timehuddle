@@ -20,11 +20,20 @@ interface ReportIssueModalProps {
 const ENV = (import.meta as { env?: Record<string, string> }).env ?? {};
 const API_KEY = ENV.VITE_POLLENATE_API_KEY || undefined;
 const INBOX_KEY = ENV.VITE_POLLENATE_BUGS_INBOX_KEY || undefined;
+const FEATURE_INBOX_KEY = ENV.VITE_POLLENATE_FEATURE_INBOX_KEY || undefined;
 const API_URL = 'https://api.pollenate.dev/collect';
+
+type IssueType = 'bug' | 'feature';
+
+const ISSUE_TYPES: { value: IssueType; label: string; emoji: string }[] = [
+  { value: 'bug', label: 'Bug', emoji: '🐛' },
+  { value: 'feature', label: 'Feature Request', emoji: '✨' },
+];
 
 export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({ open, onClose }) => {
   const { user } = useSession();
   const [comment, setComment] = useState('');
+  const [issueType, setIssueType] = useState<IssueType>('bug');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +41,7 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({ open, onClos
   useEffect(() => {
     if (open) {
       setComment('');
+      setIssueType('bug');
       setSubmitting(false);
       setSubmitted(false);
       setError(null);
@@ -53,7 +63,7 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({ open, onClos
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Pollenate-Key': API_KEY },
         body: JSON.stringify({
-          inboxKey: INBOX_KEY,
+          inboxKey: issueType === 'bug' ? INBOX_KEY : FEATURE_INBOX_KEY,
           type: 'text',
           comment: comment.trim(),
           context: {
@@ -61,6 +71,7 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({ open, onClos
             ...(user?.name ? { userName: user.name } : {}),
             page: window.location.pathname,
             source: 'report-issue',
+            issueType, // 'bug' or 'feature' — used in GitHub issue label
           },
         }),
       });
@@ -77,7 +88,7 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({ open, onClos
     } finally {
       setSubmitting(false);
     }
-  }, [comment, onClose, user]);
+  }, [comment, issueType, onClose, user]);
 
   return (
     <Modal open={open} onOpenChange={(isOpen) => !isOpen && onClose()} size="sm">
@@ -109,6 +120,32 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({ open, onClos
           </p>
         ) : (
           <div className="flex flex-col gap-4">
+            {/* Issue Type Selector */}
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                Type
+              </p>
+              <div className="flex gap-2">
+                {ISSUE_TYPES.map(({ value, label, emoji }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setIssueType(value)}
+                    disabled={submitting}
+                    className={`flex flex-1 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors
+                      ${issueType === value
+                        ? 'border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400'
+                        : 'border-neutral-300 bg-white text-neutral-600 hover:border-neutral-400 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'
+                      }`}
+                  >
+                    <span>{emoji}</span>
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Comment */}
             <div className="flex flex-col gap-2">
               <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
                 Describe the issue
