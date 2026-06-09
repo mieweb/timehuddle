@@ -723,8 +723,11 @@ export const clockApi = {
       isPaused: boolean;
     }>(`/v1/clock/status?teamId=${encodeURIComponent(teamId)}`),
 
-  /** Get the current user's active clock event (any team), or null. */
-  getActive: () => request<{ event: ClockEvent | null }>('/v1/clock/active').then((r) => r.event),
+  /** Get the current user's active clock event (any team), or null. Admin can pass userId. */
+  getActive: (userId?: string) => {
+    const params = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+    return request<{ event: ClockEvent | null }>(`/v1/clock/active${params}`).then((r) => r.event);
+  },
 
   /** Get all clock events for the current user. */
   getEvents: () => request<{ events: ClockEvent[] }>('/v1/clock/events').then((r) => r.events),
@@ -1094,10 +1097,11 @@ export const timerApi = {
   /** Get the currently running timer for the authenticated user, or null. */
   getRunning: () => request<{ session: Timer | null }>('/v1/timers/running').then((r) => r.session),
 
-  /** Get all entries + sessions for today in local time. */
-  getToday: () => {
+  /** Get all entries + sessions for today in local time. Admin can pass userId. */
+  getToday: (userId?: string) => {
     const tz = clientTz();
-    return request<{ entries: DayEntry[] }>(`/v1/timers/today?tz=${encodeURIComponent(tz)}`).then(
+    const userParam = userId ? `&userId=${encodeURIComponent(userId)}` : '';
+    return request<{ entries: DayEntry[] }>(`/v1/timers/today?tz=${encodeURIComponent(tz)}${userParam}`).then(
       (r) => r.entries,
     );
   },

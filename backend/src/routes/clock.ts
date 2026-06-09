@@ -249,15 +249,46 @@ export async function clockRoutes(app: FastifyInstance) {
       onRequest: [requireAuth],
       schema: {
         tags: ["Clock"],
+        querystring: {
+          type: "object",
+          properties: {
+            userId: { type: "string", description: "User ID (admin-only)" },
+          },
+        },
         response: {
           200: {
             type: "object",
             properties: { event: { ...clockEventShape, nullable: true } },
           },
+          403: { type: "object", properties: { error: { type: "string" } } },
         },
       },
     },
-    clockController.getActive
+    async (req, reply) => {
+      const { id: requestingUserId } = (req as any).user;
+      const { userId: targetUserId } = req.query as { userId?: string };
+
+      // If userId is provided, verify admin permission
+      const userId = targetUserId || requestingUserId;
+      if (targetUserId && targetUserId !== requestingUserId) {
+        const sharedAdminTeams = await teamsCollection()
+          .find({
+            admins: requestingUserId,
+            $or: [{ members: targetUserId }, { admins: targetUserId }],
+          })
+          .toArray();
+
+        if (sharedAdminTeams.length === 0) {
+          return reply.status(403).send({ error: "Forbidden" });
+        }
+      }
+
+      // Get the active clock event for the resolved userId
+      const event = await clockService.getActiveForUser(userId);
+      const breaks = event ? await findBreaksForEvents([event._id.toHexString()]) : [];
+      const publicEvent = event ? toPublicClockEvent(event, breaks) : null;
+      return reply.send({ event: publicEvent });
+    }
   );
 
   // GET /v1/clock/team-status?teamId=xxx — active clock events for all team members + today's hours

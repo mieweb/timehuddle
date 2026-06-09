@@ -517,13 +517,33 @@ export async function timerRoutes(app: FastifyInstance) {
         summary: "List WorkItems for today (local time)",
         querystring: {
           type: "object",
-          properties: { tz: { type: "string", default: "UTC" } },
+          properties: {
+            tz: { type: "string", default: "UTC" },
+            userId: { type: "string", description: "User ID (admin-only)" },
+          },
         },
       },
     },
     async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { tz = "UTC" } = req.query as { tz?: string };
+      const { id: requestingUserId } = (req as any).user;
+      const { tz = "UTC", userId: targetUserId } = req.query as { tz?: string; userId?: string };
+
+      // If userId is provided, verify admin permission
+      const userId = targetUserId || requestingUserId;
+      if (targetUserId && targetUserId !== requestingUserId) {
+        const { teamsCollection } = await import("../models/index.js");
+        const sharedAdminTeams = await teamsCollection()
+          .find({
+            admins: requestingUserId,
+            $or: [{ members: targetUserId }, { admins: targetUserId }],
+          })
+          .toArray();
+
+        if (sharedAdminTeams.length === 0) {
+          return reply.status(403).send({ error: "Forbidden" });
+        }
+      }
+
       const today = toUtcDateKey(Date.now());
       const entries = await timerService.getDayEntries(userId, today, tz);
 
