@@ -94,7 +94,6 @@ export class TimerService {
     action: "added" | "updated" | "deleted"
   ): Promise<void> {
     if (!isValidId(ticketId)) return;
-    console.log(`[timer.service] notifyTimesheetAdmins called by ${new Error().stack?.split('\n')[2]?.trim()}`);
     const ticket = await ticketsCollection().findOne({ _id: new ObjectId(ticketId) });
     if (!ticket || !isValidId(ticket.teamId)) return;
 

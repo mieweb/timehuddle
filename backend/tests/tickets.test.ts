@@ -123,6 +123,7 @@ beforeAll(async () => {
     _id: new ObjectId(),
     enterpriseId,
     name: "Tickets Test Org",
+    slug: `tickets-test-org-${Date.now()}`,
     key: `tickets-test-org-${Date.now()}`,
     owners: [],
     admins: [orgAdminId],

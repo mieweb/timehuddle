@@ -186,7 +186,13 @@ export async function timerRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { id: userId } = (req as any).user;
-      const { ticketId, date, note, startNow, notifyAdmins = true } = req.body as {
+      const {
+        ticketId,
+        date,
+        note,
+        startNow,
+        notifyAdmins = true,
+      } = req.body as {
         ticketId: string;
         date: string;
         note?: string;
