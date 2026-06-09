@@ -135,7 +135,8 @@ export class TimerService {
   async createEntry(
     userId: string,
     ticketId: string,
-    date: string // UTC "YYYY-MM-DD"
+    date: string, // UTC "YYYY-MM-DD"
+    notifyAdmins = true
   ): Promise<WorkItem | "not-found" | "forbidden"> {
     if (!isValidId(ticketId)) return "not-found";
     const ticket = await ticketsCollection().findOne({ _id: new ObjectId(ticketId) });
@@ -158,9 +159,11 @@ export class TimerService {
       createdAt: new Date(),
     };
     await workItemsCollection().insertOne(doc);
-    this.notifyTimesheetAdmins(userId, ticketId, date, "added").catch((err) =>
-      console.error("[timer.service] notify admins failed:", err)
-    );
+    if (notifyAdmins) {
+      this.notifyTimesheetAdmins(userId, ticketId, date, "added").catch((err) =>
+        console.error("[timer.service] notify admins failed:", err)
+      );
+    }
     return doc;
   }
 
@@ -577,7 +580,8 @@ export class TimerService {
    */
   async deleteEntry(
     userId: string,
-    entryId: string
+    entryId: string,
+    notifyAdmins = true
   ): Promise<{ deletedEntry: boolean; deletedSessions: number } | "not-found" | "forbidden"> {
     if (!isValidId(entryId)) return "not-found";
 
@@ -590,9 +594,11 @@ export class TimerService {
     const entryResult = await workItemsCollection().deleteOne({ _id: entryObjectId, userId });
 
     broadcastTimerUpdate(userId);
-    this.notifyTimesheetAdmins(userId, entry.ticketId, entry.date, "deleted").catch((err) =>
-      console.error("[timer.service] notify admins failed:", err)
-    );
+    if (notifyAdmins) {
+      this.notifyTimesheetAdmins(userId, entry.ticketId, entry.date, "deleted").catch((err) =>
+        console.error("[timer.service] notify admins failed:", err)
+      );
+    }
 
     return {
       deletedEntry: entryResult.deletedCount === 1,

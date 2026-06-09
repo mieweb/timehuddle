@@ -398,6 +398,7 @@ export const WorkPage: React.FC = () => {
         ticketId: newEntryTicketId,
         date: selectedDate,
         note: newEntryNote.trim() ? newEntryNote.trim() : undefined,
+        notifyAdmins: false,
       });
       setShowNewEntry(false);
       setNewEntryTicketId('');
@@ -415,7 +416,7 @@ export const WorkPage: React.FC = () => {
     async (entryId: string) => {
       setDeletingEntryId(entryId);
       try {
-        await timerApi.deleteEntry(entryId);
+        await timerApi.deleteEntry(entryId, { notifyAdmins: false });
         setDayEntries((prev) => prev.filter((de) => de.entry.id !== entryId));
         void fetchWeekTotals();
       } catch {

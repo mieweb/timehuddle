@@ -1271,7 +1271,7 @@ function clientTz(): string {
 
 export const timerApi = {
   /** Create a WorkItem for the given ticket + date. */
-  createEntry: (data: { ticketId: string; date: string; note?: string }) =>
+  createEntry: (data: { ticketId: string; date: string; note?: string; notifyAdmins?: boolean }) =>
     request<{ entry: WorkItem }>('/v1/timers/entries', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -1302,10 +1302,12 @@ export const timerApi = {
     }).then((r) => r.entry),
 
   /** Delete a WorkItem and all of its timers. */
-  deleteEntry: (entryId: string) =>
+  deleteEntry: (entryId: string, options?: { notifyAdmins?: boolean }) =>
     request<{ deletedEntry: boolean; deletedSessions: number }>(
-      `/v1/timers/entries/${encodeURIComponent(entryId)}`,
-      { method: 'DELETE' },
+      `/v1/timers/entries/${encodeURIComponent(entryId)}${options?.notifyAdmins === false ? '?notifyAdmins=false' : ''}`,
+      {
+        method: 'DELETE',
+      },
     ),
 
   /** Get the currently running timer for the authenticated user, or null. */
