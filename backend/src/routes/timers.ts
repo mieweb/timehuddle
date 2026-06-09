@@ -192,7 +192,7 @@ export async function timerRoutes(app: FastifyInstance) {
         startNow?: boolean;
       };
 
-      const entryResult = await timerService.getOrCreateEntry(userId, ticketId, date);
+      const entryResult = await timerService.createEntry(userId, ticketId, date);
       if (entryResult === "not-found") return reply.status(404).send({ error: "Ticket not found" });
       if (entryResult === "forbidden") return reply.status(403).send({ error: "Forbidden" });
 
