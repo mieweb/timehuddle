@@ -16,6 +16,8 @@ import { appContext } from "./middleware/app-context.js";
 import { healthRoutes } from "./routes/health.js";
 import { userRoutes } from "./routes/users.js";
 import { orgRoutes } from "./routes/org.js";
+import { organizationsRoutes } from "./routes/organizations.js";
+import { enterpriseRoutes } from "./routes/enterprises.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { ticketsWsRoutes } from "./routes/tickets-ws.js";
 import { teamRoutes } from "./routes/teams.js";
@@ -33,6 +35,7 @@ import { presenceRoutes } from "./routes/presence.js";
 import { channelRoutes } from "./routes/channels.js";
 import { tokenRoutes } from "./routes/tokens.js";
 import { initAgenda, stopAgenda } from "./services/agenda.service.js";
+import { orgService } from "./services/org.service.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? true });
@@ -483,6 +486,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // App routes
   await app.register(userRoutes, { prefix: "/v1" });
   await app.register(orgRoutes, { prefix: "/v1" });
+  await app.register(organizationsRoutes, { prefix: "/v1" });
+  await app.register(enterpriseRoutes, { prefix: "/v1" });
   await app.register(teamsWsRoutes, { prefix: "/v1" });
   await app.register(teamRoutes, { prefix: "/v1" });
   await app.register(ticketRoutes, { prefix: "/v1" });
@@ -516,6 +521,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 async function bootstrap() {
   await connectDB();
   await ensureMongooseConnected();
+  await orgService.ensureDefaultOrganization();
   await ensureIndexes();
   if (process.env.NODE_ENV !== "test") {
     await initAgenda();

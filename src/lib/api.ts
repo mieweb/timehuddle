@@ -34,9 +34,17 @@ export interface TimecoreUser {
   username: string | null;
   organizationMembership?: {
     organizationId: string;
-    organizationKey: string;
+    organizationSlug: string;
     role: 'owner' | 'admin';
   } | null;
+  organizations?: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    enterpriseId: string | null;
+    role: 'owner' | 'admin' | 'member';
+    allowAutoJoin: boolean;
+  }>;
 }
 
 export interface AuthAccount {
@@ -455,19 +463,217 @@ export const orgAdminApi = {
 // ─── Public Organization API (for all authenticated users) ──────────────────
 
 export const orgApi = {
+  checkSlugAvailability: (slug: string, excludeId?: string) => {
+    const params = new URLSearchParams({ slug });
+    if (excludeId) params.set('excludeId', excludeId);
+    return request<{ available: boolean }>(
+      `/v1/organizations/check-slug?${params.toString()}`,
+    ).then((r) => r.available);
+  },
+
+  listOrganizations: () =>
+    request<{
+      organizations: Array<{
+        id: string;
+        enterpriseId: string | null;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+      }>;
+    }>('/v1/organizations').then((r) => r.organizations),
+
+  createOrganization: (data: {
+    enterpriseId: string;
+    name: string;
+    slug?: string;
+    allowAutoJoin?: boolean;
+  }) =>
+    request<{
+      organization: {
+        id: string;
+        enterpriseId: string | null;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+      };
+    }>('/v1/organizations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.organization),
+
+  updateOrganization: (
+    id: string,
+    data: { name?: string; slug?: string; allowAutoJoin?: boolean },
+  ) =>
+    request<{
+      organization: {
+        id: string;
+        enterpriseId: string | null;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+      };
+    }>(`/v1/organizations/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }).then((r) => r.organization),
+
+  getOrganizationById: (id: string) =>
+    request<{
+      organization: {
+        id: string;
+        enterpriseId: string | null;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+        canManage: boolean;
+      };
+    }>(`/v1/organizations/${encodeURIComponent(id)}`).then((r) => r.organization),
+
+  updateSettings: (id: string, allowAutoJoin: boolean) =>
+    request<{ organization: { orgId: string; allowAutoJoin: boolean } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/settings`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ allowAutoJoin }),
+      },
+    ).then((r) => r.organization),
+
+  joinOrganization: (id: string) =>
+    request<{ membership: { orgId: string; role: 'owner' | 'admin' | 'member' } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/join`,
+      { method: 'POST' },
+    ).then((r) => r.membership),
+
+  listMembers: (id: string) =>
+    request<{ users: OrganizationAdminUser[] }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members`,
+    ).then((r) => r.users),
+
+  setMemberRole: (id: string, userId: string, role: DefaultOrganizationRole) =>
+    request<{ user: { userId: string; role: DefaultOrganizationRole } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      },
+    ).then((r) => r.user),
+
+  removeMember: (id: string, userId: string) =>
+    request<{ user: { userId: string } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      {
+        method: 'DELETE',
+      },
+    ).then((r) => r.user),
+
+  updateReportsTo: (userId: string, reportsTo: string | null) =>
+    request<{ user: { id: string; reportsToUserId: string | null } }>(
+      `/v1/org/users/${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ reportsToUserId: reportsTo }),
+      },
+    ).then((r) => r.user),
+
   getOrganization: () =>
     request<{ organization: AdminOrganization }>('/v1/organization').then((r) => r.organization),
 
-  getOwnershipStatus: () =>
-    request<{ hasOwner: boolean; installCompleted: boolean }>('/v1/organization/ownership-status'),
-
-  takeOwnership: () =>
-    request<{ role: 'owner' }>('/v1/organization/install', {
-      method: 'POST',
-    }),
-
   listUsers: () =>
     request<{ users: OrganizationAdminUser[] }>('/v1/organization/users').then((r) => r.users),
+};
+
+export const enterpriseApi = {
+  list: () =>
+    request<{
+      enterprises: Array<{ id: string; name: string; slug: string; role: 'owner' | 'admin' }>;
+    }>('/v1/enterprises').then((r) => r.enterprises),
+
+  create: (data: { name: string; slug?: string }) =>
+    request<{
+      enterprise: {
+        id: string;
+        name: string;
+        slug: string;
+        role: 'owner' | 'admin';
+        owners: string[];
+        admins: string[];
+      };
+    }>('/v1/enterprises', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.enterprise),
+
+  get: (id: string) =>
+    request<{
+      enterprise: {
+        id: string;
+        name: string;
+        slug: string;
+        role: 'owner' | 'admin';
+        owners: string[];
+        admins: string[];
+        members: Array<{
+          id: string;
+          name: string;
+          username: string | null;
+          role: 'owner' | 'admin';
+        }>;
+      };
+    }>(`/v1/enterprises/${encodeURIComponent(id)}`).then((r) => r.enterprise),
+
+  updateName: (id: string, name: string) =>
+    request<{
+      enterprise: {
+        id: string;
+        name: string;
+        slug: string;
+        role: 'owner' | 'admin';
+        owners: string[];
+        admins: string[];
+        members: Array<{
+          id: string;
+          name: string;
+          username: string | null;
+          role: 'owner' | 'admin';
+        }>;
+      };
+    }>(`/v1/enterprises/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }).then((r) => r.enterprise),
+
+  searchUsers: (id: string, q: string) =>
+    request<{ users: Array<{ id: string; name: string; username: string | null }> }>(
+      `/v1/enterprises/${encodeURIComponent(id)}/users/search?q=${encodeURIComponent(q)}`,
+    ).then((r) => r.users),
+
+  removeMember: (id: string, userId: string) =>
+    request<{ userId: string }>(
+      `/v1/enterprises/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' },
+    ),
+
+  setMemberRole: (id: string, userId: string, role: 'owner' | 'admin') =>
+    request<{ user: { userId: string; role: 'owner' | 'admin' } }>(
+      `/v1/enterprises/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      },
+    ).then((r) => r.user),
+
+  getOwnershipStatus: () =>
+    request<{ hasOwner: boolean; installCompleted: boolean }>('/v1/install-status'),
+
+  takeOwnership: () =>
+    request<{ role: 'owner' }>('/v1/install', {
+      method: 'POST',
+    }),
 };
 
 // ─── Username API ─────────────────────────────────────────────────────────────
@@ -573,6 +779,8 @@ export const ticketApi = {
 
 export interface Team {
   id: string;
+  orgId: string;
+  parentTeamId: string | null;
   name: string;
   description: string | null;
   members: string[];
@@ -597,11 +805,19 @@ export const teamApi = {
   ensurePersonal: () =>
     request<{ team: Team }>('/v1/teams/ensure-personal', { method: 'POST' }).then((r) => r.team),
 
-  createTeam: (data: { name: string; description?: string }) =>
+  createTeam: (data: {
+    name: string;
+    description?: string;
+    orgId?: string;
+    parentTeamId?: string | null;
+  }) =>
     request<{ team: Team }>('/v1/teams', {
       method: 'POST',
       body: JSON.stringify(data),
     }).then((r) => r.team),
+
+  getSubTeams: (id: string) =>
+    request<{ teams: Team[] }>(`/v1/teams/${encodeURIComponent(id)}/subteams`).then((r) => r.teams),
 
   joinTeam: (teamCode: string) =>
     request<{ team: Team }>('/v1/teams/join', {

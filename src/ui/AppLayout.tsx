@@ -32,6 +32,7 @@ import { MediaPage } from '../features/media/MediaPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
 import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
 import { OrganizationPage } from '../features/org/OrganizationPage';
+import { EnterprisePage } from '../features/enterprise/EnterprisePage';
 import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
@@ -69,6 +70,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
+  '/app/enterprise': { title: 'Enterprise', component: EnterprisePage },
   '/app/organization': { title: 'Organization', component: OrganizationPage },
   '/app/media': { title: 'Media Library', component: MediaPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },

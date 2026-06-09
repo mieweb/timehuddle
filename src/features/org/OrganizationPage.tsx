@@ -2,12 +2,8 @@ import { Button, Spinner, Text } from '@mieweb/ui';
 import { useRefresh } from '../../lib/RefreshContext';
 import React, { useCallback, useEffect, useState } from 'react';
 
-import {
-  ApiError,
-  orgApi,
-  type AdminOrganization,
-  type OrganizationAdminUser,
-} from '../../lib/api';
+import { ApiError, orgApi, type OrganizationAdminUser } from '../../lib/api';
+import { useTeam } from '../../lib/TeamContext';
 import { AppPage } from '../../ui/AppPage';
 
 const OrganizationChart = React.lazy(() =>
@@ -15,17 +11,29 @@ const OrganizationChart = React.lazy(() =>
 );
 
 export const OrganizationPage: React.FC = () => {
-  const [organization, setOrganization] = useState<AdminOrganization | null>(null);
+  const { selectedOrgId, organizations } = useTeam();
+  const [organizationName, setOrganizationName] = useState<string | null>(null);
   const [displayUsers, setDisplayUsers] = useState<OrganizationAdminUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadOrganizationData = useCallback(async () => {
+    if (!selectedOrgId) {
+      setOrganizationName(null);
+      setDisplayUsers([]);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      const [org, members] = await Promise.all([orgApi.getOrganization(), orgApi.listUsers()]);
-      setOrganization(org);
+      const [org, members] = await Promise.all([
+        orgApi.getOrganizationById(selectedOrgId),
+        orgApi.listMembers(selectedOrgId),
+      ]);
+      setOrganizationName(org.name);
       setDisplayUsers(members);
     } catch (err) {
       if (err instanceof ApiError) {
@@ -36,7 +44,7 @@ export const OrganizationPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedOrgId]);
 
   useEffect(() => {
     void loadOrganizationData();
@@ -44,7 +52,12 @@ export const OrganizationPage: React.FC = () => {
 
   useRefresh(loadOrganizationData);
 
-  if (!organization && !loading) {
+  if (!organizationName && !loading) {
+    const canRenderFromContext = organizations.length > 0;
+    if (canRenderFromContext && !selectedOrgId) {
+      return null;
+    }
+
     return (
       <AppPage fullWidth noPadding className="h-full">
         <div className="flex h-full items-center justify-center px-6 text-center">
@@ -96,7 +109,7 @@ export const OrganizationPage: React.FC = () => {
             }
           >
             <OrganizationChart
-              organizationName={organization?.name || 'Organization'}
+              organizationName={organizationName || 'Organization'}
               members={displayUsers.map((orgUser) => ({
                 id: orgUser.id,
                 name: orgUser.name,
