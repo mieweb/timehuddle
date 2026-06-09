@@ -457,7 +457,56 @@ export async function timerRoutes(app: FastifyInstance) {
     }
   );
 
-  // GET /v1/timers/today?tz= — shorthand for today's day view
+  // GET /v1/timers/team-running?teamId=xxx — running timers for all team members
+  app.get(
+    "/timers/team-running",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Timers"],
+        summary: "Get all running timers for members of a team",
+        querystring: {
+          type: "object",
+          required: ["teamId"],
+          properties: { teamId: { type: "string" } },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              timers: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    timerId: { type: "string" },
+                    workItemId: { type: "string" },
+                    userId: { type: "string" },
+                    userName: { type: "string" },
+                    userImage: { type: "string", nullable: true },
+                    ticketId: { type: "string" },
+                    ticketTitle: { type: "string" },
+                    startTime: { type: "number" },
+                  },
+                },
+              },
+            },
+          },
+          403: err("Forbidden"),
+          404: err("Team not found"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const { id: userId } = (req as any).user;
+      const { teamId } = req.query as { teamId: string };
+      const result = await timerService.getTeamRunningTimers(userId, teamId);
+      if (result === "not-found") return reply.code(404).send({ error: "Team not found" });
+      if (result === "forbidden") return reply.code(403).send({ error: "Forbidden" });
+      return reply.send({ timers: result });
+    }
+  );
+
   app.get(
     "/timers/today",
     {
@@ -467,13 +516,33 @@ export async function timerRoutes(app: FastifyInstance) {
         summary: "List WorkItems for today (local time)",
         querystring: {
           type: "object",
-          properties: { tz: { type: "string", default: "UTC" } },
+          properties: {
+            tz: { type: "string", default: "UTC" },
+            userId: { type: "string", description: "User ID (admin-only)" },
+          },
         },
       },
     },
     async (req, reply) => {
-      const { id: userId } = (req as any).user;
-      const { tz = "UTC" } = req.query as { tz?: string };
+      const { id: requestingUserId } = (req as any).user;
+      const { tz = "UTC", userId: targetUserId } = req.query as { tz?: string; userId?: string };
+
+      // If userId is provided, verify admin permission
+      const userId = targetUserId || requestingUserId;
+      if (targetUserId && targetUserId !== requestingUserId) {
+        const { teamsCollection } = await import("../models/index.js");
+        const sharedAdminTeams = await teamsCollection()
+          .find({
+            admins: requestingUserId,
+            $or: [{ members: targetUserId }, { admins: targetUserId }],
+          })
+          .toArray();
+
+        if (sharedAdminTeams.length === 0) {
+          return reply.status(403).send({ error: "Forbidden" });
+        }
+      }
+
       const today = toUtcDateKey(Date.now());
       const entries = await timerService.getDayEntries(userId, today, tz);
 

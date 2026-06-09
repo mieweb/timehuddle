@@ -1,14 +1,24 @@
 /**
- * TodayStatusCard — shows the user's current clock-in status and active ticket.
+ * TodayStatusCard — shows a user's current clock-in status and active ticket.
  * Only rendered when the user is clocked in.
+ *
+ * @param userId - Optional user ID to show. Defaults to current logged-in user.
  */
 import { faClock, faPlay } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Badge, Card, CardContent, Text } from '@mieweb/ui';
 import { useCallback, useEffect, useState } from 'react';
 
-import { timerApi, ticketApi, type DayEntry, type Ticket } from '../../lib/api';
+import {
+  clockApi,
+  timerApi,
+  ticketApi,
+  type ClockEvent,
+  type DayEntry,
+  type Ticket,
+} from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
+import { useSession } from '../../lib/useSession';
 import {
   formatDuration,
   formatTime,
@@ -17,30 +27,63 @@ import {
 } from '../../lib/timeUtils';
 import { useRouter } from '../../ui/router';
 
-export function TodayStatusCard() {
-  const { activeClockEvent, currentTime } = useTeam();
+interface TodayStatusCardProps {
+  userId?: string;
+}
+
+export function TodayStatusCard({ userId: propUserId }: TodayStatusCardProps) {
+  const { user } = useSession();
+  const { activeClockEvent: ownClockEvent, currentTime } = useTeam();
   const { navigate } = useRouter();
   const [todayEntries, setTodayEntries] = useState<DayEntry[]>([]);
   const [runningTicket, setRunningTicket] = useState<Ticket | null>(null);
+  const [clockEvent, setClockEvent] = useState<ClockEvent | null>(null);
+
+  // If no userId prop, use current user
+  const userId = propUserId ?? user?.id;
+  const isOwn = userId === user?.id;
 
   const fetchToday = useCallback(() => {
+    if (!userId) return;
     timerApi
-      .getToday()
+      .getToday(isOwn ? undefined : userId)
       .then(setTodayEntries)
       .catch(() => {});
-  }, []);
+  }, [userId, isOwn]);
 
-  // Fetch on mount and whenever clock-in state changes
+  const fetchClockEvent = useCallback(() => {
+    if (!userId) return;
+    clockApi
+      .getActive(isOwn ? undefined : userId)
+      .then(setClockEvent)
+      .catch(() => setClockEvent(null));
+  }, [userId, isOwn]);
+
+  // Fetch on mount and whenever clock-in state changes (own profile only)
   useEffect(() => {
-    if (!activeClockEvent) return;
+    if (isOwn && !ownClockEvent) return;
     fetchToday();
-  }, [activeClockEvent, fetchToday]);
+    fetchClockEvent();
+  }, [ownClockEvent, fetchToday, fetchClockEvent, isOwn]);
+
+  // For non-own profiles, poll periodically
+  useEffect(() => {
+    if (isOwn) return;
+    fetchToday();
+    fetchClockEvent();
+    const interval = setInterval(() => {
+      fetchToday();
+      fetchClockEvent();
+    }, 15000); // Poll every 15 seconds
+    return () => clearInterval(interval);
+  }, [isOwn, fetchToday, fetchClockEvent]);
 
   // Re-fetch when timer mutations occur (WorkPage broadcasts this event)
   useEffect(() => {
+    if (!isOwn) return;
     window.addEventListener('work:refetch', fetchToday);
     return () => window.removeEventListener('work:refetch', fetchToday);
-  }, [fetchToday]);
+  }, [fetchToday, isOwn]);
 
   // Fetch full ticket when the running entry changes (needed for github field)
   useEffect(() => {
@@ -54,6 +97,9 @@ export function TodayStatusCard() {
       .then(setRunningTicket)
       .catch(() => setRunningTicket(null));
   }, [todayEntries]);
+
+  // Use fetched clock event for other users, or own from context
+  const activeClockEvent = isOwn ? ownClockEvent : clockEvent;
 
   // Not clocked in — hide card entirely
   if (!activeClockEvent) return null;

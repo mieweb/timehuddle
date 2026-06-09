@@ -164,10 +164,10 @@ export const WorkPage: React.FC = () => {
   const [editError, setEditError] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState(false);
 
-  // ── Fetch tickets for all teams (for both pickers) ──
+  // ── Fetch tickets for selected team only ──
 
   useEffect(() => {
-    if (teams.length === 0) {
+    if (!selectedTeamId) {
       setAllTickets([]);
       return;
     }
@@ -176,17 +176,9 @@ export const WorkPage: React.FC = () => {
 
     const loadTickets = async () => {
       try {
-        const ticketLists = await Promise.all(teams.map((team) => ticketApi.getTickets(team.id)));
+        const tickets = await ticketApi.getTickets(selectedTeamId);
         if (cancelled) return;
-
-        const byId = new Map<string, Ticket>();
-        for (const tickets of ticketLists) {
-          for (const ticket of tickets) {
-            byId.set(ticket.id, ticket);
-          }
-        }
-
-        setAllTickets(Array.from(byId.values()));
+        setAllTickets(tickets);
       } catch {
         if (!cancelled) setAllTickets([]);
       }
@@ -197,7 +189,7 @@ export const WorkPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [teams]);
+  }, [selectedTeamId]);
 
   // ── Fetch week totals ──
 
@@ -517,20 +509,12 @@ export const WorkPage: React.FC = () => {
     return map;
   }, [allTickets]);
 
-  const teamNamesById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const team of teams) map.set(team.id, team.name);
-    return map;
-  }, [teams]);
-
   const getWorkItemLabel = useCallback(
     (entry: DayEntry['entry']) => {
       const ticket = ticketsById.get(entry.ticketId);
-      const baseTitle = entry.displayTitle || ticket?.title || '(untitled)';
-      const teamName = ticket ? teamNamesById.get(ticket.teamId) : undefined;
-      return teamName ? `${baseTitle} - ${teamName}` : baseTitle;
+      return entry.displayTitle || ticket?.title || '(untitled)';
     },
-    [ticketsById, teamNamesById],
+    [ticketsById],
   );
 
   const selectedDayLabel = useMemo(

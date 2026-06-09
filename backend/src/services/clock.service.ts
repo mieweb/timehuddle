@@ -522,6 +522,14 @@ export class ClockService {
     const updatedBreaks: ClockBreakInterval[] = breaks.map((b) =>
       b._id.equals(openBreak._id) ? { ...b, endTime: now, ...classification } : b
     );
+
+    // Restart the timer that was stopped when the break began
+    const breakStartTime = openBreak.startTime;
+    const closedTimer = await timerService.findClosedAtTime(event.userId, breakStartTime);
+    if (closedTimer) {
+      await timerService.restartTimerForWorkItem(event.userId, closedTimer.workItemId, now);
+    }
+
     const pub = toPublicClockEvent(event, updatedBreaks);
     broadcast(teamId, pub);
     return pub;

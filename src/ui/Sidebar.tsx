@@ -51,7 +51,6 @@ const isReload = (() => {
 import { useSidebar } from './AppLayout';
 import { useAppFeedback } from './AppLayout';
 import { useRouter } from './router';
-import { REPO_URL } from '../lib/constants';
 
 // ─── Nav data ─────────────────────────────────────────────────────────────────
 
@@ -172,8 +171,9 @@ const NavLink: React.FC<{ item: NavItem; active: boolean; expanded: boolean }> =
 const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => {
   const { isExpanded, toggle, closeMobile } = useSidebar();
   const { pathname } = useRouter();
-  const { openFeedback } = useAppFeedback();
+  // const { openFeedback } = useAppFeedback();
   const expanded = variant === 'drawer' ? true : isExpanded;
+  const { openFeedback, openReportIssue } = useAppFeedback();
 
   return (
     <div className="flex h-full flex-col">
@@ -246,11 +246,7 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
                       type="button"
                       onClick={() => {
                         closeMobile();
-                        window.open(
-                          `${REPO_URL}/issues/new/choose`,
-                          '_blank',
-                          'noopener,noreferrer',
-                        );
+                        openReportIssue();
                       }}
                       className={[
                         'group flex h-9 w-full items-center rounded-lg text-sm transition-colors',

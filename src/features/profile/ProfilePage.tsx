@@ -391,8 +391,10 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
 
           {/* Work tab */}
           <TabsContent value="work" className="flex flex-col gap-4">
-            {/* Today's clock status — own profile only */}
-            {isOwn && <TodayStatusCard />}
+            {/* Today's clock status — own profile or admin viewing team member */}
+            {(isOwn || (profile.sharedTeams ?? []).some((t) => t.isAdmin)) && (
+              <TodayStatusCard userId={profile.id} />
+            )}
 
             {/* 48 h work summary */}
             <WorkSummaryTags userId={profile.id} />

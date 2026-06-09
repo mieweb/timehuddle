@@ -109,19 +109,21 @@ export class TimerService {
       "A team member";
 
     await Promise.all(
-      team.admins.map((adminId) =>
-        notificationService.create({
-          userId: adminId,
-          title: "Timesheet Update",
-          body: `${actorName} has ${action} a timesheet entry for ${date} in ${team.name}`,
-          notificationData: {
-            type: "timesheet-entry-changed",
-            ticketId,
-            date,
-            teamId: ticket.teamId,
-          },
-        })
-      )
+      team.admins
+        .filter((adminId) => adminId !== actorUserId)
+        .map((adminId) =>
+          notificationService.create({
+            userId: adminId,
+            title: "Timesheet Update",
+            body: `${actorName} has ${action} a timesheet entry for ${date} in ${team.name}`,
+            notificationData: {
+              type: "timesheet-entry-changed",
+              ticketId,
+              date,
+              teamId: ticket.teamId,
+            },
+          })
+        )
     );
   }
 
@@ -164,6 +166,7 @@ export class TimerService {
 
   /**
    * Find or create a WorkItem for { userId, ticketId, date }.
+   * Does NOT notify admins — used internally when auto-creating entries on timer start.
    * Returns "not-found" if the ticket does not exist or "forbidden" if the user
    * is not a member of the ticket's team.
    */
@@ -397,6 +400,36 @@ export class TimerService {
   /** Close the currently running timer for a user and return its session id. */
   async closeRunningForUser(userId: string, now: number): Promise<string | null> {
     return this._closeRunningSession(userId, now);
+  }
+
+  /** Find the most recent timer for a user that was closed at exactly the given timestamp. */
+  async findClosedAtTime(userId: string, endTime: number): Promise<Timer | null> {
+    return timersCollection().findOne({ userId, endTime });
+  }
+
+  /**
+   * Start a new timer for an existing workItem.
+   * Does not close other running timers — caller is responsible for ensuring none exist.
+   */
+  async restartTimerForWorkItem(
+    userId: string,
+    workItemId: string,
+    now: number
+  ): Promise<Timer | null> {
+    const workItem = await workItemsCollection().findOne({ _id: new ObjectId(workItemId) });
+    if (!workItem) return null;
+    const session: Timer = {
+      _id: new ObjectId(),
+      workItemId,
+      userId,
+      date: workItem.date,
+      startTime: now,
+      endTime: null,
+      createdAt: new Date(),
+    };
+    await timersCollection().insertOne(session);
+    broadcastTimerUpdate(userId);
+    return session;
   }
 
   /** Read a timer session by id, or null if missing/invalid. */
@@ -709,6 +742,104 @@ export class TimerService {
     }
 
     return created;
+  }
+
+  /**
+   * Return all running timers for members of a given team, enriched with
+   * ticket title and the user's display name.
+   * Verifies the requesting user is a member or admin of the team.
+   */
+  async getTeamRunningTimers(
+    requestingUserId: string,
+    teamId: string
+  ): Promise<
+    | "not-found"
+    | "forbidden"
+    | Array<{
+        timerId: string;
+        workItemId: string;
+        userId: string;
+        userName: string;
+        userImage: string | null;
+        ticketId: string;
+        ticketTitle: string;
+        startTime: number;
+      }>
+  > {
+    if (!isValidId(teamId)) return "not-found";
+
+    const team = await teamsCollection().findOne({ _id: new ObjectId(teamId) });
+    if (!team) return "not-found";
+
+    const allMembers = Array.from(new Set([...team.members, ...team.admins]));
+    if (!allMembers.includes(requestingUserId)) return "forbidden";
+
+    // 1. Tickets belonging to this team
+    const tickets = await ticketsCollection()
+      .find({ teamId })
+      .project<{ _id: ObjectId; title: string }>({ _id: 1, title: 1 })
+      .toArray();
+    const ticketMap = new Map(tickets.map((t) => [t._id.toHexString(), t.title]));
+    const ticketIds = [...ticketMap.keys()];
+
+    if (ticketIds.length === 0) return [];
+
+    // 2. Running work items for those tickets whose owner is a team member
+    const runningWorkItems = await workItemsCollection()
+      .find({ ticketId: { $in: ticketIds }, userId: { $in: allMembers } })
+      .toArray();
+    const workItemIds = runningWorkItems.map((wi) => wi._id.toHexString());
+
+    if (workItemIds.length === 0) return [];
+
+    // 3. Running timer sessions for those work items
+    const runningTimers = await timersCollection()
+      .find({ workItemId: { $in: workItemIds }, endTime: null })
+      .toArray();
+
+    if (runningTimers.length === 0) return [];
+
+    // 4. Enrich with user display info
+    const userIds = [...new Set(runningTimers.map((t) => t.userId))];
+    const [users, profiles] = await Promise.all([
+      usersCollection()
+        .find({ _id: { $in: userIds.filter(isValidId).map((id) => new ObjectId(id)) } })
+        .project<{ _id: ObjectId; name: string; image: string | null }>({
+          _id: 1,
+          name: 1,
+          image: 1,
+        })
+        .toArray(),
+      profilesCollection()
+        .find({ userId: { $in: userIds }, app: "timeharbor" })
+        .project<{ userId: string; displayName: string; avatar: string | null }>({
+          userId: 1,
+          displayName: 1,
+          avatar: 1,
+        })
+        .toArray(),
+    ]);
+
+    const userNameMap = new Map(users.map((u) => [u._id.toHexString(), u.name]));
+    const profileMap = new Map(profiles.map((p) => [p.userId, p]));
+    const workItemMap = new Map(runningWorkItems.map((wi) => [wi._id.toHexString(), wi]));
+
+    return runningTimers.map((timer) => {
+      const workItem = workItemMap.get(timer.workItemId);
+      const profile = profileMap.get(timer.userId);
+      const userName = profile?.displayName || userNameMap.get(timer.userId) || "Unknown";
+      const userImage = profile?.avatar ?? null;
+      return {
+        timerId: timer._id.toHexString(),
+        workItemId: timer.workItemId,
+        userId: timer.userId,
+        userName,
+        userImage,
+        ticketId: workItem?.ticketId ?? "",
+        ticketTitle: workItem ? (ticketMap.get(workItem.ticketId) ?? workItem.ticketId) : "",
+        startTime: timer.startTime,
+      };
+    });
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────

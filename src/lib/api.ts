@@ -939,8 +939,11 @@ export const clockApi = {
       isPaused: boolean;
     }>(`/v1/clock/status?teamId=${encodeURIComponent(teamId)}`),
 
-  /** Get the current user's active clock event (any team), or null. */
-  getActive: () => request<{ event: ClockEvent | null }>('/v1/clock/active').then((r) => r.event),
+  /** Get the current user's active clock event (any team), or null. Admin can pass userId. */
+  getActive: (userId?: string) => {
+    const params = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+    return request<{ event: ClockEvent | null }>(`/v1/clock/active${params}`).then((r) => r.event);
+  },
 
   /** Get all clock events for the current user. */
   getEvents: () => request<{ events: ClockEvent[] }>('/v1/clock/events').then((r) => r.events),
@@ -997,7 +1000,55 @@ export const clockApi = {
     }),
 };
 
-// ─── Notifications ────────────────────────────────────────────────────────────
+// ─── Team Dashboard API ───────────────────────────────────────────────────────
+
+export interface TeamMemberClockStatus {
+  userId: string;
+  name: string;
+  image: string | null;
+  isClockedIn: boolean;
+  isOnBreak: boolean;
+  activeClockStart: number | null;
+  todaySeconds: number;
+}
+
+export interface TeamRunningTimer {
+  timerId: string;
+  workItemId: string;
+  userId: string;
+  userName: string;
+  userImage: string | null;
+  ticketId: string;
+  ticketTitle: string;
+  startTime: number;
+}
+
+export const teamDashboardApi = {
+  getTeamClockStatus: (teamId: string) =>
+    request<{ members: TeamMemberClockStatus[] }>(
+      `/v1/clock/team-status?teamId=${encodeURIComponent(teamId)}`,
+    ).then((r) =>
+      r.members.map((m) =>
+        m.image && !/^https?:\/\//i.test(m.image)
+          ? { ...m, image: `${TIMECORE_BASE_URL}${m.image.startsWith('/') ? '' : '/'}${m.image}` }
+          : m,
+      ),
+    ),
+
+  getTeamRunningTimers: (teamId: string) =>
+    request<{ timers: TeamRunningTimer[] }>(
+      `/v1/timers/team-running?teamId=${encodeURIComponent(teamId)}`,
+    ).then((r) =>
+      r.timers.map((t) =>
+        t.userImage && !/^https?:\/\//i.test(t.userImage)
+          ? {
+              ...t,
+              userImage: `${TIMECORE_BASE_URL}${t.userImage.startsWith('/') ? '' : '/'}${t.userImage}`,
+            }
+          : t,
+      ),
+    ),
+};
 
 export interface Notification {
   id: string;
@@ -1260,12 +1311,13 @@ export const timerApi = {
   /** Get the currently running timer for the authenticated user, or null. */
   getRunning: () => request<{ session: Timer | null }>('/v1/timers/running').then((r) => r.session),
 
-  /** Get all entries + sessions for today in local time. */
-  getToday: () => {
+  /** Get all entries + sessions for today in local time. Admin can pass userId. */
+  getToday: (userId?: string) => {
     const tz = clientTz();
-    return request<{ entries: DayEntry[] }>(`/v1/timers/today?tz=${encodeURIComponent(tz)}`).then(
-      (r) => r.entries,
-    );
+    const userParam = userId ? `&userId=${encodeURIComponent(userId)}` : '';
+    return request<{ entries: DayEntry[] }>(
+      `/v1/timers/today?tz=${encodeURIComponent(tz)}${userParam}`,
+    ).then((r) => r.entries);
   },
 
   /** Get all entries + sessions for a local day (YYYY-MM-DD). */
