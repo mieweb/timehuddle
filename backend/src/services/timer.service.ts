@@ -94,6 +94,7 @@ export class TimerService {
     action: "added" | "updated" | "deleted"
   ): Promise<void> {
     if (!isValidId(ticketId)) return;
+    console.log(`[timer.service] notifyTimesheetAdmins called by ${new Error().stack?.split('\n')[2]?.trim()}`);
     const ticket = await ticketsCollection().findOne({ _id: new ObjectId(ticketId) });
     if (!ticket || !isValidId(ticket.teamId)) return;
 
@@ -158,9 +159,8 @@ export class TimerService {
       createdAt: new Date(),
     };
     await workItemsCollection().insertOne(doc);
-    this.notifyTimesheetAdmins(userId, ticketId, date, "added").catch((err) =>
-      console.error("[timer.service] notify admins failed:", err)
-    );
+    // Notification removed: Only updateEntry (actual timesheet edits) should notify admins.
+    // Use getOrCreateEntry for silent creation (e.g., timer start, Work tab add).
     return doc;
   }
 
@@ -577,7 +577,8 @@ export class TimerService {
    */
   async deleteEntry(
     userId: string,
-    entryId: string
+    entryId: string,
+    notifyAdmins = true
   ): Promise<{ deletedEntry: boolean; deletedSessions: number } | "not-found" | "forbidden"> {
     if (!isValidId(entryId)) return "not-found";
 
@@ -590,9 +591,11 @@ export class TimerService {
     const entryResult = await workItemsCollection().deleteOne({ _id: entryObjectId, userId });
 
     broadcastTimerUpdate(userId);
-    this.notifyTimesheetAdmins(userId, entry.ticketId, entry.date, "deleted").catch((err) =>
-      console.error("[timer.service] notify admins failed:", err)
-    );
+    if (notifyAdmins) {
+      this.notifyTimesheetAdmins(userId, entry.ticketId, entry.date, "deleted").catch((err) =>
+        console.error("[timer.service] notify admins failed:", err)
+      );
+    }
 
     return {
       deletedEntry: entryResult.deletedCount === 1,

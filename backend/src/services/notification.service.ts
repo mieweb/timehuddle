@@ -65,6 +65,7 @@ class NotificationService {
       createdAt: new Date(),
     };
     await notificationsCollection().insertOne(doc);
+    console.log(`[notification.service] create called: title=${data.title} userId=${data.userId} tag=${data.notificationData?.type} caller=${new Error().stack?.split('\n')[2]?.trim()}`);
     const pub = toPublic(doc);
     broadcastToUser(data.userId, pub);
     pushService

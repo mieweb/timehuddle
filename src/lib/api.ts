@@ -1302,10 +1302,13 @@ export const timerApi = {
     }).then((r) => r.entry),
 
   /** Delete a WorkItem and all of its timers. */
-  deleteEntry: (entryId: string) =>
+  deleteEntry: (entryId: string, options?: { notifyAdmins?: boolean }) =>
     request<{ deletedEntry: boolean; deletedSessions: number }>(
       `/v1/timers/entries/${encodeURIComponent(entryId)}`,
-      { method: 'DELETE' },
+      {
+        method: 'DELETE',
+        body: JSON.stringify({ notifyAdmins: options?.notifyAdmins ?? true }),
+      },
     ),
 
   /** Get the currently running timer for the authenticated user, or null. */

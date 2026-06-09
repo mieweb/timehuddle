@@ -192,7 +192,7 @@ export async function timerRoutes(app: FastifyInstance) {
         startNow?: boolean;
       };
 
-      const entryResult = await timerService.createEntry(userId, ticketId, date);
+      const entryResult = await timerService.getOrCreateEntry(userId, ticketId, date);
       if (entryResult === "not-found") return reply.status(404).send({ error: "Ticket not found" });
       if (entryResult === "forbidden") return reply.status(403).send({ error: "Forbidden" });
 
@@ -354,6 +354,13 @@ export async function timerRoutes(app: FastifyInstance) {
           required: ["id"],
           properties: { id: { type: "string" } },
         },
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            notifyAdmins: { type: "boolean", default: true },
+          },
+        },
         response: {
           200: {
             type: "object",
@@ -370,8 +377,9 @@ export async function timerRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const { id: userId } = (req as any).user;
       const { id: entryId } = req.params as { id: string };
+      const { notifyAdmins = true } = req.body as { notifyAdmins?: boolean };
 
-      const result = await timerService.deleteEntry(userId, entryId);
+      const result = await timerService.deleteEntry(userId, entryId, notifyAdmins);
       if (result === "not-found") return reply.status(404).send({ error: "WorkItem not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
 
