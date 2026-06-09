@@ -120,11 +120,14 @@ async function authorizeHandler(request: any, ctx: any) {
 }
 
 function buildVideoUrl(request: any, videoid: string, videoPath: string): string {
-  const proto = (request.headers["x-forwarded-proto"] as string | undefined) ?? "http";
   const host =
     (request.headers["x-forwarded-host"] as string | undefined) ??
     (request.headers["host"] as string | undefined) ??
     "localhost:4000";
+  const isLocalhost = host.includes("localhost") || host.includes("127.0.0.1");
+  const proto =
+    (request.headers["x-forwarded-proto"] as string | undefined) ??
+    (isLocalhost ? "http" : "https");
   return `${proto}://${host}${videoPath}${videoid}`;
 }
 
@@ -193,11 +196,13 @@ async function createReserveResponse(
 
   const uploadToken = reserveVideo(videoid, body.ticketId, userId);
 
-  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "http";
   const host =
     (req.headers["x-forwarded-host"] as string | undefined) ??
     (req.headers["host"] as string | undefined) ??
     "localhost:4000";
+  const isLocalhost = host.includes("localhost") || host.includes("127.0.0.1");
+  const proto =
+    (req.headers["x-forwarded-proto"] as string | undefined) ?? (isLocalhost ? "http" : "https");
   const uploadLink = buildUploadLink({ server: `${proto}://${host}`, videoid });
 
   return { videoid, uploadToken, uploadLink };
