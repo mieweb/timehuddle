@@ -8,10 +8,33 @@ import { autoReconnectWs, type AutoReconnectWs } from './autoReconnectWs.js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-export const TIMECORE_BASE_URL: string =
-  (typeof import.meta !== 'undefined' &&
-    (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
-  'http://localhost:4000';
+function getTimecoreBaseUrl(): string {
+  const configured =
+    typeof import.meta !== 'undefined' &&
+    (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL;
+
+  if (!configured) {
+    // Local dev: default to http://localhost:4000
+    return 'http://localhost:4000';
+  }
+
+  // If we have a configured URL, use it but ensure it matches the current page's protocol.
+  // This prevents mixed-content errors when HTTPS pages load HTTP resources.
+  const url = new URL(
+    configured,
+    typeof window !== 'undefined' ? window.location.href : 'http://localhost',
+  );
+  if (
+    typeof window !== 'undefined' &&
+    window.location.protocol === 'https:' &&
+    url.protocol === 'http:'
+  ) {
+    url.protocol = 'https:';
+  }
+  return url.toString().replace(/\/$/, '');
+}
+
+export const TIMECORE_BASE_URL: string = getTimecoreBaseUrl();
 
 const WS_BASE_URL = TIMECORE_BASE_URL.replace(/^http/, 'ws');
 
