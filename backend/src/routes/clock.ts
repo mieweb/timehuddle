@@ -9,11 +9,7 @@ import {
   computeWorkSeconds,
 } from "../services/clock.service.js";
 import { findBreaksForEvents } from "../models/clock.model.js";
-import {
-  teamsCollection,
-  usersCollection,
-  profilesCollection,
-} from "../models/index.js";
+import { teamsCollection, usersCollection, profilesCollection } from "../models/index.js";
 import { clockController } from "../controllers/clock.controller.js";
 
 // ─── Public shape schema ──────────────────────────────────────────────────────
@@ -377,7 +373,11 @@ export async function clockRoutes(app: FastifyInstance) {
       const [users, profiles] = await Promise.all([
         usersCollection()
           .find({ _id: { $in: validIds.map((id) => new ObjectId(id)) } })
-          .project<{ _id: ObjectId; name: string; image: string | null }>({ _id: 1, name: 1, image: 1 })
+          .project<{ _id: ObjectId; name: string; image: string | null }>({
+            _id: 1,
+            name: 1,
+            image: 1,
+          })
           .toArray(),
         profilesCollection()
           .find({ userId: { $in: allMemberIds }, app: "timeharbor" })

@@ -12,7 +12,6 @@ import {
   faTicket,
   faCheckCircle,
   faExclamationTriangle,
-  faCircle,
   faPlay,
   faUsers,
   faArrowRight,

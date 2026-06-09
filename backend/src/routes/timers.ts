@@ -507,7 +507,6 @@ export async function timerRoutes(app: FastifyInstance) {
     }
   );
 
-
   app.get(
     "/timers/today",
     {

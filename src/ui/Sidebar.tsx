@@ -51,7 +51,6 @@ const isReload = (() => {
 import { useSidebar } from './AppLayout';
 import { useAppFeedback } from './AppLayout';
 import { useRouter } from './router';
-import { REPO_URL } from '../lib/constants';
 
 // ─── Nav data ─────────────────────────────────────────────────────────────────
 

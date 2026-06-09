@@ -411,7 +411,11 @@ export class TimerService {
    * Start a new timer for an existing workItem.
    * Does not close other running timers — caller is responsible for ensuring none exist.
    */
-  async restartTimerForWorkItem(userId: string, workItemId: string, now: number): Promise<Timer | null> {
+  async restartTimerForWorkItem(
+    userId: string,
+    workItemId: string,
+    now: number
+  ): Promise<Timer | null> {
     const workItem = await workItemsCollection().findOne({ _id: new ObjectId(workItemId) });
     if (!workItem) return null;
     const session: Timer = {
@@ -800,7 +804,11 @@ export class TimerService {
     const [users, profiles] = await Promise.all([
       usersCollection()
         .find({ _id: { $in: userIds.filter(isValidId).map((id) => new ObjectId(id)) } })
-        .project<{ _id: ObjectId; name: string; image: string | null }>({ _id: 1, name: 1, image: 1 })
+        .project<{ _id: ObjectId; name: string; image: string | null }>({
+          _id: 1,
+          name: 1,
+          image: 1,
+        })
         .toArray(),
       profilesCollection()
         .find({ userId: { $in: userIds }, app: "timeharbor" })
