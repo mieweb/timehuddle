@@ -49,7 +49,7 @@ export const useProfileTickets = (userId: string, teams: Team[]) => {
   // Filter to this user's active tickets, sorted by status priority order
   const activeTickets = useMemo(() => {
     const assigned = allTickets.filter(
-      ({ ticket }) => ticket.assignedTo === userId && !DONE_STATUSES.has(ticket.status ?? ''),
+      ({ ticket }) => ticket.assignedTo?.includes(userId) && !DONE_STATUSES.has(ticket.status ?? ''),
     );
     return [...assigned].sort((a, b) => {
       const ai = STATUS_ORDER.indexOf(a.ticket.status ?? 'open');
