@@ -3,7 +3,7 @@
  * Used by both TimesheetPage (personal) and AdminTimesheetPanel (admin view).
  */
 
-export type Preset = 'today' | 'yesterday' | '7d' | 'week' | '14d' | 'custom';
+export type Preset = 'today' | 'yesterday' | 'lastWeek' | 'week' | '14d' | 'custom';
 
 export function getDateRange(preset: Preset): [Date, Date] {
   const now = new Date();
@@ -17,10 +17,18 @@ export function getDateRange(preset: Preset): [Date, Date] {
       y.setDate(y.getDate() - 1);
       return [y, new Date(today.getTime() - 1)];
     }
-    case '7d': {
+    case 'lastWeek': {
+      // Calculate Monday of last week
       const d = new Date(today);
-      d.setDate(d.getDate() - 7);
-      return [d, now];
+      const day = d.getDay();
+      const diff = (day === 0 ? -6 : 1) - day;
+      d.setDate(d.getDate() + diff - 7); // Go back one week from this Monday
+      const lastMonday = new Date(d);
+      // Calculate Sunday of last week (end of day)
+      const lastSunday = new Date(d);
+      lastSunday.setDate(lastSunday.getDate() + 6);
+      lastSunday.setHours(23, 59, 59, 999);
+      return [lastMonday, lastSunday];
     }
     case 'week': {
       const d = new Date(today);
@@ -59,7 +67,7 @@ export function fromLocalDateTimeInputValue(value: string): number | null {
 export const PRESETS: { key: Preset; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: 'yesterday', label: 'Yesterday' },
-  { key: '7d', label: '7 Days' },
+  { key: 'lastWeek', label: 'Last Week' },
   { key: 'week', label: 'This Week' },
   { key: '14d', label: '14 Days' },
   { key: 'custom', label: 'Custom' },
