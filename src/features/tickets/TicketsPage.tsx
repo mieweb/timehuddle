@@ -834,6 +834,7 @@ export const TicketsPage: React.FC = () => {
         ticketId,
         date: today,
         startNow: true,
+        notifyAdmins: false,
       });
 
       if (result.session) {
