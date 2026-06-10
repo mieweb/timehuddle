@@ -474,7 +474,9 @@ export class TicketService {
                   url: `/app/tickets`,
                 },
               })
-              .catch(() => {}),
+              .catch((err) => {
+                console.error(`[ticket] Failed to create notification for user ${uid}:`, err);
+              }),
             pushService
               .sendPush(uid, {
                 title: `Ticket assigned to you`,
@@ -490,7 +492,9 @@ export class TicketService {
                   url: `/app/tickets`,
                 },
               })
-              .catch(() => {}),
+              .catch((err) => {
+                console.error(`[ticket] Failed to send push notification to user ${uid}:`, err);
+              }),
           ])
         )
     );
