@@ -53,6 +53,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   teamApi,
   ticketApi,
+  timerApi,
   shareTicketWithTimeharbor,
   type Team,
   type TeamMember,
@@ -60,10 +61,12 @@ import {
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
+import { useClockToggle } from '../../lib/useClockToggle';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
+import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
 import { PulseUploadButton } from '../media/PulseUploadButton';
 import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
@@ -147,6 +150,10 @@ interface TicketRowProps {
   onDeleteRequest: (id: string) => void;
   onChangeStatusRequest: (ticket: Ticket) => void;
   onShareWithTimeharbor: (ticket: Ticket, shared: boolean) => void;
+  // Timer state
+  isTimerRunning: boolean;
+  timerLoading: boolean;
+  onToggleTimer: (ticketId: string) => void;
 }
 
 const TicketRow: React.FC<TicketRowProps> = ({
@@ -160,6 +167,9 @@ const TicketRow: React.FC<TicketRowProps> = ({
   onDeleteRequest,
   onChangeStatusRequest,
   onShareWithTimeharbor,
+  isTimerRunning,
+  timerLoading,
+  onToggleTimer,
 }) => {
   const { navigate } = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -176,6 +186,15 @@ const TicketRow: React.FC<TicketRowProps> = ({
       data-ticket-id={ticket.id}
       className="group relative flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40"
     >
+      <TimerToggleButton
+        isRunning={isTimerRunning}
+        isLoading={timerLoading}
+        onClick={() => onToggleTimer(ticket.id)}
+        ariaLabel={
+          isTimerRunning ? `Stop timer for ${ticket.title}` : `Start timer for ${ticket.title}`
+        }
+      />
+
       {/* Status icon */}
       <div className="mt-0.5 shrink-0 pt-0.5">
         <FontAwesomeIcon icon={icon} className={`text-base ${iconClass}`} />
@@ -237,7 +256,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
         </div>
       </div>
 
-      {/* Right side: assignee avatar + overflow menu */}
+      {/* Right side: timer toggle + assignee avatar + overflow menu */}
       <div className="flex shrink-0 items-center gap-2">
         {!suppressAvatars && assigneeName && assigneeId && (
           <button
@@ -429,11 +448,20 @@ export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
   const { teams, selectedTeamId, teamsReady } = useTeam();
+  const { isClockedIn, clockIn } = useClockToggle();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(true);
   // Map from teamId → members for cross-team member lookups
   const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
+
+  // Timer state — track the currently running timer by ticket ID
+  const [runningTicketId, setRunningTicketId] = useState<string | null>(null);
+  const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
+  const [timerLoading, setTimerLoading] = useState<string | null>(null); // ticketId currently toggling
+  const [pendingStartTicketId, setPendingStartTicketId] = useState<string | null>(null);
+  const [showClockInPrompt, setShowClockInPrompt] = useState(false);
+  const [clockInPromptError, setClockInPromptError] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
     if (!teams.length) {
@@ -466,9 +494,30 @@ export const TicketsPage: React.FC = () => {
     }
   }, [teams, teamsReady]);
 
+  // Fetch today's timer to determine if any ticket has a running timer
+  const fetchRunningTimer = useCallback(async () => {
+    try {
+      const dayEntries = await timerApi.getToday();
+      const running = dayEntries.flatMap((de) => de.sessions).find((t) => !t.endTime);
+      if (running) {
+        const dayEntry = dayEntries.find((de) => de.sessions.some((t) => t.id === running.id));
+        if (dayEntry) {
+          setRunningTicketId(dayEntry.entry.ticketId);
+          setRunningSessionId(running.id);
+        }
+      } else {
+        setRunningTicketId(null);
+        setRunningSessionId(null);
+      }
+    } catch {
+      // Ignore errors
+    }
+  }, []);
+
   useEffect(() => {
     void refetch();
-  }, [refetch]);
+    void fetchRunningTimer();
+  }, [refetch, fetchRunningTimer]);
 
   // Pull-to-refresh handler
   useRefresh(refetch);
@@ -775,6 +824,75 @@ export const TicketsPage: React.FC = () => {
   }, [allMembers, userId]);
 
   // ── Handlers ──
+
+  // Timer toggle handler
+  const startTimerForTicket = useCallback(async (ticketId: string) => {
+    setTimerLoading(ticketId);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const result = await timerApi.createEntry({
+        ticketId,
+        date: today,
+        startNow: true,
+      });
+
+      if (result.session) {
+        setRunningTicketId(ticketId);
+        setRunningSessionId(result.session.id);
+      }
+    } catch (err) {
+      console.error('Timer start failed:', err);
+    } finally {
+      setTimerLoading(null);
+    }
+  }, []);
+
+  const handleToggleTimer = useCallback(
+    async (ticketId: string) => {
+      if (runningTicketId === ticketId && runningSessionId) {
+        // Stop the running timer
+        setTimerLoading(ticketId);
+        try {
+          await timerApi.stopSession(runningSessionId);
+          setRunningTicketId(null);
+          setRunningSessionId(null);
+        } catch (err) {
+          console.error('Timer stop failed:', err);
+        } finally {
+          setTimerLoading(null);
+        }
+      } else {
+        // Start timer — prompt for clock-in if needed
+        if (!isClockedIn) {
+          setPendingStartTicketId(ticketId);
+          setClockInPromptError(null);
+          setShowClockInPrompt(true);
+          return;
+        }
+
+        await startTimerForTicket(ticketId);
+      }
+    },
+    [runningTicketId, runningSessionId, isClockedIn, startTimerForTicket],
+  );
+
+  const handleClockInAndStart = useCallback(async () => {
+    if (!pendingStartTicketId) return;
+
+    if (!selectedTeamId) {
+      setClockInPromptError('Select a team before clocking in.');
+      return;
+    }
+
+    setClockInPromptError(null);
+    await clockIn();
+
+    const ticketId = pendingStartTicketId;
+    setShowClockInPrompt(false);
+    setPendingStartTicketId(null);
+
+    await startTimerForTicket(ticketId);
+  }, [pendingStartTicketId, selectedTeamId, clockIn, startTimerForTicket]);
 
   const handleCreate = useCallback(async () => {
     if (!createTitle.trim() || !selectedTeamId) return;
@@ -1184,6 +1302,9 @@ export const TicketsPage: React.FC = () => {
                         // Silently ignore — user can retry
                       }
                     }}
+                    isTimerRunning={runningTicketId === t.id}
+                    timerLoading={timerLoading === t.id}
+                    onToggleTimer={handleToggleTimer}
                   />
                 ))}
               </ul>
@@ -1474,6 +1595,52 @@ export const TicketsPage: React.FC = () => {
             </Button>
             <Button variant="danger" onClick={handleDelete} isLoading={deleteLoading}>
               Delete
+            </Button>
+          </ModalFooter>
+        </Modal>
+
+        {/* Clock-In Prompt Modal */}
+        <Modal
+          open={showClockInPrompt}
+          onOpenChange={(open) => {
+            setShowClockInPrompt(open);
+            if (!open) {
+              setPendingStartTicketId(null);
+              setClockInPromptError(null);
+            }
+          }}
+          size="sm"
+          aria-labelledby="clock-in-prompt-title"
+        >
+          <ModalHeader>
+            <ModalTitle id="clock-in-prompt-title">Clock In Required</ModalTitle>
+            <ModalClose />
+          </ModalHeader>
+          <ModalBody>
+            <div className="space-y-2">
+              <Text size="sm">
+                You must be clocked in before starting a timer. Do you want to clock in now?
+              </Text>
+              {clockInPromptError && (
+                <Text size="xs" className="text-danger">
+                  {clockInPromptError}
+                </Text>
+              )}
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowClockInPrompt(false);
+                setPendingStartTicketId(null);
+                setClockInPromptError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={handleClockInAndStart}>
+              Clock In Now
             </Button>
           </ModalFooter>
         </Modal>

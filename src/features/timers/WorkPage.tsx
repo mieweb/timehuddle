@@ -14,8 +14,6 @@ import {
   faChevronRight,
   faCopy,
   faEllipsisVertical,
-  faPause,
-  faPlay,
   faSpinner,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -55,6 +53,8 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
+import { useRouter } from '../../ui/router';
+import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { TodayStatusCard } from './TodayStatusCard';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -109,6 +109,7 @@ function entryTotalSeconds(sessions: Timer[], now: number): number {
 export const WorkPage: React.FC = () => {
   const { teams, teamsReady, currentTime, selectedTeamId, activeClockEvent } = useTeam();
   const { isClockedIn, clockIn, clockInLoading } = useClockToggle();
+  const { navigate } = useRouter();
   const previousClockedInRef = useRef(isClockedIn);
   // When clock-in is immediately followed by startTimerForEntry, suppress the
   // auto-fetchDay triggered by the isClockedIn change to avoid a race where
@@ -794,41 +795,31 @@ export const WorkPage: React.FC = () => {
                 return (
                   <TableRow key={de.entry.id}>
                     <TableCell className="py-2 pr-0">
-                      <span
+                      <TimerToggleButton
+                        isRunning={isRunning}
+                        disabled={controlsDisabled}
+                        onClick={() =>
+                          isRunning && runningSess
+                            ? handleStop(runningSess.id)
+                            : handleStart(de.entry.id)
+                        }
                         title={disabledReason}
-                        style={{ cursor: controlsDisabled ? 'not-allowed' : undefined }}
-                      >
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() =>
-                            isRunning && runningSess
-                              ? handleStop(runningSess.id)
-                              : handleStart(de.entry.id)
-                          }
-                          disabled={controlsDisabled}
-                          style={controlsDisabled ? { pointerEvents: 'none' } : undefined}
-                          className={`rounded-full ${
-                            isRunning
-                              ? 'bg-amber-100 text-amber-600 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-400'
-                              : 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-400'
-                          }`}
-                          aria-label={isRunning ? 'Stop timer' : 'Start timer'}
-                        >
-                          <FontAwesomeIcon
-                            icon={isRunning ? faPause : faPlay}
-                            className="text-xs"
-                          />
-                        </Button>
-                      </span>
+                      />
                     </TableCell>
 
                     <TableCell className="py-2">
                       <div className="flex items-center gap-2">
                         <div className="min-w-0">
-                          <Text size="sm" weight="medium" truncate>
-                            {title}
-                          </Text>
+                          <button
+                            type="button"
+                            className="block max-w-full text-left hover:text-primary"
+                            title={title}
+                            onClick={() => navigate(`/app/tickets/${de.entry.ticketId}`)}
+                          >
+                            <Text size="sm" weight="medium" truncate>
+                              {title}
+                            </Text>
+                          </button>
                           {de.entry.note?.trim() && (
                             <Text size="xs" variant="muted" truncate>
                               {de.entry.note.trim()}
