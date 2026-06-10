@@ -1270,12 +1270,18 @@ function clientTz(): string {
 }
 
 export const timerApi = {
-  /** Create a WorkItem for the given ticket + date. */
-  createEntry: (data: { ticketId: string; date: string; note?: string; notifyAdmins?: boolean }) =>
-    request<{ entry: WorkItem }>('/v1/timers/entries', {
+  /** Create a WorkItem for the given ticket + date. Optionally start a timer immediately. */
+  createEntry: (data: {
+    ticketId: string;
+    date: string;
+    note?: string;
+    notifyAdmins?: boolean;
+    startNow?: boolean;
+  }) =>
+    request<{ entry: WorkItem; session: Timer | null }>('/v1/timers/entries', {
       method: 'POST',
       body: JSON.stringify(data),
-    }).then((r) => r.entry),
+    }),
 
   /** Start a timer for a WorkItem. Closes any open timer first. */
   startSession: (entryId: string, now?: number) =>
