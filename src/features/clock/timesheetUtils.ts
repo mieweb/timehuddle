@@ -24,7 +24,10 @@ export function getDateRange(preset: Preset): [Date, Date] {
     }
     case 'week': {
       const d = new Date(today);
-      d.setDate(d.getDate() - d.getDay());
+      // Calculate Monday (ISO week start)
+      const day = d.getDay();
+      const diff = (day === 0 ? -6 : 1) - day; // Sunday = -6, Monday = 0, Tuesday = -1, etc.
+      d.setDate(d.getDate() + diff);
       return [d, now];
     }
     case '14d': {
