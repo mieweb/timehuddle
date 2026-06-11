@@ -15,6 +15,8 @@ import { MongoBackend } from "@agendajs/mongo-backend";
 import { ObjectId } from "mongodb";
 import { clockEventsCollection, notificationsCollection } from "../models/index.js";
 import { notificationService, broadcastToUser } from "./notification.service.js";
+import { findBreaksForEvent } from "../models/clock.model.js";
+import { computeWorkSeconds } from "./clock.service.js";
 
 interface ClockJobData {
   clockEventId: string;
@@ -25,6 +27,9 @@ interface ClockJobData {
 const FOUR_HOURS_MS = 4 * 3600_000;
 const SHIFT_END_MS = 27_900_000; // 7h 45m
 const AUTO_CLOCKOUT_MS = 8 * 3600_000;
+
+const SHIFT_END_WORK_SECS = 7.75 * 3600; // 7h 45m in work seconds
+const AUTO_CLOCKOUT_WORK_SECS = 8 * 3600; // 8h in work seconds
 
 let _agenda: Agenda;
 
@@ -75,6 +80,20 @@ export async function initAgenda(): Promise<void> {
     });
     if (!event) return; // already clocked out
     if (event.autoClockoutAgreed) return; // already agreed — no need to prompt again
+    if (event.notifiedAt7h45m) return; // reminder already sent — prevent duplicates
+
+    // Check if actual work time (excluding meal breaks) has reached 7h45m
+    const breaks = await findBreaksForEvent(clockEventId);
+    const now = Date.now();
+    const workSeconds = computeWorkSeconds(event, breaks, now);
+    
+    if (workSeconds < SHIFT_END_WORK_SECS) {
+      // Not enough work time yet — reschedule to check again after remaining time
+      const remainingSecs = SHIFT_END_WORK_SECS - workSeconds;
+      const nextCheck = new Date(now + remainingSecs * 1000);
+      await job.schedule(nextCheck).save();
+      return;
+    }
 
     const body = "You are approaching 8 hours. Would you like to continue working or clock out?";
 
@@ -98,6 +117,12 @@ export async function initAgenda(): Promise<void> {
       createdAt: persisted.createdAt,
     });
 
+    // Mark that we've sent the 7h45m reminder (prevents duplicate sends)
+    await clockEventsCollection().updateOne(
+      { _id: event._id, endTime: null },
+      { $set: { notifiedAt7h45m: now } }
+    );
+
     // Schedule missed-clockout at 8h — fires if the user never responds
     await scheduleMissedClockout(clockEventId, userId, teamId, event.startTime);
   });
@@ -113,6 +138,21 @@ export async function initAgenda(): Promise<void> {
     });
     if (!event) return; // already clocked out
     if (!event.autoClockoutAgreed) return; // user changed their mind
+
+    // Check if actual work time (excluding meal breaks) has reached 8h
+    const breaks = await findBreaksForEvent(clockEventId);
+    const now = Date.now();
+    const workSeconds = computeWorkSeconds(event, breaks, now);
+    
+    if (workSeconds < AUTO_CLOCKOUT_WORK_SECS) {
+      // Not enough work time yet — reschedule to check again after remaining time
+      const remainingSecs = AUTO_CLOCKOUT_WORK_SECS - workSeconds;
+      const nextCheck = new Date(now + remainingSecs * 1000);
+      await job.schedule(nextCheck).save();
+      return;
+    }
+
+    // Work time threshold reached — perform auto-clockout
     const { clockService } = await import("./clock.service.js");
     await clockService.stop(userId, teamId);
   });
@@ -132,6 +172,19 @@ export async function initAgenda(): Promise<void> {
     if (event.shiftReminderResponse === "disagreed") return;
     // The agreed path is handled by shift-auto-clockout; avoid double-clocking
     if (event.autoClockoutAgreed) return;
+
+    // Check if actual work time (excluding meal breaks) has reached 8h
+    const breaks = await findBreaksForEvent(clockEventId);
+    const now = Date.now();
+    const workSeconds = computeWorkSeconds(event, breaks, now);
+    
+    if (workSeconds < AUTO_CLOCKOUT_WORK_SECS) {
+      // Not enough work time yet — reschedule to check again after remaining time
+      const remainingSecs = AUTO_CLOCKOUT_WORK_SECS - workSeconds;
+      const nextCheck = new Date(now + remainingSecs * 1000);
+      await job.schedule(nextCheck).save();
+      return;
+    }
 
     const { clockService } = await import("./clock.service.js");
     await clockService.stop(userId, teamId);
