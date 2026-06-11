@@ -119,23 +119,19 @@ async function authorizeHandler(request: any, ctx: any) {
   }
 }
 
-function buildVideoUrl(request: any, videoid: string, videoPath: string): string {
-  const proto = (request.headers["x-forwarded-proto"] as string | undefined) ?? "http";
-  const host =
-    (request.headers["x-forwarded-host"] as string | undefined) ??
-    (request.headers["host"] as string | undefined) ??
-    "localhost:4000";
-  return `${proto}://${host}${videoPath}${videoid}`;
-}
-
-async function onUploadCompleteHandler(request: any, ctx: any, videoPath = "/v1/video/") {
+async function onUploadCompleteHandler(request: any, ctx: any) {
   const reservation = consumeReservation(ctx.videoid);
   if (!reservation) return;
 
   const filename = await resolveUploadedFilename(ctx);
   const title = resolveUploadedTitle(filename, ctx.videoid);
 
-  const videoUrl = buildVideoUrl(request, ctx.videoid, videoPath);
+  const proto = (request.headers["x-forwarded-proto"] as string | undefined) ?? "http";
+  const host =
+    (request.headers["x-forwarded-host"] as string | undefined) ??
+    (request.headers["host"] as string | undefined) ??
+    "localhost:4000";
+  const videoUrl = `${proto}://${host}/v1/video/${ctx.videoid}`;
 
   if (reservation.context.kind === "library") {
     await mediaService.create(reservation.userId, {
@@ -168,7 +164,18 @@ async function createReserveResponse(
   if (target === "library") {
     const videoid = randomUUID();
     const uploadToken = reserveVideoForLibrary(videoid, userId);
-    return { videoid, uploadToken };
+    
+    // Generate uploadLink with proper protocol detection
+    const betterAuthUrl = process.env.BETTER_AUTH_URL;
+    const defaultProto = betterAuthUrl ? new URL(betterAuthUrl).protocol.replace(':', '') : 'http';
+    const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? defaultProto;
+    const host =
+      (req.headers["x-forwarded-host"] as string | undefined) ??
+      (req.headers["host"] as string | undefined) ??
+      "localhost:4000";
+    const uploadLink = buildUploadLink({ server: `${proto}://${host}`, videoid });
+    
+    return { videoid, uploadToken, uploadLink };
   }
 
   if (!body.ticketId) {
@@ -193,7 +200,11 @@ async function createReserveResponse(
 
   const uploadToken = reserveVideo(videoid, body.ticketId, userId);
 
-  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? "http";
+  // Use BETTER_AUTH_URL's protocol if available (production), otherwise fall back to x-forwarded-proto or http
+  const betterAuthUrl = process.env.BETTER_AUTH_URL;
+  const defaultProto = betterAuthUrl ? new URL(betterAuthUrl).protocol.replace(':', '') : 'http';
+  
+  const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? defaultProto;
   const host =
     (req.headers["x-forwarded-host"] as string | undefined) ??
     (req.headers["host"] as string | undefined) ??
@@ -212,21 +223,86 @@ async function openAuthorizeHandler(_request: any, ctx: any) {
   // Allow unauthenticated uploads from Pulse Cam on the compat (root) path.
 }
 
+/**
+ * Wraps `reply.raw.setHeader` so any `Location: http://…` written by the
+ * underlying @tus/server (which bypasses Fastify's reply lifecycle by writing
+ * straight to the Node response) is rewritten to `https://…` whenever the
+ * client connected to our reverse proxy over TLS. Without this rewrite,
+ * browsers served from an HTTPS frontend block the follow-up TUS PATCH as
+ * Mixed Content.
+ *
+ * Registered as a `preHandler` hook on the scopes that mount pulsevault.
+ */
+async function rewriteRawLocationHeader(request: any, reply: any) {
+  const forwardedProto =
+    typeof request.headers["x-forwarded-proto"] === "string"
+      ? (request.headers["x-forwarded-proto"] as string).split(",")[0]?.trim()
+      : undefined;
+  if (forwardedProto !== "https") return;
+
+  const raw = reply.raw;
+  const originalSetHeader = raw.setHeader.bind(raw);
+  raw.setHeader = (name: string, value: any) => {
+    if (
+      typeof name === "string" &&
+      name.toLowerCase() === "location" &&
+      typeof value === "string" &&
+      value.startsWith("http://")
+    ) {
+      return originalSetHeader(name, "https://" + value.slice("http://".length));
+    }
+    return originalSetHeader(name, value);
+  };
+
+  const fixLocationValue = (v: any) =>
+    typeof v === "string" && v.startsWith("http://")
+      ? "https://" + v.slice("http://".length)
+      : v;
+
+  const originalWriteHead = raw.writeHead.bind(raw);
+  raw.writeHead = (statusCode: number, ...rest: any[]) => {
+    // Node accepts writeHead(status, [name, value, ...]) — a flat array — as
+    // well as writeHead(status, { name: value }) and writeHead(status, reason,
+    // headers). srvx (used internally by @tus/server) emits the flat-array
+    // form, so we must handle both shapes.
+    for (const arg of rest) {
+      if (!arg) continue;
+      if (Array.isArray(arg)) {
+        for (let i = 0; i + 1 < arg.length; i += 2) {
+          if (typeof arg[i] === "string" && arg[i].toLowerCase() === "location") {
+            arg[i + 1] = fixLocationValue(arg[i + 1]);
+          }
+        }
+      } else if (typeof arg === "object") {
+        for (const key of Object.keys(arg)) {
+          if (key.toLowerCase() === "location") {
+            arg[key] = fixLocationValue(arg[key]);
+          }
+        }
+      }
+    }
+    return originalWriteHead(statusCode, ...rest);
+  };
+}
+
 export async function pulseVaultCompatRoutes(app: FastifyInstance) {
   // /reserve at root — Pulse Cam calls this before each upload
   app.post("/reserve", async (_req, reply) => {
     return reply.status(200).send({ videoid: randomUUID() });
   });
 
-  await app.register(pulseVault, {
-    prefix: "",
-    storage,
-    maxUploadSize: 1 * 1024 * 1024 * 1024,
-    allowedExtensions: [".mp4"],
-    validatePayload: createMp4Sniffer(storage),
-    authorize: openAuthorizeHandler,
-    onUploadComplete: (req: any, ctx: any) => onUploadCompleteHandler(req, ctx, "/"),
-    decoratorName: "pulseVaultCompat",
+  await app.register(async (scope) => {
+    scope.addHook("preHandler", rewriteRawLocationHeader);
+    await scope.register(pulseVault, {
+      prefix: "",
+      storage,
+      maxUploadSize: 1 * 1024 * 1024 * 1024,
+      allowedExtensions: [".mp4"],
+      validatePayload: createMp4Sniffer(storage),
+      authorize: openAuthorizeHandler,
+      onUploadComplete: onUploadCompleteHandler,
+      decoratorName: "pulseVaultCompat",
+    });
   });
 }
 
@@ -285,14 +361,17 @@ export async function pulseVaultRoutes(app: FastifyInstance) {
     }
   );
 
-  await app.register(pulseVault, {
-    prefix: "/video",
-    storage,
-    maxUploadSize: 1 * 1024 * 1024 * 1024, // 1 GiB
-    allowedExtensions: [".mp4"],
-    validatePayload: createMp4Sniffer(storage),
-    authorize: authorizeHandler,
-    onUploadComplete: onUploadCompleteHandler,
-    decoratorName: "pulseVaultV1",
+  await app.register(async (scope) => {
+    scope.addHook("preHandler", rewriteRawLocationHeader);
+    await scope.register(pulseVault, {
+      prefix: "/video",
+      storage,
+      maxUploadSize: 1 * 1024 * 1024 * 1024, // 1 GiB
+      allowedExtensions: [".mp4"],
+      validatePayload: createMp4Sniffer(storage),
+      authorize: authorizeHandler,
+      onUploadComplete: onUploadCompleteHandler,
+      decoratorName: "pulseVaultV1",
+    });
   });
 }
