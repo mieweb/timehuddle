@@ -92,6 +92,16 @@ export const orgController = {
     return reply.send({ users: result });
   },
 
+  async listOrganizationUsers(
+    req: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply
+  ) {
+    const result = await orgService.listOrganizationUsers(req.user!.id, req.params.id);
+    if (result === "not-found") return reply.status(404).send({ error: "Organization not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    return reply.send({ users: result });
+  },
+
   async searchUsers(
     req: FastifyRequest<{ Params: { id: string }; Querystring: { q?: string } }>,
     reply: FastifyReply
@@ -166,6 +176,9 @@ export const orgController = {
     if (result === "reports-to-self") {
       return reply.status(400).send({ error: "reports-to-self" });
     }
+    if (result === "default-organization-not-found") {
+      return reply.status(404).send({ error: "Default organization not found" });
+    }
 
     return reply.send({
       user: {
@@ -198,6 +211,9 @@ export const orgController = {
     }
     if (result === "default-organization-not-found") {
       return reply.status(404).send({ error: "Default organization not found" });
+    }
+    if (result === "reports-to-self") {
+      return reply.status(400).send({ error: "reports-to-self" });
     }
 
     return reply.send({

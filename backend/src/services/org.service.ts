@@ -1,3 +1,4 @@
+import { subject } from "@casl/ability";
 import { ObjectId } from "mongodb";
 import {
   enterprisesCollection,
@@ -12,6 +13,7 @@ import {
   DEFAULT_ORG_KEY,
   DEFAULT_ORG_NAME,
 } from "../lib/org-config.js";
+import { buildAbilityFor, type AppAbility } from "../lib/permissions.js";
 import { slugify } from "../lib/slug.js";
 import type { Enterprise } from "../models/enterprise.model.js";
 import type { OrgMembershipRole } from "../models/org-membership.model.js";
@@ -117,24 +119,88 @@ export class OrgService {
     return null;
   }
 
-  private async canManageOrg(
+  private async buildOrganizationAccess(
     userId: string,
     org: Organization & { _id: ObjectId }
   ): Promise<{
+    ability: AppAbility;
     canManage: boolean;
     role: OrgMembershipRole | null;
   }> {
-    const membership = await this.getOrgMembership(org._id.toHexString(), userId);
-    if (membership && ELEVATED_ROLES.includes(membership.role)) {
-      return { canManage: true, role: membership.role };
-    }
-
+    const orgId = org._id.toHexString();
+    const membership = await this.getOrgMembership(orgId, userId);
     const enterpriseRole = await this.getEnterpriseRoleForOrg(userId, org);
-    if (enterpriseRole) {
-      return { canManage: true, role: enterpriseRole };
-    }
+    const isOrgElevated = !!membership && ELEVATED_ROLES.includes(membership.role);
+    const managedOrgIds = isOrgElevated || enterpriseRole ? [orgId] : [];
+    const role = membership?.role ?? enterpriseRole ?? "member";
+    const ability = buildAbilityFor({
+      userId,
+      role,
+      teamIds: [],
+      orgIds: membership || enterpriseRole ? [orgId] : [],
+      managedOrgIds,
+      enterpriseIds: enterpriseRole && org.enterpriseId ? [org.enterpriseId] : [],
+      isEnterpriseElevated: !!enterpriseRole,
+    });
+    const canManage = ability.can("manage", subject("OrganizationMembership", { orgId }));
 
-    return { canManage: false, role: membership?.role ?? null };
+    return {
+      ability,
+      canManage,
+      role: isOrgElevated ? membership.role : (enterpriseRole ?? membership?.role ?? null),
+    };
+  }
+
+  private async loadOrganizationMembers(orgId: string): Promise<OrgMemberSummary[]> {
+    const org = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
+    if (!org) return [];
+
+    const membershipDocs = await orgMembersCollection().find({ orgId }).toArray();
+    const legacyIds = uniqueIds([...(org.owners ?? []), ...(org.admins ?? [])]);
+    const missingLegacyIds = legacyIds.filter(
+      (userId) => !membershipDocs.some((membership) => membership.userId === userId)
+    );
+    const allMembers = [
+      ...membershipDocs.map((membership) => ({
+        userId: membership.userId,
+        role: membership.role,
+        auto: membership.auto,
+      })),
+      ...missingLegacyIds.map((userId) => ({
+        userId,
+        role: (org.owners ?? []).includes(userId) ? ("owner" as const) : ("admin" as const),
+        auto: false,
+      })),
+    ];
+
+    const validUserIds = allMembers
+      .filter((member) => isValidId(member.userId))
+      .map((member) => new ObjectId(member.userId));
+    const users = await usersCollection()
+      .find(
+        { _id: { $in: validUserIds } },
+        { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } }
+      )
+      .toArray();
+    const byId = new Map(users.map((user) => [user._id.toHexString(), user]));
+
+    return allMembers
+      .map((member) => {
+        const user = byId.get(member.userId);
+        if (!user) return null;
+        return {
+          id: member.userId,
+          name: user.name,
+          email: user.email,
+          username: user.username ?? null,
+          image: user.image ?? null,
+          reportsToUserId: user.reportsToUserId ?? null,
+          role: member.role,
+          auto: member.auto,
+        };
+      })
+      .filter((member): member is OrgMemberSummary => !!member)
+      .sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
   }
 
   async ensureDefaultEnterprise(): Promise<Enterprise & { _id: ObjectId }> {
@@ -326,7 +392,7 @@ export class OrgService {
     const org = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
     if (!org) return "not-found";
 
-    const access = await this.canManageOrg(userId, org);
+    const access = await this.buildOrganizationAccess(userId, org);
     if (!access.canManage) return "forbidden";
 
     const updates: Partial<Organization & { updatedAt: Date }> = { updatedAt: new Date() };
@@ -418,11 +484,10 @@ export class OrgService {
 
     const membership = await this.getOrgMembership(orgId, userId);
     const enterpriseRole = await this.getEnterpriseRoleForOrg(userId, org);
-    const canManage =
-      (!!membership && ELEVATED_ROLES.includes(membership.role)) || !!enterpriseRole;
+    const access = await this.buildOrganizationAccess(userId, org);
     return {
       ...toOrgSummary(org, membership?.role ?? enterpriseRole ?? "member"),
-      canManage,
+      canManage: access.canManage,
     };
   }
 
@@ -435,55 +500,24 @@ export class OrgService {
       : null;
     if (!org) return "not-found";
 
-    const access = await this.canManageOrg(requesterUserId, org);
+    const access = await this.buildOrganizationAccess(requesterUserId, org);
     if (!access.canManage) return "forbidden";
+    return this.loadOrganizationMembers(orgId);
+  }
 
-    const membershipDocs = await orgMembersCollection().find({ orgId }).toArray();
-    const legacyIds = uniqueIds([...(org.owners ?? []), ...(org.admins ?? [])]);
-    const missingLegacyIds = legacyIds.filter(
-      (userId) => !membershipDocs.some((membership) => membership.userId === userId)
-    );
-    const allMembers = [
-      ...membershipDocs.map((membership) => ({
-        userId: membership.userId,
-        role: membership.role,
-        auto: membership.auto,
-      })),
-      ...missingLegacyIds.map((userId) => ({
-        userId,
-        role: (org.owners ?? []).includes(userId) ? ("owner" as const) : ("admin" as const),
-        auto: false,
-      })),
-    ];
+  async listOrganizationUsers(
+    requesterUserId: string,
+    orgId: string
+  ): Promise<OrgMemberSummary[] | "not-found" | "forbidden"> {
+    if (!isValidId(orgId)) return "not-found";
 
-    const validUserIds = allMembers
-      .filter((member) => isValidId(member.userId))
-      .map((member) => new ObjectId(member.userId));
-    const users = await usersCollection()
-      .find(
-        { _id: { $in: validUserIds } },
-        { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } }
-      )
-      .toArray();
-    const byId = new Map(users.map((user) => [user._id.toHexString(), user]));
+    const org = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
+    if (!org) return "not-found";
 
-    return allMembers
-      .map((member) => {
-        const user = byId.get(member.userId);
-        if (!user) return null;
-        return {
-          id: member.userId,
-          name: user.name,
-          email: user.email,
-          username: user.username ?? null,
-          image: user.image ?? null,
-          reportsToUserId: user.reportsToUserId ?? null,
-          role: member.role,
-          auto: member.auto,
-        };
-      })
-      .filter((member): member is OrgMemberSummary => !!member)
-      .sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
+    const accessibleOrgIds = await this.getAccessibleOrgIds(requesterUserId);
+    if (!accessibleOrgIds.includes(orgId)) return "forbidden";
+
+    return this.loadOrganizationMembers(orgId);
   }
 
   async setOrgRole(
@@ -502,7 +536,7 @@ export class OrgService {
     ]);
     if (!org) return "not-found";
 
-    const access = await this.canManageOrg(requesterUserId, org);
+    const access = await this.buildOrganizationAccess(requesterUserId, org);
     if (!access.canManage) return "forbidden";
 
     if (!targetUser) return "user-not-found";
@@ -546,7 +580,7 @@ export class OrgService {
 
     if (!org) return "not-found";
 
-    const access = await this.canManageOrg(requesterUserId, org);
+    const access = await this.buildOrganizationAccess(requesterUserId, org);
     if (!access.canManage) return "forbidden";
 
     if (!targetUser) return "user-not-found";
@@ -586,7 +620,7 @@ export class OrgService {
     const org = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
     if (!org) return "not-found";
 
-    const access = await this.canManageOrg(requesterUserId, org);
+    const access = await this.buildOrganizationAccess(requesterUserId, org);
     if (!access.canManage) return "forbidden";
 
     const result = await organizationsCollection().findOneAndUpdate(
@@ -718,7 +752,7 @@ export class OrgService {
     const org = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
     if (!org) return "not-found";
 
-    const access = await this.canManageOrg(requesterUserId, org);
+    const access = await this.buildOrganizationAccess(requesterUserId, org);
     if (!access.canManage) return "forbidden";
 
     const targetMembership = await this.getOrgMembership(orgId, userId);
@@ -750,7 +784,7 @@ export class OrgService {
     const org = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
     if (!org) return "not-found";
 
-    const access = await this.canManageOrg(requesterUserId, org);
+    const access = await this.buildOrganizationAccess(requesterUserId, org);
     if (!access.canManage) return "forbidden";
 
     const q = query.trim();

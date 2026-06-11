@@ -136,6 +136,18 @@ export async function organizationsRoutes(app: FastifyInstance) {
   );
 
   app.get(
+    "/organizations/:id/users",
+    {
+      schema: {
+        tags: ["Organization"],
+        summary: "List organization users for the chart",
+        params: { type: "object", properties: { id: { type: "string" } } },
+      },
+    },
+    orgController.listOrganizationUsers
+  );
+
+  app.get(
     "/organizations/:id/users/search",
     {
       schema: {

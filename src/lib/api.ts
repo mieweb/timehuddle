@@ -554,6 +554,11 @@ export const orgApi = {
       `/v1/organizations/${encodeURIComponent(id)}/members`,
     ).then((r) => r.users),
 
+  listOrganizationUsers: (id: string) =>
+    request<{ users: OrganizationAdminUser[] }>(
+      `/v1/organizations/${encodeURIComponent(id)}/users`,
+    ).then((r) => r.users),
+
   searchUsers: (id: string, q: string) =>
     request<{ users: Array<{ id: string; name: string; username: string | null }> }>(
       `/v1/organizations/${encodeURIComponent(id)}/users/search?q=${encodeURIComponent(q)}`,

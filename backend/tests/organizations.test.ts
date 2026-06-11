@@ -12,15 +12,30 @@ const ENTERPRISE_ADMIN = {
   email: "enterprise-admin@test.dev",
   password: "Password1!",
 };
+const ENTERPRISE_OWNER = {
+  name: "Enterprise Owner",
+  email: "enterprise-owner@test.dev",
+  password: "Password1!",
+};
+const UNRELATED_ENTERPRISE_ADMIN = {
+  name: "Unrelated Enterprise Admin",
+  email: "unrelated-enterprise-admin@test.dev",
+  password: "Password1!",
+};
 
 let app: FastifyInstance;
 let ownerCookie: string;
 let memberCookie: string;
 let enterpriseAdminCookie: string;
+let enterpriseOwnerCookie: string;
+let unrelatedEnterpriseAdminCookie: string;
 let ownerId: string;
 let memberId: string;
 let enterpriseAdminId: string;
+let enterpriseOwnerId: string;
+let unrelatedEnterpriseAdminId: string;
 let enterpriseId: string;
+let unrelatedEnterpriseId: string;
 let organizationId: string;
 let teamCode: string;
 
@@ -51,22 +66,36 @@ beforeAll(async () => {
   await app.ready();
 
   const db = client.db();
-  await Promise.all([purgeUser(OWNER.email), purgeUser(MEMBER.email)]);
+  await Promise.all([
+    purgeUser(OWNER.email),
+    purgeUser(MEMBER.email),
+    purgeUser(ENTERPRISE_ADMIN.email),
+    purgeUser(ENTERPRISE_OWNER.email),
+    purgeUser(UNRELATED_ENTERPRISE_ADMIN.email),
+  ]);
   await auth.api.signUpEmail({ body: OWNER });
   await auth.api.signUpEmail({ body: MEMBER });
   await auth.api.signUpEmail({ body: ENTERPRISE_ADMIN });
+  await auth.api.signUpEmail({ body: ENTERPRISE_OWNER });
+  await auth.api.signUpEmail({ body: UNRELATED_ENTERPRISE_ADMIN });
 
   ownerId = String((await db.collection("user").findOne({ email: OWNER.email }))!._id);
   memberId = String((await db.collection("user").findOne({ email: MEMBER.email }))!._id);
   enterpriseAdminId = String(
     (await db.collection("user").findOne({ email: ENTERPRISE_ADMIN.email }))!._id
   );
+  enterpriseOwnerId = String(
+    (await db.collection("user").findOne({ email: ENTERPRISE_OWNER.email }))!._id
+  );
+  unrelatedEnterpriseAdminId = String(
+    (await db.collection("user").findOne({ email: UNRELATED_ENTERPRISE_ADMIN.email }))!._id
+  );
 
   const enterpriseDoc = {
     _id: new ObjectId(),
     name: "Test Enterprise",
     slug: `test-enterprise-${Date.now()}`,
-    owners: [ownerId],
+    owners: [ownerId, enterpriseOwnerId],
     admins: [enterpriseAdminId],
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -74,9 +103,26 @@ beforeAll(async () => {
   await db.collection("enterprises").insertOne(enterpriseDoc);
   enterpriseId = enterpriseDoc._id.toHexString();
 
+  const unrelatedEnterpriseDoc = {
+    _id: new ObjectId(),
+    name: "Unrelated Enterprise",
+    slug: `unrelated-enterprise-${Date.now()}`,
+    owners: [],
+    admins: [unrelatedEnterpriseAdminId],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  await db.collection("enterprises").insertOne(unrelatedEnterpriseDoc);
+  unrelatedEnterpriseId = unrelatedEnterpriseDoc._id.toHexString();
+
   ownerCookie = await getSessionCookie(OWNER.email, OWNER.password);
   memberCookie = await getSessionCookie(MEMBER.email, MEMBER.password);
   enterpriseAdminCookie = await getSessionCookie(ENTERPRISE_ADMIN.email, ENTERPRISE_ADMIN.password);
+  enterpriseOwnerCookie = await getSessionCookie(ENTERPRISE_OWNER.email, ENTERPRISE_OWNER.password);
+  unrelatedEnterpriseAdminCookie = await getSessionCookie(
+    UNRELATED_ENTERPRISE_ADMIN.email,
+    UNRELATED_ENTERPRISE_ADMIN.password
+  );
 }, 60000);
 
 afterAll(async () => {
@@ -89,10 +135,15 @@ afterAll(async () => {
   if (enterpriseId) {
     await db.collection("enterprises").deleteOne({ _id: new ObjectId(enterpriseId) });
   }
+  if (unrelatedEnterpriseId) {
+    await db.collection("enterprises").deleteOne({ _id: new ObjectId(unrelatedEnterpriseId) });
+  }
   await Promise.all([
     purgeUser(OWNER.email),
     purgeUser(MEMBER.email),
     purgeUser(ENTERPRISE_ADMIN.email),
+    purgeUser(ENTERPRISE_OWNER.email),
+    purgeUser(UNRELATED_ENTERPRISE_ADMIN.email),
   ]);
   await app.close();
 });
@@ -126,6 +177,37 @@ describe("organizations routes", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().organization.allowAutoJoin).toBe(false);
+  });
+
+  it("reports canManage for organization owner and allows member visibility", async () => {
+    const orgRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${organizationId}`,
+      headers: { cookie: ownerCookie },
+    });
+    expect(orgRes.statusCode).toBe(200);
+    expect(orgRes.json().organization.canManage).toBe(true);
+
+    const membersRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${organizationId}/members`,
+      headers: { cookie: ownerCookie },
+    });
+    expect(membersRes.statusCode).toBe(200);
+    const users = membersRes.json().users as Array<{ id: string }>;
+    expect(users.some((user) => user.id === ownerId)).toBe(true);
+  });
+
+  it("keeps last elevated organization member protection outside CASL", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/members/${ownerId}/role`,
+      headers: { cookie: ownerCookie },
+      payload: { role: "member" },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("At least one owner or admin is required");
   });
 
   it("team join does not auto-create org membership when allowAutoJoin=false", async () => {
@@ -183,6 +265,54 @@ describe("organizations routes", () => {
     expect(users.some((user) => user.id === ownerId)).toBe(true);
   });
 
+  it("reports canManage for enterprise owner and admin without org membership", async () => {
+    const ownerRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${organizationId}`,
+      headers: { cookie: enterpriseOwnerCookie },
+    });
+    expect(ownerRes.statusCode).toBe(200);
+    expect(ownerRes.json().organization.canManage).toBe(true);
+
+    const adminRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${organizationId}`,
+      headers: { cookie: enterpriseAdminCookie },
+    });
+    expect(adminRes.statusCode).toBe(200);
+    expect(adminRes.json().organization.canManage).toBe(true);
+  });
+
+  it("allows enterprise owner without org membership to manage organization settings and roles", async () => {
+    const settingsRes = await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/settings`,
+      headers: { cookie: enterpriseOwnerCookie },
+      payload: { allowAutoJoin: true },
+    });
+    expect(settingsRes.statusCode).toBe(200);
+    expect(settingsRes.json().organization.allowAutoJoin).toBe(true);
+
+    const roleRes = await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/role`,
+      headers: { cookie: enterpriseOwnerCookie },
+      payload: { role: "member" },
+    });
+    expect(roleRes.statusCode).toBe(200);
+    expect(roleRes.json().user.role).toBe("member");
+  });
+
+  it("forbids unrelated enterprise admin from organization member visibility", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${organizationId}/members`,
+      headers: { cookie: unrelatedEnterpriseAdminCookie },
+    });
+
+    expect(res.statusCode).toBe(403);
+  });
+
   it("allows enterprise admin to manually add a member to organization", async () => {
     const res = await app.inject({
       method: "PUT",
@@ -199,6 +329,35 @@ describe("organizations routes", () => {
     });
     expect(orgMember).not.toBeNull();
     expect(orgMember?.role).toBe("member");
+  });
+
+  it("allows organization members to view chart users", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${organizationId}/users`,
+      headers: { cookie: memberCookie },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const users = res.json().users as Array<{ id: string }>;
+    expect(users.some((user) => user.id === ownerId)).toBe(true);
+  });
+
+  it("forbids plain organization member from managing members", async () => {
+    const orgRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${organizationId}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(orgRes.statusCode).toBe(200);
+    expect(orgRes.json().organization.canManage).toBe(false);
+
+    const membersRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${organizationId}/members`,
+      headers: { cookie: memberCookie },
+    });
+    expect(membersRes.statusCode).toBe(403);
   });
 
   it("allows enterprise admin to remove a member from organization", async () => {
@@ -284,6 +443,38 @@ describe("organizations routes", () => {
 
     expect(res.statusCode).toBe(200);
     expect(Array.isArray(res.json().users)).toBe(true);
+  });
+
+  it("allows organization admin to remove members without enterprise admin access", async () => {
+    const promoteAdminRes = await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/role`,
+      headers: { cookie: ownerCookie },
+      payload: { role: "admin" },
+    });
+    expect(promoteAdminRes.statusCode).toBe(200);
+
+    const addTargetRes = await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/members/${enterpriseOwnerId}/role`,
+      headers: { cookie: ownerCookie },
+      payload: { role: "member" },
+    });
+    expect(addTargetRes.statusCode).toBe(200);
+
+    const removeRes = await app.inject({
+      method: "DELETE",
+      url: `/v1/organizations/${organizationId}/members/${enterpriseOwnerId}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(removeRes.statusCode).toBe(200);
+
+    const db = client.db();
+    const orgMember = await db.collection("org_members").findOne({
+      orgId: organizationId,
+      userId: enterpriseOwnerId,
+    });
+    expect(orgMember).toBeNull();
   });
 
   it("allows enterprise admin to downgrade a member role", async () => {
