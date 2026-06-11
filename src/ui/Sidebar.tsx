@@ -130,10 +130,10 @@ const NavLink: React.FC<{ item: NavItem; active: boolean; expanded: boolean }> =
       }}
       className={[
         'group flex h-9 w-full items-center rounded-lg text-sm transition-colors',
-        'focus:outline-none focus:ring-2 focus:ring-[var(--mieweb-primary-500)]/40',
+        'focus:outline-none focus:ring-2 focus:ring-(--mieweb-primary-500)/40',
         expanded ? 'gap-3 px-2.5' : 'justify-center px-0',
         active
-          ? 'bg-[var(--mieweb-primary-50)] text-[var(--mieweb-primary-700)] dark:bg-[var(--mieweb-primary-950)]/60 dark:text-[var(--mieweb-primary-400)]'
+          ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/60 dark:text-primary-400'
           : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800',
       ].join(' ')}
       aria-current={active ? 'page' : undefined}
@@ -144,7 +144,7 @@ const NavLink: React.FC<{ item: NavItem; active: boolean; expanded: boolean }> =
         className={[
           'w-4 shrink-0 text-sm',
           active
-            ? 'text-[var(--mieweb-primary-600)] dark:text-[var(--mieweb-primary-400)]'
+            ? 'text-primary-600 dark:text-primary-400'
             : 'text-neutral-400 transition-colors group-hover:text-neutral-700 dark:group-hover:text-neutral-200',
         ].join(' ')}
       />
@@ -188,7 +188,7 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
         {' '}
         <span className="flex min-w-0 items-center gap-3 rounded-md" aria-label="Huddle">
           {/* Icon mark */}
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--mieweb-primary-500)] to-[var(--mieweb-primary-700)] text-sm font-bold text-white shadow-sm">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-(--mieweb-primary-500) to-primary-700 text-sm font-bold text-white shadow-sm">
             TH
           </div>
           {/* Wordmark */}
@@ -250,7 +250,7 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
                       }}
                       className={[
                         'group flex h-9 w-full items-center rounded-lg text-sm transition-colors',
-                        'focus:outline-none focus:ring-2 focus:ring-[var(--mieweb-primary-500)]/40',
+                        'focus:outline-none focus:ring-2 focus:ring-(--mieweb-primary-500)/40',
                         'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800',
                         expanded ? 'gap-3 px-2.5' : 'justify-center px-0',
                       ].join(' ')}
@@ -283,7 +283,7 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
                       }}
                       className={[
                         'group flex h-9 w-full items-center rounded-lg text-sm transition-colors',
-                        'focus:outline-none focus:ring-2 focus:ring-[var(--mieweb-primary-500)]/40',
+                        'focus:outline-none focus:ring-2 focus:ring-(--mieweb-primary-500)/40',
                         'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800',
                         expanded ? 'gap-3 px-2.5' : 'justify-center px-0',
                       ].join(' ')}
@@ -373,7 +373,7 @@ export const Sidebar: React.FC = () => {
           <AnimatePresence>
             {isMobileOpen && (
               <motion.aside
-                className="fixed bottom-0 left-0 top-0 z-50 flex w-[70vw] max-w-[260px] flex-col overflow-hidden border-r border-neutral-200 bg-white shadow-xl md:hidden dark:border-neutral-800 dark:bg-neutral-900"
+                className="fixed bottom-0 left-0 top-0 z-50 flex w-[70vw] max-w-65 flex-col overflow-hidden border-r border-neutral-200 bg-white shadow-xl md:hidden dark:border-neutral-800 dark:bg-neutral-900"
                 initial={{ x: '-100%' }}
                 animate={{ x: 0 }}
                 exit={{ x: '-100%' }}

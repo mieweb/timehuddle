@@ -953,7 +953,9 @@ export const TicketsPage: React.FC = () => {
         github: editGithub.trim() || undefined,
       });
       const currentAssignees = editTicket.assignedTo ?? [];
-      const hasChanged = editAssignees.length !== currentAssignees.length || !editAssignees.every((id) => currentAssignees.includes(id));
+      const hasChanged =
+        editAssignees.length !== currentAssignees.length ||
+        !editAssignees.every((id) => currentAssignees.includes(id));
       if (hasChanged) {
         await ticketApi.assignTicket(editTicket.id, editAssignees);
       }
@@ -1408,9 +1410,7 @@ export const TicketsPage: React.FC = () => {
                 }}
               />
               <div>
-                <label className="mb-2 block text-sm font-medium">
-                  Assignees
-                </label>
+                <label className="mb-2 block text-sm font-medium">Assignees</label>
                 <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-neutral-200 p-3 dark:border-neutral-700">
                   {memberOptions.map((option) => (
                     <label

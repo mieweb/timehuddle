@@ -217,7 +217,11 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     if (!ticket) return;
     setActionError(null);
     try {
-      const ids = Array.isArray(assignedToUserIds) ? assignedToUserIds : assignedToUserIds ? [assignedToUserIds] : [];
+      const ids = Array.isArray(assignedToUserIds)
+        ? assignedToUserIds
+        : assignedToUserIds
+          ? [assignedToUserIds]
+          : [];
       const updated = await ticketApi.assignTicket(ticket.id, ids);
       setTicket(updated);
     } catch {

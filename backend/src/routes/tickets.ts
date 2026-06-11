@@ -101,7 +101,9 @@ export async function ticketRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const tickets = await ticketService.findSharedWithTimeharbor(req.user!.id);
-      const userIds = tickets.flatMap((t) => [t.createdBy, ...(t.assignedTo ?? [])].filter(Boolean));
+      const userIds = tickets.flatMap((t) =>
+        [t.createdBy, ...(t.assignedTo ?? [])].filter(Boolean)
+      );
       const names = await resolveUserNames(userIds);
       return reply.send({
         tickets: tickets.map((t) => ({
