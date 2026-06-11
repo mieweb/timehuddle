@@ -38,7 +38,12 @@ import { initAgenda, stopAgenda } from "./services/agenda.service.js";
 import { orgService } from "./services/org.service.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: opts.logger ?? true });
+  // trustProxy: TLS is terminated at the reverse proxy in production, so
+  // `request.protocol` would otherwise always be "http". Trusting the proxy
+  // makes Fastify honour x-forwarded-proto / x-forwarded-host so internal
+  // URLs (e.g. the TUS `Location` header from @mieweb/pulsevault) are built
+  // with the correct https:// scheme and avoid Mixed Content blocks.
+  const app = Fastify({ logger: opts.logger ?? true, trustProxy: true });
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
   // Register multipart before routes and before Swagger
