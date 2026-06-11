@@ -1,13 +1,14 @@
 import { subject } from "@casl/ability";
 import { ObjectId } from "mongodb";
 import {
+  enterprisesCollection,
+  orgMembersCollection,
   organizationsCollection,
   teamsCollection,
   ticketsCollection,
   usersCollection,
 } from "../models/index.js";
 import { buildAbilityFor, type AppAction } from "../lib/permissions.js";
-import { DEFAULT_ORG_KEY } from "../lib/org-config.js";
 import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
 import {
   ActivityType,
@@ -61,15 +62,35 @@ export class TicketService {
     userId: string,
     team: { orgId?: string }
   ): Promise<"owner" | "admin" | "member"> {
-    const org =
-      (team.orgId && isValidId(team.orgId)
-        ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
-        : null) ?? (await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY }));
-
-    if (!org) return "member";
-    if ((org.owners ?? []).includes(userId)) return "owner";
-    if ((org.admins ?? []).includes(userId)) return "admin";
+    if (!team.orgId || !isValidId(team.orgId)) return "member";
+    const membership = await orgMembersCollection().findOne({ orgId: team.orgId, userId });
+    if (membership?.role === "owner") return "owner";
+    if (membership?.role === "admin") return "admin";
     return "member";
+  }
+
+  private async isEnterpriseElevatedForTeamOrg(
+    userId: string,
+    team: { orgId?: string }
+  ): Promise<{ elevated: boolean; enterpriseId: string | null }> {
+    if (!team.orgId || !isValidId(team.orgId)) {
+      return { elevated: false, enterpriseId: null };
+    }
+
+    const org = await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) });
+    const enterpriseId = org?.enterpriseId ?? null;
+    if (!enterpriseId || !isValidId(enterpriseId)) {
+      return { elevated: false, enterpriseId: null };
+    }
+
+    const enterprise = await enterprisesCollection().findOne({ _id: new ObjectId(enterpriseId) });
+    if (!enterprise) {
+      return { elevated: false, enterpriseId };
+    }
+
+    const elevated =
+      (enterprise.owners ?? []).includes(userId) || (enterprise.admins ?? []).includes(userId);
+    return { elevated, enterpriseId };
   }
 
   private async buildTeamAbility(userId: string, teamId: string) {
@@ -78,9 +99,11 @@ export class TicketService {
     if (!team) return null;
 
     const role = await this.resolveOrgRoleForTeam(userId, team);
+    const enterpriseScope = await this.isEnterpriseElevatedForTeamOrg(userId, team);
     const isTeamMember =
       (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
-    const scopedTeamIds = isTeamMember ? [teamId] : [];
+    const isOrgElevated = role === "owner" || role === "admin";
+    const scopedTeamIds = isTeamMember || isOrgElevated || enterpriseScope.elevated ? [teamId] : [];
 
     return {
       team,
@@ -88,6 +111,9 @@ export class TicketService {
         userId,
         role,
         teamIds: scopedTeamIds,
+        orgIds: team.orgId ? [team.orgId] : [],
+        enterpriseIds: enterpriseScope.enterpriseId ? [enterpriseScope.enterpriseId] : [],
+        isEnterpriseElevated: enterpriseScope.elevated,
         teamAdminIds: (team.admins ?? []).includes(userId) ? [teamId] : [],
       }),
     };
@@ -172,14 +198,43 @@ export class TicketService {
       status: { $ne: "deleted" as TicketStatus },
     };
 
-    // Org-elevated users can read shared tickets across all teams.
-    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
-    const isOrgElevated =
-      (defaultOrg?.owners ?? []).includes(userId) || (defaultOrg?.admins ?? []).includes(userId);
+    const [orgElevatedMemberships, enterpriseElevated] = await Promise.all([
+      orgMembersCollection()
+        .find({ userId, role: { $in: ["owner", "admin"] } }, { projection: { orgId: 1 } })
+        .toArray(),
+      enterprisesCollection()
+        .find({ $or: [{ owners: userId }, { admins: userId }] }, { projection: { _id: 1 } })
+        .toArray(),
+    ]);
 
-    if (teamIds.length === 0 && !isOrgElevated) return [];
+    const enterpriseIds = enterpriseElevated.map((enterprise) => enterprise._id.toHexString());
+    const enterpriseOrgIds = enterpriseIds.length
+      ? (
+          await organizationsCollection()
+            .find({ enterpriseId: { $in: enterpriseIds } }, { projection: { _id: 1 } })
+            .toArray()
+        ).map((org) => org._id.toHexString())
+      : [];
 
-    const query = isOrgElevated ? baseFilter : { ...baseFilter, teamId: { $in: teamIds } };
+    const elevatedOrgIds = Array.from(
+      new Set([
+        ...orgElevatedMemberships.map((membership) => membership.orgId),
+        ...enterpriseOrgIds,
+      ])
+    );
+
+    const elevatedTeamIds = elevatedOrgIds.length
+      ? (
+          await teamsCollection()
+            .find({ orgId: { $in: elevatedOrgIds } }, { projection: { _id: 1 } })
+            .toArray()
+        ).map((team) => team._id.toHexString())
+      : [];
+
+    const visibleTeamIds = Array.from(new Set([...teamIds, ...elevatedTeamIds]));
+    if (visibleTeamIds.length === 0) return [];
+
+    const query = { ...baseFilter, teamId: { $in: visibleTeamIds } };
     return ticketsCollection()
       .find({
         ...query,
@@ -218,7 +273,7 @@ export class TicketService {
       github: data.github,
       status: "open",
       createdBy: data.createdBy,
-      assignedTo: data.createdBy,
+      assignedTo: [data.createdBy],
       createdAt: new Date(),
     });
     await this.emitTicketCreatedActivity(data.createdBy, data.teamId, {
@@ -351,7 +406,7 @@ export class TicketService {
   async assign(
     id: string,
     requesterId: string,
-    assignedToUserId: string | null
+    assignedToUserIds: string[]
   ): Promise<Ticket | AssignError> {
     const ticket = await this.findAuthorizedTicket(id, requesterId, "assign");
     if (ticket === "not-found" || ticket === "forbidden") return ticket;
@@ -359,67 +414,90 @@ export class TicketService {
     const team = await teamsCollection().findOne({ _id: new ObjectId(ticket.teamId) });
     if (!team) return "forbidden";
 
-    if (assignedToUserId !== null) {
-      const allMembers = [...new Set([...(team.members ?? []), ...(team.admins ?? [])])];
-      if (!allMembers.includes(assignedToUserId)) return "bad-assignee";
+    // Validate all assignees are team members
+    const allMembers = [...new Set([...(team.members ?? []), ...(team.admins ?? [])])];
+    for (const userId of assignedToUserIds) {
+      if (!allMembers.includes(userId)) return "bad-assignee";
     }
+
     await ticketsCollection().updateOne(
       { _id: new ObjectId(id) },
-      { $set: { assignedTo: assignedToUserId, updatedAt: new Date(), updatedBy: requesterId } }
+      { $set: { assignedTo: assignedToUserIds, updatedAt: new Date(), updatedBy: requesterId } }
     );
     const updated = (await this.findById(id))!;
-    const assignee =
-      assignedToUserId && isValidId(assignedToUserId)
-        ? await usersCollection().findOne({ _id: new ObjectId(assignedToUserId) })
-        : null;
+
+    // Determine newly added assignees (not previously assigned)
+    const previousAssignees = ticket.assignedTo ?? [];
+    const newAssignees = assignedToUserIds.filter((uid) => !previousAssignees.includes(uid));
+
+    // Fetch assignee names for activity log
+    const assigneeNames =
+      assignedToUserIds.length > 0
+        ? await usersCollection()
+            .find({ _id: { $in: assignedToUserIds.map((uid) => new ObjectId(uid)) } })
+            .toArray()
+            .then((users) =>
+              users.map((u) => u.name ?? u.email?.split("@")[0] ?? "Unknown").join(", ")
+            )
+        : "";
+
     await this.emitTicketUpdatedActivity(requesterId, updated.teamId, {
       ticketId: updated._id.toHexString(),
       ticketTitle: updated.title,
       teamId: updated.teamId,
-      action: assignedToUserId ? "assigned" : "unassigned",
-      assigneeId: assignedToUserId,
-      assigneeName: assignee?.name ?? assignee?.email?.split("@")[0],
+      action: assignedToUserIds.length > 0 ? "assigned" : "unassigned",
+      assigneeId: assignedToUserIds[0] ?? null,
+      assigneeName: assigneeNames || undefined,
     });
 
-    // Notify the assignee (skip if unassigning or assigning to self)
-    if (assignedToUserId && assignedToUserId !== requesterId) {
-      const requester = await usersCollection().findOne({ _id: new ObjectId(requesterId) });
-      const requesterName = requester?.name ?? requester?.email?.split("@")[0] ?? "Someone";
-      await Promise.all([
-        notificationService
-          .create({
-            userId: assignedToUserId,
-            title: "TiméHuddle",
-            body: `${requesterName} assigned you "${ticket.title}"`,
-            notificationData: {
-              type: "ticket-assigned",
-              assignedBy: requesterId,
-              assignedByName: requesterName,
-              ticketId: id,
-              ticketTitle: ticket.title,
-              teamId: ticket.teamId,
-              url: `/app/tickets`,
-            },
-          })
-          .catch(() => {}),
-        pushService
-          .sendPush(assignedToUserId, {
-            title: `Ticket assigned to you`,
-            body: `${requesterName} assigned you "${ticket.title}"`,
-            tag: `ticket-assigned-${id}`,
-            data: {
-              type: "ticket-assigned",
-              assignedBy: requesterId,
-              assignedByName: requesterName,
-              ticketId: id,
-              ticketTitle: ticket.title,
-              teamId: ticket.teamId,
-              url: `/app/tickets`,
-            },
-          })
-          .catch(() => {}),
-      ]);
-    }
+    // Notify newly added assignees (skip requester)
+    const requester = await usersCollection().findOne({ _id: new ObjectId(requesterId) });
+    const requesterName = requester?.name ?? requester?.email?.split("@")[0] ?? "Someone";
+
+    await Promise.all(
+      newAssignees
+        .filter((uid) => uid !== requesterId)
+        .map((uid) =>
+          Promise.all([
+            notificationService
+              .create({
+                userId: uid,
+                title: "Huddle",
+                body: `${requesterName} assigned you "${ticket.title}"`,
+                notificationData: {
+                  type: "ticket-assigned",
+                  assignedBy: requesterId,
+                  assignedByName: requesterName,
+                  ticketId: id,
+                  ticketTitle: ticket.title,
+                  teamId: ticket.teamId,
+                  url: `/app/tickets`,
+                },
+              })
+              .catch((err) => {
+                console.error(`[ticket] Failed to create notification for user ${uid}:`, err);
+              }),
+            pushService
+              .sendPush(uid, {
+                title: `Ticket assigned to you`,
+                body: `${requesterName} assigned you "${ticket.title}"`,
+                tag: `ticket-assigned-${id}`,
+                data: {
+                  type: "ticket-assigned",
+                  assignedBy: requesterId,
+                  assignedByName: requesterName,
+                  ticketId: id,
+                  ticketTitle: ticket.title,
+                  teamId: ticket.teamId,
+                  url: `/app/tickets`,
+                },
+              })
+              .catch((err) => {
+                console.error(`[ticket] Failed to send push notification to user ${uid}:`, err);
+              }),
+          ])
+        )
+    );
 
     broadcast(updated.teamId, updated, "update");
     return updated;

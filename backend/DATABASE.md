@@ -18,7 +18,10 @@ MongoDB is schema-flexible, so the effective schema is application-enforced (Typ
 
 ```mermaid
 flowchart LR
+  Enterprise --> Organization
+  Organization --> OrgMembership
   Organization --> Team
+  Team --> Team
   Team --> Ticket
   Team --> ClockEvent
   Team --> Channel
@@ -37,6 +40,7 @@ flowchart LR
   User --> UserDeviceTokens
   User --> PersonalAccessToken
   User --> ActivityEvent
+  User --> OrgMembership
   Ticket --> Attachment
   ClockEvent --> Attachment
 ```
@@ -48,6 +52,8 @@ flowchart LR
 | `user`                   | Better Auth + app | `User` interface in `backend/src/models/user.model.ts`                          | Identity root for all user-scoped data and authentication linking.                                | Singular collection name is intentional.                                     |
 | `teams`                  | App               | `Team` interface in `backend/src/models/team.model.ts`                          | Defines collaboration boundaries (membership/admins) used for authz checks.                       | Team membership and admin authorization root.                                |
 | `organizations`          | App               | `Organization` interface in `backend/src/models/organization.model.ts`          | Groups teams under higher-level ownership/admin governance.                                       | Teams reference via `orgId` (string ObjectId).                               |
+| `enterprises`            | App               | `Enterprise` interface in `backend/src/models/enterprise.model.ts`              | Top-level tenant container for one or more organizations.                                         | Enterprise owners/admins manage child organizations.                         |
+| `org_members`            | App               | `OrgMembership` interface in `backend/src/models/org-membership.model.ts`       | Source of truth for organization membership and role assignment.                                  | Replaces role derivation from legacy `owners[]`/`admins[]` arrays.           |
 | `tickets`                | App (Mongoose)    | `ticketSchema` in `backend/src/models/ticket.model.ts`                          | Stores work units that time entries and assignments are anchored to.                              | Only major collection currently backed by explicit Mongoose schema.          |
 | `clockevents`            | App               | `ClockEvent` interface in `backend/src/models/clock.model.ts`                   | Captures attendance-style clock in/out state.                                                     | Clock-in/out sessions; breaks live in the separate `clockbreaks` collection. |
 | `clockbreaks`            | App               | `ClockBreak` interface in `backend/src/models/clock.model.ts`                   | Stores FLSA-classified break intervals as first-class documents referencing a parent clock event. | Separate collection; each document owns a `clockEventId` foreign key.        |
@@ -86,10 +92,33 @@ Core fields used by app code:
 ### `organizations`
 
 - `_id: ObjectId`
+- `enterpriseId?: string` (ObjectId string of enterprise)
 - `name: string`
 - `key: string`
+- `slug?: string`
 - `owners?: string[]`
 - `admins?: string[]`
+- `allowAutoJoin?: boolean` (default `true`)
+- `createdAt: Date`
+- `updatedAt?: Date`
+
+### `enterprises`
+
+- `_id: ObjectId`
+- `name: string`
+- `slug: string`
+- `owners?: string[]`
+- `admins?: string[]`
+- `createdAt: Date`
+- `updatedAt?: Date`
+
+### `org_members`
+
+- `_id: ObjectId`
+- `orgId: string` (ObjectId string of organization)
+- `userId: string` (ObjectId string of user)
+- `role: "owner" | "admin" | "member"`
+- `auto: boolean` (`true` when membership came from auto-join behavior)
 - `createdAt: Date`
 - `updatedAt?: Date`
 
@@ -97,6 +126,7 @@ Core fields used by app code:
 
 - `_id: ObjectId`
 - `orgId: string` (ObjectId string of organization)
+- `parentTeamId?: string | null` (ObjectId string of parent team; `null` for top-level)
 - `name: string`
 - `description?: string`
 - `members: string[]` (user ids)

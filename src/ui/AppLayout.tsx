@@ -32,6 +32,7 @@ import { MediaPage } from '../features/media/MediaPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
 import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
 import { OrganizationPage } from '../features/org/OrganizationPage';
+import { EnterprisePage } from '../features/enterprise/EnterprisePage';
 import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
@@ -69,6 +70,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
+  '/app/enterprise': { title: 'Enterprise', component: EnterprisePage },
   '/app/organization': { title: 'Organization', component: OrganizationPage },
   '/app/media': { title: 'Media Library', component: MediaPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
@@ -146,7 +148,7 @@ const AppLayoutContent: React.FC = () => {
 
   const navigate = useCallback((path: string) => {
     window.history.pushState(null, '', path);
-    setPathname(path);
+    setPathname(path.split('?')[0]);
   }, []);
 
   // Keep in sync with browser back/forward
@@ -156,7 +158,7 @@ const AppLayoutContent: React.FC = () => {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  // Scroll the content area back to the top on every route change
+  // Scroll the content area back to the top on every route change.
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0 });
@@ -183,10 +185,16 @@ const AppLayoutContent: React.FC = () => {
           }),
         );
         navigate('/app/messages');
+      } else if (data.type === 'shift-end-reminder') {
+        window.dispatchEvent(
+          new CustomEvent('timehuddle:openShiftReminder', {
+            detail: { clockEventId: data.clockEventId, teamId: data.teamId },
+          }),
+        );
       } else if (data.url) {
         const safePath = data.url.split('?')[0];
         if (safePath.startsWith('/app/')) {
-          navigate(safePath);
+          navigate(data.url); // preserve query string (e.g. ?tab=work)
         }
       }
     })
@@ -200,6 +208,21 @@ const AppLayoutContent: React.FC = () => {
       handle?.remove();
     };
   }, [navigate]);
+
+  // Web push: service worker posts a message to open the shift-end-reminder modal
+  // without navigating away from the current page.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'timehuddle:openShiftReminder') {
+        window.dispatchEvent(
+          new CustomEvent('timehuddle:openShiftReminder', { detail: event.data }),
+        );
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
+  }, []);
 
   // Parameterized profile route — /app/profile/:userId
   const profileUserId = pathname.startsWith('/app/profile/')
@@ -301,6 +324,21 @@ const AppLayoutContent: React.FC = () => {
                       className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'app-main-scroll'}` : 'app-main-scroll'} md:pb-0`}
                     >
                       <PullToRefresh>
+                        {/* TicketsPage is always mounted to avoid unmount/remount flicker.
+                            When inactive, it is visually hidden and positioned out of flow
+                            so `display:none` stacking-context invalidation is avoided. */}
+                        <div
+                          className={
+                            !profileUserId &&
+                            !profileUsername &&
+                            !ticketDetailId &&
+                            pathname === '/app/tickets'
+                              ? 'h-full w-full flex flex-col'
+                              : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
+                          }
+                        >
+                          <TicketsPage />
+                        </div>
                         {profileUserId ? (
                           <ProfilePage userId={profileUserId} />
                         ) : profileUsername ? (
@@ -308,7 +346,9 @@ const AppLayoutContent: React.FC = () => {
                         ) : ticketDetailId ? (
                           <TicketDetailPage ticketId={ticketDetailId} />
                         ) : (
-                          route && React.createElement(route.component)
+                          route &&
+                          route.component !== TicketsPage &&
+                          React.createElement(route.component)
                         )}
                       </PullToRefresh>
                     </main>

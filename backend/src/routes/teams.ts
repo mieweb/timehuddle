@@ -7,6 +7,8 @@ const teamShape = {
   type: "object",
   properties: {
     id: { type: "string" },
+    orgId: { type: "string" },
+    parentTeamId: { type: ["string", "null"] },
     name: { type: "string" },
     description: { type: ["string", "null"] },
     members: { type: "array", items: { type: "string" } },
@@ -115,6 +117,10 @@ export async function teamRoutes(app: FastifyInstance) {
           properties: {
             name: { type: "string", minLength: 1, maxLength: 100 },
             description: { type: "string", maxLength: 500 },
+            orgId: { type: "string", pattern: "^[0-9a-f]{24}$" },
+            parentTeamId: {
+              anyOf: [{ type: "string", pattern: "^[0-9a-f]{24}$" }, { type: "null" }],
+            },
           },
         },
         response: { 201: { type: "object", properties: { team: teamShape } } },
@@ -122,9 +128,43 @@ export async function teamRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const userId = (req as any).user.id as string;
-      const { name, description } = req.body as { name: string; description?: string };
-      const team = await teamService.createTeam(userId, { name, description });
+      const { name, description, orgId, parentTeamId } = req.body as {
+        name: string;
+        description?: string;
+        orgId?: string;
+        parentTeamId?: string | null;
+      };
+      const team = await teamService.createTeam(userId, { name, description, orgId, parentTeamId });
       return (reply as any).status(201).send({ team });
+    }
+  );
+
+  app.get(
+    "/teams/:id/subteams",
+    {
+      schema: {
+        tags: ["Teams"],
+        summary: "List sub-teams for a parent team",
+        params: { type: "object", properties: { id: { type: "string" } } },
+        response: {
+          200: {
+            type: "object",
+            properties: { teams: { type: "array", items: teamShape } },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const userId = (req as any).user.id as string;
+      const { id } = req.params as { id: string };
+      const result = await teamService.getSubTeams(id, userId);
+      if (result === "not-found") {
+        return (reply as any).status(404).send({ error: "Team not found" });
+      }
+      if (result === "forbidden") {
+        return (reply as any).status(403).send({ error: "Forbidden" });
+      }
+      return reply.send({ teams: result });
     }
   );
 

@@ -367,7 +367,16 @@ ticketSchema.pre('save', async function () {
 
 ## @mieweb/ui Usage
 
-**HARD RULE: Every UI element MUST use `@mieweb/ui` imports. No raw `<button>`, `<input>`, `<select>`, `<table>`, or custom modal/card/badge markup.**
+**HARD RULE: Every UI element SHOULD use `@mieweb/ui` imports when. No raw `<button>`, `<input>`, `<select>`, `<table>`, or custom modal/card/badge markup.**
+**Scope: This is an app-wide rule for all existing and new frontend screens, not a page-by-page preference.**
+**Only use custom markup when something cannot be accomplished with pure @mieweb/ui**
+
+When touching UI code anywhere in the app:
+
+- Prefer `@mieweb/ui` primitives for structure and interaction (`Card`, `CardHeader`, `CardContent`, `Button`, `Input`, `Select`, `Table`, `Modal`, `Badge`, `Spinner`, `Text`).
+- Treat raw HTML wrappers (`<div>`, `<span>`) as layout glue only; avoid building custom UI controls or custom card/modal/table systems with plain markup.
+- During refactors, migrate nearby legacy markup to `@mieweb/ui` components as part of the same change when safe.
+
 Use this component mapping for ALL pages:
 
 - `<button>` → `import { Button } from '@mieweb/ui'`
