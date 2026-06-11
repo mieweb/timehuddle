@@ -21,6 +21,7 @@ import { pushService } from "./push.service.js";
 
 type OwnerError = "not-found" | "forbidden";
 type AssignError = "not-found" | "forbidden" | "bad-assignee";
+type CreateError = "forbidden" | "bad-request";
 
 function isValidId(id: string): boolean {
   return /^[0-9a-f]{24}$/i.test(id);
@@ -259,7 +260,11 @@ export class TicketService {
     title: string;
     github: string;
     createdBy: string;
-  }): Promise<{ id: string } | "forbidden"> {
+  }): Promise<{ id: string } | CreateError> {
+    if (!data.teamId || !isValidId(data.teamId)) {
+      return "bad-request";
+    }
+
     const context = await this.buildTeamAbility(data.createdBy, data.teamId);
     if (!context) return "forbidden";
     if (!context.ability.can("create", subject("Ticket", { teamId: data.teamId }))) {

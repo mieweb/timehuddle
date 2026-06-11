@@ -13,6 +13,7 @@ import { ObjectId } from "mongodb";
 import { buildApp } from "../src/server.js";
 import { connectDB, client } from "../src/lib/db.js";
 import { auth } from "../src/lib/auth.js";
+import { orgMembersCollection, organizationsCollection } from "../src/models/index.js";
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,7 @@ let ownerId: string;
 let memberId: string;
 let outsiderId: string;
 let teamId: string;
+let secondaryOrgId: string;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -98,6 +100,16 @@ beforeAll(async () => {
   await db.collection("teams").insertOne(teamDoc);
   teamId = teamDoc._id.toHexString();
 
+  const secondaryOrgDoc = {
+    _id: new ObjectId(),
+    name: "Secondary Team Org",
+    slug: "secondary-team-org",
+    allowAutoJoin: true,
+    createdAt: new Date(),
+  };
+  await organizationsCollection().insertOne(secondaryOrgDoc);
+  secondaryOrgId = secondaryOrgDoc._id.toHexString();
+
   ownerCookie = await getSessionCookie(OWNER.email, OWNER.password);
   memberCookie = await getSessionCookie(MEMBER.email, MEMBER.password);
   outsiderCookie = await getSessionCookie(OUTSIDER.email, OUTSIDER.password);
@@ -106,6 +118,10 @@ beforeAll(async () => {
 afterAll(async () => {
   const db = client.db();
   await db.collection("teams").deleteMany({ code: { $regex: /^TEAMCODE|^PERSONAL/ } });
+  if (secondaryOrgId) {
+    await orgMembersCollection().deleteMany({ orgId: secondaryOrgId });
+    await organizationsCollection().deleteOne({ _id: new ObjectId(secondaryOrgId) });
+  }
   await Promise.all([purgeUser(OWNER.email), purgeUser(MEMBER.email), purgeUser(OUTSIDER.email)]);
   await app.close();
 });
@@ -183,6 +199,21 @@ describe("POST /v1/teams", () => {
     expect(team.admins).toContain(ownerId);
     expect(team.isPersonal).toBe(false);
     expect(typeof team.code).toBe("string");
+    // cleanup
+    await client
+      .db()
+      .collection("teams")
+      .deleteOne({ _id: new ObjectId(team.id) });
+  });
+
+  it("creates a team in the requested organization — 201", async () => {
+    const res = await inject("POST", "/v1/teams", ownerCookie, {
+      name: "Org-Specific Team",
+      orgId: secondaryOrgId,
+    });
+    expect(res.statusCode).toBe(201);
+    const { team } = res.json();
+    expect(team.orgId).toBe(secondaryOrgId);
     // cleanup
     await client
       .db()

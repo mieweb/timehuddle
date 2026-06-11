@@ -62,7 +62,15 @@ export const TeamsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
   const { navigate } = useRouter();
-  const { teams, teamsReady, selectedTeamId, setSelectedTeamId, isAdmin, refetchTeams } = useTeam();
+  const {
+    teams,
+    teamsReady,
+    selectedOrgId,
+    selectedTeamId,
+    setSelectedTeamId,
+    isAdmin,
+    refetchTeams,
+  } = useTeam();
 
   // Fetch members for selected team
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -139,11 +147,16 @@ export const TeamsPage: React.FC = () => {
 
   const handleCreate = useCallback(async () => {
     if (!formValue.trim()) return;
+    if (!selectedOrgId) {
+      setFormError('Select an organization before creating a team.');
+      return;
+    }
     setCreateLoading(true);
     try {
       const team = await teamApi.createTeam({
         name: formValue.trim(),
         description: createDescription.trim() || undefined,
+        orgId: selectedOrgId,
       });
       setSelectedTeamId(team.id);
       setModal({ type: 'created', code: team.code });
@@ -155,7 +168,7 @@ export const TeamsPage: React.FC = () => {
     } finally {
       setCreateLoading(false);
     }
-  }, [formValue, createDescription, setSelectedTeamId, refetchTeams]);
+  }, [formValue, createDescription, selectedOrgId, setSelectedTeamId, refetchTeams]);
 
   const handleJoin = useCallback(async () => {
     if (!formValue.trim()) return;
@@ -544,6 +557,7 @@ export const TeamsPage: React.FC = () => {
             onClick={handleCreate}
             isLoading={createLoading}
             loadingText="Creating…"
+            disabled={!selectedOrgId}
           >
             Create
           </Button>
