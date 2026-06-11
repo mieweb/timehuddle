@@ -25,7 +25,7 @@ const ticketSchema = new Schema(
     status: { type: String, enum: ALL_STATUSES, required: true, default: "open", index: true },
     priority: { type: String, enum: ALL_PRIORITIES },
     createdBy: { type: String, required: true, index: true },
-    assignedTo: { type: String, default: null, index: true },
+    assignedTo: { type: [String], default: [], index: true },
     reviewedBy: { type: String },
     reviewedAt: { type: Date },
     updatedBy: { type: String },

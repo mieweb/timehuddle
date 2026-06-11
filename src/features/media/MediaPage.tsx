@@ -76,10 +76,10 @@ const GridItem: React.FC<{
     aria-label={`Open details for ${item.title ?? item.filename}`}
     aria-pressed={selected}
     className={[
-      'group relative aspect-[4/3] overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800',
-      'focus:outline-none focus:ring-2 focus:ring-[var(--mieweb-primary-500)]',
+      'group relative aspect-4/3 overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800',
+      'focus:outline-none focus:ring-2 focus:ring-(--mieweb-primary-500)',
       'transition-transform hover:scale-[1.02]',
-      selected ? 'ring-2 ring-[var(--mieweb-primary-500)]' : '',
+      selected ? 'ring-2 ring-(--mieweb-primary-500)' : '',
     ].join(' ')}
   >
     {item.type === 'video' ? (
@@ -109,8 +109,8 @@ const GridItem: React.FC<{
 
     {/* Selection overlay */}
     {selected && (
-      <div className="absolute inset-0 bg-[var(--mieweb-primary-500)]/20 flex items-start justify-end p-1.5">
-        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--mieweb-primary-500)]">
+      <div className="absolute inset-0 bg-(--mieweb-primary-500)/20 flex items-start justify-end p-1.5">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-(--mieweb-primary-500)">
           <FontAwesomeIcon icon={faCheck} className="text-[10px] text-white" />
         </span>
       </div>
@@ -532,7 +532,7 @@ export const MediaPage: React.FC = () => {
               className={[
                 'px-3 py-1.5 capitalize transition-colors',
                 filter === f
-                  ? 'bg-[var(--mieweb-primary-500)] text-white'
+                  ? 'bg-(--mieweb-primary-500) text-white'
                   : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800',
               ].join(' ')}
             >

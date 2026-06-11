@@ -710,7 +710,7 @@ export interface Ticket {
   status: string;
   priority: string | null;
   createdBy: string;
-  assignedTo: string | null;
+  assignedTo: string[];
   reviewedBy: string | null;
   reviewedAt: string | null;
   createdAt: string;
@@ -754,10 +754,10 @@ export const ticketApi = {
       body: JSON.stringify(data),
     }),
 
-  assignTicket: (id: string, assignedToUserId: string | null) =>
+  assignTicket: (id: string, assignedToUserIds: string[]) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/assign`, {
       method: 'PUT',
-      body: JSON.stringify({ assignedToUserId }),
+      body: JSON.stringify({ assignedToUserIds }),
     }).then((r) => r.ticket),
 
   /** Get total accumulated seconds for a ticket from Timers. */
