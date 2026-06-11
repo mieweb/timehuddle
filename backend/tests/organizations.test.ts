@@ -217,6 +217,33 @@ describe("organizations routes", () => {
     expect(orgMember).toBeNull();
   });
 
+  it("allows organization owner to downgrade a member role", async () => {
+    const db = client.db();
+
+    const promoteRes = await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/role`,
+      headers: { cookie: ownerCookie },
+      payload: { role: "admin" },
+    });
+    expect(promoteRes.statusCode).toBe(200);
+
+    const demoteRes = await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/role`,
+      headers: { cookie: ownerCookie },
+      payload: { role: "member" },
+    });
+
+    expect(demoteRes.statusCode).toBe(200);
+    expect(demoteRes.json().user.role).toBe("member");
+    const orgMember = await db.collection("org_members").findOne({
+      orgId: organizationId,
+      userId: memberId,
+    });
+    expect(orgMember?.role).toBe("member");
+  });
+
   it("allows organization admin to update reports-to without enterprise admin access", async () => {
     const db = client.db();
 
@@ -257,5 +284,32 @@ describe("organizations routes", () => {
 
     expect(res.statusCode).toBe(200);
     expect(Array.isArray(res.json().users)).toBe(true);
+  });
+
+  it("allows enterprise admin to downgrade a member role", async () => {
+    const db = client.db();
+
+    const promoteRes = await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/role`,
+      headers: { cookie: ownerCookie },
+      payload: { role: "admin" },
+    });
+    expect(promoteRes.statusCode).toBe(200);
+
+    const demoteRes = await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/role`,
+      headers: { cookie: enterpriseAdminCookie },
+      payload: { role: "member" },
+    });
+
+    expect(demoteRes.statusCode).toBe(200);
+    expect(demoteRes.json().user.role).toBe("member");
+    const orgMember = await db.collection("org_members").findOne({
+      orgId: organizationId,
+      userId: memberId,
+    });
+    expect(orgMember?.role).toBe("member");
   });
 });

@@ -261,7 +261,8 @@ export class OrgService {
     orgId: string,
     userId: string,
     role: OrgMembershipRole = "member",
-    auto = false
+    auto = false,
+    preserveHigherRole = true
   ): Promise<
     { orgId: string; userId: string; role: OrgMembershipRole; auto: boolean } | "not-found"
   > {
@@ -272,11 +273,17 @@ export class OrgService {
 
     const existing = await orgMembersCollection().findOne({ orgId, userId });
     const nextRole = existing
-      ? ROLE_RANK[role] > ROLE_RANK[existing.role]
-        ? role
-        : existing.role
+      ? preserveHigherRole
+        ? ROLE_RANK[role] > ROLE_RANK[existing.role]
+          ? role
+          : existing.role
+        : role
       : role;
-    const nextAuto = existing ? existing.auto && auto && existing.role === nextRole : auto;
+    const nextAuto = existing
+      ? preserveHigherRole
+        ? existing.auto && auto && existing.role === nextRole
+        : existing.auto
+      : auto;
 
     if (existing) {
       if (existing.role !== nextRole || existing.auto !== nextAuto) {
@@ -519,7 +526,7 @@ export class OrgService {
       return "last-elevated";
     }
 
-    await this.addOrgMember(orgId, targetUserId, role, false);
+    await this.addOrgMember(orgId, targetUserId, role, false, false);
     return { userId: targetUserId, role };
   }
 
