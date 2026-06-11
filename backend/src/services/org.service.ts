@@ -22,7 +22,10 @@ export type OrgUserReportsToUpdateResult =
   | "forbidden"
   | "user-not-found"
   | "reports-to-user-not-found"
+  | "reports-to-self"
   | "default-organization-not-found";
+
+export type OrgUserSearchResult = Array<{ id: string; name: string; username: string | null }>;
 
 export type OrgSummary = {
   id: string;
@@ -694,6 +697,82 @@ export class OrgService {
     );
 
     return { userId, reportsToUserId: reportsToUserId ?? null };
+  }
+
+  async updateOrganizationMemberReportsTo(
+    requesterUserId: string,
+    orgId: string,
+    userId: string,
+    reportsToUserId?: string | null
+  ): Promise<OrgUserReportsToUpdateResult | "not-found" | "not-member"> {
+    if (!isValidId(orgId)) return "not-found";
+    if (!isValidId(userId)) return "user-not-found";
+
+    const org = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
+    if (!org) return "not-found";
+
+    const access = await this.canManageOrg(requesterUserId, org);
+    if (!access.canManage) return "forbidden";
+
+    const targetMembership = await this.getOrgMembership(orgId, userId);
+    if (!targetMembership) return "not-member";
+
+    if (reportsToUserId !== undefined && reportsToUserId !== null) {
+      if (!isValidId(reportsToUserId)) return "reports-to-user-not-found";
+      if (reportsToUserId === userId) return "reports-to-self";
+
+      const reportsToMembership = await this.getOrgMembership(orgId, reportsToUserId);
+      if (!reportsToMembership) return "reports-to-user-not-found";
+    }
+
+    await usersCollection().updateOne(
+      { _id: new ObjectId(userId) },
+      { $set: { reportsToUserId: reportsToUserId ?? null, updatedAt: new Date() } }
+    );
+
+    return { userId, reportsToUserId: reportsToUserId ?? null };
+  }
+
+  async searchUsers(
+    requesterUserId: string,
+    orgId: string,
+    query: string
+  ): Promise<OrgUserSearchResult | "not-found" | "forbidden"> {
+    if (!isValidId(orgId)) return "not-found";
+
+    const org = await organizationsCollection().findOne({ _id: new ObjectId(orgId) });
+    if (!org) return "not-found";
+
+    const access = await this.canManageOrg(requesterUserId, org);
+    if (!access.canManage) return "forbidden";
+
+    const q = query.trim();
+    const filter = q
+      ? {
+          $or: [
+            { name: { $regex: q, $options: "i" } },
+            { username: { $regex: q, $options: "i" } },
+            { email: { $regex: q, $options: "i" } },
+          ],
+        }
+      : {};
+
+    const users = await usersCollection()
+      .find(filter)
+      .project<{ _id: ObjectId; name: string; username?: string | null }>({
+        _id: 1,
+        name: 1,
+        username: 1,
+      })
+      .sort({ name: 1 })
+      .limit(20)
+      .toArray();
+
+    return users.map((u) => ({
+      id: u._id.toHexString(),
+      name: u.name,
+      username: u.username ?? null,
+    }));
   }
 }
 

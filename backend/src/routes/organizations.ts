@@ -135,6 +135,19 @@ export async function organizationsRoutes(app: FastifyInstance) {
     orgController.listMembers
   );
 
+  app.get(
+    "/organizations/:id/users/search",
+    {
+      schema: {
+        tags: ["Organization"],
+        summary: "Search users available to add to an organization",
+        params: { type: "object", properties: { id: { type: "string" } } },
+        querystring: { type: "object", properties: { q: { type: "string" } } },
+      },
+    },
+    orgController.searchUsers
+  );
+
   app.put(
     "/organizations/:id/members/:userId/role",
     {
@@ -168,5 +181,28 @@ export async function organizationsRoutes(app: FastifyInstance) {
       },
     },
     orgController.removeMember
+  );
+
+  app.put(
+    "/organizations/:id/members/:userId/reports-to",
+    {
+      schema: {
+        tags: ["Organization"],
+        summary: "Update organization member reports-to",
+        params: {
+          type: "object",
+          properties: { id: { type: "string" }, userId: { type: "string" } },
+        },
+        body: {
+          type: "object",
+          properties: {
+            reportsToUserId: {
+              anyOf: [{ type: "string", pattern: "^[0-9a-f]{24}$" }, { type: "null" }],
+            },
+          },
+        },
+      },
+    },
+    orgController.updateMemberReportsTo
   );
 }

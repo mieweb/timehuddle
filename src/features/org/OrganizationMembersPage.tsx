@@ -21,13 +21,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   ApiError,
-  enterpriseApi,
   orgApi,
   type DefaultOrganizationRole,
   type OrganizationAdminUser,
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
-import { hasDefaultOrganizationAdminAccess } from '../../lib/organizationAccess';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
@@ -35,7 +33,6 @@ import { AppPage } from '../../ui/AppPage';
 export const OrganizationMembersPage: React.FC = () => {
   const { user } = useSession();
   const { selectedOrgId } = useTeam();
-  const canUpdateReportsTo = hasDefaultOrganizationAdminAccess(user);
   const [users, setUsers] = useState<OrganizationAdminUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [canManage, setCanManage] = useState(false);
@@ -75,17 +72,13 @@ export const OrganizationMembersPage: React.FC = () => {
       const result = await orgApi.listMembers(selectedOrgId);
       setUsers(result);
 
-      if (organization.enterpriseId) {
-        const enterpriseUsers = await enterpriseApi.searchUsers(organization.enterpriseId, '');
-        setUserOptions(
-          enterpriseUsers.map((u) => ({
-            value: u.id,
-            label: u.username ? `${u.name} (@${u.username})` : u.name,
-          })),
-        );
-      } else {
-        setUserOptions([]);
-      }
+      const searchableUsers = await orgApi.searchUsers(selectedOrgId, '');
+      setUserOptions(
+        searchableUsers.map((u) => ({
+          value: u.id,
+          label: u.username ? `${u.name} (@${u.username})` : u.name,
+        })),
+      );
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
@@ -368,10 +361,12 @@ export const OrganizationMembersPage: React.FC = () => {
                             hideLabel
                             size="sm"
                             value={orgUser.reportsToUserId || ''}
-                            disabled={!canUpdateReportsTo}
+                            disabled={!canManage}
                             onValueChange={async (value) => {
                               const previous = users;
                               const reportsToValue = value ? value : null;
+                              const orgId = selectedOrgId;
+                              if (!orgId) return;
                               setUsers((prev) =>
                                 prev.map((u) =>
                                   u.id === orgUser.id
@@ -382,7 +377,11 @@ export const OrganizationMembersPage: React.FC = () => {
                               setSavingUserId(orgUser.id);
                               setError(null);
                               try {
-                                await orgApi.updateReportsTo(orgUser.id, reportsToValue);
+                                await orgApi.updateMemberReportsTo(
+                                  orgId,
+                                  orgUser.id,
+                                  reportsToValue,
+                                );
                               } catch (err) {
                                 setUsers(previous);
                                 if (err instanceof ApiError) {

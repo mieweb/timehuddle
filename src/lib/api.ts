@@ -554,6 +554,11 @@ export const orgApi = {
       `/v1/organizations/${encodeURIComponent(id)}/members`,
     ).then((r) => r.users),
 
+  searchUsers: (id: string, q: string) =>
+    request<{ users: Array<{ id: string; name: string; username: string | null }> }>(
+      `/v1/organizations/${encodeURIComponent(id)}/users/search?q=${encodeURIComponent(q)}`,
+    ).then((r) => r.users),
+
   setMemberRole: (id: string, userId: string, role: DefaultOrganizationRole) =>
     request<{ user: { userId: string; role: DefaultOrganizationRole } }>(
       `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
@@ -568,6 +573,15 @@ export const orgApi = {
       `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
       {
         method: 'DELETE',
+      },
+    ).then((r) => r.user),
+
+  updateMemberReportsTo: (id: string, userId: string, reportsTo: string | null) =>
+    request<{ user: { id: string; reportsToUserId: string | null } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/reports-to`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ reportsToUserId: reportsTo }),
       },
     ).then((r) => r.user),
 

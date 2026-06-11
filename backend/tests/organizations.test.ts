@@ -216,4 +216,46 @@ describe("organizations routes", () => {
     });
     expect(orgMember).toBeNull();
   });
+
+  it("allows organization admin to update reports-to without enterprise admin access", async () => {
+    const db = client.db();
+
+    const addRes = await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/role`,
+      headers: { cookie: ownerCookie },
+      payload: { role: "admin" },
+    });
+    expect(addRes.statusCode).toBe(200);
+
+    const res = await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/reports-to`,
+      headers: { cookie: memberCookie },
+      payload: { reportsToUserId: ownerId },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const updatedUser = await db.collection("user").findOne({ _id: new ObjectId(memberId) });
+    expect(updatedUser?.reportsToUserId).toBe(ownerId);
+  });
+
+  it("allows organization admin to search users without enterprise admin access", async () => {
+    const addRes = await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/role`,
+      headers: { cookie: ownerCookie },
+      payload: { role: "admin" },
+    });
+    expect(addRes.statusCode).toBe(200);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${organizationId}/users/search?q=org`,
+      headers: { cookie: memberCookie },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(Array.isArray(res.json().users)).toBe(true);
+  });
 });
