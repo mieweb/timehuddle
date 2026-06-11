@@ -335,7 +335,7 @@ export class ClockService {
         notificationService
           .create({
             userId: adminId,
-            title: "TiméHuddle",
+            title: "Huddle",
             body: `${userName} clocked in to ${team.name}`,
             notificationData: {
               type: "clock-in",
@@ -343,7 +343,7 @@ export class ClockService {
               userName,
               teamName: team.name,
               teamId,
-              url: `/app/clock`,
+              url: `/app/profile/${userId}?tab=work`,
             },
           })
           .catch(() => {})
@@ -420,7 +420,7 @@ export class ClockService {
           notificationService
             .create({
               userId: adminId,
-              title: "TiméHuddle",
+              title: "Huddle",
               body: `${userName} clocked out of ${team.name} (${durationText})`,
               notificationData: {
                 type: "clock-out",
@@ -429,7 +429,7 @@ export class ClockService {
                 teamName: team.name,
                 teamId,
                 duration: durationText,
-                url: `/app/clock`,
+                url: `/app/profile/${userId}?tab=work`,
               },
             })
             .catch(() => {})
@@ -440,14 +440,14 @@ export class ClockService {
       notificationService
         .create({
           userId,
-          title: "TiméHuddle",
+          title: "Huddle",
           body: `You clocked out of ${team.name} (${durationText})`,
           notificationData: {
             type: "clock-out-self",
             teamName: team.name,
             teamId,
             duration: durationText,
-            url: `/app/clock`,
+            url: `/app/profile/${userId}?tab=work`,
           },
         })
         .catch(() => {});
@@ -522,6 +522,14 @@ export class ClockService {
     const updatedBreaks: ClockBreakInterval[] = breaks.map((b) =>
       b._id.equals(openBreak._id) ? { ...b, endTime: now, ...classification } : b
     );
+
+    // Restart the timer that was stopped when the break began
+    const breakStartTime = openBreak.startTime;
+    const closedTimer = await timerService.findClosedAtTime(event.userId, breakStartTime);
+    if (closedTimer) {
+      await timerService.restartTimerForWorkItem(event.userId, closedTimer.workItemId, now);
+    }
+
     const pub = toPublicClockEvent(event, updatedBreaks);
     broadcast(teamId, pub);
     return pub;

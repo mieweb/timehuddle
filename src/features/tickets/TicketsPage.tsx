@@ -43,7 +43,6 @@ import {
   ModalHeader,
   ModalTitle,
   Select,
-  Spinner,
   Text,
   Textarea,
   type DropdownPlacement,
@@ -54,6 +53,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   teamApi,
   ticketApi,
+  timerApi,
   shareTicketWithTimeharbor,
   type Team,
   type TeamMember,
@@ -61,10 +61,12 @@ import {
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
+import { useClockToggle } from '../../lib/useClockToggle';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
+import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
 import { PulseUploadButton } from '../media/PulseUploadButton';
 import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
@@ -140,27 +142,34 @@ async function fetchIssueTitle(url: string): Promise<string | null> {
 interface TicketRowProps {
   ticket: Ticket;
   isCreator: boolean;
-  assigneeName: string | null;
-  assigneeId: string | null;
+  assigneeNames: string[];
+  assigneeIds: string[];
   createdByName: string | null;
   suppressAvatars?: boolean;
   onEditRequest: (ticket: Ticket) => void;
   onDeleteRequest: (id: string) => void;
   onChangeStatusRequest: (ticket: Ticket) => void;
   onShareWithTimeharbor: (ticket: Ticket, shared: boolean) => void;
+  // Timer state
+  isTimerRunning: boolean;
+  timerLoading: boolean;
+  onToggleTimer: (ticketId: string) => void;
 }
 
 const TicketRow: React.FC<TicketRowProps> = ({
   ticket,
   isCreator,
-  assigneeName,
-  assigneeId,
+  assigneeNames,
+  assigneeIds,
   createdByName,
   suppressAvatars = false,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
   onShareWithTimeharbor,
+  isTimerRunning,
+  timerLoading,
+  onToggleTimer,
 }) => {
   const { navigate } = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -177,6 +186,15 @@ const TicketRow: React.FC<TicketRowProps> = ({
       data-ticket-id={ticket.id}
       className="group relative flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40"
     >
+      <TimerToggleButton
+        isRunning={isTimerRunning}
+        isLoading={timerLoading}
+        onClick={() => onToggleTimer(ticket.id)}
+        ariaLabel={
+          isTimerRunning ? `Stop timer for ${ticket.title}` : `Start timer for ${ticket.title}`
+        }
+      />
+
       {/* Status icon */}
       <div className="mt-0.5 shrink-0 pt-0.5">
         <FontAwesomeIcon icon={icon} className={`text-base ${iconClass}`} />
@@ -223,7 +241,12 @@ const TicketRow: React.FC<TicketRowProps> = ({
             #{ticket.id.slice(-5)} opened {timeAgo(ticket.createdAt)} by{' '}
             {createdByName ?? `user-${ticket.createdBy.slice(-4)}`}
           </span>
-          {assigneeName && <span>· assigned to {assigneeName}</span>}
+          {assigneeNames.length > 0 && (
+            <span>
+              · assigned to {assigneeNames.slice(0, 2).join(', ')}
+              {assigneeNames.length > 2 && ` +${assigneeNames.length - 2} more`}
+            </span>
+          )}
           {ticket.github && (
             <a
               href={ticket.github}
@@ -238,17 +261,33 @@ const TicketRow: React.FC<TicketRowProps> = ({
         </div>
       </div>
 
-      {/* Right side: assignee avatar + overflow menu */}
+      {/* Right side: timer toggle + assignee avatars + overflow menu */}
       <div className="flex shrink-0 items-center gap-2">
-        {!suppressAvatars && assigneeName && assigneeId && (
-          <button
-            className="rounded-full ring-offset-1 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            onClick={() => navigate(`/app/profile/${assigneeId}`)}
-            aria-label={`View ${assigneeName}'s profile`}
-            title={assigneeName}
-          >
-            <UserAvatar name={assigneeName} size="xs" />
-          </button>
+        {!suppressAvatars && assigneeIds.length > 0 && (
+          <div className="flex -space-x-1">
+            {assigneeIds.slice(0, 3).map((id, idx) => {
+              const name = assigneeNames[idx];
+              return (
+                <button
+                  key={id}
+                  className="rounded-full ring-2 ring-white dark:ring-neutral-900 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary hover:z-10"
+                  onClick={() => navigate(`/app/profile/${id}`)}
+                  aria-label={`View ${name}'s profile`}
+                  title={name}
+                >
+                  <UserAvatar name={name} size="xs" />
+                </button>
+              );
+            })}
+            {assigneeIds.length > 3 && (
+              <div
+                className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-200 text-[10px] font-medium text-neutral-600 ring-2 ring-white dark:bg-neutral-700 dark:text-neutral-300 dark:ring-neutral-900"
+                title={`${assigneeIds.length - 3} more assignees`}
+              >
+                +{assigneeIds.length - 3}
+              </div>
+            )}
+          </div>
         )}
         <Dropdown
           className="z-1000 bg-white dark:bg-neutral-800"
@@ -333,7 +372,11 @@ interface FilterDropdownProps {
   label: string;
   activeLabel: string | null;
   placement?: DropdownPlacement;
-  open?: boolean;
+  /** The id of the currently open filter menu. Used to close this dropdown
+   *  when a sibling opens. Set to a different non-null string to force close. */
+  activeMenuId?: string | null;
+  /** This dropdown's own id — used to decide whether to self-close. */
+  menuId?: string;
   onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
 }
@@ -342,31 +385,61 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
   label,
   activeLabel,
   placement = 'bottom-start',
-  open,
+  activeMenuId,
+  menuId,
   onOpenChange,
   children,
-}) => (
-  <Dropdown
-    trigger={
-      <button
-        className={`flex items-center gap-1 text-xs font-medium transition-colors ${
-          activeLabel
-            ? 'text-neutral-900 dark:text-neutral-100'
-            : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-        }`}
-      >
-        {activeLabel ? `${label}: ${activeLabel}` : label}
-        <FontAwesomeIcon icon={faChevronDown} className="text-[10px]" />
-      </button>
+}) => {
+  const [open, setOpen] = React.useState(false);
+
+  // On narrow/native screens the filter bar wraps, so filters that prefer
+  // bottom-end (right-aligned) can end up on the left side of the screen.
+  // bottom-end with right:0 would then extend the menu off the left edge.
+  // Force bottom-start on mobile/Capacitor so menus always open to the right.
+  const effectivePlacement =
+    Capacitor.isNativePlatform() || window.innerWidth < 768 ? 'bottom-start' : placement;
+
+  // Close when another dropdown in the group becomes active
+  React.useEffect(() => {
+    if (activeMenuId !== null && activeMenuId !== undefined && activeMenuId !== menuId) {
+      setOpen(false);
     }
-    placement={placement}
-    open={open}
-    onOpenChange={onOpenChange}
-    className="z-1000 max-w-[calc(100vw-1rem)] bg-white dark:bg-neutral-800"
-  >
-    <DropdownContent className="max-h-[60vh] overflow-y-auto">{children}</DropdownContent>
-  </Dropdown>
-);
+  }, [activeMenuId, menuId]);
+
+  const handleOpenChange = React.useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
+
+  return (
+    <Dropdown
+      open={open}
+      onOpenChange={handleOpenChange}
+      trigger={
+        <button
+          className={`flex items-center gap-1 text-xs font-medium transition-colors ${
+            activeLabel
+              ? 'text-neutral-900 dark:text-neutral-100'
+              : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+          }`}
+        >
+          {activeLabel ? `${label}: ${activeLabel}` : label}
+          <FontAwesomeIcon icon={faChevronDown} className="text-[10px]" />
+        </button>
+      }
+      placement={effectivePlacement}
+      className="z-1000 max-w-[calc(100vw-1rem)] bg-white dark:bg-neutral-800"
+    >
+      {/* Clicking any item bubbles up to this div and closes the dropdown */}
+      <div onClick={() => handleOpenChange(false)}>
+        <DropdownContent className="max-h-[60vh] overflow-y-auto">{children}</DropdownContent>
+      </div>
+    </Dropdown>
+  );
+};
 
 // ─── Ticket skeleton rows ─────────────────────────────────────────────────────
 
@@ -396,16 +469,29 @@ export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
   const { teams, selectedTeamId, teamsReady } = useTeam();
+  const { isClockedIn, clockIn } = useClockToggle();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(true);
   // Map from teamId → members for cross-team member lookups
   const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
 
+  // Timer state — track the currently running timer by ticket ID
+  const [runningTicketId, setRunningTicketId] = useState<string | null>(null);
+  const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
+  const [timerLoading, setTimerLoading] = useState<string | null>(null); // ticketId currently toggling
+  const [pendingStartTicketId, setPendingStartTicketId] = useState<string | null>(null);
+  const [showClockInPrompt, setShowClockInPrompt] = useState(false);
+  const [clockInPromptError, setClockInPromptError] = useState<string | null>(null);
+
   const refetch = useCallback(async () => {
     if (!teams.length) {
-      setTickets([]);
-      setTicketsLoading(false);
+      // Don't clear loading state until teams have finished loading — prevents
+      // a flash of empty-state between "teams ready" and first ticket fetch.
+      if (teamsReady) {
+        setTickets([]);
+        setTicketsLoading(false);
+      }
       return;
     }
     try {
@@ -427,20 +513,52 @@ export const TicketsPage: React.FC = () => {
     } finally {
       setTicketsLoading(false);
     }
-  }, [teams]);
+  }, [teams, teamsReady]);
+
+  // Fetch today's timer to determine if any ticket has a running timer
+  const fetchRunningTimer = useCallback(async () => {
+    try {
+      const dayEntries = await timerApi.getToday();
+      const running = dayEntries.flatMap((de) => de.sessions).find((t) => !t.endTime);
+      if (running) {
+        const dayEntry = dayEntries.find((de) => de.sessions.some((t) => t.id === running.id));
+        if (dayEntry) {
+          setRunningTicketId(dayEntry.entry.ticketId);
+          setRunningSessionId(running.id);
+        }
+      } else {
+        setRunningTicketId(null);
+        setRunningSessionId(null);
+      }
+    } catch {
+      // Ignore errors
+    }
+  }, []);
 
   useEffect(() => {
     void refetch();
-  }, [refetch]);
+    void fetchRunningTimer();
+  }, [refetch, fetchRunningTimer]);
 
   // Pull-to-refresh handler
   useRefresh(refetch);
 
+  // Stable key derived from sorted team IDs — the WS only reconnects when the
+  // actual set of teams changes, not on every new array reference from context.
+  const teamIdsKey = useMemo(
+    () =>
+      teams
+        .map((t) => t.id)
+        .sort()
+        .join(','),
+    [teams],
+  );
+
   // Real-time WebSocket connection for ticket updates
   useEffect(() => {
-    if (!teams.length || !userId) return;
+    if (!teamIdsKey || !userId) return;
 
-    const teamIds = teams.map((t) => t.id);
+    const teamIds = teamIdsKey.split(',');
     const ws = ticketApi.openLiveStream(teamIds);
 
     ws.onmessage = (event: MessageEvent) => {
@@ -480,7 +598,7 @@ export const TicketsPage: React.FC = () => {
     return () => {
       ws.close();
     };
-  }, [teams, userId]);
+  }, [teamIdsKey, userId]);
 
   // Listen for external refetch requests (e.g., from CommandPalette)
   useEffect(() => {
@@ -561,7 +679,7 @@ export const TicketsPage: React.FC = () => {
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editGithub, setEditGithub] = useState('');
-  const [editAssignee, setEditAssignee] = useState('');
+  const [editAssignees, setEditAssignees] = useState<string[]>([]);
   const [editPriority, setEditPriority] = useState('');
   const [titleFetching, setTitleFetching] = useState(false);
   const editFetchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -592,9 +710,9 @@ export const TicketsPage: React.FC = () => {
       result = result.filter((t) => t.teamId === teamFilter);
     }
     if (assigneeFilter === '__unassigned__') {
-      result = result.filter((t) => !t.assignedTo);
+      result = result.filter((t) => !t.assignedTo || t.assignedTo.length === 0);
     } else if (assigneeFilter) {
-      result = result.filter((t) => t.assignedTo === assigneeFilter);
+      result = result.filter((t) => t.assignedTo?.includes(assigneeFilter));
     }
     if (statusDetailFilter) {
       result = result.filter((t) => (t.status ?? 'open') === statusDetailFilter);
@@ -728,6 +846,76 @@ export const TicketsPage: React.FC = () => {
 
   // ── Handlers ──
 
+  // Timer toggle handler
+  const startTimerForTicket = useCallback(async (ticketId: string) => {
+    setTimerLoading(ticketId);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const result = await timerApi.createEntry({
+        ticketId,
+        date: today,
+        startNow: true,
+        notifyAdmins: false,
+      });
+
+      if (result.session) {
+        setRunningTicketId(ticketId);
+        setRunningSessionId(result.session.id);
+      }
+    } catch (err) {
+      console.error('Timer start failed:', err);
+    } finally {
+      setTimerLoading(null);
+    }
+  }, []);
+
+  const handleToggleTimer = useCallback(
+    async (ticketId: string) => {
+      if (runningTicketId === ticketId && runningSessionId) {
+        // Stop the running timer
+        setTimerLoading(ticketId);
+        try {
+          await timerApi.stopSession(runningSessionId);
+          setRunningTicketId(null);
+          setRunningSessionId(null);
+        } catch (err) {
+          console.error('Timer stop failed:', err);
+        } finally {
+          setTimerLoading(null);
+        }
+      } else {
+        // Start timer — prompt for clock-in if needed
+        if (!isClockedIn) {
+          setPendingStartTicketId(ticketId);
+          setClockInPromptError(null);
+          setShowClockInPrompt(true);
+          return;
+        }
+
+        await startTimerForTicket(ticketId);
+      }
+    },
+    [runningTicketId, runningSessionId, isClockedIn, startTimerForTicket],
+  );
+
+  const handleClockInAndStart = useCallback(async () => {
+    if (!pendingStartTicketId) return;
+
+    if (!selectedTeamId) {
+      setClockInPromptError('Select a team before clocking in.');
+      return;
+    }
+
+    setClockInPromptError(null);
+    await clockIn();
+
+    const ticketId = pendingStartTicketId;
+    setShowClockInPrompt(false);
+    setPendingStartTicketId(null);
+
+    await startTimerForTicket(ticketId);
+  }, [pendingStartTicketId, selectedTeamId, clockIn, startTimerForTicket]);
+
   const handleCreate = useCallback(async () => {
     if (!createTitle.trim() || !selectedTeamId) return;
     setCreateLoading(true);
@@ -751,7 +939,7 @@ export const TicketsPage: React.FC = () => {
     setEditTitle(ticket.title);
     setEditDescription(ticket.description || '');
     setEditGithub(ticket.github || '');
-    setEditAssignee(ticket.assignedTo || '');
+    setEditAssignees(ticket.assignedTo ?? []);
     setEditPriority(ticket.priority || '');
   };
 
@@ -764,8 +952,12 @@ export const TicketsPage: React.FC = () => {
         description: editDescription.trim() || undefined,
         github: editGithub.trim() || undefined,
       });
-      if (editAssignee !== (editTicket.assignedTo || '')) {
-        await ticketApi.assignTicket(editTicket.id, editAssignee || null);
+      const currentAssignees = editTicket.assignedTo ?? [];
+      const hasChanged =
+        editAssignees.length !== currentAssignees.length ||
+        !editAssignees.every((id) => currentAssignees.includes(id));
+      if (hasChanged) {
+        await ticketApi.assignTicket(editTicket.id, editAssignees);
       }
       if (editPriority !== (editTicket.priority || '')) {
         await ticketApi.updateStatusPriority(editTicket.id, {
@@ -777,7 +969,7 @@ export const TicketsPage: React.FC = () => {
     } finally {
       setEditSaving(false);
     }
-  }, [editTicket, editTitle, editDescription, editGithub, editAssignee, editPriority, refetch]);
+  }, [editTicket, editTitle, editDescription, editGithub, editAssignees, editPriority, refetch]);
 
   const handleSaveStatus = useCallback(async () => {
     if (!changeStatusTicket || !changeStatusValue) return;
@@ -806,18 +998,10 @@ export const TicketsPage: React.FC = () => {
   const noFocusRingClass =
     'ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:border-blue-300 focus-visible:border-blue-300';
 
-  if (!teamsReady) {
-    return (
-      <div className="flex items-center justify-center p-12">
-        <Spinner size="lg" label="Loading…" />
-      </div>
-    );
-  }
-
   return (
     <AppPage fullWidth className="flex h-full min-h-0 flex-col">
       {/* ── Header: New Ticket + Search ── */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
           <div className="flex items-center gap-2">
             <Button
@@ -947,10 +1131,10 @@ export const TicketsPage: React.FC = () => {
         )}
 
         {/* ── Unified ticket list (GitHub style) ── */}
-        <Card padding="none" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <Card padding="none" className="flex min-h-0 flex-1 flex-col overflow-visible">
           {/* GitHub-style header: Open / Closed tabs + filter dropdowns */}
           <div
-            className={`sticky top-0 z-30 px-4 py-4 md:relative md:top-auto md:z-30 ${Capacitor.isNativePlatform() ? 'border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80' : 'rounded-t-xl border-b border-neutral-200 bg-neutral-50/95 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 dark:bg-neutral-800/70 dark:supports-backdrop-filter:bg-neutral-800/50'}`}
+            className={`sticky top-0 z-30 rounded-t-xl border-b border-neutral-200 bg-neutral-50/95 px-4 py-4 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 md:relative md:top-auto md:z-30 ${Capacitor.isNativePlatform() ? 'dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80' : 'dark:bg-neutral-800/70 dark:supports-backdrop-filter:bg-neutral-800/50'}`}
           >
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-2">
               {/* Left: status tabs */}
@@ -966,7 +1150,7 @@ export const TicketsPage: React.FC = () => {
                   }`}
                 >
                   <FontAwesomeIcon icon={faCircleDot} className="text-green-500" />
-                  {openCount} Open
+                  {ticketsLoading ? '…' : openCount} Open
                 </button>
                 <button
                   role="tab"
@@ -979,7 +1163,7 @@ export const TicketsPage: React.FC = () => {
                   }`}
                 >
                   <FontAwesomeIcon icon={faCircleCheck} className="text-purple-500" />
-                  {closedCount} Closed
+                  {ticketsLoading ? '…' : closedCount} Closed
                 </button>
               </div>
 
@@ -989,7 +1173,8 @@ export const TicketsPage: React.FC = () => {
                   <FilterDropdown
                     label="Team"
                     activeLabel={activeTeamLabel}
-                    open={openFilterMenu === 'team'}
+                    menuId="team"
+                    activeMenuId={openFilterMenu}
                     onOpenChange={(open) => setOpenFilterMenu(open ? 'team' : null)}
                   >
                     <DropdownItem
@@ -1013,7 +1198,8 @@ export const TicketsPage: React.FC = () => {
                 <FilterDropdown
                   label="Priority"
                   activeLabel={activePriorityLabel}
-                  open={openFilterMenu === 'priority'}
+                  menuId="priority"
+                  activeMenuId={openFilterMenu}
                   onOpenChange={(open) => setOpenFilterMenu(open ? 'priority' : null)}
                 >
                   <DropdownItem
@@ -1037,7 +1223,8 @@ export const TicketsPage: React.FC = () => {
                   label="Status"
                   activeLabel={activeStatusDetailLabel}
                   placement="bottom-end"
-                  open={openFilterMenu === 'status'}
+                  menuId="status"
+                  activeMenuId={openFilterMenu}
                   onOpenChange={(open) => setOpenFilterMenu(open ? 'status' : null)}
                 >
                   <DropdownItem
@@ -1065,7 +1252,8 @@ export const TicketsPage: React.FC = () => {
                   label="Assignee"
                   activeLabel={activeAssigneeLabel}
                   placement="bottom-end"
-                  open={openFilterMenu === 'assignee'}
+                  menuId="assignee"
+                  activeMenuId={openFilterMenu}
                   onOpenChange={(open) => setOpenFilterMenu(open ? 'assignee' : null)}
                 >
                   <DropdownItem
@@ -1113,8 +1301,8 @@ export const TicketsPage: React.FC = () => {
                     key={t.id}
                     ticket={t}
                     isCreator={t.createdBy === userId}
-                    assigneeName={getAssigneeName(t.assignedTo)}
-                    assigneeId={t.assignedTo}
+                    assigneeNames={(t.assignedTo ?? []).map((id) => getAssigneeName(id) ?? id)}
+                    assigneeIds={t.assignedTo ?? []}
                     createdByName={getAssigneeName(t.createdBy)}
                     suppressAvatars={
                       openFilterMenu !== 'team' &&
@@ -1140,6 +1328,9 @@ export const TicketsPage: React.FC = () => {
                         // Silently ignore — user can retry
                       }
                     }}
+                    isTimerRunning={runningTicketId === t.id}
+                    timerLoading={timerLoading === t.id}
+                    onToggleTimer={handleToggleTimer}
                   />
                 ))}
               </ul>
@@ -1218,12 +1409,31 @@ export const TicketsPage: React.FC = () => {
                   }
                 }}
               />
-              <Select
-                label="Assignee"
-                options={memberOptions}
-                value={editAssignee}
-                onValueChange={setEditAssignee}
-              />
+              <div>
+                <label className="mb-2 block text-sm font-medium">Assignees</label>
+                <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-neutral-200 p-3 dark:border-neutral-700">
+                  {memberOptions.map((option) => (
+                    <label
+                      key={option.value}
+                      className="flex items-center gap-2 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 p-1 rounded"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={editAssignees.includes(option.value)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setEditAssignees([...editAssignees, option.value]);
+                          } else {
+                            setEditAssignees(editAssignees.filter((id) => id !== option.value));
+                          }
+                        }}
+                        className="h-4 w-4 rounded border-neutral-300 text-primary focus:ring-primary"
+                      />
+                      <span className="text-sm">{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
               <Select
                 label="Priority"
                 options={[{ value: '', label: 'No Priority' }, ...PRIORITY_OPTIONS]}
@@ -1369,14 +1579,22 @@ export const TicketsPage: React.FC = () => {
                     </Text>
                   </div>
                 </div>
-                {detailsTicket.assignedTo && (
+                {detailsTicket.assignedTo && detailsTicket.assignedTo.length > 0 && (
                   <div>
                     <Text size="xs" variant="muted" weight="medium">
                       Assigned To
                     </Text>
-                    <Text size="sm">
-                      {getAssigneeName(detailsTicket.assignedTo) ?? detailsTicket.assignedTo}
-                    </Text>
+                    <div className="flex flex-wrap gap-2">
+                      {detailsTicket.assignedTo.map((id) => {
+                        const name = getAssigneeName(id);
+                        return (
+                          <div key={id} className="flex items-center gap-2">
+                            <UserAvatar name={name ?? id} size="xs" />
+                            <Text size="sm">{name ?? id}</Text>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
                 <div className="space-y-1 pt-1">
@@ -1394,12 +1612,13 @@ export const TicketsPage: React.FC = () => {
               </div>
             </ModalBody>
             <ModalFooter>
-              {userId && detailsTicket.assignedTo !== userId && (
+              {userId && !detailsTicket.assignedTo?.includes(userId) && (
                 <Button
                   variant="secondary"
                   onClick={async () => {
-                    await ticketApi.assignTicket(detailsTicket.id, userId);
-                    setDetailsTicket((t) => (t ? { ...t, assignedTo: userId } : t));
+                    const updatedAssignees = [...(detailsTicket.assignedTo ?? []), userId];
+                    await ticketApi.assignTicket(detailsTicket.id, updatedAssignees);
+                    setDetailsTicket((t) => (t ? { ...t, assignedTo: updatedAssignees } : t));
                     void refetch();
                   }}
                 >
@@ -1430,6 +1649,52 @@ export const TicketsPage: React.FC = () => {
             </Button>
             <Button variant="danger" onClick={handleDelete} isLoading={deleteLoading}>
               Delete
+            </Button>
+          </ModalFooter>
+        </Modal>
+
+        {/* Clock-In Prompt Modal */}
+        <Modal
+          open={showClockInPrompt}
+          onOpenChange={(open) => {
+            setShowClockInPrompt(open);
+            if (!open) {
+              setPendingStartTicketId(null);
+              setClockInPromptError(null);
+            }
+          }}
+          size="sm"
+          aria-labelledby="clock-in-prompt-title"
+        >
+          <ModalHeader>
+            <ModalTitle id="clock-in-prompt-title">Clock In Required</ModalTitle>
+            <ModalClose />
+          </ModalHeader>
+          <ModalBody>
+            <div className="space-y-2">
+              <Text size="sm">
+                You must be clocked in before starting a timer. Do you want to clock in now?
+              </Text>
+              {clockInPromptError && (
+                <Text size="xs" className="text-danger">
+                  {clockInPromptError}
+                </Text>
+              )}
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowClockInPrompt(false);
+                setPendingStartTicketId(null);
+                setClockInPromptError(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={handleClockInAndStart}>
+              Clock In Now
             </Button>
           </ModalFooter>
         </Modal>

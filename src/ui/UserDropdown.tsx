@@ -4,6 +4,7 @@
  * Uses @mieweb/ui Dropdown, Avatar, and DropdownItem components.
  */
 import {
+  faBuilding,
   faCheck,
   faCircleUser,
   faRightFromBracket,
@@ -23,7 +24,16 @@ import { UserAvatar } from './UserAvatar';
 
 export const UserDropdown: React.FC = () => {
   const { user, signOut } = useSession();
-  const { teams, selectedTeam, setSelectedTeamId, teamsReady } = useTeam();
+  const {
+    teams,
+    enterprises,
+    organizations,
+    selectedOrgId,
+    setSelectedOrgId,
+    selectedTeam,
+    setSelectedTeamId,
+    teamsReady,
+  } = useTeam();
   const email = user?.email;
   const [open, setOpen] = useState(false);
 
@@ -55,9 +65,22 @@ export const UserDropdown: React.FC = () => {
   const truncated = displayName.length > 22 ? `${displayName.slice(0, 20)}…` : displayName;
   const showOrganizationAdmin = hasDefaultOrganizationAdminAccess(user);
 
+  const handleSelectOrganization = useCallback(
+    (organizationId: string) => {
+      setSelectedOrgId(organizationId);
+      setOpen(false);
+    },
+    [setSelectedOrgId],
+  );
+
   const handleOrganizationMembers = useCallback(() => {
     setOpen(false);
     navigate('/org/members');
+  }, [navigate]);
+
+  const handleEnterprisePage = useCallback(() => {
+    setOpen(false);
+    navigate('/app/enterprise');
   }, [navigate]);
 
   return (
@@ -95,12 +118,52 @@ export const UserDropdown: React.FC = () => {
       <DropdownSeparator />
 
       <DropdownItem icon={<FontAwesomeIcon icon={faCircleUser} />} onClick={handleProfile}>
-        Profile
+        <span className="font-normal">Profile</span>
       </DropdownItem>
+
+      {organizations.length > 0 && (
+        <>
+          <DropdownSeparator />
+          <div className="px-3 py-1">
+            <Text
+              variant="muted"
+              size="xs"
+              className="text-left font-semibold uppercase tracking-wide"
+            >
+              Organization
+            </Text>
+          </div>
+          {organizations.map((organization) => (
+            <DropdownItem
+              key={organization.id}
+              onClick={() => handleSelectOrganization(organization.id)}
+            >
+              <span className="flex items-center gap-2">
+                <FontAwesomeIcon
+                  icon={faCheck}
+                  className={`text-xs text-primary-600 transition-opacity ${
+                    organization.id === selectedOrgId ? 'opacity-100' : 'opacity-0'
+                  }`}
+                />
+                <span className="font-normal">{organization.name}</span>
+              </span>
+            </DropdownItem>
+          ))}
+        </>
+      )}
 
       {teamsReady && teams.length > 0 && (
         <>
           <DropdownSeparator />
+          <div className="px-3 py-1">
+            <Text
+              variant="muted"
+              size="xs"
+              className="text-left font-semibold uppercase tracking-wide"
+            >
+              Team
+            </Text>
+          </div>
           {teams.map((team) => (
             <DropdownItem key={team.id} onClick={() => handleSelectTeam(team.id)}>
               <span className="flex items-center gap-2">
@@ -110,21 +173,43 @@ export const UserDropdown: React.FC = () => {
                     team.id === selectedTeam?.id ? 'opacity-100' : 'opacity-0'
                   }`}
                 />
-                <span>{team.name}</span>
+                <span className="font-normal">{team.name}</span>
               </span>
             </DropdownItem>
           ))}
         </>
       )}
 
-      {showOrganizationAdmin && (
+      {(showOrganizationAdmin || enterprises.length > 0) && (
         <>
           <DropdownSeparator />
+          <div className="px-3 py-1">
+            <Text
+              variant="muted"
+              size="xs"
+              className="text-left font-semibold uppercase tracking-wide"
+            >
+              Admin
+            </Text>
+          </div>
+        </>
+      )}
+
+      {enterprises.length > 0 && (
+        <>
+          <DropdownItem icon={<FontAwesomeIcon icon={faBuilding} />} onClick={handleEnterprisePage}>
+            <span className="font-normal">Enterprise</span>
+          </DropdownItem>
+        </>
+      )}
+
+      {(showOrganizationAdmin || enterprises.length > 0) && (
+        <>
           <DropdownItem
             icon={<FontAwesomeIcon icon={faUsers} />}
             onClick={handleOrganizationMembers}
           >
-            Members
+            <span className="font-normal">Members</span>
           </DropdownItem>
         </>
       )}
@@ -136,7 +221,7 @@ export const UserDropdown: React.FC = () => {
         variant="danger"
         onClick={handleLogout}
       >
-        Sign out
+        <span className="font-normal">Sign out</span>
       </DropdownItem>
     </Dropdown>
   );

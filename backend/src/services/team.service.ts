@@ -1,10 +1,9 @@
 import { ObjectId } from "mongodb";
 import { getDB } from "../lib/db.js";
 import { organizationsCollection, teamsCollection, usersCollection } from "../models/index.js";
-import type { Organization } from "../models/organization.model.js";
 import type { Team } from "../models/team.model.js";
-import { DEFAULT_ORG_KEY, DEFAULT_ORG_NAME } from "../lib/org-config.js";
 import { channelService } from "./channel.service.js";
+import { orgService } from "./org.service.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -15,6 +14,8 @@ function generateTeamCode(): string {
 export function toPublicTeam(team: Team & { _id: ObjectId }) {
   return {
     id: team._id.toString(),
+    orgId: team.orgId,
+    parentTeamId: team.parentTeamId ?? null,
     name: team.name,
     description: team.description ?? null,
     members: team.members,
@@ -89,22 +90,6 @@ function broadcastToTeamMembers(
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 export class TeamService {
-  private async ensureDefaultOrganization(): Promise<Organization & { _id: ObjectId }> {
-    const existing = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
-    if (existing) return existing;
-
-    const org: Organization & { _id: ObjectId } = {
-      _id: new ObjectId(),
-      key: DEFAULT_ORG_KEY,
-      name: DEFAULT_ORG_NAME,
-      owners: [],
-      admins: [],
-      createdAt: new Date(),
-    };
-    await organizationsCollection().insertOne(org);
-    return org;
-  }
-
   /** Return all teams the user belongs to, sorted personal-first then by name. */
   async getTeamsForUser(userId: string): Promise<PublicTeam[]> {
     const teams = await teamsCollection().find({ members: userId }).toArray();
@@ -119,11 +104,12 @@ export class TeamService {
     const existing = await teamsCollection().findOne({ isPersonal: true, members: userId });
     if (existing) return toPublicTeam(existing);
 
-    const defaultOrg = await this.ensureDefaultOrganization();
+    const defaultOrg = await orgService.ensureDefaultOrganization();
     const code = generateTeamCode();
     const doc: Team & { _id: ObjectId } = {
       _id: new ObjectId(),
       orgId: defaultOrg._id.toHexString(),
+      parentTeamId: null,
       name: "Personal",
       members: [userId],
       admins: [userId],
@@ -141,13 +127,44 @@ export class TeamService {
   /** Create a new named team with the caller as sole member + admin. */
   async createTeam(
     userId: string,
-    data: { name: string; description?: string }
+    data: { name: string; description?: string; orgId?: string; parentTeamId?: string | null }
   ): Promise<PublicTeam> {
-    const defaultOrg = await this.ensureDefaultOrganization();
+    const requestedOrgId = data.orgId;
+    const accessibleOrgIds = await orgService.getAccessibleOrgIds(userId);
+    let orgId = requestedOrgId ?? accessibleOrgIds[0] ?? null;
+
+    if (!orgId) {
+      const defaultOrg = await orgService.ensureDefaultOrganization();
+      await orgService.addOrgMember(defaultOrg._id.toHexString(), userId, "member", true);
+      orgId = defaultOrg._id.toHexString();
+    }
+
+    if (!accessibleOrgIds.includes(orgId)) {
+      const requestedMembership = await orgService.getOrgMembership(orgId, userId);
+      if (!requestedMembership) {
+        const joinAttempt = await orgService.joinOrg(userId, orgId);
+        if (joinAttempt === "not-found" || joinAttempt === "auto-join-disabled") {
+          const fallbackOrg = await orgService.ensureDefaultOrganization();
+          await orgService.addOrgMember(fallbackOrg._id.toHexString(), userId, "member", true);
+          orgId = fallbackOrg._id.toHexString();
+        }
+      }
+    }
+
     const code = generateTeamCode();
+    const parentTeamId = data.parentTeamId ?? null;
+
+    if (parentTeamId) {
+      const parent = await teamsCollection().findOne({ _id: new ObjectId(parentTeamId) });
+      if (!parent || parent.orgId !== orgId) {
+        throw new Error("Parent team must exist in the same organization");
+      }
+    }
+
     const doc: Team & { _id: ObjectId } = {
       _id: new ObjectId(),
-      orgId: defaultOrg._id.toHexString(),
+      orgId,
+      parentTeamId,
       name: data.name,
       description: data.description,
       members: [userId],
@@ -157,6 +174,7 @@ export class TeamService {
       createdAt: new Date(),
     };
     await teamsCollection().insertOne(doc);
+    await orgService.addOrgMember(orgId, userId, "member", true);
     channelService.ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
     const created = toPublicTeam(doc);
     broadcastToTeamMembers(doc, "update");
@@ -175,6 +193,13 @@ export class TeamService {
       { _id: team._id },
       { $addToSet: { members: userId }, $set: { updatedAt: new Date() } }
     );
+    const org =
+      team.orgId && /^[0-9a-f]{24}$/i.test(team.orgId)
+        ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
+        : null;
+    if (org?.allowAutoJoin !== false) {
+      await orgService.addOrgMember(team.orgId, userId, "member", true);
+    }
     const updated = await teamsCollection().findOne({ _id: team._id });
     broadcastToTeamMembers(updated!, "update");
     return toPublicTeam(updated!);
@@ -250,6 +275,13 @@ export class TeamService {
       { _id: team._id },
       { $addToSet: { members: invitedId }, $set: { updatedAt: new Date() } }
     );
+    const org =
+      team.orgId && /^[0-9a-f]{24}$/i.test(team.orgId)
+        ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
+        : null;
+    if (org?.allowAutoJoin !== false) {
+      await orgService.addOrgMember(team.orgId, invitedId, "member", true);
+    }
     const updated = await teamsCollection().findOne({ _id: team._id });
     broadcastToTeamMembers(updated!, "update");
     return "ok";
@@ -340,6 +372,23 @@ export class TeamService {
       );
     if (result.matchedCount === 0) return "not-found";
     return "ok";
+  }
+
+  async getSubTeams(
+    teamId: string,
+    userId: string
+  ): Promise<PublicTeam[] | "not-found" | "forbidden"> {
+    if (!/^[0-9a-f]{24}$/i.test(teamId)) return "not-found";
+    const parent = await teamsCollection().findOne({ _id: new ObjectId(teamId) });
+    if (!parent) return "not-found";
+    if (!parent.members.includes(userId) && !parent.admins.includes(userId)) return "forbidden";
+
+    const subTeams = await teamsCollection()
+      .find({ parentTeamId: teamId, orgId: parent.orgId })
+      .sort({ name: 1 })
+      .toArray();
+
+    return subTeams.map(toPublicTeam);
   }
 }
 

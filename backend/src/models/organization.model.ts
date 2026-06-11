@@ -2,11 +2,12 @@ import { ObjectId } from "mongodb";
 
 export interface Organization {
   _id: ObjectId;
+  enterpriseId?: string;
   name: string;
-  key: string;
+  slug: string;
   owners?: string[];
   admins?: string[];
-  installCompletedAt?: Date;
+  allowAutoJoin?: boolean;
   createdAt: Date;
   updatedAt?: Date;
 }

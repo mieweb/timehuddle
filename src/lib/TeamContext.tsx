@@ -15,19 +15,51 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import { teamApi, clockApi, type Team, type ClockEvent } from './api';
+import { teamApi, orgApi, enterpriseApi, clockApi, type Team, type ClockEvent } from './api';
 import { useSession } from './useSession';
 
 const TEAM_KEY = 'app:selectedTeamId';
+const ORG_KEY = 'app:selectedOrgId';
+const ENTERPRISE_KEY = 'app:selectedEnterpriseId';
 
 function getUserTeamKey(userId: string): string {
   return `${TEAM_KEY}:${userId}`;
 }
 
+function getUserOrgKey(userId: string): string {
+  return `${ORG_KEY}:${userId}`;
+}
+
+function getUserEnterpriseKey(userId: string): string {
+  return `${ENTERPRISE_KEY}:${userId}`;
+}
+
+type EnterpriseSummary = {
+  id: string;
+  name: string;
+  slug: string;
+  role: 'owner' | 'admin';
+};
+
 export interface TeamContextValue {
   teams: Team[];
+  enterprises: EnterpriseSummary[];
+  organizations: Array<{
+    id: string;
+    enterpriseId: string | null;
+    name: string;
+    slug: string;
+    allowAutoJoin: boolean;
+    role: 'owner' | 'admin' | 'member' | null;
+  }>;
   teamsReady: boolean;
   refetchTeams: () => void;
+  refetchEnterprises: () => void;
+  refetchOrganizations: () => void;
+  selectedEnterpriseId: string | null;
+  setSelectedEnterpriseId: (id: string) => void;
+  selectedOrgId: string | null;
+  setSelectedOrgId: (id: string) => void;
   selectedTeamId: string | null;
   selectedTeam: Team | null;
   setSelectedTeamId: (id: string) => void;
@@ -40,8 +72,16 @@ export interface TeamContextValue {
 
 const TeamCtx = createContext<TeamContextValue>({
   teams: [],
+  enterprises: [],
+  organizations: [],
   teamsReady: false,
   refetchTeams: () => {},
+  refetchEnterprises: () => {},
+  refetchOrganizations: () => {},
+  selectedEnterpriseId: null,
+  setSelectedEnterpriseId: () => {},
+  selectedOrgId: null,
+  setSelectedOrgId: () => {},
   selectedTeamId: null,
   selectedTeam: null,
   setSelectedTeamId: () => {},
@@ -61,6 +101,17 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ── Teams via REST ──────────────────────────────────────────────────────────
 
   const [teams, setTeams] = useState<Team[]>([]);
+  const [enterprises, setEnterprises] = useState<EnterpriseSummary[]>([]);
+  const [organizations, setOrganizations] = useState<
+    Array<{
+      id: string;
+      enterpriseId: string | null;
+      name: string;
+      slug: string;
+      allowAutoJoin: boolean;
+      role: 'owner' | 'admin' | 'member' | null;
+    }>
+  >([]);
   const [teamsReady, setTeamsReady] = useState(false);
 
   const refetchTeams = useCallback(() => {
@@ -71,6 +122,28 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .finally(() => setTeamsReady(true));
   }, []);
 
+  const refetchEnterprises = useCallback(() => {
+    if (!userId) {
+      setEnterprises([]);
+      return;
+    }
+    enterpriseApi
+      .list()
+      .then(setEnterprises)
+      .catch(() => {});
+  }, [userId]);
+
+  const refetchOrganizations = useCallback(() => {
+    if (!userId) {
+      setOrganizations([]);
+      return;
+    }
+    orgApi
+      .listOrganizations()
+      .then(setOrganizations)
+      .catch(() => {});
+  }, [userId]);
+
   useEffect(() => {
     if (!userId) return;
     // Ensure a personal workspace exists (idempotent), then load teams
@@ -79,6 +152,14 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .catch(() => {})
       .finally(() => refetchTeams());
   }, [userId, refetchTeams]);
+
+  useEffect(() => {
+    refetchEnterprises();
+  }, [refetchEnterprises]);
+
+  useEffect(() => {
+    refetchOrganizations();
+  }, [refetchOrganizations, teamsReady]);
 
   // Real-time WebSocket connection for team updates
   useEffect(() => {
@@ -125,11 +206,14 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ── Selected team ───────────────────────────────────────────────────────────
 
   const [selectedTeamId, _setSelectedTeamId] = useState<string | null>(null);
+  const [selectedEnterpriseId, _setSelectedEnterpriseId] = useState<string | null>(null);
+  const [selectedOrgId, _setSelectedOrgId] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!userId) {
       _setSelectedTeamId(null);
+      _setSelectedOrgId(null);
       return;
     }
 
@@ -137,6 +221,14 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const scoped = localStorage.getItem(getUserTeamKey(userId));
     const legacy = localStorage.getItem(TEAM_KEY);
     _setSelectedTeamId(scoped ?? legacy);
+
+    const scopedEnterprise = localStorage.getItem(getUserEnterpriseKey(userId));
+    const legacyEnterprise = localStorage.getItem(ENTERPRISE_KEY);
+    _setSelectedEnterpriseId(scopedEnterprise ?? legacyEnterprise);
+
+    const scopedOrg = localStorage.getItem(getUserOrgKey(userId));
+    const legacyOrg = localStorage.getItem(ORG_KEY);
+    _setSelectedOrgId(scopedOrg ?? legacyOrg);
   }, [userId]);
 
   const setSelectedTeamId = useCallback(
@@ -148,20 +240,72 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [userId],
   );
 
+  const setSelectedEnterpriseId = useCallback(
+    (id: string) => {
+      _setSelectedEnterpriseId(id);
+      if (!userId || typeof window === 'undefined') return;
+      localStorage.setItem(getUserEnterpriseKey(userId), id);
+    },
+    [userId],
+  );
+
+  const setSelectedOrgId = useCallback(
+    (id: string) => {
+      _setSelectedOrgId(id);
+      if (!userId || typeof window === 'undefined') return;
+      localStorage.setItem(getUserOrgKey(userId), id);
+    },
+    [userId],
+  );
+
+  useEffect(() => {
+    if (!userId || enterprises.length === 0) {
+      if (userId && enterprises.length === 0) {
+        _setSelectedEnterpriseId(null);
+      }
+      return;
+    }
+
+    const hasSelectedEnterprise = selectedEnterpriseId
+      ? enterprises.some((enterprise) => enterprise.id === selectedEnterpriseId)
+      : false;
+    if (!hasSelectedEnterprise) {
+      setSelectedEnterpriseId(enterprises[0].id);
+    }
+  }, [enterprises, selectedEnterpriseId, setSelectedEnterpriseId, userId]);
+
+  const scopedTeams = useMemo(
+    () => (selectedOrgId ? teams.filter((team) => team.orgId === selectedOrgId) : teams),
+    [teams, selectedOrgId],
+  );
+
+  useEffect(() => {
+    if (!userId || organizations.length === 0) return;
+
+    const hasSelectedOrg = selectedOrgId
+      ? organizations.some((org) => org.id === selectedOrgId)
+      : false;
+    if (!hasSelectedOrg) {
+      setSelectedOrgId(organizations[0].id);
+    }
+  }, [organizations, selectedOrgId, setSelectedOrgId, userId]);
+
   // Ensure selected team belongs to the current user; otherwise pick first available.
   useEffect(() => {
-    if (!userId || teams.length === 0) return;
+    if (!userId || scopedTeams.length === 0) return;
 
-    const hasSelected = selectedTeamId ? teams.some((team) => team.id === selectedTeamId) : false;
+    const hasSelected = selectedTeamId
+      ? scopedTeams.some((team) => team.id === selectedTeamId)
+      : false;
 
     if (!hasSelected) {
-      setSelectedTeamId(teams[0].id);
+      setSelectedTeamId(scopedTeams[0].id);
     }
-  }, [selectedTeamId, teams, setSelectedTeamId, userId]);
+  }, [selectedTeamId, scopedTeams, setSelectedTeamId, userId]);
 
   const selectedTeam = useMemo(
-    () => teams.find((t) => t.id === selectedTeamId) ?? null,
-    [teams, selectedTeamId],
+    () => scopedTeams.find((t) => t.id === selectedTeamId) ?? null,
+    [scopedTeams, selectedTeamId],
   );
 
   const isAdmin = useMemo(
@@ -258,9 +402,17 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const value = useMemo<TeamContextValue>(
     () => ({
-      teams,
+      teams: scopedTeams,
+      enterprises,
+      organizations,
       teamsReady,
       refetchTeams,
+      refetchEnterprises,
+      refetchOrganizations,
+      selectedEnterpriseId,
+      setSelectedEnterpriseId,
+      selectedOrgId,
+      setSelectedOrgId,
       selectedTeamId,
       selectedTeam,
       setSelectedTeamId,
@@ -271,9 +423,17 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       currentTime,
     }),
     [
-      teams,
+      scopedTeams,
+      enterprises,
+      organizations,
       teamsReady,
       refetchTeams,
+      refetchEnterprises,
+      refetchOrganizations,
+      selectedEnterpriseId,
+      setSelectedEnterpriseId,
+      selectedOrgId,
+      setSelectedOrgId,
       selectedTeamId,
       selectedTeam,
       setSelectedTeamId,

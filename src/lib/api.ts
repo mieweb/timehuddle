@@ -34,9 +34,17 @@ export interface TimecoreUser {
   username: string | null;
   organizationMembership?: {
     organizationId: string;
-    organizationKey: string;
+    organizationSlug: string;
     role: 'owner' | 'admin';
   } | null;
+  organizations?: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    enterpriseId: string | null;
+    role: 'owner' | 'admin' | 'member';
+    allowAutoJoin: boolean;
+  }>;
 }
 
 export interface AuthAccount {
@@ -455,19 +463,217 @@ export const orgAdminApi = {
 // ─── Public Organization API (for all authenticated users) ──────────────────
 
 export const orgApi = {
+  checkSlugAvailability: (slug: string, excludeId?: string) => {
+    const params = new URLSearchParams({ slug });
+    if (excludeId) params.set('excludeId', excludeId);
+    return request<{ available: boolean }>(
+      `/v1/organizations/check-slug?${params.toString()}`,
+    ).then((r) => r.available);
+  },
+
+  listOrganizations: () =>
+    request<{
+      organizations: Array<{
+        id: string;
+        enterpriseId: string | null;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+      }>;
+    }>('/v1/organizations').then((r) => r.organizations),
+
+  createOrganization: (data: {
+    enterpriseId: string;
+    name: string;
+    slug?: string;
+    allowAutoJoin?: boolean;
+  }) =>
+    request<{
+      organization: {
+        id: string;
+        enterpriseId: string | null;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+      };
+    }>('/v1/organizations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.organization),
+
+  updateOrganization: (
+    id: string,
+    data: { name?: string; slug?: string; allowAutoJoin?: boolean },
+  ) =>
+    request<{
+      organization: {
+        id: string;
+        enterpriseId: string | null;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+      };
+    }>(`/v1/organizations/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }).then((r) => r.organization),
+
+  getOrganizationById: (id: string) =>
+    request<{
+      organization: {
+        id: string;
+        enterpriseId: string | null;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+        canManage: boolean;
+      };
+    }>(`/v1/organizations/${encodeURIComponent(id)}`).then((r) => r.organization),
+
+  updateSettings: (id: string, allowAutoJoin: boolean) =>
+    request<{ organization: { orgId: string; allowAutoJoin: boolean } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/settings`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ allowAutoJoin }),
+      },
+    ).then((r) => r.organization),
+
+  joinOrganization: (id: string) =>
+    request<{ membership: { orgId: string; role: 'owner' | 'admin' | 'member' } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/join`,
+      { method: 'POST' },
+    ).then((r) => r.membership),
+
+  listMembers: (id: string) =>
+    request<{ users: OrganizationAdminUser[] }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members`,
+    ).then((r) => r.users),
+
+  setMemberRole: (id: string, userId: string, role: DefaultOrganizationRole) =>
+    request<{ user: { userId: string; role: DefaultOrganizationRole } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      },
+    ).then((r) => r.user),
+
+  removeMember: (id: string, userId: string) =>
+    request<{ user: { userId: string } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      {
+        method: 'DELETE',
+      },
+    ).then((r) => r.user),
+
+  updateReportsTo: (userId: string, reportsTo: string | null) =>
+    request<{ user: { id: string; reportsToUserId: string | null } }>(
+      `/v1/org/users/${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ reportsToUserId: reportsTo }),
+      },
+    ).then((r) => r.user),
+
   getOrganization: () =>
     request<{ organization: AdminOrganization }>('/v1/organization').then((r) => r.organization),
 
-  getOwnershipStatus: () =>
-    request<{ hasOwner: boolean; installCompleted: boolean }>('/v1/organization/ownership-status'),
-
-  takeOwnership: () =>
-    request<{ role: 'owner' }>('/v1/organization/install', {
-      method: 'POST',
-    }),
-
   listUsers: () =>
     request<{ users: OrganizationAdminUser[] }>('/v1/organization/users').then((r) => r.users),
+};
+
+export const enterpriseApi = {
+  list: () =>
+    request<{
+      enterprises: Array<{ id: string; name: string; slug: string; role: 'owner' | 'admin' }>;
+    }>('/v1/enterprises').then((r) => r.enterprises),
+
+  create: (data: { name: string; slug?: string }) =>
+    request<{
+      enterprise: {
+        id: string;
+        name: string;
+        slug: string;
+        role: 'owner' | 'admin';
+        owners: string[];
+        admins: string[];
+      };
+    }>('/v1/enterprises', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.enterprise),
+
+  get: (id: string) =>
+    request<{
+      enterprise: {
+        id: string;
+        name: string;
+        slug: string;
+        role: 'owner' | 'admin';
+        owners: string[];
+        admins: string[];
+        members: Array<{
+          id: string;
+          name: string;
+          username: string | null;
+          role: 'owner' | 'admin';
+        }>;
+      };
+    }>(`/v1/enterprises/${encodeURIComponent(id)}`).then((r) => r.enterprise),
+
+  updateName: (id: string, name: string) =>
+    request<{
+      enterprise: {
+        id: string;
+        name: string;
+        slug: string;
+        role: 'owner' | 'admin';
+        owners: string[];
+        admins: string[];
+        members: Array<{
+          id: string;
+          name: string;
+          username: string | null;
+          role: 'owner' | 'admin';
+        }>;
+      };
+    }>(`/v1/enterprises/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }).then((r) => r.enterprise),
+
+  searchUsers: (id: string, q: string) =>
+    request<{ users: Array<{ id: string; name: string; username: string | null }> }>(
+      `/v1/enterprises/${encodeURIComponent(id)}/users/search?q=${encodeURIComponent(q)}`,
+    ).then((r) => r.users),
+
+  removeMember: (id: string, userId: string) =>
+    request<{ userId: string }>(
+      `/v1/enterprises/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' },
+    ),
+
+  setMemberRole: (id: string, userId: string, role: 'owner' | 'admin') =>
+    request<{ user: { userId: string; role: 'owner' | 'admin' } }>(
+      `/v1/enterprises/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      },
+    ).then((r) => r.user),
+
+  getOwnershipStatus: () =>
+    request<{ hasOwner: boolean; installCompleted: boolean }>('/v1/install-status'),
+
+  takeOwnership: () =>
+    request<{ role: 'owner' }>('/v1/install', {
+      method: 'POST',
+    }),
 };
 
 // ─── Username API ─────────────────────────────────────────────────────────────
@@ -504,7 +710,7 @@ export interface Ticket {
   status: string;
   priority: string | null;
   createdBy: string;
-  assignedTo: string | null;
+  assignedTo: string[];
   reviewedBy: string | null;
   reviewedAt: string | null;
   createdAt: string;
@@ -548,10 +754,10 @@ export const ticketApi = {
       body: JSON.stringify(data),
     }),
 
-  assignTicket: (id: string, assignedToUserId: string | null) =>
+  assignTicket: (id: string, assignedToUserIds: string[]) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/assign`, {
       method: 'PUT',
-      body: JSON.stringify({ assignedToUserId }),
+      body: JSON.stringify({ assignedToUserIds }),
     }).then((r) => r.ticket),
 
   /** Get total accumulated seconds for a ticket from Timers. */
@@ -573,6 +779,8 @@ export const ticketApi = {
 
 export interface Team {
   id: string;
+  orgId: string;
+  parentTeamId: string | null;
   name: string;
   description: string | null;
   members: string[];
@@ -597,11 +805,19 @@ export const teamApi = {
   ensurePersonal: () =>
     request<{ team: Team }>('/v1/teams/ensure-personal', { method: 'POST' }).then((r) => r.team),
 
-  createTeam: (data: { name: string; description?: string }) =>
+  createTeam: (data: {
+    name: string;
+    description?: string;
+    orgId?: string;
+    parentTeamId?: string | null;
+  }) =>
     request<{ team: Team }>('/v1/teams', {
       method: 'POST',
       body: JSON.stringify(data),
     }).then((r) => r.team),
+
+  getSubTeams: (id: string) =>
+    request<{ teams: Team[] }>(`/v1/teams/${encodeURIComponent(id)}/subteams`).then((r) => r.teams),
 
   joinTeam: (teamCode: string) =>
     request<{ team: Team }>('/v1/teams/join', {
@@ -723,8 +939,11 @@ export const clockApi = {
       isPaused: boolean;
     }>(`/v1/clock/status?teamId=${encodeURIComponent(teamId)}`),
 
-  /** Get the current user's active clock event (any team), or null. */
-  getActive: () => request<{ event: ClockEvent | null }>('/v1/clock/active').then((r) => r.event),
+  /** Get the current user's active clock event (any team), or null. Admin can pass userId. */
+  getActive: (userId?: string) => {
+    const params = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+    return request<{ event: ClockEvent | null }>(`/v1/clock/active${params}`).then((r) => r.event);
+  },
 
   /** Get all clock events for the current user. */
   getEvents: () => request<{ events: ClockEvent[] }>('/v1/clock/events').then((r) => r.events),
@@ -781,7 +1000,55 @@ export const clockApi = {
     }),
 };
 
-// ─── Notifications ────────────────────────────────────────────────────────────
+// ─── Team Dashboard API ───────────────────────────────────────────────────────
+
+export interface TeamMemberClockStatus {
+  userId: string;
+  name: string;
+  image: string | null;
+  isClockedIn: boolean;
+  isOnBreak: boolean;
+  activeClockStart: number | null;
+  todaySeconds: number;
+}
+
+export interface TeamRunningTimer {
+  timerId: string;
+  workItemId: string;
+  userId: string;
+  userName: string;
+  userImage: string | null;
+  ticketId: string;
+  ticketTitle: string;
+  startTime: number;
+}
+
+export const teamDashboardApi = {
+  getTeamClockStatus: (teamId: string) =>
+    request<{ members: TeamMemberClockStatus[] }>(
+      `/v1/clock/team-status?teamId=${encodeURIComponent(teamId)}`,
+    ).then((r) =>
+      r.members.map((m) =>
+        m.image && !/^https?:\/\//i.test(m.image)
+          ? { ...m, image: `${TIMECORE_BASE_URL}${m.image.startsWith('/') ? '' : '/'}${m.image}` }
+          : m,
+      ),
+    ),
+
+  getTeamRunningTimers: (teamId: string) =>
+    request<{ timers: TeamRunningTimer[] }>(
+      `/v1/timers/team-running?teamId=${encodeURIComponent(teamId)}`,
+    ).then((r) =>
+      r.timers.map((t) =>
+        t.userImage && !/^https?:\/\//i.test(t.userImage)
+          ? {
+              ...t,
+              userImage: `${TIMECORE_BASE_URL}${t.userImage.startsWith('/') ? '' : '/'}${t.userImage}`,
+            }
+          : t,
+      ),
+    ),
+};
 
 export interface Notification {
   id: string;
@@ -1003,12 +1270,18 @@ function clientTz(): string {
 }
 
 export const timerApi = {
-  /** Create a WorkItem for the given ticket + date. */
-  createEntry: (data: { ticketId: string; date: string; note?: string }) =>
-    request<{ entry: WorkItem }>('/v1/timers/entries', {
+  /** Create a WorkItem for the given ticket + date. Optionally start a timer immediately. */
+  createEntry: (data: {
+    ticketId: string;
+    date: string;
+    note?: string;
+    notifyAdmins?: boolean;
+    startNow?: boolean;
+  }) =>
+    request<{ entry: WorkItem; session: Timer | null }>('/v1/timers/entries', {
       method: 'POST',
       body: JSON.stringify(data),
-    }).then((r) => r.entry),
+    }),
 
   /** Start a timer for a WorkItem. Closes any open timer first. */
   startSession: (entryId: string, now?: number) =>
@@ -1035,14 +1308,25 @@ export const timerApi = {
     }).then((r) => r.entry),
 
   /** Delete a WorkItem and all of its timers. */
-  deleteEntry: (entryId: string) =>
+  deleteEntry: (entryId: string, options?: { notifyAdmins?: boolean }) =>
     request<{ deletedEntry: boolean; deletedSessions: number }>(
-      `/v1/timers/entries/${encodeURIComponent(entryId)}`,
-      { method: 'DELETE' },
+      `/v1/timers/entries/${encodeURIComponent(entryId)}${options?.notifyAdmins === false ? '?notifyAdmins=false' : ''}`,
+      {
+        method: 'DELETE',
+      },
     ),
 
   /** Get the currently running timer for the authenticated user, or null. */
   getRunning: () => request<{ session: Timer | null }>('/v1/timers/running').then((r) => r.session),
+
+  /** Get all entries + sessions for today in local time. Admin can pass userId. */
+  getToday: (userId?: string) => {
+    const tz = clientTz();
+    const userParam = userId ? `&userId=${encodeURIComponent(userId)}` : '';
+    return request<{ entries: DayEntry[] }>(
+      `/v1/timers/today?tz=${encodeURIComponent(tz)}${userParam}`,
+    ).then((r) => r.entries);
+  },
 
   /** Get all entries + sessions for a local day (YYYY-MM-DD). */
   getDay: (date: string) => {

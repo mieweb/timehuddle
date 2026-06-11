@@ -15,8 +15,14 @@ import { ObjectId } from "mongodb";
 import { buildApp } from "../src/server.js";
 import { connectDB, client } from "../src/lib/db.js";
 import { auth } from "../src/lib/auth.js";
-import { organizationsCollection } from "../src/models/index.js";
+import {
+  enterprisesCollection,
+  installationsCollection,
+  organizationsCollection,
+} from "../src/models/index.js";
 import { DEFAULT_ORG_KEY } from "../src/lib/org-config.js";
+
+const INSTALLATION_DOC_ID = "Installation" as const;
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -445,7 +451,7 @@ describe("GET /v1/users", () => {
 
 describe("GET /v1/organization/users", () => {
   it("returns all users with default organization roles", async () => {
-    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
     expect(defaultOrg).toBeTruthy();
 
     const originalOwners = defaultOrg!.owners ?? [];
@@ -479,27 +485,39 @@ describe("GET /v1/organization/users", () => {
   });
 });
 
-describe("Default organization ownership bootstrap", () => {
+describe("Default enterprise ownership bootstrap", () => {
   it("reports owner absence and allows authenticated user to take ownership", async () => {
-    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
     expect(defaultOrg).toBeTruthy();
+    expect(defaultOrg?.enterpriseId).toBeTruthy();
 
-    const originalOwners = defaultOrg!.owners ?? [];
-    const originalAdmins = defaultOrg!.admins ?? [];
-    const originalInstallCompletedAt = defaultOrg!.installCompletedAt;
+    const enterpriseId = defaultOrg!.enterpriseId as string;
+    const defaultEnterprise = await enterprisesCollection().findOne({
+      _id: new ObjectId(enterpriseId),
+    });
+    expect(defaultEnterprise).toBeTruthy();
+
+    const originalEnterpriseOwners = defaultEnterprise!.owners ?? [];
+    const originalEnterpriseAdmins = defaultEnterprise!.admins ?? [];
+    const originalInstallation = await installationsCollection().findOne({
+      _id: INSTALLATION_DOC_ID,
+    });
+
+    const originalOrgOwners = defaultOrg!.owners ?? [];
+    const originalOrgAdmins = defaultOrg!.admins ?? [];
 
     try {
-      await organizationsCollection().updateOne(
-        { _id: defaultOrg!._id },
+      await enterprisesCollection().updateOne(
+        { _id: defaultEnterprise!._id },
         {
-          $set: { owners: [], admins: originalAdmins, updatedAt: new Date() },
-          $unset: { installCompletedAt: "" },
+          $set: { owners: [], admins: originalEnterpriseAdmins, updatedAt: new Date() },
         }
       );
+      await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
 
       const statusRes = await app.inject({
         method: "GET",
-        url: "/v1/organization/ownership-status",
+        url: "/v1/install-status",
         headers: { cookie: aliceCookie },
       });
       expect(statusRes.statusCode).toBe(200);
@@ -508,94 +526,212 @@ describe("Default organization ownership bootstrap", () => {
 
       const takeRes = await app.inject({
         method: "POST",
-        url: "/v1/organization/install",
+        url: "/v1/install",
         headers: { cookie: aliceCookie },
       });
       expect(takeRes.statusCode).toBe(200);
       expect(takeRes.json().role).toBe("owner");
 
-      const updatedOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+      const updatedEnterprise = await enterprisesCollection().findOne({
+        _id: defaultEnterprise!._id,
+      });
+      expect(updatedEnterprise?.owners ?? []).toEqual([aliceId]);
+      const updatedInstallation = await installationsCollection().findOne({
+        _id: INSTALLATION_DOC_ID,
+      });
+      expect(updatedInstallation?.completedAt).toBeTruthy();
+
+      const updatedOrg = await organizationsCollection().findOne({ _id: defaultOrg!._id });
       expect(updatedOrg?.owners ?? []).toEqual([aliceId]);
-      expect(updatedOrg?.installCompletedAt).toBeTruthy();
     } finally {
-      if (originalInstallCompletedAt) {
-        await organizationsCollection().updateOne(
-          { _id: defaultOrg!._id },
-          {
-            $set: {
-              owners: originalOwners,
-              admins: originalAdmins,
-              installCompletedAt: originalInstallCompletedAt,
-              updatedAt: new Date(),
-            },
-          }
+      if (originalInstallation) {
+        await installationsCollection().replaceOne(
+          { _id: INSTALLATION_DOC_ID },
+          originalInstallation,
+          { upsert: true }
         );
       } else {
-        await organizationsCollection().updateOne(
-          { _id: defaultOrg!._id },
-          {
-            $set: { owners: originalOwners, admins: originalAdmins, updatedAt: new Date() },
-            $unset: { installCompletedAt: "" },
-          }
-        );
+        await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
       }
-    }
-  });
 
-  it("returns 409 when an owner already exists", async () => {
-    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
-    expect(defaultOrg).toBeTruthy();
-
-    const originalOwners = defaultOrg!.owners ?? [];
-    const originalAdmins = defaultOrg!.admins ?? [];
-    const originalInstallCompletedAt = defaultOrg!.installCompletedAt;
-
-    try {
-      await organizationsCollection().updateOne(
-        { _id: defaultOrg!._id },
+      await enterprisesCollection().updateOne(
+        { _id: defaultEnterprise!._id },
         {
-          $set: { owners: [bobId], admins: originalAdmins, updatedAt: new Date() },
-          $unset: { installCompletedAt: "" },
+          $set: {
+            owners: originalEnterpriseOwners,
+            admins: originalEnterpriseAdmins,
+            updatedAt: new Date(),
+          },
         }
       );
 
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        {
+          $set: {
+            owners: originalOrgOwners,
+            admins: originalOrgAdmins,
+            updatedAt: new Date(),
+          },
+        }
+      );
+    }
+  });
+
+  it("backfills enterpriseId for migrated organizations during install", async () => {
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
+    expect(defaultOrg).toBeTruthy();
+    expect(defaultOrg?.enterpriseId).toBeTruthy();
+
+    const defaultEnterprise = await enterprisesCollection().findOne({
+      _id: new ObjectId(defaultOrg!.enterpriseId as string),
+    });
+    expect(defaultEnterprise).toBeTruthy();
+
+    const originalEnterpriseOwners = defaultEnterprise!.owners ?? [];
+    const originalEnterpriseAdmins = defaultEnterprise!.admins ?? [];
+    const originalInstallation = await installationsCollection().findOne({
+      _id: INSTALLATION_DOC_ID,
+    });
+
+    const originalOrgOwners = defaultOrg!.owners ?? [];
+    const originalOrgAdmins = defaultOrg!.admins ?? [];
+
+    const migratedOrgId = new ObjectId();
+
+    try {
+      await organizationsCollection().insertOne({
+        _id: migratedOrgId,
+        name: "Users Migrated Org",
+        slug: "users-migrated-org",
+        key: "users-migrated-org",
+        owners: [],
+        admins: [],
+        createdAt: new Date(),
+      });
+
+      await enterprisesCollection().updateOne(
+        { _id: defaultEnterprise!._id },
+        {
+          $set: { owners: [], admins: originalEnterpriseAdmins, updatedAt: new Date() },
+        }
+      );
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        {
+          $set: { owners: [], admins: originalOrgAdmins, updatedAt: new Date() },
+        }
+      );
+      await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
+
       const takeRes = await app.inject({
         method: "POST",
-        url: "/v1/organization/install",
+        url: "/v1/install",
+        headers: { cookie: aliceCookie },
+      });
+
+      expect(takeRes.statusCode).toBe(200);
+
+      const migratedOrg = await organizationsCollection().findOne({ _id: migratedOrgId });
+      expect(migratedOrg?.enterpriseId).toBe(defaultOrg!.enterpriseId);
+    } finally {
+      await organizationsCollection().deleteOne({ _id: migratedOrgId });
+
+      if (originalInstallation) {
+        await installationsCollection().replaceOne(
+          { _id: INSTALLATION_DOC_ID },
+          originalInstallation,
+          { upsert: true }
+        );
+      } else {
+        await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
+      }
+
+      await enterprisesCollection().updateOne(
+        { _id: defaultEnterprise!._id },
+        {
+          $set: {
+            owners: originalEnterpriseOwners,
+            admins: originalEnterpriseAdmins,
+            updatedAt: new Date(),
+          },
+        }
+      );
+
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        {
+          $set: {
+            owners: originalOrgOwners,
+            admins: originalOrgAdmins,
+            updatedAt: new Date(),
+          },
+        }
+      );
+    }
+  });
+
+  it("returns 409 when an enterprise owner already exists", async () => {
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
+    expect(defaultOrg).toBeTruthy();
+    expect(defaultOrg?.enterpriseId).toBeTruthy();
+
+    const defaultEnterprise = await enterprisesCollection().findOne({
+      _id: new ObjectId(defaultOrg!.enterpriseId as string),
+    });
+    expect(defaultEnterprise).toBeTruthy();
+
+    const originalEnterpriseOwners = defaultEnterprise!.owners ?? [];
+    const originalEnterpriseAdmins = defaultEnterprise!.admins ?? [];
+    const originalInstallation = await installationsCollection().findOne({
+      _id: INSTALLATION_DOC_ID,
+    });
+
+    try {
+      await enterprisesCollection().updateOne(
+        { _id: defaultEnterprise!._id },
+        {
+          $set: { owners: [bobId], admins: originalEnterpriseAdmins, updatedAt: new Date() },
+        }
+      );
+      await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
+
+      const takeRes = await app.inject({
+        method: "POST",
+        url: "/v1/install",
         headers: { cookie: aliceCookie },
       });
 
       expect(takeRes.statusCode).toBe(409);
       expect(takeRes.json().error).toBe("Owner already exists or install is already complete");
     } finally {
-      if (originalInstallCompletedAt) {
-        await organizationsCollection().updateOne(
-          { _id: defaultOrg!._id },
-          {
-            $set: {
-              owners: originalOwners,
-              admins: originalAdmins,
-              installCompletedAt: originalInstallCompletedAt,
-              updatedAt: new Date(),
-            },
-          }
+      if (originalInstallation) {
+        await installationsCollection().replaceOne(
+          { _id: INSTALLATION_DOC_ID },
+          originalInstallation,
+          { upsert: true }
         );
       } else {
-        await organizationsCollection().updateOne(
-          { _id: defaultOrg!._id },
-          {
-            $set: { owners: originalOwners, admins: originalAdmins, updatedAt: new Date() },
-            $unset: { installCompletedAt: "" },
-          }
-        );
+        await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
       }
+
+      await enterprisesCollection().updateOne(
+        { _id: defaultEnterprise!._id },
+        {
+          $set: {
+            owners: originalEnterpriseOwners,
+            admins: originalEnterpriseAdmins,
+            updatedAt: new Date(),
+          },
+        }
+      );
     }
   });
 });
 
 describe("PUT /v1/org/users/:userId", () => {
   it("returns 404 when reportsToUserId does not exist", async () => {
-    const defaultOrg = await organizationsCollection().findOne({ key: DEFAULT_ORG_KEY });
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
     expect(defaultOrg).toBeTruthy();
 
     const originalOwners = defaultOrg!.owners ?? [];

@@ -155,7 +155,7 @@ async function seedShiftEndReminderNotification(
     await db.collection('notifications').insertOne({
       _id: notifId,
       userId,
-      title: 'TiméHuddle',
+      title: 'Huddle',
       body: 'You are approaching 8 hours. Would you like to continue working or clock out?',
       data: { type: 'shift-end-reminder', clockEventId: eventId, teamId, url: '/app/clock' },
       read: false,

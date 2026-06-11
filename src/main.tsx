@@ -42,7 +42,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { InboxPage } from './features/inbox/InboxPage';
-import { notificationApi, orgApi } from './lib/api';
+import { enterpriseApi, notificationApi } from './lib/api';
 import { MESSAGES_PENDING_THREAD_KEY } from './lib/constants';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
@@ -215,7 +215,7 @@ const App: React.FC = () => {
     }
 
     let cancelled = false;
-    void orgApi
+    void enterpriseApi
       .getOwnershipStatus()
       .then((status) => {
         if (cancelled) return;

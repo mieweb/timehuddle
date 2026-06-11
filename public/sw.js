@@ -63,9 +63,36 @@ self.addEventListener('notificationclick', function (event) {
   event.notification.close();
 
   const notificationData = event.notification.data || {};
+
+  // shift-end-reminder: post a message to the open window so the app can open
+  // the shift-end modal in-place, without navigating away from the current page.
+  if (notificationData.type === 'shift-end-reminder') {
+    event.waitUntil(
+      clients
+        .matchAll({ type: 'window', includeUncontrolled: true })
+        .then(function (windowClients) {
+          const msg = {
+            type: 'timehuddle:openShiftReminder',
+            clockEventId: notificationData.clockEventId,
+            teamId: notificationData.teamId,
+          };
+          if (windowClients.length > 0) {
+            windowClients[0].postMessage(msg);
+            return windowClients[0].focus();
+          }
+          // No open window — open the app; ShiftReminderContext will hydrate from inbox on load
+          if (clients.openWindow) {
+            return clients.openWindow('/app/dashboard');
+          }
+        })
+        .catch((err) => console.error('[Service Worker] Error handling notification click:', err)),
+    );
+    return;
+  }
+
   let urlToOpen = notificationData.url || event.notification.data?.url || '/app/dashboard';
 
-  // Normalise legacy paths
+  // Normalise legacy paths (preserve query string)
   if (typeof urlToOpen === 'string' && urlToOpen.startsWith('/') && !urlToOpen.startsWith('/app')) {
     if (urlToOpen === '/' || urlToOpen === '') urlToOpen = '/app/dashboard';
     else if (urlToOpen.startsWith('/member/')) urlToOpen = '/app/clock';
