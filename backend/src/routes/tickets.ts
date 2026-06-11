@@ -228,7 +228,7 @@ export async function ticketRoutes(app: FastifyInstance) {
           required: ["teamId", "title"],
           additionalProperties: false,
           properties: {
-            teamId: { type: "string" },
+            teamId: { type: "string", minLength: 1, pattern: "^[0-9a-f]{24}$" },
             title: { type: "string", minLength: 1, maxLength: 500 },
             github: { type: "string", maxLength: 1000, default: "" },
           },
@@ -236,6 +236,7 @@ export async function ticketRoutes(app: FastifyInstance) {
         response: {
           201: { type: "object", properties: { ticket: ticketShape } },
           ...unauth,
+          400: err("teamId is required"),
           403: err("Not a team member"),
         },
       },
@@ -252,6 +253,9 @@ export async function ticketRoutes(app: FastifyInstance) {
         github: body.github ?? "",
         createdBy: req.user!.id,
       });
+      if (result === "bad-request") {
+        return reply.status(400).send({ error: "teamId is required" });
+      }
       if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
       const ticket = await ticketService.findById(result.id);
       return reply.status(201).send({ ticket: toPublicTicket(ticket!) });
