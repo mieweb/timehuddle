@@ -86,7 +86,7 @@ export async function initAgenda(): Promise<void> {
     const breaks = await findBreaksForEvent(clockEventId);
     const now = Date.now();
     const workSeconds = computeWorkSeconds(event, breaks, now);
-    
+
     if (workSeconds < SHIFT_END_WORK_SECS) {
       // Not enough work time yet — reschedule to check again after remaining time
       const remainingSecs = SHIFT_END_WORK_SECS - workSeconds;
@@ -143,7 +143,7 @@ export async function initAgenda(): Promise<void> {
     const breaks = await findBreaksForEvent(clockEventId);
     const now = Date.now();
     const workSeconds = computeWorkSeconds(event, breaks, now);
-    
+
     if (workSeconds < AUTO_CLOCKOUT_WORK_SECS) {
       // Not enough work time yet — reschedule to check again after remaining time
       const remainingSecs = AUTO_CLOCKOUT_WORK_SECS - workSeconds;
@@ -177,7 +177,7 @@ export async function initAgenda(): Promise<void> {
     const breaks = await findBreaksForEvent(clockEventId);
     const now = Date.now();
     const workSeconds = computeWorkSeconds(event, breaks, now);
-    
+
     if (workSeconds < AUTO_CLOCKOUT_WORK_SECS) {
       // Not enough work time yet — reschedule to check again after remaining time
       const remainingSecs = AUTO_CLOCKOUT_WORK_SECS - workSeconds;
