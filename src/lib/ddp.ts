@@ -1,0 +1,285 @@
+/**
+ * Minimal DDP client + React hooks for the Meteor backend PoC (port 3100).
+ *
+ * Dependency-free implementation of the DDP protocol subset we need:
+ * connect, method calls, and subscriptions with added/changed/removed merging.
+ *
+ * Auth: after connecting, calls the Meteor `auth.bridge` method with the
+ * better-auth session token from localStorage (same token src/lib/api.ts uses),
+ * which binds this DDP connection to the signed-in user.
+ *
+ * Live data flows through oplog-backed publications (`tickets.byTeam`,
+ * `clock.liveForTeams`) — any write from the Fastify backend, Meteor REST
+ * (wormhole), or even mongosh appears here without polling.
+ */
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { sessionToken } from './api';
+
+const METEOR_WS_URL =
+  (
+    (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_METEOR_URL ??
+    'http://localhost:3100'
+  ).replace(/^http/, 'ws') + '/websocket';
+
+type DdpDoc = { _id: string } & Record<string, unknown>;
+type CollectionStore = Map<string, DdpDoc>;
+type Listener = () => void;
+
+/**
+ * Meteor's MongoID.idStringify prefixes ObjectId-backed ids with '-'.
+ * Strip it so ids match the 24-char hex strings the REST API uses.
+ */
+function normalizeId(id: string): string {
+  return id.startsWith('-') ? id.slice(1) : id;
+}
+
+/** Decode EJSON wire values (e.g. {$date: ms}) into plain JS values. */
+function fromEjson(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(fromEjson);
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.$date === 'number') return new Date(obj.$date).toISOString();
+  if (obj.$type === 'oid' && typeof obj.$value === 'string') return obj.$value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) out[k] = fromEjson(v);
+  return out;
+}
+
+interface DdpMessage {
+  msg?: string;
+  id?: string;
+  collection?: string;
+  fields?: Record<string, unknown>;
+  cleared?: string[];
+  result?: unknown;
+  error?: { reason?: string; message?: string };
+  subs?: string[];
+  session?: string;
+}
+
+class DdpClient {
+  private ws: WebSocket | null = null;
+  private nextId = 1;
+  private pendingMethods = new Map<
+    string,
+    { resolve: (v: unknown) => void; reject: (e: Error) => void }
+  >();
+  private readySubs = new Set<string>();
+  private subReadyListeners = new Map<string, () => void>();
+  private collections = new Map<string, CollectionStore>();
+  private listeners = new Map<string, Set<Listener>>();
+  private connectPromise: Promise<void> | null = null;
+  private authPromise: Promise<void> | null = null;
+  status: 'idle' | 'connecting' | 'connected' | 'failed' = 'idle';
+
+  /** Connect (once) and authenticate the connection via auth.bridge. */
+  ensureConnected(): Promise<void> {
+    if (!this.connectPromise) {
+      this.status = 'connecting';
+      this.connectPromise = new Promise((resolve, reject) => {
+        const ws = new WebSocket(METEOR_WS_URL);
+        this.ws = ws;
+        ws.onopen = () => ws.send(JSON.stringify({ msg: 'connect', version: '1', support: ['1'] }));
+        ws.onmessage = (e) => {
+          const data = JSON.parse(e.data as string) as DdpMessage;
+          if (data.msg === 'connected') {
+            this.status = 'connected';
+            resolve();
+          }
+          this.handleMessage(data);
+        };
+        ws.onerror = () => {
+          this.status = 'failed';
+          reject(new Error('DDP connection failed'));
+        };
+        ws.onclose = () => {
+          if (this.status !== 'connected') reject(new Error('DDP connection closed'));
+          this.status = 'failed';
+        };
+      });
+    }
+    return this.connectPromise;
+  }
+
+  private async ensureAuthed(): Promise<void> {
+    await this.ensureConnected();
+    if (!this.authPromise) {
+      const token = sessionToken.get();
+      this.authPromise = token
+        ? this.call('auth.bridge', token).then(() => undefined)
+        : Promise.resolve();
+    }
+    return this.authPromise;
+  }
+
+  private handleMessage(data: DdpMessage): void {
+    switch (data.msg) {
+      case 'ping':
+        this.ws?.send(JSON.stringify({ msg: 'pong', ...(data.id ? { id: data.id } : {}) }));
+        break;
+      case 'result': {
+        const pending = data.id ? this.pendingMethods.get(data.id) : undefined;
+        if (pending && data.id) {
+          this.pendingMethods.delete(data.id);
+          if (data.error) pending.reject(new Error(data.error.reason ?? data.error.message));
+          else pending.resolve(data.result);
+        }
+        break;
+      }
+      case 'added':
+      case 'changed':
+      case 'removed': {
+        if (!data.collection || !data.id) break;
+        const store = this.getStore(data.collection);
+        const docId = normalizeId(data.id);
+        const fields = fromEjson(data.fields ?? {}) as Record<string, unknown>;
+        if (data.msg === 'added') {
+          store.set(docId, { _id: docId, ...fields });
+        } else if (data.msg === 'changed') {
+          const existing = store.get(docId);
+          if (existing) {
+            const next = { ...existing, ...fields };
+            for (const key of data.cleared ?? []) delete next[key];
+            store.set(docId, next);
+          }
+        } else {
+          store.delete(docId);
+        }
+        this.notify(data.collection);
+        break;
+      }
+      case 'ready':
+        for (const subId of data.subs ?? []) {
+          this.readySubs.add(subId);
+          this.subReadyListeners.get(subId)?.();
+        }
+        break;
+    }
+  }
+
+  private getStore(collection: string): CollectionStore {
+    let store = this.collections.get(collection);
+    if (!store) {
+      store = new Map();
+      this.collections.set(collection, store);
+    }
+    return store;
+  }
+
+  private notify(collection: string): void {
+    for (const fn of this.listeners.get(collection) ?? []) fn();
+  }
+
+  async call(method: string, ...params: unknown[]): Promise<unknown> {
+    await this.ensureConnected();
+    const id = String(this.nextId++);
+    return new Promise((resolve, reject) => {
+      this.pendingMethods.set(id, { resolve, reject });
+      this.ws!.send(JSON.stringify({ msg: 'method', id, method, params }));
+    });
+  }
+
+  /** Subscribe after auth; returns an unsubscribe function. */
+  subscribe(name: string, params: unknown[], onReady?: () => void): () => void {
+    const id = String(this.nextId++);
+    let stopped = false;
+    void this.ensureAuthed().then(() => {
+      if (stopped) return;
+      if (onReady) this.subReadyListeners.set(id, onReady);
+      this.ws!.send(JSON.stringify({ msg: 'sub', id, name, params }));
+    });
+    return () => {
+      stopped = true;
+      this.subReadyListeners.delete(id);
+      if (this.status === 'connected') {
+        this.ws?.send(JSON.stringify({ msg: 'unsub', id }));
+      }
+    };
+  }
+
+  docs(collection: string): DdpDoc[] {
+    return Array.from(this.getStore(collection).values());
+  }
+
+  onCollectionChange(collection: string, fn: Listener): () => void {
+    let set = this.listeners.get(collection);
+    if (!set) {
+      set = new Set();
+      this.listeners.set(collection, set);
+    }
+    set.add(fn);
+    return () => set!.delete(fn);
+  }
+}
+
+/** Singleton client — one DDP connection per browser tab. */
+let client: DdpClient | null = null;
+export function getDdpClient(): DdpClient {
+  if (!client) client = new DdpClient();
+  return client;
+}
+
+/**
+ * Reactive view of a published collection.
+ * Re-renders whenever the server pushes added/changed/removed for `collection`.
+ */
+function useLiveCollection(
+  collection: string,
+  publication: string,
+  params: unknown[],
+): { docs: DdpDoc[]; ready: boolean } {
+  const ddp = getDdpClient();
+  const [ready, setReady] = useState(false);
+  const [version, setVersion] = useState(0);
+  const paramsKey = JSON.stringify(params);
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
+
+  useEffect(() => {
+    setReady(false);
+    const offChange = ddp.onCollectionChange(collection, () => setVersion((v) => v + 1));
+    const unsubscribe = ddp.subscribe(publication, paramsRef.current, () => setReady(true));
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [collection, publication, paramsKey]);
+
+  const docs = useMemo(() => ddp.docs(collection), [ddp, collection, version]);
+  return { docs, ready };
+}
+
+/** Live tickets for the given teams (oplog-reactive). */
+export function useLiveTickets(teamIds: string[]) {
+  return useLiveCollection('tickets', 'tickets.byTeam', [teamIds]);
+}
+
+/** Map a raw DDP ticket doc to the frontend Ticket shape used by ticketApi. */
+export function ddpDocToTicket(doc: DdpDoc): import('./api').Ticket {
+  const assignedTo = doc.assignedTo;
+  return {
+    id: doc._id,
+    teamId: String(doc.teamId ?? ''),
+    title: String(doc.title ?? ''),
+    description: (doc.description as string | undefined) ?? null,
+    github: String(doc.github ?? ''),
+    status: String(doc.status ?? 'open'),
+    priority: (doc.priority as string | undefined) ?? null,
+    createdBy: String(doc.createdBy ?? ''),
+    assignedTo: Array.isArray(assignedTo)
+      ? assignedTo.map(String)
+      : assignedTo
+        ? [String(assignedTo)]
+        : [],
+    reviewedBy: (doc.reviewedBy as string | undefined) ?? null,
+    reviewedAt: (doc.reviewedAt as string | undefined) ?? null,
+    createdAt: String(doc.createdAt ?? ''),
+    updatedAt: (doc.updatedAt as string | undefined) ?? null,
+    sharedWithTimeharbor: doc.sharedWithTimeharbor as boolean | undefined,
+  };
+}
+
+/** Live "who is clocked in" events for the given teams (oplog-reactive). */
+export function useLiveClockEvents(teamIds: string[]) {
+  return useLiveCollection('clockevents', 'clock.liveForTeams', [teamIds]);
+}

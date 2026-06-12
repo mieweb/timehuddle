@@ -7,3 +7,7 @@ android
 
 backend/data/videos
 backend/data/videos/**
+
+# Vendored submodules and Meteor PoC backend
+vendor
+meteor-backend

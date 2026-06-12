@@ -1,0 +1,14 @@
+# Meteor packages used by this project, one per line.
+# Headless server-only backend: DDP publications + meteor-wormhole (REST/MCP).
+
+meteor@2.3.0                  # Shared foundation for all Meteor packages
+ecmascript@0.18.0              # Enable ECMAScript2015+ syntax in app code
+typescript@5.10.0              # Enable TypeScript syntax in .ts and .tsx modules
+shell-server@0.7.0            # Server-side component of the `meteor shell` command
+webapp@2.1.2                  # Serves a Meteor app over HTTP
+ddp@1.4.2                     # The protocol and client/server libraries that Meteor uses to send data
+mongo                         # Mongo.Collection + oplog-backed reactive cursors
+standard-minifier-js@3.2.0    # JS minifier run for production mode
+
+wreiske:meteor-wormhole       # Meteor methods -> MCP tools + REST + OpenAPI
+

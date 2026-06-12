@@ -1,0 +1,19 @@
+{
+  "name": "meteor-backend",
+  "private": true,
+  "scripts": {
+    "start": "METEOR_PACKAGE_DIRS=../vendor/meteor-wormhole/packages MONGO_URL=\"${MONGO_URL:-mongodb://timehuddle-mongodb-1.orb.local:27017/timehuddle?directConnection=true}\" MONGO_OPLOG_URL=\"${MONGO_OPLOG_URL:-mongodb://timehuddle-mongodb-1.orb.local:27017/local?directConnection=true}\" meteor run --port 3100",
+    "test": "meteor test --once --driver-package meteortesting:mocha"
+  },
+  "dependencies": {
+    "@babel/runtime": "^7.23.5",
+    "@swc/helpers": "^0.5.17",
+    "meteor-node-stubs": "^1.2.12"
+  },
+  "meteor": {
+    "mainModule": {
+      "server": "server/main.js"
+    },
+    "modern": true
+  }
+}
