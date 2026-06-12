@@ -7,6 +7,7 @@
  *   • Copy team code, rename, delete team
  *   • Promote/demote admins, remove members, invite by email
  *   • Set member passwords (admin only)
+ *   • Deep-link support: ?tab=timesheet&teamId=XXX&memberId=YYY
  */
 import {
   faCopy,
@@ -61,7 +62,7 @@ import { UserAvatar } from '../../ui/UserAvatar';
 export const TeamsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { navigate } = useRouter();
+  const { navigate, pathname } = useRouter();
   const {
     teams,
     teamsReady,
@@ -71,6 +72,40 @@ export const TeamsPage: React.FC = () => {
     isAdmin,
     refetchTeams,
   } = useTeam();
+
+  // Controlled tab value so deep-links can set the initial tab
+  const [activeTab, setActiveTab] = useState<string>('members');
+  const [initialMemberId, setInitialMemberId] = useState<string>('');
+  const [urlCheckCounter, setUrlCheckCounter] = useState(0);
+
+  // ── Parse deep-link query params whenever URL changes ──
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    const memberId = params.get('memberId');
+    const teamId = params.get('teamId');
+
+    if (tab === 'timesheet') setActiveTab('timesheet');
+    if (memberId) setInitialMemberId(memberId);
+    if (teamId && teams.some((t) => t.id === teamId)) setSelectedTeamId(teamId);
+
+    // Clean up query params from URL without triggering a navigation
+    if (tab || memberId || teamId) {
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState(null, '', cleanUrl);
+    }
+  }, [pathname, urlCheckCounter, setSelectedTeamId, teams]);
+
+  // ── Listen for navigation events (from navigate()) ──
+  useEffect(() => {
+    const handleUrlChange = () => setUrlCheckCounter((c) => c + 1);
+    window.addEventListener('timehuddle:navigate', handleUrlChange);
+    window.addEventListener('popstate', handleUrlChange);
+    return () => {
+      window.removeEventListener('timehuddle:navigate', handleUrlChange);
+      window.removeEventListener('popstate', handleUrlChange);
+    };
+  }, []);
 
   // Fetch members for selected team
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -350,8 +385,8 @@ export const TeamsPage: React.FC = () => {
             )}
           </div>
 
-          {/* Tabs: Members | Timesheet */}
-          <Tabs defaultValue="members" className="mt-2">
+          {/* Tabs: Members | Timesheet — controlled so deep-links can set initial tab */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
             <TabsList className="w-full">
               <TabsTrigger value="members" className="flex-1">
                 Members
@@ -514,6 +549,7 @@ export const TeamsPage: React.FC = () => {
                   members={members}
                   selectedTeamId={selectedTeamId}
                   teams={teams}
+                  initialMemberId={initialMemberId}
                 />
               </TabsContent>
             )}

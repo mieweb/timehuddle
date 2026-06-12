@@ -146,7 +146,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
       {/* <ProfileNotices notices={[{ type: 'coming-soon' }]} /> */}
 
       {/* Hero card */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-neutral-800 to-neutral-950 dark:from-neutral-900 dark:to-black shadow-lg">
+      <div className="relative overflow-hidden rounded-2xl bg-linear-to-br from-neutral-800 to-neutral-950 dark:from-neutral-900 dark:to-black shadow-lg">
         {/* Background image (if set) */}
         {backgroundUrl && (
           <div
@@ -171,7 +171,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
               aria-hidden
             />
             <div
-              className="pointer-events-none absolute -left-10 bottom-0 h-40 w-40 rounded-full bg-white/[0.03]"
+              className="pointer-events-none absolute -left-10 bottom-0 h-40 w-40 rounded-full bg-white/3"
               aria-hidden
             />
           </>

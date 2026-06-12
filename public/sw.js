@@ -91,6 +91,7 @@ self.addEventListener('notificationclick', function (event) {
   }
 
   let urlToOpen = notificationData.url || event.notification.data?.url || '/app/dashboard';
+  console.log('[SW] notificationclick - raw URL:', urlToOpen);
 
   // Normalise legacy paths (preserve query string)
   if (typeof urlToOpen === 'string' && urlToOpen.startsWith('/') && !urlToOpen.startsWith('/app')) {
@@ -98,18 +99,22 @@ self.addEventListener('notificationclick', function (event) {
     else if (urlToOpen.startsWith('/member/')) urlToOpen = '/app/clock';
     else urlToOpen = `/app${urlToOpen}`;
   }
+  console.log('[SW] notificationclick - normalized URL:', urlToOpen);
 
   event.waitUntil(
     clients
       .matchAll({ type: 'window', includeUncontrolled: true })
       .then(function (windowClients) {
         const abs = new URL(urlToOpen, self.location.origin).href;
-        // Navigate the first open app window (regardless of its current URL) and focus it.
-        // This ensures clicking a notification always brings the user to the right page
-        // even if they are currently on a different route.
-        if (windowClients.length > 0 && 'navigate' in windowClients[0]) {
-          return windowClients[0].navigate(abs).then((c) => c?.focus());
+
+        if (windowClients.length > 0) {
+          // App is open (foreground) — post message so React router handles navigation
+          // without a full page reload
+          windowClients[0].postMessage({ type: 'timehuddle:navigate', url: urlToOpen });
+          return windowClients[0].focus();
         }
+
+        // App is closed/background — open it directly
         if (clients.openWindow) {
           return clients.openWindow(abs);
         }

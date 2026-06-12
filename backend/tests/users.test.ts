@@ -370,8 +370,8 @@ describe("GET /v1/users/:id", () => {
     const team = user.sharedTeams.find((t: any) => t.id === sharedTeamId);
     expect(team).toBeDefined();
     expect(team.name).toBe("Users Test Team");
-    // Bob is not an admin of the team
-    expect(team.isAdmin).toBe(false);
+    // Alice (viewer) is an admin of the team
+    expect(team.isAdmin).toBe(true);
     expect(user.teamMemberships).toEqual([
       { id: sharedTeamId, name: "Users Test Team", role: "member" },
     ]);

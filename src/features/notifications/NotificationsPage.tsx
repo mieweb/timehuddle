@@ -94,11 +94,14 @@ function resolveNotificationTarget(
 
   if (typeof data.url === 'string' && data.url.length > 0) {
     const u = data.url as string;
+    console.log('[resolveNotificationTarget] Navigating to:', u);
     if (u.startsWith('http://') || u.startsWith('https://')) {
       window.location.href = u;
       return;
     }
-    navigate(normalizeAppPath(u));
+    const normalized = normalizeAppPath(u);
+    console.log('[resolveNotificationTarget] Normalized URL:', normalized);
+    navigate(normalized);
     return;
   }
 
@@ -110,6 +113,7 @@ function resolveNotificationTarget(
     navigate('/app/tickets');
     return;
   }
+  console.log('[resolveNotificationTarget] No URL found, staying on current page');
 }
 
 export const NotificationsPage: React.FC = () => {
@@ -192,6 +196,7 @@ export const NotificationsPage: React.FC = () => {
       }
       try {
         const data = (doc.data ?? {}) as Record<string, unknown>;
+        console.log('[NotificationsPage] Notification clicked:', data);
         if (data.type === 'team-invite') {
           await notificationApi.markOneRead(doc.id);
           setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
@@ -209,8 +214,8 @@ export const NotificationsPage: React.FC = () => {
         await notificationApi.markOneRead(doc.id);
         setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
         resolveNotificationTarget(doc, navigate);
-      } catch {
-        /* ignore */
+      } catch (err) {
+        console.error('[NotificationsPage] Error handling notification click:', err);
       }
     },
     [selectMode, toggleSelect, navigate, openShiftReminderModal],
