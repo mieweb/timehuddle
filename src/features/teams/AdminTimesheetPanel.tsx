@@ -375,26 +375,42 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Card>
             <CardContent>
-              <Text variant="muted" size="xs">Total Hours</Text>
-              <Text size="lg" weight="semibold">{formatDuration(filteredSummary.totalSeconds)}</Text>
+              <Text variant="muted" size="xs">
+                Total Hours
+              </Text>
+              <Text size="lg" weight="semibold">
+                {formatDuration(filteredSummary.totalSeconds)}
+              </Text>
             </CardContent>
           </Card>
           <Card>
             <CardContent>
-              <Text variant="muted" size="xs">Sessions</Text>
-              <Text size="lg" weight="semibold">{filteredSummary.totalSessions}</Text>
+              <Text variant="muted" size="xs">
+                Sessions
+              </Text>
+              <Text size="lg" weight="semibold">
+                {filteredSummary.totalSessions}
+              </Text>
             </CardContent>
           </Card>
           <Card>
             <CardContent>
-              <Text variant="muted" size="xs">Avg Session</Text>
-              <Text size="lg" weight="semibold">{formatDuration(filteredSummary.averageSessionSeconds)}</Text>
+              <Text variant="muted" size="xs">
+                Avg Session
+              </Text>
+              <Text size="lg" weight="semibold">
+                {formatDuration(filteredSummary.averageSessionSeconds)}
+              </Text>
             </CardContent>
           </Card>
           <Card>
             <CardContent>
-              <Text variant="muted" size="xs">Working Days</Text>
-              <Text size="lg" weight="semibold">{filteredSummary.workingDays}</Text>
+              <Text variant="muted" size="xs">
+                Working Days
+              </Text>
+              <Text size="lg" weight="semibold">
+                {filteredSummary.workingDays}
+              </Text>
             </CardContent>
           </Card>
         </div>

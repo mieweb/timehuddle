@@ -203,40 +203,42 @@ const AppLayoutContent: React.FC = () => {
 
   // ── Native push listeners (single combined effect) ────────────────────────
   useEffect(() => {
-  if (!Capacitor.isNativePlatform()) return;
-  const handles: { remove: () => void }[] = [];
+    if (!Capacitor.isNativePlatform()) return;
+    const handles: { remove: () => void }[] = [];
 
-  // Check for notification tap that happened before JS bridge was ready (background/cold start)
-  try {
-    const raw = window.localStorage.getItem('pendingPushNotification');
-    if (raw) {
-      const data = JSON.parse(raw) as Record<string, string>;
-      console.log('[PendingPush] found:', JSON.stringify(data));
-      window.localStorage.removeItem('pendingPushNotification');
-      handleNotificationData(data);
+    // Check for notification tap that happened before JS bridge was ready (background/cold start)
+    try {
+      const raw = window.localStorage.getItem('pendingPushNotification');
+      if (raw) {
+        const data = JSON.parse(raw) as Record<string, string>;
+        console.log('[PendingPush] found:', JSON.stringify(data));
+        window.localStorage.removeItem('pendingPushNotification');
+        handleNotificationData(data);
+      }
+    } catch {
+      /* ignore */
     }
-  } catch { /* ignore */ }
 
-  // Background/closed tap → navigate directly
-  PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-    console.log('[ActionPerformed] data:', JSON.stringify(action.notification.data));
-    handleNotificationData((action.notification.data ?? {}) as Record<string, string>);
-  })
-    .then((h) => handles.push(h))
-    .catch(() => {});
+    // Background/closed tap → navigate directly
+    PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+      console.log('[ActionPerformed] data:', JSON.stringify(action.notification.data));
+      handleNotificationData((action.notification.data ?? {}) as Record<string, string>);
+    })
+      .then((h) => handles.push(h))
+      .catch(() => {});
 
-  // Foreground push → iOS shows native banner via AppDelegate willPresent
-  // Tap is handled by pushNotificationActionPerformed above
-  PushNotifications.addListener('pushNotificationReceived', (_notification) => {
-    // intentionally empty — iOS handles the banner natively
-  })
-    .then((h) => handles.push(h))
-    .catch(() => {});
+    // Foreground push → iOS shows native banner via AppDelegate willPresent
+    // Tap is handled by pushNotificationActionPerformed above
+    PushNotifications.addListener('pushNotificationReceived', (_notification) => {
+      // intentionally empty — iOS handles the banner natively
+    })
+      .then((h) => handles.push(h))
+      .catch(() => {});
 
-  return () => {
-    handles.forEach((h) => h.remove());
-  };
-}, [handleNotificationData]);
+    return () => {
+      handles.forEach((h) => h.remove());
+    };
+  }, [handleNotificationData]);
 
   // ── Web push: service worker message handler ──────────────────────────────
   useEffect(() => {
@@ -347,7 +349,10 @@ const AppLayoutContent: React.FC = () => {
                       <div
                         onClick={() => {
                           handleNotificationData(foregroundNotif.data);
-                          console.log('[Banner] tapped, data:', JSON.stringify(foregroundNotif.data));
+                          console.log(
+                            '[Banner] tapped, data:',
+                            JSON.stringify(foregroundNotif.data),
+                          );
                           setForegroundNotif(null);
                           if (dismissTimer.current) clearTimeout(dismissTimer.current);
                         }}

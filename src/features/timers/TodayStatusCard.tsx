@@ -150,7 +150,11 @@ export function TodayStatusCard({ userId: propUserId }: TodayStatusCardProps) {
           <div className="flex items-start gap-2 min-w-0">
             <FontAwesomeIcon
               icon={faPlay}
-              className={runningEntry ? 'text-primary shrink-0 mt-0.5' : 'text-muted-foreground shrink-0 mt-0.5'}
+              className={
+                runningEntry
+                  ? 'text-primary shrink-0 mt-0.5'
+                  : 'text-muted-foreground shrink-0 mt-0.5'
+              }
             />
             {runningEntry && ticketTitle ? (
               <>
