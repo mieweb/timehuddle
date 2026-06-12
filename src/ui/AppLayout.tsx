@@ -204,28 +204,40 @@ const AppLayoutContent: React.FC = () => {
 
   // ── Native push listeners (single combined effect) ────────────────────────
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    const handles: { remove: () => void }[] = [];
+  if (!Capacitor.isNativePlatform()) return;
+  const handles: { remove: () => void }[] = [];
 
-    // Background/closed tap → navigate directly
-    PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-      handleNotificationData((action.notification.data ?? {}) as Record<string, string>);
-    })
-      .then((h) => handles.push(h))
-      .catch(() => {});
+  // Check for notification tap that happened before JS bridge was ready (background/cold start)
+  try {
+    const raw = window.localStorage.getItem('pendingPushNotification');
+    if (raw) {
+      const data = JSON.parse(raw) as Record<string, string>;
+      console.log('[PendingPush] found:', JSON.stringify(data));
+      window.localStorage.removeItem('pendingPushNotification');
+      handleNotificationData(data);
+    }
+  } catch { /* ignore */ }
 
-    // Foreground push → show in-app banner with haptic
-    PushNotifications.addListener('pushNotificationReceived', (notification) => {
-      
-    })
-      .then((h) => handles.push(h))
-      .catch(() => {});
+  // Background/closed tap → navigate directly
+  PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+    console.log('[ActionPerformed] data:', JSON.stringify(action.notification.data));
+    handleNotificationData((action.notification.data ?? {}) as Record<string, string>);
+  })
+    .then((h) => handles.push(h))
+    .catch(() => {});
 
-    return () => {
-      handles.forEach((h) => h.remove());
-      if (dismissTimer.current) clearTimeout(dismissTimer.current);
-    };
-  }, [handleNotificationData]);
+  // Foreground push → iOS shows native banner via AppDelegate willPresent
+  // Tap is handled by pushNotificationActionPerformed above
+  PushNotifications.addListener('pushNotificationReceived', (_notification) => {
+    // intentionally empty — iOS handles the banner natively
+  })
+    .then((h) => handles.push(h))
+    .catch(() => {});
+
+  return () => {
+    handles.forEach((h) => h.remove());
+  };
+}, [handleNotificationData]);
 
   // ── Web push: service worker message handler ──────────────────────────────
   useEffect(() => {

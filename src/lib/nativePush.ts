@@ -40,7 +40,7 @@ export async function subscribeToPush(): Promise<void> {
   }
 
   // Clear any stale listeners before adding new ones to prevent stacking.
-  await PushNotifications.removeAllListeners();
+  //await PushNotifications.removeAllListeners();
 
   const token = await new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(() => {
