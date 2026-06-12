@@ -16,6 +16,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { LocalNotifications } from '@capacitor/local-notifications';
 
 import { ClockPage } from '../features/clock/ClockPage';
 import { TimesheetPage } from '../features/clock/TimesheetPage';
@@ -149,6 +150,8 @@ const AppLayoutContent: React.FC = () => {
   const navigate = useCallback((path: string) => {
     window.history.pushState(null, '', path);
     setPathname(path.split('?')[0]);
+    // Dispatch custom event so components can react to query param changes
+    window.dispatchEvent(new CustomEvent('timehuddle:navigate', { detail: { path } }));
   }, []);
 
   // Keep in sync with browser back/forward
@@ -164,12 +167,9 @@ const AppLayoutContent: React.FC = () => {
     mainRef.current?.scrollTo({ top: 0 });
   }, [pathname]);
 
-  // Native push notification tap → navigate to the relevant page
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    let handle: { remove: () => void } | null = null;
-    PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-      const data = (action.notification.data ?? {}) as Record<string, string>;
+  // Shared notification data handler used by both foreground and background listeners
+  const handleNotificationData = useCallback(
+    (data: Record<string, string>) => {
       if (data.type === 'message' && data.teamId && data.adminId && data.memberId) {
         try {
           sessionStorage.setItem(
@@ -197,6 +197,17 @@ const AppLayoutContent: React.FC = () => {
           navigate(data.url); // preserve query string (e.g. ?tab=work)
         }
       }
+    },
+    [navigate],
+  );
+
+  // Native push notification tap (background/closed app) → navigate to the relevant page
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let handle: { remove: () => void } | null = null;
+    PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+      const data = (action.notification.data ?? {}) as Record<string, string>;
+      handleNotificationData(data);
     })
       .then((h) => {
         handle = h;
@@ -207,7 +218,67 @@ const AppLayoutContent: React.FC = () => {
     return () => {
       handle?.remove();
     };
-  }, [navigate]);
+  }, [handleNotificationData]);
+
+  // Native push notification received (foreground) → schedule local notification
+  // iOS doesn't fire pushNotificationActionPerformed for foreground taps,
+  // so we re-present as a local notification that can be tapped.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let handle: { remove: () => void } | null = null;
+    PushNotifications.addListener('pushNotificationReceived', async (notification) => {
+      try {
+        // Request permission for local notifications (no-op if already granted)
+        await LocalNotifications.requestPermissions();
+        
+        // Schedule a local notification with the same data
+        await LocalNotifications.schedule({
+          notifications: [
+            {
+              id: Date.now(),
+              title: notification.title || 'TimeHuddle',
+              body: notification.body || '',
+              extra: notification.data || {},
+              sound: undefined, // Use default sound
+              attachments: undefined,
+              actionTypeId: '',
+              schedule: { at: new Date(Date.now() + 100) }, // Immediate
+            },
+          ],
+        });
+      } catch (err) {
+        console.error('Failed to schedule local notification:', err);
+      }
+    })
+      .then((h) => {
+        handle = h;
+      })
+      .catch(() => {
+        /* PushNotifications unavailable */
+      });
+    return () => {
+      handle?.remove();
+    };
+  }, []);
+
+  // Local notification tap (from foreground push notifications)
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let handle: { remove: () => void } | null = null;
+    LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
+      const data = (action.notification.extra ?? {}) as Record<string, string>;
+      handleNotificationData(data);
+    })
+      .then((h) => {
+        handle = h;
+      })
+      .catch(() => {
+        /* LocalNotifications unavailable */
+      });
+    return () => {
+      handle?.remove();
+    };
+  }, [handleNotificationData]);
 
   // Web push: service worker posts a message to open the shift-end-reminder modal
   // without navigating away from the current page.

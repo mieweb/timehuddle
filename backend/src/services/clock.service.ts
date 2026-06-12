@@ -265,6 +265,9 @@ export class ClockService {
             type: "clock-session-changed",
             teamId,
             date,
+            userId: actorUserId,
+            // Deep-link: lands admin on Teams > Timesheet tab with member pre-selected
+            url: `/app/teams?tab=timesheet&memberId=${actorUserId}&teamId=${teamId}`,
           },
         })
       )

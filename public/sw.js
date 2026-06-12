@@ -91,6 +91,7 @@ self.addEventListener('notificationclick', function (event) {
   }
 
   let urlToOpen = notificationData.url || event.notification.data?.url || '/app/dashboard';
+  console.log('[SW] notificationclick - raw URL:', urlToOpen);
 
   // Normalise legacy paths (preserve query string)
   if (typeof urlToOpen === 'string' && urlToOpen.startsWith('/') && !urlToOpen.startsWith('/app')) {
@@ -98,6 +99,7 @@ self.addEventListener('notificationclick', function (event) {
     else if (urlToOpen.startsWith('/member/')) urlToOpen = '/app/clock';
     else urlToOpen = `/app${urlToOpen}`;
   }
+  console.log('[SW] notificationclick - normalized URL:', urlToOpen);
 
   event.waitUntil(
     clients
