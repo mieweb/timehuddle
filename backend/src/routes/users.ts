@@ -884,7 +884,7 @@ export async function userRoutes(app: FastifyInstance) {
       const sharedTeams = sharedTeamDocs.map((t) => ({
         id: t._id.toString(),
         name: t.name,
-        isAdmin: t.admins.includes(targetId),
+        isAdmin: t.admins.includes(req.user!.id),
       }));
 
       return reply.send({ user: { ...(await toPublicUser(user)), sharedTeams } });
@@ -934,7 +934,7 @@ export async function userRoutes(app: FastifyInstance) {
       const sharedTeams = sharedTeamDocs.map((t) => ({
         id: t._id.toString(),
         name: t.name,
-        isAdmin: t.admins.includes(targetId),
+        isAdmin: t.admins.includes(req.user!.id),
       }));
 
       return reply.send({ user: { ...(await toPublicUser(user)), sharedTeams } });
