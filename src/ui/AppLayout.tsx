@@ -15,7 +15,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
-import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { PushNotifications } from '@capacitor/push-notifications';
 
 import { ClockPage } from '../features/clock/ClockPage';
@@ -352,7 +351,7 @@ const AppLayoutContent: React.FC = () => {
                           setForegroundNotif(null);
                           if (dismissTimer.current) clearTimeout(dismissTimer.current);
                         }}
-                        className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] w-[90%] max-w-sm
+                        className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm
                                    bg-neutral-900 dark:bg-neutral-800 text-white rounded-2xl
                                    shadow-xl px-4 py-3 cursor-pointer flex flex-col gap-0.5
                                    border border-white/10"

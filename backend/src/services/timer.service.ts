@@ -350,7 +350,11 @@ export class TimerService {
     return timersCollection().findOne({ userId, endTime });
   }
 
-  async restartTimerForWorkItem(userId: string, workItemId: string, now: number): Promise<Timer | null> {
+  async restartTimerForWorkItem(
+    userId: string,
+    workItemId: string,
+    now: number
+  ): Promise<Timer | null> {
     const workItem = await workItemsCollection().findOne({ _id: new ObjectId(workItemId) });
     if (!workItem) return null;
     const session: Timer = {
@@ -393,7 +397,11 @@ export class TimerService {
     return result.modifiedCount;
   }
 
-  async getDayEntries(userId: string, dateStr: string, _tz: string): Promise<Array<{ entry: WorkItem; sessions: Timer[] }>> {
+  async getDayEntries(
+    userId: string,
+    dateStr: string,
+    _tz: string
+  ): Promise<Array<{ entry: WorkItem; sessions: Timer[] }>> {
     const entries = await workItemsCollection().find({ userId, date: dateStr }).toArray();
     if (entries.length === 0) return [];
 
@@ -416,7 +424,11 @@ export class TimerService {
     }));
   }
 
-  async getWeekTotals(userId: string, weekStartDate: string, _tz: string): Promise<Array<{ date: string; totalSeconds: number }>> {
+  async getWeekTotals(
+    userId: string,
+    weekStartDate: string,
+    _tz: string
+  ): Promise<Array<{ date: string; totalSeconds: number }>> {
     const [year, month, day] = weekStartDate.split("-").map(Number);
     const results: Array<{ date: string; totalSeconds: number }> = [];
     const now = Date.now();
@@ -441,7 +453,9 @@ export class TimerService {
 
   async getTicketTotal(ticketId: string): Promise<number> {
     const entryIds = (
-      await workItemsCollection().find({ ticketId }, { projection: { _id: 1 } }).toArray()
+      await workItemsCollection()
+        .find({ ticketId }, { projection: { _id: 1 } })
+        .toArray()
     ).map((e) => e._id.toHexString());
 
     if (entryIds.length === 0) return 0;
@@ -455,7 +469,11 @@ export class TimerService {
     return agg[0]?.total ?? 0;
   }
 
-  async deleteEntry(userId: string, entryId: string, notifyAdmins = true): Promise<{ deletedEntry: boolean; deletedSessions: number } | "not-found" | "forbidden"> {
+  async deleteEntry(
+    userId: string,
+    entryId: string,
+    notifyAdmins = true
+  ): Promise<{ deletedEntry: boolean; deletedSessions: number } | "not-found" | "forbidden"> {
     if (!isValidId(entryId)) return "not-found";
 
     const entryObjectId = new ObjectId(entryId);
@@ -522,9 +540,14 @@ export class TimerService {
           .sort({ startTime: -1 })
           .toArray();
         if (sessions.length > 0) {
-          const otherTotal = sessions.slice(1).reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
+          const otherTotal = sessions
+            .slice(1)
+            .reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
           const lastDuration = Math.max(0, updates.durationSeconds - otherTotal);
-          await timersCollection().updateOne({ _id: sessions[0]._id }, { $set: { durationSeconds: lastDuration } });
+          await timersCollection().updateOne(
+            { _id: sessions[0]._id },
+            { $set: { durationSeconds: lastDuration } }
+          );
         }
       }
     }
@@ -636,11 +659,19 @@ export class TimerService {
     const [users, profiles] = await Promise.all([
       usersCollection()
         .find({ _id: { $in: userIds.filter(isValidId).map((id) => new ObjectId(id)) } })
-        .project<{ _id: ObjectId; name: string; image: string | null }>({ _id: 1, name: 1, image: 1 })
+        .project<{ _id: ObjectId; name: string; image: string | null }>({
+          _id: 1,
+          name: 1,
+          image: 1,
+        })
         .toArray(),
       profilesCollection()
         .find({ userId: { $in: userIds }, app: "timeharbor" })
-        .project<{ userId: string; displayName: string; avatar: string | null }>({ userId: 1, displayName: 1, avatar: 1 })
+        .project<{ userId: string; displayName: string; avatar: string | null }>({
+          userId: 1,
+          displayName: 1,
+          avatar: 1,
+        })
         .toArray(),
     ]);
 
@@ -673,7 +704,10 @@ export class TimerService {
     const running = await coll.findOne({ userId, endTime: null });
     if (!running) return null;
     const durationSeconds = Math.max(0, Math.floor((now - running.startTime) / 1000));
-    await coll.updateOne({ _id: running._id, endTime: null }, { $set: { endTime: now, durationSeconds } });
+    await coll.updateOne(
+      { _id: running._id, endTime: null },
+      { $set: { endTime: now, durationSeconds } }
+    );
     return running._id.toHexString();
   }
 

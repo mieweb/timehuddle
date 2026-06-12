@@ -160,7 +160,7 @@ export function TodayStatusCard({ userId: propUserId }: TodayStatusCardProps) {
                     <button
                       type="button"
                       onClick={handleTicketClick}
-                      className="font-medium hover:underline focus:outline-none focus-visible:underline break-words"
+                      className="font-medium hover:underline focus:outline-none focus-visible:underline wrap-break-word"
                       aria-label={`Open ticket: ${ticketTitle}`}
                     >
                       {ticketTitle}
