@@ -357,8 +357,14 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
             data.events?.find(
               (e: ClockEvent) => e.userId === userId && e.teamId === selectedTeamId && !e.endTime,
             ) ?? null;
-          setActiveClockEvent(userEvent);
-          setClockReady(true);
+          if (userEvent) {
+            setActiveClockEvent(userEvent);
+            setClockReady(true);
+          } else {
+            // No active event for the selected team — check globally via REST,
+            // since the user may be clocked in to a different team.
+            void refetchClock();
+          }
         } else if (data.type === 'update') {
           // Real-time update: apply if it's for the current user
           const updatedEvent = data.event as ClockEvent | null;
