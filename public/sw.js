@@ -106,12 +106,15 @@ self.addEventListener('notificationclick', function (event) {
       .matchAll({ type: 'window', includeUncontrolled: true })
       .then(function (windowClients) {
         const abs = new URL(urlToOpen, self.location.origin).href;
-        // Navigate the first open app window (regardless of its current URL) and focus it.
-        // This ensures clicking a notification always brings the user to the right page
-        // even if they are currently on a different route.
-        if (windowClients.length > 0 && 'navigate' in windowClients[0]) {
-          return windowClients[0].navigate(abs).then((c) => c?.focus());
+
+        if (windowClients.length > 0) {
+          // App is open (foreground) — post message so React router handles navigation
+          // without a full page reload
+          windowClients[0].postMessage({ type: 'timehuddle:navigate', url: urlToOpen });
+          return windowClients[0].focus();
         }
+
+        // App is closed/background — open it directly
         if (clients.openWindow) {
           return clients.openWindow(abs);
         }
