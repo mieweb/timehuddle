@@ -1320,16 +1320,6 @@ export const notificationApi = {
 
   /** Send a test push notification to the requesting user's devices. */
   testPush: () => request<{ ok: boolean }>('/v1/notifications/test-push', { method: 'POST' }),
-
-  /** Open a WebSocket stream for new notifications. Auto-reconnects on drop. */
-  openStream: (): AutoReconnectWs => {
-    const token = sessionToken.get();
-    return autoReconnectWs(() => {
-      const url = new URL(`${WS_BASE_URL}/v1/notifications/ws`);
-      if (token) url.searchParams.set('token', token);
-      return url.toString();
-    });
-  },
 };
 
 // ─── Attachments ──────────────────────────────────────────────────────────────

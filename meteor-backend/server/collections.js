@@ -14,6 +14,7 @@ export const ClockEvents = new Mongo.Collection('clockevents', { idGeneration: '
 export const ClockBreaks = new Mongo.Collection('clockbreaks', { idGeneration: 'MONGO' });
 export const Teams = new Mongo.Collection('teams', { idGeneration: 'MONGO' });
 export const Timers = new Mongo.Collection('timers', { idGeneration: 'MONGO' });
+export const Notifications = new Mongo.Collection('notifications', { idGeneration: 'MONGO' });
 
 /** Raw native-driver handle for collections we only read ad hoc (sessions, users). */
 export function rawDb() {

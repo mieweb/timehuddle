@@ -31,6 +31,7 @@ import {
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { ApiError, notificationApi, type Notification } from '../../lib/api';
+import { subscribeNewNotifications } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 
@@ -111,22 +112,15 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     if (!user) return;
 
-    const ws = notificationApi.openStream();
-    ws.onmessage = (e) => {
-      try {
-        const n = JSON.parse(e.data) as Notification;
-        if (n.data?.type !== 'shift-end-reminder') return;
-        const clockEventId = n.data?.clockEventId as string | undefined;
-        const dedupeKey = clockEventId ?? n.id;
-        if (shownIds.current.has(dedupeKey)) return;
-        shownIds.current.add(dedupeKey);
-        setPendingNotif(n);
-        setRespondError(null);
-      } catch {
-        /* ignore malformed frames */
-      }
-    };
-    return () => ws.close();
+    return subscribeNewNotifications((n) => {
+      if (n.data?.type !== 'shift-end-reminder') return;
+      const clockEventId = n.data?.clockEventId as string | undefined;
+      const dedupeKey = clockEventId ?? n.id;
+      if (shownIds.current.has(dedupeKey)) return;
+      shownIds.current.add(dedupeKey);
+      setPendingNotif(n);
+      setRespondError(null);
+    });
   }, [user]);
 
   const openModal = useCallback((notif: Notification) => {

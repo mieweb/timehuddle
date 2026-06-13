@@ -15,6 +15,7 @@ import './auth-bridge';
 import './tickets';
 import './clock';
 import './timers';
+import './notifications';
 // M0.e foundations — built/validated now, consumed by M1 clock + notifications.
 import './email';
 import './push';

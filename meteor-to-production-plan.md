@@ -101,9 +101,9 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
 
 ## M1 — Core time-tracking domain
 
-- [ ] Timers: methods + publication (replaces `/v1/timers` WS), WorkPage cutover
+- [x] Timers: `timers.liveForUser` publication (replaces `/v1/timers/ws` ping), WorkPage DDP cutover. Mutations + day/week reads stay on Fastify REST during coexistence.
 - [ ] Clock completion: breaks (pause/resume), timesheet queries, auto-clockout agreement
-- [ ] Notifications: inbox publication per user + push fan-out
+- [x] Notifications: `notifications.liveForUser` inbox publication (replaces `/v1/notifications/ws`). main.tsx, NotificationsPage, ShiftReminderContext consume via DDP `subscribeNewNotifications`. Fastify stays the writer + push fan-out during coexistence; mutations stay on REST.
 - [ ] Move `tickets.assign` to Meteor (unblocked by notifications)
 - [ ] Delete Fastify routes: `clock.ts`, `timers.ts`, `notifications.ts`, `tickets*.ts`
 

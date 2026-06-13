@@ -358,3 +358,51 @@ export function ddpDocToClockEvent(doc: DdpDoc): import('./api').ClockEvent {
     endTime: typeof doc.endTime === 'number' ? doc.endTime : null,
   };
 }
+
+/** Map a raw DDP notifications doc to the frontend Notification shape. */
+export function ddpDocToNotification(doc: DdpDoc): import('./api').Notification {
+  return {
+    id: doc._id,
+    userId: String(doc.userId ?? ''),
+    title: String(doc.title ?? ''),
+    body: String(doc.body ?? ''),
+    ...(doc.data ? { data: doc.data as Record<string, unknown> } : {}),
+    read: Boolean(doc.read),
+    createdAt: String(doc.createdAt ?? ''),
+  };
+}
+
+/**
+ * Subscribe to the current user's live notification inbox and invoke `onNew`
+ * for each notification that arrives *after* the initial backlog — i.e. those
+ * delivered live while connected. Replaces `notificationApi.openStream()`.
+ *
+ * The initial inbox (up to 200 docs) loaded on subscribe is snapshotted as
+ * "already seen" so we don't replay old notifications as if they were new.
+ * Returns an unsubscribe function.
+ */
+export function subscribeNewNotifications(
+  onNew: (n: import('./api').Notification) => void,
+): () => void {
+  const ddp = getDdpClient();
+  let seen: Set<string> | null = null;
+
+  const offChange = ddp.onCollectionChange('notifications', () => {
+    if (!seen) return; // backlog still loading — wait for the ready snapshot
+    for (const doc of ddp.docs('notifications')) {
+      if (!seen.has(doc._id)) {
+        seen.add(doc._id);
+        onNew(ddpDocToNotification(doc));
+      }
+    }
+  });
+
+  const unsubscribe = ddp.subscribe('notifications.liveForUser', [], () => {
+    seen = new Set(ddp.docs('notifications').map((d) => d._id));
+  });
+
+  return () => {
+    offChange();
+    unsubscribe();
+  };
+}

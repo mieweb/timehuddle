@@ -19,6 +19,7 @@ import {
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { notificationApi, type Notification, type TeamInvitePreview } from '../../lib/api';
+import { subscribeNewNotifications } from '../../lib/ddp';
 import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
@@ -127,7 +128,7 @@ export const NotificationsPage: React.FC = () => {
   const [respondLoading, setRespondLoading] = useState(false);
   const { openModal: openShiftReminderModal } = useShiftReminder();
 
-  // Fetch inbox + open SSE for real-time delivery
+  // Fetch inbox + subscribe to live updates (Meteor DDP, oplog-backed)
   useEffect(() => {
     if (!user) return;
 
@@ -138,16 +139,9 @@ export const NotificationsPage: React.FC = () => {
       .catch(() => {})
       .finally(() => setLoading(false));
 
-    const es = notificationApi.openStream();
-    es.onmessage = (e) => {
-      try {
-        const n = JSON.parse(e.data) as Notification;
-        setNotifications((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev]));
-      } catch {
-        /* ignore */
-      }
-    };
-    return () => es.close();
+    return subscribeNewNotifications((n) => {
+      setNotifications((prev) => (prev.some((x) => x.id === n.id) ? prev : [n, ...prev]));
+    });
   }, [user]);
 
   // Remove notifications handled by the global ShiftReminderModal
