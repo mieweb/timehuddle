@@ -280,32 +280,23 @@ export const WorkPage: React.FC = () => {
     };
   }, [teams, fetchDay, fetchWeekTotals]);
 
-  // ── Real-time timer updates ──
+  // ── Real-time timer updates (Meteor DDP, oplog-backed) ──
 
   useEffect(() => {
-    console.log('[WorkPage] Opening timer WebSocket connection');
-    const ws = timerApi.openLiveStream();
+    const ddp = getDdpClient();
 
-    ws.onmessage = (event: MessageEvent) => {
-      console.log('[WorkPage] Timer WebSocket message received:', event.data);
-      const data = JSON.parse(event.data);
-
-      if (data.type === 'connected') {
-        console.log('[WorkPage] Timer WebSocket connected successfully');
-        return;
-      }
-
-      // On timer start/stop/delete, refetch current day and week totals
-      if (data.type === 'update') {
-        console.log('[WorkPage] Refreshing timer data due to update event');
-        void fetchDay();
-        void fetchWeekTotals();
-      }
-    };
+    // The user's running timers are published reactively; a start/stop/delete
+    // from any writer (Meteor or the Fastify REST mutations) shows up via the
+    // oplog. On any change, refetch the current day and week totals.
+    const offChange = ddp.onCollectionChange('timers', () => {
+      void fetchDay();
+      void fetchWeekTotals();
+    });
+    const unsubscribe = ddp.subscribe('timers.liveForUser', []);
 
     return () => {
-      console.log('[WorkPage] Closing timer WebSocket connection');
-      ws.close();
+      offChange();
+      unsubscribe();
     };
   }, [fetchDay, fetchWeekTotals]);
 

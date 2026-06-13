@@ -1513,16 +1513,6 @@ export const timerApi = {
       method: 'POST',
       body: JSON.stringify({ toDate }),
     }).then((r) => r.created),
-
-  /**
-   * Open a WebSocket connection for real-time timer updates.
-   */
-  openLiveStream: (): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const token = sessionToken.get();
-      const base = `${WS_BASE_URL}/v1/timers/ws`;
-      return token ? `${base}?token=${encodeURIComponent(token)}` : base;
-    }),
 };
 
 // ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
