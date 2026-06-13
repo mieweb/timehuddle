@@ -97,7 +97,7 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
       (processor gated behind `METEOR_AGENDA_ENABLED`; OFF during Fastify coexistence)
 - [x] Push service port (web-push + FCM + APNs — plain npm libs)
 - [x] Email wrapper port (nodemailer)
-- [ ] `meteor-backend` service in docker-compose; `VITE_METEOR_URL` / `CORS_ORIGINS` env wiring
+- [x] `meteor-backend` service in docker-compose; `VITE_METEOR_URL` / `CORS_ORIGINS` env wiring
 
 ## M1 — Core time-tracking domain
 

@@ -71,6 +71,39 @@ services:
       mongodb:
         condition: service_healthy
 
+  # Meteor 3 backend (meteor-wormhole REST/MCP bridge) — runs alongside the
+  # Fastify backend during the migration. Custom image because Meteor can't run
+  # on the node:24-alpine base the other services use (see Dockerfile.dev).
+  meteor-backend:
+    build:
+      context: ./meteor-backend
+      dockerfile: Dockerfile.dev
+    working_dir: /app/meteor-backend
+    command: sh -c "npm install && meteor run --allow-superuser --port 3100"
+    ports:
+      - '3100:3100'
+    volumes:
+      - .:/app
+      # Shadow host (macOS) build artifacts with Linux-native ones.
+      - meteor_nm:/app/meteor-backend/node_modules
+      - meteor_local:/app/meteor-backend/.meteor/local
+    environment:
+      # meteor-wormhole lives in vendor/, resolved relative to this working_dir.
+      - METEOR_PACKAGE_DIRS=../vendor/meteor-wormhole/packages
+      - METEOR_ALLOW_SUPERUSER=true
+      # directConnection: the rs0 member advertises localhost; containers must
+      # connect to the seed directly and tail the oplog from the `local` db.
+      - MONGO_URL=mongodb://mongodb:27017/timehuddle?directConnection=true
+      - MONGO_OPLOG_URL=mongodb://mongodb:27017/local?directConnection=true
+      # Allowed CORS origins for the /api REST bridge (the Vite frontend).
+      - CORS_ORIGINS=http://localhost:3000
+    env_file:
+      - path: ./meteor-backend/.env.local
+        required: false
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
   frontend:
     image: node:24-alpine
     working_dir: /app
@@ -82,6 +115,8 @@ services:
       - frontend_nm:/app/node_modules
     environment:
       - API_TARGET=http://backend:4000
+      # Base URL the SPA uses to reach the Meteor backend (browser-side origin).
+      - VITE_METEOR_URL=http://localhost:3100
       # Comma-separated social sign-in buttons to show on the login form.
       # Options: github, google, apple, authentik (each also needs backend creds).
       - VITE_SOCIAL_PROVIDERS=github
@@ -93,3 +128,5 @@ volumes:
   root_nm:
   backend_nm:
   frontend_nm:
+  meteor_nm:
+  meteor_local:
