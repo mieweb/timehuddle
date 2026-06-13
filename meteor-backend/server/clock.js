@@ -9,37 +9,10 @@
  */
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
-import { ClockEvents, ClockBreaks, Teams, isValidId } from './collections';
+import { ClockEvents, Teams, isValidId } from './collections';
 import { requireIdentity, identityForConnection } from './auth-bridge';
 import { requireTeamMembership } from './permissions';
-
-/** 20-minute threshold: breaks >= this are non-compensable meal breaks (deducted). */
-const MEAL_BREAK_THRESHOLD_SECONDS = 20 * 60;
-
-function classifyBreak(durationSeconds) {
-  return {
-    type: durationSeconds >= MEAL_BREAK_THRESHOLD_SECONDS ? 'meal' : 'rest',
-    classificationSource: 'auto',
-  };
-}
-
-/** Mirror of computeDeductedBreakSeconds in backend clock.service.ts. */
-function computeDeductedBreakSeconds(breaks, now) {
-  return breaks.reduce((sum, b) => {
-    const end = typeof b.endTime === 'number' ? b.endTime : now;
-    if (end <= b.startTime) return sum;
-    const durationSeconds = Math.floor((end - b.startTime) / 1000);
-    if (typeof b.endTime === 'number') {
-      return b.type === 'rest' ? sum : sum + durationSeconds;
-    }
-    return durationSeconds >= MEAL_BREAK_THRESHOLD_SECONDS ? sum + durationSeconds : sum;
-  }, 0);
-}
-
-function toPublicEvent(doc) {
-  const { _id, ...rest } = doc;
-  return { id: _id.toHexString ? _id.toHexString() : String(_id), ...rest };
-}
+import { toPublicEvent, stopActiveClock } from './clock-core';
 
 Meteor.methods({
   /** The caller's active clock event in a team, or null. */
@@ -77,32 +50,8 @@ Meteor.methods({
   /** Clock out: closes open break, computes accumulatedTime (span minus meal breaks). */
   async 'clock.stop'({ teamId } = {}) {
     const identity = await requireIdentity(this);
-    const event = await ClockEvents.findOneAsync({ userId: identity.userId, teamId, endTime: null });
-    if (!event) throw new Meteor.Error('not-found', 'No active clock event');
-
-    const now = Date.now();
-    const eventId = event._id.toHexString();
-
-    // Close any open break with auto-classification (mirrors ClockService.stop)
-    const openBreak = await ClockBreaks.findOneAsync({ clockEventId: eventId, endTime: null });
-    if (openBreak) {
-      const durationSeconds = Math.floor((now - openBreak.startTime) / 1000);
-      await ClockBreaks.updateAsync(openBreak._id, {
-        $set: { endTime: now, ...classifyBreak(durationSeconds) },
-      });
-    }
-
-    const breaks = await ClockBreaks.find(
-      { clockEventId: eventId },
-      { sort: { startTime: 1 } }
-    ).fetchAsync();
-
-    const shiftSpan = Math.floor((now - event.startTime) / 1000);
-    const deducted = computeDeductedBreakSeconds(breaks, now);
-    const accumulatedTime = Math.max(0, shiftSpan - deducted);
-
-    await ClockEvents.updateAsync(event._id, { $set: { endTime: now, accumulatedTime } });
-    const updated = await ClockEvents.findOneAsync(event._id);
+    const updated = await stopActiveClock(identity.userId, teamId);
+    if (!updated) throw new Meteor.Error('not-found', 'No active clock event');
     return toPublicEvent(updated);
   },
 });

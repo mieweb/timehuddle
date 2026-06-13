@@ -6,10 +6,12 @@
     "test": "meteor test --once --driver-package meteortesting:mocha"
   },
   "dependencies": {
+    "@agendajs/mongo-backend": "^4.0.2",
     "@babel/runtime": "^7.23.5",
     "@casl/ability": "^6.8.1",
     "@parse/node-apn": "^8.1.0",
     "@swc/helpers": "^0.5.17",
+    "agenda": "^6.2.5",
     "firebase-admin": "^14.0.0",
     "jose": "^6.2.3",
     "meteor-node-stubs": "^1.2.12",

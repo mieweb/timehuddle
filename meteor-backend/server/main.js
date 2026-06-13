@@ -17,6 +17,7 @@ import './clock';
 // M0.e foundations — built/validated now, consumed by M1 clock + notifications.
 import './email';
 import './push';
+import { initAgenda } from './agenda';
 
 /**
  * CORS for the wormhole REST bridge (/api) — the Vite frontend on another
@@ -172,6 +173,11 @@ Meteor.startup(() => {
       required: ['teamId'],
     },
   });
+
+  // Agenda foundation: defines clock jobs against the shared `agendajobs`
+  // collection. Processor stays OFF unless METEOR_AGENDA_ENABLED=true, so it
+  // won't compete with Fastify during coexistence (M1 flips it on).
+  initAgenda().catch((err) => console.error('[agenda] init failed:', err));
 
   console.log('[timehuddle] meteor-backend up — REST /api, docs /api/docs, MCP /mcp');
 });

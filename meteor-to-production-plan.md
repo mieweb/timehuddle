@@ -92,10 +92,11 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
 ### M0.e — Foundations
 
 - [x] CASL ability port (`backend/src/lib/permissions.ts` → method/publication guards)
-- [ ] Agenda jobs in Meteor (same `agenda` lib + same `agendajobs` collection):
-      `shift-4h-reminder`, `shift-end-reminder`, `shift-auto-clockout`
-- [ ] Push service port (web-push + FCM + APNs — plain npm libs)
-- [ ] Email wrapper port (nodemailer)
+- [x] Agenda jobs in Meteor (same `agenda` lib + same `agendajobs` collection):
+      `shift-4h-reminder`, `shift-end-reminder`, `shift-auto-clockout`, `shift-missed-clockout`
+      (processor gated behind `METEOR_AGENDA_ENABLED`; OFF during Fastify coexistence)
+- [x] Push service port (web-push + FCM + APNs — plain npm libs)
+- [x] Email wrapper port (nodemailer)
 - [ ] `meteor-backend` service in docker-compose; `VITE_METEOR_URL` / `CORS_ORIGINS` env wiring
 
 ## M1 — Core time-tracking domain
