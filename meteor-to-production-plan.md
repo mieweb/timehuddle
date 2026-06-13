@@ -67,7 +67,7 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
       the legacy `sessionToken` param
 - [x] Remove `sessionTokenProp` from every schema in `meteor-backend/server/main.js`
 - [x] `wormholeCall()` sends `Authorization: Bearer` header, drops `sessionToken` body field
-- [ ] Methods stop accepting `sessionToken` in body (one release of overlap, then delete)
+- [x] Methods stop accepting `sessionToken` in body (one release of overlap, then delete)
 - [x] Browser validation + checks + commit
 
 ### M0.c — JWT + JWKS (better-auth as the permanent IdP)

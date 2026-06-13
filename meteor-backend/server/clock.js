@@ -52,16 +52,16 @@ function toPublicEvent(doc) {
 
 Meteor.methods({
   /** The caller's active clock event in a team, or null. */
-  async 'clock.active'({ teamId, sessionToken } = {}) {
-    const identity = await requireIdentity(this, sessionToken);
+  async 'clock.active'({ teamId } = {}) {
+    const identity = await requireIdentity(this);
     await requireTeamMembership(identity.userId, teamId);
     const event = await ClockEvents.findOneAsync({ userId: identity.userId, teamId, endTime: null });
     return event ? toPublicEvent(event) : null;
   },
 
   /** Clock in: closes any dangling open events, then opens a new one. */
-  async 'clock.start'({ teamId, sessionToken } = {}) {
-    const identity = await requireIdentity(this, sessionToken);
+  async 'clock.start'({ teamId } = {}) {
+    const identity = await requireIdentity(this);
     await requireTeamMembership(identity.userId, teamId);
 
     const now = Date.now();
@@ -84,8 +84,8 @@ Meteor.methods({
   },
 
   /** Clock out: closes open break, computes accumulatedTime (span minus meal breaks). */
-  async 'clock.stop'({ teamId, sessionToken } = {}) {
-    const identity = await requireIdentity(this, sessionToken);
+  async 'clock.stop'({ teamId } = {}) {
+    const identity = await requireIdentity(this);
     const event = await ClockEvents.findOneAsync({ userId: identity.userId, teamId, endTime: null });
     if (!event) throw new Meteor.Error('not-found', 'No active clock event');
 

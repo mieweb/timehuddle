@@ -75,8 +75,8 @@ async function requireAuthorizedTicket(userId, ticketId) {
 
 Meteor.methods({
   /** List non-deleted tickets for a team (newest first). */
-  async 'tickets.list'({ teamId, sessionToken } = {}) {
-    const identity = await requireIdentity(this, sessionToken);
+  async 'tickets.list'({ teamId } = {}) {
+    const identity = await requireIdentity(this);
     await requireTeamMembership(identity.userId, teamId);
     const docs = await Tickets.find(
       { teamId, status: { $ne: 'deleted' } },
@@ -86,8 +86,8 @@ Meteor.methods({
   },
 
   /** Create a ticket. Mirrors TicketService.create (creator auto-assigned). */
-  async 'tickets.create'({ teamId, title, description, github, priority, sessionToken } = {}) {
-    const identity = await requireIdentity(this, sessionToken);
+  async 'tickets.create'({ teamId, title, description, github, priority } = {}) {
+    const identity = await requireIdentity(this);
     await requireTeamMembership(identity.userId, teamId);
     if (typeof title !== 'string' || !title.trim()) {
       throw new Meteor.Error('validation-error', 'title is required');
@@ -116,8 +116,8 @@ Meteor.methods({
   },
 
   /** Update a ticket's status (and optionally priority). Reviewed sets reviewedBy/At. */
-  async 'tickets.updateStatus'({ ticketId, status, priority, sessionToken } = {}) {
-    const identity = await requireIdentity(this, sessionToken);
+  async 'tickets.updateStatus'({ ticketId, status, priority } = {}) {
+    const identity = await requireIdentity(this);
     const ticket = await requireAuthorizedTicket(identity.userId, ticketId);
     if (status !== undefined && !ALL_STATUSES.includes(status)) {
       throw new Meteor.Error('validation-error', `status must be one of ${ALL_STATUSES.join(', ')}`);
@@ -148,8 +148,8 @@ Meteor.methods({
   },
 
   /** Edit a ticket's title / github / description. Mirrors TicketService.update. */
-  async 'tickets.update'({ ticketId, title, github, description, sessionToken } = {}) {
-    const identity = await requireIdentity(this, sessionToken);
+  async 'tickets.update'({ ticketId, title, github, description } = {}) {
+    const identity = await requireIdentity(this);
     const ticket = await requireAuthorizedTicket(identity.userId, ticketId);
     const $set = { updatedAt: new Date(), updatedBy: identity.userId };
     if (title !== undefined) {
@@ -180,8 +180,8 @@ Meteor.methods({
   },
 
   /** Soft-delete a ticket (status: deleted). Mirrors TicketService.delete. */
-  async 'tickets.delete'({ ticketId, sessionToken } = {}) {
-    const identity = await requireIdentity(this, sessionToken);
+  async 'tickets.delete'({ ticketId } = {}) {
+    const identity = await requireIdentity(this);
     const ticket = await requireAuthorizedTicket(identity.userId, ticketId);
     await Tickets.updateAsync(new Mongo.ObjectID(ticketId), {
       $set: { status: 'deleted', updatedAt: new Date() },
@@ -200,8 +200,8 @@ Meteor.methods({
    * Mirrors TicketService.assign EXCEPT assignee push/in-app notifications,
    * which remain in the Fastify backend (notification fan-out not yet ported).
    */
-  async 'tickets.assign'({ ticketId, assignedToUserIds, sessionToken } = {}) {
-    const identity = await requireIdentity(this, sessionToken);
+  async 'tickets.assign'({ ticketId, assignedToUserIds } = {}) {
+    const identity = await requireIdentity(this);
     const ticket = await requireAuthorizedTicket(identity.userId, ticketId);
     if (!Array.isArray(assignedToUserIds) || !assignedToUserIds.every((id) => isValidId(id))) {
       throw new Meteor.Error('validation-error', 'assignedToUserIds must be an array of user ids');
@@ -229,8 +229,8 @@ Meteor.methods({
   },
 
   /** Batch status change for tickets within one team. Mirrors batchUpdateStatus. */
-  async 'tickets.batchStatus'({ ticketIds, teamId, status, sessionToken } = {}) {
-    const identity = await requireIdentity(this, sessionToken);
+  async 'tickets.batchStatus'({ ticketIds, teamId, status } = {}) {
+    const identity = await requireIdentity(this);
     await requireTeamMembership(identity.userId, teamId);
     if (!ALL_STATUSES.includes(status)) {
       throw new Meteor.Error('validation-error', `status must be one of ${ALL_STATUSES.join(', ')}`);

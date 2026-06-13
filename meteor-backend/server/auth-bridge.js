@@ -14,7 +14,6 @@
  *           methods/publications read the cached identity.
  *  - REST/MCP: `Authorization: Bearer <token>` header, surfaced by the
  *           wormhole invocation context (`currentBearerToken()`).
- *  - Legacy: explicit `sessionToken` param in the method body (deprecated).
  */
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
@@ -74,14 +73,13 @@ export async function resolveToken(raw) {
 
 /**
  * Resolve the calling identity inside a method:
- *  1. explicit sessionToken param (legacy REST path), else
- *  2. bearer token from the Authorization header when called through a
+ *  1. bearer token from the Authorization header when called through a
  *     Wormhole transport (REST/MCP), else
- *  3. identity cached for this DDP connection via `auth.bridge`.
- * Throws 'not-authorized' when none resolves.
+ *  2. identity cached for this DDP connection via `auth.bridge`.
+ * Throws 'not-authorized' when neither resolves.
  */
-export async function requireIdentity(methodContext, sessionToken) {
-  const token = sessionToken || currentBearerToken();
+export async function requireIdentity(methodContext) {
+  const token = currentBearerToken();
   if (token) {
     const identity = await resolveToken(token);
     if (identity) return identity;
