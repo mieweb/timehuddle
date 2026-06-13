@@ -2,15 +2,17 @@
  * Tickets — PoC port of the core of backend/src/services/ticket.service.ts.
  *
  * Scope (deliberate): membership-checked reads/writes on the shared `tickets`
- * collection only. Side effects (activity log, notifications, CASL fine-grained
- * rules) remain in the Fastify backend; oplog reactivity means Fastify-written
- * changes still appear live through the publication below.
+ * collection only. Authorization uses the CASL ability port in
+ * ./permissions.js for parity with the Fastify backend. Other side effects
+ * (activity log, notifications) still run in Fastify; oplog reactivity means
+ * Fastify-written changes appear live through the publication below.
  */
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
 import { Tickets, Teams, isValidId, rawDb } from './collections';
 import { requireIdentity, identityForConnection } from './auth-bridge';
+import { requireTeamMembership, requireTicketPermission } from './permissions';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -48,29 +50,10 @@ async function emitTicketActivity(userId, teamId, type, payload) {
   }
 }
 
-/** Throw unless the user is a member or admin of the team. Returns the team. */
-async function requireTeamMembership(userId, teamId) {
-  if (!isValidId(teamId)) throw new Meteor.Error('forbidden', 'Invalid team id');
-  const team = await Teams.findOneAsync({
-    _id: new Mongo.ObjectID(teamId),
-    $or: [{ members: userId }, { admins: userId }],
-  });
-  if (!team) throw new Meteor.Error('forbidden', 'Not a member of this team');
-  return team;
-}
-
+/** Convert a stored ticket document into the API/DDP shape (hex id). */
 function toPublicTicket(doc) {
   const { _id, ...rest } = doc;
   return { id: _id.toHexString ? _id.toHexString() : String(_id), ...rest };
-}
-
-/** Load a ticket and verify the caller belongs to its team. Returns the ticket. */
-async function requireAuthorizedTicket(userId, ticketId) {
-  if (!isValidId(ticketId)) throw new Meteor.Error('not-found', 'Invalid ticket id');
-  const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
-  if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');
-  await requireTeamMembership(userId, ticket.teamId);
-  return ticket;
 }
 
 Meteor.methods({
@@ -118,7 +101,7 @@ Meteor.methods({
   /** Update a ticket's status (and optionally priority). Reviewed sets reviewedBy/At. */
   async 'tickets.updateStatus'({ ticketId, status, priority } = {}) {
     const identity = await requireIdentity(this);
-    const ticket = await requireAuthorizedTicket(identity.userId, ticketId);
+    const ticket = await requireTicketPermission(identity.userId, ticketId, 'update');
     if (status !== undefined && !ALL_STATUSES.includes(status)) {
       throw new Meteor.Error('validation-error', `status must be one of ${ALL_STATUSES.join(', ')}`);
     }
@@ -150,7 +133,7 @@ Meteor.methods({
   /** Edit a ticket's title / github / description. Mirrors TicketService.update. */
   async 'tickets.update'({ ticketId, title, github, description } = {}) {
     const identity = await requireIdentity(this);
-    const ticket = await requireAuthorizedTicket(identity.userId, ticketId);
+    const ticket = await requireTicketPermission(identity.userId, ticketId, 'update');
     const $set = { updatedAt: new Date(), updatedBy: identity.userId };
     if (title !== undefined) {
       if (typeof title !== 'string' || !title.trim()) {
@@ -182,7 +165,7 @@ Meteor.methods({
   /** Soft-delete a ticket (status: deleted). Mirrors TicketService.delete. */
   async 'tickets.delete'({ ticketId } = {}) {
     const identity = await requireIdentity(this);
-    const ticket = await requireAuthorizedTicket(identity.userId, ticketId);
+    const ticket = await requireTicketPermission(identity.userId, ticketId, 'delete');
     await Tickets.updateAsync(new Mongo.ObjectID(ticketId), {
       $set: { status: 'deleted', updatedAt: new Date() },
     });
@@ -202,7 +185,7 @@ Meteor.methods({
    */
   async 'tickets.assign'({ ticketId, assignedToUserIds } = {}) {
     const identity = await requireIdentity(this);
-    const ticket = await requireAuthorizedTicket(identity.userId, ticketId);
+    const ticket = await requireTicketPermission(identity.userId, ticketId, 'assign');
     if (!Array.isArray(assignedToUserIds) || !assignedToUserIds.every((id) => isValidId(id))) {
       throw new Meteor.Error('validation-error', 'assignedToUserIds must be an array of user ids');
     }

@@ -91,7 +91,7 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
 
 ### M0.e — Foundations
 
-- [ ] CASL ability port (`backend/src/lib/permissions.ts` → method/publication guards)
+- [x] CASL ability port (`backend/src/lib/permissions.ts` → method/publication guards)
 - [ ] Agenda jobs in Meteor (same `agenda` lib + same `agendajobs` collection):
       `shift-4h-reminder`, `shift-end-reminder`, `shift-auto-clockout`
 - [ ] Push service port (web-push + FCM + APNs — plain npm libs)

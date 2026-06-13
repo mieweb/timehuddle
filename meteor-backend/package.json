@@ -7,6 +7,7 @@
   },
   "dependencies": {
     "@babel/runtime": "^7.23.5",
+    "@casl/ability": "^6.8.1",
     "@swc/helpers": "^0.5.17",
     "jose": "^6.2.3",
     "meteor-node-stubs": "^1.2.12"

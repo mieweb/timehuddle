@@ -11,6 +11,7 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { ClockEvents, ClockBreaks, Teams, isValidId } from './collections';
 import { requireIdentity, identityForConnection } from './auth-bridge';
+import { requireTeamMembership } from './permissions';
 
 /** 20-minute threshold: breaks >= this are non-compensable meal breaks (deducted). */
 const MEAL_BREAK_THRESHOLD_SECONDS = 20 * 60;
@@ -33,16 +34,6 @@ function computeDeductedBreakSeconds(breaks, now) {
     }
     return durationSeconds >= MEAL_BREAK_THRESHOLD_SECONDS ? sum + durationSeconds : sum;
   }, 0);
-}
-
-async function requireTeamMembership(userId, teamId) {
-  if (!isValidId(teamId)) throw new Meteor.Error('forbidden', 'Invalid team id');
-  const team = await Teams.findOneAsync({
-    _id: new Mongo.ObjectID(teamId),
-    $or: [{ members: userId }, { admins: userId }],
-  });
-  if (!team) throw new Meteor.Error('forbidden', 'Not a member of this team');
-  return team;
 }
 
 function toPublicEvent(doc) {
