@@ -13,6 +13,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { Tickets, Teams, isValidId, rawDb } from './collections';
 import { requireIdentity, identityForConnection } from './auth-bridge';
 import { requireTeamMembership, requireTicketPermission } from './permissions';
+import { createNotification, userDisplayName } from './notify-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -197,17 +198,63 @@ Meteor.methods({
         throw new Meteor.Error('validation-error', 'All assignees must be team members');
       }
     }
+
+    // Newly added assignees (not previously assigned) — notify these only.
+    const previousAssignees = ticket.assignedTo ?? [];
+    const newAssignees = assignedToUserIds.filter((uid) => !previousAssignees.includes(uid));
+
     await Tickets.updateAsync(new Mongo.ObjectID(ticketId), {
       $set: { assignedTo: assignedToUserIds, updatedAt: new Date(), updatedBy: identity.userId },
     });
     const updated = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
+
+    // Assignee display names for the activity payload.
+    const assigneeNames =
+      assignedToUserIds.length > 0
+        ? await rawDb()
+            .collection('user')
+            .find({ _id: { $in: assignedToUserIds.map((uid) => new ObjectId(uid)) } })
+            .toArray()
+            .then((users) =>
+              users.map((u) => u.name ?? u.email?.split('@')[0] ?? 'Unknown').join(', ')
+            )
+        : '';
+
     await emitTicketActivity(identity.userId, updated.teamId, 'ticket.updated', {
       ticketId,
       ticketTitle: updated.title,
       teamId: updated.teamId,
       action: assignedToUserIds.length > 0 ? 'assigned' : 'unassigned',
       assigneeId: assignedToUserIds[0] ?? null,
+      assigneeName: assigneeNames || undefined,
     });
+
+    // Notify newly added assignees (skip the requester). createNotification
+    // also fires push, so there's a single delivery per user.
+    const requesterName = await userDisplayName(identity.userId);
+    await Promise.all(
+      newAssignees
+        .filter((uid) => uid !== identity.userId)
+        .map((uid) =>
+          createNotification({
+            userId: uid,
+            title: 'Huddle',
+            body: `${requesterName} assigned you "${ticket.title}"`,
+            data: {
+              type: 'ticket-assigned',
+              assignedBy: identity.userId,
+              assignedByName: requesterName,
+              ticketId,
+              ticketTitle: ticket.title,
+              teamId: ticket.teamId,
+              url: `/app/tickets`,
+            },
+          }).catch((err) =>
+            console.error(`[ticket] notify assignee ${uid} failed:`, err)
+          )
+        )
+    );
+
     return toPublicTicket(updated);
   },
 

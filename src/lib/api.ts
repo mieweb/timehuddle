@@ -905,14 +905,14 @@ export const ticketApi = {
     wormholeCall<{ modified: number }>('tickets.batchStatus', data),
 
   /**
-   * Assignment stays on the Fastify backend: it fans out in-app + push
-   * notifications, which the Meteor backend does not handle yet.
+   * Assignment runs on Meteor: it fans out in-app + push notifications to
+   * newly added assignees and emits the activity-log entry.
    */
   assignTicket: (id: string, assignedToUserIds: string[]) =>
-    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/assign`, {
-      method: 'PUT',
-      body: JSON.stringify({ assignedToUserIds }),
-    }).then((r) => r.ticket),
+    wormholeCall<Record<string, unknown>>('tickets.assign', {
+      ticketId: id,
+      assignedToUserIds,
+    }).then(toTicket),
 
   /** Get total accumulated seconds for a ticket from Timers. */
   getTotal: (ticketId: string) =>
