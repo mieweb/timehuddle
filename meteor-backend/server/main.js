@@ -7,12 +7,38 @@
  *   /api/docs) and MCP tools (/mcp) for AI agents.
  */
 import { Meteor } from 'meteor/meteor';
+import { WebApp } from 'meteor/webapp';
 import { Wormhole } from 'meteor/wreiske:meteor-wormhole';
 
 import './collections';
 import './auth-bridge';
 import './tickets';
 import './clock';
+
+/**
+ * CORS for the wormhole REST bridge (/api) — the Vite frontend on another
+ * origin calls it directly. rawConnectHandlers runs before wormhole's
+ * middleware, so preflights are answered here.
+ */
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3000')
+  .split(',')
+  .map((s) => s.trim());
+
+WebApp.rawConnectHandlers.use('/api', (req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Max-Age', '86400');
+  }
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+  next();
+});
 
 const sessionTokenProp = {
   sessionToken: {
@@ -44,13 +70,14 @@ Meteor.startup(() => {
   });
 
   Wormhole.expose('tickets.create', {
-    description: 'Create a ticket in a team',
+    description: 'Create a ticket in a team (creator is auto-assigned)',
     inputSchema: {
       type: 'object',
       properties: {
         teamId: { type: 'string' },
         title: { type: 'string' },
         description: { type: 'string' },
+        github: { type: 'string', description: 'GitHub issue/PR URL' },
         priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
         ...sessionTokenProp,
       },
@@ -72,6 +99,60 @@ Meteor.startup(() => {
         ...sessionTokenProp,
       },
       required: ['ticketId'],
+    },
+  });
+
+  Wormhole.expose('tickets.update', {
+    description: "Edit a ticket's title, github link, and/or description",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        title: { type: 'string' },
+        github: { type: 'string' },
+        description: { type: 'string' },
+        ...sessionTokenProp,
+      },
+      required: ['ticketId'],
+    },
+  });
+
+  Wormhole.expose('tickets.delete', {
+    description: 'Soft-delete a ticket (sets status to deleted)',
+    inputSchema: {
+      type: 'object',
+      properties: { ticketId: { type: 'string' }, ...sessionTokenProp },
+      required: ['ticketId'],
+    },
+  });
+
+  Wormhole.expose('tickets.assign', {
+    description: 'Reassign a ticket to a set of team members (empty array unassigns)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        assignedToUserIds: { type: 'array', items: { type: 'string' } },
+        ...sessionTokenProp,
+      },
+      required: ['ticketId', 'assignedToUserIds'],
+    },
+  });
+
+  Wormhole.expose('tickets.batchStatus', {
+    description: 'Set the status of multiple tickets in one team',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketIds: { type: 'array', items: { type: 'string' } },
+        teamId: { type: 'string' },
+        status: {
+          type: 'string',
+          enum: ['open', 'in-progress', 'blocked', 'reviewed', 'closed', 'deleted'],
+        },
+        ...sessionTokenProp,
+      },
+      required: ['ticketIds', 'teamId', 'status'],
     },
   });
 

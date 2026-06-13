@@ -16,6 +16,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { teamApi, orgApi, enterpriseApi, clockApi, type Team, type ClockEvent } from './api';
+import { getDdpClient, ddpDocToClockEvent } from './ddp';
 import { useSession } from './useSession';
 
 const TEAM_KEY = 'app:selectedTeamId';
@@ -313,7 +314,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [userId, selectedTeam],
   );
 
-  // ── Clock events via WebSocket (real-time) + REST fallback ─────────────────
+  // ── Clock events via Meteor DDP (real-time) + REST fallback ─────────────
 
   const [activeClockEvent, setActiveClockEvent] = useState<ClockEvent | null>(null);
   const [clockReady, setClockReady] = useState(false);
@@ -334,65 +335,49 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [userId]);
 
-  // Initial fetch (fallback if WebSocket connection fails)
+  // Initial fetch (fallback if the DDP connection fails)
   useEffect(() => {
     void refetchClock();
   }, [refetchClock]);
 
-  // Real-time WebSocket connection for clock updates
+  // Real-time clock updates via the oplog-backed `clock.liveForTeams`
+  // publication: any writer (Fastify REST, Meteor methods, Agenda auto
+  // clock-out) pushes changes here — no server-side broadcast code.
   useEffect(() => {
     if (!userId || !selectedTeamId) {
       return;
     }
 
-    const ws = clockApi.openLiveStream([selectedTeamId]);
+    const ddp = getDdpClient();
 
-    ws.onmessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'snapshot') {
-          // Initial snapshot: find the current user's active event from the array
-          const userEvent =
-            data.events?.find(
-              (e: ClockEvent) => e.userId === userId && e.teamId === selectedTeamId && !e.endTime,
-            ) ?? null;
-          if (userEvent) {
-            setActiveClockEvent(userEvent);
-            setClockReady(true);
-          } else {
-            // No active event for the selected team — check globally via REST,
-            // since the user may be clocked in to a different team.
-            void refetchClock();
-          }
-        } else if (data.type === 'update') {
-          // Real-time update: apply if it's for the current user
-          const updatedEvent = data.event as ClockEvent | null;
-          if (
-            updatedEvent &&
-            updatedEvent.userId === userId &&
-            updatedEvent.teamId === selectedTeamId
-          ) {
-            setActiveClockEvent(updatedEvent);
-          } else if (!updatedEvent) {
-            // Clock out (event is null) — clear active event if it was for this user/team
-            setActiveClockEvent((prev) => {
-              if (prev && prev.teamId === data.teamId) {
-                return null;
-              }
-              return prev;
-            });
-          }
-        }
-      } catch (err) {
-        // Ignore malformed messages
-        console.warn('Failed to parse clock WebSocket message:', err);
+    const applyLiveDocs = () => {
+      const userEvent =
+        ddp
+          .docs('clockevents')
+          .map(ddpDocToClockEvent)
+          .find((e) => e.userId === userId && e.teamId === selectedTeamId && !e.endTime) ?? null;
+      if (userEvent) {
+        setActiveClockEvent(userEvent);
+        setClockReady(true);
+      } else {
+        // No active event for the selected team — clear only if the previous
+        // event was for this team; a cross-team active event (from the REST
+        // fallback) must survive.
+        setActiveClockEvent((prev) => (prev && prev.teamId === selectedTeamId ? null : prev));
       }
     };
 
-    // Cleanup: close WebSocket connection when team changes or component unmounts
+    const offChange = ddp.onCollectionChange('clockevents', applyLiveDocs);
+    const unsubscribe = ddp.subscribe('clock.liveForTeams', [[selectedTeamId]], () => {
+      applyLiveDocs();
+      // The publication only covers the selected team — check globally via
+      // REST, since the user may be clocked in to a different team.
+      void refetchClock();
+    });
+
     return () => {
-      ws.close();
+      offChange();
+      unsubscribe();
     };
   }, [userId, selectedTeamId, refetchClock]);
 

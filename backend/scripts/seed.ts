@@ -115,11 +115,7 @@ function emailsToIds(emails: string[], userIdsByEmail: Map<string, string>): str
   );
 }
 
-async function upsertSeedTeam(
-  team: TeamSeed,
-  userIdsByEmail: Map<string, string>,
-  orgId: string
-) {
+async function upsertSeedTeam(team: TeamSeed, userIdsByEmail: Map<string, string>, orgId: string) {
   const memberIds = emailsToIds(team.members, userIdsByEmail);
   const adminIds = emailsToIds(team.admins, userIdsByEmail).filter((id) => memberIds.includes(id));
 

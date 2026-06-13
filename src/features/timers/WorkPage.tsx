@@ -41,13 +41,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   ApiError,
-  clockApi,
   timerApi,
   ticketApi,
   type DayEntry,
   type Timer,
   type Ticket,
 } from '../../lib/api';
+import { getDdpClient } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
 import { formatDuration } from '../../lib/timeUtils';
@@ -258,24 +258,26 @@ export const WorkPage: React.FC = () => {
     void fetchWeekTotals();
   }, [fetchDay, fetchWeekTotals, isClockedIn, isToday]);
 
-  // ── Real-time clock updates ──
+  // ── Real-time clock updates (Meteor DDP, oplog-backed) ──
 
   useEffect(() => {
     if (teams.length === 0) return;
 
     const teamIds = teams.map((t) => t.id);
-    const ws = clockApi.openLiveStream(teamIds);
+    const ddp = getDdpClient();
 
-    ws.onmessage = (event: MessageEvent) => {
-      const data = JSON.parse(event.data);
-      // On any clock event update (timer start/stop), refetch current day and week totals
-      if (data.type === 'update') {
-        void fetchDay();
-        void fetchWeekTotals();
-      }
+    // On any clock event change (clock in/out from any writer), refetch the
+    // current day and week totals.
+    const offChange = ddp.onCollectionChange('clockevents', () => {
+      void fetchDay();
+      void fetchWeekTotals();
+    });
+    const unsubscribe = ddp.subscribe('clock.liveForTeams', [teamIds]);
+
+    return () => {
+      offChange();
+      unsubscribe();
     };
-
-    return () => ws.close();
   }, [teams, fetchDay, fetchWeekTotals]);
 
   // ── Real-time timer updates ──

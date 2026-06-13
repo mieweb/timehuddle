@@ -13,13 +13,9 @@
  * (wormhole), or even mongosh appears here without polling.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { sessionToken } from './api';
+import { METEOR_BASE_URL, sessionToken } from './api';
 
-const METEOR_WS_URL =
-  (
-    (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_METEOR_URL ??
-    'http://localhost:3100'
-  ).replace(/^http/, 'ws') + '/websocket';
+const METEOR_WS_URL = METEOR_BASE_URL.replace(/^http/, 'ws') + '/websocket';
 
 type DdpDoc = { _id: string } & Record<string, unknown>;
 type CollectionStore = Map<string, DdpDoc>;
@@ -70,6 +66,10 @@ class DdpClient {
   private listeners = new Map<string, Set<Listener>>();
   private connectPromise: Promise<void> | null = null;
   private authPromise: Promise<void> | null = null;
+  /** Subscriptions to restore after a reconnect. */
+  private activeSubs = new Map<string, { name: string; params: unknown[] }>();
+  private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   status: 'idle' | 'connecting' | 'connected' | 'failed' = 'idle';
 
   /** Connect (once) and authenticate the connection via auth.bridge. */
@@ -84,6 +84,7 @@ class DdpClient {
           const data = JSON.parse(e.data as string) as DdpMessage;
           if (data.msg === 'connected') {
             this.status = 'connected';
+            this.reconnectAttempt = 0;
             resolve();
           }
           this.handleMessage(data);
@@ -95,10 +96,47 @@ class DdpClient {
         ws.onclose = () => {
           if (this.status !== 'connected') reject(new Error('DDP connection closed'));
           this.status = 'failed';
+          this.handleDisconnect();
         };
       });
     }
     return this.connectPromise;
+  }
+
+  /**
+   * On socket drop (server restart, network blip): reject in-flight methods,
+   * reset connection state, and reconnect with backoff — re-authing and
+   * restoring every active subscription so live data resumes seamlessly.
+   */
+  private handleDisconnect(): void {
+    for (const pending of this.pendingMethods.values()) {
+      pending.reject(new Error('DDP connection lost'));
+    }
+    this.pendingMethods.clear();
+    this.readySubs.clear();
+    this.connectPromise = null;
+    this.authPromise = null;
+    this.ws = null;
+
+    if (this.activeSubs.size === 0 || this.reconnectTimer) return;
+    const delay = Math.min(30_000, 1000 * 2 ** this.reconnectAttempt++);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.ensureAuthed()
+        .then(() => {
+          // Drop stale docs — the server re-sends `added` for everything below.
+          for (const [collection, store] of this.collections) {
+            store.clear();
+            this.notify(collection);
+          }
+          for (const [id, sub] of this.activeSubs) {
+            this.ws!.send(JSON.stringify({ msg: 'sub', id, name: sub.name, params: sub.params }));
+          }
+        })
+        .catch(() => {
+          // ensureConnected's onclose fires handleDisconnect again → next backoff.
+        });
+    }, delay);
   }
 
   private async ensureAuthed(): Promise<void> {
@@ -183,6 +221,7 @@ class DdpClient {
   subscribe(name: string, params: unknown[], onReady?: () => void): () => void {
     const id = String(this.nextId++);
     let stopped = false;
+    this.activeSubs.set(id, { name, params });
     void this.ensureAuthed().then(() => {
       if (stopped) return;
       if (onReady) this.subReadyListeners.set(id, onReady);
@@ -190,6 +229,7 @@ class DdpClient {
     });
     return () => {
       stopped = true;
+      this.activeSubs.delete(id);
       this.subReadyListeners.delete(id);
       if (this.status === 'connected') {
         this.ws?.send(JSON.stringify({ msg: 'unsub', id }));
@@ -282,4 +322,16 @@ export function ddpDocToTicket(doc: DdpDoc): import('./api').Ticket {
 /** Live "who is clocked in" events for the given teams (oplog-reactive). */
 export function useLiveClockEvents(teamIds: string[]) {
   return useLiveCollection('clockevents', 'clock.liveForTeams', [teamIds]);
+}
+
+/** Map a raw DDP clockevents doc to the frontend ClockEvent shape. */
+export function ddpDocToClockEvent(doc: DdpDoc): import('./api').ClockEvent {
+  return {
+    id: doc._id,
+    userId: String(doc.userId ?? ''),
+    teamId: String(doc.teamId ?? ''),
+    startTime: Number(doc.startTime ?? 0),
+    accumulatedTime: Number(doc.accumulatedTime ?? 0),
+    endTime: typeof doc.endTime === 'number' ? doc.endTime : null,
+  };
 }

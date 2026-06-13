@@ -15,6 +15,12 @@ export const TIMECORE_BASE_URL: string =
 
 const WS_BASE_URL = TIMECORE_BASE_URL.replace(/^http/, 'ws');
 
+/** Meteor backend (wormhole REST + DDP) base URL. */
+export const METEOR_BASE_URL: string =
+  (typeof import.meta !== 'undefined' &&
+    (import.meta as { env?: Record<string, string> }).env?.VITE_METEOR_URL) ||
+  'http://localhost:3100';
+
 const FORCED_TIMEZONE: string | undefined =
   (typeof import.meta !== 'undefined' &&
     (import.meta as { env?: Record<string, string> }).env?.VITE_FORCE_TIMEZONE?.trim()) ||
@@ -718,6 +724,34 @@ export const usernameApi = {
     }),
 };
 
+// ─── Wormhole (Meteor REST) request ──────────────────────────────────────────
+
+/**
+ * Call a Meteor method via the wormhole REST bridge (POST /api/<name with
+ * dots→underscores>). The better-auth session token is passed in the body —
+ * the Meteor auth bridge resolves it against the shared session collection.
+ */
+async function wormholeCall<T = unknown>(
+  method: string,
+  params: Record<string, unknown>,
+): Promise<T> {
+  const route = method.replace(/\./g, '_');
+  const res = await fetch(`${METEOR_BASE_URL}/api/${route}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...params, sessionToken: sessionToken.get() ?? undefined }),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    result?: T;
+    reason?: string;
+    message?: string;
+  };
+  if (!res.ok) {
+    throw new ApiError(data.reason || data.message || `Request failed (${res.status})`, res.status);
+  }
+  return data.result as T;
+}
+
 // ─── Ticket API ───────────────────────────────────────────────────────────────
 
 export interface Ticket {
@@ -737,6 +771,31 @@ export interface Ticket {
   sharedWithTimeharbor?: boolean;
 }
 
+/** Normalize a wormhole ticket payload (raw Mongo doc shape) to the Ticket interface. */
+function toTicket(raw: Record<string, unknown>): Ticket {
+  const assignedTo = raw.assignedTo;
+  return {
+    id: String(raw.id),
+    teamId: String(raw.teamId),
+    title: String(raw.title),
+    description: (raw.description as string | undefined) ?? null,
+    github: (raw.github as string | undefined) ?? '',
+    status: (raw.status as string | undefined) ?? 'open',
+    priority: (raw.priority as string | undefined) ?? null,
+    createdBy: String(raw.createdBy),
+    assignedTo: Array.isArray(assignedTo)
+      ? assignedTo.map(String)
+      : typeof assignedTo === 'string'
+        ? [assignedTo]
+        : [],
+    reviewedBy: (raw.reviewedBy as string | undefined) ?? null,
+    reviewedAt: (raw.reviewedAt as string | undefined) ?? null,
+    createdAt: String(raw.createdAt),
+    updatedAt: (raw.updatedAt as string | undefined) ?? null,
+    sharedWithTimeharbor: raw.sharedWithTimeharbor as boolean | undefined,
+  };
+}
+
 export const ticketApi = {
   getTickets: (teamId: string) =>
     request<{ tickets: Ticket[] }>(`/v1/tickets?teamId=${encodeURIComponent(teamId)}`).then(
@@ -747,32 +806,28 @@ export const ticketApi = {
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`).then((r) => r.ticket),
 
   createTicket: (data: { teamId: string; title: string; github?: string }) =>
-    request<{ ticket: Ticket }>('/v1/tickets', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.ticket),
+    wormholeCall<Record<string, unknown>>('tickets.create', data).then(toTicket),
 
   updateTicket: (id: string, updates: { title?: string; github?: string; description?: string }) =>
-    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    }).then((r) => r.ticket),
+    wormholeCall<Record<string, unknown>>('tickets.update', { ticketId: id, ...updates }).then(
+      toTicket,
+    ),
 
   updateStatusPriority: (id: string, updates: { status?: string; priority?: string }) =>
-    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/status-priority`, {
-      method: 'PATCH',
-      body: JSON.stringify(updates),
-    }).then((r) => r.ticket),
+    wormholeCall<Record<string, unknown>>('tickets.updateStatus', {
+      ticketId: id,
+      ...updates,
+    }).then(toTicket),
 
-  deleteTicket: (id: string) =>
-    request<{ ok: boolean }>(`/v1/tickets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteTicket: (id: string) => wormholeCall<{ ok: boolean }>('tickets.delete', { ticketId: id }),
 
   batchUpdateStatus: (data: { ticketIds: string[]; status: string; teamId: string }) =>
-    request<{ modified: number }>('/v1/tickets/batch-status', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+    wormholeCall<{ modified: number }>('tickets.batchStatus', data),
 
+  /**
+   * Assignment stays on the Fastify backend: it fans out in-app + push
+   * notifications, which the Meteor backend does not handle yet.
+   */
   assignTicket: (id: string, assignedToUserIds: string[]) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/assign`, {
       method: 'PUT',
