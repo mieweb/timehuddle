@@ -18,7 +18,7 @@ import { Agenda } from 'agenda';
 import { MongoBackend } from '@agendajs/mongo-backend';
 import { ClockEvents, rawDb, isValidId } from './collections';
 import { computeWorkSeconds, findBreaksForEvent, stopActiveClock } from './clock-core';
-import { sendToUser } from './push';
+import { createNotification } from './notify-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -47,20 +47,7 @@ async function findOpenEvent(clockEventId) {
  * Meteor notifications publication in M1; here we persist + push only.
  */
 async function notifyUser(userId, { title, body, data }) {
-  const doc = {
-    _id: new ObjectId(),
-    userId,
-    title,
-    body,
-    ...(data ? { data } : {}),
-    read: false,
-    createdAt: new Date(),
-  };
-  await rawDb().collection('notifications').insertOne(doc);
-  sendToUser(userId, { title, body, tag: data?.type, data }).catch((err) =>
-    console.error('[push] sendToUser failed:', err)
-  );
-  return doc;
+  return createNotification({ userId, title, body, data });
 }
 
 export async function initAgenda() {

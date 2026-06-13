@@ -176,6 +176,113 @@ Meteor.startup(() => {
     },
   });
 
+  Wormhole.expose('clock.pause', {
+    description: 'Pause an active clock session (start a break)',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('clock.resume', {
+    description: 'Resume a paused clock session (end a break)',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('clock.status', {
+    description: 'Live clock status for a team: { event, workSeconds, isPaused } or null',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('clock.activeForUser', {
+    description: "The caller's active clock event across any team, or null",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('clock.events', {
+    description: 'All clock events for the caller (their own history)',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('clock.timesheet', {
+    description: 'Timesheet sessions + summary for a user over an epoch-ms date range',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        userId: { type: 'string' },
+        startMs: { type: 'number' },
+        endMs: { type: 'number' },
+      },
+      required: ['userId', 'startMs', 'endMs'],
+    },
+  });
+
+  Wormhole.expose('clock.updateTimes', {
+    description: "Update a clock event's timestamps and optional break intervals",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        clockEventId: { type: 'string' },
+        startTime: { type: 'number' },
+        endTime: { type: ['number', 'null'] },
+        breaks: { type: 'array', items: { type: 'object' } },
+      },
+      required: ['clockEventId'],
+    },
+  });
+
+  Wormhole.expose('clock.deleteEvent', {
+    description: 'Delete a clock event (owner or team admin)',
+    inputSchema: {
+      type: 'object',
+      properties: { clockEventId: { type: 'string' } },
+      required: ['clockEventId'],
+    },
+  });
+
+  Wormhole.expose('clock.createManual', {
+    description: 'Create a completed clock event for a past time range (manual backfill)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        startTime: { type: 'number' },
+        endTime: { type: 'number' },
+      },
+      required: ['teamId', 'startTime', 'endTime'],
+    },
+  });
+
+  Wormhole.expose('clock.agreeAutoClockout', {
+    description: "Mark the caller's active clock event as agreed to auto clock-out at 8h",
+    inputSchema: {
+      type: 'object',
+      properties: { clockEventId: { type: 'string' } },
+      required: ['clockEventId'],
+    },
+  });
+
+  Wormhole.expose('clock.respondShiftReminder', {
+    description: 'Agree or disagree to a shift-end reminder notification',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        notificationId: { type: 'string' },
+        action: { type: 'string', enum: ['agree', 'disagree'] },
+      },
+      required: ['notificationId', 'action'],
+    },
+  });
+
   // Agenda foundation: defines clock jobs against the shared `agendajobs`
   // collection. Processor stays OFF unless METEOR_AGENDA_ENABLED=true, so it
   // won't compete with Fastify during coexistence (M1 flips it on).

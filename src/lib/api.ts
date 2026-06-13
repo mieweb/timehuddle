@@ -1058,53 +1058,34 @@ export interface ClockEvent {
 
 export const clockApi = {
   /** Clock in to a team. Returns the new clock event. */
-  start: (teamId: string) =>
-    request<{ event: ClockEvent }>('/v1/clock/start', {
-      method: 'POST',
-      body: JSON.stringify({ teamId }),
-    }).then((r) => r.event),
+  start: (teamId: string) => wormholeCall<ClockEvent>('clock.start', { teamId }),
 
   /** Clock out of a team. */
-  stop: (teamId: string) =>
-    request<{ event: ClockEvent }>('/v1/clock/stop', {
-      method: 'POST',
-      body: JSON.stringify({ teamId }),
-    }).then((r) => r.event),
+  stop: (teamId: string) => wormholeCall<ClockEvent>('clock.stop', { teamId }),
 
   /** Pause an active clock session (break start). */
-  pause: (teamId: string) =>
-    request<{ event: ClockEvent }>('/v1/clock/pause', {
-      method: 'POST',
-      body: JSON.stringify({ teamId }),
-    }).then((r) => r.event),
+  pause: (teamId: string) => wormholeCall<ClockEvent>('clock.pause', { teamId }),
 
   /** Resume a paused clock session (break end). */
-  resume: (teamId: string) =>
-    request<{ event: ClockEvent }>('/v1/clock/resume', {
-      method: 'POST',
-      body: JSON.stringify({ teamId }),
-    }).then((r) => r.event),
+  resume: (teamId: string) => wormholeCall<ClockEvent>('clock.resume', { teamId }),
 
   /** Get active clock status for a team. */
   getStatus: (teamId: string) =>
-    request<{
+    wormholeCall<{
       event: ClockEvent;
       workSeconds: number;
       isPaused: boolean;
-    }>(`/v1/clock/status?teamId=${encodeURIComponent(teamId)}`),
+    } | null>('clock.status', { teamId }),
 
-  /** Get the current user's active clock event (any team), or null. Admin can pass userId. */
-  getActive: (userId?: string) => {
-    const params = userId ? `?userId=${encodeURIComponent(userId)}` : '';
-    return request<{ event: ClockEvent | null }>(`/v1/clock/active${params}`).then((r) => r.event);
-  },
+  /** Get the current user's active clock event (any team), or null. */
+  getActive: (_userId?: string) => wormholeCall<ClockEvent | null>('clock.activeForUser', {}),
 
   /** Get all clock events for the current user. */
-  getEvents: () => request<{ events: ClockEvent[] }>('/v1/clock/events').then((r) => r.events),
+  getEvents: () => wormholeCall<ClockEvent[]>('clock.events', {}),
 
   /** Get timesheet data for a user over a date range (epoch ms boundaries). */
   getTimesheet: (userId: string, startMs: number, endMs: number) =>
-    request<{
+    wormholeCall<{
       sessions: ClockEvent[];
       summary: {
         totalSeconds: number;
@@ -1114,9 +1095,7 @@ export const clockApi = {
         averageSessionSeconds: number;
         workingDays: number;
       };
-    }>(
-      `/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startMs=${startMs}&endMs=${endMs}`,
-    ),
+    }>('clock.timesheet', { userId, startMs, endMs }),
 
   /** Update a clock event's timestamps and optional break intervals. */
   updateTimes: (
@@ -1126,32 +1105,15 @@ export const clockApi = {
       endTime?: number | null;
       breaks?: Array<{ startTime: number; endTime: number | null }>;
     },
-  ) =>
-    request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/times`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }).then((r) => r.event),
+  ) => wormholeCall<ClockEvent>('clock.updateTimes', { clockEventId, ...data }),
 
   /** Delete a clock event. */
   deleteEvent: (clockEventId: string) =>
-    request<{ ok: boolean }>(`/v1/clock/${encodeURIComponent(clockEventId)}`, {
-      method: 'DELETE',
-    }).then((r) => r.ok),
+    wormholeCall<{ ok: boolean }>('clock.deleteEvent', { clockEventId }).then((r) => r.ok),
 
   /** Create a completed manual clock entry for a past time range. */
   createManualEntry: (data: { teamId: string; startTime: number; endTime: number }) =>
-    request<{ event: ClockEvent }>('/v1/clock/manual', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.event),
-
-  /** Open a WebSocket connection for live team clock state. Auto-reconnects on drop. */
-  openLiveStream: (teamIds: string[]): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const token = sessionToken.get();
-      const base = `${WS_BASE_URL}/v1/clock/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`;
-      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
-    }),
+    wormholeCall<ClockEvent>('clock.createManual', data),
 };
 
 // ─── Team Dashboard API ───────────────────────────────────────────────────────
@@ -1311,12 +1273,7 @@ export const notificationApi = {
 
   /** Consent to auto-clockout at 8h — called when user clicks "Agree to Clock Out" on the shift reminder. */
   agreeClockout: (clockEventId: string) =>
-    request<{ ok: boolean }>(
-      `/v1/clock/events/${encodeURIComponent(clockEventId)}/agree-clockout`,
-      {
-        method: 'POST',
-      },
-    ),
+    wormholeCall<{ ok: boolean }>('clock.agreeAutoClockout', { clockEventId }),
 
   /** Send a test push notification to the requesting user's devices. */
   testPush: () => request<{ ok: boolean }>('/v1/notifications/test-push', { method: 'POST' }),

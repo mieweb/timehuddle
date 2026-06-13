@@ -206,6 +206,18 @@ export async function initAgenda(): Promise<void> {
     );
   });
 
+  // Coexistence guard (M1 clock cutover): the Meteor backend now owns clock
+  // processing. The jobs above are still DEFINED so any stray scheduling call
+  // persists to the shared `agendajobs` collection, but the Fastify processor
+  // loop stays OFF unless explicitly re-enabled — otherwise both backends would
+  // double-process the same locked jobs.
+  if (process.env.FASTIFY_AGENDA_ENABLED !== "true") {
+    console.log(
+      "[agenda] processor disabled (FASTIFY_AGENDA_ENABLED!=true) — Meteor owns clock processing"
+    );
+    return;
+  }
+
   await _agenda.start();
   console.log(
     "[agenda] started — jobs: shift-4h-reminder, shift-end-reminder, shift-auto-clockout, shift-missed-clockout"
