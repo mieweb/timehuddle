@@ -82,6 +82,9 @@ services:
       - frontend_nm:/app/node_modules
     environment:
       - API_TARGET=http://backend:4000
+      # Comma-separated social sign-in buttons to show on the login form.
+      # Options: github, google, apple, authentik (each also needs backend creds).
+      - VITE_SOCIAL_PROVIDERS=github
     depends_on:
       - backend
 

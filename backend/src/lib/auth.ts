@@ -1,6 +1,7 @@
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
 import { bearer, jwt } from "better-auth/plugins";
+import { genericOAuth } from "better-auth/plugins/generic-oauth";
 import { oidcProvider } from "better-auth/plugins/oidc-provider";
 import { client } from "./db.js";
 import { sendEmail } from "./email.js";
@@ -11,6 +12,51 @@ const TIMEHARBOR_CLIENT_ID = process.env.TIMEHARBOR_CLIENT_ID ?? "timeharbor";
 const TIMEHARBOR_CLIENT_SECRET = process.env.TIMEHARBOR_CLIENT_SECRET ?? "";
 const TIMEHARBOR_REDIRECT_URI =
   process.env.TIMEHARBOR_REDIRECT_URI ?? "http://localhost:3001/v1/timehuddle/oauth/callback";
+
+// ── Social sign-in providers ──────────────────────────────────────────────────
+// Each provider self-registers only when its credentials are present, so an
+// unconfigured deployment never advertises a broken button. GitHub stays on
+// `socialProviders`; Authentik (any OIDC IdP) rides the `genericOAuth` plugin.
+const socialProviders: NonNullable<Parameters<typeof betterAuth>[0]["socialProviders"]> = {};
+
+if (process.env.GITHUB_CLIENT_ID) {
+  socialProviders.github = {
+    clientId: process.env.GITHUB_CLIENT_ID,
+    clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
+  };
+}
+
+if (process.env.GOOGLE_CLIENT_ID) {
+  socialProviders.google = {
+    clientId: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+  };
+}
+
+if (process.env.APPLE_CLIENT_ID) {
+  socialProviders.apple = {
+    clientId: process.env.APPLE_CLIENT_ID,
+    clientSecret: process.env.APPLE_CLIENT_SECRET ?? "",
+    // Native Capacitor sign-in presents the app bundle id as the audience.
+    ...(process.env.APPLE_APP_BUNDLE_IDENTIFIER
+      ? { appBundleIdentifier: process.env.APPLE_APP_BUNDLE_IDENTIFIER }
+      : {}),
+  };
+}
+
+// Authentik (or any OIDC provider) via discovery. Registered as providerId
+// "authentik" so the client calls `signIn.oauth2({ providerId: "authentik" })`.
+const genericOAuthConfig = process.env.AUTHENTIK_CLIENT_ID
+  ? [
+      {
+        providerId: "authentik",
+        clientId: process.env.AUTHENTIK_CLIENT_ID,
+        clientSecret: process.env.AUTHENTIK_CLIENT_SECRET ?? "",
+        discoveryUrl: process.env.AUTHENTIK_DISCOVERY_URL ?? "",
+        scopes: ["openid", "profile", "email"],
+      },
+    ]
+  : [];
 
 export const auth = betterAuth({
   database: mongodbAdapter(client.db()),
@@ -66,6 +112,9 @@ export const auth = betterAuth({
           ]
         : [],
     }),
+
+    // Authentik (and any other OIDC IdP) — registered only when configured.
+    ...(genericOAuthConfig.length > 0 ? [genericOAuth({ config: genericOAuthConfig })] : []),
   ],
 
   emailAndPassword: {
@@ -82,14 +131,9 @@ export const auth = betterAuth({
     },
   },
 
-  // GitHub OAuth social provider
-  // Credentials are read from GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET env vars.
-  socialProviders: {
-    github: {
-      clientId: process.env.GITHUB_CLIENT_ID ?? "",
-      clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
-    },
-  },
+  // Social sign-in providers (GitHub / Google / Apple). Built above from env —
+  // a provider only appears when its credentials are present.
+  socialProviders,
 
   // username is claimed post-signup via a dedicated endpoint — stored on the user document.
   user: {

@@ -262,15 +262,41 @@ export const authApi = {
   },
 
   /**
-   * Initiate a social OAuth sign-in (e.g. GitHub).
+   * Initiate a social OAuth sign-in (GitHub / Google / Apple).
    * Returns the provider redirect URL; caller should set window.location.href to it.
    */
-  signInWithSocial: async (provider: 'github' | 'google', callbackURL: string): Promise<string> => {
+  signInWithSocial: async (
+    provider: 'github' | 'google' | 'apple',
+    callbackURL: string,
+  ): Promise<string> => {
     const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/social`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider, callbackURL }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+      );
+    }
+    const data = (await res.json()) as { url: string };
+    return data.url;
+  },
+
+  /**
+   * Initiate a generic OAuth2 / OIDC sign-in (e.g. Authentik) via the
+   * better-auth `genericOAuth` plugin. Returns the provider redirect URL.
+   */
+  signInWithOAuth2: async (providerId: string, callbackURL: string): Promise<string> => {
+    const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/oauth2`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId, callbackURL }),
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;

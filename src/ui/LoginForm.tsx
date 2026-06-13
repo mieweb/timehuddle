@@ -6,11 +6,11 @@ import {
   faUsers,
   faListCheck,
 } from '@fortawesome/free-solid-svg-icons';
-import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useState } from 'react';
 
 import { authApi } from '../lib/api';
+import { getEnabledSocialProviders, type SocialProvider } from '../lib/socialProviders';
 import { useSession } from '../lib/useSession';
 import { Button, Input, Text } from '@mieweb/ui';
 
@@ -198,20 +198,27 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
         ? handleSignup
         : handleLogin;
 
-  const [githubLoading, setGithubLoading] = useState(false);
-  const [githubError, setGithubError] = useState<string | null>(null);
+  const socialProviders = getEnabledSocialProviders();
+  const [socialLoadingId, setSocialLoadingId] = useState<string | null>(null);
+  const [socialError, setSocialError] = useState<string | null>(null);
 
-  const handleGitHubSignIn = async () => {
-    if (githubLoading) return;
-    setGithubLoading(true);
-    setGithubError(null);
+  const handleSocialSignIn = async (provider: SocialProvider) => {
+    if (socialLoadingId) return;
+    setSocialLoadingId(provider.id);
+    setSocialError(null);
     try {
       const callbackURL = `${window.location.origin}/app/dashboard`;
-      const url = await authApi.signInWithSocial('github', callbackURL);
+      const url =
+        provider.kind === 'oauth2'
+          ? await authApi.signInWithOAuth2(provider.id, callbackURL)
+          : await authApi.signInWithSocial(
+              provider.id as 'github' | 'google' | 'apple',
+              callbackURL,
+            );
       window.location.href = url;
     } catch (err: unknown) {
-      setGithubError((err as Error).message || 'GitHub sign-in failed');
-      setGithubLoading(false);
+      setSocialError((err as Error).message || `${provider.label} sign-in failed`);
+      setSocialLoadingId(null);
     }
   };
 
@@ -435,38 +442,48 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
           {(mode === 'login' || mode === 'signup') && (
             <>
               {/* Divider */}
-              <div className="my-6 flex items-center gap-3">
-                <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
-                <span className="text-xs text-neutral-400 dark:text-neutral-500">or</span>
-                <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
-              </div>
+              {socialProviders.length > 0 && (
+                <div className="my-6 flex items-center gap-3">
+                  <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
+                  <span className="text-xs text-neutral-400 dark:text-neutral-500">or</span>
+                  <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
+                </div>
+              )}
 
-              {/* GitHub social sign-in */}
-              <div className="space-y-3">
-                <Button
-                  variant="outline"
-                  fullWidth
-                  type="button"
-                  onClick={handleGitHubSignIn}
-                  disabled={githubLoading}
-                  isLoading={githubLoading}
-                  loadingText="Redirecting…"
-                  aria-label="Continue with GitHub"
-                >
-                  {!githubLoading && (
-                    <span className="flex items-center justify-center gap-2">
-                      <FontAwesomeIcon icon={faGithub} className="text-base" />
-                      Continue with GitHub
-                    </span>
+              {/* Social sign-in providers */}
+              {socialProviders.length > 0 && (
+                <div className="space-y-3">
+                  {socialProviders.map((provider) => {
+                    const loading = socialLoadingId === provider.id;
+                    return (
+                      <Button
+                        key={provider.id}
+                        variant="outline"
+                        fullWidth
+                        type="button"
+                        onClick={() => handleSocialSignIn(provider)}
+                        disabled={socialLoadingId !== null}
+                        isLoading={loading}
+                        loadingText="Redirecting…"
+                        aria-label={`Continue with ${provider.label}`}
+                      >
+                        {!loading && (
+                          <span className="flex items-center justify-center gap-2">
+                            <FontAwesomeIcon icon={provider.icon} className="text-base" />
+                            Continue with {provider.label}
+                          </span>
+                        )}
+                      </Button>
+                    );
+                  })}
+
+                  {socialError && (
+                    <Text variant="destructive" size="xs" weight="medium" as="div" role="alert">
+                      {socialError}
+                    </Text>
                   )}
-                </Button>
-
-                {githubError && (
-                  <Text variant="destructive" size="xs" weight="medium" as="div" role="alert">
-                    {githubError}
-                  </Text>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Divider between social and mode toggle text */}
               <div className="my-4" />

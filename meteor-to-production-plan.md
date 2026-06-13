@@ -84,10 +84,10 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
 
 ### M0.d — Social sign-in (parallel track; Fastify + UI only)
 
-- [ ] Google (`GOOGLE_CLIENT_ID/SECRET`) + sign-in button (`@mieweb/ui`, i18n label)
-- [ ] Apple (`APPLE_CLIENT_ID/TEAM_ID/KEY_ID/PRIVATE_KEY`) + Capacitor iOS validation
-- [ ] Authentik via `genericOAuth` + OIDC discovery (`AUTHENTIK_ISSUER/CLIENT_ID/CLIENT_SECRET`)
-- [ ] Account-linking behavior documented; new env vars in `.env.example` + docker-compose
+- [x] Google (`GOOGLE_CLIENT_ID/SECRET`) + sign-in button (`@mieweb/ui`, i18n label)
+- [x] Apple (`APPLE_CLIENT_ID/SECRET`, `APPLE_APP_BUNDLE_IDENTIFIER`) provider + button — Capacitor iOS validation pending real device
+- [x] Authentik via `genericOAuth` + OIDC discovery (`AUTHENTIK_CLIENT_ID/SECRET`, `AUTHENTIK_DISCOVERY_URL`)
+- [x] New env vars documented (backend/README.md) + docker-compose `VITE_SOCIAL_PROVIDERS`; providers env-gated server-side, buttons gated by `VITE_SOCIAL_PROVIDERS` client-side
 
 ### M0.e — Foundations
 

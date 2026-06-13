@@ -404,7 +404,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
           type: "object",
           required: ["provider"],
           properties: {
-            provider: { type: "string", enum: ["google", "github"] },
+            provider: { type: "string", enum: ["google", "github", "apple"] },
             callbackURL: {
               type: "string",
               description: "URL to redirect to after successful auth",
@@ -433,7 +433,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
         params: {
           type: "object",
           properties: {
-            provider: { type: "string", enum: ["google", "github"] },
+            provider: { type: "string", enum: ["google", "github", "apple"] },
           },
         },
         response: {
