@@ -8,10 +8,13 @@
   "dependencies": {
     "@babel/runtime": "^7.23.5",
     "@casl/ability": "^6.8.1",
+    "@parse/node-apn": "^8.1.0",
     "@swc/helpers": "^0.5.17",
+    "firebase-admin": "^14.0.0",
     "jose": "^6.2.3",
     "meteor-node-stubs": "^1.2.12",
-    "nodemailer": "^8.0.11"
+    "nodemailer": "^8.0.11",
+    "web-push": "^3.6.7"
   },
   "meteor": {
     "mainModule": {

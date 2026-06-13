@@ -16,6 +16,7 @@ import './tickets';
 import './clock';
 // M0.e foundations — built/validated now, consumed by M1 clock + notifications.
 import './email';
+import './push';
 
 /**
  * CORS for the wormhole REST bridge (/api) — the Vite frontend on another
