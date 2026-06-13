@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
-import { bearer } from "better-auth/plugins";
+import { bearer, jwt } from "better-auth/plugins";
 import { oidcProvider } from "better-auth/plugins/oidc-provider";
 import { client } from "./db.js";
 import { sendEmail } from "./email.js";
@@ -20,6 +20,20 @@ export const auth = betterAuth({
     // `Authorization: Bearer <token>` on all authenticated requests.
     // Required for Capacitor (custom-scheme WebViews where cookies are unreliable).
     bearer(),
+
+    // Short-lived JWT access tokens + JWKS for stateless verification by other
+    // services (the Meteor backend verifies these without touching the session
+    // collection). Token endpoint: GET /api/auth/token; keys: GET /api/auth/jwks.
+    jwt({
+      jwt: {
+        expirationTime: "15m",
+        definePayload: ({ user }) => ({
+          email: user.email,
+          name: user.name,
+          image: user.image ?? null,
+        }),
+      },
+    }),
 
     // OIDC provider — TimeHarbor connects via OAuth 2.0 Authorization Code flow.
     // Endpoints exposed under /api/auth/oauth2/* and /api/auth/.well-known/...

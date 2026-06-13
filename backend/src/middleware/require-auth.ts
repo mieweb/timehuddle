@@ -1,6 +1,7 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { auth } from "../lib/auth.js";
 import { fromNodeHeaders } from "better-auth/node";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 import { ObjectId } from "mongodb";
 import { patService } from "../services/pat.service.js";
 import { usersCollection } from "../models/index.js";
@@ -14,6 +15,33 @@ export type AppUser = {
 };
 
 const PAT_PREFIX = "th_pat_";
+
+// JWKS for better-auth-issued JWTs. Self-fetch with caching (jose handles
+// cooldown + kid rotation) — verification itself is local, no DB hit.
+const JWKS_URL =
+  process.env.AUTH_JWKS_URL ?? `http://127.0.0.1:${process.env.PORT ?? 4000}/api/auth/jwks`;
+let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+
+/** A JWT has exactly three dot-separated segments (session tokens have one dot). */
+function looksLikeJwt(token: string): boolean {
+  return token.split(".").length === 3;
+}
+
+async function verifyJwt(token: string): Promise<AppUser | null> {
+  try {
+    jwks ??= createRemoteJWKSet(new URL(JWKS_URL));
+    const { payload } = await jwtVerify(token, jwks);
+    if (!payload.sub) return null;
+    return {
+      id: payload.sub,
+      name: typeof payload.name === "string" ? payload.name : "",
+      email: typeof payload.email === "string" ? payload.email : "",
+      image: typeof payload.image === "string" ? payload.image : null,
+    };
+  } catch {
+    return null;
+  }
+}
 
 export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
   // Check for PAT Bearer token first (prefix: th_pat_)
@@ -32,6 +60,19 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
     }
     req.user = { id: user._id.toString(), name: user.name, email: user.email, image: user.image };
     return;
+  }
+
+  // Better-auth-issued JWT access token: stateless local verification.
+  if (lowerHeader.startsWith("bearer ")) {
+    const rawToken = authHeader!.slice("bearer ".length);
+    if (looksLikeJwt(rawToken)) {
+      const jwtUser = await verifyJwt(rawToken);
+      if (jwtUser) {
+        req.user = jwtUser;
+        return;
+      }
+      return reply.status(401).send({ error: "Invalid or expired token" });
+    }
   }
 
   // Try Better Auth session (cookie or session Bearer token)

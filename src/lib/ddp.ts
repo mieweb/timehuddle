@@ -13,7 +13,7 @@
  * (wormhole), or even mongosh appears here without polling.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { METEOR_BASE_URL, sessionToken } from './api';
+import { METEOR_BASE_URL, getAccessToken, decodeJwtExp } from './api';
 
 const METEOR_WS_URL = METEOR_BASE_URL.replace(/^http/, 'ws') + '/websocket';
 
@@ -70,6 +70,8 @@ class DdpClient {
   private activeSubs = new Map<string, { name: string; params: unknown[] }>();
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Proactive re-bridge timer — refreshes connection auth before the JWT expires. */
+  private reauthTimer: ReturnType<typeof setTimeout> | null = null;
   status: 'idle' | 'connecting' | 'connected' | 'failed' = 'idle';
 
   /** Connect (once) and authenticate the connection via auth.bridge. */
@@ -117,6 +119,10 @@ class DdpClient {
     this.connectPromise = null;
     this.authPromise = null;
     this.ws = null;
+    if (this.reauthTimer) {
+      clearTimeout(this.reauthTimer);
+      this.reauthTimer = null;
+    }
 
     if (this.activeSubs.size === 0 || this.reconnectTimer) return;
     const delay = Math.min(30_000, 1000 * 2 ** this.reconnectAttempt++);
@@ -142,12 +148,29 @@ class DdpClient {
   private async ensureAuthed(): Promise<void> {
     await this.ensureConnected();
     if (!this.authPromise) {
-      const token = sessionToken.get();
-      this.authPromise = token
-        ? this.call('auth.bridge', token).then(() => undefined)
-        : Promise.resolve();
+      this.authPromise = this.bridgeAuth();
     }
     return this.authPromise;
+  }
+
+  /**
+   * Authenticate the DDP connection with a short-lived JWT and schedule a
+   * re-bridge ~60s before it expires so the connection identity never lapses.
+   */
+  private async bridgeAuth(): Promise<void> {
+    const token = await getAccessToken();
+    if (!token) return;
+    await this.call('auth.bridge', token);
+    const expMs = decodeJwtExp(token) * 1000;
+    const delay = Math.max(10_000, expMs - Date.now() - 60_000);
+    if (this.reauthTimer) clearTimeout(this.reauthTimer);
+    this.reauthTimer = setTimeout(() => {
+      this.reauthTimer = null;
+      // Re-bridge in place — subscriptions stay up, identity is refreshed.
+      this.bridgeAuth().catch(() => {
+        // Socket issues are handled by handleDisconnect's reconnect path.
+      });
+    }, delay);
   }
 
   private handleMessage(data: DdpMessage): void {

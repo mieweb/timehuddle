@@ -1,50 +1,75 @@
 /**
- * PoC auth bridge: resolves a better-auth session token (issued by the Fastify
- * backend) to a userId by reading the shared `session` + `user` collections.
+ * Auth bridge: resolves caller credentials issued by the better-auth IdP
+ * (Fastify backend) WITHOUT reading the session collection.
  *
- * Accepted token sources:
- *  - DDP:   client calls `Meteor.call('auth.bridge', token)` once per connection;
- *           subsequent methods/publications read the cached identity.
- *  - REST/MCP: `Authorization: Bearer <token>` header, surfaced by the wormhole
- *           invocation context (`currentBearerToken()`).
+ * Accepted token formats:
+ *  - JWT access token (better-auth `jwt` plugin, 15-min TTL) — verified
+ *    statelessly against the IdP's JWKS (`AUTH_JWKS_URL`).
+ *  - Personal access token (`th_pat_…`) — sha256 lookup in the shared
+ *    `personal_access_tokens` collection (parity with Fastify).
+ *
+ * Token sources:
+ *  - DDP:   client calls `Meteor.call('auth.bridge', token)` once per
+ *           connection (and again before the JWT expires); subsequent
+ *           methods/publications read the cached identity.
+ *  - REST/MCP: `Authorization: Bearer <token>` header, surfaced by the
+ *           wormhole invocation context (`currentBearerToken()`).
  *  - Legacy: explicit `sessionToken` param in the method body (deprecated).
- *
- * Better-auth cookie format is `<token>.<hmac>` — only the part before the first
- * dot is stored in the session collection.
  */
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { currentBearerToken } from 'meteor/wreiske:meteor-wormhole';
+import { createHash } from 'crypto';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { rawDb } from './collections';
 
 // Use Meteor's bundled driver so BSON types match the rawDb() connection.
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
+const PAT_PREFIX = 'th_pat_';
+
+// JWKS published by the better-auth backend. jose caches keys and handles
+// `kid` rotation with a cooldown — verification itself is local.
+const JWKS_URL = process.env.AUTH_JWKS_URL || 'http://localhost:4000/api/auth/jwks';
+let jwks = null;
+
 /** connectionId -> { userId, name } for DDP sessions. */
 const connectionIdentity = new Map();
 
-function normalizeToken(raw) {
-  if (typeof raw !== 'string' || !raw.trim()) return null;
-  const token = raw.trim();
-  // Cookie values are signed: "<token>.<signature>" — session docs store the bare token.
-  const dot = token.indexOf('.');
-  return dot > 0 ? token.slice(0, dot) : token;
+/** A JWT has exactly three dot-separated segments. */
+function looksLikeJwt(token) {
+  return token.split('.').length === 3;
 }
 
-/** Resolve a better-auth session token to { userId, name } or null. */
-export async function resolveSessionToken(raw) {
-  const token = normalizeToken(raw);
-  if (!token) return null;
+async function resolveJwt(token) {
+  try {
+    jwks ??= createRemoteJWKSet(new URL(JWKS_URL));
+    const { payload } = await jwtVerify(token, jwks);
+    if (!payload.sub) return null;
+    return { userId: payload.sub, name: payload.name || payload.email || 'Unknown' };
+  } catch {
+    return null;
+  }
+}
 
+async function resolvePat(token) {
+  const tokenHash = createHash('sha256').update(token).digest('hex');
   const db = rawDb();
-  const session = await db.collection('session').findOne({ token });
-  if (!session) return null;
-  if (session.expiresAt && new Date(session.expiresAt) < new Date()) return null;
+  const pat = await db
+    .collection('personal_access_tokens')
+    .findOneAndUpdate({ tokenHash }, { $set: { lastUsedAt: new Date() } });
+  if (!pat?.userId) return null;
+  const user = await db.collection('user').findOne({ _id: new ObjectId(String(pat.userId)) });
+  return { userId: String(pat.userId), name: user?.name ?? user?.email ?? 'Unknown' };
+}
 
-  const user = await db.collection('user').findOne({ _id: new ObjectId(String(session.userId)) });
-  if (!user) return null;
-
-  return { userId: String(session.userId), name: user.name ?? user.email ?? 'Unknown' };
+/** Resolve a bearer token (JWT or PAT) to { userId, name } or null. */
+export async function resolveToken(raw) {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  const token = raw.trim();
+  if (token.startsWith(PAT_PREFIX)) return resolvePat(token);
+  if (looksLikeJwt(token)) return resolveJwt(token);
+  return null;
 }
 
 /**
@@ -58,9 +83,9 @@ export async function resolveSessionToken(raw) {
 export async function requireIdentity(methodContext, sessionToken) {
   const token = sessionToken || currentBearerToken();
   if (token) {
-    const identity = await resolveSessionToken(token);
+    const identity = await resolveToken(token);
     if (identity) return identity;
-    throw new Meteor.Error('not-authorized', 'Invalid or expired session token');
+    throw new Meteor.Error('not-authorized', 'Invalid or expired token');
   }
   const connId = methodContext?.connection?.id;
   const cached = connId ? connectionIdentity.get(connId) : null;
@@ -77,11 +102,11 @@ export function identityForConnection(connection) {
 }
 
 Meteor.methods({
-  /** Authenticate this DDP connection with a better-auth session token. */
+  /** Authenticate this DDP connection with a JWT or PAT. Re-call before exp. */
   async 'auth.bridge'(token) {
-    const identity = await resolveSessionToken(token);
+    const identity = await resolveToken(token);
     if (!identity) {
-      throw new Meteor.Error('not-authorized', 'Invalid or expired session token');
+      throw new Meteor.Error('not-authorized', 'Invalid or expired token');
     }
     const conn = this.connection;
     if (conn?.id) {

@@ -111,6 +111,54 @@ export const sessionToken = {
   clear: () => localStorage.removeItem(TOKEN_KEY),
 };
 
+// ─── JWT access token (stateless auth for the Meteor backend) ──────────────────────
+
+let cachedJwt: { token: string; exp: number } | null = null;
+let jwtFetch: Promise<string | null> | null = null;
+
+/** Decode the `exp` claim (seconds since epoch) from a JWT, or 0 on failure. */
+export function decodeJwtExp(token: string): number {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload.exp === 'number' ? payload.exp : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Get a short-lived JWT access token from better-auth (`GET /api/auth/token`),
+ * cached until ~60s before expiry. Authenticated via the session cookie or the
+ * stored bearer session token. Returns null when signed out.
+ */
+export async function getAccessToken(): Promise<string | null> {
+  if (cachedJwt && cachedJwt.exp * 1000 - Date.now() > 60_000) return cachedJwt.token;
+  jwtFetch ??= (async () => {
+    try {
+      const session = sessionToken.get();
+      const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/token`, {
+        credentials: 'include',
+        headers: session ? { Authorization: `Bearer ${session}` } : undefined,
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { token?: string };
+      if (!data.token) return null;
+      cachedJwt = { token: data.token, exp: decodeJwtExp(data.token) };
+      return data.token;
+    } catch {
+      return null;
+    } finally {
+      jwtFetch = null;
+    }
+  })();
+  return jwtFetch;
+}
+
+/** Drop the cached JWT (on sign-out). */
+export function clearAccessToken(): void {
+  cachedJwt = null;
+}
+
 // ─── Base request ─────────────────────────────────────────────────────────────
 
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
@@ -260,6 +308,7 @@ export const authApi = {
   signOut: async () => {
     await request('/api/auth/sign-out', { method: 'POST' }).catch(() => {});
     sessionToken.clear();
+    clearAccessToken();
   },
 
   /**
@@ -728,16 +777,16 @@ export const usernameApi = {
 
 /**
  * Call a Meteor method via the wormhole REST bridge (POST /api/<name with
- * dots→underscores>). Auth is the better-auth session token in the
- * Authorization header — the Meteor auth bridge resolves it against the
- * shared session collection.
+ * dots→underscores>). Auth is a short-lived better-auth JWT in the
+ * Authorization header — the Meteor auth bridge verifies it against the
+ * IdP's JWKS (no shared-session coupling).
  */
 async function wormholeCall<T = unknown>(
   method: string,
   params: Record<string, unknown>,
 ): Promise<T> {
   const route = method.replace(/\./g, '_');
-  const token = sessionToken.get();
+  const token = await getAccessToken();
   const res = await fetch(`${METEOR_BASE_URL}/api/${route}`, {
     method: 'POST',
     headers: {

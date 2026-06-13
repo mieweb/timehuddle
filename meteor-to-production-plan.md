@@ -72,15 +72,15 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
 
 ### M0.c — JWT + JWKS (better-auth as the permanent IdP)
 
-- [ ] better-auth `jwt` plugin in `backend/src/lib/auth.ts`; JWKS at `/api/auth/jwks`
-- [ ] OIDC provider issues JWT access tokens (15-min TTL; `sub`, `email`, `name`, `iss`, `aud`, `exp`)
-- [ ] Refresh tokens stay opaque + DB-backed (revocation at refresh)
-- [ ] Fastify `require-auth.ts` accepts JWTs (local verify, no DB hit)
-- [ ] Meteor `auth-bridge.js`: JWKS verification (`jose`, key cache, `kid` rotation) replaces
+- [x] better-auth `jwt` plugin in `backend/src/lib/auth.ts`; JWKS at `/api/auth/jwks`
+- [x] OIDC provider issues JWT access tokens (15-min TTL; `sub`, `email`, `name`, `iss`, `aud`, `exp`)
+- [x] Refresh tokens stay opaque + DB-backed (revocation at refresh)
+- [x] Fastify `require-auth.ts` accepts JWTs (local verify, no DB hit)
+- [x] Meteor `auth-bridge.js`: JWKS verification (`jose`, key cache, `kid` rotation) replaces
       `session`-collection reads
-- [ ] PAT path in Meteor: `th_pat_` prefix → PAT collection lookup (parity with Fastify)
-- [ ] `ddp.ts`: fetch JWT from better-auth token endpoint; proactive re-bridge before `exp`
-- [ ] Zero `session`-collection reads remain in `meteor-backend/`
+- [x] PAT path in Meteor: `th_pat_` prefix → PAT collection lookup (parity with Fastify)
+- [x] `ddp.ts`: fetch JWT from better-auth token endpoint; proactive re-bridge before `exp`
+- [x] Zero `session`-collection reads remain in `meteor-backend/`
 
 ### M0.d — Social sign-in (parallel track; Fastify + UI only)
 
