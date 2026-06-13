@@ -728,18 +728,23 @@ export const usernameApi = {
 
 /**
  * Call a Meteor method via the wormhole REST bridge (POST /api/<name with
- * dots→underscores>). The better-auth session token is passed in the body —
- * the Meteor auth bridge resolves it against the shared session collection.
+ * dots→underscores>). Auth is the better-auth session token in the
+ * Authorization header — the Meteor auth bridge resolves it against the
+ * shared session collection.
  */
 async function wormholeCall<T = unknown>(
   method: string,
   params: Record<string, unknown>,
 ): Promise<T> {
   const route = method.replace(/\./g, '_');
+  const token = sessionToken.get();
   const res = await fetch(`${METEOR_BASE_URL}/api/${route}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...params, sessionToken: sessionToken.get() ?? undefined }),
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(params),
   });
   const data = (await res.json().catch(() => ({}))) as {
     result?: T;

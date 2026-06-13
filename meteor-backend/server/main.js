@@ -40,13 +40,6 @@ WebApp.rawConnectHandlers.use('/api', (req, res, next) => {
   next();
 });
 
-const sessionTokenProp = {
-  sessionToken: {
-    type: 'string',
-    description: 'better-auth session token (REST callers); omit over DDP after auth.bridge',
-  },
-};
-
 Meteor.startup(() => {
   Wormhole.init({
     mode: 'opt-in',
@@ -63,7 +56,6 @@ Meteor.startup(() => {
       type: 'object',
       properties: {
         teamId: { type: 'string', description: 'Team id (24-char hex)' },
-        ...sessionTokenProp,
       },
       required: ['teamId'],
     },
@@ -79,7 +71,6 @@ Meteor.startup(() => {
         description: { type: 'string' },
         github: { type: 'string', description: 'GitHub issue/PR URL' },
         priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
-        ...sessionTokenProp,
       },
       required: ['teamId', 'title'],
     },
@@ -96,7 +87,6 @@ Meteor.startup(() => {
           enum: ['open', 'in-progress', 'blocked', 'reviewed', 'closed', 'deleted'],
         },
         priority: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
-        ...sessionTokenProp,
       },
       required: ['ticketId'],
     },
@@ -111,7 +101,6 @@ Meteor.startup(() => {
         title: { type: 'string' },
         github: { type: 'string' },
         description: { type: 'string' },
-        ...sessionTokenProp,
       },
       required: ['ticketId'],
     },
@@ -121,7 +110,7 @@ Meteor.startup(() => {
     description: 'Soft-delete a ticket (sets status to deleted)',
     inputSchema: {
       type: 'object',
-      properties: { ticketId: { type: 'string' }, ...sessionTokenProp },
+      properties: { ticketId: { type: 'string' } },
       required: ['ticketId'],
     },
   });
@@ -133,7 +122,6 @@ Meteor.startup(() => {
       properties: {
         ticketId: { type: 'string' },
         assignedToUserIds: { type: 'array', items: { type: 'string' } },
-        ...sessionTokenProp,
       },
       required: ['ticketId', 'assignedToUserIds'],
     },
@@ -150,7 +138,6 @@ Meteor.startup(() => {
           type: 'string',
           enum: ['open', 'in-progress', 'blocked', 'reviewed', 'closed', 'deleted'],
         },
-        ...sessionTokenProp,
       },
       required: ['ticketIds', 'teamId', 'status'],
     },
@@ -160,7 +147,7 @@ Meteor.startup(() => {
     description: "The caller's active clock event in a team, or null",
     inputSchema: {
       type: 'object',
-      properties: { teamId: { type: 'string' }, ...sessionTokenProp },
+      properties: { teamId: { type: 'string' } },
       required: ['teamId'],
     },
   });
@@ -169,7 +156,7 @@ Meteor.startup(() => {
     description: 'Clock in to a team (closes any dangling open events first)',
     inputSchema: {
       type: 'object',
-      properties: { teamId: { type: 'string' }, ...sessionTokenProp },
+      properties: { teamId: { type: 'string' } },
       required: ['teamId'],
     },
   });
@@ -178,7 +165,7 @@ Meteor.startup(() => {
     description: 'Clock out of a team (computes worked time minus meal breaks)',
     inputSchema: {
       type: 'object',
-      properties: { teamId: { type: 'string' }, ...sessionTokenProp },
+      properties: { teamId: { type: 'string' } },
       required: ['teamId'],
     },
   });

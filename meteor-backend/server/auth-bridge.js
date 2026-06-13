@@ -5,14 +5,16 @@
  * Accepted token sources:
  *  - DDP:   client calls `Meteor.call('auth.bridge', token)` once per connection;
  *           subsequent methods/publications read the cached identity.
- *  - REST:  methods accept an explicit `sessionToken` param (wormhole passes the
- *           JSON body straight through).
+ *  - REST/MCP: `Authorization: Bearer <token>` header, surfaced by the wormhole
+ *           invocation context (`currentBearerToken()`).
+ *  - Legacy: explicit `sessionToken` param in the method body (deprecated).
  *
  * Better-auth cookie format is `<token>.<hmac>` — only the part before the first
  * dot is stored in the session collection.
  */
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
+import { currentBearerToken } from 'meteor/wreiske:meteor-wormhole';
 import { rawDb } from './collections';
 
 // Use Meteor's bundled driver so BSON types match the rawDb() connection.
@@ -47,20 +49,26 @@ export async function resolveSessionToken(raw) {
 
 /**
  * Resolve the calling identity inside a method:
- *  1. explicit sessionToken param (REST path), else
- *  2. identity cached for this DDP connection via `auth.bridge`.
- * Throws 'not-authorized' when neither resolves.
+ *  1. explicit sessionToken param (legacy REST path), else
+ *  2. bearer token from the Authorization header when called through a
+ *     Wormhole transport (REST/MCP), else
+ *  3. identity cached for this DDP connection via `auth.bridge`.
+ * Throws 'not-authorized' when none resolves.
  */
 export async function requireIdentity(methodContext, sessionToken) {
-  if (sessionToken) {
-    const identity = await resolveSessionToken(sessionToken);
+  const token = sessionToken || currentBearerToken();
+  if (token) {
+    const identity = await resolveSessionToken(token);
     if (identity) return identity;
     throw new Meteor.Error('not-authorized', 'Invalid or expired session token');
   }
   const connId = methodContext?.connection?.id;
   const cached = connId ? connectionIdentity.get(connId) : null;
   if (cached) return cached;
-  throw new Meteor.Error('not-authorized', 'Call auth.bridge first or pass sessionToken');
+  throw new Meteor.Error(
+    'not-authorized',
+    'Provide an Authorization: Bearer header or call auth.bridge first',
+  );
 }
 
 /** Identity for publications (DDP only — must have called auth.bridge). */
