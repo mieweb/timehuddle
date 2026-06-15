@@ -8,6 +8,7 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import multipart from "@fastify/multipart"; // Register Fastify multipart plugin for file uploads
 import fastifyStatic from "@fastify/static";
+import { ObjectId } from "mongodb";
 import { connectDB } from "./lib/db.js";
 import { ensureMongooseConnected } from "./lib/mongoose.js";
 import { ensureIndexes } from "./lib/ensure-indexes.js";
@@ -36,6 +37,7 @@ import { channelRoutes } from "./routes/channels.js";
 import { tokenRoutes } from "./routes/tokens.js";
 import { initAgenda, stopAgenda } from "./services/agenda.service.js";
 import { orgService } from "./services/org.service.js";
+import { orgMembersCollection, usersCollection } from "./models/index.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   // trustProxy: TLS is terminated at the reverse proxy in production, so
@@ -420,6 +422,102 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
       },
     },
     betterAuthHandler
+  );
+
+  app.post(
+    "/api/auth/dev/member-sign-in",
+    {
+      schema: {
+        hide: true,
+        body: {
+          type: "object",
+          properties: {
+            role: { type: "string", enum: ["member", "admin", "owner"] },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              token: { type: "string" },
+              user: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  email: { type: "string" },
+                  name: { type: "string" },
+                  emailVerified: { type: "boolean" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (process.env.NODE_ENV === "production") {
+        return reply.status(404).send({ error: "Not found" });
+      }
+
+      const { role = "member" } = (req.body as { role?: "member" | "admin" | "owner" }) ?? {};
+      const devEmail = `dev-${role}@timehuddle.local`;
+      const devName = `${role[0].toUpperCase()}${role.slice(1)} Dev`;
+      const devPassword = "Password1!";
+
+      const existingUser = await usersCollection().findOne({ email: devEmail });
+      if (!existingUser) {
+        const signUpResponse = (await auth.api.signUpEmail({
+          body: { name: devName, email: devEmail, password: devPassword },
+          asResponse: true,
+        })) as Response;
+        if (!signUpResponse.ok) {
+          return reply.status(signUpResponse.status).send(await signUpResponse.json().catch(() => ({ error: "Failed to bootstrap dev member user" })));
+        }
+      }
+
+      const memberUser = await usersCollection().findOne({ email: devEmail });
+      if (!memberUser) {
+        return reply.status(500).send({ error: "Failed to bootstrap dev member user" });
+      }
+
+      const defaultOrg = await orgService.ensureDefaultOrganization();
+      const membership = await orgMembersCollection().findOne({
+        orgId: defaultOrg._id.toHexString(),
+        userId: memberUser._id.toHexString(),
+      });
+      if (!membership) {
+        await orgMembersCollection().insertOne({
+          _id: new ObjectId(),
+          orgId: defaultOrg._id.toHexString(),
+          userId: memberUser._id.toHexString(),
+          role,
+          auto: true,
+          createdAt: new Date(),
+        });
+      } else if (membership.role !== role) {
+        await orgMembersCollection().updateOne(
+          { _id: membership._id },
+          { $set: { role, updatedAt: new Date() } }
+        );
+      }
+
+      const signInResponse = (await auth.api.signInEmail({
+        body: { email: devEmail, password: devPassword },
+        asResponse: true,
+      })) as Response;
+      const rawCookies = signInResponse.headers.getSetCookie?.() ?? [
+        signInResponse.headers.get("set-cookie") ?? "",
+      ];
+      const authToken = signInResponse.headers.get("set-auth-token");
+      if (authToken) {
+        reply.header("set-auth-token", authToken);
+      }
+      if (rawCookies.length > 0 && rawCookies[0]) {
+        reply.header("set-cookie", rawCookies);
+      }
+      reply.header("content-type", signInResponse.headers.get("content-type") ?? "application/json");
+      return reply.send(await signInResponse.json().catch(() => ({})));
+    }
   );
 
   app.get(

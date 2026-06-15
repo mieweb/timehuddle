@@ -12,7 +12,7 @@ import React, { useState } from 'react';
 
 import { authApi } from '../lib/api';
 import { useSession } from '../lib/useSession';
-import { Button, Input, Text } from '@mieweb/ui';
+import { Button, Input, Select, Text } from '@mieweb/ui';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -56,6 +56,8 @@ const FEATURES = [
 
 export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   const session = useSession();
+  const viteEnv = import.meta as { env?: { DEV?: boolean; MODE?: string } };
+  const showDevSignIn = viteEnv.env?.MODE !== 'production';
 
   const resetToken =
     typeof window !== 'undefined'
@@ -71,10 +73,17 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [selectedLoginType, setSelectedLoginType] = useState('member');
 
   const isSignup = mode === 'signup';
   const isForgot = mode === 'forgot';
   const isResetConfirm = mode === 'reset-confirm';
+
+  const loginOptions = [
+    { value: 'member', label: 'Member' },
+    { value: 'admin', label: 'Admin' },
+    { value: 'owner', label: 'Owner' },
+  ];
 
   const switchMode = (next: AuthMode) => {
     setMode(next);
@@ -109,6 +118,23 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       setError((err as Error).message || 'Login failed');
       setLoading(false);
     }
+  };
+
+  const handleDevSignOn = () => {
+    if (!showDevSignIn || loading) return;
+    setLoading(true);
+    setError(null);
+    void authApi
+      .devMemberSignIn(selectedLoginType as 'member' | 'admin' | 'owner')
+      .then(async () => {
+        await session.refetch();
+      })
+      .catch((err: unknown) => {
+        setError((err as Error).message || 'Dev sign-in failed');
+      })
+      .finally(() => {
+        setLoading(false);
+      });
   };
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -497,6 +523,26 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                 )}
               </p>
             </>
+          )}
+
+          {mode === 'login' && showDevSignIn && (
+            <div className="mt-5 rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-4 dark:border-neutral-700 dark:bg-neutral-900/40">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <div className="w-full sm:max-w-xs">
+                    <Select
+                      label="Login Type"
+                      value={selectedLoginType}
+                      onValueChange={(value) => setSelectedLoginType(value)}
+                      options={loginOptions}
+                    />
+                  </div>
+                  <Button variant="secondary" type="button" onClick={handleDevSignOn}>
+                    Authorize
+                  </Button>
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Back to sign in (forgot / reset-confirm) */}
