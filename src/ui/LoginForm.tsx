@@ -56,8 +56,7 @@ const FEATURES = [
 
 export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   const session = useSession();
-  const viteEnv = import.meta as { env?: { DEV?: boolean; MODE?: string } };
-  const showDevSignIn = viteEnv.env?.MODE !== 'production';
+  const showDevSignIn = import.meta.env.MODE !== 'production';
 
   const resetToken =
     typeof window !== 'undefined'
