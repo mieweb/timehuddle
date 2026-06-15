@@ -11,36 +11,27 @@ That creates a split workflow:
 - the Google Doc holds the meeting flow, prompts, and notes
 - the facilitator has to bridge those two systems manually during the meeting
 
-That is the wrong first problem to solve with a generic "meetings platform."
-The right first problem is narrower: **replace the existing standup Google Doc
-with a Huddle flow that preserves how the team already runs standup while
-reducing manual work.**
+That is the wrong first problem to solve with a generic "meetings platform." The right first problem is narrower: **replace the existing standup Google Doc with a Huddle flow that preserves how the team already runs standup while reducing manual work.**
 
-If that replacement works, the underlying model can later expand to support
-other ceremonies. But the first version should be judged on one question:
+If that replacement works, the underlying model can later expand to support other ceremonies. But the first version should be judged on one question:
 
-**Can the team stop using the Google Doc for standups without losing the parts
-of the workflow that already work well?**
+**Can the team stop using the Google Doc for standups without losing the parts of the workflow that already work well?**
 
 ---
 
 ## Product Principle
 
-The first implementation should mirror the current standup workflow as closely
-as possible.
+The first implementation should mirror the current standup workflow as closely as possible.
 
 That means:
 
 - preserve the familiar sequence of the meeting
 - preserve the current prompts or sections from the Google Doc
 - preserve the facilitator's ability to run the meeting quickly
-- pull in Huddle data where it removes effort, not where it changes the
-  ritual unexpectedly
-- defer broader meeting-type abstraction until the standup replacement is
-  proven useful
+- pull in Huddle data where it removes effort, not where it changes the ritual unexpectedly
+- defer broader meeting-type abstraction until the standup replacement is proven useful
 
-The mistake to avoid is over-generalizing too early and shipping a flexible
-system that does not actually replace the team's current standup habit.
+The mistake to avoid is over-generalizing too early and shipping a flexible system that does not actually replace the team's current standup habit.
 
 ---
 
@@ -97,11 +88,9 @@ The recurring information currently captured includes:
 
 ### Daily Standup Mechanics
 
-- each team member uploads a short video summarizing the previous day and what
-  they are working on today
+- each team member uploads a short video summarizing the previous day and what they are working on today
 - if no video is provided, the update is given live during the meeting
-- the meeting flow is: consume the person's update first, then ask whether they
-  have blockers or need anything from the team
+- the meeting flow is: consume the person's update first, then ask whether they have blockers or need anything from the team
 - the scrum master asks about each team member's open tickets
 - the scrum master asks about blockers
 - the scrum master may also capture needs from other team members
@@ -111,8 +100,7 @@ The recurring information currently captured includes:
 
 The pain point is simple: stop using a Google Doc for this workflow.
 
-For v1, the strongest requirement is also simple: preserve most of the current
-workflow if possible.
+For v1, the strongest requirement is also simple: preserve most of the current workflow if possible.
 
 ---
 
@@ -125,18 +113,12 @@ The documented workflow supports these assumptions for the first plan:
 - daily updates are prepared before the meeting
 - the prepared update may be a short video rather than only text
 - ticket and blocker review happen live with the scrum master
-- blockers and cross-team needs may be lightweight notes rather than a heavy
-  structured workflow in v1
-- the Google Doc acts as both a live standup tool and a broader team reference
-  space
+- blockers and cross-team needs may be lightweight notes rather than a heavy structured workflow in v1
+- the Google Doc acts as both a live standup tool and a broader team reference space
 
-The workflow also depends on ticket organization that currently lives in a
-GitHub project board. That board context should be available during standup,
-even if board management ships as a separate feature.
+The workflow also depends on ticket organization that currently lives in a GitHub project board. That board context should be available during standup, even if board management ships as a separate feature.
 
-That last point matters. Replacing the daily standup page alone may not be
-enough to fully retire the Google Doc if the team still depends on the other
-tabs for related coordination.
+That last point matters. Replacing the daily standup page alone may not be enough to fully retire the Google Doc if the team still depends on the other tabs for related coordination.
 
 ---
 
