@@ -73,17 +73,27 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [selectedDomain, setSelectedDomain] = useState<'enterprise' | 'organization'>(
+    'organization',
+  );
   const [selectedLoginType, setSelectedLoginType] = useState('member');
+  const [joinTeam, setJoinTeam] = useState(false);
 
   const isSignup = mode === 'signup';
   const isForgot = mode === 'forgot';
   const isResetConfirm = mode === 'reset-confirm';
 
-  const loginOptions = [
-    { value: 'member', label: 'Member' },
-    { value: 'admin', label: 'Admin' },
-    { value: 'owner', label: 'Owner' },
-  ];
+  const loginOptions =
+    selectedDomain === 'enterprise'
+      ? [
+          { value: 'admin', label: 'Admin' },
+          { value: 'owner', label: 'Owner' },
+        ]
+      : [
+          { value: 'member', label: 'Member' },
+          { value: 'admin', label: 'Admin' },
+          { value: 'owner', label: 'Owner' },
+        ];
 
   const switchMode = (next: AuthMode) => {
     setMode(next);
@@ -125,7 +135,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setLoading(true);
     setError(null);
     void authApi
-      .devMemberSignIn(selectedLoginType as 'member' | 'admin' | 'owner')
+      .devMemberSignIn(selectedDomain, selectedLoginType as 'member' | 'admin' | 'owner', joinTeam)
       .then(async () => {
         await session.refetch();
       })
@@ -528,12 +538,31 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
           {mode === 'login' && showDevSignIn && (
             <div className="mt-5 rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-4 dark:border-neutral-700 dark:bg-neutral-900/40">
               <div className="flex flex-col gap-3">
+                <div className="w-full sm:max-w-xs">
+                  <Select
+                    label="Domain"
+                    value={selectedDomain}
+                    onValueChange={(value) => {
+                      const nextDomain = value as 'enterprise' | 'organization';
+                      setSelectedDomain(nextDomain);
+                      setSelectedLoginType(nextDomain === 'enterprise' ? 'admin' : 'member');
+                    }}
+                    options={[
+                      { value: 'enterprise', label: 'Enterprise' },
+                      { value: 'organization', label: 'Organization' },
+                    ]}
+                  />
+                </div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
                   <div className="w-full sm:max-w-xs">
                     <Select
                       label="Login Type"
                       value={selectedLoginType}
-                      onValueChange={(value) => setSelectedLoginType(value)}
+                      onValueChange={(value) => {
+                        const nextType = value as 'member' | 'admin' | 'owner';
+                        setSelectedLoginType(nextType);
+                        if (nextType !== 'member') setJoinTeam(false);
+                      }}
                       options={loginOptions}
                     />
                   </div>
@@ -541,6 +570,17 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                     Authorize
                   </Button>
                 </div>
+                {selectedLoginType === 'member' && (
+                  <label className="flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
+                    <input
+                      type="checkbox"
+                      checked={joinTeam}
+                      onChange={(e) => setJoinTeam(e.target.checked)}
+                      className="h-4 w-4 rounded border-neutral-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    Join a team
+                  </label>
+                )}
               </div>
             </div>
           )}

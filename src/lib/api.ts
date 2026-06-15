@@ -209,13 +209,15 @@ export const authApi = {
 
   /** Dev-only sign-in used by the login probe. */
   devMemberSignIn: async (
+    domain: 'enterprise' | 'organization' = 'organization',
     role: 'member' | 'admin' | 'owner' = 'member',
+    joinTeam = false,
   ): Promise<{ token?: string; user?: TimecoreUser }> => {
     const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/dev/member-sign-in`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role }),
+      body: JSON.stringify({ domain, role, joinTeam }),
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;

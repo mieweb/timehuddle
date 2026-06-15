@@ -37,7 +37,13 @@ import { channelRoutes } from "./routes/channels.js";
 import { tokenRoutes } from "./routes/tokens.js";
 import { initAgenda, stopAgenda } from "./services/agenda.service.js";
 import { orgService } from "./services/org.service.js";
-import { orgMembersCollection, usersCollection } from "./models/index.js";
+import {
+  enterprisesCollection,
+  orgMembersCollection,
+  teamsCollection,
+  usersCollection,
+} from "./models/index.js";
+import { teamService } from "./services/team.service.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   // trustProxy: TLS is terminated at the reverse proxy in production, so
@@ -432,7 +438,9 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
         body: {
           type: "object",
           properties: {
+            domain: { type: "string", enum: ["enterprise", "organization"] },
             role: { type: "string", enum: ["member", "admin", "owner"] },
+            joinTeam: { type: "boolean" },
           },
         },
         response: {
@@ -456,12 +464,25 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     },
     async (req, reply) => {
       if (process.env.NODE_ENV === "production") {
-        return reply.status(404).send({ error: "Not found" });
+        return (reply as any).status(404).send({ error: "Not found" });
       }
 
-      const { role = "member" } = (req.body as { role?: "member" | "admin" | "owner" }) ?? {};
-      const devEmail = `dev-${role}@timehuddle.local`;
-      const devName = `${role[0].toUpperCase()}${role.slice(1)} Dev`;
+      const {
+        domain = "organization",
+        role = "member",
+        joinTeam = false,
+      } = (req.body as {
+        domain?: "enterprise" | "organization";
+        role?: "member" | "admin" | "owner";
+        joinTeam?: boolean;
+      }) ?? {};
+      if (domain === "enterprise" && role === "member") {
+        return (reply as any)
+          .status(400)
+          .send({ error: "Enterprise dev logins require admin or owner" });
+      }
+      const devEmail = `dev-${domain}-${role}@timehuddle.local`;
+      const devName = `${domain[0].toUpperCase()}${domain.slice(1)} ${role[0].toUpperCase()}${role.slice(1)} Dev`;
       const devPassword = "Password1!";
 
       const existingUser = await usersCollection().findOne({ email: devEmail });
@@ -471,34 +492,105 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
           asResponse: true,
         })) as Response;
         if (!signUpResponse.ok) {
-          return reply.status(signUpResponse.status).send(await signUpResponse.json().catch(() => ({ error: "Failed to bootstrap dev member user" })));
+          return (reply as any)
+            .status(signUpResponse.status)
+            .send(
+              await signUpResponse
+                .json()
+                .catch(() => ({ error: "Failed to bootstrap dev member user" }))
+            );
         }
       }
 
       const memberUser = await usersCollection().findOne({ email: devEmail });
       if (!memberUser) {
-        return reply.status(500).send({ error: "Failed to bootstrap dev member user" });
+        return (reply as any).status(500).send({ error: "Failed to bootstrap dev member user" });
       }
 
       const defaultOrg = await orgService.ensureDefaultOrganization();
-      const membership = await orgMembersCollection().findOne({
-        orgId: defaultOrg._id.toHexString(),
-        userId: memberUser._id.toHexString(),
-      });
-      if (!membership) {
-        await orgMembersCollection().insertOne({
-          _id: new ObjectId(),
+      const defaultEnterprise = await orgService.ensureDefaultEnterprise();
+
+      if (domain === "organization") {
+        const membership = await orgMembersCollection().findOne({
           orgId: defaultOrg._id.toHexString(),
           userId: memberUser._id.toHexString(),
-          role,
-          auto: true,
-          createdAt: new Date(),
         });
-      } else if (membership.role !== role) {
-        await orgMembersCollection().updateOne(
-          { _id: membership._id },
-          { $set: { role, updatedAt: new Date() } }
+        if (!membership) {
+          await orgMembersCollection().insertOne({
+            _id: new ObjectId(),
+            orgId: defaultOrg._id.toHexString(),
+            userId: memberUser._id.toHexString(),
+            role,
+            auto: true,
+            createdAt: new Date(),
+          });
+        } else if (membership.role !== role) {
+          await orgMembersCollection().updateOne(
+            { _id: membership._id },
+            { $set: { role, updatedAt: new Date() } }
+          );
+        }
+        await orgService.ensureDefaultOrganization();
+      } else {
+        const owners = new Set(defaultEnterprise.owners ?? []);
+        const admins = new Set(defaultEnterprise.admins ?? []);
+        owners.delete(memberUser._id.toHexString());
+        admins.delete(memberUser._id.toHexString());
+        if (role === "owner") owners.add(memberUser._id.toHexString());
+        if (role === "admin") admins.add(memberUser._id.toHexString());
+        await enterprisesCollection().updateOne(
+          { _id: defaultEnterprise._id },
+          {
+            $set: {
+              owners: Array.from(owners),
+              admins: Array.from(admins),
+              updatedAt: new Date(),
+            },
+          }
         );
+        const membership = await orgMembersCollection().findOne({
+          orgId: defaultOrg._id.toHexString(),
+          userId: memberUser._id.toHexString(),
+        });
+        if (!membership) {
+          await orgMembersCollection().insertOne({
+            _id: new ObjectId(),
+            orgId: defaultOrg._id.toHexString(),
+            userId: memberUser._id.toHexString(),
+            role: "member",
+            auto: true,
+            createdAt: new Date(),
+          });
+        }
+      }
+
+      if (domain === "organization" && role === "member" && joinTeam) {
+        const devTeamName = "Dev Members";
+        let devTeam = await teamsCollection().findOne({
+          orgId: defaultOrg._id.toHexString(),
+          name: devTeamName,
+          isPersonal: false,
+        });
+        if (!devTeam) {
+          await teamService.createTeam(memberUser._id.toHexString(), {
+            name: devTeamName,
+            orgId: defaultOrg._id.toHexString(),
+          });
+          devTeam = await teamsCollection().findOne({
+            orgId: defaultOrg._id.toHexString(),
+            name: devTeamName,
+            isPersonal: false,
+          });
+        }
+        if (devTeam && !devTeam.members.includes(memberUser._id.toHexString())) {
+          await teamsCollection().updateOne(
+            { _id: devTeam._id },
+            {
+              $addToSet: { members: memberUser._id.toHexString() },
+              $set: { updatedAt: new Date() },
+            }
+          );
+        }
       }
 
       const signInResponse = (await auth.api.signInEmail({
@@ -515,7 +607,10 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
       if (rawCookies.length > 0 && rawCookies[0]) {
         reply.header("set-cookie", rawCookies);
       }
-      reply.header("content-type", signInResponse.headers.get("content-type") ?? "application/json");
+      reply.header(
+        "content-type",
+        signInResponse.headers.get("content-type") ?? "application/json"
+      );
       return reply.send(await signInResponse.json().catch(() => ({})));
     }
   );
