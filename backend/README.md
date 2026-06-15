@@ -7,7 +7,7 @@ Backend monorepo for [TimeHuddle](../README.md) — a Fastify API server with a 
 | Layer     | Technology                                   |
 | --------- | -------------------------------------------- |
 | Framework | Fastify v5                                   |
-| Database  | MongoDB (native driver, no Mongoose)         |
+| Database  | MongoDB (native driver + Mongoose pilot)     |
 | Auth      | Better Auth with MongoDB adapter             |
 | Real-time | Server-Sent Events (SSE) for live streams    |
 | API docs  | @fastify/swagger (auto-generated at `/docs`) |
@@ -28,6 +28,8 @@ BETTER_AUTH_SECRET=your-secret
 BETTER_AUTH_URL=http://localhost:4000
 TRUSTED_ORIGINS=http://localhost:3000
 APP_URL=http://localhost:3000
+DEFAULT_ORG_KEY=default
+DEFAULT_ORG_NAME=Default Organization
 
 # GitHub OAuth — required for "Continue with GitHub" sign-in.
 # Create an OAuth App at https://github.com/settings/developers
@@ -36,6 +38,8 @@ APP_URL=http://localhost:3000
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 ```
+
+`DEFAULT_ORG_KEY` and `DEFAULT_ORG_NAME` are optional and let you change which organization is treated as the default admin scope without code changes.
 
 ```bash
 npm run dev
@@ -49,3 +53,25 @@ API available at `http://localhost:4000`.
 npm run build    # Compiles to dist/
 node dist/server.js
 ```
+
+## Migrations
+
+Use migrate-mongo to manage database migrations stored in `backend/migrations/`:
+
+```bash
+npm run migrate          # Run pending migrations
+npm run migrate:status   # Check applied vs pending
+npm run migrate:down     # Undo last migration
+```
+
+Create a new migration with auto-generated timestamp:
+
+```bash
+npx migrate-mongo create -f migrate-mongo-config.cjs "add-users-index"
+```
+
+## Mongoose Pilot
+
+- Phase-in approach: adopt Mongoose one collection at a time.
+- Current pilot target: `clockevents` read paths.
+- Core route -> controller -> service boundaries remain unchanged.

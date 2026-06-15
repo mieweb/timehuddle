@@ -14,8 +14,6 @@ import {
   faChevronRight,
   faCopy,
   faEllipsisVertical,
-  faPause,
-  faPlay,
   faSpinner,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -43,6 +41,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   ApiError,
+  clockApi,
   timerApi,
   ticketApi,
   type DayEntry,
@@ -50,9 +49,13 @@ import {
   type Ticket,
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
+import { useRefresh } from '../../lib/RefreshContext';
 import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
+import { useRouter } from '../../ui/router';
+import { TimerToggleButton } from '../../ui/TimerToggleButton';
+import { TodayStatusCard } from './TodayStatusCard';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -104,8 +107,9 @@ function entryTotalSeconds(sessions: Timer[], now: number): number {
 // ─── WorkPage ─────────────────────────────────────────────────────────────────
 
 export const WorkPage: React.FC = () => {
-  const { teams, teamsReady, currentTime, selectedTeamId } = useTeam();
+  const { teams, teamsReady, currentTime, selectedTeamId, activeClockEvent } = useTeam();
   const { isClockedIn, clockIn, clockInLoading } = useClockToggle();
+  const { navigate } = useRouter();
   const previousClockedInRef = useRef(isClockedIn);
   // When clock-in is immediately followed by startTimerForEntry, suppress the
   // auto-fetchDay triggered by the isClockedIn change to avoid a race where
@@ -119,6 +123,7 @@ export const WorkPage: React.FC = () => {
   // Whether the selected day is today (updates reactively at midnight via currentTime)
   const isToday = selectedDate === toLocalDateStr(new Date(currentTime));
   const isFuture = selectedDate > toLocalDateStr(new Date(currentTime));
+  const isOnBreak = isClockedIn && !!activeClockEvent?.isPaused;
 
   // Week days derived from selectedDate
   const weekDays = useMemo(() => {
@@ -135,9 +140,6 @@ export const WorkPage: React.FC = () => {
   const [dayEntries, setDayEntries] = useState<DayEntry[]>([]);
   const [deletingEntryId, setDeletingEntryId] = useState<string | null>(null);
 
-  // Running session (for live display)
-  const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
-
   const [showNewEntry, setShowNewEntry] = useState(false);
   const [newEntryTicketId, setNewEntryTicketId] = useState('');
   const [newEntryNote, setNewEntryNote] = useState('');
@@ -152,7 +154,7 @@ export const WorkPage: React.FC = () => {
   const [copyLoading, setCopyLoading] = useState(false);
   const [copyDone, setCopyDone] = useState(false);
 
-  // All tickets for the selected team (for edit modal)
+  // All tickets across the user's teams (for labels and pickers)
   const [allTickets, setAllTickets] = useState<Ticket[]>([]);
 
   // Edit modal state
@@ -163,17 +165,31 @@ export const WorkPage: React.FC = () => {
   const [editError, setEditError] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState(false);
 
-  // ── Fetch tickets for the selected team (for both pickers) ──
+  // ── Fetch tickets for selected team only ──
 
   useEffect(() => {
     if (!selectedTeamId) {
       setAllTickets([]);
       return;
     }
-    ticketApi
-      .getTickets(selectedTeamId)
-      .then(setAllTickets)
-      .catch(() => setAllTickets([]));
+
+    let cancelled = false;
+
+    const loadTickets = async () => {
+      try {
+        const tickets = await ticketApi.getTickets(selectedTeamId);
+        if (cancelled) return;
+        setAllTickets(tickets);
+      } catch {
+        if (!cancelled) setAllTickets([]);
+      }
+    };
+
+    void loadTickets();
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedTeamId]);
 
   // ── Fetch week totals ──
@@ -202,10 +218,6 @@ export const WorkPage: React.FC = () => {
     try {
       const entries = await timerApi.getDay(selectedDate);
       setDayEntries(entries);
-
-      // Resolve any running session
-      const running = entries.flatMap((e) => e.sessions).find((s) => s.endTime === null);
-      setRunningSessionId(running?.id ?? null);
     } catch {
       // keep previous
     }
@@ -214,6 +226,22 @@ export const WorkPage: React.FC = () => {
   useEffect(() => {
     void fetchDay();
   }, [fetchDay]);
+
+  // Pull-to-refresh: combine both fetches
+  useRefresh(
+    useCallback(async () => {
+      await Promise.all([fetchDay(), fetchWeekTotals()]);
+    }, [fetchDay, fetchWeekTotals]),
+  );
+
+  useEffect(() => {
+    const handler = () => {
+      void fetchDay();
+      void fetchWeekTotals();
+    };
+    window.addEventListener('work:refetch', handler);
+    return () => window.removeEventListener('work:refetch', handler);
+  }, [fetchDay, fetchWeekTotals]);
 
   useEffect(() => {
     const previousClockedIn = previousClockedInRef.current;
@@ -230,13 +258,61 @@ export const WorkPage: React.FC = () => {
     void fetchWeekTotals();
   }, [fetchDay, fetchWeekTotals, isClockedIn, isToday]);
 
+  // ── Real-time clock updates ──
+
+  useEffect(() => {
+    if (teams.length === 0) return;
+
+    const teamIds = teams.map((t) => t.id);
+    const ws = clockApi.openLiveStream(teamIds);
+
+    ws.onmessage = (event: MessageEvent) => {
+      const data = JSON.parse(event.data);
+      // On any clock event update (timer start/stop), refetch current day and week totals
+      if (data.type === 'update') {
+        void fetchDay();
+        void fetchWeekTotals();
+      }
+    };
+
+    return () => ws.close();
+  }, [teams, fetchDay, fetchWeekTotals]);
+
+  // ── Real-time timer updates ──
+
+  useEffect(() => {
+    console.log('[WorkPage] Opening timer WebSocket connection');
+    const ws = timerApi.openLiveStream();
+
+    ws.onmessage = (event: MessageEvent) => {
+      console.log('[WorkPage] Timer WebSocket message received:', event.data);
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'connected') {
+        console.log('[WorkPage] Timer WebSocket connected successfully');
+        return;
+      }
+
+      // On timer start/stop/delete, refetch current day and week totals
+      if (data.type === 'update') {
+        console.log('[WorkPage] Refreshing timer data due to update event');
+        void fetchDay();
+        void fetchWeekTotals();
+      }
+    };
+
+    return () => {
+      console.log('[WorkPage] Closing timer WebSocket connection');
+      ws.close();
+    };
+  }, [fetchDay, fetchWeekTotals]);
+
   // ── Handlers ──
 
   const startTimerForEntry = useCallback(
     async (entryId: string) => {
       try {
         const { session, closedSessionId } = await timerApi.startSession(entryId, Date.now());
-        setRunningSessionId(session.id);
         // Optimistic update
         setDayEntries((prev) =>
           prev.map((de) => {
@@ -301,7 +377,6 @@ export const WorkPage: React.FC = () => {
     async (sessionId: string) => {
       try {
         const closed = await timerApi.stopSession(sessionId, Date.now());
-        setRunningSessionId(null);
         setDayEntries((prev) =>
           prev.map((de) => ({
             ...de,
@@ -324,6 +399,7 @@ export const WorkPage: React.FC = () => {
         ticketId: newEntryTicketId,
         date: selectedDate,
         note: newEntryNote.trim() ? newEntryNote.trim() : undefined,
+        notifyAdmins: false,
       });
       setShowNewEntry(false);
       setNewEntryTicketId('');
@@ -338,12 +414,11 @@ export const WorkPage: React.FC = () => {
   }, [newEntryTicketId, newEntryNote, selectedDate, fetchDay]);
 
   const handleDeleteEntry = useCallback(
-    async (entryId: string, isRunning: boolean) => {
+    async (entryId: string) => {
       setDeletingEntryId(entryId);
       try {
-        await timerApi.deleteEntry(entryId);
+        await timerApi.deleteEntry(entryId, { notifyAdmins: false });
         setDayEntries((prev) => prev.filter((de) => de.entry.id !== entryId));
-        if (isRunning) setRunningSessionId(null);
         void fetchWeekTotals();
       } catch {
         void fetchDay();
@@ -436,27 +511,12 @@ export const WorkPage: React.FC = () => {
     return map;
   }, [allTickets]);
 
-  const teamNamesById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const team of teams) map.set(team.id, team.name);
-    return map;
-  }, [teams]);
-
-  // Filter day entries to only those belonging to the selected team's tickets
-  const teamTicketIds = useMemo(() => new Set(allTickets.map((t) => t.id)), [allTickets]);
-  const filteredDayEntries = useMemo(
-    () => dayEntries.filter((de) => teamTicketIds.has(de.entry.ticketId)),
-    [dayEntries, teamTicketIds],
-  );
-
   const getWorkItemLabel = useCallback(
     (entry: DayEntry['entry']) => {
       const ticket = ticketsById.get(entry.ticketId);
-      const baseTitle = entry.displayTitle || ticket?.title || '(untitled)';
-      const teamName = ticket ? teamNamesById.get(ticket.teamId) : undefined;
-      return teamName ? `${baseTitle} - ${teamName}` : baseTitle;
+      return entry.displayTitle || ticket?.title || '(untitled)';
     },
-    [ticketsById, teamNamesById],
+    [ticketsById],
   );
 
   const selectedDayLabel = useMemo(
@@ -489,19 +549,19 @@ export const WorkPage: React.FC = () => {
   }
 
   return (
-    <AppPage>
+    <AppPage fullWidth>
       {/* ── Page Header: week nav + today + week range ── */}
       <div className="flex items-center justify-between gap-3">
         <Text weight="semibold" className="truncate">
           {weekRangeLabel}
         </Text>
-        <div className="flex items-center gap-1 flex-shrink-0">
+        <div className="flex items-center gap-1 shrink-0">
           <Button
             variant="ghost"
             size="sm"
             onClick={handlePrevWeek}
             aria-label="Previous week"
-            className="flex-shrink-0"
+            className="shrink-0"
           >
             <FontAwesomeIcon icon={faChevronLeft} className="text-xs" />
           </Button>
@@ -513,12 +573,15 @@ export const WorkPage: React.FC = () => {
             size="sm"
             onClick={handleNextWeek}
             aria-label="Next week"
-            className="flex-shrink-0"
+            className="shrink-0"
           >
             <FontAwesomeIcon icon={faChevronRight} className="text-xs" />
           </Button>
         </div>
       </div>
+
+      {/* ── Today Status Card ── */}
+      <TodayStatusCard />
 
       {/* ── Week Strip + Add Button ── */}
       <div className="flex flex-col gap-2 sm:gap-0">
@@ -542,7 +605,7 @@ export const WorkPage: React.FC = () => {
                 size="icon"
                 onClick={() => setShowNewEntry(true)}
                 aria-label="Add work item"
-                className="hidden sm:flex flex-shrink-0 mr-1"
+                className="hidden sm:flex shrink-0 mr-1"
               >
                 +
               </Button>
@@ -582,6 +645,11 @@ export const WorkPage: React.FC = () => {
       {/* ── Day Header ── */}
       <div className="flex items-center">
         <Text weight="semibold">{selectedDayLabel}</Text>
+        {isOnBreak && (
+          <Badge variant="warning" size="sm" className="ml-2">
+            On Break
+          </Badge>
+        )}
       </div>
 
       {/* ── New Entry Modal ── */}
@@ -694,7 +762,7 @@ export const WorkPage: React.FC = () => {
       </Modal>
 
       {/* ── Day View ── */}
-      {filteredDayEntries.length === 0 ? (
+      {dayEntries.length === 0 ? (
         <div className="py-10 text-center">
           <Text variant="muted" size="sm">
             No timers for this day. Create one with "+".
@@ -712,54 +780,46 @@ export const WorkPage: React.FC = () => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredDayEntries.map((de) => {
+              {dayEntries.map((de) => {
                 const title = getWorkItemLabel(de.entry);
                 const total = entryTotalSeconds(de.sessions, currentTime);
                 const runningSess = de.sessions.find((s) => s.endTime === null);
                 const isRunning = !!runningSess;
+                const controlsDisabled = (!isRunning && !isToday) || isOnBreak;
+                const disabledReason = isOnBreak
+                  ? 'Timers are paused while you are on break.'
+                  : !isRunning && !isToday
+                    ? 'Timers can only run on the current day — editing this entry is still available.'
+                    : undefined;
 
                 return (
                   <TableRow key={de.entry.id}>
                     <TableCell className="py-2 pr-0">
-                      <span
-                        title={
-                          !isRunning && !isToday
-                            ? 'Timers can only run on the current day — editing this entry is still available.'
-                            : undefined
+                      <TimerToggleButton
+                        isRunning={isRunning}
+                        disabled={controlsDisabled}
+                        onClick={() =>
+                          isRunning && runningSess
+                            ? handleStop(runningSess.id)
+                            : handleStart(de.entry.id)
                         }
-                        style={{ cursor: !isRunning && !isToday ? 'not-allowed' : undefined }}
-                      >
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() =>
-                            isRunning && runningSess
-                              ? handleStop(runningSess.id)
-                              : handleStart(de.entry.id)
-                          }
-                          disabled={!isRunning && (!!runningSessionId || !isToday)}
-                          style={!isRunning && !isToday ? { pointerEvents: 'none' } : undefined}
-                          className={`rounded-full ${
-                            isRunning
-                              ? 'bg-amber-100 text-amber-600 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-400'
-                              : 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-400'
-                          }`}
-                          aria-label={isRunning ? 'Stop timer' : 'Start timer'}
-                        >
-                          <FontAwesomeIcon
-                            icon={isRunning ? faPause : faPlay}
-                            className="text-xs"
-                          />
-                        </Button>
-                      </span>
+                        title={disabledReason}
+                      />
                     </TableCell>
 
                     <TableCell className="py-2">
                       <div className="flex items-center gap-2">
                         <div className="min-w-0">
-                          <Text size="sm" weight="medium" truncate>
-                            {title}
-                          </Text>
+                          <button
+                            type="button"
+                            className="block max-w-full text-left hover:text-primary"
+                            title={title}
+                            onClick={() => navigate(`/app/tickets/${de.entry.ticketId}`)}
+                          >
+                            <Text size="sm" weight="medium" truncate>
+                              {title}
+                            </Text>
+                          </button>
                           {de.entry.note?.trim() && (
                             <Text size="xs" variant="muted" truncate>
                               {de.entry.note.trim()}
@@ -803,7 +863,7 @@ export const WorkPage: React.FC = () => {
         </Card>
       )}
 
-      {(isToday || isFuture) && filteredDayEntries.length === 0 && (
+      {(isToday || isFuture) && dayEntries.length === 0 && (
         <div className="flex justify-start">
           <Button
             variant="ghost"
@@ -896,7 +956,7 @@ export const WorkPage: React.FC = () => {
                 <Button
                   variant="danger"
                   onClick={() => {
-                    void handleDeleteEntry(editEntry.entry.id, isRunning);
+                    void handleDeleteEntry(editEntry.entry.id);
                     setEditEntry(null);
                   }}
                   aria-label="Delete work item"

@@ -1,60 +1,50 @@
 /**
  * ClockPage — Clock in/out with live session timer.
- *
- * Features:
- *   • Big clock in/out button with live session timer
- *   • Team selector
- *   • Media attachments (links) on clock entries
- *   • Create new tickets from here
- *
- * Ticket-level timer management has moved to the Timers page (/app/work).
  */
-import { faCircleStop, faPlus, faStopwatch, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faCircleStop, faStopwatch } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Spinner, Text } from '@mieweb/ui';
-import React, { useCallback, useState } from 'react';
+import { Button, Card, CardContent, CardHeader, CardTitle, Spinner, Text } from '@mieweb/ui';
+import React from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
-import { formatTimer } from '../../lib/timeUtils';
-import { ticketApi } from '../../lib/api';
+import { formatTimer, getActiveClockSeconds } from '../../lib/timeUtils';
 import { AppPage } from '../../ui/AppPage';
 import { useClockToggle } from '../../lib/useClockToggle';
-import { useSession } from '../../lib/useSession';
-import { AttachmentsPanel } from './AttachmentsPanel';
+import { useRouter } from '../../ui/router';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
 export const ClockPage: React.FC = () => {
   const { selectedTeamId, activeClockEvent, currentTime, teamsReady } = useTeam();
+  const { navigate } = useRouter();
 
-  const { clockIn, clockOut, clockInLoading, clockOutLoading } = useClockToggle();
-  const { user } = useSession();
-
-  // Loading states
-  const [createTicketLoading, setCreateTicketLoading] = useState(false);
-
-  // UI state
-  const [showNewTicket, setShowNewTicket] = useState(false);
-  const [newTicketTitle, setNewTicketTitle] = useState('');
+  const {
+    clockIn,
+    clockOut,
+    pauseClock,
+    resumeClock,
+    clockInLoading,
+    clockOutLoading,
+    clockPauseLoading,
+  } = useClockToggle();
 
   // Session duration
-  const sessionSeconds = activeClockEvent
-    ? Math.floor((currentTime - activeClockEvent.startTime) / 1000)
-    : 0;
+  const sessionSeconds = getActiveClockSeconds(activeClockEvent, currentTime);
+  const isPaused = !!activeClockEvent?.isPaused;
 
-  // ── Handlers ──
+  // Live wall-clock display
+  const currentTimeDisplay = new Date(currentTime).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const currentDateDisplay = new Date(currentTime).toLocaleDateString([], {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
 
-  const handleCreateTicket = useCallback(async () => {
-    if (!newTicketTitle.trim() || !selectedTeamId) return;
-    setCreateTicketLoading(true);
-    try {
-      await ticketApi.createTicket({ teamId: selectedTeamId, title: newTicketTitle.trim() });
-      setNewTicketTitle('');
-      setShowNewTicket(false);
-    } finally {
-      setCreateTicketLoading(false);
-    }
-  }, [newTicketTitle, selectedTeamId]);
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   if (!teamsReady) {
     return (
@@ -67,58 +57,78 @@ export const ClockPage: React.FC = () => {
   return (
     <AppPage>
       {/* ── Clock Button ── */}
-      <Card padding="lg" className="flex flex-col items-center gap-4 rounded-2xl">
-        <CardContent className="flex flex-col items-center gap-4">
-          {activeClockEvent ? (
-            <>
-              <div className="text-center">
-                <Text
-                  variant="success"
-                  size="xs"
-                  weight="medium"
-                  className="uppercase tracking-widest"
+      <Card padding="lg" className="relative rounded-2xl">
+        <CardContent className="flex flex-col-reverse items-center gap-4 sm:flex-row sm:items-center">
+          {/* Clock button — full width on mobile, 1/4 on sm+ */}
+          <div className="flex w-full flex-col items-center gap-2 sm:w-1/4">
+            {activeClockEvent ? (
+              <>
+                <Button
+                  onClick={clockOut}
+                  isLoading={clockOutLoading}
+                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-red-500 py-4 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-red-600 active:scale-95 disabled:opacity-50 sm:h-16 sm:w-16 sm:rounded-full sm:py-0"
+                  aria-label="Clock out"
                 >
-                  Session Active
-                </Text>
-                <Text size="3xl" weight="bold" className="mt-2 font-mono">
-                  {formatTimer(sessionSeconds)}
-                </Text>
-              </div>
-              {/* Clock Out — keeping custom round button for the unique clock UI */}
-              <button
-                type="button"
-                onClick={clockOut}
-                disabled={clockOutLoading}
-                className="flex h-24 w-24 items-center justify-center rounded-full bg-red-500 text-white shadow-lg transition-transform hover:scale-105 hover:bg-red-600 active:scale-95 disabled:opacity-50"
-                aria-label="Clock out"
+                  <FontAwesomeIcon icon={faCircleStop} className="text-2xl" />
+                  <span className="text-sm font-semibold sm:hidden">Clock Out</span>
+                </Button>
+                <Button
+                  onClick={isPaused ? resumeClock : pauseClock}
+                  isLoading={clockPauseLoading}
+                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-amber-500 py-3 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-amber-600 active:scale-95 disabled:opacity-50 sm:w-28"
+                  aria-label={isPaused ? 'Resume work' : 'Start break'}
+                >
+                  <span className="text-sm font-semibold">{isPaused ? 'Resume' : 'Break'}</span>
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  onClick={clockIn}
+                  isLoading={clockInLoading}
+                  disabled={!selectedTeamId}
+                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-green-500 py-4 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-green-600 active:scale-95 disabled:opacity-50 sm:h-16 sm:w-16 sm:rounded-full sm:py-0"
+                  aria-label="Clock in"
+                >
+                  <FontAwesomeIcon icon={faStopwatch} className="text-2xl" />
+                  <span className="text-sm font-semibold sm:hidden">Clock In</span>
+                </Button>
+              </>
+            )}
+          </div>
+
+          {/* Time display — full width on mobile, 3/4 on sm+; border switches from top to left */}
+          <div className="flex w-full flex-col items-center gap-1 border-b border-neutral-200 pb-4 text-center dark:border-neutral-700 sm:w-3/4 sm:items-start sm:border-b-0 sm:border-l sm:pb-0 sm:pl-4 sm:text-left">
+            <div className="font-mono text-4xl font-bold leading-none tabular-nums">
+              {currentTimeDisplay}
+            </div>
+            <Text variant="muted" size="sm">
+              {currentDateDisplay}
+            </Text>
+            {activeClockEvent ? (
+              <Text
+                variant={isPaused ? 'warning' : 'success'}
+                size="xs"
+                weight="medium"
+                className="mt-1 uppercase tracking-widest"
               >
-                <FontAwesomeIcon icon={faCircleStop} className="text-3xl" />
-              </button>
-              <Text variant="muted" size="xs">
-                Tap to clock out
+                {isPaused ? 'On break' : 'Session active'} — {formatTimer(sessionSeconds)}
               </Text>
-            </>
-          ) : (
-            <>
-              <Text variant="muted" size="xs" weight="medium" className="uppercase tracking-widest">
+            ) : (
+              <Text
+                variant="muted"
+                size="xs"
+                weight="medium"
+                className="mt-1 uppercase tracking-widest"
+              >
                 Ready to work
               </Text>
-              {/* Clock In — keeping custom round button for the unique clock UI */}
-              <button
-                type="button"
-                onClick={clockIn}
-                disabled={clockInLoading || !selectedTeamId}
-                className="flex h-24 w-24 items-center justify-center rounded-full bg-green-500 text-white shadow-lg transition-transform hover:scale-105 hover:bg-green-600 active:scale-95 disabled:opacity-50"
-                aria-label="Clock in"
-              >
-                <FontAwesomeIcon icon={faStopwatch} className="text-3xl" />
-              </button>
-              <Text variant="muted" size="xs">
-                Tap to clock in
-              </Text>
-            </>
-          )}
+            )}
+          </div>
         </CardContent>
+        <span className="block px-5 pb-3 font-mono text-xs text-neutral-400 text-center dark:text-neutral-500 sm:absolute sm:bottom-3 sm:right-4 sm:px-0 sm:pb-0 sm:text-right">
+          {timeZone}
+        </span>
       </Card>
 
       {/* ── Quick Ticket Creation ── */}
@@ -126,66 +136,28 @@ export const ClockPage: React.FC = () => {
         <Card padding="none">
           <CardHeader className="flex flex-row items-center justify-between px-5 py-3">
             <CardTitle className="text-sm">Quick Actions</CardTitle>
-            <Button variant="link" size="sm" onClick={() => setShowNewTicket(true)}>
-              <FontAwesomeIcon icon={faPlus} className="mr-1" />
-              New Ticket
-            </Button>
           </CardHeader>
-
-          {/* New ticket form */}
-          {showNewTicket && (
-            <div className="flex gap-2 border-b border-neutral-100 px-5 py-3 dark:border-neutral-800">
-              <Input
-                label="Ticket title"
-                hideLabel
-                placeholder="Ticket title"
-                value={newTicketTitle}
-                onChange={(e) => setNewTicketTitle(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateTicket()}
-                size="sm"
-                className="flex-1"
-                autoFocus
-              />
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleCreateTicket}
-                isLoading={createTicketLoading}
+          <CardContent className="px-5 py-4">
+            <Text variant="muted" size="sm">
+              Coming soon… In the meantime, track your time on the{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/app/work')}
+                className="text-blue-500 hover:underline"
               >
-                Add
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => {
-                  setShowNewTicket(false);
-                  setNewTicketTitle('');
-                }}
-                aria-label="Cancel"
+                Work
+              </button>{' '}
+              page or manage your{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/app/tickets')}
+                className="text-blue-500 hover:underline"
               >
-                <FontAwesomeIcon icon={faXmark} />
-              </Button>
-            </div>
-          )}
-
-          {!showNewTicket && (
-            <div className="px-5 py-4 text-center">
-              <Text variant="muted" size="xs">
-                Track time on tickets in the{' '}
-                <a href="/app/work" className="text-blue-500 hover:underline">
-                  Timers
-                </a>{' '}
-                page.
-              </Text>
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* ── Attachments for the active clock entry ── */}
-      {activeClockEvent && (
-        <Card padding="md">
-          <AttachmentsPanel kind="clock" entityId={activeClockEvent.id} currentUserId={user?.id} />
+                Tickets
+              </button>
+              .
+            </Text>
+          </CardContent>
         </Card>
       )}
     </AppPage>

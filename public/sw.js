@@ -63,28 +63,59 @@ self.addEventListener('notificationclick', function (event) {
   event.notification.close();
 
   const notificationData = event.notification.data || {};
-  let urlToOpen = notificationData.url || event.notification.data?.url || '/app/dashboard';
 
-  // Normalise legacy paths
+  // shift-end-reminder: post a message to the open window so the app can open
+  // the shift-end modal in-place, without navigating away from the current page.
+  if (notificationData.type === 'shift-end-reminder') {
+    event.waitUntil(
+      clients
+        .matchAll({ type: 'window', includeUncontrolled: true })
+        .then(function (windowClients) {
+          const msg = {
+            type: 'timehuddle:openShiftReminder',
+            clockEventId: notificationData.clockEventId,
+            teamId: notificationData.teamId,
+          };
+          if (windowClients.length > 0) {
+            windowClients[0].postMessage(msg);
+            return windowClients[0].focus();
+          }
+          // No open window — open the app; ShiftReminderContext will hydrate from inbox on load
+          if (clients.openWindow) {
+            return clients.openWindow('/app/dashboard');
+          }
+        })
+        .catch((err) => console.error('[Service Worker] Error handling notification click:', err)),
+    );
+    return;
+  }
+
+  let urlToOpen = notificationData.url || event.notification.data?.url || '/app/dashboard';
+  console.log('[SW] notificationclick - raw URL:', urlToOpen);
+
+  // Normalise legacy paths (preserve query string)
   if (typeof urlToOpen === 'string' && urlToOpen.startsWith('/') && !urlToOpen.startsWith('/app')) {
     if (urlToOpen === '/' || urlToOpen === '') urlToOpen = '/app/dashboard';
     else if (urlToOpen.startsWith('/member/')) urlToOpen = '/app/clock';
     else urlToOpen = `/app${urlToOpen}`;
   }
+  console.log('[SW] notificationclick - normalized URL:', urlToOpen);
 
   event.waitUntil(
     clients
       .matchAll({ type: 'window', includeUncontrolled: true })
       .then(function (windowClients) {
-        const pathPrefix = urlToOpen.split('?')[0] || urlToOpen;
-        for (let i = 0; i < windowClients.length; i++) {
-          const client = windowClients[i];
-          if (client.url.includes(pathPrefix) && 'focus' in client) {
-            return client.navigate(urlToOpen).then((c) => c?.focus());
-          }
+        const abs = new URL(urlToOpen, self.location.origin).href;
+
+        if (windowClients.length > 0) {
+          // App is open (foreground) — post message so React router handles navigation
+          // without a full page reload
+          windowClients[0].postMessage({ type: 'timehuddle:navigate', url: urlToOpen });
+          return windowClients[0].focus();
         }
+
+        // App is closed/background — open it directly
         if (clients.openWindow) {
-          const abs = new URL(urlToOpen, self.location.origin).href;
           return clients.openWindow(abs);
         }
       })

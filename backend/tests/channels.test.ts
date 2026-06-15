@@ -292,14 +292,9 @@ describe("GET /v1/channels/ws", () => {
       `/v1/channels/ws?channelId=${generalChannelId}&teamId=${teamId}&token=${encodeURIComponent(memberToken)}`
     );
 
-    // Send a channel message via REST — should appear on the WS
-    const sendDone = inject("POST", `/v1/channels/${generalChannelId}/messages`, memberCookie, {
-      teamId,
-      text: "ws-test-message",
-    });
-
-    const received = await new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), 3000);
+    // Register the listener BEFORE sending so no broadcast can be missed
+    const received = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 5000);
       ws.on("message", (data: Buffer | string) => {
         try {
           const msg = JSON.parse(data.toString());
@@ -313,10 +308,15 @@ describe("GET /v1/channels/ws", () => {
       });
     });
 
-    await sendDone;
+    // Send the message after the listener is in place
+    await inject("POST", `/v1/channels/${generalChannelId}/messages`, memberCookie, {
+      teamId,
+      text: "ws-test-message",
+    });
+
     ws.close();
 
-    expect(received).toBe(true);
+    expect(await received).toBe(true);
   });
 
   it("closes with 4003 Forbidden for outsider", async () => {

@@ -15,6 +15,11 @@ export const TIMECORE_BASE_URL: string =
 
 const WS_BASE_URL = TIMECORE_BASE_URL.replace(/^http/, 'ws');
 
+const FORCED_TIMEZONE: string | undefined =
+  (typeof import.meta !== 'undefined' &&
+    (import.meta as { env?: Record<string, string> }).env?.VITE_FORCE_TIMEZONE?.trim()) ||
+  undefined;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface TimecoreUser {
@@ -24,8 +29,22 @@ export interface TimecoreUser {
   createdAt: string;
   emailVerified: boolean;
   image?: string | null;
+  backgroundUrl?: string | null;
   /** Canonical username — null until the user has claimed one. */
   username: string | null;
+  organizationMembership?: {
+    organizationId: string;
+    organizationSlug: string;
+    role: 'owner' | 'admin';
+  } | null;
+  organizations?: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    enterpriseId: string | null;
+    role: 'owner' | 'admin' | 'member';
+    allowAutoJoin: boolean;
+  }>;
 }
 
 export interface AuthAccount {
@@ -44,10 +63,25 @@ export interface PublicUser {
   /** Canonical username/handle. Null until the user claims one. */
   username: string | null;
   image: string | null;
+  backgroundUrl: string | null;
   bio: string;
   website: string;
+  reportsTo: { id: string; name: string; username: string | null } | null;
+  teamMemberships: Array<{ id: string; name: string; role: 'admin' | 'member' }>;
   /** Teams shared between the viewer and this user (non-personal). Empty for own profile. */
   sharedTeams?: Array<{ id: string; name: string; isAdmin: boolean }>;
+}
+
+function toAbsoluteUrl(url: string | null): string | null {
+  if (!url || /^https?:\/\//i.test(url)) return url;
+  return `${TIMECORE_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
+function withAbsoluteImage(user: PublicUser): PublicUser {
+  const image = toAbsoluteUrl(user.image);
+  const backgroundUrl = toAbsoluteUrl(user.backgroundUrl);
+  if (image === user.image && backgroundUrl === user.backgroundUrl) return user;
+  return { ...user, image, backgroundUrl };
 }
 
 /** API error that carries the HTTP status code. */
@@ -75,10 +109,14 @@ export const sessionToken = {
 
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const hasBody = options.body != null;
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const token = sessionToken.get();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
-  // Destructure headers out of options so that ...restOptions below does not
+  const timeoutId = setTimeout(
+    () =>
+      controller.abort(new Error('Request timed out. Please check your connection and try again.')),
+    8000,
+  );
   // overwrite the merged headers object (which would drop Authorization).
   const { headers: optHeaders, ...restOptions } = options;
   try {
@@ -86,7 +124,7 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
       credentials: 'include',
       signal: controller.signal,
       headers: {
-        ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
+        ...(hasBody && !isFormData ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...optHeaders,
       },
@@ -114,7 +152,11 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
 /** fetch() with an 8-second abort timeout — prevents indefinite hangs on slow connections. */
 async function timedFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const timeoutId = setTimeout(
+    () =>
+      controller.abort(new Error('Request timed out. Please check your connection and try again.')),
+    8000,
+  );
   try {
     return await fetch(url, { signal: controller.signal, ...options });
   } finally {
@@ -241,7 +283,14 @@ export const authApi = {
    */
   getMe: async (): Promise<{ user: TimecoreUser } | null> => {
     try {
-      return await request<{ user: TimecoreUser }>('/v1/me');
+      const data = await request<{ user: TimecoreUser }>('/v1/me');
+      if (data?.user?.image && !/^https?:\/\//i.test(data.user.image)) {
+        data.user.image = `${TIMECORE_BASE_URL}${data.user.image.startsWith('/') ? '' : '/'}${data.user.image}`;
+      }
+      if (data?.user?.backgroundUrl && !/^https?:\/\//i.test(data.user.backgroundUrl)) {
+        data.user.backgroundUrl = `${TIMECORE_BASE_URL}${data.user.backgroundUrl.startsWith('/') ? '' : '/'}${data.user.backgroundUrl}`;
+      }
+      return data;
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return null;
       throw err;
@@ -252,28 +301,398 @@ export const authApi = {
 // ─── User API ─────────────────────────────────────────────────────────────────
 
 export const userApi = {
+  /** Upload a new avatar image for the current user (multipart/form-data). Returns { avatarUrl }. */
+  uploadAvatar: async (blob: Blob): Promise<{ avatarUrl: string }> => {
+    const formData = new FormData();
+    formData.append('avatar', blob, 'avatar.png');
+    const token = sessionToken.get();
+    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/avatar`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+        res.status,
+      );
+    }
+    const data = (await res.json()) as { avatarUrl: string };
+    return { avatarUrl: toAbsoluteUrl(data.avatarUrl) as string };
+  },
+  /** Delete the current user's avatar. */
+
+  deleteAvatar: async (): Promise<void> => {
+    const token = sessionToken.get();
+    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/avatar`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
+  },
+  /** Upload a new background image for the current user (multipart/form-data). Returns { backgroundUrl }. */
+  uploadBackground: async (blob: Blob): Promise<{ backgroundUrl: string }> => {
+    const formData = new FormData();
+    formData.append('background', blob, 'background.jpg');
+    const token = sessionToken.get();
+    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/background`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: formData,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+        res.status,
+      );
+    }
+    const result = (await res.json()) as { backgroundUrl: string };
+    return {
+      backgroundUrl: `${TIMECORE_BASE_URL}${result.backgroundUrl.startsWith('/') ? '' : '/'}${result.backgroundUrl}`,
+    };
+  },
+  /** Delete the current user's background image. */
+  deleteBackground: async (): Promise<void> => {
+    const token = sessionToken.get();
+    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/background`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
+  },
   /** Get a single user's public profile by ID. */
   getUser: (id: string) =>
-    request<{ user: PublicUser }>(`/v1/users/${encodeURIComponent(id)}`).then((r) => r.user),
+    request<{ user: PublicUser }>(`/v1/users/${encodeURIComponent(id)}`).then((r) =>
+      withAbsoluteImage(r.user),
+    ),
 
   /** Get a single user's public profile by username (requires auth). */
   getUserByUsername: (username: string) =>
     request<{ user: PublicUser }>(`/v1/users/by/username/${encodeURIComponent(username)}`).then(
-      (r) => r.user,
+      (r) => withAbsoluteImage(r.user),
     ),
 
   /** Batch-fetch public profiles by ID list (server caps at 200). */
   getUsers: (ids: string[]) =>
     request<{ users: PublicUser[] }>(`/v1/users?ids=${ids.map(encodeURIComponent).join(',')}`).then(
-      (r) => r.users,
+      (r) => r.users.map(withAbsoluteImage),
     ),
 
   /** Update the current user's profile fields. */
-  updateProfile: (data: { name?: string; image?: string | null; bio?: string; website?: string }) =>
+  updateProfile: (data: {
+    name?: string;
+    image?: string | null;
+    bio?: string;
+    website?: string;
+    reportsToUserId?: string | null;
+  }) =>
     request<{ user: PublicUser }>('/v1/me/profile', {
       method: 'PUT',
       body: JSON.stringify(data),
     }).then((r) => r.user),
+};
+
+export type DefaultOrganizationRole = 'owner' | 'admin' | 'member';
+
+export interface OrganizationAdminUser {
+  id: string;
+  name: string;
+  email: string;
+  username: string | null;
+  image: string | null;
+  role: DefaultOrganizationRole;
+  reportsToUserId?: string | null;
+}
+
+export interface AdminOrganization {
+  id: string;
+  key: string;
+  name: string;
+  ownersCount?: number;
+  adminsCount?: number;
+}
+
+export const orgAdminApi = {
+  getOrganization: () =>
+    request<{ organization: AdminOrganization }>('/v1/admin/organization').then(
+      (r) => r.organization,
+    ),
+
+  updateOrganizationName: (name: string) =>
+    request<{ organization: AdminOrganization }>('/v1/admin/organization', {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }).then((r) => r.organization),
+
+  listUsers: () =>
+    request<{ users: OrganizationAdminUser[] }>('/v1/admin/organization/users').then(
+      (r) => r.users,
+    ),
+
+  setUserRole: (userId: string, role: DefaultOrganizationRole) =>
+    request<{ user: { id: string; role: DefaultOrganizationRole } }>(
+      `/v1/admin/organization/users/${encodeURIComponent(userId)}/role`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      },
+    ).then((r) => r.user),
+
+  updateReportsTo: (userId: string, reportsTo: string | null) =>
+    request<{ user: { id: string; reportsToUserId: string | null } }>(
+      `/v1/org/users/${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ reportsToUserId: reportsTo }),
+      },
+    ).then((r) => r.user),
+};
+
+// ─── Public Organization API (for all authenticated users) ──────────────────
+
+export const orgApi = {
+  checkSlugAvailability: (slug: string, excludeId?: string) => {
+    const params = new URLSearchParams({ slug });
+    if (excludeId) params.set('excludeId', excludeId);
+    return request<{ available: boolean }>(
+      `/v1/organizations/check-slug?${params.toString()}`,
+    ).then((r) => r.available);
+  },
+
+  listOrganizations: () =>
+    request<{
+      organizations: Array<{
+        id: string;
+        enterpriseId: string | null;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+      }>;
+    }>('/v1/organizations').then((r) => r.organizations),
+
+  createOrganization: (data: {
+    enterpriseId: string;
+    name: string;
+    slug?: string;
+    allowAutoJoin?: boolean;
+  }) =>
+    request<{
+      organization: {
+        id: string;
+        enterpriseId: string | null;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+      };
+    }>('/v1/organizations', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.organization),
+
+  updateOrganization: (
+    id: string,
+    data: { name?: string; slug?: string; allowAutoJoin?: boolean },
+  ) =>
+    request<{
+      organization: {
+        id: string;
+        enterpriseId: string | null;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+      };
+    }>(`/v1/organizations/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }).then((r) => r.organization),
+
+  getOrganizationById: (id: string) =>
+    request<{
+      organization: {
+        id: string;
+        enterpriseId: string | null;
+        name: string;
+        slug: string;
+        allowAutoJoin: boolean;
+        role: 'owner' | 'admin' | 'member' | null;
+        canManage: boolean;
+      };
+    }>(`/v1/organizations/${encodeURIComponent(id)}`).then((r) => r.organization),
+
+  updateSettings: (id: string, allowAutoJoin: boolean) =>
+    request<{ organization: { orgId: string; allowAutoJoin: boolean } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/settings`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ allowAutoJoin }),
+      },
+    ).then((r) => r.organization),
+
+  joinOrganization: (id: string) =>
+    request<{ membership: { orgId: string; role: 'owner' | 'admin' | 'member' } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/join`,
+      { method: 'POST' },
+    ).then((r) => r.membership),
+
+  listMembers: (id: string) =>
+    request<{ users: OrganizationAdminUser[] }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members`,
+    ).then((r) => r.users),
+
+  listOrganizationUsers: (id: string) =>
+    request<{ users: OrganizationAdminUser[] }>(
+      `/v1/organizations/${encodeURIComponent(id)}/users`,
+    ).then((r) => r.users),
+
+  searchUsers: (id: string, q: string) =>
+    request<{ users: Array<{ id: string; name: string; username: string | null }> }>(
+      `/v1/organizations/${encodeURIComponent(id)}/users/search?q=${encodeURIComponent(q)}`,
+    ).then((r) => r.users),
+
+  setMemberRole: (id: string, userId: string, role: DefaultOrganizationRole) =>
+    request<{ user: { userId: string; role: DefaultOrganizationRole } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      },
+    ).then((r) => r.user),
+
+  removeMember: (id: string, userId: string) =>
+    request<{ user: { userId: string } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      {
+        method: 'DELETE',
+      },
+    ).then((r) => r.user),
+
+  updateMemberReportsTo: (id: string, userId: string, reportsTo: string | null) =>
+    request<{ user: { id: string; reportsToUserId: string | null } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/reports-to`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ reportsToUserId: reportsTo }),
+      },
+    ).then((r) => r.user),
+
+  updateReportsTo: (userId: string, reportsTo: string | null) =>
+    request<{ user: { id: string; reportsToUserId: string | null } }>(
+      `/v1/org/users/${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ reportsToUserId: reportsTo }),
+      },
+    ).then((r) => r.user),
+
+  getOrganization: () =>
+    request<{ organization: AdminOrganization }>('/v1/organization').then((r) => r.organization),
+
+  listUsers: () =>
+    request<{ users: OrganizationAdminUser[] }>('/v1/organization/users').then((r) => r.users),
+};
+
+export const enterpriseApi = {
+  list: () =>
+    request<{
+      enterprises: Array<{ id: string; name: string; slug: string; role: 'owner' | 'admin' }>;
+    }>('/v1/enterprises').then((r) => r.enterprises),
+
+  create: (data: { name: string; slug?: string }) =>
+    request<{
+      enterprise: {
+        id: string;
+        name: string;
+        slug: string;
+        role: 'owner' | 'admin';
+        owners: string[];
+        admins: string[];
+      };
+    }>('/v1/enterprises', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.enterprise),
+
+  get: (id: string) =>
+    request<{
+      enterprise: {
+        id: string;
+        name: string;
+        slug: string;
+        role: 'owner' | 'admin';
+        owners: string[];
+        admins: string[];
+        members: Array<{
+          id: string;
+          name: string;
+          username: string | null;
+          role: 'owner' | 'admin';
+        }>;
+      };
+    }>(`/v1/enterprises/${encodeURIComponent(id)}`).then((r) => r.enterprise),
+
+  updateName: (id: string, name: string) =>
+    request<{
+      enterprise: {
+        id: string;
+        name: string;
+        slug: string;
+        role: 'owner' | 'admin';
+        owners: string[];
+        admins: string[];
+        members: Array<{
+          id: string;
+          name: string;
+          username: string | null;
+          role: 'owner' | 'admin';
+        }>;
+      };
+    }>(`/v1/enterprises/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }).then((r) => r.enterprise),
+
+  searchUsers: (id: string, q: string) =>
+    request<{ users: Array<{ id: string; name: string; username: string | null }> }>(
+      `/v1/enterprises/${encodeURIComponent(id)}/users/search?q=${encodeURIComponent(q)}`,
+    ).then((r) => r.users),
+
+  removeMember: (id: string, userId: string) =>
+    request<{ userId: string }>(
+      `/v1/enterprises/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' },
+    ),
+
+  setMemberRole: (id: string, userId: string, role: 'owner' | 'admin') =>
+    request<{ user: { userId: string; role: 'owner' | 'admin' } }>(
+      `/v1/enterprises/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ role }),
+      },
+    ).then((r) => r.user),
+
+  getOwnershipStatus: () =>
+    request<{ hasOwner: boolean; installCompleted: boolean }>('/v1/install-status'),
+
+  takeOwnership: () =>
+    request<{ role: 'owner' }>('/v1/install', {
+      method: 'POST',
+    }),
 };
 
 // ─── Username API ─────────────────────────────────────────────────────────────
@@ -310,11 +729,12 @@ export interface Ticket {
   status: string;
   priority: string | null;
   createdBy: string;
-  assignedTo: string | null;
+  assignedTo: string[];
   reviewedBy: string | null;
   reviewedAt: string | null;
   createdAt: string;
   updatedAt: string | null;
+  sharedWithTimeharbor?: boolean;
 }
 
 export const ticketApi = {
@@ -322,6 +742,9 @@ export const ticketApi = {
     request<{ tickets: Ticket[] }>(`/v1/tickets?teamId=${encodeURIComponent(teamId)}`).then(
       (r) => r.tickets,
     ),
+
+  getTicket: (id: string) =>
+    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`).then((r) => r.ticket),
 
   createTicket: (data: { teamId: string; title: string; github?: string }) =>
     request<{ ticket: Ticket }>('/v1/tickets', {
@@ -350,10 +773,10 @@ export const ticketApi = {
       body: JSON.stringify(data),
     }),
 
-  assignTicket: (id: string, assignedToUserId: string | null) =>
+  assignTicket: (id: string, assignedToUserIds: string[]) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/assign`, {
       method: 'PUT',
-      body: JSON.stringify({ assignedToUserId }),
+      body: JSON.stringify({ assignedToUserIds }),
     }).then((r) => r.ticket),
 
   /** Get total accumulated seconds for a ticket from Timers. */
@@ -361,12 +784,22 @@ export const ticketApi = {
     request<{ totalSeconds: number }>(
       `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
     ).then((r) => r.totalSeconds),
+
+  /** Open a WebSocket connection for live ticket updates. Auto-reconnects on drop. */
+  openLiveStream: (teamIds: string[]): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/tickets/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`;
+      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+    }),
 };
 
 // ─── Team API ─────────────────────────────────────────────────────────────────
 
 export interface Team {
   id: string;
+  orgId: string;
+  parentTeamId: string | null;
   name: string;
   description: string | null;
   members: string[];
@@ -382,6 +815,7 @@ export interface TeamMember {
   name: string;
   email: string;
   username: string | null;
+  image: string | null;
 }
 
 export const teamApi = {
@@ -390,11 +824,19 @@ export const teamApi = {
   ensurePersonal: () =>
     request<{ team: Team }>('/v1/teams/ensure-personal', { method: 'POST' }).then((r) => r.team),
 
-  createTeam: (data: { name: string; description?: string }) =>
+  createTeam: (data: {
+    name: string;
+    description?: string;
+    orgId?: string;
+    parentTeamId?: string | null;
+  }) =>
     request<{ team: Team }>('/v1/teams', {
       method: 'POST',
       body: JSON.stringify(data),
     }).then((r) => r.team),
+
+  getSubTeams: (id: string) =>
+    request<{ teams: Team[] }>(`/v1/teams/${encodeURIComponent(id)}/subteams`).then((r) => r.teams),
 
   joinTeam: (teamCode: string) =>
     request<{ team: Team }>('/v1/teams/join', {
@@ -412,8 +854,12 @@ export const teamApi = {
     request<{ ok: boolean }>(`/v1/teams/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   getMembers: (id: string) =>
-    request<{ members: TeamMember[] }>(`/v1/teams/${encodeURIComponent(id)}/members`).then(
-      (r) => r.members,
+    request<{ members: TeamMember[] }>(`/v1/teams/${encodeURIComponent(id)}/members`).then((r) =>
+      r.members.map((m) =>
+        m.image && !/^https?:\/\//i.test(m.image)
+          ? { ...m, image: `${TIMECORE_BASE_URL}${m.image.startsWith('/') ? '' : '/'}${m.image}` }
+          : m,
+      ),
     ),
 
   inviteMember: (id: string, email: string) =>
@@ -439,6 +885,14 @@ export const teamApi = {
       `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/password`,
       { method: 'PUT', body: JSON.stringify({ newPassword }) },
     ),
+
+  /** Open a WebSocket connection for live team updates. Auto-reconnects on drop. */
+  openLiveStream: (): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/teams/ws`;
+      return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+    }),
 };
 
 // ─── Clock API ────────────────────────────────────────────────────────────────
@@ -448,7 +902,22 @@ export interface ClockEvent {
   userId: string;
   teamId: string;
   startTime: number;
+  /** @deprecated No longer returned by the API — use startTime. */
+  originalStartTime?: number;
   accumulatedTime: number;
+  breaks?: Array<{
+    startTime: number;
+    endTime: number | null;
+    type?: 'rest' | 'meal';
+    classificationSource?: 'auto' | 'manual';
+    notes?: string;
+  }>;
+  workSeconds?: number;
+  deductedBreakSeconds?: number;
+  totalBreakSeconds?: number;
+  isPaused?: boolean;
+  /** @deprecated No longer set by the API — use breaks[].endTime === null to find active break. */
+  pausedAt?: number | null;
   endTime: number | null;
 }
 
@@ -467,8 +936,33 @@ export const clockApi = {
       body: JSON.stringify({ teamId }),
     }).then((r) => r.event),
 
-  /** Get the current user's active clock event (any team), or null. */
-  getActive: () => request<{ event: ClockEvent | null }>('/v1/clock/active').then((r) => r.event),
+  /** Pause an active clock session (break start). */
+  pause: (teamId: string) =>
+    request<{ event: ClockEvent }>('/v1/clock/pause', {
+      method: 'POST',
+      body: JSON.stringify({ teamId }),
+    }).then((r) => r.event),
+
+  /** Resume a paused clock session (break end). */
+  resume: (teamId: string) =>
+    request<{ event: ClockEvent }>('/v1/clock/resume', {
+      method: 'POST',
+      body: JSON.stringify({ teamId }),
+    }).then((r) => r.event),
+
+  /** Get active clock status for a team. */
+  getStatus: (teamId: string) =>
+    request<{
+      event: ClockEvent;
+      workSeconds: number;
+      isPaused: boolean;
+    }>(`/v1/clock/status?teamId=${encodeURIComponent(teamId)}`),
+
+  /** Get the current user's active clock event (any team), or null. Admin can pass userId. */
+  getActive: (userId?: string) => {
+    const params = userId ? `?userId=${encodeURIComponent(userId)}` : '';
+    return request<{ event: ClockEvent | null }>(`/v1/clock/active${params}`).then((r) => r.event);
+  },
 
   /** Get all clock events for the current user. */
   getEvents: () => request<{ events: ClockEvent[] }>('/v1/clock/events').then((r) => r.events),
@@ -479,6 +973,7 @@ export const clockApi = {
       sessions: ClockEvent[];
       summary: {
         totalSeconds: number;
+        totalBreakSeconds: number;
         totalSessions: number;
         completedSessions: number;
         averageSessionSeconds: number;
@@ -488,8 +983,15 @@ export const clockApi = {
       `/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startMs=${startMs}&endMs=${endMs}`,
     ),
 
-  /** Update a clock event's start/end timestamps. */
-  updateTimes: (clockEventId: string, data: { startTime?: number; endTime?: number | null }) =>
+  /** Update a clock event's timestamps and optional break intervals. */
+  updateTimes: (
+    clockEventId: string,
+    data: {
+      startTime?: number;
+      endTime?: number | null;
+      breaks?: Array<{ startTime: number; endTime: number | null }>;
+    },
+  ) =>
     request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/times`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -501,6 +1003,13 @@ export const clockApi = {
       method: 'DELETE',
     }).then((r) => r.ok),
 
+  /** Create a completed manual clock entry for a past time range. */
+  createManualEntry: (data: { teamId: string; startTime: number; endTime: number }) =>
+    request<{ event: ClockEvent }>('/v1/clock/manual', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.event),
+
   /** Open a WebSocket connection for live team clock state. Auto-reconnects on drop. */
   openLiveStream: (teamIds: string[]): AutoReconnectWs =>
     autoReconnectWs(() => {
@@ -510,7 +1019,55 @@ export const clockApi = {
     }),
 };
 
-// ─── Notifications ────────────────────────────────────────────────────────────
+// ─── Team Dashboard API ───────────────────────────────────────────────────────
+
+export interface TeamMemberClockStatus {
+  userId: string;
+  name: string;
+  image: string | null;
+  isClockedIn: boolean;
+  isOnBreak: boolean;
+  activeClockStart: number | null;
+  todaySeconds: number;
+}
+
+export interface TeamRunningTimer {
+  timerId: string;
+  workItemId: string;
+  userId: string;
+  userName: string;
+  userImage: string | null;
+  ticketId: string;
+  ticketTitle: string;
+  startTime: number;
+}
+
+export const teamDashboardApi = {
+  getTeamClockStatus: (teamId: string) =>
+    request<{ members: TeamMemberClockStatus[] }>(
+      `/v1/clock/team-status?teamId=${encodeURIComponent(teamId)}`,
+    ).then((r) =>
+      r.members.map((m) =>
+        m.image && !/^https?:\/\//i.test(m.image)
+          ? { ...m, image: `${TIMECORE_BASE_URL}${m.image.startsWith('/') ? '' : '/'}${m.image}` }
+          : m,
+      ),
+    ),
+
+  getTeamRunningTimers: (teamId: string) =>
+    request<{ timers: TeamRunningTimer[] }>(
+      `/v1/timers/team-running?teamId=${encodeURIComponent(teamId)}`,
+    ).then((r) =>
+      r.timers.map((t) =>
+        t.userImage && !/^https?:\/\//i.test(t.userImage)
+          ? {
+              ...t,
+              userImage: `${TIMECORE_BASE_URL}${t.userImage.startsWith('/') ? '' : '/'}${t.userImage}`,
+            }
+          : t,
+      ),
+    ),
+};
 
 export interface Notification {
   id: string;
@@ -617,6 +1174,15 @@ export const notificationApi = {
       body: JSON.stringify({ action }),
     }),
 
+  /** Consent to auto-clockout at 8h — called when user clicks "Agree to Clock Out" on the shift reminder. */
+  agreeClockout: (clockEventId: string) =>
+    request<{ ok: boolean }>(
+      `/v1/clock/events/${encodeURIComponent(clockEventId)}/agree-clockout`,
+      {
+        method: 'POST',
+      },
+    ),
+
   /** Send a test push notification to the requesting user's devices. */
   testPush: () => request<{ ok: boolean }>('/v1/notifications/test-push', { method: 'POST' }),
 
@@ -710,22 +1276,37 @@ export interface WeekDay {
 
 /** Returns the browser's IANA timezone string (e.g. "America/New_York"). */
 function clientTz(): string {
+  if (FORCED_TIMEZONE) {
+    try {
+      // Validate the IANA timezone so bad local values do not break API calls.
+      new Intl.DateTimeFormat('en-US', { timeZone: FORCED_TIMEZONE }).format(new Date());
+      return FORCED_TIMEZONE;
+    } catch {
+      // Fall back to browser timezone.
+    }
+  }
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
 export const timerApi = {
-  /** Create a WorkItem for the given ticket + date. */
-  createEntry: (data: { ticketId: string; date: string; note?: string }) =>
-    request<{ entry: WorkItem }>('/v1/timers/entries', {
+  /** Create a WorkItem for the given ticket + date. Optionally start a timer immediately. */
+  createEntry: (data: {
+    ticketId: string;
+    date: string;
+    note?: string;
+    notifyAdmins?: boolean;
+    startNow?: boolean;
+  }) =>
+    request<{ entry: WorkItem; session: Timer | null }>('/v1/timers/entries', {
       method: 'POST',
       body: JSON.stringify(data),
-    }).then((r) => r.entry),
+    }),
 
   /** Start a timer for a WorkItem. Closes any open timer first. */
   startSession: (entryId: string, now?: number) =>
     request<{ session: Timer; closedSessionId?: string }>(
       `/v1/timers/entries/${encodeURIComponent(entryId)}/start`,
-      { method: 'POST', body: JSON.stringify({ now: now ?? Date.now() }) },
+      { method: 'POST', body: JSON.stringify({ now: now ?? Date.now(), tz: clientTz() }) },
     ),
 
   /** Stop a running timer. */
@@ -746,14 +1327,25 @@ export const timerApi = {
     }).then((r) => r.entry),
 
   /** Delete a WorkItem and all of its timers. */
-  deleteEntry: (entryId: string) =>
+  deleteEntry: (entryId: string, options?: { notifyAdmins?: boolean }) =>
     request<{ deletedEntry: boolean; deletedSessions: number }>(
-      `/v1/timers/entries/${encodeURIComponent(entryId)}`,
-      { method: 'DELETE' },
+      `/v1/timers/entries/${encodeURIComponent(entryId)}${options?.notifyAdmins === false ? '?notifyAdmins=false' : ''}`,
+      {
+        method: 'DELETE',
+      },
     ),
 
   /** Get the currently running timer for the authenticated user, or null. */
   getRunning: () => request<{ session: Timer | null }>('/v1/timers/running').then((r) => r.session),
+
+  /** Get all entries + sessions for today in local time. Admin can pass userId. */
+  getToday: (userId?: string) => {
+    const tz = clientTz();
+    const userParam = userId ? `&userId=${encodeURIComponent(userId)}` : '';
+    return request<{ entries: DayEntry[] }>(
+      `/v1/timers/today?tz=${encodeURIComponent(tz)}${userParam}`,
+    ).then((r) => r.entries);
+  },
 
   /** Get all entries + sessions for a local day (YYYY-MM-DD). */
   getDay: (date: string) => {
@@ -786,20 +1378,117 @@ export const timerApi = {
       method: 'POST',
       body: JSON.stringify({ toDate }),
     }).then((r) => r.created),
+
+  /**
+   * Open a WebSocket connection for real-time timer updates.
+   */
+  openLiveStream: (): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/timers/ws`;
+      return token ? `${base}?token=${encodeURIComponent(token)}` : base;
+    }),
 };
 
 // ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
 
 export const videoApi = {
-  /** Reserve a videoid on the server before starting a TUS upload.
+  /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
+  uploadEndpoint: () => `${TIMECORE_BASE_URL.replace(/\/$/, '')}/v1/video/upload`,
+
+  /** Reserve a videoid for a ticket upload before starting TUS.
    *  Pass `existingVideoid` when resuming a recording session so the backend
    *  re-registers the same id instead of creating a new one.
    */
   reserve: (ticketId: string, existingVideoid?: string) =>
-    request<{ videoid: string }>('/v1/pulsevault/reserve', {
+    request<{ videoid: string; uploadToken: string; uploadLink?: string }>('/v1/video/reserve', {
       method: 'POST',
-      body: JSON.stringify(existingVideoid ? { ticketId, videoid: existingVideoid } : { ticketId }),
+      body: JSON.stringify(
+        existingVideoid
+          ? { target: 'ticket', ticketId, videoid: existingVideoid }
+          : { target: 'ticket', ticketId },
+      ),
     }),
+
+  /** Reserve a videoid for a media library upload (no ticket context). */
+  reserveForLibrary: () =>
+    request<{ videoid: string; uploadToken: string }>('/v1/video/reserve', {
+      method: 'POST',
+      body: JSON.stringify({ target: 'library' }),
+    }),
+};
+
+// ─── Media Library ────────────────────────────────────────────────────────────
+
+export interface MediaItem {
+  id: string;
+  userId: string;
+  type: 'video' | 'image';
+  mimeType: string;
+  url: string;
+  videoid: string | null;
+  filename: string;
+  size: number;
+  title: string | null;
+  caption: string | null;
+  altText: string | null;
+  thumbnail: string | null;
+  uploadedAt: string;
+}
+
+function withAbsoluteMediaItem(item: MediaItem): MediaItem {
+  const thumbnail = toAbsoluteUrl(item.thumbnail);
+  const url = toAbsoluteUrl(item.url) ?? item.url;
+  if (thumbnail === item.thumbnail && url === item.url) return item;
+  return { ...item, thumbnail, url };
+}
+
+export const mediaApi = {
+  /** POST /v1/media — upload image file to media library */
+  uploadImage: async (file: File): Promise<MediaItem> => {
+    const form = new FormData();
+    form.append('file', file, file.name || 'image');
+    const response = await request<{ item: MediaItem }>('/v1/media', {
+      method: 'POST',
+      body: form,
+    });
+    return withAbsoluteMediaItem(response.item);
+  },
+
+  /** GET /v1/media — list media library items for the current user */
+  list: () =>
+    request<{ items: MediaItem[] }>(`/v1/media`).then((r) => r.items.map(withAbsoluteMediaItem)),
+
+  /** GET /v1/media/user/:userId — list media items for a specific profile user */
+  listForUser: (userId: string) =>
+    request<{ items: MediaItem[] }>(`/v1/media/user/${encodeURIComponent(userId)}`).then((r) =>
+      r.items.map(withAbsoluteMediaItem),
+    ),
+
+  /** PATCH /v1/media/:id — update title, caption, altText */
+  update: (id: string, data: { title?: string; caption?: string; altText?: string }) =>
+    request<{ item: MediaItem }>(`/v1/media/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }).then((r) => withAbsoluteMediaItem(r.item)),
+
+  /** DELETE /v1/media/:id */
+  remove: (id: string) =>
+    request<{ ok: boolean }>(`/v1/media/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  /** POST /v1/media/:id/thumbnail — upload a JPEG thumbnail blob */
+  uploadThumbnail: async (id: string, blob: Blob): Promise<MediaItem> => {
+    const form = new FormData();
+    form.append('file', blob, 'thumbnail.jpg');
+    const response = await request<{ item: MediaItem }>(
+      `/v1/media/${encodeURIComponent(id)}/thumbnail`,
+      {
+        method: 'POST',
+        body: form,
+      },
+    );
+    return withAbsoluteMediaItem(response.item);
+  },
 };
 
 // ─── Activity Log ─────────────────────────────────────────────────────────────
@@ -831,6 +1520,35 @@ export const activityApi = {
       `/v1/activity/log${query ? `?${query}` : ''}`,
     );
   },
+
+  /**
+   * Fetch a page of activity log events for a specific user (teammates only).
+   *
+   * @param userId - The target user's ID.
+   * @param limit  - Max items per page (1–50, default 20).
+   * @param before - Cursor: ISO timestamp; fetch events older than this.
+   */
+  getUserActivity: (userId: string, params: { limit?: number; before?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.limit != null) qs.set('limit', String(params.limit));
+    if (params.before) qs.set('before', params.before);
+    const query = qs.toString();
+    return request<{ events: ActivityLogItem[]; nextCursor: string | null }>(
+      `/v1/users/${encodeURIComponent(userId)}/activity${query ? `?${query}` : ''}`,
+    );
+  },
+
+  /** Ticket IDs + titles from the user's last 48 h of timer work. */
+  getUserWorkSummary: (userId: string) =>
+    request<{ items: { id: string; title: string }[] }>(
+      `/v1/work/summary/user/${encodeURIComponent(userId)}`,
+    ),
+
+  /** Activity events for a specific ticket (team members only). */
+  getTicketActivity: (ticketId: string, limit = 50) =>
+    request<{ events: ActivityLogItem[] }>(
+      `/v1/tickets/${encodeURIComponent(ticketId)}/activity?limit=${limit}`,
+    ),
 };
 
 // ─── Presence ─────────────────────────────────────────────────────────────────
@@ -931,3 +1649,55 @@ export const channelApi = {
       return url.toString();
     }),
 };
+
+// ─── Personal Access Tokens ───────────────────────────────────────────────────
+
+export interface PersonalAccessToken {
+  _id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string | null;
+}
+
+export const tokenApi = {
+  list: (): Promise<PersonalAccessToken[]> =>
+    request<{ tokens: PersonalAccessToken[] }>('/v1/me/tokens').then((r) => r.tokens),
+
+  create: (name: string): Promise<{ token: string; name: string }> =>
+    request<{ token: string; name: string }>('/v1/me/tokens', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }),
+
+  revoke: (id: string): Promise<void> =>
+    request<{ success: boolean }>(`/v1/me/tokens/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }).then(() => undefined),
+};
+
+// ─── TimeHarbor Share ─────────────────────────────────────────────────────────
+
+/**
+ * Flag a single ticket as shared with TimeHarbor.
+ * One-way: this only sets the flag on the TimeHuddle record; TimeHarbor pulls it.
+ */
+export const shareTicketWithTimeharbor = (id: string, shared: boolean): Promise<void> =>
+  request<{ success: boolean }>(`/v1/tickets/${encodeURIComponent(id)}/timeharbor-share`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ shared }),
+  }).then(() => undefined);
+
+/**
+ * Flag multiple tickets as shared with (or unshared from) TimeHarbor in one request.
+ */
+export const bulkShareTicketsWithTimeharbor = (
+  ticketIds: string[],
+  shared: boolean,
+): Promise<void> =>
+  request<{ modifiedCount: number }>('/v1/tickets/bulk-timeharbor-share', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticketIds, shared }),
+  }).then(() => undefined);

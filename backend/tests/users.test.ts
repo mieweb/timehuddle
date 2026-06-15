@@ -15,6 +15,14 @@ import { ObjectId } from "mongodb";
 import { buildApp } from "../src/server.js";
 import { connectDB, client } from "../src/lib/db.js";
 import { auth } from "../src/lib/auth.js";
+import {
+  enterprisesCollection,
+  installationsCollection,
+  organizationsCollection,
+} from "../src/models/index.js";
+import { DEFAULT_ORG_KEY } from "../src/lib/org-config.js";
+
+const INSTALLATION_DOC_ID = "Installation" as const;
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -31,6 +39,7 @@ let bobId: string;
 let _carolId: string;
 let sharedTeamId: string;
 let aliceUsername: string;
+let bobUsername: string;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -96,11 +105,10 @@ beforeAll(async () => {
     .collection("user")
     .updateOne({ _id: new ObjectId(aliceId) }, { $set: { username: aliceUsername } });
 
-  // Give Alice a username so /by/username tests can look her up
-  aliceUsername = "users-alice-test";
+  bobUsername = "users-bob-test";
   await db
     .collection("user")
-    .updateOne({ _id: new ObjectId(aliceId) }, { $set: { username: aliceUsername } });
+    .updateOne({ _id: new ObjectId(bobId) }, { $set: { username: bobUsername } });
 }, 20000);
 
 afterAll(async () => {
@@ -189,6 +197,29 @@ describe("PUT /v1/me/profile", () => {
     expect(user.website).toBe("https://example.com");
   });
 
+  it("updates reports-to for a teammate — 200", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/v1/me/profile",
+      headers: { cookie: aliceCookie },
+      payload: { reportsToUserId: bobId },
+    });
+    expect(res.statusCode).toBe(200);
+    const { user } = res.json();
+    expect(user.reportsTo).toEqual({ id: bobId, name: BOB.name, username: bobUsername });
+  });
+
+  it("rejects reports-to for a non-teammate — 400", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/v1/me/profile",
+      headers: { cookie: aliceCookie },
+      payload: { reportsToUserId: _carolId },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBe("reports-to-not-teammate");
+  });
+
   it("rejects invalid website format — 400", async () => {
     const res = await app.inject({
       method: "PUT",
@@ -265,6 +296,10 @@ describe("GET /v1/users/by/username/:username", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().user.sharedTeams).toEqual([]);
+    expect(res.json().user.teamMemberships).toEqual([
+      { id: sharedTeamId, name: "Users Test Team", role: "admin" },
+    ]);
+    expect(res.json().user.reportsTo).toEqual({ id: bobId, name: BOB.name, username: bobUsername });
   });
 });
 
@@ -335,8 +370,11 @@ describe("GET /v1/users/:id", () => {
     const team = user.sharedTeams.find((t: any) => t.id === sharedTeamId);
     expect(team).toBeDefined();
     expect(team.name).toBe("Users Test Team");
-    // Bob is not an admin of the team
-    expect(team.isAdmin).toBe(false);
+    // Alice (viewer) is an admin of the team
+    expect(team.isAdmin).toBe(true);
+    expect(user.teamMemberships).toEqual([
+      { id: sharedTeamId, name: "Users Test Team", role: "member" },
+    ]);
   });
 
   it("non-teammate can view profile — 200", async () => {
@@ -406,5 +444,320 @@ describe("GET /v1/users", () => {
     const { users } = res.json();
     expect(users).toHaveLength(1);
     expect(users[0].id).toBe(aliceId);
+  });
+});
+
+// ─── GET /v1/organization/users ──────────────────────────────────────────────
+
+describe("GET /v1/organization/users", () => {
+  it("returns all users with default organization roles", async () => {
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
+    expect(defaultOrg).toBeTruthy();
+
+    const originalOwners = defaultOrg!.owners ?? [];
+    const originalAdmins = defaultOrg!.admins ?? [];
+
+    try {
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        { $set: { owners: [aliceId], admins: [bobId], updatedAt: new Date() } }
+      );
+
+      const res = await app.inject({
+        method: "GET",
+        url: "/v1/organization/users",
+        headers: { cookie: aliceCookie },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const { users } = res.json();
+      const ids = users.map((user: any) => user.id);
+      expect(ids).toEqual(expect.arrayContaining([aliceId, bobId, _carolId]));
+      expect(users.find((user: any) => user.id === aliceId)?.role).toBe("owner");
+      expect(users.find((user: any) => user.id === bobId)?.role).toBe("admin");
+      expect(users.find((user: any) => user.id === _carolId)?.role).toBe("member");
+    } finally {
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        { $set: { owners: originalOwners, admins: originalAdmins, updatedAt: new Date() } }
+      );
+    }
+  });
+});
+
+describe("Default enterprise ownership bootstrap", () => {
+  it("reports owner absence and allows authenticated user to take ownership", async () => {
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
+    expect(defaultOrg).toBeTruthy();
+    expect(defaultOrg?.enterpriseId).toBeTruthy();
+
+    const enterpriseId = defaultOrg!.enterpriseId as string;
+    const defaultEnterprise = await enterprisesCollection().findOne({
+      _id: new ObjectId(enterpriseId),
+    });
+    expect(defaultEnterprise).toBeTruthy();
+
+    const originalEnterpriseOwners = defaultEnterprise!.owners ?? [];
+    const originalEnterpriseAdmins = defaultEnterprise!.admins ?? [];
+    const originalInstallation = await installationsCollection().findOne({
+      _id: INSTALLATION_DOC_ID,
+    });
+
+    const originalOrgOwners = defaultOrg!.owners ?? [];
+    const originalOrgAdmins = defaultOrg!.admins ?? [];
+
+    try {
+      await enterprisesCollection().updateOne(
+        { _id: defaultEnterprise!._id },
+        {
+          $set: { owners: [], admins: originalEnterpriseAdmins, updatedAt: new Date() },
+        }
+      );
+      await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
+
+      const statusRes = await app.inject({
+        method: "GET",
+        url: "/v1/install-status",
+        headers: { cookie: aliceCookie },
+      });
+      expect(statusRes.statusCode).toBe(200);
+      expect(statusRes.json().hasOwner).toBe(false);
+      expect(statusRes.json().installCompleted).toBe(false);
+
+      const takeRes = await app.inject({
+        method: "POST",
+        url: "/v1/install",
+        headers: { cookie: aliceCookie },
+      });
+      expect(takeRes.statusCode).toBe(200);
+      expect(takeRes.json().role).toBe("owner");
+
+      const updatedEnterprise = await enterprisesCollection().findOne({
+        _id: defaultEnterprise!._id,
+      });
+      expect(updatedEnterprise?.owners ?? []).toEqual([aliceId]);
+      const updatedInstallation = await installationsCollection().findOne({
+        _id: INSTALLATION_DOC_ID,
+      });
+      expect(updatedInstallation?.completedAt).toBeTruthy();
+
+      const updatedOrg = await organizationsCollection().findOne({ _id: defaultOrg!._id });
+      expect(updatedOrg?.owners ?? []).toEqual([aliceId]);
+    } finally {
+      if (originalInstallation) {
+        await installationsCollection().replaceOne(
+          { _id: INSTALLATION_DOC_ID },
+          originalInstallation,
+          { upsert: true }
+        );
+      } else {
+        await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
+      }
+
+      await enterprisesCollection().updateOne(
+        { _id: defaultEnterprise!._id },
+        {
+          $set: {
+            owners: originalEnterpriseOwners,
+            admins: originalEnterpriseAdmins,
+            updatedAt: new Date(),
+          },
+        }
+      );
+
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        {
+          $set: {
+            owners: originalOrgOwners,
+            admins: originalOrgAdmins,
+            updatedAt: new Date(),
+          },
+        }
+      );
+    }
+  });
+
+  it("backfills enterpriseId for migrated organizations during install", async () => {
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
+    expect(defaultOrg).toBeTruthy();
+    expect(defaultOrg?.enterpriseId).toBeTruthy();
+
+    const defaultEnterprise = await enterprisesCollection().findOne({
+      _id: new ObjectId(defaultOrg!.enterpriseId as string),
+    });
+    expect(defaultEnterprise).toBeTruthy();
+
+    const originalEnterpriseOwners = defaultEnterprise!.owners ?? [];
+    const originalEnterpriseAdmins = defaultEnterprise!.admins ?? [];
+    const originalInstallation = await installationsCollection().findOne({
+      _id: INSTALLATION_DOC_ID,
+    });
+
+    const originalOrgOwners = defaultOrg!.owners ?? [];
+    const originalOrgAdmins = defaultOrg!.admins ?? [];
+
+    const migratedOrgId = new ObjectId();
+
+    try {
+      await organizationsCollection().insertOne({
+        _id: migratedOrgId,
+        name: "Users Migrated Org",
+        slug: "users-migrated-org",
+        key: "users-migrated-org",
+        owners: [],
+        admins: [],
+        createdAt: new Date(),
+      });
+
+      await enterprisesCollection().updateOne(
+        { _id: defaultEnterprise!._id },
+        {
+          $set: { owners: [], admins: originalEnterpriseAdmins, updatedAt: new Date() },
+        }
+      );
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        {
+          $set: { owners: [], admins: originalOrgAdmins, updatedAt: new Date() },
+        }
+      );
+      await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
+
+      const takeRes = await app.inject({
+        method: "POST",
+        url: "/v1/install",
+        headers: { cookie: aliceCookie },
+      });
+
+      expect(takeRes.statusCode).toBe(200);
+
+      const migratedOrg = await organizationsCollection().findOne({ _id: migratedOrgId });
+      expect(migratedOrg?.enterpriseId).toBe(defaultOrg!.enterpriseId);
+    } finally {
+      await organizationsCollection().deleteOne({ _id: migratedOrgId });
+
+      if (originalInstallation) {
+        await installationsCollection().replaceOne(
+          { _id: INSTALLATION_DOC_ID },
+          originalInstallation,
+          { upsert: true }
+        );
+      } else {
+        await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
+      }
+
+      await enterprisesCollection().updateOne(
+        { _id: defaultEnterprise!._id },
+        {
+          $set: {
+            owners: originalEnterpriseOwners,
+            admins: originalEnterpriseAdmins,
+            updatedAt: new Date(),
+          },
+        }
+      );
+
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        {
+          $set: {
+            owners: originalOrgOwners,
+            admins: originalOrgAdmins,
+            updatedAt: new Date(),
+          },
+        }
+      );
+    }
+  });
+
+  it("returns 409 when an enterprise owner already exists", async () => {
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
+    expect(defaultOrg).toBeTruthy();
+    expect(defaultOrg?.enterpriseId).toBeTruthy();
+
+    const defaultEnterprise = await enterprisesCollection().findOne({
+      _id: new ObjectId(defaultOrg!.enterpriseId as string),
+    });
+    expect(defaultEnterprise).toBeTruthy();
+
+    const originalEnterpriseOwners = defaultEnterprise!.owners ?? [];
+    const originalEnterpriseAdmins = defaultEnterprise!.admins ?? [];
+    const originalInstallation = await installationsCollection().findOne({
+      _id: INSTALLATION_DOC_ID,
+    });
+
+    try {
+      await enterprisesCollection().updateOne(
+        { _id: defaultEnterprise!._id },
+        {
+          $set: { owners: [bobId], admins: originalEnterpriseAdmins, updatedAt: new Date() },
+        }
+      );
+      await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
+
+      const takeRes = await app.inject({
+        method: "POST",
+        url: "/v1/install",
+        headers: { cookie: aliceCookie },
+      });
+
+      expect(takeRes.statusCode).toBe(409);
+      expect(takeRes.json().error).toBe("Owner already exists or install is already complete");
+    } finally {
+      if (originalInstallation) {
+        await installationsCollection().replaceOne(
+          { _id: INSTALLATION_DOC_ID },
+          originalInstallation,
+          { upsert: true }
+        );
+      } else {
+        await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
+      }
+
+      await enterprisesCollection().updateOne(
+        { _id: defaultEnterprise!._id },
+        {
+          $set: {
+            owners: originalEnterpriseOwners,
+            admins: originalEnterpriseAdmins,
+            updatedAt: new Date(),
+          },
+        }
+      );
+    }
+  });
+});
+
+describe("PUT /v1/org/users/:userId", () => {
+  it("returns 404 when reportsToUserId does not exist", async () => {
+    const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
+    expect(defaultOrg).toBeTruthy();
+
+    const originalOwners = defaultOrg!.owners ?? [];
+    const originalAdmins = defaultOrg!.admins ?? [];
+
+    try {
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        { $set: { owners: [aliceId], admins: originalAdmins, updatedAt: new Date() } }
+      );
+
+      const unknownId = "000000000000000000000099";
+      const res = await app.inject({
+        method: "PUT",
+        url: `/v1/org/users/${bobId}`,
+        headers: { cookie: aliceCookie },
+        payload: { reportsToUserId: unknownId },
+      });
+
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error).toBe("Reports-to user not found");
+    } finally {
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        { $set: { owners: originalOwners, admins: originalAdmins, updatedAt: new Date() } }
+      );
+    }
   });
 });

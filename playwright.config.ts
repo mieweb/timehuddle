@@ -10,5 +10,9 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:3000',
     ...devices['Desktop Chrome'],
+    launchOptions: {
+      slowMo: process.env.PWSLOWMO ? parseInt(process.env.PWSLOWMO, 10) : 0,
+    },
+    video: process.env.PWVIDEO ? 'on' : 'off',
   },
 });

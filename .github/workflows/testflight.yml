@@ -1,0 +1,97 @@
+name: TestFlight Build
+
+# Manual dispatch only — choose dev or prod.
+# dev  → vite build --mode testflight → timecore-dev.os.mieweb.org
+# prod → vite build --mode production → timecore-prod.os.mieweb.org
+#
+# Uses mieweb/actions/ios@v1 for signing, archiving, and TestFlight upload.
+# Signing: match mode (certs fetched from mieweb/mobile-signing).
+# Required org/repo secrets: APPLE_TEAM_ID, MATCH_GIT_BASIC_AUTHORIZATION,
+#   MATCH_PASSWORD, APPLE_API_KEY_ID, APPLE_API_ISSUER_ID, APPLE_API_KEY_P8_BASE64
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options: [dev, prod]
+
+concurrency:
+  group: testflight-${{ github.event.inputs.environment }}
+  cancel-in-progress: true
+
+jobs:
+  # ── DEV (testflight mode → timecore-dev.os.mieweb.org) ──────────────────────
+  testflight_dev:
+    name: TestFlight - DEV
+    runs-on: macos-latest
+    if: github.event.inputs.environment == 'dev'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Vite build (testflight mode → timecore-dev.os.mieweb.org)
+        run: npx vite build --mode testflight
+
+      - name: Capacitor sync
+        run: npx cap sync ios
+
+      - name: Sign, archive & upload to TestFlight
+        uses: mieweb/actions/ios@v1
+        with:
+          app_identifier: com.mieweb.timehuddle
+          apple_team_id: ${{ secrets.APPLE_TEAM_ID }}
+          signing_mode: match
+          match_git_basic_authorization: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          match_password: ${{ secrets.MATCH_PASSWORD }}
+          apple_api_key_id: ${{ secrets.APPLE_API_KEY_ID }}
+          apple_api_issuer_id: ${{ secrets.APPLE_API_ISSUER_ID }}
+          apple_api_key_p8_base64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          workspace_path: ios/App/App.xcodeproj/project.xcworkspace
+          xcode_scheme: App
+
+  # ── PROD (production mode → timecore-prod.os.mieweb.org) ────────────────────
+  testflight_prod:
+    name: TestFlight - PROD
+    runs-on: macos-latest
+    if: github.event.inputs.environment == 'prod'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Vite build (production mode → timecore-prod.os.mieweb.org)
+        run: npx vite build --mode production
+
+      - name: Capacitor sync
+        run: npx cap sync ios
+
+      - name: Sign, archive & upload to TestFlight
+        uses: mieweb/actions/ios@v1
+        with:
+          app_identifier: com.mieweb.timehuddle
+          apple_team_id: ${{ secrets.APPLE_TEAM_ID }}
+          signing_mode: match
+          match_git_basic_authorization: ${{ secrets.MATCH_GIT_BASIC_AUTHORIZATION }}
+          match_password: ${{ secrets.MATCH_PASSWORD }}
+          apple_api_key_id: ${{ secrets.APPLE_API_KEY_ID }}
+          apple_api_issuer_id: ${{ secrets.APPLE_API_ISSUER_ID }}
+          apple_api_key_p8_base64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          workspace_path: ios/App/App.xcodeproj/project.xcworkspace
+          xcode_scheme: App

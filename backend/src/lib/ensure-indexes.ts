@@ -6,11 +6,6 @@ export async function ensureIndexes() {
   const profiles = db.collection("profiles");
   await profiles.createIndex({ userId: 1, app: 1 }, { unique: true });
 
-  // Encrypted op-log relay (E2E encrypted sync)
-  const encryptedOpLogs = db.collection("encryptedOpLogs");
-  await encryptedOpLogs.createIndex({ userId: 1, hlc: 1 });
-  await encryptedOpLogs.createIndex({ userId: 1, deviceId: 1, hlc: 1 });
-
   // ── WorkItem indexes ───────────────────────────────────────────────────────
   // Ensure collection exists before reading indexes (fresh DBs have no namespace yet).
   await db.createCollection("workitems").catch((err: unknown) => {
@@ -41,6 +36,31 @@ export async function ensureIndexes() {
   await timers.createIndex({ workItemId: 1, startTime: 1 });
   // 5. Timers for a user on a given UTC date
   await timers.createIndex({ userId: 1, date: 1 });
+
+  // ── Clock event indexes ─────────────────────────────────────────────────────
+  const clockEvents = db.collection("clockevents");
+  await clockEvents.createIndex({ userId: 1, teamId: 1, endTime: 1 });
+
+  // ── Clock break indexes ─────────────────────────────────────────────────────
+  const clockBreaks = db.collection("clockbreaks");
+  // Open-break lookup (isPaused check): find the one open break for an event fast
+  await clockBreaks.createIndex({ clockEventId: 1, endTime: 1 });
+  // Ordered retrieval of all breaks for an event
+  await clockBreaks.createIndex({ clockEventId: 1, startTime: 1 });
+  // Prevent concurrent pause from creating multiple open breaks per event
+  await clockBreaks.createIndex(
+    { clockEventId: 1 },
+    { unique: true, partialFilterExpression: { endTime: null }, name: "one_open_break_per_event" }
+  );
+
+  // Personal access tokens
+  const pats = db.collection("personal_access_tokens");
+  await pats.createIndex({ tokenHash: 1 }, { unique: true });
+  await pats.createIndex({ userId: 1 });
+
+  // ── Enterprise / Organization slug uniqueness ───────────────────────────────
+  await db.collection("enterprises").createIndex({ slug: 1 }, { unique: true });
+  await db.collection("organizations").createIndex({ slug: 1 }, { unique: true });
 
   console.log("MongoDB indexes ensured");
 }

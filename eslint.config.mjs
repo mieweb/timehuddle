@@ -15,6 +15,9 @@ export default [
     // Consolidated ignores (migrated from legacy .eslintignore file)
     ignores: [
       'dist',
+      '**/dist/**',
+      'backend/data/videos',
+      'backend/data/videos/**',
       'node_modules',
       '**/scheduler.worker.js',
       '_build',

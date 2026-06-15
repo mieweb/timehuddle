@@ -42,11 +42,12 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { InboxPage } from './features/inbox/InboxPage';
-import { notificationApi } from './lib/api';
+import { enterpriseApi, notificationApi } from './lib/api';
 import { MESSAGES_PENDING_THREAD_KEY } from './lib/constants';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
 import { AppLayout } from './ui/AppLayout';
+import { InstallerModal } from './ui/InstallerModal';
 import { LandingPage } from './ui/LandingPage';
 import { LoginForm } from './ui/LoginForm';
 import { UsernameClaimModal } from './ui/UsernameClaimModal';
@@ -122,6 +123,8 @@ _log('App component defined — modules loaded');
 
 const App: React.FC = () => {
   const { user, loading, needsUsernameClaim } = useSession();
+  const [ownershipChecked, setOwnershipChecked] = React.useState(false);
+  const [showTakeOwnershipModal, setShowTakeOwnershipModal] = React.useState(false);
 
   // Auto-register push on native (APNs/FCM) and web (VAPID) after login.
   React.useEffect(() => {
@@ -204,6 +207,34 @@ const App: React.FC = () => {
     };
   }, [user]);
 
+  React.useEffect(() => {
+    if (!user || needsUsernameClaim) {
+      setOwnershipChecked(false);
+      setShowTakeOwnershipModal(false);
+      return;
+    }
+
+    let cancelled = false;
+    void enterpriseApi
+      .getOwnershipStatus()
+      .then((status) => {
+        if (cancelled) return;
+        setShowTakeOwnershipModal(!status.installCompleted && !status.hasOwner);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setShowTakeOwnershipModal(false);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setOwnershipChecked(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, needsUsernameClaim]);
+
   // Reset token: check URL params (web) or deep link (native).
   const resetToken =
     _deepLinkToken ??
@@ -215,15 +246,34 @@ const App: React.FC = () => {
     return <LoginForm initialMode="reset-confirm" />;
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-neutral-100 dark:bg-neutral-900">
-        <p className="text-sm text-neutral-600 dark:text-neutral-300">Loading…</p>
-      </div>
-    );
+  // Wait for initial session check to complete before showing login
+  // (but allow app to render during refetch when user is already known)
+  if (loading && !user) {
+    return null;
   }
 
   if (!user) return <LoginForm />;
+
+  // If the user is already authenticated and there are OAuth 2.0 authorization
+  // params in the URL (e.g. redirected here from TimeHarbor), forward them
+  // back to Better Auth's authorization endpoint so it can issue the code.
+  const oauthParams =
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  if (
+    oauthParams?.get('response_type') &&
+    oauthParams?.get('client_id') &&
+    oauthParams?.get('state')
+  ) {
+    // The app uses Bearer token (localStorage) for API calls, but the OIDC /authorize
+    // endpoint is a browser navigation — it can't send custom headers. Copy the token
+    // into a cookie so Better Auth can recognise the session during the authorize flow.
+    const token = localStorage.getItem('timecore_session_token');
+    if (token) {
+      document.cookie = `better-auth.session_token=${token}; path=/; SameSite=Lax`;
+    }
+    window.location.href = `/api/auth/oauth2/authorize?${oauthParams.toString()}`;
+    return null;
+  }
   if (needsUsernameClaim)
     return (
       <>
@@ -231,7 +281,15 @@ const App: React.FC = () => {
         <UsernameClaimModal />
       </>
     );
-  return <AppLayout />;
+
+  return (
+    <>
+      <AppLayout />
+      {ownershipChecked && showTakeOwnershipModal && (
+        <InstallerModal onTaken={() => setShowTakeOwnershipModal(false)} />
+      )}
+    </>
+  );
 };
 
 // ─── Entry point ──────────────────────────────────────────────────────────────

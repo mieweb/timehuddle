@@ -10,6 +10,7 @@
     "resolveJsonModule": true,
     "strict": true,
     "skipLibCheck": true,
+    "ignoreDeprecations": "5.0",
     "jsx": "react-jsx",
     "baseUrl": "./",
     "paths": {

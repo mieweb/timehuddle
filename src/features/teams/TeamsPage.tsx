@@ -7,6 +7,7 @@
  *   • Copy team code, rename, delete team
  *   • Promote/demote admins, remove members, invite by email
  *   • Set member passwords (admin only)
+ *   • Deep-link support: ?tab=timesheet&teamId=XXX&memberId=YYY
  */
 import {
   faCopy,
@@ -23,7 +24,6 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  Avatar,
   Badge,
   Button,
   CardTitle,
@@ -38,6 +38,10 @@ import {
   ModalHeader,
   ModalTitle,
   Spinner,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   Text,
   Textarea,
 } from '@mieweb/ui';
@@ -46,37 +50,92 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { teamApi, type TeamMember } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
+import { useRefresh } from '../../lib/RefreshContext';
 import { usePresence } from '../../lib/usePresence';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
-const TeamChart = React.lazy(() => import('./TeamChart').then((m) => ({ default: m.TeamChart })));
+import { AdminTimesheetPanel } from './AdminTimesheetPanel';
+import { UserAvatar } from '../../ui/UserAvatar';
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
 
 export const TeamsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { navigate } = useRouter();
-  const { teams, teamsReady, selectedTeamId, setSelectedTeamId, isAdmin, refetchTeams } = useTeam();
+  const { navigate, pathname } = useRouter();
+  const {
+    teams,
+    teamsReady,
+    selectedOrgId,
+    selectedTeamId,
+    setSelectedTeamId,
+    isAdmin,
+    refetchTeams,
+  } = useTeam();
+
+  // Controlled tab value so deep-links can set the initial tab
+  const [activeTab, setActiveTab] = useState<string>('members');
+  const [initialMemberId, setInitialMemberId] = useState<string>('');
+  const [urlCheckCounter, setUrlCheckCounter] = useState(0);
+
+  // ── Parse deep-link query params whenever URL changes ──
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    const memberId = params.get('memberId');
+    const teamId = params.get('teamId');
+
+    if (tab === 'timesheet') setActiveTab('timesheet');
+    if (memberId) setInitialMemberId(memberId);
+    if (teamId && teams.some((t) => t.id === teamId)) setSelectedTeamId(teamId);
+
+    // Clean up query params from URL without triggering a navigation
+    if (tab || memberId || teamId) {
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState(null, '', cleanUrl);
+    }
+  }, [pathname, urlCheckCounter, setSelectedTeamId, teams]);
+
+  // ── Listen for navigation events (from navigate()) ──
+  useEffect(() => {
+    const handleUrlChange = () => setUrlCheckCounter((c) => c + 1);
+    window.addEventListener('timehuddle:navigate', handleUrlChange);
+    window.addEventListener('popstate', handleUrlChange);
+    return () => {
+      window.removeEventListener('timehuddle:navigate', handleUrlChange);
+      window.removeEventListener('popstate', handleUrlChange);
+    };
+  }, []);
 
   // Fetch members for selected team
   const [members, setMembers] = useState<TeamMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
   const fetchMembers = useCallback(async (teamId: string | null) => {
     if (!teamId) {
       setMembers([]);
       return;
     }
+    setMembersLoading(true);
     try {
       const data = await teamApi.getMembers(teamId);
       setMembers(data);
     } catch {
       setMembers([]);
+    } finally {
+      setMembersLoading(false);
     }
   }, []);
 
   useEffect(() => {
     void fetchMembers(selectedTeamId);
   }, [selectedTeamId, fetchMembers]);
+
+  // Pull-to-refresh: refetch members + teams
+  useRefresh(
+    useCallback(async () => {
+      await Promise.all([fetchMembers(selectedTeamId), refetchTeams()]);
+    }, [fetchMembers, selectedTeamId, refetchTeams]),
+  );
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId) ?? null;
 
@@ -123,11 +182,16 @@ export const TeamsPage: React.FC = () => {
 
   const handleCreate = useCallback(async () => {
     if (!formValue.trim()) return;
+    if (!selectedOrgId) {
+      setFormError('Select an organization before creating a team.');
+      return;
+    }
     setCreateLoading(true);
     try {
       const team = await teamApi.createTeam({
         name: formValue.trim(),
         description: createDescription.trim() || undefined,
+        orgId: selectedOrgId,
       });
       setSelectedTeamId(team.id);
       setModal({ type: 'created', code: team.code });
@@ -139,7 +203,7 @@ export const TeamsPage: React.FC = () => {
     } finally {
       setCreateLoading(false);
     }
-  }, [formValue, createDescription, setSelectedTeamId, refetchTeams]);
+  }, [formValue, createDescription, selectedOrgId, setSelectedTeamId, refetchTeams]);
 
   const handleJoin = useCallback(async () => {
     if (!formValue.trim()) return;
@@ -321,169 +385,175 @@ export const TeamsPage: React.FC = () => {
             )}
           </div>
 
-          {/* Members list */}
-          <div className="py-1">
-            <div className="mb-3 flex items-center justify-between">
-              <Text
-                variant="muted"
-                size="xs"
-                weight="semibold"
-                className="uppercase tracking-widest"
-              >
-                Members ({selectedTeam.members.length})
-              </Text>
-              {isAdmin && !selectedTeam.isPersonal && (
-                <Button variant="link" size="sm" onClick={() => setModal('invite')}>
-                  <FontAwesomeIcon icon={faUserPlus} className="mr-1" />
-                  Invite
-                </Button>
+          {/* Tabs: Members | Timesheet — controlled so deep-links can set initial tab */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
+            <TabsList className="w-full">
+              <TabsTrigger value="members" className="flex-1">
+                Members
+              </TabsTrigger>
+              {!selectedTeam.isPersonal && isAdmin && (
+                <TabsTrigger value="timesheet" className="flex-1">
+                  Timesheet
+                </TabsTrigger>
               )}
-            </div>
-            <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-              {selectedTeam.members.map((memberId) => {
-                const m = membersById.get(memberId);
-                const name = m?.name ?? memberId;
-                const username = m?.username ?? null;
-                const email = m?.email ?? '';
-                const isMemberAdmin = selectedTeam.admins.includes(memberId);
-                const isMe = memberId === userId;
+            </TabsList>
 
-                return (
-                  <li key={memberId} className="flex items-center gap-3 py-2.5">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigate(username ? `/${username}` : `/app/profile/${memberId}`)
-                      }
-                      className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
-                      aria-label={`View ${name}'s profile`}
-                    >
-                      <div className="relative shrink-0">
-                        <Avatar name={name} size="sm" />
-                        {onlineUsers.has(memberId) && (
-                          <span
-                            className="absolute right-0 bottom-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
-                            aria-label={`${name} is online`}
-                          />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <Text size="sm" weight="medium">
-                          {name}
-                          {isMe && (
-                            <Text as="span" variant="muted" size="xs">
-                              {' '}
-                              (you)
-                            </Text>
-                          )}
-                        </Text>
-                        {username && (
-                          <Text variant="muted" size="xs">
-                            @{username}
-                          </Text>
-                        )}
-                        {email && (
-                          <Text variant="muted" size="xs">
-                            {email}
-                          </Text>
-                        )}
-                      </div>
-                    </button>
-                    {isMemberAdmin && (
-                      <Badge variant="warning" size="sm" icon={<FontAwesomeIcon icon={faCrown} />}>
-                        Admin
-                      </Badge>
-                    )}
-                    {isAdmin && !isMe && !selectedTeam.isPersonal && (
-                      <Dropdown
-                        trigger={
-                          <Button variant="ghost" size="icon" aria-label="Member actions">
-                            <FontAwesomeIcon icon={faEllipsisV} className="text-xs" />
-                          </Button>
-                        }
-                        placement="bottom-end"
-                      >
-                        {!isMemberAdmin ? (
-                          <DropdownItem
-                            icon={<FontAwesomeIcon icon={faShield} />}
-                            onClick={() => {
-                              void teamApi
-                                .setMemberRole(selectedTeamId!, memberId, 'admin')
-                                .then(() => {
-                                  refetchTeams();
-                                  void fetchMembers(selectedTeamId);
-                                });
-                            }}
-                          >
-                            Make Admin
-                          </DropdownItem>
-                        ) : (
-                          <DropdownItem
-                            icon={<FontAwesomeIcon icon={faShield} />}
-                            onClick={() => {
-                              void teamApi
-                                .setMemberRole(selectedTeamId!, memberId, 'member')
-                                .then(() => {
-                                  refetchTeams();
-                                  void fetchMembers(selectedTeamId);
-                                });
-                            }}
-                          >
-                            Remove Admin
-                          </DropdownItem>
-                        )}
-                        <DropdownItem
-                          icon={<FontAwesomeIcon icon={faKey} />}
-                          onClick={() => setModal({ type: 'password', memberId })}
-                        >
-                          Set Password
-                        </DropdownItem>
-                        <DropdownSeparator />
-                        <DropdownItem
-                          icon={<FontAwesomeIcon icon={faUserMinus} />}
-                          variant="danger"
-                          onClick={() => setModal({ type: 'remove', memberId })}
-                        >
-                          Remove Member
-                        </DropdownItem>
-                      </Dropdown>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        </div>
-      )}
-
-      {/* Chart */}
-      {selectedTeam && !selectedTeam.isPersonal && (
-        <div className="overflow-hidden">
-          <div className="py-2">
-            <CardTitle>Chart</CardTitle>
-          </div>
-          <div className="overflow-x-auto">
-            <React.Suspense
-              fallback={
-                <div className="flex items-center justify-center p-8">
-                  <Spinner size="lg" label="Loading chart…" />
+            <TabsContent value="members">
+              <div className="py-1">
+                <div className="mb-3 flex items-center justify-between">
+                  <Text
+                    variant="muted"
+                    size="xs"
+                    weight="semibold"
+                    className="uppercase tracking-widest"
+                  >
+                    Members ({selectedTeam.members.length})
+                  </Text>
+                  {isAdmin && !selectedTeam.isPersonal && (
+                    <Button variant="link" size="sm" onClick={() => setModal('invite')}>
+                      <FontAwesomeIcon icon={faUserPlus} className="mr-1" />
+                      Invite
+                    </Button>
+                  )}
                 </div>
-              }
-            >
-              <TeamChart
-                teamName={selectedTeam.name}
-                members={selectedTeam.members.map((memberId) => {
-                  const m = membersById.get(memberId);
-                  return {
-                    id: memberId,
-                    name: m?.name ?? memberId,
-                    email: m?.email,
-                    isAdmin: selectedTeam.admins.includes(memberId),
-                  };
-                })}
-              />
-            </React.Suspense>
-          </div>
+                {membersLoading ? (
+                  <div className="flex justify-center py-6">
+                    <Spinner size="sm" label="Loading members…" />
+                  </div>
+                ) : null}
+                <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                  {!membersLoading &&
+                    selectedTeam.members.map((memberId) => {
+                      const m = membersById.get(memberId);
+                      const name = m?.name ?? memberId;
+                      const username = m?.username ?? null;
+                      const email = m?.email ?? '';
+                      const image = m?.image ?? null;
+                      const isMemberAdmin = selectedTeam.admins.includes(memberId);
+                      const isMe = memberId === userId;
+
+                      return (
+                        <li key={memberId} className="flex items-center gap-3 py-2.5">
+                          <Button
+                            variant="ghost"
+                            onClick={() =>
+                              navigate(username ? `/${username}` : `/app/profile/${memberId}`)
+                            }
+                            className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                            aria-label={`View ${name}'s profile`}
+                          >
+                            <div className="relative shrink-0">
+                              <UserAvatar name={name} size="sm" src={image} />
+                              {onlineUsers.has(memberId) && (
+                                <span
+                                  className="absolute right-0 bottom-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
+                                  aria-label={`${name} is online`}
+                                />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <Text size="sm" weight="medium">
+                                {name}
+                                {isMe && (
+                                  <Text as="span" variant="muted" size="xs">
+                                    {' '}
+                                    (you)
+                                  </Text>
+                                )}
+                              </Text>
+                              {username && (
+                                <Text variant="muted" size="xs">
+                                  @{username}
+                                </Text>
+                              )}
+                              {email && (
+                                <Text variant="muted" size="xs">
+                                  {email}
+                                </Text>
+                              )}
+                            </div>
+                          </Button>
+                          {isMemberAdmin && (
+                            <Badge
+                              variant="warning"
+                              size="sm"
+                              icon={<FontAwesomeIcon icon={faCrown} />}
+                            >
+                              Admin
+                            </Badge>
+                          )}
+                          {isAdmin && !isMe && !selectedTeam.isPersonal && (
+                            <Dropdown
+                              trigger={
+                                <Button variant="ghost" size="icon" aria-label="Member actions">
+                                  <FontAwesomeIcon icon={faEllipsisV} className="text-xs" />
+                                </Button>
+                              }
+                              placement="bottom-end"
+                            >
+                              {!isMemberAdmin ? (
+                                <DropdownItem
+                                  icon={<FontAwesomeIcon icon={faShield} />}
+                                  onClick={() => {
+                                    void teamApi
+                                      .setMemberRole(selectedTeamId!, memberId, 'admin')
+                                      .then(() => {
+                                        refetchTeams();
+                                        void fetchMembers(selectedTeamId);
+                                      });
+                                  }}
+                                >
+                                  Make Admin
+                                </DropdownItem>
+                              ) : (
+                                <DropdownItem
+                                  icon={<FontAwesomeIcon icon={faShield} />}
+                                  onClick={() => {
+                                    void teamApi
+                                      .setMemberRole(selectedTeamId!, memberId, 'member')
+                                      .then(() => {
+                                        refetchTeams();
+                                        void fetchMembers(selectedTeamId);
+                                      });
+                                  }}
+                                >
+                                  Remove Admin
+                                </DropdownItem>
+                              )}
+                              <DropdownItem
+                                icon={<FontAwesomeIcon icon={faKey} />}
+                                onClick={() => setModal({ type: 'password', memberId })}
+                              >
+                                Set Password
+                              </DropdownItem>
+                              <DropdownSeparator />
+                              <DropdownItem
+                                icon={<FontAwesomeIcon icon={faUserMinus} />}
+                                variant="danger"
+                                onClick={() => setModal({ type: 'remove', memberId })}
+                              >
+                                Remove Member
+                              </DropdownItem>
+                            </Dropdown>
+                          )}
+                        </li>
+                      );
+                    })}
+                </ul>
+              </div>
+            </TabsContent>
+
+            {!selectedTeam.isPersonal && isAdmin && (
+              <TabsContent value="timesheet">
+                <AdminTimesheetPanel
+                  members={members}
+                  selectedTeamId={selectedTeamId}
+                  teams={teams}
+                  initialMemberId={initialMemberId}
+                />
+              </TabsContent>
+            )}
+          </Tabs>
         </div>
       )}
 
@@ -523,6 +593,7 @@ export const TeamsPage: React.FC = () => {
             onClick={handleCreate}
             isLoading={createLoading}
             loadingText="Creating…"
+            disabled={!selectedOrgId}
           >
             Create
           </Button>

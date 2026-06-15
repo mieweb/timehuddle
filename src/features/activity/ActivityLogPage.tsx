@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { activityApi, type ActivityLogItem } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
+import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -185,6 +186,22 @@ export const ActivityLogPage: React.FC = () => {
       .catch(() => setError('Failed to load activity log.'))
       .finally(() => setLoading(false));
   }, [user]);
+
+  useRefresh(
+    React.useCallback(async () => {
+      if (!user) return;
+      setLoading(true);
+      try {
+        const { events, nextCursor: cursor } = await activityApi.getLog({ limit: 50 });
+        setItems(events);
+        setNextCursor(cursor);
+      } catch {
+        setError('Failed to load activity log.');
+      } finally {
+        setLoading(false);
+      }
+    }, [user]),
+  );
 
   const loadMore = useCallback(async () => {
     if (!nextCursor || loadingMore) return;

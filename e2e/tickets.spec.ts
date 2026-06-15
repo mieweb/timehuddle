@@ -81,33 +81,41 @@ test.describe('Tickets', () => {
   });
 
   test('create a ticket by pasting GitHub PR URL into title field', async ({ page }) => {
+    const issueUrl = 'https://github.com/microsoft/vscode/issues/1';
+    const mockTitle = 'E2E mock GitHub issue title';
+
+    // Avoid flaky CI failures from GitHub API rate limits / network
+    await page.route('**/repos/microsoft/vscode/issues/1', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ title: mockTitle }),
+      });
+    });
+
     await page.getByRole('button', { name: 'New Ticket' }).click();
 
     // Paste a well-known public GitHub issue URL into the title input
-    await pasteInto(page, 'Ticket title', 'https://github.com/microsoft/vscode/issues/1');
-
-    // Wait for the GitHub API fetch to resolve
-    await page.waitForTimeout(5000);
+    await pasteInto(page, 'Ticket title', issueUrl);
 
     const titleInput = page.getByPlaceholder('Ticket title');
-    const urlInput = page.getByPlaceholder('GitHub / Redmine URL (optional)');
+    const urlInput = page.getByPlaceholder('GitHub URL (optional)');
 
     // Title should be auto-populated (not the raw URL)
-    const titleValue = await titleInput.inputValue();
-    expect(titleValue.length).toBeGreaterThan(0);
-    expect(titleValue).not.toContain('github.com');
+    await expect(titleInput).toHaveValue(mockTitle, { timeout: 10000 });
+    await expect(titleInput).not.toHaveValue(/github\.com/);
 
     // URL field should hold the pasted URL
-    await expect(urlInput).toHaveValue('https://github.com/microsoft/vscode/issues/1');
+    await expect(urlInput).toHaveValue(issueUrl);
 
     // Create the ticket
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(1000);
 
-    await expect(page.getByText(titleValue).first()).toBeVisible();
+    await expect(page.getByText(mockTitle).first()).toBeVisible();
 
     // Cleanup
-    await deleteTicket(page, titleValue);
+    await deleteTicket(page, mockTitle);
   });
 
   // ── Edit ───────────────────────────────────────────────────────────────────
@@ -176,7 +184,7 @@ test.describe('Tickets', () => {
 
     // The status badge on the row should update
     const updatedRow = page.locator('li').filter({ hasText: 'Status test ticket' });
-    await expect(updatedRow.getByText('In Progress')).toBeVisible();
+    await expect(updatedRow.getByText('In Progress').first()).toBeVisible();
 
     // Cleanup
     await deleteTicket(page, 'Status test ticket');
@@ -214,8 +222,8 @@ test.describe('Tickets', () => {
     await page.getByRole('tab', { name: /Open/ }).click();
     await expect(page.getByText('Open filter ticket').first()).toBeVisible();
 
-    // "Done" tab — should NOT show it
-    await page.getByRole('tab', { name: /Done/ }).click();
+    // "Closed" tab — should NOT show it
+    await page.getByRole('tab', { name: /Closed/ }).click();
     await expect(page.getByText('Open filter ticket')).not.toBeVisible();
 
     // Back to "Open"
@@ -228,25 +236,72 @@ test.describe('Tickets', () => {
 
   // ── Ticket Details ─────────────────────────────────────────────────────────
 
-  test('view ticket details modal', async ({ page }) => {
+  test('view ticket details page', async ({ page }) => {
     // Create a ticket
     await page.getByRole('button', { name: 'New Ticket' }).click();
     await page.getByPlaceholder('Ticket title').fill('Details modal ticket');
     await page.getByRole('button', { name: 'Create Ticket' }).click();
     await page.waitForTimeout(1000);
 
-    // Open 3-dot menu → Ticket Details
-    await openTicketMenu(page, 'Details modal ticket');
-    await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
-    await page.waitForTimeout(400);
+    // Click the ticket title to navigate to the detail page
+    await page.getByRole('button', { name: 'Details modal ticket' }).first().click();
+    await page.waitForTimeout(600);
 
-    // Details modal should show the ticket title
-    await expect(page.locator('[role="dialog"]').getByText('Details modal ticket')).toBeVisible();
+    // Detail page should show the ticket title as a heading
+    await expect(page.getByRole('heading', { name: 'Details modal ticket' })).toBeVisible();
 
-    await page.locator('[role="dialog"]').getByText('Close').click();
+    // Navigate back
+    await page.getByRole('button', { name: 'Back to tickets' }).click();
     await page.waitForTimeout(300);
 
     // Cleanup
     await deleteTicket(page, 'Details modal ticket');
+  });
+
+  // ── Command Palette ──────────────────────────────────────────────────────────
+
+  test('create a ticket via command palette with GitHub URL', async ({ page }) => {
+    const issueUrl = 'https://github.com/microsoft/vscode/issues/1';
+    const mockTitle = 'E2E Command Palette GitHub Issue';
+    const mockBody = 'This is the issue description from GitHub.';
+
+    // Mock the GitHub API
+    await page.route('**/repos/microsoft/vscode/issues/1', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ title: mockTitle, body: mockBody }),
+      });
+    });
+
+    // Open command palette with Cmd+K (Mac) or Ctrl+K (Windows/Linux)
+    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await page.keyboard.press(`${modifier}+k`);
+
+    // Command palette should be visible
+    const paletteInput = page.getByPlaceholder('Type a command, search, or paste a GitHub URL...');
+    await expect(paletteInput).toBeVisible({ timeout: 5000 });
+
+    // Paste the GitHub URL
+    await paletteInput.fill(issueUrl);
+
+    // Wait for the green preview panel to appear with the title
+    await expect(page.getByText('GitHub issue identified')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(mockTitle)).toBeVisible();
+
+    // Description preview should be visible
+    await expect(page.getByText(mockBody, { exact: false })).toBeVisible();
+
+    // Press Enter to create the ticket
+    await page.keyboard.press('Enter');
+
+    // Should navigate to tickets page
+    await page.waitForURL('**/tickets', { timeout: 10000 });
+
+    // The ticket should appear in the list
+    await expect(page.getByText(mockTitle).first()).toBeVisible({ timeout: 10000 });
+
+    // Cleanup
+    await deleteTicket(page, mockTitle);
   });
 });

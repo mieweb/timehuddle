@@ -1,5 +1,5 @@
 import { ObjectId } from "mongodb";
-import { usersCollection } from "../models/index.js";
+import { teamsCollection, usersCollection } from "../models/index.js";
 
 // ─── Username policy ──────────────────────────────────────────────────────────
 
@@ -45,6 +45,11 @@ export type UsernameValidationError =
   | "blocked"
   | "taken";
 
+export type UpdateProfileError =
+  | "reports-to-self"
+  | "reports-to-not-found"
+  | "reports-to-not-teammate";
+
 /** Validate username format and policy (does not check DB uniqueness). */
 export function validateUsernameFormat(username: string): UsernameValidationError | null {
   if (username.length < 3) return "too-short";
@@ -80,13 +85,35 @@ export class UserService {
 
   async updateProfile(
     id: string,
-    data: { name?: string; image?: string | null; bio?: string; website?: string }
-  ) {
+    data: {
+      name?: string;
+      image?: string | null;
+      bio?: string;
+      website?: string;
+      reportsToUserId?: string | null;
+    }
+  ): Promise<Awaited<ReturnType<typeof this.findById>> | UpdateProfileError> {
+    if (data.reportsToUserId !== undefined) {
+      if (data.reportsToUserId === id) return "reports-to-self";
+
+      if (data.reportsToUserId !== null) {
+        const reportsToUser = await this.findById(data.reportsToUserId);
+        if (!reportsToUser) return "reports-to-not-found";
+
+        const sharedTeam = await teamsCollection().findOne({
+          members: { $all: [id, data.reportsToUserId] },
+          isPersonal: { $ne: true },
+        });
+        if (!sharedTeam) return "reports-to-not-teammate";
+      }
+    }
+
     const $set: Record<string, unknown> = { updatedAt: new Date() };
     if (data.name !== undefined) $set.name = data.name;
     if (data.image !== undefined) $set.image = data.image;
     if (data.bio !== undefined) $set.bio = data.bio;
     if (data.website !== undefined) $set.website = data.website;
+    if (data.reportsToUserId !== undefined) $set.reportsToUserId = data.reportsToUserId;
     await usersCollection().updateOne({ _id: new ObjectId(id) }, { $set });
     return this.findById(id);
   }

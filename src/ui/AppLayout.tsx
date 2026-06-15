@@ -12,7 +12,7 @@
  *
  * SidebarContext owns expand/collapse + mobile drawer state.
  */
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -25,21 +25,31 @@ import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
-import { PulsePage } from '../features/tickets/PulsePage';
+import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
+import { MediaPage } from '../features/media/MediaPage';
+import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
+import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
+import { OrganizationPage } from '../features/org/OrganizationPage';
+import { EnterprisePage } from '../features/enterprise/EnterprisePage';
 import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
-import { TeamProvider } from '../lib/TeamContext';
+import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
+import { useSession } from '../lib/useSession';
+import { RefreshProvider } from '../lib/RefreshContext';
+import { ShiftReminderProvider } from '../features/notifications/ShiftReminderContext';
+import { FeedbackModal } from '../features/feedback/FeedbackModal';
+import { ReportIssueModal } from '../features/feedback/ReportIssueModal';
 import { AppHeader } from './AppHeader';
 import { BottomNav } from './BottomNav';
+import { CommandPalette } from './CommandPalette';
+import { PullToRefresh } from './PullToRefresh';
 import { RouterContext } from './router';
 import { SettingsPage } from './SettingsPage';
 import { Sidebar } from './Sidebar';
 
 // ─── Router ───────────────────────────────────────────────────────────────────
-// RouterCtx, RouterContext and useRouter are defined in ./router.ts
-// Re-exported here so existing imports from AppLayout continue to work.
 export type { RouterCtx } from './router';
 export { RouterContext, useRouter } from './router';
 
@@ -51,22 +61,29 @@ interface RouteConfig {
 }
 
 const ROUTES: Record<string, RouteConfig> = {
-  '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
+  '/app/admin/organization': { title: 'Organization Admin', component: OrganizationOverviewPage },
+
+  '/app/activity': { title: 'Activity Log', component: ActivityLogPage },
   '/app/clock': { title: 'Clock In/Out', component: ClockPage },
-  '/app/tickets': { title: 'Tickets', component: TicketsPage },
-  '/app/pulse': { title: 'Pulse', component: PulsePage },
-  '/app/work': { title: 'Work', component: WorkPage },
-  '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
-  '/app/teams': { title: 'Teams', component: TeamsPage },
+  '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
-  '/app/activity': { title: 'Activity Log', component: ActivityLogPage },
+  '/app/enterprise': { title: 'Enterprise', component: EnterprisePage },
+  '/app/organization': { title: 'Organization', component: OrganizationPage },
+  '/app/media': { title: 'Media Library', component: MediaPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
+  '/app/teams': { title: 'Teams', component: TeamsPage },
+  '/app/tickets': { title: 'Tickets', component: TicketsPage },
+  '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
+  '/app/work': { title: 'Work', component: WorkPage },
+
+  '/org/members': { title: 'Members', component: OrganizationMembersPage },
 };
 
 function match(pathname: string): RouteConfig | null {
-  if (pathname.startsWith('/app/profile/')) return null; // parameterized — rendered separately
-  if (/^\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/.test(pathname)) return null; // /:username — rendered separately
+  if (pathname.startsWith('/app/profile/')) return null;
+  if (pathname.startsWith('/app/tickets/')) return null;
+  if (/^\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/.test(pathname)) return null;
   return ROUTES[pathname] ?? ROUTES['/app/dashboard'];
 }
 
@@ -90,20 +107,33 @@ export const SidebarContext = createContext<SidebarCtx>({
 
 export const useSidebar = () => useContext(SidebarContext);
 
-// ─── Messages active-chat context ─────────────────────────────────────────────
-// MessagesPage calls setHasActiveChat(true/false) so AppLayout knows whether
-// a channel/DM is open — hiding BottomNav only while chatting.
 export const MessagesActiveChatContext = createContext<{
   setHasActiveChat: (v: boolean) => void;
 }>({ setHasActiveChat: () => {} });
 
-// ─── AppLayout ────────────────────────────────────────────────────────────────
+export const AppFeedbackContext = createContext<{
+  openReportIssue: () => void;
+  openFeedback: () => void;
+}>({ openReportIssue: () => {}, openFeedback: () => {} });
 
-export const AppLayout: React.FC = () => {
-  // Apply the saved brand/color theme on every mount, not just on SettingsPage
+export const useAppFeedback = () => useContext(AppFeedbackContext);
+
+// ─── Foreground notification banner type ─────────────────────────────────────
+
+interface ForegroundNotif {
+  title: string;
+  body: string;
+  data: Record<string, string>;
+}
+
+// ─── AppLayout Content ────────────────────────────────────────────────────────
+
+const AppLayoutContent: React.FC = () => {
+  const { refetch: refetchSession } = useSession();
+  const { refetchTeams, refetchClock } = useTeam();
+
   useBrand();
-  // ── Routing ──
-  // Normalize legacy /app root to /app/todos so the sidebar item is always active
+
   const normalizePath = (p: string) => (p === '/app' ? '/app/dashboard' : p);
 
   const [pathname, setPathname] = useState(() => {
@@ -115,22 +145,25 @@ export const AppLayout: React.FC = () => {
 
   const navigate = useCallback((path: string) => {
     window.history.pushState(null, '', path);
-    setPathname(path);
+    setPathname(path.split('?')[0]);
+    window.dispatchEvent(new CustomEvent('timehuddle:navigate', { detail: { path } }));
   }, []);
 
-  // Keep in sync with browser back/forward
   useEffect(() => {
     const onPop = () => setPathname(normalizePath(window.location.pathname));
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  // Native push notification tap → navigate to the relevant page
+  const mainRef = useRef<HTMLElement>(null);
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    let handle: { remove: () => void } | null = null;
-    PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-      const data = (action.notification.data ?? {}) as Record<string, string>;
+    mainRef.current?.scrollTo({ top: 0 });
+  }, [pathname]);
+
+  // ── Shared notification data handler ──────────────────────────────────────
+  const handleNotificationData = useCallback(
+    (data: Record<string, string>) => {
+      console.log('[handleNotificationData] received:', JSON.stringify(data));
       if (data.type === 'message' && data.teamId && data.adminId && data.memberId) {
         try {
           sessionStorage.setItem(
@@ -146,41 +179,112 @@ export const AppLayout: React.FC = () => {
           }),
         );
         navigate('/app/messages');
+      } else if (data.type === 'shift-end-reminder') {
+        window.dispatchEvent(
+          new CustomEvent('timehuddle:openShiftReminder', {
+            detail: { clockEventId: data.clockEventId, teamId: data.teamId },
+          }),
+        );
       } else if (data.url) {
         const safePath = data.url.split('?')[0];
+        console.log('[handleNotificationData] safePath:', safePath);
         if (safePath.startsWith('/app/')) {
-          navigate(safePath);
+          console.log('[handleNotificationData] calling navigate:', data.url);
+          navigate(data.url);
         }
       }
+    },
+    [navigate],
+  );
+
+  // ── Foreground in-app notification banner state ───────────────────────────
+  const [foregroundNotif, setForegroundNotif] = useState<ForegroundNotif | null>(null);
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Native push listeners (single combined effect) ────────────────────────
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const handles: { remove: () => void }[] = [];
+
+    // Check for notification tap that happened before JS bridge was ready (background/cold start)
+    try {
+      const raw = window.localStorage.getItem('pendingPushNotification');
+      if (raw) {
+        const data = JSON.parse(raw) as Record<string, string>;
+        console.log('[PendingPush] found:', JSON.stringify(data));
+        window.localStorage.removeItem('pendingPushNotification');
+        handleNotificationData(data);
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // Background/closed tap → navigate directly
+    PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+      console.log('[ActionPerformed] data:', JSON.stringify(action.notification.data));
+      handleNotificationData((action.notification.data ?? {}) as Record<string, string>);
     })
-      .then((h) => {
-        handle = h;
-      })
-      .catch(() => {
-        /* PushNotifications unavailable */
-      });
+      .then((h) => handles.push(h))
+      .catch(() => {});
+
+    // Foreground push → iOS shows native banner via AppDelegate willPresent
+    // Tap is handled by pushNotificationActionPerformed above
+    PushNotifications.addListener('pushNotificationReceived', (_notification) => {
+      // intentionally empty — iOS handles the banner natively
+    })
+      .then((h) => handles.push(h))
+      .catch(() => {});
+
     return () => {
-      handle?.remove();
+      handles.forEach((h) => h.remove());
     };
+  }, [handleNotificationData]);
+
+  // ── Web push: service worker message handler ──────────────────────────────
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'timehuddle:openShiftReminder') {
+        window.dispatchEvent(
+          new CustomEvent('timehuddle:openShiftReminder', { detail: event.data }),
+        );
+      }
+      // Foreground web push tap — sw.js posts this instead of doing a hard navigate
+      if (event.data?.type === 'timehuddle:navigate' && event.data?.url) {
+        navigate(event.data.url);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', handler);
+    return () => navigator.serviceWorker.removeEventListener('message', handler);
   }, [navigate]);
 
-  // Parameterized profile route — /app/profile/:userId
+  // ── Parameterized routes ──────────────────────────────────────────────────
   const profileUserId = pathname.startsWith('/app/profile/')
     ? pathname.slice('/app/profile/'.length)
     : null;
 
-  // Public profile route — /:username
+  const ticketDetailId =
+    !profileUserId && pathname.startsWith('/app/tickets/')
+      ? pathname.slice('/app/tickets/'.length)
+      : null;
+
   const profileUsername =
     !profileUserId && /^\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/.test(pathname)
       ? pathname.slice(1)
       : null;
 
-  const route = profileUserId || profileUsername ? null : match(pathname);
-  const pageTitle = profileUserId || profileUsername ? 'Profile' : (route?.title ?? 'App');
+  const route = profileUserId || profileUsername || ticketDetailId ? null : match(pathname);
+  const pageTitle =
+    profileUserId || profileUsername
+      ? 'Profile'
+      : ticketDetailId
+        ? 'Ticket'
+        : (route?.title ?? 'App');
   const isMessagesPage = pathname === '/app/messages';
 
-  // ── Messages active-chat state (set by MessagesPage via context) ──
   const [messagesHasActiveChat, setMessagesHasActiveChat] = useState(false);
+  const [reportIssueOpen, setReportIssueOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   // ── Sidebar ──
   const [isExpanded, setIsExpanded] = useState(() => {
@@ -210,46 +314,118 @@ export const AppLayout: React.FC = () => {
 
   return (
     <RouterContext.Provider value={{ pathname, navigate }}>
-      <TeamProvider>
-        <MessagesActiveChatContext.Provider value={{ setHasActiveChat: setMessagesHasActiveChat }}>
-          <SidebarContext.Provider
-            value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+      <RefreshProvider globalRefreshHandlers={[refetchSession, refetchTeams, refetchClock]}>
+        <CommandPalette />
+        <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
+        <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+        <ShiftReminderProvider>
+          <AppFeedbackContext.Provider
+            value={{
+              openReportIssue: () => setReportIssueOpen(true),
+              openFeedback: () => setFeedbackOpen(true),
+            }}
           >
-            <div className="flex h-screen overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-              {/* Mobile backdrop — rendered via portal to escape overflow-hidden */}
-              {isMobileOpen &&
-                createPortal(
-                  <div
-                    className="fixed inset-0 z-[45] bg-black/50 backdrop-blur-sm md:hidden"
-                    onClick={closeMobile}
-                    aria-hidden
-                  />,
-                  document.body,
-                )}
+            <MessagesActiveChatContext.Provider
+              value={{ setHasActiveChat: setMessagesHasActiveChat }}
+            >
+              <SidebarContext.Provider
+                value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+              >
+                <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+                  {/* Mobile backdrop */}
+                  {isMobileOpen &&
+                    createPortal(
+                      <div
+                        className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
+                        onClick={closeMobile}
+                        aria-hidden
+                      />,
+                      document.body,
+                    )}
 
-              <Sidebar />
+                  {/* Foreground push notification banner (native iOS/Android) */}
+                  {foregroundNotif &&
+                    createPortal(
+                      <div
+                        onClick={() => {
+                          handleNotificationData(foregroundNotif.data);
+                          console.log(
+                            '[Banner] tapped, data:',
+                            JSON.stringify(foregroundNotif.data),
+                          );
+                          setForegroundNotif(null);
+                          if (dismissTimer.current) clearTimeout(dismissTimer.current);
+                        }}
+                        className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm
+                                   bg-neutral-900 dark:bg-neutral-800 text-white rounded-2xl
+                                   shadow-xl px-4 py-3 cursor-pointer flex flex-col gap-0.5
+                                   border border-white/10"
+                        role="alert"
+                      >
+                        <span className="font-semibold text-sm leading-tight">
+                          {foregroundNotif.title}
+                        </span>
+                        <span className="text-xs text-neutral-300 leading-snug">
+                          {foregroundNotif.body}
+                        </span>
+                      </div>,
+                      document.body,
+                    )}
 
-              {/* Content column */}
-              <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                <AppHeader title={pageTitle} />
-                <main
-                  className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'pb-20'}` : 'pb-20'} md:pb-0`}
-                >
-                  {profileUserId ? (
-                    <ProfilePage userId={profileUserId} />
-                  ) : profileUsername ? (
-                    <ProfilePage username={profileUsername} />
-                  ) : (
-                    route && React.createElement(route.component)
-                  )}
-                </main>
-              </div>
+                  <Sidebar />
 
-              {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
-            </div>
-          </SidebarContext.Provider>
-        </MessagesActiveChatContext.Provider>
-      </TeamProvider>
+                  {/* Content column */}
+                  <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                    <AppHeader title={pageTitle} />
+                    <main
+                      ref={mainRef}
+                      className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'app-main-scroll'}` : 'app-main-scroll'} md:pb-0`}
+                    >
+                      <PullToRefresh>
+                        <div
+                          className={
+                            !profileUserId &&
+                            !profileUsername &&
+                            !ticketDetailId &&
+                            pathname === '/app/tickets'
+                              ? 'h-full w-full flex flex-col'
+                              : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
+                          }
+                        >
+                          <TicketsPage />
+                        </div>
+                        {profileUserId ? (
+                          <ProfilePage userId={profileUserId} />
+                        ) : profileUsername ? (
+                          <ProfilePage username={profileUsername} />
+                        ) : ticketDetailId ? (
+                          <TicketDetailPage ticketId={ticketDetailId} />
+                        ) : (
+                          route &&
+                          route.component !== TicketsPage &&
+                          React.createElement(route.component)
+                        )}
+                      </PullToRefresh>
+                    </main>
+                  </div>
+
+                  {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
+                </div>
+              </SidebarContext.Provider>
+            </MessagesActiveChatContext.Provider>
+          </AppFeedbackContext.Provider>
+        </ShiftReminderProvider>
+      </RefreshProvider>
     </RouterContext.Provider>
+  );
+};
+
+// ─── AppLayout (Team wrapper) ─────────────────────────────────────────────────
+
+export const AppLayout: React.FC = () => {
+  return (
+    <TeamProvider>
+      <AppLayoutContent />
+    </TeamProvider>
   );
 };

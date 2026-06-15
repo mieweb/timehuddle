@@ -24,15 +24,31 @@ import { auth } from "../src/lib/auth.js";
 const OWNER = { name: "Ticket Owner", email: "ticket-owner@test.dev", password: "Password1!" };
 const MEMBER = { name: "Team Member", email: "ticket-member@test.dev", password: "Password1!" };
 const OUTSIDER = { name: "Outsider", email: "ticket-outsider@test.dev", password: "Password1!" };
+const ORG_ADMIN = {
+  name: "Org Admin",
+  email: "ticket-org-admin@test.dev",
+  password: "Password1!",
+};
+const ENTERPRISE_ADMIN = {
+  name: "Enterprise Admin",
+  email: "ticket-enterprise-admin@test.dev",
+  password: "Password1!",
+};
 
 let app: FastifyInstance;
 let ownerCookie: string;
 let memberCookie: string;
 let outsiderCookie: string;
+let orgAdminCookie: string;
+let enterpriseAdminCookie: string;
 let ownerId: string;
 let memberId: string;
 let outsiderId: string;
+let orgAdminId: string;
+let enterpriseAdminId: string;
 let teamId: string;
+let orgId: string;
+let enterpriseId: string;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -67,21 +83,69 @@ beforeAll(async () => {
   const db = client.db();
 
   // Clean up any fixtures left from previous runs
-  await Promise.all([purgeUser(OWNER.email), purgeUser(MEMBER.email), purgeUser(OUTSIDER.email)]);
+  await Promise.all([
+    purgeUser(OWNER.email),
+    purgeUser(MEMBER.email),
+    purgeUser(OUTSIDER.email),
+    purgeUser(ORG_ADMIN.email),
+    purgeUser(ENTERPRISE_ADMIN.email),
+  ]);
 
   // Create users via auth API
   await auth.api.signUpEmail({ body: OWNER });
   await auth.api.signUpEmail({ body: MEMBER });
   await auth.api.signUpEmail({ body: OUTSIDER });
+  await auth.api.signUpEmail({ body: ORG_ADMIN });
+  await auth.api.signUpEmail({ body: ENTERPRISE_ADMIN });
 
   // Fetch their IDs
   ownerId = String((await db.collection("user").findOne({ email: OWNER.email }))!._id);
   memberId = String((await db.collection("user").findOne({ email: MEMBER.email }))!._id);
   outsiderId = String((await db.collection("user").findOne({ email: OUTSIDER.email }))!._id);
+  orgAdminId = String((await db.collection("user").findOne({ email: ORG_ADMIN.email }))!._id);
+  enterpriseAdminId = String(
+    (await db.collection("user").findOne({ email: ENTERPRISE_ADMIN.email }))!._id
+  );
+
+  const enterpriseDoc = {
+    _id: new ObjectId(),
+    name: "Tickets Test Enterprise",
+    slug: `tickets-test-enterprise-${Date.now()}`,
+    owners: [],
+    admins: [enterpriseAdminId],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  await db.collection("enterprises").insertOne(enterpriseDoc);
+  enterpriseId = enterpriseDoc._id.toHexString();
+
+  const orgDoc = {
+    _id: new ObjectId(),
+    enterpriseId,
+    name: "Tickets Test Org",
+    slug: `tickets-test-org-${Date.now()}`,
+    key: `tickets-test-org-${Date.now()}`,
+    owners: [],
+    admins: [orgAdminId],
+    createdAt: new Date(),
+  };
+  await db.collection("organizations").insertOne(orgDoc);
+  orgId = orgDoc._id.toHexString();
+
+  await db.collection("org_members").insertOne({
+    _id: new ObjectId(),
+    orgId,
+    userId: orgAdminId,
+    role: "admin",
+    auto: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
 
   // Create a test team in timecore's teams collection
   const teamDoc = {
     _id: new ObjectId(),
+    orgId,
     name: "Test Team",
     members: [ownerId, memberId],
     admins: [ownerId],
@@ -95,6 +159,8 @@ beforeAll(async () => {
   ownerCookie = await getSessionCookie(OWNER.email, OWNER.password);
   memberCookie = await getSessionCookie(MEMBER.email, MEMBER.password);
   outsiderCookie = await getSessionCookie(OUTSIDER.email, OUTSIDER.password);
+  orgAdminCookie = await getSessionCookie(ORG_ADMIN.email, ORG_ADMIN.password);
+  enterpriseAdminCookie = await getSessionCookie(ENTERPRISE_ADMIN.email, ENTERPRISE_ADMIN.password);
 }, 20000);
 
 afterAll(async () => {
@@ -103,7 +169,20 @@ afterAll(async () => {
   await db.collection("activities").deleteMany({ teamId });
   await db.collection("tickets").deleteMany({ teamId });
   await db.collection("teams").deleteOne({ _id: new ObjectId(teamId) });
-  await Promise.all([purgeUser(OWNER.email), purgeUser(MEMBER.email), purgeUser(OUTSIDER.email)]);
+  if (orgId) {
+    await db.collection("org_members").deleteMany({ orgId });
+    await db.collection("organizations").deleteOne({ _id: new ObjectId(orgId) });
+  }
+  if (enterpriseId) {
+    await db.collection("enterprises").deleteOne({ _id: new ObjectId(enterpriseId) });
+  }
+  await Promise.all([
+    purgeUser(OWNER.email),
+    purgeUser(MEMBER.email),
+    purgeUser(OUTSIDER.email),
+    purgeUser(ORG_ADMIN.email),
+    purgeUser(ENTERPRISE_ADMIN.email),
+  ]);
   await app.close();
 });
 
@@ -128,6 +207,16 @@ describe("auth gate", () => {
 // ─── Create ───────────────────────────────────────────────────────────────────
 
 describe("POST /v1/tickets", () => {
+  it("rejects missing teamId — 400", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/tickets",
+      headers: { cookie: ownerCookie },
+      payload: { title: "Missing team" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("creates a ticket as a team member — 201", async () => {
     const res = await app.inject({
       method: "POST",
@@ -141,7 +230,7 @@ describe("POST /v1/tickets", () => {
     expect(ticket.title).toBe("My first ticket");
     expect(ticket.status).toBe("open");
     expect(ticket.createdBy).toBe(ownerId);
-    expect(ticket.assignedTo).toBe(ownerId);
+    expect(ticket.assignedTo).toEqual([ownerId]);
     expect(ticket.teamId).toBe(teamId);
     // Timer fields must NOT be present on ticket
     expect(ticket.accumulatedTime).toBeUndefined();
@@ -251,14 +340,15 @@ describe("PUT /v1/tickets/:id", () => {
     expect(res.json().ticket.title).toBe("Updated title");
   });
 
-  it("another team member cannot update — 403", async () => {
+  it("another team member can update — 200", async () => {
     const res = await app.inject({
       method: "PUT",
       url: `/v1/tickets/${ticketId}`,
       headers: { cookie: memberCookie },
       payload: { title: "Hijack" },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ticket.title).toBe("Hijack");
   });
 
   it("returns 404 for unknown id", async () => {
@@ -360,14 +450,15 @@ describe("POST /v1/tickets/batch-status", () => {
     expect(ticket?.reviewedAt).toBeDefined();
   });
 
-  it("non-admin member cannot batch-update — 403", async () => {
+  it("same-team member can batch-update — 200", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/v1/tickets/batch-status",
       headers: { cookie: memberCookie },
       payload: { ticketIds: [id1], status: "open", teamId },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().modified).toBe(1);
   });
 
   it("outsider cannot batch-update — 403", async () => {
@@ -401,10 +492,10 @@ describe("PUT /v1/tickets/:id/assign", () => {
       method: "PUT",
       url: `/v1/tickets/${ticketId}/assign`,
       headers: { cookie: ownerCookie },
-      payload: { assignedToUserId: memberId },
+      payload: { assignedToUserIds: [memberId] },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().ticket.assignedTo).toBe(memberId);
+    expect(res.json().ticket.assignedTo).toEqual([memberId]);
   });
 
   it("admin can unassign (null) — 200", async () => {
@@ -412,10 +503,10 @@ describe("PUT /v1/tickets/:id/assign", () => {
       method: "PUT",
       url: `/v1/tickets/${ticketId}/assign`,
       headers: { cookie: ownerCookie },
-      payload: { assignedToUserId: null },
+      payload: { assignedToUserIds: [] },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().ticket.assignedTo).toBeNull();
+    expect(res.json().ticket.assignedTo).toEqual([]);
   });
 
   it("assigning to outsider (not in team) — 422", async () => {
@@ -423,19 +514,133 @@ describe("PUT /v1/tickets/:id/assign", () => {
       method: "PUT",
       url: `/v1/tickets/${ticketId}/assign`,
       headers: { cookie: ownerCookie },
-      payload: { assignedToUserId: outsiderId },
+      payload: { assignedToUserIds: [outsiderId] },
     });
     expect(res.statusCode).toBe(422);
   });
 
-  it("non-admin member cannot assign — 403", async () => {
+  it("same-team member can assign — 200", async () => {
     const res = await app.inject({
       method: "PUT",
       url: `/v1/tickets/${ticketId}/assign`,
       headers: { cookie: memberCookie },
-      payload: { assignedToUserId: memberId },
+      payload: { assignedToUserIds: [memberId] },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ticket.assignedTo).toEqual([memberId]);
+  });
+});
+
+describe("org admin outside team", () => {
+  it("can list team tickets — 200", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/tickets?teamId=${teamId}`,
+      headers: { cookie: orgAdminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("can update ticket fields — 200", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/v1/tickets",
+      headers: { cookie: ownerCookie },
+      payload: { teamId, title: "Org admin update target" },
+    });
+    const ticketId = createRes.json().ticket.id as string;
+
+    const updateRes = await app.inject({
+      method: "PUT",
+      url: `/v1/tickets/${ticketId}`,
+      headers: { cookie: orgAdminCookie },
+      payload: { description: "Updated by org admin" },
+    });
+    expect(updateRes.statusCode).toBe(200);
+    expect(updateRes.json().ticket.description).toBe("Updated by org admin");
+  });
+
+  it("can assign and batch-status — 200", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/v1/tickets",
+      headers: { cookie: ownerCookie },
+      payload: { teamId, title: "Org admin ops target" },
+    });
+    const ticketId = createRes.json().ticket.id as string;
+
+    const assignRes = await app.inject({
+      method: "PUT",
+      url: `/v1/tickets/${ticketId}/assign`,
+      headers: { cookie: orgAdminCookie },
+      payload: { assignedToUserIds: [memberId] },
+    });
+    expect(assignRes.statusCode).toBe(200);
+
+    const batchRes = await app.inject({
+      method: "POST",
+      url: "/v1/tickets/batch-status",
+      headers: { cookie: orgAdminCookie },
+      payload: { ticketIds: [ticketId], status: "blocked", teamId },
+    });
+    expect(batchRes.statusCode).toBe(200);
+    expect(batchRes.json().modified).toBe(1);
+  });
+
+  it("can delete outside team — 200", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/v1/tickets",
+      headers: { cookie: ownerCookie },
+      payload: { teamId, title: "Org admin delete target" },
+    });
+    const ticketId = createRes.json().ticket.id as string;
+
+    const deleteRes = await app.inject({
+      method: "DELETE",
+      url: `/v1/tickets/${ticketId}`,
+      headers: { cookie: orgAdminCookie },
+    });
+    expect(deleteRes.statusCode).toBe(200);
+    expect(deleteRes.json().ok).toBe(true);
+  });
+});
+
+describe("enterprise admin outside org/team", () => {
+  it("can list team tickets — 200", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/tickets?teamId=${teamId}`,
+      headers: { cookie: enterpriseAdminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("can update and delete ticket fields — 200", async () => {
+    const createRes = await app.inject({
+      method: "POST",
+      url: "/v1/tickets",
+      headers: { cookie: ownerCookie },
+      payload: { teamId, title: "Enterprise admin target" },
+    });
+    const ticketId = createRes.json().ticket.id as string;
+
+    const updateRes = await app.inject({
+      method: "PUT",
+      url: `/v1/tickets/${ticketId}`,
+      headers: { cookie: enterpriseAdminCookie },
+      payload: { description: "Updated by enterprise admin" },
+    });
+    expect(updateRes.statusCode).toBe(200);
+    expect(updateRes.json().ticket.description).toBe("Updated by enterprise admin");
+
+    const deleteRes = await app.inject({
+      method: "DELETE",
+      url: `/v1/tickets/${ticketId}`,
+      headers: { cookie: enterpriseAdminCookie },
+    });
+    expect(deleteRes.statusCode).toBe(200);
+    expect(deleteRes.json().ok).toBe(true);
   });
 });
 
@@ -473,7 +678,7 @@ describe("ticket activity log emission", () => {
       method: "PUT",
       url: `/v1/tickets/${activityTicketId}/assign`,
       headers: { cookie: ownerCookie },
-      payload: { assignedToUserId: memberId },
+      payload: { assignedToUserIds: [memberId] },
     });
     expect(assignRes.statusCode).toBe(200);
 

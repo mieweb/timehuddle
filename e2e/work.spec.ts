@@ -12,21 +12,21 @@ async function login(page: import('@playwright/test').Page) {
   await page.waitForURL('**/dashboard', { timeout: 15000 });
 }
 
+async function authHeaders(page: import('@playwright/test').Page): Promise<Record<string, string>> {
+  const token = await page.evaluate(() => localStorage.getItem('timecore_session_token'));
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function ensureClockedOut(page: import('@playwright/test').Page) {
-  await page.goto('/app/clock');
+  const headers = await authHeaders(page);
+  const activeRes = await page.request.get('http://localhost:4000/v1/clock/active', { headers });
+  const { event } = (await activeRes.json()) as { event: { teamId: string } | null };
+  if (!event) return;
 
-  const clockInButton = page.getByRole('button', { name: 'Clock in' });
-  const clockOutButton = page.getByRole('button', { name: 'Clock out' });
-  await Promise.race([
-    clockInButton.waitFor({ state: 'visible', timeout: 10000 }),
-    clockOutButton.waitFor({ state: 'visible', timeout: 10000 }),
-  ]);
-
-  const isClockedIn = await clockOutButton.isVisible().catch(() => false);
-  if (!isClockedIn) return;
-
-  await clockOutButton.click();
-  await expect(clockInButton).toBeVisible({ timeout: 10000 });
+  await page.request.post('http://localhost:4000/v1/clock/stop', {
+    headers,
+    data: { teamId: event.teamId },
+  });
 }
 
 async function ensureNoRunningTimer(page: import('@playwright/test').Page) {

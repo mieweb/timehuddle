@@ -5,6 +5,8 @@ import { ObjectId } from "mongodb";
 
 export interface Team {
   _id: ObjectId;
+  orgId: string;
+  parentTeamId?: string | null;
   name: string;
   description?: string;
   members: string[]; // userId strings

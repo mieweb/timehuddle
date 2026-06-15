@@ -1,8 +1,9 @@
 import { ObjectId } from "mongodb";
 import { getDB } from "../lib/db.js";
-import { teamsCollection, usersCollection } from "../models/index.js";
+import { organizationsCollection, teamsCollection, usersCollection } from "../models/index.js";
 import type { Team } from "../models/team.model.js";
 import { channelService } from "./channel.service.js";
+import { orgService } from "./org.service.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -13,6 +14,8 @@ function generateTeamCode(): string {
 export function toPublicTeam(team: Team & { _id: ObjectId }) {
   return {
     id: team._id.toString(),
+    orgId: team.orgId,
+    parentTeamId: team.parentTeamId ?? null,
     name: team.name,
     description: team.description ?? null,
     members: team.members,
@@ -25,7 +28,13 @@ export function toPublicTeam(team: Team & { _id: ObjectId }) {
 }
 
 export type PublicTeam = ReturnType<typeof toPublicTeam>;
-export type TeamMember = { id: string; name: string; email: string; username: string | null };
+export type TeamMember = {
+  id: string;
+  name: string;
+  email: string;
+  username: string | null;
+  image: string | null;
+};
 
 // Discriminated error types
 export type TeamError =
@@ -36,6 +45,47 @@ export type TeamError =
   | "last-admin"
   | "user-not-found"
   | "cannot-remove-self";
+
+// ─── WebSocket Pub/Sub ────────────────────────────────────────────────────────
+
+type TeamListener = (userId: string, team: PublicTeam | null, action: "update" | "delete") => void;
+// Map by userId → Set of listeners (each user subscribes to their own teams)
+const teamListeners = new Map<string, Set<TeamListener>>();
+
+/** Subscribe to team updates for a specific user. Returns unsubscribe function. */
+export function subscribeToUser(userId: string, fn: TeamListener): () => void {
+  if (!teamListeners.has(userId)) {
+    teamListeners.set(userId, new Set());
+  }
+  teamListeners.get(userId)!.add(fn);
+  return () => {
+    const listeners = teamListeners.get(userId);
+    if (listeners) {
+      listeners.delete(fn);
+      if (listeners.size === 0) teamListeners.delete(userId);
+    }
+  };
+}
+
+/** Broadcast a team update to all members of the team. */
+function broadcastToTeamMembers(
+  team: (Team & { _id: ObjectId }) | null,
+  action: "update" | "delete"
+) {
+  if (!team) return;
+  const publicTeam = action === "update" ? toPublicTeam(team) : null;
+  const allMembers = Array.from(new Set([...team.members, ...team.admins]));
+
+  for (const userId of allMembers) {
+    const listeners = teamListeners.get(userId);
+    if (!listeners) continue;
+    for (const fn of listeners) {
+      fn(userId, publicTeam, action);
+    }
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 
 // ─── Service ─────────────────────────────────────────────────────────────────
 
@@ -54,9 +104,12 @@ export class TeamService {
     const existing = await teamsCollection().findOne({ isPersonal: true, members: userId });
     if (existing) return toPublicTeam(existing);
 
+    const defaultOrg = await orgService.ensureDefaultOrganization();
     const code = generateTeamCode();
     const doc: Team & { _id: ObjectId } = {
       _id: new ObjectId(),
+      orgId: defaultOrg._id.toHexString(),
+      parentTeamId: null,
       name: "Personal",
       members: [userId],
       admins: [userId],
@@ -66,17 +119,52 @@ export class TeamService {
     };
     await teamsCollection().insertOne(doc);
     channelService.ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
-    return toPublicTeam(doc);
+    const created = toPublicTeam(doc);
+    broadcastToTeamMembers(doc, "update");
+    return created;
   }
 
   /** Create a new named team with the caller as sole member + admin. */
   async createTeam(
     userId: string,
-    data: { name: string; description?: string }
+    data: { name: string; description?: string; orgId?: string; parentTeamId?: string | null }
   ): Promise<PublicTeam> {
+    const requestedOrgId = data.orgId;
+    const accessibleOrgIds = await orgService.getAccessibleOrgIds(userId);
+    let orgId = requestedOrgId ?? accessibleOrgIds[0] ?? null;
+
+    if (!orgId) {
+      const defaultOrg = await orgService.ensureDefaultOrganization();
+      await orgService.addOrgMember(defaultOrg._id.toHexString(), userId, "member", true);
+      orgId = defaultOrg._id.toHexString();
+    }
+
+    if (!accessibleOrgIds.includes(orgId)) {
+      const requestedMembership = await orgService.getOrgMembership(orgId, userId);
+      if (!requestedMembership) {
+        const joinAttempt = await orgService.joinOrg(userId, orgId);
+        if (joinAttempt === "not-found" || joinAttempt === "auto-join-disabled") {
+          const fallbackOrg = await orgService.ensureDefaultOrganization();
+          await orgService.addOrgMember(fallbackOrg._id.toHexString(), userId, "member", true);
+          orgId = fallbackOrg._id.toHexString();
+        }
+      }
+    }
+
     const code = generateTeamCode();
+    const parentTeamId = data.parentTeamId ?? null;
+
+    if (parentTeamId) {
+      const parent = await teamsCollection().findOne({ _id: new ObjectId(parentTeamId) });
+      if (!parent || parent.orgId !== orgId) {
+        throw new Error("Parent team must exist in the same organization");
+      }
+    }
+
     const doc: Team & { _id: ObjectId } = {
       _id: new ObjectId(),
+      orgId,
+      parentTeamId,
       name: data.name,
       description: data.description,
       members: [userId],
@@ -86,8 +174,11 @@ export class TeamService {
       createdAt: new Date(),
     };
     await teamsCollection().insertOne(doc);
+    await orgService.addOrgMember(orgId, userId, "member", true);
     channelService.ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
-    return toPublicTeam(doc);
+    const created = toPublicTeam(doc);
+    broadcastToTeamMembers(doc, "update");
+    return created;
   }
 
   /** Join an existing team by code. */
@@ -102,7 +193,15 @@ export class TeamService {
       { _id: team._id },
       { $addToSet: { members: userId }, $set: { updatedAt: new Date() } }
     );
+    const org =
+      team.orgId && /^[0-9a-f]{24}$/i.test(team.orgId)
+        ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
+        : null;
+    if (org?.allowAutoJoin !== false) {
+      await orgService.addOrgMember(team.orgId, userId, "member", true);
+    }
     const updated = await teamsCollection().findOne({ _id: team._id });
+    broadcastToTeamMembers(updated!, "update");
     return toPublicTeam(updated!);
   }
 
@@ -120,6 +219,7 @@ export class TeamService {
       { $set: { name: newName, updatedAt: new Date() } }
     );
     const updated = await teamsCollection().findOne({ _id: team._id });
+    broadcastToTeamMembers(updated!, "update");
     return toPublicTeam(updated!);
   }
 
@@ -128,6 +228,7 @@ export class TeamService {
     const team = await teamsCollection().findOne({ _id: new ObjectId(teamId) });
     if (!team) return "not-found";
     if (!team.admins.includes(adminId)) return "forbidden";
+    broadcastToTeamMembers(team, "delete");
     await teamsCollection().deleteOne({ _id: team._id });
     return "ok";
   }
@@ -146,7 +247,13 @@ export class TeamService {
 
     return allIds.map((id) => {
       const u = byId.get(id);
-      return { id, name: u?.name ?? id, email: u?.email ?? "", username: u?.username ?? null };
+      return {
+        id,
+        name: u?.name ?? id,
+        email: u?.email ?? "",
+        username: u?.username ?? null,
+        image: u?.image ?? null,
+      };
     });
   }
 
@@ -168,6 +275,15 @@ export class TeamService {
       { _id: team._id },
       { $addToSet: { members: invitedId }, $set: { updatedAt: new Date() } }
     );
+    const org =
+      team.orgId && /^[0-9a-f]{24}$/i.test(team.orgId)
+        ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
+        : null;
+    if (org?.allowAutoJoin !== false) {
+      await orgService.addOrgMember(team.orgId, invitedId, "member", true);
+    }
+    const updated = await teamsCollection().findOne({ _id: team._id });
+    broadcastToTeamMembers(updated!, "update");
     return "ok";
   }
 
@@ -194,6 +310,8 @@ export class TeamService {
         $set: { updatedAt: new Date() },
       }
     );
+    const updated = await teamsCollection().findOne({ _id: team._id });
+    broadcastToTeamMembers(updated!, "update");
     return "ok";
   }
 
@@ -222,6 +340,8 @@ export class TeamService {
         { $set: { admins: remaining, updatedAt: new Date() } }
       );
     }
+    const updated = await teamsCollection().findOne({ _id: team._id });
+    broadcastToTeamMembers(updated!, "update");
     return "ok";
   }
 
@@ -252,6 +372,23 @@ export class TeamService {
       );
     if (result.matchedCount === 0) return "not-found";
     return "ok";
+  }
+
+  async getSubTeams(
+    teamId: string,
+    userId: string
+  ): Promise<PublicTeam[] | "not-found" | "forbidden"> {
+    if (!/^[0-9a-f]{24}$/i.test(teamId)) return "not-found";
+    const parent = await teamsCollection().findOne({ _id: new ObjectId(teamId) });
+    if (!parent) return "not-found";
+    if (!parent.members.includes(userId) && !parent.admins.includes(userId)) return "forbidden";
+
+    const subTeams = await teamsCollection()
+      .find({ parentTeamId: teamId, orgId: parent.orgId })
+      .sort({ name: 1 })
+      .toArray();
+
+    return subTeams.map(toPublicTeam);
   }
 }
 

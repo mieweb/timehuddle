@@ -2,9 +2,11 @@
 # checks.sh — Run all CI checks locally (mirrors .github/workflows/checks.yml).
 #
 # Usage:
-#   ./scripts/checks.sh           # run all jobs
-#   ./scripts/checks.sh frontend  # run frontend job only
-#   ./scripts/checks.sh backend   # run backend job only
+#   ./scripts/checks.sh              # run all jobs
+#   ./scripts/checks.sh frontend     # run frontend job only
+#   ./scripts/checks.sh backend      # run backend job only
+#   ./scripts/checks.sh --fix        # auto-fix lint + format, then run all jobs
+#   ./scripts/checks.sh backend --fix  # auto-fix then run backend job only
 #
 # Requirements:
 #   - nvm (or the correct Node version already active)
@@ -13,6 +15,18 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+
+# Parse --fix flag from any argument position
+FIX=false
+ARGS=()
+for arg in "$@"; do
+  if [[ "$arg" == "--fix" ]]; then
+    FIX=true
+  else
+    ARGS+=("$arg")
+  fi
+done
+set -- "${ARGS[@]+${ARGS[@]}}"
 
 # Activate the pinned Node version if nvm is available
 # nvm is usually a shell function, so source it in non-interactive shells.
@@ -30,8 +44,13 @@ fi
 run_frontend() {
   echo ""
   echo "==> Frontend — lint, format, typecheck, test, build"
-  npm run lint
-  npm run format
+  if [[ "$FIX" == "true" ]]; then
+    npm run lint:fix
+    npm run format:fix
+  else
+    npm run lint
+    npm run format
+  fi
   npm run typecheck
   CI=1 npm test
   npm run build
@@ -59,8 +78,13 @@ run_backend() {
   check_mongo
   (
     cd backend
-    npm run lint
-    npm run format
+    if [[ "$FIX" == "true" ]]; then
+      npm run lint:fix
+      npm run format:fix
+    else
+      npm run lint
+      npm run format
+    fi
     npm run typecheck
     npm run build
     MONGODB_URI="${MONGODB_URI:-mongodb://localhost:27017/timehuddle_test}" \
@@ -79,6 +103,7 @@ run_playwright() {
 }
 
 JOB="${1:-all}"
+
 
 case "$JOB" in
   frontend)   run_frontend ;;

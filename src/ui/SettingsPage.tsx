@@ -8,13 +8,14 @@
  */
 import {
   faBell,
+  faBuilding,
   faGear,
   faInfo,
+  faKey,
   faPalette,
   faRotateLeft,
   faRightFromBracket,
   faUser,
-  faVideo,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -33,20 +34,31 @@ import {
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 import {
   checkPushNotificationStatus,
   isPushSupported,
+  isNativePushRegistered,
   subscribeToPush,
   unsubscribeFromPush,
 } from '../lib/nativePush';
-import { authApi, userApi, notificationApi } from '../lib/api';
+import { useRefresh } from '../lib/RefreshContext';
+import {
+  authApi,
+  userApi,
+  notificationApi,
+  teamApi,
+  tokenApi,
+  type PersonalAccessToken,
+} from '../lib/api';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
-import { PulseSetup } from '../features/tickets/PulseSetup';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
+import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { AppPage } from './AppPage';
+import { useRouter } from './router';
 
 // ─── Primitives ───────────────────────────────────────────────────────────────
 
@@ -57,18 +69,18 @@ const Section: React.FC<{
   children: React.ReactNode;
 }> = ({ icon, title, description, children }) => (
   <Card padding="none">
-    <CardHeader className="flex items-start gap-3 px-5 py-4">
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-        <FontAwesomeIcon icon={icon} className="text-sm" />
-      </div>
-      <div>
+    <CardHeader className="flex flex-col gap-0 px-5 py-4">
+      <div className="flex flex-row items-center gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+          <FontAwesomeIcon icon={icon} className="text-sm" />
+        </div>
         <CardTitle className="text-sm">{title}</CardTitle>
-        {description && (
-          <Text variant="muted" size="xs" className="mt-0.5">
-            {description}
-          </Text>
-        )}
       </div>
+      {description && (
+        <Text variant="muted" size="xs" className="pl-11">
+          {description}
+        </Text>
+      )}
     </CardHeader>
     <CardContent className="divide-y divide-neutral-100 p-0 dark:divide-neutral-800">
       {children}
@@ -136,14 +148,20 @@ const PushNotificationsSettings: React.FC = () => {
   const isNative = Capacitor.isNativePlatform();
   const [supported, setSupported] = useState(false);
   const [enabled, setEnabled] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [enableLoading, setEnableLoading] = useState(false);
+  const [disableLoading, setDisableLoading] = useState(false);
+  const [testLoading, setTestLoading] = useState(false);
   // VAPID check is only relevant on the web; always pass on native.
   const [serverHasVapid, setServerHasVapid] = useState<boolean | null>(isNative ? true : null);
 
   const refreshStatus = useCallback(async () => {
     if (isNative) {
-      // On native we don't have a synchronous way to check if we are subscribed
-      // without a stored token, so treat "supported" as the indicator.
+      try {
+        const { receive } = await PushNotifications.checkPermissions();
+        setEnabled(receive === 'granted' && isNativePushRegistered());
+      } catch {
+        setEnabled(false);
+      }
       return;
     }
     if (!isPushSupported()) {
@@ -168,7 +186,7 @@ const PushNotificationsSettings: React.FC = () => {
   }, [isNative, refreshStatus]);
 
   const handleEnable = async () => {
-    setLoading(true);
+    setEnableLoading(true);
     try {
       await subscribeToPush();
       if (!isNative) await refreshStatus();
@@ -190,13 +208,13 @@ const PushNotificationsSettings: React.FC = () => {
 
       window.alert(detail);
     } finally {
-      setLoading(false);
+      setEnableLoading(false);
     }
   };
 
   const handleDisable = async () => {
     if (!window.confirm('Are you sure you want to disable push notifications?')) return;
-    setLoading(true);
+    setDisableLoading(true);
     try {
       await unsubscribeFromPush();
       if (!isNative) await refreshStatus();
@@ -206,12 +224,12 @@ const PushNotificationsSettings: React.FC = () => {
     } catch {
       window.alert('Failed to disable notifications. Please try again.');
     } finally {
-      setLoading(false);
+      setDisableLoading(false);
     }
   };
 
   const handleTestPush = async () => {
-    setLoading(true);
+    setTestLoading(true);
     try {
       await notificationApi.testPush();
       const successMsg = isNative
@@ -222,7 +240,7 @@ const PushNotificationsSettings: React.FC = () => {
       const msg = err instanceof Error ? err.message : String(err);
       window.alert(`Failed to send test push: ${msg}`);
     } finally {
-      setLoading(false);
+      setTestLoading(false);
     }
   };
 
@@ -244,13 +262,13 @@ const PushNotificationsSettings: React.FC = () => {
           <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-900 dark:bg-green-950/40 dark:text-green-200">
             Notifications are enabled. You will receive alerts when team members clock in or out.
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
               onClick={handleTestPush}
-              disabled={loading}
-              isLoading={loading}
+              disabled={testLoading || disableLoading}
+              isLoading={testLoading}
             >
               Send test push
             </Button>
@@ -258,8 +276,8 @@ const PushNotificationsSettings: React.FC = () => {
               variant="outline"
               size="sm"
               onClick={handleDisable}
-              disabled={loading}
-              isLoading={loading}
+              disabled={testLoading || disableLoading}
+              isLoading={disableLoading}
             >
               Disable notifications
             </Button>
@@ -274,8 +292,8 @@ const PushNotificationsSettings: React.FC = () => {
             variant="primary"
             size="sm"
             onClick={handleEnable}
-            disabled={loading || serverHasVapid === false}
-            isLoading={loading}
+            disabled={enableLoading || serverHasVapid === false}
+            isLoading={enableLoading}
             leftIcon={<FontAwesomeIcon icon={faBell} className="text-xs" />}
           >
             Enable notifications
@@ -288,29 +306,96 @@ const PushNotificationsSettings: React.FC = () => {
 
 // ─── Profile editor ───────────────────────────────────────────────────────────
 
-const ProfileEditor: React.FC = () => {
-  const { user } = useSession();
+const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }) => {
+  const { user, refetch } = useSession();
   const [name, setName] = useState(user?.name ?? '');
   const [bio, setBio] = useState('');
   const [website, setWebsite] = useState('');
+  const [reportsToUserId, setReportsToUserId] = useState('');
+  const [reportsToOptions, setReportsToOptions] = useState<Array<{ value: string; label: string }>>(
+    [{ value: '', label: 'No manager or lead set' }],
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Load current profile values
   useEffect(() => {
     if (!user?.id) return;
-    userApi.getUser(user.id).then((p) => {
+    let cancelled = false;
+
+    void userApi.getUser(user.id).then((p) => {
+      if (cancelled) return;
       setName(p.name ?? '');
       setBio(p.bio ?? '');
       setWebsite(p.website ?? '');
+      setReportsToUserId(p.reportsTo?.id ?? '');
     });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, refreshTrigger]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const teams = await teamApi.getTeams();
+        const nonPersonalTeams = teams.filter((team) => !team.isPersonal);
+
+        if (nonPersonalTeams.length === 0) {
+          if (!cancelled) {
+            setReportsToOptions([{ value: '', label: 'No manager or lead set' }]);
+          }
+          return;
+        }
+
+        const memberLists = await Promise.all(
+          nonPersonalTeams.map((team) => teamApi.getMembers(team.id)),
+        );
+        const teammateOptions = new Map<string, { value: string; label: string }>();
+
+        memberLists.flat().forEach((member) => {
+          if (member.id === user.id) return;
+          teammateOptions.set(member.id, {
+            value: member.id,
+            label: member.name || member.email || member.username || member.id,
+          });
+        });
+
+        if (cancelled) return;
+
+        setReportsToOptions([
+          { value: '', label: 'No manager or lead set' },
+          ...Array.from(teammateOptions.values()).sort((left, right) =>
+            left.label.localeCompare(right.label),
+          ),
+        ]);
+      } catch {
+        if (!cancelled) {
+          setReportsToOptions([{ value: '', label: 'No manager or lead set' }]);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user?.id]);
 
   const handleSave = async () => {
     setBusy(true);
     setMessage(null);
     try {
-      await userApi.updateProfile({ name, bio, website });
+      await userApi.updateProfile({
+        name,
+        bio,
+        website,
+        reportsToUserId: reportsToUserId || null,
+      });
+      await refetch();
       setMessage({ ok: true, text: 'Profile saved.' });
     } catch (err: unknown) {
       setMessage({ ok: false, text: err instanceof Error ? err.message : 'Save failed.' });
@@ -344,7 +429,7 @@ const ProfileEditor: React.FC = () => {
         <Text size="xs" weight="medium" className="mb-1 block">
           Email
         </Text>
-        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-800">
+        <div className="flex min-h-9 items-center rounded-lg border border-neutral-200 bg-neutral-50 px-3 dark:border-neutral-700 dark:bg-neutral-800">
           <Text size="sm" variant="muted">
             {user?.email}
           </Text>
@@ -358,7 +443,7 @@ const ProfileEditor: React.FC = () => {
           <Text size="xs" weight="medium" className="mb-1 block">
             Username
           </Text>
-          <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-700 dark:bg-neutral-800">
+          <div className="flex min-h-9 items-center rounded-lg border border-neutral-200 bg-neutral-50 px-3 dark:border-neutral-700 dark:bg-neutral-800">
             <Text size="sm" variant="muted">
               @{user.username}
             </Text>
@@ -399,6 +484,23 @@ const ProfileEditor: React.FC = () => {
           error={websiteError}
         />
       </div>
+      <div>
+        <Text size="xs" weight="medium" className="mb-1 block">
+          Reports To
+        </Text>
+        <Select
+          label="Reports To"
+          hideLabel
+          size="sm"
+          value={reportsToUserId}
+          options={reportsToOptions}
+          onValueChange={setReportsToUserId}
+          aria-label="Select who you report to"
+        />
+        <Text variant="muted" size="xs" className="mt-1">
+          Choose the teammate who manages or leads your work.
+        </Text>
+      </div>
       {message && (
         <Text size="xs" variant={message.ok ? 'success' : 'destructive'}>
           {message.text}
@@ -420,10 +522,174 @@ const ProfileEditor: React.FC = () => {
 
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
+// ─── API Tokens Manager ───────────────────────────────────────────────────────
+
+const ApiTokensManager: React.FC = () => {
+  const [tokens, setTokens] = useState<PersonalAccessToken[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newTokenName, setNewTokenName] = useState('');
+  const [createdToken, setCreatedToken] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const list = await tokenApi.list();
+      setTokens(list);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load tokens');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const handleCreate = async () => {
+    const name = newTokenName.trim();
+    if (!name) return;
+    setCreating(true);
+    setError(null);
+    setCreatedToken(null);
+    try {
+      const result = await tokenApi.create(name);
+      setCreatedToken(result.token);
+      setNewTokenName('');
+      await load();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create token');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleRevoke = async (id: string) => {
+    try {
+      await tokenApi.revoke(id);
+      setTokens((prev) => prev.filter((t) => t._id !== id));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke token');
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!createdToken) return;
+    try {
+      await navigator.clipboard.writeText(createdToken);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Failed to copy — please copy the token manually.');
+    }
+  };
+
+  return (
+    <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+      {/* Create new token */}
+      <div className="flex flex-col gap-3 px-5 py-4">
+        <Text size="xs" weight="medium">
+          Generate new token
+        </Text>
+        <div className="flex gap-2">
+          <Input
+            placeholder="Token name (e.g. TimeHarbor)"
+            value={newTokenName}
+            onChange={(e) => setNewTokenName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleCreate();
+            }}
+            className="flex-1 text-sm h-8"
+            size="sm"
+          />
+          <Button
+            size="sm"
+            onClick={() => void handleCreate()}
+            disabled={!newTokenName.trim() || creating}
+            isLoading={creating}
+            loadingText="Creating…"
+            className="h-8"
+          >
+            Generate
+          </Button>
+        </div>
+        {error && (
+          <Text size="xs" className="text-red-500">
+            {error}
+          </Text>
+        )}
+      </div>
+
+      {/* One-time token reveal */}
+      {createdToken && (
+        <div className="flex flex-col gap-2 bg-amber-50 px-5 py-4 dark:bg-amber-950/30">
+          <Text size="xs" weight="medium" className="text-amber-700 dark:text-amber-400">
+            Save this token now — it won't be shown again.
+          </Text>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 break-all rounded bg-neutral-100 px-2 py-1 font-mono text-xs dark:bg-neutral-800">
+              {createdToken}
+            </code>
+            <Button size="sm" variant="outline" onClick={() => void handleCopy()}>
+              {copied ? 'Copied!' : 'Copy'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Token list */}
+      {loading ? (
+        <div className="px-5 py-3">
+          <Text variant="muted" size="xs">
+            Loading…
+          </Text>
+        </div>
+      ) : tokens.length === 0 ? (
+        <div className="px-5 py-3">
+          <Text variant="muted" size="xs">
+            No tokens yet.
+          </Text>
+        </div>
+      ) : (
+        tokens.map((t) => (
+          <div key={t._id} className="flex items-center justify-between px-5 py-3">
+            <div className="flex flex-col gap-0.5">
+              <Text size="xs" weight="medium">
+                {t.name}
+              </Text>
+              <Text variant="muted" size="xs">
+                Created {new Date(t.createdAt).toLocaleDateString()}
+                {t.lastUsedAt
+                  ? ` · Last used ${new Date(t.lastUsedAt).toLocaleDateString()}`
+                  : ' · Never used'}
+              </Text>
+            </div>
+            <Button size="sm" variant="danger" onClick={() => void handleRevoke(t._id)}>
+              Revoke
+            </Button>
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
+
 export const SettingsPage: React.FC = () => {
-  const { user, signOut } = useSession();
+  const { user, signOut, refetch } = useSession();
+  const { navigate } = useRouter();
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const canManageOrganization = hasDefaultOrganizationAdminAccess(user);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  useRefresh(
+    useCallback(async () => {
+      await refetch();
+      setRefreshTrigger((prev) => prev + 1);
+    }, [refetch]),
+  );
 
   const handlePasswordReset = async () => {
     if (!user?.email || resetBusy) return;
@@ -442,8 +708,12 @@ export const SettingsPage: React.FC = () => {
   return (
     <AppPage>
       {/* Profile */}
-      <Section icon={faUser} title="Profile" description="Your display name, bio, and website.">
-        <ProfileEditor />
+      <Section
+        icon={faUser}
+        title="Profile"
+        description="Your display name, bio, website, and reporting line."
+      >
+        <ProfileEditor refreshTrigger={refreshTrigger} />
       </Section>
 
       {/* Appearance */}
@@ -466,6 +736,29 @@ export const SettingsPage: React.FC = () => {
       >
         <PushNotificationsSettings />
       </Section>
+
+      {/* API Tokens */}
+      <Section
+        icon={faKey}
+        title="API Tokens"
+        description="Generate tokens to connect external services like TimeHarbor."
+      >
+        <ApiTokensManager />
+      </Section>
+
+      {canManageOrganization && (
+        <Section
+          icon={faBuilding}
+          title="Enterprise"
+          description="Admin tools for enterprise scope, organizations, and hierarchy."
+        >
+          <Row label="Workspace hierarchy" hint="Open enterprise tools and organization structure">
+            <Button variant="outline" size="sm" onClick={() => navigate('/app/enterprise')}>
+              Open
+            </Button>
+          </Row>
+        </Section>
+      )}
 
       {/* Account */}
       <Section icon={faGear} title="Account">
@@ -500,15 +793,6 @@ export const SettingsPage: React.FC = () => {
             Sign out
           </Button>
         </Row>
-      </Section>
-
-      {/* Pulse Cam */}
-      <Section
-        icon={faVideo}
-        title="Pulse Cam"
-        description="Connect the Pulse Cam app to upload videos directly to tickets."
-      >
-        <PulseSetup />
       </Section>
 
       {/* About */}

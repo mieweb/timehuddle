@@ -1,30 +1,57 @@
 import "dotenv/config";
 import { fileURLToPath } from "url";
+import path from "path";
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
+import multipart from "@fastify/multipart"; // Register Fastify multipart plugin for file uploads
+import fastifyStatic from "@fastify/static";
 import { connectDB } from "./lib/db.js";
+import { ensureMongooseConnected } from "./lib/mongoose.js";
 import { ensureIndexes } from "./lib/ensure-indexes.js";
 import { auth } from "./lib/auth.js";
 import { appContext } from "./middleware/app-context.js";
 import { healthRoutes } from "./routes/health.js";
 import { userRoutes } from "./routes/users.js";
+import { orgRoutes } from "./routes/org.js";
+import { organizationsRoutes } from "./routes/organizations.js";
+import { enterpriseRoutes } from "./routes/enterprises.js";
 import { ticketRoutes } from "./routes/tickets.js";
+import { ticketsWsRoutes } from "./routes/tickets-ws.js";
 import { teamRoutes } from "./routes/teams.js";
+import { teamsWsRoutes } from "./routes/teams-ws.js";
 import { clockRoutes } from "./routes/clock.js";
 import { timerRoutes } from "./routes/timers.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { attachmentRoutes } from "./routes/attachments.js";
 import { messageRoutes } from "./routes/messages.js";
 import { activityRoutes } from "./routes/activity.js";
+import { workRoutes } from "./routes/work.js";
 import { pulseVaultRoutes, pulseVaultCompatRoutes } from "./routes/pulsevault.js";
+import { mediaRoutes } from "./routes/media.js";
 import { presenceRoutes } from "./routes/presence.js";
 import { channelRoutes } from "./routes/channels.js";
+import { tokenRoutes } from "./routes/tokens.js";
+import { initAgenda, stopAgenda } from "./services/agenda.service.js";
+import { orgService } from "./services/org.service.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: opts.logger ?? true });
+  // trustProxy: TLS is terminated at the reverse proxy in production, so
+  // `request.protocol` would otherwise always be "http". Trusting the proxy
+  // makes Fastify honour x-forwarded-proto / x-forwarded-host so internal
+  // URLs (e.g. the TUS `Location` header from @mieweb/pulsevault) are built
+  // with the correct https:// scheme and avoid Mixed Content blocks.
+  const app = Fastify({ logger: opts.logger ?? true, trustProxy: true });
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+  // Register multipart before routes and before Swagger
+  await app.register(multipart, {
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10 MB
+    },
+  });
 
   // Swagger — must be registered before routes
   await app.register(swagger, {
@@ -62,6 +89,15 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
         { name: "Messages", description: "Admin-member threaded messaging and SSE stream" },
         { name: "Activity", description: "Unified activity log for user and team events" },
       ],
+      components: {
+        securitySchemes: {
+          cookieAuth: {
+            type: "apiKey",
+            in: "cookie",
+            name: "better-auth.session_token",
+          },
+        },
+      },
     },
   });
 
@@ -77,6 +113,13 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     exposedHeaders: ["set-auth-token"],
   });
 
+  // Serve all uploaded files from backend/uploads/.
+  await app.register(fastifyStatic, {
+    root: path.resolve(__dirname, "..", "uploads"),
+    prefix: "/uploads/",
+    decorateReply: false,
+  });
+
   await app.register(websocket);
 
   // Attach X-App-Id (timeharbor | timehuddle) to every request
@@ -86,6 +129,15 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // We convert the Fastify request into a Web Request and pass it to
   // auth.handler directly, avoiding the body-stream issue that occurs
   // when using toNodeHandler (Fastify already consumes the body).
+
+  // Accept application/x-www-form-urlencoded bodies (used by the OIDC token endpoint).
+  // Return the raw string so betterAuthHandler can forward it as-is.
+  app.addContentTypeParser(
+    "application/x-www-form-urlencoded",
+    { parseAs: "string" },
+    (_req, body, done) => done(null, body)
+  );
+
   async function betterAuthHandler(req: any, reply: any) {
     // Use the request URL as-is — better-auth's dynamic baseURL config
     // reads x-forwarded-host/proto headers to derive the correct origin.
@@ -110,10 +162,21 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     }
 
     const hasBody = req.method !== "GET" && req.method !== "HEAD";
+    const contentType = (req.headers["content-type"] as string | undefined) ?? "";
+    // For URL-encoded bodies (OIDC token endpoint), forward the raw string as-is.
+    // For everything else, forward as JSON (Fastify has already parsed the body).
+    let body: string | undefined;
+    if (hasBody) {
+      if (contentType.includes("application/x-www-form-urlencoded")) {
+        body = req.body as string;
+      } else {
+        body = JSON.stringify(req.body);
+      }
+    }
     const webRequest = new Request(url, {
       method: req.method,
       headers,
-      body: hasBody ? JSON.stringify(req.body) : undefined,
+      body,
     });
 
     const response = await auth.handler(webRequest);
@@ -427,17 +490,31 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
   // App routes
   await app.register(userRoutes, { prefix: "/v1" });
+  await app.register(orgRoutes, { prefix: "/v1" });
+  await app.register(organizationsRoutes, { prefix: "/v1" });
+  await app.register(enterpriseRoutes, { prefix: "/v1" });
+  await app.register(teamsWsRoutes, { prefix: "/v1" });
   await app.register(teamRoutes, { prefix: "/v1" });
   await app.register(ticketRoutes, { prefix: "/v1" });
+  await app.register(ticketsWsRoutes, { prefix: "/v1" });
   await app.register(clockRoutes, { prefix: "/v1" });
   await app.register(timerRoutes, { prefix: "/v1" });
   await app.register(notificationRoutes, { prefix: "/v1" });
   await app.register(attachmentRoutes, { prefix: "/v1" });
+  await app.register(mediaRoutes, { prefix: "/v1" });
   await app.register(pulseVaultRoutes, { prefix: "/v1" });
   await app.register(messageRoutes, { prefix: "/v1" });
   await app.register(activityRoutes, { prefix: "/v1" });
+  await app.register(workRoutes, { prefix: "/v1" });
   await app.register(presenceRoutes, { prefix: "/v1" });
   await app.register(channelRoutes, { prefix: "/v1" });
+  await app.register(tokenRoutes, { prefix: "/v1" });
+
+  // Root health/info — must be registered before pulseVaultCompatRoutes so that GET /
+  // does not fall through to the compat /:videoid param route (which would fail UUID validation).
+  app.get("/", async (_req, reply) => {
+    return reply.status(200).send({ service: "timehuddle-backend", status: "ok" });
+  });
 
   // Compat: old Pulse Cam configs saved the bare server URL (http://host:4000) and call
   // POST /reserve, POST /upload, PATCH /upload/:id etc. at root level.
@@ -448,10 +525,20 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
 async function bootstrap() {
   await connectDB();
+  await ensureMongooseConnected();
+  await orgService.ensureDefaultOrganization();
   await ensureIndexes();
+  if (process.env.NODE_ENV !== "test") {
+    await initAgenda();
+  }
   const app = await buildApp();
+  app.addHook("onClose", async () => {
+    if (process.env.NODE_ENV !== "test") {
+      await stopAgenda();
+    }
+  });
   const port = Number(process.env.PORT) || 4000;
-  await app.listen({ port, host: "0.0.0.0" });
+  await app.listen({ port, host: "::" });
   console.log(`API running on http://localhost:${port}`);
   console.log(`Swagger UI at http://localhost:${port}/docs`);
 }
