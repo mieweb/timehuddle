@@ -4,7 +4,7 @@
 
 ## The Problem
 
-As data accumulates in TimeHuddle — clock sessions, tickets, standups, capacity
+As data accumulates in Huddle — clock sessions, tickets, standups, capacity
 blocks — teams will need to get that data *out* in formats their other tools
 understand: payroll systems, spreadsheets, HR software, accounting tools. Each
 destination has its own format. Without a principled exporter layer, every new

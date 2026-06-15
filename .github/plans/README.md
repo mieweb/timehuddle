@@ -1,4 +1,4 @@
-# TimeHuddle — Product Plans
+# Huddle — Product Plans
 
 > Some of these documents are **exploratory drafts**. Not all is approved for
 > implementation or represents a commitment. Plans exist to think through
@@ -6,16 +6,30 @@
 
 ---
 
+## Contents
+
+| File | What it covers |
+|------|---------------|
+| [Organizations](./organizations.md) | Org hierarchy, SSO, Google Workspace, billing |
+| [Meetings / Standups](./meetings-standups-basics.md) | Google Doc standup replacement flow grounded in the team's current daily ritual |
+| [Team Capacity](./team-capacity.md) | Availability, time off, blocked time, timeline view |
+| [Custom Fields](./custom-fields.md) | Flexible data model for standups, tickets, and beyond |
+| [Workflows](./workflows.md) | Lightweight future plan for event-triggered automation around existing product behavior |
+| [Ticket View](./ticket-view.md) | Reusable board/list presentation layer for tickets, attachable to standups or usable standalone |
+| [Projects](./projects.md) | Higher-level containers for grouping work, reporting, and timer rollups |
+| [Tasks](./tasks.md) | Smaller work units that can sit alongside or beneath tickets and projects |
+| [Reporting](./reporting.md) | Report definitions, UI, dashboard widgets, AI summaries |
+| [Exporters](./exporters.md) | CSV, timesheet, ADP payroll exporter architecture |
+| [Timers](./timers.md) | Work/timer data model, sessions, and timesheet behavior |
+| [Profiles](./profiles.md) | Lightweight profile considerations like timezone handling |
+
+---
+
 ## What These Plans Are For
 
-As TimeHuddle grows from a time tracking tool into a team operations platform,
-some decisions made early (data models, org hierarchy, event architecture)
-become very expensive to change later. These plans exist to think those
-decisions through *before* they become constraints.
+As Huddle grows from a time tracking tool into a team operations platform, some decisions made early (data models, org hierarchy, event architecture) become very expensive to change later. These plans exist to think those decisions through *before* they become constraints.
 
-Planning docs should stay high-level by default: problem, options, tradeoffs,
-and acceptance criteria. Avoid deep implementation details until a direction is
-approved.
+Planning docs should stay high-level by default: problem, options, tradeoffs, and acceptance criteria. Avoid deep implementation details until a direction is approved.
 
 ---
 
@@ -52,20 +66,14 @@ capacity, to a purpose-built cockpit for ceremonies and sprint planning.
 
 ### HR / Payroll / Finance
 Currently has no presence in the system at all. With these plans they get:
-- **ADP CSV export** — payroll hours flow out of the system directly, no manual
-  timesheet collection or re-entry
+- **ADP CSV export** — payroll hours flow out of the system directly, no manual timesheet collection or re-entry
 - **Timesheet export** — full hours-per-member-per-period in Excel-friendly CSV
-- **Org layer** — one place to manage all employees across all teams: headcount,
-  billing, member directory
-- **Time off records** — self-service entries with team admin visibility;
-  foundation for a PTO approval workflow later
-- **Google Workspace SSO** — new hires get access automatically; departing
-  employees lose it when removed from the directory
-- **Utilization reports** — data for performance reviews, resourcing decisions,
-  billable hours tracking
+- **Org layer** — one place to manage all employees across all teams: headcount, billing, member directory
+- **Time off records** — self-service entries with team admin visibility; foundation for a PTO approval workflow later
+- **Google Workspace SSO** — new hires get access automatically; departing employees lose it when removed from the directory
+- **Utilization reports** — data for performance reviews, resourcing decisions, billable hours tracking
 
-HR goes from zero visibility to a payroll pipeline, member directory, time off
-records, and utilization data — without touching a developer.
+HR goes from zero visibility to a payroll pipeline, member directory, time off records, and utilization data — without touching a developer.
 
 ### Additional Personas
 
@@ -78,9 +86,7 @@ adjacent audiences worth keeping in view:
 
 ---
 
-## The Activity Feed — The Connective Tissue
-
-**Issue**: [#14 — Activity Feed — unified event log for user/team activity](https://github.com/mieweb/timehuddle/issues/14)
+## Activity Log: The Connective Tissue
 
 The activity feed is arguably the most important foundational piece across all
 these plans, and the core plumbing now exists. It is a single `activities`
@@ -110,11 +116,7 @@ This matters for the plans here because:
 - **Org-level audit logs** (future HR/compliance need) are trivially built on
   top of an existing event log
 
-The activity feed is a high-leverage investment that makes every other plan
-cheaper to build. [Issue #14](https://github.com/mieweb/timehuddle/issues/14)
-captured the foundational work; the next opportunity is to keep building on that
-same event stream instead of creating feature-specific activity views with their
-own storage and logic.
+The activity log is a high-leverage investment that makes every other plan cheaper to build.
 
 ---
 
@@ -129,24 +131,3 @@ Underneath all of these plans, a few structural decisions show up repeatedly:
 | **Clean, typed event data** | The activity feed, custom fields, and meeting responses are only as useful as the structure of their data. Schemaless blobs make reporting and AI hard. |
 | **Reports and exporters are separate** | Reports decide *what* data, exporters decide *what format*. The same timesheet report powers the UI table and the ADP CSV file. |
 | **Custom fields as a shared primitive** | Meeting questions, ticket metadata, and capacity tags all use the same field schema system — one implementation, not three. |
-
----
-
-## Plan Index
-
-| File | What it covers |
-|------|---------------|
-| [organizations.md](./organizations.md) | Org hierarchy, SSO, Google Workspace, billing |
-| [meetings-standups-basics.md](./meetings-standups-basics.md) | Google Doc standup replacement flow grounded in the team's current daily ritual |
-| [team-capacity.md](./team-capacity.md) | Availability, time off, blocked time, timeline view |
-| [custom-fields.md](./custom-fields.md) | Flexible data model for standups, tickets, and beyond |
-| [workflows.md](./workflows.md) | Lightweight future plan for event-triggered automation around existing product behavior |
-| [ticket-view.md](./ticket-view.md) | Reusable board/list presentation layer for tickets, attachable to standups or usable standalone |
-| [projects.md](./projects.md) | Higher-level containers for grouping work, reporting, and timer rollups |
-| [tasks.md](./tasks.md) | Smaller work units that can sit alongside or beneath tickets and projects |
-| [reporting.md](./reporting.md) | Report definitions, UI, dashboard widgets, AI summaries |
-| [exporters.md](./exporters.md) | CSV, timesheet, ADP payroll exporter architecture |
-| [timers.md](./timers.md) | Work/timer data model, sessions, and timesheet behavior |
-| [profiles.md](./profiles.md) | Lightweight profile considerations like timezone handling |
-| [mongoose-data-integrity.md](./mongoose-data-integrity.md) | Backend schema, validation, and migration direction |
-| [mobile.md](./mobile.md) | PWA, Capacitor, React Native path post-Meteor migration |

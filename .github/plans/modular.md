@@ -4,7 +4,7 @@
 
 ## The Idea
 
-TimeHuddle features should be buildable as self-contained modules that can be enabled or disabled per team or org. This keeps the core small and lets the product grow without every feature being mandatory for everyone.
+Huddle features should be buildable as self-contained modules that can be enabled or disabled per team or org. This keeps the core small and lets the product grow without every feature being mandatory for everyone.
 
 ---
 

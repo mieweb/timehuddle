@@ -4,7 +4,7 @@
 
 ## Background
 
-TimeHuddle is modelled on Harvest's time-tracking UX — a per-day timesheet where users add timer rows, start and stop them, and copy from previous days — with an additional clock in/out layer that records presence independently.
+Huddle is modelled on Harvest's time-tracking UX — a per-day timesheet where users add timer rows, start and stop them, and copy from previous days — with an additional clock in/out layer that records presence independently.
 
 The two core concepts are distinct:
 

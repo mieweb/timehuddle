@@ -4,13 +4,13 @@
 
 ## The Idea
 
-Connect TimeHuddle to GitHub so that teams can see their issues, pull requests, and commits alongside their time and work context — without leaving TimeHuddle.
+Connect Huddle to GitHub so that teams can see their issues, pull requests, and commits alongside their time and work context — without leaving Huddle.
 
 ---
 
 ## Rough Ideas
 
-- Advanced Linkage of a GitHub repo to a TimeHuddle team
+- Advanced Linkage of a GitHub repo to a Huddle team
 - Surface GitHub issues as a read-only ticket source
 - Associate timers with GitHub issues or PRs
 - Show recent commits or PR activity on a user's profile or activity feed
@@ -42,7 +42,7 @@ Connect TimeHuddle to GitHub so that teams can see their issues, pull requests, 
 
 ## Out of Scope (for Now)
 
-- Creating or editing GitHub issues from TimeHuddle
+- Creating or editing GitHub issues from Huddle
 - CI/CD or GitHub Actions integration
-- Code review workflows inside TimeHuddle
+- Code review workflows inside Huddle
 - GitLab, Bitbucket, or other Git hosts (separate ideas)

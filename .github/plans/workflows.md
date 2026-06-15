@@ -4,7 +4,7 @@
 
 ## The Idea
 
-TimeHuddle may eventually need a simple way to automate actions that happen in
+Huddle may eventually need a simple way to automate actions that happen in
 response to events.
 
 This plan intentionally makes very few assumptions. It is not a standup plan,

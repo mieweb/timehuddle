@@ -4,7 +4,7 @@
 
 ## The Problem
 
-TimeHuddle currently has teams, tickets, timers, and clock events, but no clear
+Huddle currently has teams, tickets, timers, and clock events, but no clear
 container for grouping related work across a longer arc.
 
 That gap starts to matter once teams want to answer questions like:

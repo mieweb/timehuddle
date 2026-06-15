@@ -4,7 +4,7 @@
 
 ## The Problem
 
-As TimeHuddle grows beyond basic time tracking, features like **Daily Standups**,
+As Huddle grows beyond basic time tracking, features like **Daily Standups**,
 **Sprint Reviews**, and **Team Dashboards** will need structured-but-flexible data.
 A scrum master running standups doesn't want the same rigid form as every other team.
 A team tracking bugs needs different fields than a team tracking client deliverables.

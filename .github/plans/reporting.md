@@ -129,7 +129,7 @@ often? What tickets come up repeatedly?
   blockers
 - **Exports**: generic CSV
 - **Data source**: standup + standup entry collections (see
-  [standups.md](standups.md))
+  [meetings-standups-basics.md](meetings-standups-basics.md))
 
 ---
 

@@ -4,7 +4,7 @@
 
 ## The Problem
 
-TimeHuddle has tickets, timers, and clock events, but it does not yet have a
+Huddle has tickets, timers, and clock events, but it does not yet have a
 clean way to describe the **kind of work** someone is doing.
 
 Examples:

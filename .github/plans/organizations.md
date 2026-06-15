@@ -4,11 +4,11 @@
 
 > **NAMESPACE NOTE (PARTLY DECIDED):** Profiles are already namespaced by canonical username. The remaining open namespace question is org URL strategy, so this plan should stay focused on product and data shape until that decision is finalized.
 
-> **CURRENT PRODUCT REALITY:** TimeHuddle now has canonical user handles and an auto-provisioned personal workspace. Any org plan has to fit around that existing user namespace rather than assuming orgs own the entire top-level URL space.
+> **CURRENT PRODUCT REALITY:** Huddle now has canonical user handles and an auto-provisioned personal workspace. Any org plan has to fit around that existing user namespace rather than assuming orgs own the entire top-level URL space.
 
 ## Near-Term Principle: Add The Org Layer Early, Keep It Minimal
 
-If TimeHuddle is going to support organizations at all, the cheapest moment to
+If Huddle is going to support organizations at all, the cheapest moment to
 introduce the org layer is early, before team-scoped assumptions harden across
 every query, permission check, report, and relationship.
 
@@ -48,7 +48,7 @@ in a valid profile/org context immediately.
 - **Social-first signup is valid**: Google/GitHub can be the first and only
   identity step at account creation.
 - **Username is a product identity, not a provider identity**: provider emails
-  and provider usernames can inform a default suggestion, but the TimeHuddle
+  and provider usernames can inform a default suggestion, but the Huddle
   handle is the canonical URL identity.
 - **URL identity is stable**: user profile URLs should resolve by canonical
   handle, and org URLs should resolve by canonical org slug once namespace
@@ -73,8 +73,8 @@ future org routing and profile visibility features.
 For social-first signup, the expected flow is:
 
 1. User selects **Continue with Google** or **Continue with GitHub**.
-2. User completes provider auth/consent and returns to TimeHuddle.
-3. User chooses/confirms canonical TimeHuddle username (and resolves any
+2. User completes provider auth/consent and returns to Huddle.
+3. User chooses/confirms canonical Huddle username (and resolves any
   collisions or blocked names).
 4. Account creation completes and user lands in personal workspace context.
 
@@ -107,7 +107,7 @@ User ──belongs to──▶ Team
 
 This works for small, single-company use. But the moment a company has multiple
 departments, a consulting firm has multiple clients, or a platform wants to
-resell TimeHuddle to many companies — the model breaks down. There is no
+resell Huddle to many companies — the model breaks down. There is no
 concept of "all teams at Acme Corp" or "billing for Acme as a whole" or
 "Acme's admin manages all of Acme's teams."
 
@@ -220,7 +220,7 @@ transition happens.
 Google Workspace (formerly G Suite) is the most common SSO target for small-to-
 mid-size teams. The integration would work at the org level:
 
-- Org admin connects their Google Workspace domain to their TimeHuddle org
+- Org admin connects their Google Workspace domain to their Huddle org
 - Members sign in with their Google account — no separate password
 - Member list can be pre-populated from the Google Workspace directory
 - Google Calendar can sync time-off and blocked time entries (see
@@ -232,11 +232,11 @@ mid-size teams. The integration would work at the org level:
 Google Workspace Admin Console
   └── OAuth App Authorization (domain-wide)
         └── Better Auth Google Provider (already in stack)
-              └── TimeHuddle Org SSO config
+              └── Huddle Org SSO config
 ```
 
 `better-auth` (already used for auth) supports Google OAuth out of the box.
-The org-level piece is mapping a Google Workspace domain to a TimeHuddle org
+The org-level piece is mapping a Google Workspace domain to a Huddle org
 so that `@acme.com` logins automatically join the Acme org.
 
 **Future extensions:**
@@ -318,7 +318,7 @@ ships first. Full multi-org capability can come later.
 | [team-capacity.md](team-capacity.md) | Org-level capacity timeline across all teams |
 | [reporting.md](reporting.md) | Org-scoped reports (all teams, all members) |
 | [exporters.md](exporters.md) | ADP export covers whole org's payroll |
-| [standups.md](standups.md) | Org admin can see all team standups |
+| [meetings-standups-basics.md](meetings-standups-basics.md) | Org admin can see all team standups |
 | [custom-fields.md](custom-fields.md) | Field schemas shared at org level, overridden per team |
 
 ---

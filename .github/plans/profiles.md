@@ -4,7 +4,7 @@
 
 ## The Idea
 
-Profiles should not just be personal account settings pages. In TimeHuddle,
+Profiles should not just be personal account settings pages. In Huddle,
 someone else's profile should also act as a lightweight team-facing view of who
 that person is, what they are working on, and how they have been showing up in
 the flow of work.

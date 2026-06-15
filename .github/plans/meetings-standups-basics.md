@@ -4,16 +4,16 @@
 
 ## The Problem
 
-The current standup process lives in a Google Doc instead of in TimeHuddle.
+The current standup process lives in a Google Doc instead of in Huddle.
 That creates a split workflow:
 
-- TimeHuddle holds the work context: tickets, time, activity, team membership
+- Huddle holds the work context: tickets, time, activity, team membership
 - the Google Doc holds the meeting flow, prompts, and notes
 - the facilitator has to bridge those two systems manually during the meeting
 
 That is the wrong first problem to solve with a generic "meetings platform."
 The right first problem is narrower: **replace the existing standup Google Doc
-with a TimeHuddle flow that preserves how the team already runs standup while
+with a Huddle flow that preserves how the team already runs standup while
 reducing manual work.**
 
 If that replacement works, the underlying model can later expand to support
@@ -34,7 +34,7 @@ That means:
 - preserve the familiar sequence of the meeting
 - preserve the current prompts or sections from the Google Doc
 - preserve the facilitator's ability to run the meeting quickly
-- pull in TimeHuddle data where it removes effort, not where it changes the
+- pull in Huddle data where it removes effort, not where it changes the
   ritual unexpectedly
 - defer broader meeting-type abstraction until the standup replacement is
   proven useful
@@ -142,7 +142,7 @@ tabs for related coordination.
 
 ## Replacement Goal
 
-The first TimeHuddle standup experience should act like a structured in-product
+The first Huddle standup experience should act like a structured in-product
 version of the Google Doc.
 
 In practical terms, that means:
@@ -156,7 +156,7 @@ In practical terms, that means:
   of the current workflow
 - read-only history after the standup is complete
 
-To fully replace the Google Doc over time, TimeHuddle will likely also need a
+To fully replace the Google Doc over time, Huddle will likely also need a
 small set of adjacent surfaces beyond the daily standup itself. Based on the
 current workflow, the minimum required follow-on surfaces are retrospectives,
 planning, capacity, and meeting notes. Those should be acknowledged in the plan
@@ -167,7 +167,7 @@ state is "we no longer need the Google Doc for the daily standup."
 
 ---
 
-## First-Version Workflow in TimeHuddle
+## First-Version Workflow in Huddle
 
 ### 1. Standup Template
 
@@ -288,7 +288,7 @@ than the current doc in practice, it should not be in v1.
 
 "Most of it if possible" is a strong signal that v1 should preserve not only
 the daily update interaction, but also enough surrounding context that the team
-does not need to keep the Google Doc open beside TimeHuddle.
+does not need to keep the Google Doc open beside Huddle.
 
 ---
 
@@ -374,7 +374,7 @@ The most likely first UI is a standup page with three layers:
 - prompt responses matching the Google Doc structure
 - open tickets and blocker review area
 - inline edited marker when post-meeting changes exist
-- recent TimeHuddle context
+- recent Huddle context
 - facilitator notes or live edits
 
 ### Adjacent Team Reference Surface
@@ -460,7 +460,7 @@ direction:
 
 2. **Define the standup template model**
   - Build the minimum data model needed to mirror that daily workflow inside
-    TimeHuddle.
+    Huddle.
 
 3. **Build the standup run workflow**
   - Create a dated standup, snapshot participants and prompts, support prepared
@@ -499,7 +499,7 @@ direction:
 
 ## Acceptance Criteria for the Plan
 
-- The documented TimeHuddle flow clearly maps to the current Google Doc process.
+- The documented Huddle flow clearly maps to the current Google Doc process.
 - The first version preserves the existing update flow, facilitator workflow,
   and prepared-update behavior.
 - The plan identifies exactly what gets prepared before the meeting and what is
@@ -528,7 +528,7 @@ The next correct step is not to design a generalized standup engine. The next
 correct step is to capture the real standup workflow from the current Google Doc
 and let that drive the first product slice.
 
-TimeHuddle should replace the existing standup document directly:
+Huddle should replace the existing standup document directly:
 
 - same meeting rhythm
 - same update-first meeting structure

@@ -4,17 +4,17 @@
 
 ## The Problem
 
-TimeHuddle has tickets, but the team's ticket organization still depends on a
+Huddle has tickets, but the team's ticket organization still depends on a
 GitHub project board.
 
 That creates a split workflow similar to the standup problem:
 
-- TimeHuddle may hold ticket, time, and meeting context
+- Huddle may hold ticket, time, and meeting context
 - GitHub Projects holds the visual organization of the work
 - standups and planning discussions still depend on looking at the board in a
   separate tool
 
-If TimeHuddle is meant to replace the Google Doc workflow around standups and
+If Huddle is meant to replace the Google Doc workflow around standups and
 team coordination, it also needs a clear answer for the board-shaped view of
 tickets that the team already uses.
 
@@ -209,7 +209,7 @@ These should be answered before implementation planning:
    filters, sorting, field visibility, drag-and-drop, or saved slices?
 2. Should TicketView be editable from inside standup, or only visible there?
 3. Does the team need one canonical board, or multiple saved views per team?
-4. Which ticket fields already exist in TimeHuddle and which still depend on
+4. Which ticket fields already exist in Huddle and which still depend on
    GitHub metadata?
 5. Should TicketView attachments be template-level, run-level, or both?
 
