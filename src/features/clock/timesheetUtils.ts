@@ -64,6 +64,18 @@ export function fromLocalDateTimeInputValue(value: string): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
+/**
+ * Round a second-based duration to the nearest whole minute for display.
+ *
+ * Timesheet timestamps are shown at minute precision, so durations should
+ * follow the same rounding rule to avoid off-by-one-minute displays.
+ */
+export function roundDurationSecondsForDisplay(totalSeconds: number | null): number {
+  const value = typeof totalSeconds === 'number' ? totalSeconds : 0;
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.round(value / 60) * 60;
+}
+
 export const PRESETS: { key: Preset; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: 'yesterday', label: 'Yesterday' },
