@@ -74,6 +74,7 @@ const NAV: NavSection[] = [
     heading: 'Workspace',
     items: [
       { icon: faGauge, label: 'Dashboard', href: '/app/dashboard' },
+      { icon: faComments, label: 'Huddle', href: '/app/huddle' },
       { icon: faStopwatch, label: 'Work', href: '/app/work' },
       { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
       { icon: faTable, label: 'Timesheet', href: '/app/timesheet' },
