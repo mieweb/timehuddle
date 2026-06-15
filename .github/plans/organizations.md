@@ -1,341 +1,248 @@
-# Organizations
+# Organizations And Enterprises
 
-> **STATUS: PLANNING** — This document is exploratory and not yet approved for implementation. Nothing here represents a commitment or active development work.
+> **STATUS: IMPLEMENTED FOUNDATION** — The enterprise, organization,
+> membership, org-scoped team, org chart, and basic admin-management foundation
+> exists in the product. This document describes the current model and the
+> remaining higher-level roadmap.
 
-> **NAMESPACE NOTE (PARTLY DECIDED):** Profiles are already namespaced by canonical username. The remaining open namespace question is org URL strategy, so this plan should stay focused on product and data shape until that decision is finalized.
+## Current Product Reality
 
-> **CURRENT PRODUCT REALITY:** Huddle now has canonical user handles and an auto-provisioned personal workspace. Any org plan has to fit around that existing user namespace rather than assuming orgs own the entire top-level URL space.
+Huddle now has three separate but related identity and ownership layers:
 
-## Near-Term Principle: Add The Org Layer Early, Keep It Minimal
+- **User identity** — a globally unique user handle/profile.
+- **Personal workspace** — an auto-provisioned personal team/workspace so every user has somewhere to land immediately after signup.
+- **Enterprise / Organization hierarchy** — a company-level management layer above collaborative teams.
 
-If Huddle is going to support organizations at all, the cheapest moment to
-introduce the org layer is early, before team-scoped assumptions harden across
-every query, permission check, report, and relationship.
-
-The important idea is not "ship full org management now." The important idea is
-"put the smallest viable org boundary in the data model early so the rest of
-the system does not have to be retrofitted later."
-
-In practice, that could mean:
-
-- `Organization` exists in the DB before a full org UI exists
-- teams gain an `orgId` early
-- memberships and API scoping can grow around that boundary over time
-- the first org shape may be little more than a hidden or lightweight personal
-  org plus a path for collaborative orgs later
-
-This is a data-shape and scoping decision first, not a commitment to build all
-org-facing product surface immediately.
-
-## Namespace Decisions (Pending)
-
-We are intentionally keeping this lightweight for now and deferring implementation detail.
-
-- User public handles are expected to be globally unique.
-- User handles now occupy real product namespace and are expected to be globally unique.
-- Org path strategy is still open (`/{orgSlug}` vs `/org/{orgSlug}`), and subdomains remain viable because top-level path space may already be partly claimed by users.
-- Subdomains remain a future option, not a current commitment.
-- If orgs and users ever share one path namespace, org slugs and user handles must follow one combined uniqueness and reserved-name policy.
-- Certain URL roots should be reserved or blocked for both user handles and org slugs
-  (product/system routes, trust-sensitive names, and profanity/abuse terms).
-
-## Signup And Identity Principles
-
-To avoid awkward account states, signup should not require an email-first flow.
-Users should be able to create an account directly with Google/GitHub and land
-in a valid profile/org context immediately.
-
-- **Social-first signup is valid**: Google/GitHub can be the first and only
-  identity step at account creation.
-- **Username is a product identity, not a provider identity**: provider emails
-  and provider usernames can inform a default suggestion, but the Huddle
-  handle is the canonical URL identity.
-- **URL identity is stable**: user profile URLs should resolve by canonical
-  handle, and org URLs should resolve by canonical org slug once namespace
-  decisions are finalized.
-- **Personal workspace exists before orgs**: once a user has an account and a
-  handle, they should land in a valid personal workspace context immediately,
-  even if no broader org concept exists yet.
-- **No silent account merges**: linking an external provider to an existing
-  account should require explicit user intent when there is ambiguity.
-- **One external account maps to one internal account**: this prevents account
-  takeover and duplicate ownership oddities.
-- **Org modeling must preserve shipped personal identity**: future org work can
-  wrap, absorb, or sit above the current personal-workspace model, but it
-  should not break canonical usernames or force a second identity concept on
-  day one.
-
-This keeps onboarding simple now while preserving clean identity foundations for
-future org routing and profile visibility features.
-
-### Social Signup Flow (Google/GitHub)
-
-For social-first signup, the expected flow is:
-
-1. User selects **Continue with Google** or **Continue with GitHub**.
-2. User completes provider auth/consent and returns to Huddle.
-3. User chooses/confirms canonical Huddle username (and resolves any
-  collisions or blocked names).
-4. Account creation completes and user lands in personal workspace context.
-
-## Current Identity Baseline
-
-Before adding orgs, the product already has two meaningful identity anchors:
-
-- A globally unique user handle that acts as canonical public identity.
-- An auto-created personal workspace that gives each user a default private or
-  self-owned place to work.
-
-That changes the org discussion in two important ways:
-
-- Orgs are no longer inventing namespace from scratch; they must coexist with
-  the existing user namespace.
-- The first org implementation does not need to solve "what does a solo user
-  belong to?" because personal workspace already answers that operationally.
-
-## The Problem
-
-Today collaboration is still effectively team-centric even though every user
-now also has personal identity and a personal workspace:
+The current model is no longer team-only. Teams belong to organizations, and
+organizations can belong to enterprises.
 
 ```
-User handle/profile
-      └── Personal workspace
+Enterprise
+  └── Organization
+        └── Team
+              └── Team members
 
-User ──belongs to──▶ Team
+User
+  ├── Profile / handle
+  ├── Personal workspace
+  └── Organization memberships
 ```
 
-This works for small, single-company use. But the moment a company has multiple
-departments, a consulting firm has multiple clients, or a platform wants to
-resell Huddle to many companies — the model breaks down. There is no
-concept of "all teams at Acme Corp" or "billing for Acme as a whole" or
-"Acme's admin manages all of Acme's teams."
-
-An **Organization** layer still solves this cleanly and unlocks a range of
-features that simply cannot exist without it. The difference now is that orgs
-must be introduced without undoing the existing personal-workspace model.
+This means the original goal of adding the org boundary early has been met. The remaining work is not "should orgs exist?" but "which higher-level org features should be built on top of the foundation?"
 
 ---
 
-## Proposed Hierarchy
+## What Exists Today
 
-```
-Organization
-  ├── Settings (name, logo, billing, SSO config)
-  ├── Org Admins (can manage all teams and members)
-  └── Teams
-        └── Members (users)
-```
+### Enterprises
 
-Users would belong to an organization and then be members of one or more teams
-within that organization. An org admin can see and manage all teams. A team
-admin only manages their own team.
+An **Enterprise** is the top-level administrative container.
 
-The unresolved part is how the current personal workspace fits:
+It currently has:
 
-- It may remain a special personal team outside collaborative org management.
-- It may become the default team inside a hidden or lightweight personal org.
-- It may later be represented as an org-owned workspace while still preserving
-  the user's canonical public handle.
+- name
+- slug
+- owners
+- admins
+- create / list / detail / rename flows
+- owner/admin membership management
+- user search for adding enterprise admins or owners
 
-This document should stay compatible with all three until namespace and data
-model decisions are approved.
+Enterprise admins and owners can manage organizations under the enterprise.
 
-This mirrors how **GitHub Organizations**, **Slack Workspaces**, **Linear
-Workspaces**, and **Google Workspace** are structured.
+### Organizations
+
+An **Organization** is the operating container for teams.
+
+It currently has:
+
+- enterprise association
+- name
+- slug
+- owner/admin/member roles
+- auto-join setting
+- member list
+- member role management
+- member removal
+- organization user search
+- organization detail and settings flows
+- organization chart data
+- reports-to assignment for org members
+
+Organizations are visible in the app as selectable work contexts. Teams are filtered by selected organization context.
+
+### Organization Membership
+
+Organization membership is represented separately from team membership.
+
+Roles:
+
+| Role | Current meaning |
+|------|-----------------|
+| `owner` | Elevated organization role; can manage organization membership and settings |
+| `admin` | Elevated organization role; can manage organization membership and settings |
+| `member` | Belongs to the organization and can participate through assigned teams |
+
+Memberships also track whether a member was added automatically.
+
+### Teams
+
+Teams are now org-scoped.
+
+Each team has:
+
+- `orgId`
+- optional `parentTeamId`
+- members
+- admins
+- optional `isPersonal`
+
+Team creation happens within an accessible organization. Joining or being added to a team also ensures organization membership where appropriate.
+
+### Reporting Lines / Org Chart
+
+Users can have a `reportsToUserId`, and organization members can be displayed in an org chart.
+
+This is intentionally lightweight. It is not a full HRIS org-chart system yet, but it supports the basic question: "Who does this person report to?"
+
+---
+
+## Namespace And Routing
+
+Profiles are already namespaced by canonical username. Organization slugs also
+exist, but the long-term public URL strategy is still a product decision.
+
+Current assumptions:
+
+- user handles are globally unique
+- organization slugs are unique
+- profile URLs remain centered on user handles
+- organization routing can stay app-internal until public org URL strategy is finalized
+
+Open product choices:
+
+- `/org/{orgSlug}`
+- `/{orgSlug}` with a shared user/org namespace
+- subdomains such as `{orgSlug}.huddle.app`
+- app-only org switching without public org pages
+
+Because users already occupy public namespace, any future shared namespace must
+use one reserved-name policy for both user handles and organization slugs.
+
+---
+
+## Signup And Default Context
+
+Signup should continue to land every user in a valid working context.
+
+Current direction:
+
+- first signup establishes user identity
+- user handle/profile remains the canonical personal identity
+- personal workspace is created idempotently
+- a default enterprise and default organization can exist as system bootstrap containers
+- collaborative organization membership is additive, not required for basic onboarding
+
+This keeps onboarding simple while preserving the enterprise/org structure for
+companies, departments, and multi-team work.
 
 ---
 
 ## What Organizations Unlock
 
-| Feature | Why it needs Orgs |
-|---------|------------------|
-| Org-wide billing | One invoice per company, not per team |
-| SSO / Google Workspace login | Auth is org-scoped, not team-scoped |
-| Cross-team reporting | "Total hours across all teams at Acme this month" |
-| Org-level capacity view | See all teams' utilization on one timeline |
-| Shared member directory | People page across the whole org |
-| Shared holiday calendars | One holiday config for all teams in the org |
-| Org branding | Logo, theme, custom domain |
-| ADP / payroll export | One export covers all teams in the org |
+The foundation now supports several future product surfaces:
+
+| Feature | Why it depends on orgs |
+|---------|------------------------|
+| Org-wide reporting | Query across all teams in one organization |
+| Enterprise administration | Manage multiple organizations under one company-level container |
+| Shared member directory | One place to see people across teams |
+| Org chart | Display reporting lines across organization members |
+| Capacity planning | Roll up availability and allocation across teams |
+| Payroll/export flows | Export hours across organization members and teams |
+| SSO / domain join | Map identity provider domains to organizations |
+| Billing | Charge by organization or enterprise seats instead of team-by-team |
+
+The first several pieces are already supported structurally. Reporting,
+capacity, SSO, billing, and payroll-specific behavior still need their own
+feature work.
 
 ---
 
-## Impact on Existing Data Model
+## Current Limits
 
-Currently teams are top-level, with an existing `isPersonal` concept for the
-user's default workspace. Adding orgs means every collaborative team likely
-gets an `orgId`. Every user gets an `orgId` (or a set of org memberships for
-consulting/agency use cases where one person works for multiple orgs).
+The current implementation is a foundation, not the full enterprise product.
 
-```typescript
-interface Organization {
-  id: string;
-  name: string;
-  slug: string;          // URL-friendly, e.g. "acme-corp"
-  logoUrl?: string;
-  billingEmail: string;
-  plan: 'free' | 'pro' | 'enterprise';
-  ssoConfig?: SsoConfig; // future
-  createdAt: Date;
-}
+Still future:
 
-interface OrgMembership {
-  orgId: string;
-  userId: string;
-  role: 'owner' | 'admin' | 'member';
-  joinedAt: Date;
-}
-
-// Team gains orgId:
-interface Team {
-  // ... existing fields ...
-  orgId: string;
-}
-```
+- org billing and seat-counting
+- SSO/domain mapping
+- Google Workspace directory sync
+- SCIM provisioning
+- shared holiday calendars
+- org-level capacity timeline
+- org-level report registry
+- payroll configuration and ADP export
+- public organization profile/pages
+- complete reserved-name policy for org slugs
+- richer audit/compliance surface
 
 ---
 
-## Migration Path
+## Google Workspace And SSO Future
 
-The migration from the current model is straightforward in concept:
+Google Workspace remains the most likely first SSO target.
 
-1. Decide how existing personal workspaces map to orgs (remain special, or
-  become hidden/lightweight personal orgs)
-2. Create a default org for every existing collaborative team cluster
-3. Associate collaborative teams with their org
-4. All existing users become org members with `role: 'member'`
-5. Existing team admins remain team admins (not automatically org admins)
+Expected shape:
 
-The trickiest part is "what is a cluster?" — today there is no org boundary, so
-the migration would likely create one org per existing top-level admin or ask
-users to self-organize during an onboarding flow. The other tricky part is not
-breaking the already-shipped username and personal-workspace model while that
-transition happens.
+- org admin connects a Google Workspace domain to an organization
+- users signing in with that domain can be routed to or invited into the org
+- directory sync can pre-populate members
+- calendar sync can later feed time-off and blocked-time planning
 
----
-
-## Google Workspace Integration (Future)
-
-Google Workspace (formerly G Suite) is the most common SSO target for small-to-
-mid-size teams. The integration would work at the org level:
-
-- Org admin connects their Google Workspace domain to their Huddle org
-- Members sign in with their Google account — no separate password
-- Member list can be pre-populated from the Google Workspace directory
-- Google Calendar can sync time-off and blocked time entries (see
-  [team-capacity.md](team-capacity.md))
-
-**How it would work technically:**
+Technical direction:
 
 ```
 Google Workspace Admin Console
-  └── OAuth App Authorization (domain-wide)
-        └── Better Auth Google Provider (already in stack)
-              └── Huddle Org SSO config
+  └── OAuth / domain authorization
+        └── Better Auth Google provider
+              └── Huddle organization SSO config
 ```
 
-`better-auth` (already used for auth) supports Google OAuth out of the box.
-The org-level piece is mapping a Google Workspace domain to a Huddle org
-so that `@acme.com` logins automatically join the Acme org.
+Future enterprise extensions:
 
-**Future extensions:**
-- Microsoft Entra ID (Azure AD) — same pattern, different provider
-- SAML 2.0 / OIDC for enterprise SSO (Okta, OneLogin, etc.)
-- SCIM provisioning — automatically create/deactivate users when they are
-  added/removed in the IdP
+- Microsoft Entra ID / Azure AD
+- SAML 2.0 / OIDC
+- SCIM provisioning
+- automatic deactivation when users leave the identity provider
 
 ---
 
-## Org Roles
-
-| Role | Can do |
-|------|--------|
-| `owner` | Everything — billing, SSO config, delete org, promote admins |
-| `admin` | Create/delete teams, manage all members, run org-wide reports |
-| `member` | Belongs to teams as assigned by team admins |
-
-An org can have multiple `admin`s but should have at least one `owner`.
-
----
-
-## Personal Workspace vs Organization
-
-Today the product already gives each user a **personal workspace**. That is the
-near-term reality to preserve; a visible **personal org** is still just one
-possible future implementation strategy.
-
-- First successful signup leads to a personal workspace, not necessarily to a
-  user-visible org object.
-- User handle is already the first canonical namespace anchor.
-- Org work should layer on top of that without forcing a premature answer on
-  whether the personal workspace is technically a team, a hidden org, or a
-  future org-owned workspace.
-
-### Near-Term Direction
-
-To unblock social login and clean identity, username plus personal workspace
-ships first. Full multi-org capability can come later.
-
-- First successful signup (email, GitHub, or Google) should end with claimed
-  username and usable personal workspace.
-- Collaborative org identity should be additive, not a prerequisite for basic
-  onboarding.
-- Namespace and routing should stay flexible until the org URL strategy is
-  chosen.
-
----
-
-## Open Questions
-
-- **Multi-org users**: can one person belong to multiple orgs? (Consultants,
-  contractors working for multiple companies.) If yes, how does the UI handle
-  switching context?
-- **Org slug / URL shape**: should org pages use `/{orgSlug}` or
-  `/org/{orgSlug}`?
-- **Shared namespace or split namespace**: if users already occupy `/{username}`,
-  should orgs live under a reserved prefix, a subdomain, or a unified global
-  slug namespace?
-- **Subdomain strategy**: should subdomains (`acme.timehuddle.app`) be
-  supported later as canonical or redirect-only?
-- **Personal workspace mapping**: should the current personal workspace remain
-  a special team concept, or eventually become a hidden/lightweight personal
-  org behind the scenes?
-- **Invitation flow**: does joining an org require an invite, or can anyone with
-  a matching email domain join?
-- **Data isolation**: are org data boundaries enforced at the DB level (separate
-  collections) or application level (orgId filter on every query)?
-- **Reserved and blocked names**: what baseline deny-list should apply to both
-  user handles and org slugs (for example system routes, trademark-sensitive
-  terms, and profanity/abuse patterns), and what moderation process updates it?
-
----
-
-## Relationship to Other Plans
+## Relationship To Other Plans
 
 | Plan | How orgs affect it |
 |------|--------------------|
-| [team-capacity.md](team-capacity.md) | Org-level capacity timeline across all teams |
-| [reporting.md](reporting.md) | Org-scoped reports (all teams, all members) |
-| [exporters.md](exporters.md) | ADP export covers whole org's payroll |
-| [meetings-standups-basics.md](meetings-standups-basics.md) | Org admin can see all team standups |
-| [custom-fields.md](custom-fields.md) | Field schemas shared at org level, overridden per team |
+| [team-capacity.md](team-capacity.md) | Organization and enterprise rollups for availability |
+| [reporting.md](reporting.md) | Org-scoped and enterprise-scoped reports |
+| [exporters.md](exporters.md) | Payroll and timesheet exports across org members |
+| [meetings-standups-basics.md](meetings-standups-basics.md) | Scrum masters/admins can reason across teams |
+| [custom-fields.md](custom-fields.md) | Field schemas may be org-default with team overrides |
+| [profiles.md](profiles.md) | Profiles and org chart share reporting-line context |
 
 ---
 
-## Possible Rollout Sequence
+## Recommended Next Steps
 
-1. **Username + personal workspace foundation** — on first signup (including
-  GitHub/Google), claim canonical handle and ensure a personal workspace exists;
-  keep scope minimal and onboarding-focused
-2. **Baseline org model** — add `Organization` + `OrgMembership`, add `orgId`
-  to `Team`, and backfill existing users/teams into personal org defaults;
-  keep this intentionally minimal so the data boundary lands before the full UI
-3. **Org context in API** — all queries implicitly scope to the user's current
-  org; enforced at middleware level
-4. **Org settings page** — name, logo, member list, invite by email
-5. **Org admin role** — promote members to org admin, org-wide team management
-6. **Google Workspace SSO** — domain-level login, directory sync
-7. **Org-wide reporting** — reports that span all teams in the org
-8. **Billing** — plan tiers, seat counting, upgrade/downgrade flows
-9. **Enterprise SSO** — SAML/OIDC, SCIM provisioning
+The next useful work should build on the existing hierarchy rather than revisit
+whether the hierarchy should exist.
+
+1. **Document org permissions clearly** — define what enterprise owners/admins,
+   org owners/admins, team admins, and members can do.
+2. **Harden org scoping in feature specs** — new features should explicitly say
+   whether they are personal, team, org, or enterprise scoped.
+3. **Decide org URL strategy** — keep app-internal switching for now unless
+   public org pages become a product requirement.
+4. **Use orgs in reporting first** — reporting is the most immediate payoff for
+   the hierarchy.
+5. **Defer SSO/billing until the admin surface stabilizes** — both depend on
+   accurate roles, seat ownership, and clear org context.
