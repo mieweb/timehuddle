@@ -207,6 +207,31 @@ export const authApi = {
     return res.json();
   },
 
+  /** Dev-only sign-in used by the login probe. */
+  devMemberSignIn: async (
+    domain: 'enterprise' | 'organization' = 'organization',
+    role: 'member' | 'admin' | 'owner' = 'member',
+    joinTeam = false,
+  ): Promise<{ token?: string; user?: TimecoreUser }> => {
+    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/dev/member-sign-in`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain, role, joinTeam }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+      );
+    }
+    const token = res.headers.get('set-auth-token');
+    if (token) sessionToken.set(token);
+    return res.json();
+  },
+
   /**
    * Initiate a social OAuth sign-in (e.g. GitHub).
    * Returns the provider redirect URL; caller should set window.location.href to it.

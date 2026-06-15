@@ -62,7 +62,7 @@ services:
   frontend:
     image: node:24-alpine
     working_dir: /app
-    command: sh -c "npm install && npx vite --host"
+    command: sh -c "npm install && npx vite --host --mode development"
     ports:
       - '3000:3000'
     volumes:
