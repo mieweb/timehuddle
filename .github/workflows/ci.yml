@@ -173,6 +173,9 @@ jobs:
 
             echo "=== git fetch + pull → development ==="
             git fetch origin
+            git merge --abort 2>/dev/null || true
+            git reset --hard HEAD
+            git clean -fd
             git checkout development
             git reset --hard origin/development
 
