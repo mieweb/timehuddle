@@ -148,8 +148,9 @@ export const UserDropdown: React.FC = () => {
                 <span className="flex items-center gap-2">
                   <FontAwesomeIcon
                     icon={faCheck}
-                    className={`text-xs text-primary-600 transition-opacity ${organization.id === selectedOrgId ? 'opacity-100' : 'opacity-0'
-                      }`}
+                    className={`text-xs text-primary-600 transition-opacity ${
+                      organization.id === selectedOrgId ? 'opacity-100' : 'opacity-0'
+                    }`}
                   />
                   <span className="font-normal">{organization.name}</span>
                 </span>
@@ -175,8 +176,9 @@ export const UserDropdown: React.FC = () => {
                 <span className="flex items-center gap-2">
                   <FontAwesomeIcon
                     icon={faCheck}
-                    className={`text-xs text-primary-600 transition-opacity ${team.id === selectedTeam?.id ? 'opacity-100' : 'opacity-0'
-                      }`}
+                    className={`text-xs text-primary-600 transition-opacity ${
+                      team.id === selectedTeam?.id ? 'opacity-100' : 'opacity-0'
+                    }`}
                   />
                   <span className="font-normal">{team.name}</span>
                 </span>
@@ -201,10 +203,7 @@ export const UserDropdown: React.FC = () => {
         )}
 
         {enterprises.length > 0 && (
-          <DropdownItem
-            icon={<FontAwesomeIcon icon={faBuilding} />}
-            onClick={handleEnterprisePage}
-          >
+          <DropdownItem icon={<FontAwesomeIcon icon={faBuilding} />} onClick={handleEnterprisePage}>
             <span className="font-normal">Enterprise</span>
           </DropdownItem>
         )}
