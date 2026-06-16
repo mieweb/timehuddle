@@ -780,6 +780,69 @@ export const ticketApi = {
     }),
 };
 
+// ─── Huddle API ───────────────────────────────────────────────────────────────
+
+export interface HuddlePost {
+  id: string;
+  teamId: string;
+  userId: string;
+  content: {
+    text: string;
+    mentions: string[];
+  };
+  ticketId?: string;
+  attachments: Array<{
+    mediaId: string;
+    type: 'image' | 'video' | 'file';
+    url: string;
+    thumbnailUrl?: string;
+    filename?: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const huddleApi = {
+  /** Fetch all huddle posts for a team. */
+  getPosts: (teamId: string) =>
+    request<{ posts: HuddlePost[] }>(
+      `/v1/huddle/posts?teamId=${encodeURIComponent(teamId)}`,
+    ).then((r) => r.posts),
+
+  /** Create a new huddle post. */
+  createPost: (data: {
+    teamId: string;
+    content: {
+      text: string;
+      mentions: string[];
+    };
+    ticketId?: string;
+    attachments?: Array<{
+      mediaId: string;
+      type: 'image' | 'video' | 'file';
+      url: string;
+      thumbnailUrl?: string;
+      filename?: string;
+    }>;
+  }) =>
+    request<{ id: string }>('/v1/huddle/posts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.id),
+
+  /** Delete a huddle post. */
+  deletePost: (id: string) =>
+    request<{ ok: boolean }>(`/v1/huddle/posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  /** Open a WebSocket connection for live huddle post updates. Auto-reconnects on drop. */
+  openLiveStream: (teamId: string): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/huddle/ws?teamId=${encodeURIComponent(teamId)}`;
+      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+    }),
+};
+
 // ─── Team API ─────────────────────────────────────────────────────────────────
 
 export interface Team {
