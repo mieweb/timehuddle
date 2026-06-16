@@ -1,6 +1,6 @@
 teams:
-  - name: Demo Team
-    code: DEMO1234
+  - name: DemoApp Team
+    code: DAPP1234
     description: A demo team with multiple members and roles
     members:
       - sarah-team-lead@example.com

@@ -1,6 +1,19 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Mutable team state backing the mocked useTeam() hook. Tests tweak
+// `selectedOrgId` to exercise the "org selected" vs "no org" gating.
+const { teamState } = vi.hoisted(() => ({
+  teamState: {
+    selectedOrgId: 'org-1' as string | null,
+    organizations: [{ id: 'org-1', name: 'Demo Org' }],
+  },
+}));
+
+vi.mock('../../lib/TeamContext', () => ({
+  useTeam: () => teamState,
+}));
 
 // Replace CodeMirror editor with a plain textarea so jsdom can interact with it.
 vi.mock('./YamlEditor', () => ({
@@ -35,6 +48,11 @@ vi.mock('@mieweb/ui', () => ({
 import { runSeedImport } from './seedImport';
 import { SeederPage } from './SeederPage';
 
+beforeEach(() => {
+  // Default to an org being selected so Import is enabled.
+  teamState.selectedOrgId = 'org-1';
+});
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
@@ -51,7 +69,7 @@ describe('SeederPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Import' }));
 
     expect((await screen.findByRole('status')).textContent).toContain('Created: 2 users');
-    expect(runSeedImport).toHaveBeenCalledWith(expect.stringContaining('Demo Org'));
+    expect(runSeedImport).toHaveBeenCalledWith(expect.stringContaining('Demo Org'), 'org-1');
   });
 
   it('disables Import and shows inline error on invalid YAML', async () => {
@@ -75,5 +93,16 @@ describe('SeederPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Import' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain('ghost@example.com');
+  });
+
+  it('disables Import for a top-level-teams preset when no org is selected', () => {
+    teamState.selectedOrgId = null;
+    render(<SeederPage />);
+
+    // Default preset (Team) has top-level teams, so an org is required.
+    expect(screen.getByText(/No organization selected/i)).toBeTruthy();
+    const importBtn = screen.getByRole('button', { name: 'Import' }) as HTMLButtonElement;
+    expect(importBtn.disabled).toBe(true);
+    expect(runSeedImport).not.toHaveBeenCalled();
   });
 });

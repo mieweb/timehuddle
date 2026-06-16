@@ -7,7 +7,6 @@ import { buildApp } from "../src/server.js";
 import { auth } from "../src/lib/auth.js";
 import { client, connectDB } from "../src/lib/db.js";
 import {
-  enterprisesCollection,
   organizationsCollection,
   teamsCollection,
   ticketsCollection,
@@ -23,11 +22,7 @@ const ORG_WITH_TEAM_YAML = readFileSync(
 );
 
 // Emails defined in the org-with-team preset
-const DEMO_EMAILS = [
-  "demo-owner@example.com",
-  "demo-admin@example.com",
-  "demo-member@example.com",
-];
+const DEMO_EMAILS = ["demo-owner@example.com", "demo-admin@example.com", "demo-member@example.com"];
 
 const SEED_USER = {
   name: "Seed Import User",
@@ -58,7 +53,10 @@ beforeAll(async () => {
   await db.collection("user").deleteMany({ email: { $in: DEMO_EMAILS } });
   const org = await organizationsCollection().findOne({ slug: "demo-org" });
   if (org) {
-    const team = await teamsCollection().findOne({ orgId: org._id.toHexString(), code: "DEMO1234" });
+    const team = await teamsCollection().findOne({
+      orgId: org._id.toHexString(),
+      code: "DEMO1234",
+    });
     if (team) {
       await ticketsCollection().deleteMany({ teamId: team._id.toHexString() });
       await teamsCollection().deleteOne({ _id: team._id });

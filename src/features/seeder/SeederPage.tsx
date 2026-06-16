@@ -11,6 +11,21 @@ import teamPreset from './presets/team-only.yaml?raw';
 import orgPreset from './presets/org-with-team.yaml?raw';
 import userPreset from './presets/single-user.yaml?raw';
 
+function hasTopLevelTeams(yamlStr: string): boolean {
+  try {
+    const doc = YAML.parse(yamlStr);
+    return (
+      !!doc &&
+      Array.isArray(doc.teams) &&
+      doc.teams.length > 0 &&
+      !doc.organizations &&
+      !doc.enterprise
+    );
+  } catch {
+    return false;
+  }
+}
+
 type Preset = {
   id: string;
   label: string;
@@ -40,12 +55,15 @@ const PRESETS: Preset[] = [
 ];
 
 export const SeederPage: React.FC = () => {
-  const { selectedOrgId } = useTeam();
+  const { selectedOrgId, organizations } = useTeam();
+  const selectedOrg = organizations.find((o) => o.id === selectedOrgId) ?? null;
   const [yaml, setYaml] = useState(teamPreset);
   const [parseError, setParseError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const needsOrg = useMemo(() => hasTopLevelTeams(yaml), [yaml]);
 
   const yamlSyntaxError = useMemo(() => {
     try {
@@ -130,6 +148,24 @@ export const SeederPage: React.FC = () => {
               }}
             />
 
+            {needsOrg && (
+              <div
+                className={`rounded-xl border px-3 py-2 text-sm ${
+                  selectedOrg
+                    ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300'
+                    : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300'
+                }`}
+              >
+                {selectedOrg ? (
+                  <>
+                    Teams will be added to: <strong>{selectedOrg.name}</strong>
+                  </>
+                ) : (
+                  'No organization selected — select an org in the sidebar before importing.'
+                )}
+              </div>
+            )}
+
             {(yamlSyntaxError || parseError) && (
               <div
                 className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
@@ -161,7 +197,7 @@ export const SeederPage: React.FC = () => {
               variant="primary"
               onClick={handleRun}
               isLoading={loading}
-              disabled={!!yamlSyntaxError}
+              disabled={!!yamlSyntaxError || (needsOrg && !selectedOrgId)}
             >
               Import
             </Button>

@@ -1,7 +1,9 @@
 import { ObjectId } from "mongodb";
 import YAML from "yaml";
+import { auth } from "../lib/auth.js";
 import {
   enterprisesCollection,
+  orgMembersCollection,
   organizationsCollection,
   teamsCollection,
   ticketsCollection,
@@ -82,12 +84,19 @@ export type SeedImportError =
   | { type: "parse-error"; message: string }
   | { type: "validation-error"; message: string };
 
+/** Default password for seeded login accounts (same as the canonical seed script). */
+const DEFAULT_SEED_PASSWORD = "Password1!";
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isObjectId(value: string): boolean {
+  return /^[0-9a-f]{24}$/i.test(value);
 }
 
 function normalizeList(value: unknown): string[] {
@@ -98,7 +107,7 @@ function normalizeList(value: unknown): string[] {
 }
 
 function assertValidId(value: string, field: string) {
-  if (!/^[0-9a-f]{24}$/i.test(value)) {
+  if (!isObjectId(value)) {
     throw new Error(`${field} must be a 24-character hex ObjectId string`);
   }
 }
@@ -112,7 +121,18 @@ function slugifyLocal(value: string) {
 }
 
 function toObjectId(id?: string): ObjectId {
-  return id && /^[0-9a-f]{24}$/i.test(id) ? new ObjectId(id) : new ObjectId();
+  return id && isObjectId(id) ? new ObjectId(id) : new ObjectId();
+}
+
+/** Build a human name from an email local-part: "sarah-team-lead" -> "Sarah Team Lead". */
+function emailToName(email: string): string {
+  const local = email.split("@")[0];
+  const name = local
+    .split(/[._-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+  return name || local;
 }
 
 function parseSeedImport(input: string): SeedImportDocument {
@@ -134,76 +154,161 @@ function normalizeSeedDocument(doc: SeedImportDocument): SeedImportDocument {
   };
 }
 
-async function upsertUsers(users: SeedUser[]) {
-  const now = new Date();
-  const byEmail = new Map<string, string>();
-  let created = 0;
-  let updated = 0;
+// ── Phase 1: plan — collect every user reference anywhere in the document ──
 
-  for (const user of users) {
+/**
+ * Walk the whole document and gather every user reference (by email). References can
+ * appear in the `users:` list, org/enterprise owners & admins, team members & admins,
+ * and ticket createdBy / assignedTo. ObjectId references are ignored here (they point
+ * at users that already exist). Explicit `users:` entries carry name/username overrides.
+ */
+function collectUserEmails(doc: SeedImportDocument): {
+  emails: Set<string>;
+  explicit: Map<string, SeedUser>;
+} {
+  const emails = new Set<string>();
+  const explicit = new Map<string, SeedUser>();
+
+  const add = (ref: unknown) => {
+    const value = asString(ref);
+    if (value && !isObjectId(value)) emails.add(value);
+  };
+
+  const eachTicket = (ticket: SeedTicket) => {
+    add(ticket.createdBy);
+    normalizeList(ticket.assignedTo).forEach(add);
+  };
+
+  const eachTeam = (team: SeedTeam) => {
+    normalizeList(team.members).forEach(add);
+    normalizeList(team.admins).forEach(add);
+    (team.tickets ?? []).forEach(eachTicket);
+  };
+
+  const eachOrg = (org: SeedOrganization) => {
+    normalizeList(org.owners).forEach(add);
+    normalizeList(org.admins).forEach(add);
+    (org.teams ?? []).forEach(eachTeam);
+  };
+
+  for (const user of doc.users ?? []) {
     const email = asString(user.email);
-    if (!email) throw new Error("Each user requires a valid email");
-    const name = asString(user.name) ?? email.split("@")[0];
-    const existing = await usersCollection().findOne({ email });
-    const reportsToUserId = asString(user.reportsTo);
-    if (reportsToUserId) assertValidId(reportsToUserId, "users.reportsTo");
-
-    if (!existing) {
-      await usersCollection().insertOne({
-        _id: toObjectId(user.id),
-        name,
-        email,
-        emailVerified: true,
-        image: null,
-        username: user.username ?? null,
-        reportsToUserId: reportsToUserId ?? null,
-        createdAt: now,
-        updatedAt: now,
-      } as any);
-      created += 1;
-    } else {
-      await usersCollection().updateOne(
-        { _id: existing._id },
-        {
-          $set: {
-            name,
-            username: user.username ?? existing.username ?? null,
-            reportsToUserId: reportsToUserId ?? null,
-            updatedAt: now,
-          },
-        }
-      );
-      updated += 1;
+    if (email) {
+      emails.add(email);
+      explicit.set(email, user);
     }
-
-    const saved = await usersCollection().findOne({ email });
-    if (!saved) throw new Error(`Failed to load user after upsert: ${email}`);
-    byEmail.set(email, saved._id.toHexString());
   }
+  if (doc.enterprise) {
+    normalizeList(doc.enterprise.owners).forEach(add);
+    normalizeList(doc.enterprise.admins).forEach(add);
+    (doc.enterprise.organizations ?? []).forEach(eachOrg);
+  }
+  (doc.organizations ?? []).forEach(eachOrg);
+  (doc.teams ?? []).forEach(eachTeam);
 
-  return { byEmail, created, updated };
+  return { emails, explicit };
 }
 
-function resolveUserId(ref: string, userIdsByEmail: Map<string, string>): string {
-  const maybeEmail = asString(ref);
-  if (!maybeEmail) throw new Error("Invalid user reference");
-  if (/^[0-9a-f]{24}$/i.test(maybeEmail)) return maybeEmail;
-  const resolved = userIdsByEmail.get(maybeEmail);
-  if (resolved) return resolved;
-  throw new Error(`Unknown user reference: ${ref}`);
+// ── Phase 2: build — create all users as real, loginable accounts ──
+
+/**
+ * Ensure every referenced email has a loginable account (created via better-auth so a
+ * credential password exists), then apply explicit name/username/reportsTo overrides.
+ * Returns an email -> userId map used to resolve all later references.
+ */
+async function ensureUsers(
+  emails: Set<string>,
+  explicit: Map<string, SeedUser>
+): Promise<{ byEmail: Map<string, string>; created: number; updated: number }> {
+  const now = new Date();
+  let created = 0;
+
+  for (const email of emails) {
+    const existing = await usersCollection().findOne({ email });
+    if (existing) continue;
+    const data = explicit.get(email);
+    const name = asString(data?.name) ?? emailToName(email);
+    try {
+      await auth.api.signUpEmail({ body: { name, email, password: DEFAULT_SEED_PASSWORD } });
+      created += 1;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Tolerate a race where the account already exists; rethrow anything else.
+      if (!/already|exist/i.test(message)) throw err;
+    }
+  }
+
+  const saved = await usersCollection()
+    .find({ email: { $in: Array.from(emails) } })
+    .toArray();
+  const byEmail = new Map<string, string>();
+
+  for (const user of saved) {
+    const data = explicit.get(user.email);
+    const reportsTo = asString(data?.reportsTo);
+    if (reportsTo) assertValidId(reportsTo, "users.reportsTo");
+
+    const set: Record<string, unknown> = { emailVerified: true, updatedAt: now };
+    if (asString(data?.name)) set.name = asString(data?.name);
+    if (reportsTo) set.reportsToUserId = reportsTo;
+    // Claim a username only when one is explicitly given; otherwise keep any
+    // handle already claimed, defaulting to null (unclaimed) for new users.
+    set.username = asString(data?.username) ?? user.username ?? null;
+
+    await usersCollection().updateOne({ _id: user._id }, { $set: set });
+    byEmail.set(user.email, user._id.toHexString());
+  }
+
+  return { byEmail, created, updated: saved.length - created };
+}
+
+/** All users are pre-created in phase 2, so this is a pure lookup. */
+function resolveUserId(ref: string, byEmail: Map<string, string>): string {
+  const value = asString(ref);
+  if (!value) throw new Error("Invalid user reference");
+  if (isObjectId(value)) return value;
+  const id = byEmail.get(value);
+  if (!id) throw new Error(`Unknown user reference: ${value}`);
+  return id;
+}
+
+function resolveUserIds(refs: unknown, byEmail: Map<string, string>): string[] {
+  return normalizeList(refs).map((ref) => resolveUserId(ref, byEmail));
+}
+
+/** Ensure each user is a member of the org (idempotent). */
+async function upsertOrgMembers(
+  userIds: string[],
+  orgId: string,
+  role: "owner" | "admin" | "member" = "member"
+) {
+  const now = new Date();
+  for (const userId of userIds) {
+    const exists = await orgMembersCollection().findOne({ orgId, userId });
+    if (!exists) {
+      await orgMembersCollection().insertOne({
+        _id: new ObjectId(),
+        orgId,
+        userId,
+        role,
+        auto: false,
+        createdAt: now,
+      });
+    }
+  }
 }
 
 async function upsertEnterprise(
   enterprise: SeedEnterprise,
-  userIdsByEmail: Map<string, string>
+  byEmail: Map<string, string>
 ): Promise<{ enterpriseId: string; created: boolean }> {
   const name = asString(enterprise.name);
   if (!name) throw new Error("enterprise.name is required");
   const slug = asString(enterprise.slug) ?? slugifyLocal(name);
   const now = new Date();
   const existing = await enterprisesCollection().findOne({ slug });
-  const owners = normalizeList(enterprise.owners).map((ref) => resolveUserId(ref, userIdsByEmail));
-  const admins = normalizeList(enterprise.admins).map((ref) => resolveUserId(ref, userIdsByEmail));
+  const owners = resolveUserIds(enterprise.owners, byEmail);
+  const admins = resolveUserIds(enterprise.admins, byEmail);
 
   if (!existing) {
     const _id = toObjectId(enterprise.id);
@@ -221,14 +326,7 @@ async function upsertEnterprise(
 
   await enterprisesCollection().updateOne(
     { _id: existing._id },
-    {
-      $set: {
-        name,
-        owners,
-        admins,
-        updatedAt: now,
-      },
-    }
+    { $set: { name, owners, admins, updatedAt: now } }
   );
   return { enterpriseId: existing._id.toHexString(), created: false };
 }
@@ -236,20 +334,18 @@ async function upsertEnterprise(
 async function upsertOrganization(
   organization: SeedOrganization,
   enterpriseId: string | null,
-  userIdsByEmail: Map<string, string>
+  byEmail: Map<string, string>
 ): Promise<{ organizationId: string; created: boolean }> {
   const name = asString(organization.name);
   if (!name) throw new Error("organization.name is required");
   const slug = asString(organization.slug) ?? slugifyLocal(name);
   const now = new Date();
   const existing = await organizationsCollection().findOne({ slug });
-  const owners = normalizeList(organization.owners).map((ref) =>
-    resolveUserId(ref, userIdsByEmail)
-  );
-  const admins = normalizeList(organization.admins).map((ref) =>
-    resolveUserId(ref, userIdsByEmail)
-  );
+  const owners = resolveUserIds(organization.owners, byEmail);
+  const admins = resolveUserIds(organization.admins, byEmail);
 
+  let organizationId: string;
+  let created: boolean;
   if (!existing) {
     const _id = toObjectId(organization.id);
     await organizationsCollection().insertOne({
@@ -263,29 +359,35 @@ async function upsertOrganization(
       createdAt: now,
       updatedAt: now,
     } as any);
-    return { organizationId: _id.toHexString(), created: true };
+    organizationId = _id.toHexString();
+    created = true;
+  } else {
+    await organizationsCollection().updateOne(
+      { _id: existing._id },
+      {
+        $set: {
+          enterpriseId: enterpriseId ?? existing.enterpriseId,
+          name,
+          owners,
+          admins,
+          allowAutoJoin: organization.allowAutoJoin ?? existing.allowAutoJoin ?? true,
+          updatedAt: now,
+        },
+      }
+    );
+    organizationId = existing._id.toHexString();
+    created = false;
   }
 
-  await organizationsCollection().updateOne(
-    { _id: existing._id },
-    {
-      $set: {
-        enterpriseId: enterpriseId ?? existing.enterpriseId,
-        name,
-        owners,
-        admins,
-        allowAutoJoin: organization.allowAutoJoin ?? existing.allowAutoJoin ?? true,
-        updatedAt: now,
-      },
-    }
-  );
-  return { organizationId: existing._id.toHexString(), created: false };
+  await upsertOrgMembers(owners, organizationId, "owner");
+  await upsertOrgMembers(admins, organizationId, "admin");
+  return { organizationId, created };
 }
 
 async function upsertTeams(
   teams: SeedTeam[],
   orgId: string,
-  userIdsByEmail: Map<string, string>,
+  byEmail: Map<string, string>,
   ticketSeed: { teamId: string; ticket: SeedTicket }[]
 ) {
   let created = 0;
@@ -300,16 +402,17 @@ async function upsertTeams(
         .toUpperCase()
         .replace(/[^A-Z0-9]/g, "X");
     const now = new Date();
-    const members = normalizeList(team.members).map((ref) => resolveUserId(ref, userIdsByEmail));
-    const admins = normalizeList(team.admins)
-      .map((ref) => resolveUserId(ref, userIdsByEmail))
-      .filter((id) => members.includes(id));
+    const admins = resolveUserIds(team.admins, byEmail);
+    // Admins are implicitly members — union them in so an admin is always
+    // visible on the team (visibility is keyed on membership).
+    const members = Array.from(new Set([...resolveUserIds(team.members, byEmail), ...admins]));
+    if (members.length === 0) throw new Error(`${name}: team needs at least one member or admin`);
     const existing = await teamsCollection().findOne({ orgId, name });
 
+    const teamId = existing ? existing._id : toObjectId(team.id);
     if (!existing) {
-      const _id = toObjectId(team.id);
       await teamsCollection().insertOne({
-        _id,
+        _id: teamId,
         orgId,
         name,
         description: team.description,
@@ -321,27 +424,17 @@ async function upsertTeams(
         updatedAt: now,
       } as any);
       created += 1;
-      ticketSeed.push(
-        ...(team.tickets ?? []).map((ticket) => ({ teamId: _id.toHexString(), ticket }))
+    } else {
+      await teamsCollection().updateOne(
+        { _id: teamId },
+        { $set: { description: team.description, members, admins, code, updatedAt: now } }
       );
-      continue;
+      updated += 1;
     }
 
-    await teamsCollection().updateOne(
-      { _id: existing._id },
-      {
-        $set: {
-          description: team.description,
-          members,
-          admins,
-          code,
-          updatedAt: now,
-        },
-      }
-    );
-    updated += 1;
+    await upsertOrgMembers(members, orgId);
     ticketSeed.push(
-      ...(team.tickets ?? []).map((ticket) => ({ teamId: existing._id.toHexString(), ticket }))
+      ...(team.tickets ?? []).map((ticket) => ({ teamId: teamId.toHexString(), ticket }))
     );
   }
   return { created, updated };
@@ -349,19 +442,17 @@ async function upsertTeams(
 
 async function upsertTickets(
   entries: { teamId: string; ticket: SeedTicket }[],
-  userIdsByEmail: Map<string, string>
+  byEmail: Map<string, string>
 ) {
   let created = 0;
   for (const entry of entries) {
     const title = asString(entry.ticket.title);
     if (!title) throw new Error("ticket.title is required");
     const createdBy = resolveUserId(
-      entry.ticket.createdBy ?? Array.from(userIdsByEmail.keys())[0] ?? "",
-      userIdsByEmail
+      entry.ticket.createdBy ?? Array.from(byEmail.values())[0] ?? "",
+      byEmail
     );
-    const assignedTo = normalizeList(entry.ticket.assignedTo).map((ref) =>
-      resolveUserId(ref, userIdsByEmail)
-    );
+    const assignedTo = resolveUserIds(entry.ticket.assignedTo, byEmail);
     const exists = await ticketsCollection().findOne({ teamId: entry.teamId, title });
     if (exists) continue;
     await ticketsCollection().insertOne({
@@ -386,15 +477,17 @@ export async function importSeedYaml(
   options?: { defaultEnterpriseId?: string; orgId?: string }
 ): Promise<SeedImportResult> {
   const parsed = normalizeSeedDocument(parseSeedImport(input));
-  const users = parsed.users ?? [];
 
-  const userResult = await upsertUsers(users);
-  const userIdsByEmail = userResult.byEmail;
+  // Phase 1: plan. Phase 2: create every referenced user up front so all later
+  // references resolve against a complete email -> userId map.
+  const { emails, explicit } = collectUserEmails(parsed);
+  const userResult = await ensureUsers(emails, explicit);
+  const byEmail = userResult.byEmail;
 
-  const defaultEnterpriseId = options?.defaultEnterpriseId;
-  let enterpriseResult = { enterpriseId: defaultEnterpriseId ?? null, created: false };
+  // Phase 3: build the hierarchy, wiring references from the map.
+  let enterpriseResult = { enterpriseId: options?.defaultEnterpriseId ?? null, created: false };
   if (parsed.enterprise) {
-    enterpriseResult = await upsertEnterprise(parsed.enterprise, userIdsByEmail);
+    enterpriseResult = await upsertEnterprise(parsed.enterprise, byEmail);
   }
 
   const organizations = [
@@ -403,13 +496,9 @@ export async function importSeedYaml(
   ];
   let orgCreated = 0;
   let orgUpdated = 0;
-  const teamsResultTickets: { teamId: string; ticket: SeedTicket }[] = [];
+  const ticketSeed: { teamId: string; ticket: SeedTicket }[] = [];
   for (const organization of organizations) {
-    const result = await upsertOrganization(
-      organization,
-      enterpriseResult.enterpriseId,
-      userIdsByEmail
-    );
+    const result = await upsertOrganization(organization, enterpriseResult.enterpriseId, byEmail);
     if (result.created) orgCreated += 1;
     else orgUpdated += 1;
   }
@@ -424,26 +513,21 @@ export async function importSeedYaml(
     const result = await upsertTeams(
       organization.teams ?? [],
       org._id.toHexString(),
-      userIdsByEmail,
-      teamsResultTickets
+      byEmail,
+      ticketSeed
     );
     teamCreated += result.created;
     teamUpdated += result.updated;
   }
 
-  // If orgId is provided and there are top-level teams, add them to that org
+  // Top-level teams attach to the currently selected org passed from the UI.
   if (options?.orgId && parsed.teams && parsed.teams.length > 0) {
-    const result = await upsertTeams(
-      parsed.teams,
-      options.orgId,
-      userIdsByEmail,
-      teamsResultTickets
-    );
+    const result = await upsertTeams(parsed.teams, options.orgId, byEmail, ticketSeed);
     teamCreated += result.created;
     teamUpdated += result.updated;
   }
 
-  const ticketResult = await upsertTickets(teamsResultTickets, userIdsByEmail);
+  const ticketResult = await upsertTickets(ticketSeed, byEmail);
 
   return {
     created: {
