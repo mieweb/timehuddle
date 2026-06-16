@@ -3,6 +3,8 @@ import { ObjectId } from "mongodb";
 import { connectDB, client } from "../src/lib/db.js";
 import { auth } from "../src/lib/auth.js";
 import {
+  enterprisesCollection,
+  orgMembersCollection,
   teamsCollection,
   usersCollection,
   ticketsCollection,
@@ -1099,8 +1101,53 @@ async function seed() {
   // Give seeded users a realistic manager/reporting structure for org views.
   await applySeedHierarchy();
 
+  const defaultEnterprise = await orgService.ensureDefaultEnterprise();
+  const enterpriseOwnerId = userIdsByEmail.get("alice@example.com");
+  const enterpriseAdminIds = [
+    userIdsByEmail.get("carol@example.com"),
+    userIdsByEmail.get("tanya@example.com"),
+  ].filter((id): id is string => Boolean(id));
+
+  if (enterpriseOwnerId) {
+    const owners = new Set([enterpriseOwnerId]);
+    const admins = new Set(enterpriseAdminIds.filter((id) => id !== enterpriseOwnerId));
+    await enterprisesCollection().updateOne(
+      { _id: defaultEnterprise._id },
+      {
+        $set: {
+          owners: Array.from(owners),
+          admins: Array.from(admins),
+          updatedAt: new Date(),
+        },
+      }
+    );
+  }
+
   const defaultOrg = await orgService.ensureDefaultOrganization();
-  const defaultOrgId = defaultOrg._id.toHexString();
+  const defaultOrgAdminIds = [
+    enterpriseOwnerId,
+    ...enterpriseAdminIds,
+    userIdsByEmail.get("kira@example.com"),
+  ].filter((id): id is string => Boolean(id));
+  const orgMemberships = defaultOrgAdminIds.map((userId) => ({
+    updateOne: {
+      filter: { orgId: defaultOrg._id.toHexString(), userId },
+      update: {
+        $setOnInsert: {
+          _id: new ObjectId(),
+          orgId: defaultOrg._id.toHexString(),
+          userId,
+          role: userId === enterpriseOwnerId ? "owner" : "admin",
+          auto: true,
+          createdAt: new Date(),
+        },
+      },
+      upsert: true,
+    },
+  }));
+  if (orgMemberships.length > 0) {
+    await orgMembersCollection().bulkWrite(orgMemberships as any);
+  }
 
   for (const team of SEED_TEAMS) {
     await upsertSeedTeam(team, userIdsByEmail, defaultOrgId);

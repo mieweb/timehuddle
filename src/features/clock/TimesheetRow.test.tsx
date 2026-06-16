@@ -167,4 +167,32 @@ describe('TimesheetRow', () => {
     fireEvent.click(editButtons[0]);
     expect(onEdit).toHaveBeenCalledWith(session);
   });
+
+  it('rounds duration display to match minute-level timestamps', () => {
+    const session: ClockEvent = {
+      id: 'session-rounded',
+      userId: 'u1',
+      teamId: 'team-1',
+      startTime: new Date('2026-05-19T10:04:30').getTime(),
+      endTime: new Date('2026-05-19T13:04:29').getTime(),
+      accumulatedTime: 0,
+      breaks: [],
+    };
+
+    render(
+      <table>
+        <tbody>
+          <TimesheetRow
+            session={session}
+            teams={[{ id: 'team-1', name: 'Rounded Crew' }]}
+            onEdit={vi.fn()}
+          />
+        </tbody>
+      </table>,
+    );
+
+    expect(screen.getByText('10:04 AM')).toBeTruthy();
+    expect(screen.getByText('1:04 PM')).toBeTruthy();
+    expect(screen.getByText('3h 0m')).toBeTruthy();
+  });
 });
