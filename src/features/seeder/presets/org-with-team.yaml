@@ -1,0 +1,31 @@
+organizations:
+  - name: Demo Org
+    slug: demo-org
+    allowAutoJoin: true
+    owners:
+      - demo-owner@example.com
+    admins:
+      - demo-admin@example.com
+    teams:
+      - name: Demo Team
+        code: DEMO1234
+        members:
+          - demo-owner@example.com
+          - demo-admin@example.com
+          - demo-member@example.com
+        admins:
+          - demo-admin@example.com
+        tickets:
+          - title: Verify onboarding seed
+            status: open
+            priority: medium
+            createdBy: demo-owner@example.com
+            assignedTo:
+              - demo-admin@example.com
+users:
+  - email: demo-owner@example.com
+    name: Demo Owner
+  - email: demo-admin@example.com
+    name: Demo Admin
+  - email: demo-member@example.com
+    name: Demo Member
