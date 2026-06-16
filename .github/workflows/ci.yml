@@ -167,18 +167,18 @@ jobs:
             set -e
             cd ~/timehuddle || { echo "ERROR: repo dir missing"; exit 1; }
 
-            echo "=== git stash ==="
-            STASH_OUT=$(git stash 2>&1)
-            echo "$STASH_OUT"
+            # echo "=== git stash ==="
+            # STASH_OUT=$(git stash 2>&1)
+            # echo "$STASH_OUT"
 
             echo "=== git fetch + pull → development ==="
             git fetch origin
             git checkout development
             git reset --hard origin/development
 
-            echo "=== git stash pop ==="
-            echo "$STASH_OUT" | grep -q "No local changes to save" || git stash pop
-            echo "branch: $(git branch --show-current)"
+            # echo "=== git stash pop ==="
+            # echo "$STASH_OUT" | grep -q "No local changes to save" || git stash pop
+            # echo "branch: $(git branch --show-current)"
 
             echo "=== sudo npm install (root) ==="
             sudo npm install --no-audit --no-fund
