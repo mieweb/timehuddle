@@ -719,10 +719,15 @@ export interface Ticket {
 }
 
 export const ticketApi = {
-  getTickets: (teamId: string) =>
-    request<{ tickets: Ticket[] }>(`/v1/tickets?teamId=${encodeURIComponent(teamId)}`).then(
-      (r) => r.tickets,
-    ),
+  getTickets: (teamId: string) => {
+    console.log('[ticketApi.getTickets] Called with teamId:', teamId, 'type:', typeof teamId);
+    const url = `/v1/tickets?teamId=${encodeURIComponent(teamId)}`;
+    console.log('[ticketApi.getTickets] Request URL:', url);
+    return request<{ tickets: Ticket[] }>(url).then((r) => {
+      console.log('[ticketApi.getTickets] Response:', r);
+      return r.tickets;
+    });
+  },
 
   getTicket: (id: string) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`).then((r) => r.ticket),
