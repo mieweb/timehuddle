@@ -3,6 +3,7 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { ObjectId } from "mongodb";
 import { buildApp } from "../src/server.js";
 import { auth } from "../src/lib/auth.js";
 import { client, connectDB } from "../src/lib/db.js";
@@ -13,16 +14,32 @@ import {
   usersCollection,
 } from "../src/models/index.js";
 
-// Load the same preset the SeederPage uses — this is the "shared code path".
+// Load the same presets the SeederPage uses — this is the "shared code path".
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const ORG_WITH_TEAM_YAML = readFileSync(
-  join(__dirname, "../../src/features/seeder/presets/org-with-team.yaml"),
-  "utf-8"
-);
+const PRESETS_DIR = join(__dirname, "../../src/features/seeder/presets");
+
+const ORG_WITH_TEAM_YAML = readFileSync(join(PRESETS_DIR, "org-with-team.yaml"), "utf-8");
+const TEAM_ONLY_YAML = readFileSync(join(PRESETS_DIR, "team-only.yaml"), "utf-8");
+const SINGLE_USER_YAML = readFileSync(join(PRESETS_DIR, "single-user.yaml"), "utf-8");
 
 // Emails defined in the org-with-team preset
 const DEMO_EMAILS = ["demo-owner@example.com", "demo-admin@example.com", "demo-member@example.com"];
+
+// Emails defined in the team-only preset
+const TEAM_ONLY_EMAILS = [
+  "sarah-team-lead@example.com",
+  "alex-developer@example.com",
+  "jordan-designer@example.com",
+  "casey-qa@example.com",
+  "morgan-product@example.com",
+];
+
+// Emails defined in the single-user preset
+const SINGLE_USER_EMAILS = ["quick-user@example.com", "quick-admin@example.com"];
+
+// Org created in beforeAll for the top-level-teams (team-only) test
+let anchorOrgId: string;
 
 const SEED_USER = {
   name: "Seed Import User",
@@ -49,20 +66,45 @@ beforeAll(async () => {
 
   const db = client.db();
 
-  // Clean up preset data from any prior run
+  // Clean up org-with-team preset data from any prior run
   await db.collection("user").deleteMany({ email: { $in: DEMO_EMAILS } });
-  const org = await organizationsCollection().findOne({ slug: "demo-org" });
-  if (org) {
-    const team = await teamsCollection().findOne({
-      orgId: org._id.toHexString(),
+  const demoOrg = await organizationsCollection().findOne({ slug: "demo-org" });
+  if (demoOrg) {
+    const demoTeam = await teamsCollection().findOne({
+      orgId: demoOrg._id.toHexString(),
       code: "DEMO1234",
     });
-    if (team) {
-      await ticketsCollection().deleteMany({ teamId: team._id.toHexString() });
-      await teamsCollection().deleteOne({ _id: team._id });
+    if (demoTeam) {
+      await ticketsCollection().deleteMany({ teamId: demoTeam._id.toHexString() });
+      await teamsCollection().deleteOne({ _id: demoTeam._id });
     }
-    await organizationsCollection().deleteOne({ _id: org._id });
+    await organizationsCollection().deleteOne({ _id: demoOrg._id });
   }
+
+  // Clean up team-only preset data from any prior run
+  await db.collection("user").deleteMany({ email: { $in: TEAM_ONLY_EMAILS } });
+  const dappTeam = await teamsCollection().findOne({ code: "DAPP1234" });
+  if (dappTeam) {
+    await ticketsCollection().deleteMany({ teamId: dappTeam._id.toHexString() });
+    await teamsCollection().deleteOne({ _id: dappTeam._id });
+  }
+
+  // Clean up single-user preset data from any prior run
+  await db.collection("user").deleteMany({ email: { $in: SINGLE_USER_EMAILS } });
+
+  // Create a minimal org that the team-only test will attach its top-level team to
+  await organizationsCollection().deleteOne({ slug: "seeder-test-anchor-org" });
+  const anchorOrg = await organizationsCollection().insertOne({
+    _id: new ObjectId(),
+    name: "Seeder Test Anchor Org",
+    slug: "seeder-test-anchor-org",
+    owners: [],
+    admins: [],
+    allowAutoJoin: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  anchorOrgId = anchorOrg.insertedId.toHexString();
 
   // Auth user for the test session
   const existing = await db.collection("user").findOne({ email: SEED_USER.email });
@@ -135,5 +177,58 @@ describe("dev seed import routes", () => {
     });
     expect(res.statusCode).toBe(404);
     vi.unstubAllEnvs();
+  });
+
+  it("imports the single-user preset and creates both accounts", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/dev/seed/import",
+      headers: { cookie: sessionCookie },
+      payload: { yaml: SINGLE_USER_YAML },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.created.users).toBe(2);
+    expect(body.created.teams).toBe(0);
+    expect(body.created.organizations).toBe(0);
+
+    const quickUser = await usersCollection().findOne({ email: "quick-user@example.com" });
+    expect(quickUser).not.toBeNull();
+    expect(quickUser!.name).toBe("Quick User");
+    expect(quickUser!.username).toBe("quick-user");
+
+    const quickAdmin = await usersCollection().findOne({ email: "quick-admin@example.com" });
+    expect(quickAdmin).not.toBeNull();
+    expect(quickAdmin!.name).toBe("Quick Admin");
+  });
+
+  it("imports the team-only preset attached to an org via orgId", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/dev/seed/import",
+      headers: { cookie: sessionCookie },
+      payload: { yaml: TEAM_ONLY_YAML, orgId: anchorOrgId },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.created.users).toBe(5);
+    expect(body.created.teams).toBe(1);
+    expect(body.created.tickets).toBe(2);
+
+    // Team must be attached to the anchor org, not floating
+    const team = await teamsCollection().findOne({ code: "DAPP1234" });
+    expect(team).not.toBeNull();
+    expect(team!.orgId).toBe(anchorOrgId);
+
+    // All 5 members must be in the team's members array
+    expect(team!.members).toHaveLength(5);
+
+    // Admins (sarah + alex) must also appear in members
+    const sarah = await usersCollection().findOne({ email: "sarah-team-lead@example.com" });
+    const alex = await usersCollection().findOne({ email: "alex-developer@example.com" });
+    expect(team!.admins).toContain(sarah!._id.toHexString());
+    expect(team!.admins).toContain(alex!._id.toHexString());
+    expect(team!.members).toContain(sarah!._id.toHexString());
+    expect(team!.members).toContain(alex!._id.toHexString());
   });
 });

@@ -9,6 +9,7 @@ import {
   teamsCollection,
   ticketsCollection,
   enterprisesCollection,
+  orgMembersCollection,
 } from "../src/models/index.js";
 
 const SEED_USER = {
@@ -238,6 +239,37 @@ describe("seed import — field-level verification", () => {
       .find({ teamId: (await teamsCollection().findOne({ code: "FTEST001" }))!._id.toHexString() })
       .toArray();
     expect(tickets).toHaveLength(2);
+  });
+
+  it("populates org_members for all team members and org owners/admins", async () => {
+    const owner = await usersCollection().findOne({ email: `${P}-owner@example.com` });
+    const admin = await usersCollection().findOne({ email: `${P}-admin@example.com` });
+    const member = await usersCollection().findOne({ email: `${P}-member@example.com` });
+    const org = await organizationsCollection().findOne({ slug: `${P}-org` });
+    expect(org).not.toBeNull();
+
+    const orgId = org!._id.toHexString();
+
+    const ownerMembership = await orgMembersCollection().findOne({
+      orgId,
+      userId: owner!._id.toHexString(),
+    });
+    expect(ownerMembership).not.toBeNull();
+    expect(ownerMembership!.role).toBe("owner");
+
+    const adminMembership = await orgMembersCollection().findOne({
+      orgId,
+      userId: admin!._id.toHexString(),
+    });
+    expect(adminMembership).not.toBeNull();
+    expect(adminMembership!.role).toBe("admin");
+
+    // Team members get added to org_members as plain members
+    const memberMembership = await orgMembersCollection().findOne({
+      orgId,
+      userId: member!._id.toHexString(),
+    });
+    expect(memberMembership).not.toBeNull();
   });
 
   it("auto-creates loginable users for referenced emails not in the users list", async () => {
