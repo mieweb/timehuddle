@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import type { HuddlePost } from '@lib/api';
 import { huddleApi } from '@lib/api';
+import { MarkdownContent } from '../HuddleComposer';
 
-// ── Avatar Component ──────────────────────────────────────────────────────────
-
+// ── Avatar ────────────────────────────────────────────────────────────────────
 type AvatarColor = 'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green';
 
 const avatarClasses: Record<AvatarColor, string> = {
@@ -15,15 +15,7 @@ const avatarClasses: Record<AvatarColor, string> = {
   green:  'bg-green-100 text-green-600',
 };
 
-function Avatar({
-  initials,
-  color,
-  size = 'md',
-}: {
-  initials: string;
-  color: AvatarColor;
-  size?: 'sm' | 'md';
-}) {
+function Avatar({ initials, color, size = 'md' }: { initials: string; color: AvatarColor; size?: 'sm' | 'md' }) {
   const sz = size === 'sm' ? 'w-7 h-7 text-[10px]' : 'w-9 h-9 text-[13px]';
   return (
     <div className={`${sz} rounded-full flex items-center justify-center font-semibold shrink-0 ${avatarClasses[color]}`}>
@@ -40,14 +32,11 @@ function getUserColor(userId: string): AvatarColor {
 
 function getUserInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  }
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   return name.substring(0, 2).toUpperCase();
 }
 
-// ── PostCard Component ────────────────────────────────────────────────────────
-
+// ── PostCard ──────────────────────────────────────────────────────────────────
 interface PostCardProps {
   post: HuddlePost;
   canEdit: boolean;
@@ -56,13 +45,14 @@ interface PostCardProps {
 }
 
 export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardProps) {
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing]     = useState(false);
   const [editContent, setEditContent] = useState(post.content.text);
-  const [showMenu, setShowMenu] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [editTab, setEditTab]         = useState<'write' | 'preview'>('write');
+  const [showMenu, setShowMenu]       = useState(false);
+  const [isDeleting, setIsDeleting]   = useState(false);
+  const menuRef                       = useRef<HTMLDivElement>(null);
+  const editTextareaRef               = useRef<HTMLTextAreaElement>(null);
 
-  // Close menu when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -75,18 +65,17 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
     }
   }, [showMenu]);
 
-  const handleEdit = () => {
-    setIsEditing(true);
-    setShowMenu(false);
-  };
+  // Reset edit state when post changes
+  useEffect(() => {
+    setEditContent(post.content.text);
+  }, [post.content.text]);
+
+  const handleEdit = () => { setIsEditing(true); setEditTab('write'); setShowMenu(false); };
 
   const handleSaveEdit = async () => {
     try {
       await huddleApi.updatePost(post.id, {
-        content: {
-          text: editContent,
-          mentions: post.content.mentions,
-        },
+        content: { text: editContent, mentions: post.content.mentions },
       });
       setIsEditing(false);
       onPostUpdated?.();
@@ -96,15 +85,10 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
     }
   };
 
-  const handleCancelEdit = () => {
-    setEditContent(post.content.text);
-    setIsEditing(false);
-  };
+  const handleCancelEdit = () => { setEditContent(post.content.text); setIsEditing(false); };
 
   const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this post?')) {
-      return;
-    }
+    if (!confirm('Are you sure you want to delete this post?')) return;
     setIsDeleting(true);
     try {
       await huddleApi.deletePost(post.id);
@@ -117,47 +101,42 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
   };
 
   const handleTicketClick = () => {
-    if (post.ticketId) {
-      window.location.href = `/app/tickets/${post.ticketId}`;
-    }
+    if (post.ticketId) window.location.href = `/app/tickets/${post.ticketId}`;
   };
 
   const formatTimestamp = (date: string) => {
-    const d = new Date(date);
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
+    const d       = new Date(date);
+    const now     = new Date();
+    const diffMs  = now.getTime() - d.getTime();
+    const diffMins  = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return 'just now';
+    const diffDays  = Math.floor(diffHours / 24);
+    if (diffMins < 1)  return 'just now';
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
+    if (diffDays < 7)  return `${diffDays}d ago`;
     return d.toLocaleDateString();
   };
 
-  if (isDeleting) {
-    return null;
-  }
+  if (isDeleting) return null;
 
-  const authorName = (post as any).userName || 'Unknown User';
+  const authorName     = (post as any).userName || 'Unknown User';
   const authorInitials = (post as any).userInitials || getUserInitials(authorName);
-  const avatarColor = getUserColor(post.userId);
+  const avatarColor    = getUserColor(post.userId);
 
   return (
     <div className="border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800">
-      {/* Author Header */}
+
+      {/* ── Author header ── */}
       <div className="flex items-center gap-2.5 mb-3">
         <Avatar initials={authorInitials} color={avatarColor} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-sm text-gray-900 dark:text-white">
-              {authorName}
-            </span>
-            <span className="text-xs text-gray-500 dark:text-neutral-400">
-              {formatTimestamp(post.createdAt)}
-            </span>
+            <span className="font-medium text-sm text-gray-900 dark:text-white">{authorName}</span>
+            <span className="text-xs text-gray-500 dark:text-neutral-400">{formatTimestamp(post.createdAt)}</span>
+            {post.updatedAt && post.updatedAt !== post.createdAt && (
+              <span className="text-xs text-gray-400 dark:text-neutral-500 italic">edited</span>
+            )}
           </div>
         </div>
 
@@ -174,7 +153,6 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
                 <circle cx="12" cy="19" r="1.5" />
               </svg>
             </button>
-            
             {showMenu && (
               <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-neutral-800 rounded-lg shadow-lg border border-gray-200 dark:border-neutral-700 z-10">
                 {canEdit && (
@@ -199,9 +177,9 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
         )}
       </div>
 
-      {/* Ticket Badge */}
+      {/* ── Ticket badge ── */}
       {post.ticketId && (
-        <div 
+        <div
           className="inline-flex items-center gap-1.5 px-2.5 py-1 mb-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-lg cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
           onClick={handleTicketClick}
         >
@@ -216,15 +194,50 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
         </div>
       )}
 
-      {/* Post Content */}
+      {/* ── Post content ── */}
       {isEditing ? (
         <div className="mb-3">
-          <textarea
-            value={editContent}
-            onChange={(e) => setEditContent(e.target.value)}
-            className="w-full min-h-25 p-3 text-sm border border-gray-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-900 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-neutral-500 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors"
-            placeholder="Write your post..."
-          />
+          {/* Edit write/preview tabs */}
+          <div className="flex gap-1 border-b border-gray-100 dark:border-neutral-700 mb-0">
+            {(['write', 'preview'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setEditTab(t)}
+                className={`text-xs px-3 pb-2 pt-1 font-medium transition-colors border-b-2 -mb-px capitalize ${
+                  editTab === t
+                    ? 'text-indigo-500 border-indigo-500'
+                    : 'text-gray-400 dark:text-neutral-500 border-transparent hover:text-gray-600 dark:hover:text-neutral-300'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+
+          {editTab === 'write' ? (
+            <textarea
+              ref={editTextareaRef}
+              autoFocus
+              value={editContent}
+              onChange={e => setEditContent(e.target.value)}
+              className="w-full min-h-24 p-3 mt-2 text-sm font-mono border border-gray-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-900 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-neutral-500 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors resize-none leading-relaxed"
+              placeholder="Write your post... (markdown supported)"
+              onKeyDown={e => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  handleSaveEdit();
+                }
+              }}
+            />
+          ) : (
+            <div className="mt-2 min-h-24 border border-gray-200 dark:border-neutral-700 rounded-lg px-3 py-2.5">
+              {editContent.trim()
+                ? <MarkdownContent content={editContent} />
+                : <span className="text-gray-300 dark:text-neutral-600 text-sm">Nothing to preview...</span>
+              }
+            </div>
+          )}
+
           <div className="flex gap-2 mt-2">
             <button
               onClick={handleSaveEdit}
@@ -238,36 +251,30 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
             >
               Cancel
             </button>
+            <span className="text-xs text-gray-300 dark:text-neutral-600 self-center ml-1 hidden sm:block">⌘↵ to save</span>
           </div>
         </div>
       ) : (
-        <p className="text-sm text-gray-700 dark:text-neutral-300 leading-relaxed mb-3 whitespace-pre-wrap">{post.content.text}</p>
+        // ── Render markdown instead of plain text ──
+        <div className="mb-3">
+          <MarkdownContent content={post.content.text} />
+        </div>
       )}
 
-      {/* Attachments */}
+      {/* ── Attachments ── */}
       {post.attachments && post.attachments.length > 0 && (
         <div className="mb-3 grid grid-cols-2 gap-2">
-          {post.attachments.map((attachment) => (
+          {post.attachments.map(attachment => (
             <div key={attachment.mediaId} className="relative rounded-lg overflow-hidden">
               {attachment.type === 'video' && attachment.thumbnailUrl && (
-                <img
-                  src={attachment.thumbnailUrl}
-                  alt={attachment.filename || 'Video thumbnail'}
-                  className="w-full h-auto"
-                />
+                <img src={attachment.thumbnailUrl} alt={attachment.filename || 'Video thumbnail'} className="w-full h-auto" />
               )}
               {attachment.type === 'image' && (
-                <img
-                  src={attachment.url}
-                  alt={attachment.filename || 'Image'}
-                  className="w-full h-auto"
-                />
+                <img src={attachment.url} alt={attachment.filename || 'Image'} className="w-full h-auto" />
               )}
               {attachment.type === 'file' && (
                 <div className="bg-neutral-100 dark:bg-neutral-700 p-4 rounded-lg">
-                  <p className="text-sm text-gray-900 dark:text-white truncate">
-                    {attachment.filename}
-                  </p>
+                  <p className="text-sm text-gray-900 dark:text-white truncate">{attachment.filename}</p>
                 </div>
               )}
             </div>
@@ -275,7 +282,7 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
         </div>
       )}
 
-      {/* Actions */}
+      {/* ── Actions ── */}
       <div className="flex items-center gap-0.5 py-2 border-t border-gray-100 dark:border-neutral-700 -mx-1">
         <button className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 px-2.5 py-2 rounded-lg transition-colors">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -283,9 +290,7 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
           </svg>
           0
         </button>
-
         <div className="w-px h-4 bg-gray-200 dark:bg-neutral-700 mx-1" />
-
         <button className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 px-2.5 py-2 rounded-lg transition-colors">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -293,6 +298,7 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
           0
         </button>
       </div>
+
     </div>
   );
 }
