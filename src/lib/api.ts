@@ -1482,7 +1482,7 @@ export const videoApi = {
 export interface MediaItem {
   id: string;
   userId: string;
-  type: 'video' | 'image';
+  type: 'video' | 'image' | 'document';
   mimeType: string;
   url: string;
   videoid: string | null;

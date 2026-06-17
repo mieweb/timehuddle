@@ -131,12 +131,27 @@ export default function Huddle() {
       }
     
       // Prepare attachments for API
-      const attachments = content.attachments.map(att => ({
-        mediaId: att.id,
-        type: (att.type || (att.mimeType?.startsWith('image/') ? 'image' : 'file')) as 'image' | 'video' | 'file',
-        url: att.url,
-        filename: att.filename,
-      }));
+      const attachments = content.attachments.map(att => {
+        // Map MediaItem type to attachment type
+        let type: 'image' | 'video' | 'file';
+        if (att.type === 'image') {
+          type = 'image';
+        } else if (att.type === 'video') {
+          type = 'video';
+        } else if (att.type === 'document') {
+          type = 'file';
+        } else {
+          // Fallback based on mimeType
+          type = att.mimeType?.startsWith('image/') ? 'image' : 'file';
+        }
+        
+        return {
+          mediaId: att.id,
+          type,
+          url: att.url,
+          filename: att.filename,
+        };
+      });
 
       // Extract user IDs from mentions
       const mentionUserIds = (content.mentions || []).map(m => m.userId);

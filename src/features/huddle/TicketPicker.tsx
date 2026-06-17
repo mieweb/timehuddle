@@ -94,7 +94,7 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
           </div>
 
           {/* Ticket list */}
-          <div className="max-h-64 overflow-y-auto">
+          <div className="max-h-64 overflow-y-auto overflow-x-hidden">
             {loading ? (
               <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">Loading tickets...</div>
             ) : filteredTickets.length === 0 ? (
@@ -108,11 +108,11 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
                     selectedId === ticket.id ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' : 'text-gray-700 dark:text-neutral-300'
                   }`}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
                     </svg>
-                    <span className="flex-1 truncate">#{ticket.id} — {ticket.title}</span>
+                    <span className="flex-1 truncate min-w-0">{ticket.title}</span>
                     {ticket.status && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 shrink-0">
                         {ticket.status}

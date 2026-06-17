@@ -35,7 +35,7 @@ function MermaidBlock({ code }: { code: string }) {
 export function MarkdownContent({ content }: { content: string }) {
   return (
     <div className="
-      prose prose-sm dark:prose-invert max-w-none
+      prose prose-sm dark:prose-invert max-w-none overflow-visible
       prose-p:text-gray-800 dark:prose-p:text-neutral-200
       prose-headings:text-gray-900 dark:prose-headings:text-neutral-100
       prose-strong:text-gray-900 dark:prose-strong:text-neutral-100
@@ -47,6 +47,7 @@ export function MarkdownContent({ content }: { content: string }) {
       prose-pre:bg-neutral-900 dark:prose-pre:bg-neutral-950
       prose-pre:border prose-pre:border-neutral-700 dark:prose-pre:border-neutral-800
       prose-pre:rounded-xl prose-pre:text-xs prose-pre:p-0
+      prose-pre:overflow-x-scroll
       prose-blockquote:border-indigo-300 dark:prose-blockquote:border-indigo-700
       prose-blockquote:text-gray-500 dark:prose-blockquote:text-neutral-400
       prose-a:text-indigo-500 prose-a:no-underline hover:prose-a:underline
@@ -59,6 +60,9 @@ export function MarkdownContent({ content }: { content: string }) {
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeHighlight, rehypeKatex]}
         components={{
+          pre({ children }) {
+            return <pre className="p-4">{children}</pre>;
+          },
           code({ className, children }) {
             const code = String(children).trim();
             if (className === 'language-mermaid') return <MermaidBlock code={code} />;
@@ -440,7 +444,7 @@ export function HuddleComposer({
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
               </svg>
-              Ticket #{selectedTicketId}
+              Ticket Selected
               <button onClick={() => setSelectedTicketId(undefined)} className="hover:text-amber-900 dark:hover:text-amber-200 transition-colors">
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

@@ -40,13 +40,16 @@ import { initAgenda, stopAgenda } from "./services/agenda.service.js";
 import { orgService } from "./services/org.service.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: opts.logger ?? true });
+  const app = Fastify({ 
+    logger: opts.logger ?? true,
+    bodyLimit: 100 * 1024 * 1024, // 100 MB — supports video and document uploads
+  });
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
   // Register multipart before routes and before Swagger
   await app.register(multipart, {
     limits: {
-      fileSize: 10 * 1024 * 1024, // 10 MB
+      fileSize: 100 * 1024 * 1024, // 100 MB — supports videos and large documents
     },
   });
 

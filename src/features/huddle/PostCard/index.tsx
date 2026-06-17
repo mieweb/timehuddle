@@ -188,8 +188,8 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
             </svg>
           </div>
-          <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
-            Ticket #{post.ticketId}
+          <span className="text-xs font-medium text-amber-700 dark:text-amber-300 truncate">
+            {post.ticketTitle || 'Linked Ticket'}
           </span>
         </div>
       )}
@@ -263,19 +263,50 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
 
       {/* ── Attachments ── */}
       {post.attachments && post.attachments.length > 0 && (
-        <div className="mb-3 grid grid-cols-2 gap-2">
+        <div className={`mb-3 ${post.attachments.length === 1 ? '' : 'grid grid-cols-2'} gap-2`}>
           {post.attachments.map(attachment => (
-            <div key={attachment.mediaId} className="relative rounded-lg overflow-hidden">
-              {attachment.type === 'video' && attachment.thumbnailUrl && (
-                <img src={attachment.thumbnailUrl} alt={attachment.filename || 'Video thumbnail'} className="w-full h-auto" />
-              )}
+            <div key={attachment.mediaId} className="relative rounded-xl overflow-hidden">
               {attachment.type === 'image' && (
-                <img src={attachment.url} alt={attachment.filename || 'Image'} className="w-full h-auto" />
+                <div className="relative w-full aspect-video bg-gray-100 dark:bg-neutral-800">
+                  <img 
+                    src={attachment.url} 
+                    alt={attachment.filename || 'Image'} 
+                    className="w-full h-full object-cover rounded-xl" 
+                  />
+                </div>
+              )}
+              {attachment.type === 'video' && (
+                <div className="relative w-full aspect-video bg-black rounded-xl">
+                  {attachment.thumbnailUrl ? (
+                    <img 
+                      src={attachment.thumbnailUrl} 
+                      alt={attachment.filename || 'Video thumbnail'} 
+                      className="w-full h-full object-cover rounded-xl" 
+                    />
+                  ) : (
+                    <video controls className="w-full h-full rounded-xl">
+                      <source src={attachment.url} type="video/mp4" />
+                      Your browser does not support the video tag.
+                    </video>
+                  )}
+                </div>
               )}
               {attachment.type === 'file' && (
-                <div className="bg-neutral-100 dark:bg-neutral-700 p-4 rounded-lg">
-                  <p className="text-sm text-gray-900 dark:text-white truncate">{attachment.filename}</p>
-                </div>
+                <a
+                  href={attachment.url}
+                  download={attachment.filename}
+                  className="block bg-neutral-100 dark:bg-neutral-700 p-4 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-600 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <svg className="w-8 h-8 text-gray-500 dark:text-neutral-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{attachment.filename || 'Document'}</p>
+                      <p className="text-xs text-gray-500 dark:text-neutral-400">Click to download</p>
+                    </div>
+                  </div>
+                </a>
               )}
             </div>
           ))}

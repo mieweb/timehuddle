@@ -15,12 +15,6 @@ export function AttachmentBar({ onAttachmentAdd }: AttachmentBarProps) {
   const handleFileSelect = async (file: File, fileType: 'photo' | 'video' | 'doc') => {
     console.log('[AttachmentBar] File selected:', file.name, 'type:', fileType);
     
-    // Only photos are supported in Phase 1 (backend limitation)
-    if (fileType !== 'photo') {
-      alert(`${fileType === 'video' ? 'Video' : 'Document'} uploads are not yet supported. Please use photos for now.`);
-      return;
-    }
-    
     setUploading(true);
     try {
       console.log('[AttachmentBar] Uploading file...');

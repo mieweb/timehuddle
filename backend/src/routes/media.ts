@@ -39,6 +39,49 @@ function imageExtFromMime(mimeType: string): string | null {
   }
 }
 
+function videoExtFromMime(mimeType: string): string | null {
+  switch (mimeType) {
+    case "video/mp4":
+      return "mp4";
+    case "video/webm":
+      return "webm";
+    case "video/quicktime":
+      return "mov";
+    case "video/x-msvideo":
+      return "avi";
+    default:
+      return null;
+  }
+}
+
+function documentExtFromMime(mimeType: string): string | null {
+  switch (mimeType) {
+    case "application/pdf":
+      return "pdf";
+    case "application/msword":
+      return "doc";
+    case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+      return "docx";
+    case "text/plain":
+      return "txt";
+    default:
+      return null;
+  }
+}
+
+function getFileTypeAndExt(mimeType: string): { type: "image" | "video" | "document"; ext: string } | null {
+  const imageExt = imageExtFromMime(mimeType);
+  if (imageExt) return { type: "image", ext: imageExt };
+
+  const videoExt = videoExtFromMime(mimeType);
+  if (videoExt) return { type: "video", ext: videoExt };
+
+  const docExt = documentExtFromMime(mimeType);
+  if (docExt) return { type: "document", ext: docExt };
+
+  return null;
+}
+
 function isAllowedThumbnailMimeType(mimeType: string): boolean {
   return mimeType === "image/jpeg" || mimeType === "image/png" || mimeType === "image/webp";
 }
@@ -107,14 +150,14 @@ const mediaItemShape = {
 };
 
 export async function mediaRoutes(app: FastifyInstance) {
-  // POST /v1/media — upload an image to the media library
+  // POST /v1/media — upload an image, video, or document to the media library
   app.post(
     "/media",
     {
       onRequest: [requireAuth],
       schema: {
         tags: ["Media"],
-        summary: "Upload an image to the media library",
+        summary: "Upload an image, video, or document to the media library",
         response: {
           200: { type: "object", properties: { item: mediaItemShape } },
           400: { type: "object", properties: { error: { type: "string" } } },
@@ -126,9 +169,9 @@ export async function mediaRoutes(app: FastifyInstance) {
       const data = await req.file();
       if (!data) return reply.status(400).send({ error: "No file uploaded" });
 
-      const ext = imageExtFromMime(data.mimetype);
-      if (!ext) {
-        return reply.status(400).send({ error: "Unsupported image type" });
+      const fileInfo = getFileTypeAndExt(data.mimetype);
+      if (!fileInfo) {
+        return reply.status(400).send({ error: "Unsupported file type" });
       }
 
       const buffer = await data.toBuffer();
@@ -137,13 +180,13 @@ export async function mediaRoutes(app: FastifyInstance) {
       }
 
       await fs.mkdir(mediaDir, { recursive: true });
-      const filename = buildImageFilename(userId, ext);
+      const filename = buildImageFilename(userId, fileInfo.ext);
       const dest = path.join(mediaDir, filename);
       await fs.writeFile(dest, buffer);
 
       const url = `/uploads/media/${filename}`;
       const item = await mediaService.create(userId, {
-        type: "image",
+        type: fileInfo.type,
         mimeType: data.mimetype,
         url,
         filename,
