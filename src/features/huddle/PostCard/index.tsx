@@ -38,19 +38,24 @@ function getUserColor(userId: string): AvatarColor {
   return colors[hash % colors.length];
 }
 
+function getUserInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return name.substring(0, 2).toUpperCase();
+}
+
 // ── PostCard Component ────────────────────────────────────────────────────────
 
 interface PostCardProps {
   post: HuddlePost;
-  currentUser: {
-    id: string;
-    name: string;
-    initials: string;
-  };
+  canEdit: boolean;
+  canDelete: boolean;
   onPostUpdated?: () => void;
 }
 
-export function PostCard({ post, currentUser: _currentUser, onPostUpdated }: PostCardProps) {
+export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(post.content.text);
   const [showMenu, setShowMenu] = useState(false);
@@ -80,7 +85,7 @@ export function PostCard({ post, currentUser: _currentUser, onPostUpdated }: Pos
       await huddleApi.updatePost(post.id, {
         content: {
           text: editContent,
-          mentions: post.content.mentions, // Keep existing mentions for now
+          mentions: post.content.mentions,
         },
       });
       setIsEditing(false);
@@ -116,6 +121,7 @@ export function PostCard({ post, currentUser: _currentUser, onPostUpdated }: Pos
       window.location.href = `/app/tickets/${post.ticketId}`;
     }
   };
+
   const formatTimestamp = (date: string) => {
     const d = new Date(date);
     const now = new Date();
@@ -132,11 +138,11 @@ export function PostCard({ post, currentUser: _currentUser, onPostUpdated }: Pos
   };
 
   if (isDeleting) {
-    return null; // Hide the post while deleting
+    return null;
   }
 
-  const authorName = post.author?.name || 'Unknown User';
-  const authorInitials = post.author?.initials || 'U';
+  const authorName = (post as any).userName || 'Unknown User';
+  const authorInitials = (post as any).userInitials || getUserInitials(authorName);
   const avatarColor = getUserColor(post.userId);
 
   return (
@@ -144,41 +150,34 @@ export function PostCard({ post, currentUser: _currentUser, onPostUpdated }: Pos
       {/* Author Header */}
       <div className="flex items-center gap-2.5 mb-3">
         <Avatar initials={authorInitials} color={avatarColor} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-sm text-gray-900 dark:text-white">
-                {authorName}
-              </span>
-              <span className="text-xs text-gray-500 dark:text-neutral-400">
-                {formatTimestamp(post.createdAt)}
-              </span>
-            </div>
-            {post.ticket && (
-              <Badge 
-                variant="secondary" 
-                size="sm" 
-                className="mt-1 cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/30"
-                onClick={handleTicketClick}
-              >
-                #{post.ticket.number} — {post.ticket.title}
-              </Badge>
-            )}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-sm text-gray-900 dark:text-white">
+              {authorName}
+            </span>
+            <span className="text-xs text-gray-500 dark:text-neutral-400">
+              {formatTimestamp(post.createdAt)}
+            </span>
           </div>
+        </div>
+
         {/* Three-dot menu */}
-        {(post.canEdit || post.canDelete) && (
+        {(canEdit || canDelete) && (
           <div className="relative" ref={menuRef}>
             <button
               className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-neutral-700 transition-colors"
               onClick={() => setShowMenu(!showMenu)}
             >
               <svg className="w-4 h-4 text-gray-400 dark:text-neutral-500" fill="currentColor" viewBox="0 0 24 24">
-                <circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" />
+                <circle cx="12" cy="5" r="1.5" />
+                <circle cx="12" cy="12" r="1.5" />
+                <circle cx="12" cy="19" r="1.5" />
               </svg>
             </button>
             
             {showMenu && (
               <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-neutral-800 rounded-lg shadow-lg border border-gray-200 dark:border-neutral-700 z-10">
-                {post.canEdit && (
+                {canEdit && (
                   <button
                     className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-700 rounded-t-lg"
                     onClick={handleEdit}
@@ -186,7 +185,7 @@ export function PostCard({ post, currentUser: _currentUser, onPostUpdated }: Pos
                     Edit post
                   </button>
                 )}
-                {post.canDelete && (
+                {canDelete && (
                   <button
                     className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-neutral-700 rounded-b-lg"
                     onClick={handleDelete}
@@ -198,11 +197,10 @@ export function PostCard({ post, currentUser: _currentUser, onPostUpdated }: Pos
             )}
           </div>
         )}
-        )}
-        </div>
+      </div>
 
       {/* Ticket Badge */}
-      {post.ticket && (
+      {post.ticketId && (
         <div 
           className="inline-flex items-center gap-1.5 px-2.5 py-1 mb-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-lg cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
           onClick={handleTicketClick}
@@ -213,7 +211,7 @@ export function PostCard({ post, currentUser: _currentUser, onPostUpdated }: Pos
             </svg>
           </div>
           <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
-            #{post.ticket.number} — {post.ticket.title}
+            Ticket #{post.ticketId}
           </span>
         </div>
       )}
@@ -224,7 +222,7 @@ export function PostCard({ post, currentUser: _currentUser, onPostUpdated }: Pos
           <textarea
             value={editContent}
             onChange={(e) => setEditContent(e.target.value)}
-            className="w-full min-h-[100px] p-3 text-sm border border-gray-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-900 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-neutral-500 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors"
+            className="w-full min-h-25 p-3 text-sm border border-gray-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-900 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-neutral-500 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors"
             placeholder="Write your post..."
           />
           <div className="flex gap-2 mt-2">
@@ -243,28 +241,47 @@ export function PostCard({ post, currentUser: _currentUser, onPostUpdated }: Pos
           </div>
         </div>
       ) : (
-        <p className="text-sm text-gray-700 dark:text-neutral-300 leading-relaxed mb-3">{post.content.text}</p>
+        <p className="text-sm text-gray-700 dark:text-neutral-300 leading-relaxed mb-3 whitespace-pre-wrap">{post.content.text}</p>
       )}
 
-        {/* Attachments */}
-        {post.attachments && post.attachments.length > 0 && (
-          <div className="mb-3 grid grid-cols-2 gap-2">
-            {post.attachments.map((attachment) => (
-              <div key={attachment.mediaId} className="relative rounded-lg overflow-hidden">
-                {attachment.type === 'video' && attachment.thumbnailUrl && (
-                  <img
-                    src={attachment.thumbnailUrl}
-                    alt={attachment.filename || 'Video thumbnail'}
-                    className="w-full h-auto"
-                  />
-                )}
+      {/* Attachments */}
+      {post.attachments && post.attachments.length > 0 && (
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          {post.attachments.map((attachment) => (
+            <div key={attachment.mediaId} className="relative rounded-lg overflow-hidden">
+              {attachment.type === 'video' && attachment.thumbnailUrl && (
+                <img
+                  src={attachment.thumbnailUrl}
+                  alt={attachment.filename || 'Video thumbnail'}
+                  className="w-full h-auto"
+                />
+              )}
+              {attachment.type === 'image' && (
+                <img
+                  src={attachment.url}
+                  alt={attachment.filename || 'Image'}
+                  className="w-full h-auto"
+                />
+              )}
+              {attachment.type === 'file' && (
+                <div className="bg-neutral-100 dark:bg-neutral-700 p-4 rounded-lg">
+                  <p className="text-sm text-gray-900 dark:text-white truncate">
+                    {attachment.filename}
+                  </p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Actions */}
       <div className="flex items-center gap-0.5 py-2 border-t border-gray-100 dark:border-neutral-700 -mx-1">
         <button className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 px-2.5 py-2 rounded-lg transition-colors">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
           </svg>
-          {post.likes?.length || 0}
+          0
         </button>
 
         <div className="w-px h-4 bg-gray-200 dark:bg-neutral-700 mx-1" />
@@ -276,25 +293,6 @@ export function PostCard({ post, currentUser: _currentUser, onPostUpdated }: Pos
           0
         </button>
       </div>
-    </div    </div>
-            ))}
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="flex items-center gap-2 pt-2 border-t border-gray-200 dark:border-neutral-700">
-          <Button variant="ghost" size="sm">
-            <span className="text-xs">
-              {post.likes?.length || 0} {post.likes?.length === 1 ? 'Like' : 'Likes'}
-            </span>
-          </Button>
-          <Button variant="ghost" size="sm">
-            <span className="text-xs">
-              0 Comments
-            </span>
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+    </div>
   );
 }
