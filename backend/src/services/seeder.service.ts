@@ -427,7 +427,10 @@ async function upsertTeams(
     } else {
       await teamsCollection().updateOne(
         { _id: teamId },
-        { $set: { description: team.description, members, admins, code, updatedAt: now } }
+        {
+          $set: { description: team.description, code, updatedAt: now },
+          $addToSet: { members: { $each: members }, admins: { $each: admins } },
+        }
       );
       updated += 1;
     }

@@ -3,10 +3,10 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { ObjectId } from "mongodb";
 import { buildApp } from "../src/server.js";
 import { auth } from "../src/lib/auth.js";
 import { client, connectDB } from "../src/lib/db.js";
+import { ObjectId } from "mongodb";
 import {
   organizationsCollection,
   teamsCollection,
@@ -38,9 +38,6 @@ const TEAM_ONLY_EMAILS = [
 // Emails defined in the single-user preset
 const SINGLE_USER_EMAILS = ["quick-user@example.com", "quick-admin@example.com"];
 
-// Org created in beforeAll for the top-level-teams (team-only) test
-let anchorOrgId: string;
-
 const SEED_USER = {
   name: "Seed Import User",
   email: "seed-import-user@test.dev",
@@ -49,6 +46,7 @@ const SEED_USER = {
 
 let app: FastifyInstance;
 let sessionCookie: string;
+let teamOnlyAnchorOrgId: string;
 
 async function getSessionCookie(email: string, password: string): Promise<string> {
   const res = (await auth.api.signInEmail({
@@ -83,28 +81,29 @@ beforeAll(async () => {
 
   // Clean up team-only preset data from any prior run
   await db.collection("user").deleteMany({ email: { $in: TEAM_ONLY_EMAILS } });
-  const dappTeam = await teamsCollection().findOne({ code: "DAPP1234" });
-  if (dappTeam) {
-    await ticketsCollection().deleteMany({ teamId: dappTeam._id.toHexString() });
-    await teamsCollection().deleteOne({ _id: dappTeam._id });
+  const dappTeams = await teamsCollection().find({ code: "DAPP1234" }).toArray();
+  for (const t of dappTeams) {
+    await ticketsCollection().deleteMany({ teamId: t._id.toHexString() });
   }
+  await teamsCollection().deleteMany({ code: "DAPP1234" });
+  await organizationsCollection().deleteMany({ slug: { $in: ["seeder-test-anchor-org"] } });
 
-  // Clean up single-user preset data from any prior run
-  await db.collection("user").deleteMany({ email: { $in: SINGLE_USER_EMAILS } });
-
-  // Create a minimal org that the team-only test will attach its top-level team to
-  await organizationsCollection().deleteOne({ slug: "seeder-test-anchor-org" });
-  const anchorOrg = await organizationsCollection().insertOne({
-    _id: new ObjectId(),
+  // Create a stable anchor org that the team-only preset will attach its teams to
+  const anchorOrgObjectId = new ObjectId();
+  await organizationsCollection().insertOne({
+    _id: anchorOrgObjectId,
     name: "Seeder Test Anchor Org",
     slug: "seeder-test-anchor-org",
     owners: [],
     admins: [],
-    allowAutoJoin: false,
+    allowAutoJoin: true,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
-  anchorOrgId = anchorOrg.insertedId.toHexString();
+  teamOnlyAnchorOrgId = anchorOrgObjectId.toHexString();
+
+  // Clean up single-user preset data from any prior run
+  await db.collection("user").deleteMany({ email: { $in: SINGLE_USER_EMAILS } });
 
   // Auth user for the test session
   const existing = await db.collection("user").findOne({ email: SEED_USER.email });
@@ -202,23 +201,24 @@ describe("dev seed import routes", () => {
     expect(quickAdmin!.name).toBe("Quick Admin");
   });
 
-  it("imports the team-only preset attached to an org via orgId", async () => {
+  it("imports the team-only preset, attaching the team to the provided orgId", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/v1/dev/seed/import",
       headers: { cookie: sessionCookie },
-      payload: { yaml: TEAM_ONLY_YAML, orgId: anchorOrgId },
+      payload: { yaml: TEAM_ONLY_YAML, orgId: teamOnlyAnchorOrgId },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.created.users).toBe(5);
+    expect(body.created.organizations).toBe(0);
     expect(body.created.teams).toBe(1);
     expect(body.created.tickets).toBe(2);
 
-    // Team must be attached to the anchor org, not floating
+    // Team must be attached to the anchor org, not a newly created one
     const team = await teamsCollection().findOne({ code: "DAPP1234" });
     expect(team).not.toBeNull();
-    expect(team!.orgId).toBe(anchorOrgId);
+    expect(team!.orgId).toBe(teamOnlyAnchorOrgId);
 
     // All 5 members must be in the team's members array
     expect(team!.members).toHaveLength(5);

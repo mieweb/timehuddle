@@ -89,8 +89,6 @@ export const SeederPage: React.FC = () => {
     try {
       const outcome = await runSeedImport(yaml, selectedOrgId || undefined);
       setResult(outcome.summary);
-      // Reload page so other components pick up the new data
-      setTimeout(() => window.location.reload(), 2000);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : 'Seed import failed');
     } finally {
@@ -125,6 +123,12 @@ export const SeederPage: React.FC = () => {
                 </button>
               ))}
             </div>
+
+            {organizations.length === 0 && needsOrg && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                No organizations exist yet. Run the <strong>Org + Team</strong> preset first to create one, then come back to <strong>Team</strong>.
+              </div>
+            )}
 
             <div className="mt-3 rounded-lg border border-dashed border-neutral-300 p-3 text-sm text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">
               Paste or edit YAML below. The parser validates syntax before the import runs.

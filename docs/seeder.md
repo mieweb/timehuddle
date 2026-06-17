@@ -16,7 +16,7 @@ The Seeder page is split into two panels.
 
 Click a preset button to load its YAML into the editor. Three presets are available:
 
-- **Team** — 5 users and 1 team. Requires an org to be selected (see below).
+- **Team** — 5 users and 1 team. Requires an org to be selected in the sidebar (see below).
 - **Org + Team** — 3 users, 1 org, 1 team, and 1 ticket. Self-contained; no org selection needed.
 - **Single User** — 2 standalone users. Useful for quick auth and role testing.
 
@@ -178,7 +178,7 @@ Anywhere a user reference appears (`members`, `admins`, `owners`, `createdBy`,
 
 | Behavior                | Detail                                                                                                                                                      |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Idempotent**          | Re-importing the same YAML is safe. Entities are upserted by their natural key (slug for orgs, name+orgId for teams, title+teamId for tickets). |
+| **Additive updates**    | Re-importing merges into existing data. Orgs and teams are matched by natural key (slug / name+orgId); new members and admins are added to existing teams, never removed. Tickets are skipped if they already exist (matched by title+teamId). |
 | **Admins are members**  | Admins are automatically added to `members`. A team is only visible to its members.                                                                         |
 | **Org membership**      | All team members are automatically added to the parent org's `org_members` collection.                                                                      |
 | **Top-level teams**     | `teams:` at the root level requires an org to be selected in the Seeder UI sidebar. The team is attached to that org.                                       |
