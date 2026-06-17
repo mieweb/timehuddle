@@ -203,21 +203,33 @@ export default function Huddle() {
 
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-neutral-900 min-h-screen">
-      {/* Header - Now sticky */}
-      <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-3 bg-white dark:bg-neutral-800 border-b border-gray-100 dark:border-neutral-700 shrink-0">
-        <h1 className="text-lg font-semibold text-gray-900 dark:text-neutral-100 tracking-tight">Huddle</h1>
-        <div className="flex gap-2">
-          <button className="w-8 h-8 rounded-full bg-gray-100 dark:bg-neutral-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-neutral-600 transition-colors">
-            <svg className="w-4 h-4 text-gray-500 dark:text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </button>
-          <button className="w-8 h-8 rounded-full bg-gray-100 dark:bg-neutral-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-neutral-600 transition-colors">
-            <svg className="w-4 h-4 text-gray-500 dark:text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-            </svg>
-          </button>
+      {/* Sticky header section with both title and composer */}
+      <div className="sticky top-0 z-10 bg-white dark:bg-neutral-800 shrink-0">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 dark:border-neutral-700">
+          <h1 className="text-lg font-semibold text-gray-900 dark:text-neutral-100 tracking-tight">Huddle</h1>
+          <div className="flex gap-2">
+            <button className="w-8 h-8 rounded-full bg-gray-100 dark:bg-neutral-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-neutral-600 transition-colors">
+              <svg className="w-4 h-4 text-gray-500 dark:text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </button>
+            <button className="w-8 h-8 rounded-full bg-gray-100 dark:bg-neutral-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-neutral-600 transition-colors">
+              <svg className="w-4 h-4 text-gray-500 dark:text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+            </button>
+          </div>
         </div>
+
+        {/* Composer - part of sticky section */}
+        {selectedTeamId && (
+          <HuddleComposer 
+            onPost={addPost}
+            userInitials={user ? getUserInitials(user.name) : 'U'}
+            userColor={user ? getUserColor(user.id) : 'indigo'}
+          />
+        )}
       </div>
 
       {/* Feed */}
@@ -230,11 +242,6 @@ export default function Huddle() {
 
         {selectedTeamId && (
           <>
-            <HuddleComposer 
-              onPost={addPost}
-              userInitials={user ? getUserInitials(user.name) : 'U'}
-              userColor={user ? getUserColor(user.id) : 'indigo'}
-            />
             <div className="h-2 bg-gray-100 dark:bg-neutral-800 border-y border-gray-200 dark:border-neutral-700" />
 
             {loading && (

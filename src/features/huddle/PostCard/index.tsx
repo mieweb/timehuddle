@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import type { HuddlePost } from '@lib/api';
 import { huddleApi } from '@lib/api';
-import { MarkdownContent } from '../HuddleComposer';
+import { MarkdownContent } from '../MarkdownContent';
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 type AvatarColor = 'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green';
@@ -267,16 +267,16 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
           {post.attachments.map(attachment => (
             <div key={attachment.mediaId} className="relative rounded-xl overflow-hidden">
               {attachment.type === 'image' && (
-                <div className="relative w-full aspect-video bg-gray-100 dark:bg-neutral-800">
+                <div className="relative w-full bg-gray-100 dark:bg-neutral-800 rounded-xl max-h-[500px] flex items-center justify-center">
                   <img 
                     src={attachment.url} 
                     alt={attachment.filename || 'Image'} 
-                    className="w-full h-full object-cover rounded-xl" 
+                    className="max-w-full max-h-[500px] object-contain rounded-xl" 
                   />
                 </div>
               )}
               {attachment.type === 'video' && (
-                <div className="relative w-full aspect-video bg-black rounded-xl">
+                <div className="relative w-full aspect-video bg-black rounded-xl max-h-96">
                   {attachment.thumbnailUrl ? (
                     <img 
                       src={attachment.thumbnailUrl} 
