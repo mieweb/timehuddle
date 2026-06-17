@@ -38,6 +38,7 @@ flowchart TD
         RClock["/clock"]
         RTimers["/timers"]
         RWork["/work"]
+        RHuddle["/huddle"]
         RNotif["/notifications"]
         RMsg["/messages"]
         RChannels["/channels"]
@@ -60,6 +61,7 @@ flowchart TD
         STicket[TicketService]
         SClock[ClockService]
         STimer[TimerService]
+        SHuddle[HuddleService]
         SNotif[NotificationService]
         SPush[PushService]
         SMsg[MessageService]
@@ -83,6 +85,7 @@ flowchart TD
         CClockB[(clockbreaks)]
         CWorkI[(workitems)]
         CTimers[(timers)]
+        CHuddle[(huddleposts)]
         CNotif[(notifications)]
         CMsg[(messages)]
         CChan[(channels)]
@@ -331,6 +334,68 @@ Ticket (1) ──< WorkItem (M) ──< Timer (M)
 
 ---
 
+## Huddle API
+
+Team communication feed for sharing updates, linking tickets, and posting media attachments. Posts are visible to all team members.
+
+| Method   | Path                     | Auth   | Description                                        |
+| -------- | ------------------------ | ------ | -------------------------------------------------- |
+| `GET`    | `/v1/huddle/posts`       | Member | List posts for a team (`?teamId=`)                 |
+| `POST`   | `/v1/huddle/posts`       | Member | Create a post with text, mentions, ticket, media   |
+| `PATCH`  | `/v1/huddle/posts/:id`   | Author | Update post content (author only)                  |
+| `DELETE` | `/v1/huddle/posts/:id`   | Auth   | Delete post (author/admin/org owner)               |
+
+**WebSocket — Huddle**
+
+| Protocol | Path             | Description                                                |
+| -------- | ---------------- | ---------------------------------------------------------- |
+| `WS`     | `/v1/huddle/ws`  | Real-time post stream (`?teamId=&token=`); snapshot + diffs |
+
+**Post Structure**
+
+```typescript
+{
+  id: string;
+  teamId: string;
+  userId: string;
+  content: {
+    text: string;
+    mentions: string[];  // user IDs
+  };
+  ticketId?: string;
+  attachments: Array<{
+    mediaId: string;
+    type: 'image' | 'video' | 'file';
+    url: string;
+    thumbnailUrl?: string;
+    filename?: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+**Permissions**
+
+- **Create post**: Any team member
+- **Edit post**: Post author only
+- **Delete post**: Post author, team admin, or organization owner
+
+**WebSocket Events**
+
+```typescript
+// Snapshot on connect
+{ type: 'snapshot', posts: HuddlePost[] }
+
+// New or updated post
+{ type: 'create', post: HuddlePost }
+
+// Post deleted
+{ type: 'delete', postId: string }
+```
+
+---
+
 ## Notifications API
 
 | Method  | Path                         | Auth   | Description                                  |
@@ -492,12 +557,15 @@ flowchart TD
     UserAPI -->|userId| TeamAPI["Teams API\n/v1/teams"]
     TeamAPI -->|teamId| TicketAPI["Tickets API\n/v1/tickets"]
     TeamAPI -->|teamId| ClockAPI["Clock API\n/v1/clock"]
+    TeamAPI -->|teamId| HuddleAPI["Huddle API\n/v1/huddle"]
     TicketAPI -->|ticketId| TimerAPI["Timers API\n/v1/timers"]
+    TicketAPI -->|link to post| HuddleAPI
     ClockAPI -->|stop → closeAll| TimerAPI
     ClockAPI -->|notifyAdmins| NotifAPI["Notifications API\n/v1/notifications"]
     TimerAPI -->|workSummary| WorkAPI["Work Summary\n/v1/work"]
     TicketAPI -->|attach media| AttachAPI["Attachments\n/v1/attachments"]
     TicketAPI -->|upload video| PulseAPI["PulseVault\n/v1/video"]
+    HuddleAPI -->|attach media| AttachAPI
     TeamAPI -->|DM thread| MsgAPI["Messages\n/v1/messages"]
     TeamAPI -->|group chat| ChanAPI["Channels\n/v1/channels"]
     UserAPI -->|activity events| ActivityAPI["Activity\n/v1/activity"]
@@ -532,6 +600,7 @@ At boot (`backend/src/server.ts`), the backend runs:
 | Team clock state | WebSocket | `/v1/clock/ws`         | Team admins                         |
 | Ticket changes   | WebSocket | `/v1/tickets/ws`       | Team members                        |
 | Team events      | WebSocket | `/v1/teams/ws`         | Team members                        |
+| Huddle posts     | WebSocket | `/v1/huddle/ws`        | Team members                        |
 | DM thread        | WebSocket | `/v1/messages/ws`      | Thread participants                 |
 | Channel chat     | WebSocket | `/v1/channels/ws`      | Channel members                     |
 | Presence         | WebSocket | `/v1/presence/ws`      | Any user watching a set of user IDs |
