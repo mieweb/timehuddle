@@ -12,7 +12,7 @@ import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.mode
 async function resolveUserNames(ids: string[]): Promise<Record<string, string>> {
   const unique = [...new Set(ids.filter(Boolean))];
   if (unique.length === 0) return {};
-  
+
   // Filter out any invalid ObjectId strings before creating ObjectIds
   const validIds = unique.filter((id) => {
     try {
@@ -21,9 +21,9 @@ async function resolveUserNames(ids: string[]): Promise<Record<string, string>> 
       return false;
     }
   });
-  
+
   if (validIds.length === 0) return {};
-  
+
   const users = await usersCollection()
     .find(
       { _id: { $in: validIds.map((id) => new ObjectId(id)) } },

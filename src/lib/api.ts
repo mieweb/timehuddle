@@ -786,11 +786,14 @@ export interface HuddlePost {
   id: string;
   teamId: string;
   userId: string;
+  userName: string;
+  userInitials: string;
   content: {
     text: string;
     mentions: string[];
   };
   ticketId?: string;
+  ticketTitle?: string;
   attachments: Array<{
     mediaId: string;
     type: 'image' | 'video' | 'file';
@@ -829,6 +832,13 @@ export const huddleApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }).then((r) => r.id),
+
+  /** Update a huddle post. */
+  updatePost: (id: string, data: { content: { text: string; mentions: string[] } }) =>
+    request<{ post: HuddlePost }>(`/v1/huddle/posts/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }).then((r) => r.post),
 
   /** Delete a huddle post. */
   deletePost: (id: string) =>

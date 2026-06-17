@@ -1,17 +1,47 @@
 import type { FastifyInstance } from "fastify";
 import { ObjectId } from "mongodb";
 import { auth } from "../lib/auth.js";
-import { teamsCollection, huddlePostsCollection } from "../models/index.js";
+import {
+  teamsCollection,
+  huddlePostsCollection,
+  usersCollection,
+  ticketsCollection,
+} from "../models/index.js";
 import { subscribeToTeam } from "../services/huddle.service.js";
-import type { HuddlePost } from "../models/huddle-post.model.js";
+import type { HuddlePost, PublicHuddlePost } from "../models/huddle-post.model.js";
 
-function toPublicHuddlePost(post: HuddlePost) {
+function getUserInitials(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '??'; // Defensive: never return empty string
+  const parts = trimmed.split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return trimmed.substring(0, 2).toUpperCase();
+}
+
+async function toPublicHuddlePost(post: HuddlePost): Promise<PublicHuddlePost> {
+  // Fetch user data
+  const user = await usersCollection().findOne({ _id: new ObjectId(post.userId) });
+  const userName = user?.name || "Unknown User";
+  const userInitials = getUserInitials(userName);
+
+  // Fetch ticket title if ticketId exists
+  let ticketTitle: string | undefined;
+  if (post.ticketId) {
+    const ticket = await ticketsCollection().findOne({ _id: new ObjectId(post.ticketId) });
+    ticketTitle = ticket?.title;
+  }
+
   return {
     id: post._id.toHexString(),
     teamId: post.teamId,
     userId: post.userId,
+    userName,
+    userInitials,
     content: post.content,
     ticketId: post.ticketId,
+    ticketTitle,
     attachments: post.attachments,
     createdAt: post.createdAt.toISOString(),
     updatedAt: post.updatedAt.toISOString(),
@@ -66,20 +96,21 @@ export async function huddleWsRoutes(app: FastifyInstance) {
       .find({ teamId: teamIdParam })
       .sort({ createdAt: -1 })
       .toArray();
-    const snapshot = posts.map(toPublicHuddlePost);
+    const snapshot = await Promise.all(posts.map(toPublicHuddlePost));
     if (socket.readyState === socket.OPEN) {
       socket.send(JSON.stringify({ type: "snapshot", teamId: teamIdParam, posts: snapshot }));
     }
 
     // Subscribe to future broadcasts for this team
-    const unsubscribe = subscribeToTeam(teamIdParam, (broadcastTeamId, post, action) => {
+    const unsubscribe = subscribeToTeam(teamIdParam, async (broadcastTeamId, post, action) => {
       if (socket.readyState === socket.OPEN) {
         if (action === "create") {
+          const enrichedPost = await toPublicHuddlePost(post);
           socket.send(
             JSON.stringify({
               type: "create",
               teamId: broadcastTeamId,
-              post: toPublicHuddlePost(post),
+              post: enrichedPost,
             })
           );
         } else if (action === "delete") {

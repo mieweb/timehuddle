@@ -20,7 +20,11 @@ function isValidId(id: string): boolean {
 
 // ─── WebSocket Pub/Sub ────────────────────────────────────────────────────────
 
-type HuddleListener = (teamId: string, post: HuddlePost, action: "create" | "delete") => void;
+type HuddleListener = (
+  teamId: string,
+  post: HuddlePost,
+  action: "create" | "delete"
+) => void | Promise<void>;
 const huddleListeners = new Map<string, Set<HuddleListener>>();
 
 /** Subscribe to huddle post updates for a specific team. Returns unsubscribe function. */
@@ -117,10 +121,7 @@ export class HuddleService {
     if (!context) return "forbidden";
     if (!context.ability.can("read", subject("Ticket", { teamId }))) return "forbidden";
 
-    return huddlePostsCollection()
-      .find({ teamId })
-      .sort({ createdAt: -1 })
-      .toArray();
+    return huddlePostsCollection().find({ teamId }).sort({ createdAt: -1 }).toArray();
   }
 
   /** Create a new huddle post. */
@@ -183,7 +184,59 @@ export class HuddleService {
     return { id: result.insertedId.toHexString() };
   }
 
-  /** Delete a huddle post. Only the author or team admin can delete. */
+  /** Update a huddle post. Only the author, team admin, or org owner can update. */
+  async updatePost(
+    postId: string,
+    userId: string,
+    newContent: { text: string; mentions: string[] }
+  ): Promise<{ post: HuddlePost } | ServiceError> {
+    if (!isValidId(postId)) return "not-found";
+
+    const post = await huddlePostsCollection().findOne({ _id: new ObjectId(postId) });
+    if (!post) return "not-found";
+
+    const context = await this.buildTeamAbility(userId, post.teamId);
+    if (!context) return "forbidden";
+
+    // Allow update if user is the author, team admin, or org owner
+    const isAuthor = post.userId === userId;
+    const isTeamAdmin = (context.team.admins ?? []).includes(userId);
+    const orgRole = await this.resolveOrgRoleForTeam(userId, context.team);
+    const isOrgOwner = orgRole === "owner";
+
+    if (!isAuthor && !isTeamAdmin && !isOrgOwner) return "forbidden";
+
+    // Validate mentioned users exist
+    if (newContent.mentions.length > 0) {
+      const mentionedUsers = await usersCollection()
+        .find({ _id: { $in: newContent.mentions.map((id) => new ObjectId(id)) } })
+        .toArray();
+      if (mentionedUsers.length !== newContent.mentions.length) {
+        return "invalid-mentions";
+      }
+    }
+
+    const now = new Date();
+    await huddlePostsCollection().updateOne(
+      { _id: new ObjectId(postId) },
+      {
+        $set: {
+          content: newContent,
+          updatedAt: now,
+        },
+      }
+    );
+
+    const updated = await huddlePostsCollection().findOne({ _id: new ObjectId(postId) });
+    if (!updated) return "not-found";
+
+    // Broadcast update (reusing 'create' action for simplicity - clients will replace by ID)
+    broadcast(post.teamId, updated, "create");
+
+    return { post: updated };
+  }
+
+  /** Delete a huddle post. Only the author, team admin, or org owner can delete. */
   async deletePost(postId: string, userId: string): Promise<"ok" | ServiceError> {
     if (!isValidId(postId)) return "not-found";
 
@@ -193,11 +246,13 @@ export class HuddleService {
     const context = await this.buildTeamAbility(userId, post.teamId);
     if (!context) return "forbidden";
 
-    // Allow deletion if user is the author OR is a team admin
+    // Allow deletion if user is the author, team admin, or org owner
     const isAuthor = post.userId === userId;
     const isTeamAdmin = (context.team.admins ?? []).includes(userId);
+    const orgRole = await this.resolveOrgRoleForTeam(userId, context.team);
+    const isOrgOwner = orgRole === "owner";
 
-    if (!isAuthor && !isTeamAdmin) return "forbidden";
+    if (!isAuthor && !isTeamAdmin && !isOrgOwner) return "forbidden";
 
     await huddlePostsCollection().deleteOne({ _id: new ObjectId(postId) });
     broadcast(post.teamId, post, "delete");

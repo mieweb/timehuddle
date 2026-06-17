@@ -22,6 +22,8 @@ const huddlePostShape = {
     id: { type: "string" },
     teamId: { type: "string" },
     userId: { type: "string" },
+    userName: { type: "string" },
+    userInitials: { type: "string" },
     content: {
       type: "object",
       properties: {
@@ -30,6 +32,7 @@ const huddlePostShape = {
       },
     },
     ticketId: { type: "string" },
+    ticketTitle: { type: "string" },
     attachments: { type: "array", items: attachmentShape },
     createdAt: { type: "string" },
     updatedAt: { type: "string" },
@@ -122,6 +125,42 @@ export async function huddleRoutes(app: FastifyInstance) {
     }
   );
 
+  // PATCH /v1/huddle/posts/:id
+  app.patch(
+    "/huddle/posts/:id",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Huddle"],
+        summary: "Update a huddle post (author, team admin, or org owner only)",
+        params: idParam,
+        body: {
+          type: "object",
+          required: ["content"],
+          additionalProperties: false,
+          properties: {
+            content: {
+              type: "object",
+              required: ["text", "mentions"],
+              properties: {
+                text: { type: "string", minLength: 0, maxLength: 10000 },
+                mentions: { type: "array", items: { type: "string" } },
+              },
+            },
+          },
+        },
+        response: {
+          200: { type: "object", properties: { post: huddlePostShape } },
+          ...unauth,
+          400: err("Invalid mentioned users"),
+          403: err("Not authorized"),
+          404: err("Huddle post not found"),
+        },
+      },
+    },
+    huddleController.update
+  );
+
   // DELETE /v1/huddle/posts/:id
   app.delete(
     "/huddle/posts/:id",
@@ -129,7 +168,7 @@ export async function huddleRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Huddle"],
-        summary: "Delete a huddle post (author or team admin only)",
+        summary: "Delete a huddle post (author, team admin, or org owner only)",
         params: idParam,
         response: {
           200: { type: "object", properties: { ok: { type: "boolean" } } },

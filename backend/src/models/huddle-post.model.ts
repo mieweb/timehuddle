@@ -24,11 +24,14 @@ export interface PublicHuddlePost {
   id: string;
   teamId: string;
   userId: string;
+  userName: string;
+  userInitials: string;
   content: {
     text: string;
     mentions: string[];
   };
   ticketId?: string;
+  ticketTitle?: string;
   attachments: Array<{
     mediaId: string;
     type: "image" | "video" | "file";

@@ -1,14 +1,41 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { ObjectId } from "mongodb";
 import { huddleService } from "../services/huddle.service.js";
+import { usersCollection, ticketsCollection } from "../models/index.js";
 import type { HuddlePost, PublicHuddlePost } from "../models/huddle-post.model.js";
 
-function toPublicHuddlePost(post: HuddlePost): PublicHuddlePost {
+function getUserInitials(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '??'; // Defensive: never return empty string
+  const parts = trimmed.split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return trimmed.substring(0, 2).toUpperCase();
+}
+
+async function toPublicHuddlePost(post: HuddlePost): Promise<PublicHuddlePost> {
+  // Fetch user data
+  const user = await usersCollection().findOne({ _id: new ObjectId(post.userId) });
+  const userName = user?.name || "Unknown User";
+  const userInitials = getUserInitials(userName);
+
+  // Fetch ticket title if ticketId exists
+  let ticketTitle: string | undefined;
+  if (post.ticketId) {
+    const ticket = await ticketsCollection().findOne({ _id: new ObjectId(post.ticketId) });
+    ticketTitle = ticket?.title;
+  }
+
   return {
     id: post._id.toHexString(),
     teamId: post.teamId,
     userId: post.userId,
+    userName,
+    userInitials,
     content: post.content,
     ticketId: post.ticketId,
+    ticketTitle,
     attachments: post.attachments,
     createdAt: post.createdAt.toISOString(),
     updatedAt: post.updatedAt.toISOString(),
@@ -80,7 +107,39 @@ export const huddleController = {
       return reply.status(500).send({ error: "Unexpected error" });
     }
 
-    return { posts: result.map(toPublicHuddlePost) };
+    const posts = await Promise.all(result.map(toPublicHuddlePost));
+    return { posts };
+  },
+
+  async update(req: FastifyRequest, reply: FastifyReply) {
+    const userId = req.user!.id;
+    const { id } = req.params as { id: string };
+    const { content } = req.body as {
+      content: {
+        text: string;
+        mentions: string[];
+      };
+    };
+
+    const result = await huddleService.updatePost(id, userId, content);
+
+    if (result === "not-found") {
+      return reply.status(404).send({ error: "Huddle post not found" });
+    }
+    if (result === "forbidden") {
+      return reply.status(403).send({ error: "Forbidden" });
+    }
+    if (result === "invalid-mentions") {
+      return reply.status(400).send({ error: "One or more mentioned users not found" });
+    }
+
+    // Type guard
+    if (typeof result === "string") {
+      return reply.status(500).send({ error: "Unexpected error" });
+    }
+
+    const post = await toPublicHuddlePost(result.post);
+    return { post };
   },
 
   async delete(req: FastifyRequest, reply: FastifyReply) {
