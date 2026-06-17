@@ -732,7 +732,7 @@ export type SeedImportError = {
 
 export const seedImportApi = {
   parse: (yaml: string) =>
-    request<SeedImportPreview | SeedImportError>('/v1/dev/seed/import/parse', {
+    request<SeedImportPreview | SeedImportError>('/v1/seed/import/parse', {
       method: 'POST',
       body: JSON.stringify({ yaml }),
     }),
@@ -753,7 +753,7 @@ export const seedImportApi = {
         users: number;
       };
       summary?: string;
-    }>('/v1/dev/seed/import', {
+    }>('/v1/seed/import', {
       method: 'POST',
       body: JSON.stringify({ yaml, orgId }),
     }),

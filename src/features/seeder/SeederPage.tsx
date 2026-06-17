@@ -8,7 +8,10 @@ import { runSeedImport } from './seedImport';
 import { useTeam } from '../../lib/TeamContext';
 
 import teamPreset from './presets/team-only.yaml?raw';
+import techTeamsPreset from './presets/tech-teams.yaml?raw';
 import orgPreset from './presets/org-with-team.yaml?raw';
+import businessOrgPreset from './presets/business-org.yaml?raw';
+import fullEnterprisePreset from './presets/full-enterprise.yaml?raw';
 import userPreset from './presets/single-user.yaml?raw';
 
 function hasTopLevelTeams(yamlStr: string): boolean {
@@ -41,10 +44,28 @@ const PRESETS: Preset[] = [
     yaml: teamPreset,
   },
   {
+    id: 'tech-teams',
+    label: 'Tech Teams',
+    description: 'Developers, Builders, and CAD teams (root-level, attach to any org).',
+    yaml: techTeamsPreset,
+  },
+  {
     id: 'org-team',
     label: 'Org + Team',
     description: 'A single organization with one team and tickets.',
     yaml: orgPreset,
+  },
+  {
+    id: 'business-org',
+    label: 'Business Org',
+    description: 'Marketing, Accounting, and Payroll under one organization.',
+    yaml: businessOrgPreset,
+  },
+  {
+    id: 'full-enterprise',
+    label: 'Full Org',
+    description: 'Five-team org (Developers, Product, Design, Support, Ops) with 16 users.',
+    yaml: fullEnterprisePreset,
   },
   {
     id: 'single-user',
@@ -126,7 +147,8 @@ export const SeederPage: React.FC = () => {
 
             {organizations.length === 0 && needsOrg && (
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-                No organizations exist yet. Run the <strong>Org + Team</strong> preset first to create one, then come back to <strong>Team</strong>.
+                No organizations exist yet. Run the <strong>Org + Team</strong> preset first to
+                create one, then come back to <strong>Team</strong>.
               </div>
             )}
 

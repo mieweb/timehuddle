@@ -176,13 +176,13 @@ Anywhere a user reference appears (`members`, `admins`, `owners`, `createdBy`,
 
 ## Import behavior
 
-| Behavior                | Detail                                                                                                                                                      |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Behavior                | Detail                                                                                                                                                                                                                                         |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Additive updates**    | Re-importing merges into existing data. Orgs and teams are matched by natural key (slug / name+orgId); new members and admins are added to existing teams, never removed. Tickets are skipped if they already exist (matched by title+teamId). |
-| **Admins are members**  | Admins are automatically added to `members`. A team is only visible to its members.                                                                         |
-| **Org membership**      | All team members are automatically added to the parent org's `org_members` collection.                                                                      |
-| **Top-level teams**     | `teams:` at the root level requires an org to be selected in the Seeder UI sidebar. The team is attached to that org.                                       |
-| **User creation order** | All user accounts are created before any org/team/ticket references are resolved. No ordering dependency in the YAML.                                       |
+| **Admins are members**  | Admins are automatically added to `members`. A team is only visible to its members.                                                                                                                                                            |
+| **Org membership**      | All team members are automatically added to the parent org's `org_members` collection.                                                                                                                                                         |
+| **Top-level teams**     | `teams:` at the root level requires an org to be selected in the Seeder UI sidebar. The team is attached to that org.                                                                                                                          |
+| **User creation order** | All user accounts are created before any org/team/ticket references are resolved. No ordering dependency in the YAML.                                                                                                                          |
 
 ---
 

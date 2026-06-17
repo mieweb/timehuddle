@@ -32,12 +32,16 @@ users:
   - email: alex-developer@example.com
     name: Alex Developer
     username: alex-dev
+    reportsTo: sarah-team-lead@example.com
   - email: jordan-designer@example.com
     name: Jordan Designer
     username: jordan-design
+    reportsTo: sarah-team-lead@example.com
   - email: casey-qa@example.com
     name: Casey QA
     username: casey-qa
+    reportsTo: alex-developer@example.com
   - email: morgan-product@example.com
     name: Morgan Product
     username: morgan-prod
+    reportsTo: sarah-team-lead@example.com

@@ -10,13 +10,11 @@ const unauthorizedResponse = {
   },
 };
 
-function isDevSeedEnabled() {
-  return process.env.NODE_ENV !== "production";
-}
-
 export async function seedImportRoutes(app: FastifyInstance) {
+  if (process.env.NODE_ENV === "production") return;
+
   app.post(
-    "/dev/seed/import/parse",
+    "/seed/import/parse",
     {
       preHandler: [requireAuth],
       schema: {
@@ -31,14 +29,13 @@ export async function seedImportRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      if (!isDevSeedEnabled()) return reply.status(404).send({ error: "Not found" });
       const { yaml } = req.body as { yaml: string };
       return reply.send(tryParseSeedYaml(yaml));
     }
   );
 
   app.post(
-    "/dev/seed/import",
+    "/seed/import",
     {
       preHandler: [requireAuth],
       schema: {
@@ -86,7 +83,6 @@ export async function seedImportRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      if (!isDevSeedEnabled()) return reply.status(404).send({ error: "Not found" });
       const { yaml, orgId } = req.body as { yaml: string; orgId?: string };
       try {
         const defaultEnterprise = await orgService.ensureDefaultEnterprise();

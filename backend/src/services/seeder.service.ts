@@ -241,22 +241,31 @@ async function ensureUsers(
   const saved = await usersCollection()
     .find({ email: { $in: Array.from(emails) } })
     .toArray();
+
+  // First pass: build email → id map so reportsTo can resolve peer emails.
   const byEmail = new Map<string, string>();
+  for (const user of saved) {
+    byEmail.set(user.email, user._id.toHexString());
+  }
 
   for (const user of saved) {
     const data = explicit.get(user.email);
-    const reportsTo = asString(data?.reportsTo);
-    if (reportsTo) assertValidId(reportsTo, "users.reportsTo");
+    const reportsToRaw = asString(data?.reportsTo);
+    let reportsToUserId: string | undefined;
+    if (reportsToRaw) {
+      // Accept either an email reference (resolved via byEmail) or a raw ObjectId.
+      reportsToUserId = byEmail.get(reportsToRaw) ?? reportsToRaw;
+      assertValidId(reportsToUserId, "users.reportsTo");
+    }
 
     const set: Record<string, unknown> = { emailVerified: true, updatedAt: now };
     if (asString(data?.name)) set.name = asString(data?.name);
-    if (reportsTo) set.reportsToUserId = reportsTo;
+    if (reportsToUserId) set.reportsToUserId = reportsToUserId;
     // Claim a username only when one is explicitly given; otherwise keep any
     // handle already claimed, defaulting to null (unclaimed) for new users.
     set.username = asString(data?.username) ?? user.username ?? null;
 
     await usersCollection().updateOne({ _id: user._id }, { $set: set });
-    byEmail.set(user.email, user._id.toHexString());
   }
 
   return { byEmail, created, updated: saved.length - created };

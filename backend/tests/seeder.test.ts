@@ -128,7 +128,7 @@ describe("dev seed import routes", () => {
   it("parses and imports the org-with-team preset", async () => {
     const parseRes = await app.inject({
       method: "POST",
-      url: "/v1/dev/seed/import/parse",
+      url: "/v1/seed/import/parse",
       headers: { cookie: sessionCookie },
       payload: { yaml: ORG_WITH_TEAM_YAML },
     });
@@ -137,7 +137,7 @@ describe("dev seed import routes", () => {
 
     const importRes = await app.inject({
       method: "POST",
-      url: "/v1/dev/seed/import",
+      url: "/v1/seed/import",
       headers: { cookie: sessionCookie },
       payload: { yaml: ORG_WITH_TEAM_YAML },
     });
@@ -158,7 +158,7 @@ describe("dev seed import routes", () => {
   it("rejects malformed YAML", async () => {
     const res = await app.inject({
       method: "POST",
-      url: "/v1/dev/seed/import/parse",
+      url: "/v1/seed/import/parse",
       headers: { cookie: sessionCookie },
       payload: { yaml: "users:\n  - email: broken@example.com\n    name: [unterminated" },
     });
@@ -166,22 +166,25 @@ describe("dev seed import routes", () => {
     expect(res.json().ok).toBe(false);
   });
 
-  it("returns 404 in production mode", async () => {
+  it("returns 404 in production mode (routes not registered)", async () => {
+    // The guard runs at plugin registration time, so we need a fresh app built
+    // with NODE_ENV=production — stubbing at request time has no effect.
     vi.stubEnv("NODE_ENV", "production");
-    const res = await app.inject({
+    const prodApp = await buildApp();
+    vi.unstubAllEnvs();
+    const res = await prodApp.inject({
       method: "POST",
-      url: "/v1/dev/seed/import",
-      headers: { cookie: sessionCookie },
+      url: "/v1/seed/import",
       payload: { yaml: "users: []" },
     });
+    await prodApp.close();
     expect(res.statusCode).toBe(404);
-    vi.unstubAllEnvs();
   });
 
   it("imports the single-user preset and creates both accounts", async () => {
     const res = await app.inject({
       method: "POST",
-      url: "/v1/dev/seed/import",
+      url: "/v1/seed/import",
       headers: { cookie: sessionCookie },
       payload: { yaml: SINGLE_USER_YAML },
     });
@@ -204,7 +207,7 @@ describe("dev seed import routes", () => {
   it("imports the team-only preset, attaching the team to the provided orgId", async () => {
     const res = await app.inject({
       method: "POST",
-      url: "/v1/dev/seed/import",
+      url: "/v1/seed/import",
       headers: { cookie: sessionCookie },
       payload: { yaml: TEAM_ONLY_YAML, orgId: teamOnlyAnchorOrgId },
     });

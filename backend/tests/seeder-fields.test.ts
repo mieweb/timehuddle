@@ -126,7 +126,7 @@ describe("seed import — field-level verification", () => {
   it("imports the YAML and returns correct counts", async () => {
     const res = await app.inject({
       method: "POST",
-      url: "/v1/dev/seed/import",
+      url: "/v1/seed/import",
       headers: { cookie: sessionCookie },
       payload: { yaml: YAML },
     });
@@ -223,7 +223,7 @@ describe("seed import — field-level verification", () => {
   it("is idempotent — re-importing the same YAML updates rather than duplicates", async () => {
     const res = await app.inject({
       method: "POST",
-      url: "/v1/dev/seed/import",
+      url: "/v1/seed/import",
       headers: { cookie: sessionCookie },
       payload: { yaml: YAML },
     });
@@ -285,7 +285,7 @@ organizations:
 `;
     const res = await app.inject({
       method: "POST",
-      url: "/v1/dev/seed/import",
+      url: "/v1/seed/import",
       headers: { cookie: sessionCookie },
       payload: { yaml },
     });

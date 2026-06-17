@@ -25,7 +25,12 @@ organizations:
 users:
   - email: demo-owner@example.com
     name: Demo Owner
+    username: demo-owner
   - email: demo-admin@example.com
     name: Demo Admin
+    username: demo-admin
+    reportsTo: demo-owner@example.com
   - email: demo-member@example.com
     name: Demo Member
+    username: demo-member
+    reportsTo: demo-admin@example.com
