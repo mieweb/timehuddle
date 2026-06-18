@@ -1,0 +1,103 @@
+organizations:
+  - name: Midwest Services LLC
+    slug: midwest-services
+    allowAutoJoin: false
+    owners:
+      - diane-owner@example.com
+    admins:
+      - frank-cfo@example.com
+    teams:
+      - name: Marketing
+        code: MKTG2345
+        description: Campaigns, content, and brand
+        members:
+          - diane-owner@example.com
+          - maya-marketing@example.com
+          - chris-content@example.com
+        admins:
+          - maya-marketing@example.com
+        tickets:
+          - title: Q3 social media calendar
+            status: open
+            priority: medium
+            createdBy: maya-marketing@example.com
+            assignedTo:
+              - chris-content@example.com
+          - title: Update brand guidelines
+            status: in-progress
+            priority: high
+            createdBy: diane-owner@example.com
+            assignedTo:
+              - maya-marketing@example.com
+      - name: Accounting
+        code: ACCT6789
+        description: Billing, receivables, and financial reporting
+        members:
+          - frank-cfo@example.com
+          - grace-accounting@example.com
+          - olivia-analyst@example.com
+        admins:
+          - frank-cfo@example.com
+        tickets:
+          - title: Monthly close reconciliation
+            status: in-progress
+            priority: high
+            createdBy: frank-cfo@example.com
+            assignedTo:
+              - grace-accounting@example.com
+          - title: Set up client invoice templates
+            status: open
+            priority: medium
+            createdBy: grace-accounting@example.com
+      - name: Payroll
+        code: PYRL3456
+        description: Payroll processing and compliance
+        members:
+          - frank-cfo@example.com
+          - grace-accounting@example.com
+          - hana-payroll@example.com
+        admins:
+          - hana-payroll@example.com
+        tickets:
+          - title: Process bi-weekly payroll run
+            status: open
+            priority: critical
+            createdBy: hana-payroll@example.com
+            assignedTo:
+              - hana-payroll@example.com
+          - title: Update tax withholding tables
+            status: open
+            priority: high
+            createdBy: frank-cfo@example.com
+            assignedTo:
+              - hana-payroll@example.com
+
+users:
+  # Owner → CFO → Accounting/Payroll leads → ICs; Owner → Marketing Lead → IC
+  - email: diane-owner@example.com
+    name: Diane Owner
+    username: diane-owner
+  - email: frank-cfo@example.com
+    name: Frank CFO
+    username: frank-cfo
+    reportsTo: diane-owner@example.com
+  - email: maya-marketing@example.com
+    name: Maya Marketing
+    username: maya-marketing
+    reportsTo: diane-owner@example.com
+  - email: grace-accounting@example.com
+    name: Grace Accounting
+    username: grace-accounting
+    reportsTo: frank-cfo@example.com
+  - email: hana-payroll@example.com
+    name: Hana Payroll
+    username: hana-payroll
+    reportsTo: frank-cfo@example.com
+  - email: chris-content@example.com
+    name: Chris Content
+    username: chris-content
+    reportsTo: maya-marketing@example.com
+  - email: olivia-analyst@example.com
+    name: Olivia Analyst
+    username: olivia-analyst
+    reportsTo: grace-accounting@example.com
