@@ -174,7 +174,7 @@ export const SeederPage: React.FC = () => {
               )}
 
               <div className="mt-3 rounded-lg border border-dashed border-neutral-300 p-3 text-sm text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">
-                Paste or edit YAML below. The parser validates syntax before the import runs.
+                Paste or edit some YAML then click Import to seed data.
               </div>
             </div>
           </div>
