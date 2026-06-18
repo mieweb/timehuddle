@@ -129,9 +129,9 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
 
 ## M4 — HTTP-native surfaces + decommission
 
-- [ ] Uploads/Media/Attachments: multipart + static via Meteor `WebApp.connectHandlers`
+- [x] Uploads/Media/Attachments: static file serving at `/uploads/*` via `WebApp.connectHandlers`. Avatar/background multipart upload+delete via busboy (`/api/me/avatar`, `/api/me/background`). Media library image upload (`/api/media/upload`), thumbnail upload (`/api/media-thumbnail/:id`), CRUD methods (`media.list`, `media.listForUser`, `media.update`, `media.remove`). Attachments metadata-only methods (`attachments.list`, `attachments.add`, `attachments.remove`). All in `meteor-backend/server/uploads.js` + `attachments.js`. Frontend `attachmentApi`, `mediaApi`, `userApi` upload/delete all cut over. `toAbsoluteUrl` routes `/uploads/` paths through `METEOR_BASE_URL`. Video thumbnail regeneration uses authenticated blob fetch to avoid cross-origin canvas tainting.
 - [ ] PulseVault TUS resumable uploads: raw WebApp handlers (protocol untouched)
-- [ ] Port remaining backend test suites to Meteor methods
+- [x] Port remaining backend test suites to Meteor methods — Vitest integration tests (`meteor-backend/tests/`) covering tickets (10), teams (11), clock (9). `scripts/checks.sh` gains `meteor` job. Infrastructure: `helpers.ts` (auth + wormhole wrapper), `setup.ts`, `vitest.config.ts`.
 - [ ] Remove `WS_BASE_URL`, `autoReconnectWs`, legacy `openLiveStream` helpers from `src/lib/api.ts`
 - [ ] Move `backend/` to `.attic/` (better-auth extracted to a slim standalone identity service
       that remains at `/api/auth/*`)
