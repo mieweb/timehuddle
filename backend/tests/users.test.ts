@@ -513,6 +513,14 @@ describe("Default enterprise ownership bootstrap", () => {
           $set: { owners: [], admins: originalEnterpriseAdmins, updatedAt: new Date() },
         }
       );
+      // The installer only claims org ownership when the org has no owners yet,
+      // so clear them to model a fresh, un-owned install.
+      await organizationsCollection().updateOne(
+        { _id: defaultOrg!._id },
+        {
+          $set: { owners: [], admins: originalOrgAdmins, updatedAt: new Date() },
+        }
+      );
       await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
 
       const statusRes = await app.inject({
@@ -671,7 +679,7 @@ describe("Default enterprise ownership bootstrap", () => {
     }
   });
 
-  it("returns 409 when an enterprise owner already exists", async () => {
+  it("returns 409 when the installation is already complete", async () => {
     const defaultOrg = await organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY });
     expect(defaultOrg).toBeTruthy();
     expect(defaultOrg?.enterpriseId).toBeTruthy();
@@ -688,13 +696,20 @@ describe("Default enterprise ownership bootstrap", () => {
     });
 
     try {
+      // The installer is now gated on the installation state: once the install
+      // doc is marked complete, taking ownership is rejected regardless of who
+      // already owns the enterprise.
       await enterprisesCollection().updateOne(
         { _id: defaultEnterprise!._id },
         {
           $set: { owners: [bobId], admins: originalEnterpriseAdmins, updatedAt: new Date() },
         }
       );
-      await installationsCollection().deleteOne({ _id: INSTALLATION_DOC_ID });
+      await installationsCollection().updateOne(
+        { _id: INSTALLATION_DOC_ID },
+        { $set: { completedAt: new Date(), completedByUserId: bobId, updatedAt: new Date() } },
+        { upsert: true }
+      );
 
       const takeRes = await app.inject({
         method: "POST",

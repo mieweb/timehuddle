@@ -801,6 +801,45 @@ export const enterpriseApi = {
     }),
 };
 
+export type SeedImportPreview = {
+  ok: true;
+  value: unknown;
+};
+
+export type SeedImportError = {
+  ok: false;
+  error: { type: string; message: string };
+};
+
+export const seedImportApi = {
+  parse: (yaml: string) =>
+    request<SeedImportPreview | SeedImportError>('/v1/seed/import/parse', {
+      method: 'POST',
+      body: JSON.stringify({ yaml }),
+    }),
+
+  import: (yaml: string, orgId?: string) =>
+    request<{
+      created: {
+        enterprises: number;
+        organizations: number;
+        teams: number;
+        users: number;
+        tickets: number;
+      };
+      updated: {
+        enterprises: number;
+        organizations: number;
+        teams: number;
+        users: number;
+      };
+      summary?: string;
+    }>('/v1/seed/import', {
+      method: 'POST',
+      body: JSON.stringify({ yaml, orgId }),
+    }),
+};
+
 // ─── Username API ─────────────────────────────────────────────────────────────
 
 export const usernameApi = {

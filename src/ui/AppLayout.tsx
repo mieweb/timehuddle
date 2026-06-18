@@ -23,6 +23,7 @@ import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { MessagesPage } from '../features/messages/MessagesPage';
 import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
+import { SeederPage } from '../features/seeder/SeederPage';
 import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
 import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
@@ -72,6 +73,9 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/organization': { title: 'Organization', component: OrganizationPage },
   '/app/media': { title: 'Media Library', component: MediaPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
+  ...(import.meta.env.MODE !== 'production'
+    ? { '/app/seeder': { title: 'Seeder', component: SeederPage } }
+    : {}),
   '/app/teams': { title: 'Teams', component: TeamsPage },
   '/app/tickets': { title: 'Tickets', component: TicketsPage },
   '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
