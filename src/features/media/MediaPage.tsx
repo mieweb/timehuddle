@@ -22,7 +22,11 @@ import * as tus from 'tus-js-client';
 
 import { mediaApi, videoApi, type MediaItem } from '../../lib/api';
 import { MEDIA_UPLOAD_ACCEPT, useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
-import { extractVideoThumbnail, extractThumbnailFromVideoUrl } from '../../lib/videoThumbnail';
+import {
+  extractVideoThumbnail,
+  extractThumbnailFromVideoUrl,
+  captureFromVideoElement,
+} from '../../lib/videoThumbnail';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { ViewportOverlay } from '../../ui/ViewportOverlay';
@@ -189,11 +193,16 @@ const DetailsModal: React.FC<DetailsModalProps> = ({
   const handleGenerateThumbnail = async () => {
     setGeneratingThumb(true);
     try {
-      const previewTime =
-        previewVideoRef.current && previewVideoRef.current.readyState > 0
-          ? previewVideoRef.current.currentTime
-          : undefined;
-      const blob = await extractThumbnailFromVideoUrl(item.url, previewTime);
+      let blob: Blob;
+      if (previewVideoRef.current && previewVideoRef.current.readyState >= 2) {
+        blob = await captureFromVideoElement(previewVideoRef.current);
+      } else {
+        const previewTime =
+          previewVideoRef.current && previewVideoRef.current.readyState > 0
+            ? previewVideoRef.current.currentTime
+            : undefined;
+        blob = await extractThumbnailFromVideoUrl(item.url, previewTime);
+      }
       const updated = await mediaApi.uploadThumbnail(item.id, blob);
       onUpdated(updated);
     } finally {

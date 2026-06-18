@@ -27,6 +27,9 @@ import './users';
 import './organizations';
 import './enterprises';
 import './tokens';
+// M4 — HTTP-native surfaces
+import './attachments';
+import './uploads';
 // M0.e foundations — built/validated now, consumed by M1 clock + notifications.
 import './email';
 import './push';
@@ -609,6 +612,19 @@ Meteor.startup(() => {
   Wormhole.expose('tokens.list', { description: 'List personal access tokens', inputSchema: { type: 'object', properties: {} } });
   Wormhole.expose('tokens.create', { description: 'Create a personal access token', inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } });
   Wormhole.expose('tokens.revoke', { description: 'Revoke a personal access token', inputSchema: { type: 'object', properties: { tokenId: { type: 'string' } }, required: ['tokenId'] } });
+
+  // ── Attachments ────────────────────────────────────────────────────────────
+
+  Wormhole.expose('attachments.list', { description: 'List attachments for an entity', inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['clock', 'ticket'] }, id: { type: 'string' } }, required: ['kind', 'id'] } });
+  Wormhole.expose('attachments.add', { description: 'Add attachment to an entity', inputSchema: { type: 'object', properties: { url: { type: 'string' }, type: { type: 'string', enum: ['video', 'image', 'link'] }, title: { type: 'string' }, thumbnail: { type: 'string' }, attachedTo: { type: 'object', properties: { kind: { type: 'string' }, id: { type: 'string' } }, required: ['kind', 'id'] } }, required: ['url', 'type', 'attachedTo'] } });
+  Wormhole.expose('attachments.remove', { description: 'Delete attachment (owner only)', inputSchema: { type: 'object', properties: { attachmentId: { type: 'string' } }, required: ['attachmentId'] } });
+
+  // ── Media CRUD ────────────────────────────────────────────────────────────
+
+  Wormhole.expose('media.list', { description: 'List media library items', inputSchema: { type: 'object', properties: { limit: { type: 'integer' } } } });
+  Wormhole.expose('media.listForUser', { description: 'List media for a user profile', inputSchema: { type: 'object', properties: { userId: { type: 'string' }, limit: { type: 'integer' } }, required: ['userId'] } });
+  Wormhole.expose('media.update', { description: 'Update media metadata (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' }, title: { type: 'string' }, caption: { type: 'string' }, altText: { type: 'string' } }, required: ['mediaId'] } });
+  Wormhole.expose('media.remove', { description: 'Delete media item + files (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' } }, required: ['mediaId'] } });
 
   // Agenda foundation: defines clock jobs against the shared `agendajobs`
   // collection. Processor stays OFF unless METEOR_AGENDA_ENABLED=true, so it

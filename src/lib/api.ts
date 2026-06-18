@@ -80,7 +80,8 @@ export interface PublicUser {
 
 function toAbsoluteUrl(url: string | null): string | null {
   if (!url || /^https?:\/\//i.test(url)) return url;
-  return `${TIMECORE_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+  const base = url.startsWith('/uploads/') ? METEOR_BASE_URL : TIMECORE_BASE_URL;
+  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
 function withAbsoluteImage(user: PublicUser): PublicUser {
@@ -407,73 +408,53 @@ export const authApi = {
 // ─── User API ─────────────────────────────────────────────────────────────────
 
 export const userApi = {
-  /** Upload a new avatar image for the current user (multipart/form-data). Returns { avatarUrl }. */
   uploadAvatar: async (blob: Blob): Promise<{ avatarUrl: string }> => {
     const formData = new FormData();
     formData.append('avatar', blob, 'avatar.png');
-    const token = sessionToken.get();
-    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/avatar`, {
+    const token = await getAccessToken();
+    const res = await fetch(`${METEOR_BASE_URL}/api/me/avatar`, {
       method: 'POST',
-      credentials: 'include',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new ApiError(
-        (body.message as string | undefined) ??
-          (body.error as string | undefined) ??
-          `HTTP ${res.status}`,
-        res.status,
-      );
+      throw new ApiError((body.error as string) ?? `HTTP ${res.status}`, res.status);
     }
     const data = (await res.json()) as { avatarUrl: string };
     return { avatarUrl: toAbsoluteUrl(data.avatarUrl) as string };
   },
-  /** Delete the current user's avatar. */
 
   deleteAvatar: async (): Promise<void> => {
-    const token = sessionToken.get();
-    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/avatar`, {
+    const token = await getAccessToken();
+    const res = await fetch(`${METEOR_BASE_URL}/api/me/avatar`, {
       method: 'DELETE',
-      credentials: 'include',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
     if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
   },
-  /** Upload a new background image for the current user (multipart/form-data). Returns { backgroundUrl }. */
+
   uploadBackground: async (blob: Blob): Promise<{ backgroundUrl: string }> => {
     const formData = new FormData();
     formData.append('background', blob, 'background.jpg');
-    const token = sessionToken.get();
-    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/background`, {
+    const token = await getAccessToken();
+    const res = await fetch(`${METEOR_BASE_URL}/api/me/background`, {
       method: 'POST',
-      credentials: 'include',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new ApiError(
-        (body.message as string | undefined) ??
-          (body.error as string | undefined) ??
-          `HTTP ${res.status}`,
-        res.status,
-      );
+      throw new ApiError((body.error as string) ?? `HTTP ${res.status}`, res.status);
     }
-    const result = (await res.json()) as { backgroundUrl: string };
-    return {
-      backgroundUrl: `${TIMECORE_BASE_URL}${result.backgroundUrl.startsWith('/') ? '' : '/'}${result.backgroundUrl}`,
-    };
+    const data = (await res.json()) as { backgroundUrl: string };
+    return { backgroundUrl: toAbsoluteUrl(data.backgroundUrl) as string };
   },
-  /** Delete the current user's background image. */
+
   deleteBackground: async (): Promise<void> => {
-    const token = sessionToken.get();
-    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/background`, {
+    const token = await getAccessToken();
+    const res = await fetch(`${METEOR_BASE_URL}/api/me/background`, {
       method: 'DELETE',
-      credentials: 'include',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
     if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
@@ -1254,29 +1235,20 @@ export interface Attachment {
 }
 
 export const attachmentApi = {
-  /** Fetch all attachments for a clock entry or ticket. */
   list: (kind: AttachmentKind, id: string) =>
-    request<{ attachments: Attachment[] }>(
-      `/v1/attachments?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
-    ).then((r) => r.attachments),
+    wormholeCall<{ attachments: Attachment[] }>('attachments.list', { kind, id }).then(
+      (r) => r.attachments,
+    ),
 
-  /** Add a new attachment to a clock entry or ticket. */
   add: (data: {
     url: string;
     type: AttachmentType;
     title?: string;
     attachedTo: { kind: AttachmentKind; id: string };
-  }) =>
-    request<{ attachment: Attachment }>('/v1/attachments', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.attachment),
+  }) => wormholeCall<{ attachment: Attachment }>('attachments.add', data).then((r) => r.attachment),
 
-  /** Delete an attachment by ID. */
   remove: (id: string) =>
-    request<{ ok: boolean }>(`/v1/attachments/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    }),
+    wormholeCall<{ ok: boolean }>('attachments.remove', { attachmentId: id }),
 };
 
 // ─── Timer API ────────────────────────────────────────────────────────────────
@@ -1475,50 +1447,55 @@ function withAbsoluteMediaItem(item: MediaItem): MediaItem {
 }
 
 export const mediaApi = {
-  /** POST /v1/media — upload image file to media library */
   uploadImage: async (file: File): Promise<MediaItem> => {
     const form = new FormData();
     form.append('file', file, file.name || 'image');
-    const response = await request<{ item: MediaItem }>('/v1/media', {
+    const token = await getAccessToken();
+    const res = await fetch(`${METEOR_BASE_URL}/api/media/upload`, {
       method: 'POST',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: form,
     });
-    return withAbsoluteMediaItem(response.item);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError((body.error as string) ?? `HTTP ${res.status}`, res.status);
+    }
+    const data = (await res.json()) as { item: MediaItem };
+    return withAbsoluteMediaItem(data.item);
   },
 
-  /** GET /v1/media — list media library items for the current user */
   list: () =>
-    request<{ items: MediaItem[] }>(`/v1/media`).then((r) => r.items.map(withAbsoluteMediaItem)),
-
-  /** GET /v1/media/user/:userId — list media items for a specific profile user */
-  listForUser: (userId: string) =>
-    request<{ items: MediaItem[] }>(`/v1/media/user/${encodeURIComponent(userId)}`).then((r) =>
+    wormholeCall<{ items: MediaItem[] }>('media.list', {}).then((r) =>
       r.items.map(withAbsoluteMediaItem),
     ),
 
-  /** PATCH /v1/media/:id — update title, caption, altText */
+  listForUser: (userId: string) =>
+    wormholeCall<{ items: MediaItem[] }>('media.listForUser', { userId }).then((r) =>
+      r.items.map(withAbsoluteMediaItem),
+    ),
+
   update: (id: string, data: { title?: string; caption?: string; altText?: string }) =>
-    request<{ item: MediaItem }>(`/v1/media/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }).then((r) => withAbsoluteMediaItem(r.item)),
+    wormholeCall<{ item: MediaItem }>('media.update', { mediaId: id, ...data }).then((r) =>
+      withAbsoluteMediaItem(r.item),
+    ),
 
-  /** DELETE /v1/media/:id */
-  remove: (id: string) =>
-    request<{ ok: boolean }>(`/v1/media/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  remove: (id: string) => wormholeCall<{ ok: boolean }>('media.remove', { mediaId: id }),
 
-  /** POST /v1/media/:id/thumbnail — upload a JPEG thumbnail blob */
   uploadThumbnail: async (id: string, blob: Blob): Promise<MediaItem> => {
     const form = new FormData();
     form.append('file', blob, 'thumbnail.jpg');
-    const response = await request<{ item: MediaItem }>(
-      `/v1/media/${encodeURIComponent(id)}/thumbnail`,
-      {
-        method: 'POST',
-        body: form,
-      },
-    );
-    return withAbsoluteMediaItem(response.item);
+    const token = await getAccessToken();
+    const res = await fetch(`${METEOR_BASE_URL}/api/media-thumbnail/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError((body.error as string) ?? `HTTP ${res.status}`, res.status);
+    }
+    const data = (await res.json()) as { item: MediaItem };
+    return withAbsoluteMediaItem(data.item);
   },
 };
 
