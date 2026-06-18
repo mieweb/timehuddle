@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTeam } from '@lib/TeamContext';
+import { attachmentApi } from '@lib/api';
 import { TicketPicker } from './TicketPicker';
 import { AttachmentBar } from './AttachmentBar';
 import { MentionMenu } from './MentionMenu';
@@ -96,10 +97,51 @@ export function HuddleComposer({
   const [text, setText]                         = useState('');
   const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>();
   const [attachments, setAttachments]           = useState<MediaItem[]>([]);
+  const [ticketVideos, setTicketVideos]         = useState<MediaItem[]>([]);
   const [mentions, setMentions]                 = useState<Array<{ userId: string; name: string }>>([]);
   const [showTablePicker, setShowTablePicker]   = useState(false);
   const textareaRef                             = useRef<HTMLTextAreaElement>(null);
   const { selectedTeamId }                      = useTeam();
+
+  // Fetch videos attached to the selected ticket
+  useEffect(() => {
+    if (!selectedTicketId) {
+      setTicketVideos([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function fetchTicketVideos() {
+      try {
+        const attachments = await attachmentApi.list('ticket', selectedTicketId!);
+        if (cancelled) return;
+
+        // Extract video attachments
+        const videos: MediaItem[] = attachments
+          .filter(att => att.type === 'video')
+          .map(att => ({
+            id: att.id,
+            url: att.url,
+            filename: att.title || 'video',
+            type: 'video',
+            size: 0, // Size not available from backend
+            mimeType: 'video/mp4',
+          }));
+
+        setTicketVideos(videos);
+      } catch (error) {
+        console.error('[HuddleComposer] Failed to fetch ticket videos:', error);
+        setTicketVideos([]);
+      }
+    }
+
+    fetchTicketVideos();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTicketId]);
 
   const insertSnippet = (key: SnippetKey) => {
     const snippet = SNIPPETS[key];
@@ -137,16 +179,20 @@ export function HuddleComposer({
 
   const handleSubmit = () => {
     try {
-      if (!text.trim() && attachments.length === 0) return;
+      if (!text.trim() && attachments.length === 0 && ticketVideos.length === 0) return;
+      
+      // Combine user attachments with ticket videos
+      const allAttachments = [...attachments, ...ticketVideos];
+      
       onPost({
         text: text.trim() || '(Image post)',
         json: { text: text.trim() || '(Image post)' },
         ticketId: selectedTicketId,
-        attachments,
+        attachments: allAttachments,
         mentions,
       });
       setText(''); setExpanded(false); setTab('write');
-      setSelectedTicketId(undefined); setAttachments([]); setMentions([]);
+      setSelectedTicketId(undefined); setAttachments([]); setTicketVideos([]); setMentions([]);
     } catch (error) {
       console.error('[HuddleComposer] Error in handleSubmit:', error);
       alert('Failed to post. Please try again.');
@@ -155,7 +201,7 @@ export function HuddleComposer({
 
   const handleCancel = () => {
     setText(''); setExpanded(false); setTab('write');
-    setSelectedTicketId(undefined); setAttachments([]); setMentions([]);
+    setSelectedTicketId(undefined); setAttachments([]); setTicketVideos([]); setMentions([]);
   };
 
   const handleAttachmentAdd    = (media: MediaItem) => setAttachments(prev => [...prev, media]);
@@ -299,6 +345,62 @@ export function HuddleComposer({
                 ? <MarkdownContent content={text} />
                 : <span className="text-gray-300 dark:text-neutral-600 text-sm">Nothing to preview yet...</span>
               }
+              
+              {/* Show ticket videos in preview */}
+              {ticketVideos.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Videos from ticket:</p>
+                  <div className="grid gap-2">
+                    {ticketVideos.map(video => (
+                      <div key={video.id} className="relative bg-black rounded-lg overflow-hidden aspect-video">
+                        <video
+                          src={video.url}
+                          controls
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* Show user attachments in preview */}
+              {attachments.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-600 dark:text-neutral-400">Attachments:</p>
+                  <div className="grid gap-2">
+                    {attachments.map(media => {
+                      if (media.type === 'video') {
+                        return (
+                          <div key={media.id} className="relative bg-black rounded-lg overflow-hidden aspect-video">
+                            <video
+                              src={media.url}
+                              controls
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                        );
+                      }
+                      if (media.mimeType?.startsWith('image/')) {
+                        return (
+                          <div key={media.id} className="relative rounded-lg overflow-hidden">
+                            <img
+                              src={media.url}
+                              alt={media.filename}
+                              className="w-full h-auto"
+                            />
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={media.id} className="text-xs text-gray-500 dark:text-neutral-500">
+                          📎 {media.filename}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -318,7 +420,7 @@ export function HuddleComposer({
           )}
 
           {/* ── Attachments ── */}
-          {attachments.length > 0 && (
+          {(attachments.length > 0 || ticketVideos.length > 0) && (
             <div className="mt-2 flex flex-wrap gap-2">
               {attachments.map(media => (
                 <div key={media.id} className="relative bg-gray-100 dark:bg-neutral-700 border border-gray-200 dark:border-neutral-600 rounded-lg p-2 text-xs text-gray-600 dark:text-neutral-300 flex items-center gap-2">
@@ -328,6 +430,15 @@ export function HuddleComposer({
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
+                </div>
+              ))}
+              {ticketVideos.map(video => (
+                <div key={video.id} className="relative bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/50 rounded-lg p-2 text-xs text-indigo-700 dark:text-indigo-300 flex items-center gap-2">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  {video.filename}
+                  <span className="text-indigo-400 dark:text-indigo-600 text-xs">(from ticket)</span>
                 </div>
               ))}
             </div>
@@ -344,7 +455,7 @@ export function HuddleComposer({
             <span className="text-xs text-gray-300 dark:text-neutral-600 ml-auto mr-2 hidden sm:block">⌘↵ to post</span>
             <button
               onClick={e => { e.preventDefault(); e.stopPropagation(); handleSubmit(); }}
-              disabled={!text.trim() && attachments.length === 0}
+              disabled={!text.trim() && attachments.length === 0 && ticketVideos.length === 0}
               className="text-xs font-semibold px-4 py-1.5 rounded-full bg-indigo-500 dark:bg-indigo-600 text-white hover:bg-indigo-600 dark:hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               Post

@@ -812,6 +812,12 @@ export const huddleApi = {
       `/v1/huddle/posts?teamId=${encodeURIComponent(teamId)}`,
     ).then((r) => r.posts),
 
+  /** Fetch all huddle posts for a specific ticket. */
+  getPostsByTicket: (ticketId: string) =>
+    request<{ posts: HuddlePost[] }>(
+      `/v1/huddle/tickets/${encodeURIComponent(ticketId)}/posts`,
+    ).then((r) => r.posts),
+
   /** Create a new huddle post. */
   createPost: (data: {
     teamId: string;

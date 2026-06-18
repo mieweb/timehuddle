@@ -111,6 +111,26 @@ export const huddleController = {
     return { posts };
   },
 
+  async listForTicket(req: FastifyRequest, reply: FastifyReply) {
+    const userId = req.user!.id;
+    const { ticketId } = req.params as { ticketId: string };
+
+    const result = await huddleService.findByTicket(ticketId, userId);
+
+    if (result === "not-found") {
+      return reply.status(404).send({ error: "Ticket not found" });
+    }
+    if (result === "forbidden") {
+      return reply.status(403).send({ error: "Forbidden" });
+    }
+    if (result === "invalid-ticket" || result === "invalid-mentions") {
+      return reply.status(500).send({ error: "Unexpected error" });
+    }
+
+    const posts = await Promise.all(result.map(toPublicHuddlePost));
+    return { posts };
+  },
+
   async update(req: FastifyRequest, reply: FastifyReply) {
     const userId = req.user!.id;
     const { id } = req.params as { id: string };

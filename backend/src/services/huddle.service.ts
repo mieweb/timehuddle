@@ -124,6 +124,27 @@ export class HuddleService {
     return huddlePostsCollection().find({ teamId }).sort({ createdAt: -1 }).toArray();
   }
 
+  /** Find all huddle posts for a specific ticket. */
+  async findByTicket(ticketId: string, userId: string): Promise<HuddlePost[] | ServiceError> {
+    if (!isValidId(ticketId)) return "not-found";
+    
+    // First, verify the ticket exists and get its teamId
+    const ticket = await ticketsCollection().findOne({ _id: new ObjectId(ticketId) });
+    if (!ticket) return "not-found";
+
+    // Check permissions via team
+    const context = await this.buildTeamAbility(userId, ticket.teamId);
+    if (!context) return "forbidden";
+    if (!context.ability.can("read", subject("Ticket", { teamId: ticket.teamId }))) {
+      return "forbidden";
+    }
+
+    return huddlePostsCollection()
+      .find({ ticketId, teamId: ticket.teamId })
+      .sort({ createdAt: -1 })
+      .toArray();
+  }
+
   /** Create a new huddle post. */
   async createPost(data: {
     teamId: string;

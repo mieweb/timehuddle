@@ -82,6 +82,33 @@ export async function huddleRoutes(app: FastifyInstance) {
     huddleController.listForTeam
   );
 
+  // GET /v1/huddle/tickets/:ticketId/posts
+  app.get(
+    "/huddle/tickets/:ticketId/posts",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Huddle"],
+        summary: "List huddle posts for a specific ticket (team members only)",
+        params: {
+          type: "object",
+          required: ["ticketId"],
+          properties: { ticketId: { type: "string", pattern: "^[0-9a-f]{24}$" } },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: { posts: { type: "array", items: huddlePostShape } },
+          },
+          ...unauth,
+          403: err("Not a team member"),
+          404: err("Ticket not found"),
+        },
+      },
+    },
+    huddleController.listForTicket
+  );
+
   // POST /v1/huddle/posts
   app.post(
     "/huddle/posts",
