@@ -121,10 +121,11 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
 
 ## M3 — Org & profiles
 
-- [ ] Users/Profiles (16 endpoints): profile CRUD, preferences, admin tools
-- [ ] Organizations + Enterprises (18 endpoints): CRUD, membership, seats, hierarchy
-- [ ] PAT management endpoints (verification already done in M0.c)
-- [ ] Delete Fastify routes: `users.ts`, `org*.ts`, `enterprises.ts`, `tokens.ts`
+- [x] Users/Profiles (6 methods): `users.get`, `users.getByUsername`, `users.batchGet`, `users.updateProfile`, `users.checkUsername`, `users.claimUsername` in `meteor-backend/server/users.js`. Frontend `userApi` reads/writes + `usernameApi` cut over to wormhole REST. Avatar/background uploads + `GET /v1/me` deferred to M4 (multipart / better-auth session).
+- [x] Organizations (20 methods): full org CRUD, member management, CASL ability checks, slug validation, auto-join, search, reports-to — all in `meteor-backend/server/organizations.js`. Includes default-org admin endpoints (from `users.ts`): `orgs.adminGet`, `orgs.adminUpdate`, `orgs.adminListUsers`, `orgs.adminSetUserRole`, `orgs.publicGet`, `orgs.publicListUsers`. Frontend `orgApi` + `orgAdminApi` cut over to wormhole REST.
+- [x] Enterprises (7 methods): `enterprises.list`, `create`, `get`, `updateName`, `searchUsers`, `setMemberRole`, `removeMember` in `meteor-backend/server/enterprises.js`. Frontend `enterpriseApi` cut over to wormhole REST. `getOwnershipStatus` + `takeOwnership` stay on Fastify (M4 onboarding).
+- [x] PAT management (3 methods): `tokens.list`, `tokens.create`, `tokens.revoke` in `meteor-backend/server/tokens.js`. SHA-256 hashing, activity log emission, raw token shown once on create. Frontend `tokenApi` cut over to wormhole REST.
+- [ ] Delete Fastify routes: `users.ts`, `org*.ts`, `enterprises.ts`, `tokens.ts` — deferred until avatar/background uploads + install endpoints migrate in M4
 
 ## M4 — HTTP-native surfaces + decommission
 
@@ -151,11 +152,11 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
 
 ## Risk register
 
-| Risk                                  | Severity | Mitigation                                                                                     |
-| ------------------------------------- | -------- | ---------------------------------------------------------------------------------------------- |
-| JWT TTL vs long-lived DDP connections | Low      | Proactive re-bridge before `exp`; reconnect already re-auths                                   |
-| Apple sign-in in Capacitor            | Med      | Real-device testing; App Store mandates Apple when other social logins exist                   |
-| Agenda handover mid-shift             | Med      | Same lib + collection; jobs are writer-agnostic                                                |
-| Publication fan-out scale             | Med      | Tightly scoped cursors (`endTime: null`, team filters)                                         |
-| Dual-backend drift during migration   | Med      | Shared Mongo is the single source of truth; activity/notification doc shapes mirrored verbatim |
+| Risk                                  | Severity | Mitigation                                                                                                       |
+| ------------------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------- |
+| JWT TTL vs long-lived DDP connections | Low      | Proactive re-bridge before `exp`; reconnect already re-auths                                                     |
+| Apple sign-in in Capacitor            | Med      | Real-device testing; App Store mandates Apple when other social logins exist                                     |
+| Agenda handover mid-shift             | Med      | Same lib + collection; jobs are writer-agnostic                                                                  |
+| Publication fan-out scale             | Med      | Tightly scoped cursors (`endTime: null`, team filters)                                                           |
+| Dual-backend drift during migration   | Med      | Shared Mongo is the single source of truth; activity/notification doc shapes mirrored verbatim                   |
 | Docker inter-service auth (resolved)  | —        | `AUTH_JWKS_URL` must use Docker service name (`backend`), not `localhost`. Error logging added to `resolveJwt()` |

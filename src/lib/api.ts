@@ -478,36 +478,28 @@ export const userApi = {
     });
     if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
   },
-  /** Get a single user's public profile by ID. */
   getUser: (id: string) =>
-    request<{ user: PublicUser }>(`/v1/users/${encodeURIComponent(id)}`).then((r) =>
+    wormholeCall<{ user: PublicUser }>('users.get', { userId: id }).then((r) =>
       withAbsoluteImage(r.user),
     ),
 
-  /** Get a single user's public profile by username (requires auth). */
   getUserByUsername: (username: string) =>
-    request<{ user: PublicUser }>(`/v1/users/by/username/${encodeURIComponent(username)}`).then(
-      (r) => withAbsoluteImage(r.user),
+    wormholeCall<{ user: PublicUser }>('users.getByUsername', { username }).then((r) =>
+      withAbsoluteImage(r.user),
     ),
 
-  /** Batch-fetch public profiles by ID list (server caps at 200). */
   getUsers: (ids: string[]) =>
-    request<{ users: PublicUser[] }>(`/v1/users?ids=${ids.map(encodeURIComponent).join(',')}`).then(
-      (r) => r.users.map(withAbsoluteImage),
+    wormholeCall<{ users: PublicUser[] }>('users.batchGet', { ids }).then((r) =>
+      r.users.map(withAbsoluteImage),
     ),
 
-  /** Update the current user's profile fields. */
   updateProfile: (data: {
     name?: string;
     image?: string | null;
     bio?: string;
     website?: string;
     reportsToUserId?: string | null;
-  }) =>
-    request<{ user: PublicUser }>('/v1/me/profile', {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }).then((r) => r.user),
+  }) => wormholeCall<{ user: PublicUser }>('users.updateProfile', data).then((r) => r.user),
 };
 
 export type DefaultOrganizationRole = 'owner' | 'admin' | 'member';
@@ -532,53 +524,44 @@ export interface AdminOrganization {
 
 export const orgAdminApi = {
   getOrganization: () =>
-    request<{ organization: AdminOrganization }>('/v1/admin/organization').then(
+    wormholeCall<{ organization: AdminOrganization }>('orgs.adminGet', {}).then(
       (r) => r.organization,
     ),
 
   updateOrganizationName: (name: string) =>
-    request<{ organization: AdminOrganization }>('/v1/admin/organization', {
-      method: 'PUT',
-      body: JSON.stringify({ name }),
-    }).then((r) => r.organization),
+    wormholeCall<{ organization: AdminOrganization }>('orgs.adminUpdate', { name }).then(
+      (r) => r.organization,
+    ),
 
   listUsers: () =>
-    request<{ users: OrganizationAdminUser[] }>('/v1/admin/organization/users').then(
+    wormholeCall<{ users: OrganizationAdminUser[] }>('orgs.adminListUsers', {}).then(
       (r) => r.users,
     ),
 
   setUserRole: (userId: string, role: DefaultOrganizationRole) =>
-    request<{ user: { id: string; role: DefaultOrganizationRole } }>(
-      `/v1/admin/organization/users/${encodeURIComponent(userId)}/role`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ role }),
-      },
-    ).then((r) => r.user),
+    wormholeCall<{ user: { id: string; role: DefaultOrganizationRole } }>('orgs.adminSetUserRole', {
+      userId,
+      role,
+    }).then((r) => r.user),
 
   updateReportsTo: (userId: string, reportsTo: string | null) =>
-    request<{ user: { id: string; reportsToUserId: string | null } }>(
-      `/v1/org/users/${encodeURIComponent(userId)}`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ reportsToUserId: reportsTo }),
-      },
-    ).then((r) => r.user),
+    wormholeCall<{ user: { id: string; reportsToUserId: string | null } }>('orgs.updateReportsTo', {
+      userId,
+      reportsToUserId: reportsTo,
+    }).then((r) => r.user),
 };
 
 // ─── Public Organization API (for all authenticated users) ──────────────────
 
 export const orgApi = {
-  checkSlugAvailability: (slug: string, excludeId?: string) => {
-    const params = new URLSearchParams({ slug });
-    if (excludeId) params.set('excludeId', excludeId);
-    return request<{ available: boolean }>(
-      `/v1/organizations/check-slug?${params.toString()}`,
-    ).then((r) => r.available);
-  },
+  checkSlugAvailability: (slug: string, excludeId?: string) =>
+    wormholeCall<{ available: boolean }>('orgs.checkSlug', {
+      slug,
+      ...(excludeId ? { excludeId } : {}),
+    }).then((r) => r.available),
 
   listOrganizations: () =>
-    request<{
+    wormholeCall<{
       organizations: Array<{
         id: string;
         enterpriseId: string | null;
@@ -587,7 +570,7 @@ export const orgApi = {
         allowAutoJoin: boolean;
         role: 'owner' | 'admin' | 'member' | null;
       }>;
-    }>('/v1/organizations').then((r) => r.organizations),
+    }>('orgs.list', {}).then((r) => r.organizations),
 
   createOrganization: (data: {
     enterpriseId: string;
@@ -595,7 +578,7 @@ export const orgApi = {
     slug?: string;
     allowAutoJoin?: boolean;
   }) =>
-    request<{
+    wormholeCall<{
       organization: {
         id: string;
         enterpriseId: string | null;
@@ -604,16 +587,13 @@ export const orgApi = {
         allowAutoJoin: boolean;
         role: 'owner' | 'admin' | 'member' | null;
       };
-    }>('/v1/organizations', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.organization),
+    }>('orgs.create', data).then((r) => r.organization),
 
   updateOrganization: (
     id: string,
     data: { name?: string; slug?: string; allowAutoJoin?: boolean },
   ) =>
-    request<{
+    wormholeCall<{
       organization: {
         id: string;
         enterpriseId: string | null;
@@ -622,13 +602,10 @@ export const orgApi = {
         allowAutoJoin: boolean;
         role: 'owner' | 'admin' | 'member' | null;
       };
-    }>(`/v1/organizations/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }).then((r) => r.organization),
+    }>('orgs.update', { orgId: id, ...data }).then((r) => r.organization),
 
   getOrganizationById: (id: string) =>
-    request<{
+    wormholeCall<{
       organization: {
         id: string;
         enterpriseId: string | null;
@@ -638,88 +615,78 @@ export const orgApi = {
         role: 'owner' | 'admin' | 'member' | null;
         canManage: boolean;
       };
-    }>(`/v1/organizations/${encodeURIComponent(id)}`).then((r) => r.organization),
+    }>('orgs.get', { orgId: id }).then((r) => r.organization),
 
   updateSettings: (id: string, allowAutoJoin: boolean) =>
-    request<{ organization: { orgId: string; allowAutoJoin: boolean } }>(
-      `/v1/organizations/${encodeURIComponent(id)}/settings`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ allowAutoJoin }),
-      },
+    wormholeCall<{ organization: { orgId: string; allowAutoJoin: boolean } }>(
+      'orgs.updateSettings',
+      { orgId: id, allowAutoJoin },
     ).then((r) => r.organization),
 
   joinOrganization: (id: string) =>
-    request<{ membership: { orgId: string; role: 'owner' | 'admin' | 'member' } }>(
-      `/v1/organizations/${encodeURIComponent(id)}/join`,
-      { method: 'POST' },
+    wormholeCall<{ membership: { orgId: string; role: 'owner' | 'admin' | 'member' } }>(
+      'orgs.join',
+      { orgId: id },
     ).then((r) => r.membership),
 
   listMembers: (id: string) =>
-    request<{ users: OrganizationAdminUser[] }>(
-      `/v1/organizations/${encodeURIComponent(id)}/members`,
-    ).then((r) => r.users),
+    wormholeCall<{ users: OrganizationAdminUser[] }>('orgs.listMembers', { orgId: id }).then(
+      (r) => r.users,
+    ),
 
   listOrganizationUsers: (id: string) =>
-    request<{ users: OrganizationAdminUser[] }>(
-      `/v1/organizations/${encodeURIComponent(id)}/users`,
-    ).then((r) => r.users),
+    wormholeCall<{ users: OrganizationAdminUser[] }>('orgs.listUsers', { orgId: id }).then(
+      (r) => r.users,
+    ),
 
   searchUsers: (id: string, q: string) =>
-    request<{ users: Array<{ id: string; name: string; username: string | null }> }>(
-      `/v1/organizations/${encodeURIComponent(id)}/users/search?q=${encodeURIComponent(q)}`,
+    wormholeCall<{ users: Array<{ id: string; name: string; username: string | null }> }>(
+      'orgs.searchUsers',
+      { orgId: id, q },
     ).then((r) => r.users),
 
   setMemberRole: (id: string, userId: string, role: DefaultOrganizationRole) =>
-    request<{ user: { userId: string; role: DefaultOrganizationRole } }>(
-      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ role }),
-      },
+    wormholeCall<{ user: { userId: string; role: DefaultOrganizationRole } }>(
+      'orgs.setMemberRole',
+      { orgId: id, userId, role },
     ).then((r) => r.user),
 
   removeMember: (id: string, userId: string) =>
-    request<{ user: { userId: string } }>(
-      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
-      {
-        method: 'DELETE',
-      },
-    ).then((r) => r.user),
+    wormholeCall<{ user: { userId: string } }>('orgs.removeMember', { orgId: id, userId }).then(
+      (r) => r.user,
+    ),
 
   updateMemberReportsTo: (id: string, userId: string, reportsTo: string | null) =>
-    request<{ user: { id: string; reportsToUserId: string | null } }>(
-      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/reports-to`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ reportsToUserId: reportsTo }),
-      },
+    wormholeCall<{ user: { id: string; reportsToUserId: string | null } }>(
+      'orgs.updateMemberReportsTo',
+      { orgId: id, userId, reportsToUserId: reportsTo },
     ).then((r) => r.user),
 
   updateReportsTo: (userId: string, reportsTo: string | null) =>
-    request<{ user: { id: string; reportsToUserId: string | null } }>(
-      `/v1/org/users/${encodeURIComponent(userId)}`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ reportsToUserId: reportsTo }),
-      },
-    ).then((r) => r.user),
+    wormholeCall<{ user: { id: string; reportsToUserId: string | null } }>('orgs.updateReportsTo', {
+      userId,
+      reportsToUserId: reportsTo,
+    }).then((r) => r.user),
 
   getOrganization: () =>
-    request<{ organization: AdminOrganization }>('/v1/organization').then((r) => r.organization),
+    wormholeCall<{ organization: AdminOrganization }>('orgs.publicGet', {}).then(
+      (r) => r.organization,
+    ),
 
   listUsers: () =>
-    request<{ users: OrganizationAdminUser[] }>('/v1/organization/users').then((r) => r.users),
+    wormholeCall<{ users: OrganizationAdminUser[] }>('orgs.publicListUsers', {}).then(
+      (r) => r.users,
+    ),
 };
 
 export const enterpriseApi = {
   list: () =>
-    request<{
+    wormholeCall<{
       enterprises: Array<{ id: string; name: string; slug: string; role: 'owner' | 'admin' }>;
-    }>('/v1/enterprises').then((r) => r.enterprises),
+    }>('enterprises.list', {}).then((r) => r.enterprises),
 
   create: (data: { name: string; slug?: string }) =>
-    request<{
+    wormholeCall<{
       enterprise: {
         id: string;
         name: string;
@@ -728,13 +695,10 @@ export const enterpriseApi = {
         owners: string[];
         admins: string[];
       };
-    }>('/v1/enterprises', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.enterprise),
+    }>('enterprises.create', data).then((r) => r.enterprise),
 
   get: (id: string) =>
-    request<{
+    wormholeCall<{
       enterprise: {
         id: string;
         name: string;
@@ -749,10 +713,10 @@ export const enterpriseApi = {
           role: 'owner' | 'admin';
         }>;
       };
-    }>(`/v1/enterprises/${encodeURIComponent(id)}`).then((r) => r.enterprise),
+    }>('enterprises.get', { enterpriseId: id }).then((r) => r.enterprise),
 
   updateName: (id: string, name: string) =>
-    request<{
+    wormholeCall<{
       enterprise: {
         id: string;
         name: string;
@@ -767,38 +731,29 @@ export const enterpriseApi = {
           role: 'owner' | 'admin';
         }>;
       };
-    }>(`/v1/enterprises/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ name }),
-    }).then((r) => r.enterprise),
+    }>('enterprises.updateName', { enterpriseId: id, name }).then((r) => r.enterprise),
 
   searchUsers: (id: string, q: string) =>
-    request<{ users: Array<{ id: string; name: string; username: string | null }> }>(
-      `/v1/enterprises/${encodeURIComponent(id)}/users/search?q=${encodeURIComponent(q)}`,
+    wormholeCall<{ users: Array<{ id: string; name: string; username: string | null }> }>(
+      'enterprises.searchUsers',
+      { enterpriseId: id, q },
     ).then((r) => r.users),
 
   removeMember: (id: string, userId: string) =>
-    request<{ userId: string }>(
-      `/v1/enterprises/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
-      { method: 'DELETE' },
-    ),
+    wormholeCall<{ userId: string }>('enterprises.removeMember', { enterpriseId: id, userId }),
 
   setMemberRole: (id: string, userId: string, role: 'owner' | 'admin') =>
-    request<{ user: { userId: string; role: 'owner' | 'admin' } }>(
-      `/v1/enterprises/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ role }),
-      },
+    wormholeCall<{ user: { userId: string; role: 'owner' | 'admin' } }>(
+      'enterprises.setMemberRole',
+      { enterpriseId: id, userId, role },
     ).then((r) => r.user),
 
+  /** Still on Fastify (M4) */
   getOwnershipStatus: () =>
     request<{ hasOwner: boolean; installCompleted: boolean }>('/v1/install-status'),
 
-  takeOwnership: () =>
-    request<{ role: 'owner' }>('/v1/install', {
-      method: 'POST',
-    }),
+  /** Still on Fastify (M4) */
+  takeOwnership: () => request<{ role: 'owner' }>('/v1/install', { method: 'POST' }),
 };
 
 export type SeedImportPreview = {
@@ -843,24 +798,13 @@ export const seedImportApi = {
 // ─── Username API ─────────────────────────────────────────────────────────────
 
 export const usernameApi = {
-  /**
-   * Check whether a username is available.
-   * Returns { available: true } or { available: false, reason: string }.
-   */
   check: (username: string) =>
-    request<{ available: boolean; reason: string | null }>(
-      `/v1/me/username-available?username=${encodeURIComponent(username)}`,
-    ),
-
-  /**
-   * Claim a canonical username for the current user.
-   * Throws if the username is taken, invalid, or already claimed.
-   */
-  claim: (username: string) =>
-    request<{ username: string }>('/v1/me/username', {
-      method: 'POST',
-      body: JSON.stringify({ username }),
+    wormholeCall<{ available: boolean; reason?: string | null }>('users.checkUsername', {
+      username,
     }),
+
+  claim: (username: string) =>
+    wormholeCall<{ username: string }>('users.claimUsername', { username }),
 };
 
 // ─── Wormhole (Meteor REST) request ──────────────────────────────────────────
@@ -1018,8 +962,7 @@ export interface TeamMember {
 }
 
 export const teamApi = {
-  getTeams: () =>
-    wormholeCall<{ teams: Team[] }>('teams.list', {}).then((r) => r.teams),
+  getTeams: () => wormholeCall<{ teams: Team[] }>('teams.list', {}).then((r) => r.teams),
 
   ensurePersonal: () =>
     wormholeCall<{ team: Team }>('teams.ensurePersonal', {}).then((r) => r.team),
@@ -1040,8 +983,7 @@ export const teamApi = {
   renameTeam: (id: string, newName: string) =>
     wormholeCall<{ team: Team }>('teams.rename', { teamId: id, newName }).then((r) => r.team),
 
-  deleteTeam: (id: string) =>
-    wormholeCall<{ ok: boolean }>('teams.delete', { teamId: id }),
+  deleteTeam: (id: string) => wormholeCall<{ ok: boolean }>('teams.delete', { teamId: id }),
 
   getMembers: (id: string) =>
     wormholeCall<{ members: TeamMember[] }>('teams.getMembers', { teamId: id }).then((r) =>
@@ -1595,16 +1537,13 @@ export interface ActivityLogItem {
 
 export const activityApi = {
   getLog: (params: { limit?: number; before?: string } = {}) =>
-    wormholeCall<{ events: ActivityLogItem[]; nextCursor: string | null }>(
-      'activity.log',
-      params,
-    ),
+    wormholeCall<{ events: ActivityLogItem[]; nextCursor: string | null }>('activity.log', params),
 
   getUserActivity: (userId: string, params: { limit?: number; before?: string } = {}) =>
-    wormholeCall<{ events: ActivityLogItem[]; nextCursor: string | null }>(
-      'activity.userLog',
-      { userId, ...params },
-    ),
+    wormholeCall<{ events: ActivityLogItem[]; nextCursor: string | null }>('activity.userLog', {
+      userId,
+      ...params,
+    }),
 
   /** Ticket IDs + titles from the user's last 48 h of timer work (still Fastify). */
   getUserWorkSummary: (userId: string) =>
@@ -1613,10 +1552,7 @@ export const activityApi = {
     ),
 
   getTicketActivity: (ticketId: string, limit = 50) =>
-    wormholeCall<{ events: ActivityLogItem[] }>(
-      'activity.ticketActivity',
-      { ticketId, limit },
-    ),
+    wormholeCall<{ events: ActivityLogItem[] }>('activity.ticketActivity', { ticketId, limit }),
 };
 
 // ─── Channel types ────────────────────────────────────────────────────────────
@@ -1689,19 +1625,13 @@ export interface PersonalAccessToken {
 
 export const tokenApi = {
   list: (): Promise<PersonalAccessToken[]> =>
-    request<{ tokens: PersonalAccessToken[] }>('/v1/me/tokens').then((r) => r.tokens),
+    wormholeCall<{ tokens: PersonalAccessToken[] }>('tokens.list', {}).then((r) => r.tokens),
 
   create: (name: string): Promise<{ token: string; name: string }> =>
-    request<{ token: string; name: string }>('/v1/me/tokens', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
-    }),
+    wormholeCall<{ token: string; name: string }>('tokens.create', { name }),
 
   revoke: (id: string): Promise<void> =>
-    request<{ success: boolean }>(`/v1/me/tokens/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    }).then(() => undefined),
+    wormholeCall<{ success: boolean }>('tokens.revoke', { tokenId: id }).then(() => undefined),
 };
 
 // ─── TimeHarbor Share ─────────────────────────────────────────────────────────

@@ -22,6 +22,11 @@ import './activity';
 import './channels'; // must precede teams (teams.create calls ensureDefaultChannel)
 import './teams';
 import './messages';
+// M3 — Org & profiles
+import './users';
+import './organizations';
+import './enterprises';
+import './tokens';
 // M0.e foundations — built/validated now, consumed by M1 clock + notifications.
 import './email';
 import './push';
@@ -525,6 +530,85 @@ Meteor.startup(() => {
       required: ['teamId', 'toUserId', 'text', 'adminId'],
     },
   });
+
+  // ── Users/Profiles ─────────────────────────────────────────────────────────
+
+  Wormhole.expose('users.get', {
+    description: 'Get public profile by user ID',
+    inputSchema: { type: 'object', properties: { userId: { type: 'string' } }, required: ['userId'] },
+  });
+
+  Wormhole.expose('users.getByUsername', {
+    description: 'Get public profile by username',
+    inputSchema: { type: 'object', properties: { username: { type: 'string' } }, required: ['username'] },
+  });
+
+  Wormhole.expose('users.batchGet', {
+    description: 'Batch public profile lookup by ID array (cap 200)',
+    inputSchema: { type: 'object', properties: { ids: { type: 'array', items: { type: 'string' } } }, required: ['ids'] },
+  });
+
+  Wormhole.expose('users.updateProfile', {
+    description: 'Update current user profile (name, bio, website, reportsToUserId)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        bio: { type: 'string' },
+        website: { type: 'string' },
+        reportsToUserId: { type: ['string', 'null'] },
+      },
+    },
+  });
+
+  Wormhole.expose('users.checkUsername', {
+    description: 'Check username availability',
+    inputSchema: { type: 'object', properties: { username: { type: 'string' } }, required: ['username'] },
+  });
+
+  Wormhole.expose('users.claimUsername', {
+    description: 'Claim a canonical username (one-time, immutable)',
+    inputSchema: { type: 'object', properties: { username: { type: 'string' } }, required: ['username'] },
+  });
+
+  // ── Organizations ─────────────────────────────────────────────────────────
+
+  Wormhole.expose('orgs.list', { description: 'List organizations accessible to the caller', inputSchema: { type: 'object', properties: {} } });
+  Wormhole.expose('orgs.checkSlug', { description: 'Check org slug availability', inputSchema: { type: 'object', properties: { slug: { type: 'string' }, excludeId: { type: 'string' } }, required: ['slug'] } });
+  Wormhole.expose('orgs.create', { description: 'Create organization under enterprise', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' }, allowAutoJoin: { type: 'boolean' } }, required: ['enterpriseId', 'name'] } });
+  Wormhole.expose('orgs.get', { description: 'Get organization details', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
+  Wormhole.expose('orgs.update', { description: 'Update organization (name, slug, settings)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' }, allowAutoJoin: { type: 'boolean' } }, required: ['orgId'] } });
+  Wormhole.expose('orgs.updateSettings', { description: 'Update org auto-join setting', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, allowAutoJoin: { type: 'boolean' } }, required: ['orgId', 'allowAutoJoin'] } });
+  Wormhole.expose('orgs.join', { description: 'Join organization (if auto-join enabled)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
+  Wormhole.expose('orgs.listMembers', { description: 'List org members (manage permission)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
+  Wormhole.expose('orgs.listUsers', { description: 'List org users (accessible)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
+  Wormhole.expose('orgs.searchUsers', { description: 'Search users to add to org', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, q: { type: 'string' } }, required: ['orgId'] } });
+  Wormhole.expose('orgs.setMemberRole', { description: 'Set org member role', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, userId: { type: 'string' }, role: { type: 'string', enum: ['owner', 'admin', 'member'] } }, required: ['orgId', 'userId', 'role'] } });
+  Wormhole.expose('orgs.removeMember', { description: 'Remove org member', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, userId: { type: 'string' } }, required: ['orgId', 'userId'] } });
+  Wormhole.expose('orgs.updateMemberReportsTo', { description: 'Update org member reports-to', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, userId: { type: 'string' }, reportsToUserId: { type: ['string', 'null'] } }, required: ['orgId', 'userId'] } });
+  Wormhole.expose('orgs.updateReportsTo', { description: 'Update user reports-to (default org admin)', inputSchema: { type: 'object', properties: { userId: { type: 'string' }, reportsToUserId: { type: ['string', 'null'] } }, required: ['userId'] } });
+  Wormhole.expose('orgs.adminGet', { description: 'Get default org admin metadata', inputSchema: { type: 'object', properties: {} } });
+  Wormhole.expose('orgs.adminUpdate', { description: 'Update default org name (admin)', inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } });
+  Wormhole.expose('orgs.adminListUsers', { description: 'List users with default org roles (admin)', inputSchema: { type: 'object', properties: {} } });
+  Wormhole.expose('orgs.adminSetUserRole', { description: 'Set default org role for user (admin)', inputSchema: { type: 'object', properties: { userId: { type: 'string' }, role: { type: 'string', enum: ['owner', 'admin', 'member'] } }, required: ['userId', 'role'] } });
+  Wormhole.expose('orgs.publicGet', { description: 'Get default org metadata (all users)', inputSchema: { type: 'object', properties: {} } });
+  Wormhole.expose('orgs.publicListUsers', { description: 'List users with default org roles (all users)', inputSchema: { type: 'object', properties: {} } });
+
+  // ── Enterprises ───────────────────────────────────────────────────────────
+
+  Wormhole.expose('enterprises.list', { description: 'List enterprises for the caller', inputSchema: { type: 'object', properties: {} } });
+  Wormhole.expose('enterprises.create', { description: 'Create enterprise', inputSchema: { type: 'object', properties: { name: { type: 'string' }, slug: { type: 'string' } }, required: ['name'] } });
+  Wormhole.expose('enterprises.get', { description: 'Get enterprise details', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' } }, required: ['enterpriseId'] } });
+  Wormhole.expose('enterprises.updateName', { description: 'Update enterprise name', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, name: { type: 'string' } }, required: ['enterpriseId', 'name'] } });
+  Wormhole.expose('enterprises.searchUsers', { description: 'Search users for enterprise', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, q: { type: 'string' } }, required: ['enterpriseId'] } });
+  Wormhole.expose('enterprises.setMemberRole', { description: 'Set enterprise member role (owner only)', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, userId: { type: 'string' }, role: { type: 'string', enum: ['owner', 'admin'] } }, required: ['enterpriseId', 'userId', 'role'] } });
+  Wormhole.expose('enterprises.removeMember', { description: 'Remove enterprise member (owner only)', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, userId: { type: 'string' } }, required: ['enterpriseId', 'userId'] } });
+
+  // ── Personal Access Tokens ────────────────────────────────────────────────
+
+  Wormhole.expose('tokens.list', { description: 'List personal access tokens', inputSchema: { type: 'object', properties: {} } });
+  Wormhole.expose('tokens.create', { description: 'Create a personal access token', inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } });
+  Wormhole.expose('tokens.revoke', { description: 'Revoke a personal access token', inputSchema: { type: 'object', properties: { tokenId: { type: 'string' } }, required: ['tokenId'] } });
 
   // Agenda foundation: defines clock jobs against the shared `agendajobs`
   // collection. Processor stays OFF unless METEOR_AGENDA_ENABLED=true, so it

@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "start": "METEOR_AGENDA_ENABLED=\"${METEOR_AGENDA_ENABLED:-true}\" METEOR_PACKAGE_DIRS=../vendor/meteor-wormhole/packages MONGO_URL=\"${MONGO_URL:-mongodb://timehuddle-mongodb-1.orb.local:27017/timehuddle?directConnection=true}\" MONGO_OPLOG_URL=\"${MONGO_OPLOG_URL:-mongodb://timehuddle-mongodb-1.orb.local:27017/local?directConnection=true}\" meteor run --port 3100",
-    "test": "meteor test --once --driver-package meteortesting:mocha"
+    "test": "meteor test --once --driver-package meteortesting:mocha",
+    "test:integration": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
     "@agendajs/mongo-backend": "^4.0.2",
@@ -18,6 +19,11 @@
     "meteor-node-stubs": "^1.2.12",
     "nodemailer": "^8.0.11",
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.0",
+    "mongodb": "^6.12.0",
+    "typescript": "^5.7.0"
   },
   "meteor": {
     "mainModule": {
