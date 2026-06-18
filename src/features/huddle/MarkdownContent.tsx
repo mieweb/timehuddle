@@ -47,8 +47,7 @@ const MermaidBlock = memo(function MermaidBlock({ code }: { code: string }) {
   return (
     <div
       ref={ref}
-      className="my-3 p-3 bg-neutral-900 border border-neutral-700 rounded-xl overflow-auto max-h-[70vh] min-h-12 [&_svg]:max-w-none [&_svg]:h-auto"
-      style={{ WebkitOverflowScrolling: 'touch' }}
+      className="my-3 p-3 bg-neutral-900 border border-neutral-700 rounded-xl overflow-x-auto min-h-12"
     />
   );
 });
@@ -85,16 +84,19 @@ export const MarkdownContent = memo(function MarkdownContent({ content }: { cont
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[
-          [rehypeHighlight, { ignoreMissing: true, detect: false, languages: {} }],
+          // ignoreMissing: skip unknown langs (including mermaid) without erroring
+          // detect: false: don't auto-detect language (prevents mangling mermaid)
+          // We don't restrict languages: {} — that was killing all highlighting
+          [rehypeHighlight, { ignoreMissing: true, detect: false }],
           rehypeKatex,
         ]}
         components={{
           code({ className, children, node, ...rest }) {
             const code        = String(children).trim();
             const nodeClasses = (node?.properties?.className as string[]) ?? [];
-            const isMermaid   =
-              className === 'language-mermaid' ||
-              nodeClasses.includes('language-mermaid');
+            // Check all possible places rehype might store the language class
+            const allClasses  = [className, ...nodeClasses].filter(Boolean).join(' ');
+            const isMermaid   = allClasses.includes('mermaid');
             if (isMermaid) return <MermaidBlock code={code} />;
             return <code className={className} {...rest}>{children}</code>;
           },
