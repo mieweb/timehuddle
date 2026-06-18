@@ -46,7 +46,8 @@ async function resolveJwt(token) {
     const { payload } = await jwtVerify(token, jwks);
     if (!payload.sub) return null;
     return { userId: payload.sub, name: payload.name || payload.email || 'Unknown' };
-  } catch {
+  } catch (err) {
+    console.error('[auth-bridge] JWT verification failed:', err.message || err);
     return null;
   }
 }

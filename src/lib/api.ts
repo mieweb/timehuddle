@@ -1641,70 +1641,29 @@ export interface ActivityLogItem {
 }
 
 export const activityApi = {
-  /**
-   * Fetch a page of activity log events for the current user, newest first.
-   *
-   * @param limit  - Max items per page (1–100, default 50).
-   * @param before - Cursor: ISO timestamp; fetch events older than this.
-   */
-  getLog: (params: { limit?: number; before?: string } = {}) => {
-    const qs = new URLSearchParams();
-    if (params.limit != null) qs.set('limit', String(params.limit));
-    if (params.before) qs.set('before', params.before);
-    const query = qs.toString();
-    return request<{ events: ActivityLogItem[]; nextCursor: string | null }>(
-      `/v1/activity/log${query ? `?${query}` : ''}`,
-    );
-  },
+  getLog: (params: { limit?: number; before?: string } = {}) =>
+    wormholeCall<{ events: ActivityLogItem[]; nextCursor: string | null }>(
+      'activity.log',
+      params,
+    ),
 
-  /**
-   * Fetch a page of activity log events for a specific user (teammates only).
-   *
-   * @param userId - The target user's ID.
-   * @param limit  - Max items per page (1–50, default 20).
-   * @param before - Cursor: ISO timestamp; fetch events older than this.
-   */
-  getUserActivity: (userId: string, params: { limit?: number; before?: string } = {}) => {
-    const qs = new URLSearchParams();
-    if (params.limit != null) qs.set('limit', String(params.limit));
-    if (params.before) qs.set('before', params.before);
-    const query = qs.toString();
-    return request<{ events: ActivityLogItem[]; nextCursor: string | null }>(
-      `/v1/users/${encodeURIComponent(userId)}/activity${query ? `?${query}` : ''}`,
-    );
-  },
+  getUserActivity: (userId: string, params: { limit?: number; before?: string } = {}) =>
+    wormholeCall<{ events: ActivityLogItem[]; nextCursor: string | null }>(
+      'activity.userLog',
+      { userId, ...params },
+    ),
 
-  /** Ticket IDs + titles from the user's last 48 h of timer work. */
+  /** Ticket IDs + titles from the user's last 48 h of timer work (still Fastify). */
   getUserWorkSummary: (userId: string) =>
     request<{ items: { id: string; title: string }[] }>(
       `/v1/work/summary/user/${encodeURIComponent(userId)}`,
     ),
 
-  /** Activity events for a specific ticket (team members only). */
   getTicketActivity: (ticketId: string, limit = 50) =>
-    request<{ events: ActivityLogItem[] }>(
-      `/v1/tickets/${encodeURIComponent(ticketId)}/activity?limit=${limit}`,
+    wormholeCall<{ events: ActivityLogItem[] }>(
+      'activity.ticketActivity',
+      { ticketId, limit },
     ),
-};
-
-// ─── Presence ─────────────────────────────────────────────────────────────────
-
-export const presenceApi = {
-  /**
-   * Open a WebSocket presence stream.
-   * Sends periodic { type: "ping" } heartbeats to stay marked online.
-   * Receives { type: "snapshot", online: string[] } on connect,
-   * then { type: "presence", userId: string, online: boolean } on changes.
-   */
-  openStream: (watchIds: string[]): AutoReconnectWs => {
-    const token = sessionToken.get();
-    return autoReconnectWs(() => {
-      const url = new URL(`${WS_BASE_URL}/v1/presence/ws`);
-      if (token) url.searchParams.set('token', token);
-      if (watchIds.length > 0) url.searchParams.set('watch', watchIds.join(','));
-      return url.toString();
-    });
-  },
 };
 
 // ─── Channel types ────────────────────────────────────────────────────────────

@@ -109,10 +109,12 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
 
 ## M2 — Collaboration
 
+- [x] Presence: `presence.watch` custom DDP publication (`meteor-backend/server/presence.js`) — in-memory tracking with 75s timeout, connection lifecycle marks online/offline. Frontend `usePresence.ts` cut over from raw WebSocket to DDP subscription; `presenceApi` removed from `api.ts`.
+- [x] Activity log read methods: `activity.log`, `activity.userLog`, `activity.ticketActivity` Meteor methods (`meteor-backend/server/activity.js`) with wormhole REST exposure. Cursor-paginated, shared-team access check for teammate feeds. Frontend `activityApi` cut over to wormhole REST (`getUserWorkSummary` stays on Fastify — depends on timer reads in `work.ts`).
+- [x] Docker auth fix: added `AUTH_JWKS_URL=http://backend:4000/api/auth/jwks` to `meteor-backend` service in docker-compose (was defaulting to `localhost:4000` which is unreachable inside Docker). Added error logging to `resolveJwt()` in `auth-bridge.js` so JWKS failures are no longer silent.
 - [ ] Teams: roster CRUD, join codes, roles + `teams.byUser` publication (replaces `teams-ws.ts`)
 - [ ] Messages + Channels: thread/channel publications + push on new message
-- [ ] Presence: publication keyed on DDP connection lifecycle
-- [ ] Activity log + Work summary read methods
+- [ ] Work summary read method (depends on timer reads — deferred)
 - [ ] Delete Fastify routes: `teams*.ts`, `messages.ts`, `channels.ts`, `presence.ts`,
       `activity.ts`, `work.ts`
 
@@ -155,3 +157,4 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
 | Agenda handover mid-shift             | Med      | Same lib + collection; jobs are writer-agnostic                                                |
 | Publication fan-out scale             | Med      | Tightly scoped cursors (`endTime: null`, team filters)                                         |
 | Dual-backend drift during migration   | Med      | Shared Mongo is the single source of truth; activity/notification doc shapes mirrored verbatim |
+| Docker inter-service auth (resolved)  | —        | `AUTH_JWKS_URL` must use Docker service name (`backend`), not `localhost`. Error logging added to `resolveJwt()` |

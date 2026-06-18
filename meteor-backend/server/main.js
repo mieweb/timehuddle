@@ -16,6 +16,8 @@ import './tickets';
 import './clock';
 import './timers';
 import './notifications';
+import './presence';
+import './activity';
 // M0.e foundations — built/validated now, consumed by M1 clock + notifications.
 import './email';
 import './push';
@@ -280,6 +282,44 @@ Meteor.startup(() => {
         action: { type: 'string', enum: ['agree', 'disagree'] },
       },
       required: ['notificationId', 'action'],
+    },
+  });
+
+  // ── Activity (read-only) ────────────────────────────────────────────────────
+
+  Wormhole.expose('activity.log', {
+    description: 'Get the current user\'s activity log (cursor-paginated)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+        before: { type: 'string', description: 'ISO 8601 cursor — events older than this' },
+      },
+    },
+  });
+
+  Wormhole.expose('activity.userLog', {
+    description: 'Get activity log for a specific user (must share a non-personal team)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        userId: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 50 },
+        before: { type: 'string', description: 'ISO 8601 cursor' },
+      },
+      required: ['userId'],
+    },
+  });
+
+  Wormhole.expose('activity.ticketActivity', {
+    description: 'Get activity events for a specific ticket (team members only)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      required: ['ticketId'],
     },
   });
 
