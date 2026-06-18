@@ -1,6 +1,6 @@
 import { Button, Text } from '@mieweb/ui';
 import YAML from 'yaml';
-import React, { useMemo, useState } from 'react';
+import React, { useRef, useMemo, useState } from 'react';
 
 import { AppPage } from '../../ui/AppPage';
 import { YamlEditor } from './YamlEditor';
@@ -69,6 +69,7 @@ export const SeederPage: React.FC = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const needsOrg = useMemo(() => hasTopLevelTeams(yaml), [yaml]);
 
@@ -86,6 +87,22 @@ export const SeederPage: React.FC = () => {
     setParseError(null);
     setSubmitError(null);
     setResult(null);
+  };
+
+  const handleOpenFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setYaml(reader.result);
+        setParseError(null);
+        setSubmitError(null);
+        setResult(null);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   const handleRun = async () => {
@@ -205,14 +222,26 @@ export const SeederPage: React.FC = () => {
               </div>
             )}
 
-            <Button
-              variant="primary"
-              onClick={handleRun}
-              isLoading={loading}
-              disabled={!!yamlSyntaxError || (needsOrg && !selectedOrgId)}
-            >
-              Import
-            </Button>
+            <div className="flex justify-end gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".yml,.yaml"
+                className="hidden"
+                onChange={handleOpenFile}
+              />
+              <Button variant="secondary" onClick={() => fileInputRef.current?.click()}>
+                Open
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleRun}
+                isLoading={loading}
+                disabled={!!yamlSyntaxError || (needsOrg && !selectedOrgId)}
+              >
+                Import
+              </Button>
+            </div>
           </div>
         </div>
       </div>
