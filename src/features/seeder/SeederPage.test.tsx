@@ -62,14 +62,19 @@ describe('SeederPage', () => {
   it('loads a preset into the editor and imports it', async () => {
     render(<SeederPage />);
 
-    // Switch to Org+Team preset — its YAML contains "Demo Org"
-    fireEvent.click(screen.getByRole('button', { name: /Org \+ Team/i }));
-    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toContain('Demo Org');
+    // Switch to Generic Business preset — its YAML contains "Midwest Services"
+    fireEvent.click(screen.getByRole('button', { name: /Generic Business/i }));
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toContain(
+      'Midwest Services',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Import' }));
 
     expect((await screen.findByRole('status')).textContent).toContain('Created: 2 users');
-    expect(runSeedImport).toHaveBeenCalledWith(expect.stringContaining('Demo Org'), 'org-1');
+    expect(runSeedImport).toHaveBeenCalledWith(
+      expect.stringContaining('Midwest Services'),
+      'org-1',
+    );
   });
 
   it('disables Import and shows inline error on invalid YAML', async () => {

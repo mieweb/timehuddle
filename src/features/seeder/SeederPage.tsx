@@ -7,9 +7,7 @@ import { YamlEditor } from './YamlEditor';
 import { runSeedImport } from './seedImport';
 import { useTeam } from '../../lib/TeamContext';
 
-import teamPreset from './presets/team-only.yaml?raw';
 import techTeamsPreset from './presets/tech-teams.yaml?raw';
-import orgPreset from './presets/org-with-team.yaml?raw';
 import businessOrgPreset from './presets/business-org.yaml?raw';
 import fullEnterprisePreset from './presets/full-enterprise.yaml?raw';
 import userPreset from './presets/single-user.yaml?raw';
@@ -38,39 +36,27 @@ type Preset = {
 
 const PRESETS: Preset[] = [
   {
-    id: 'team-only',
-    label: 'Team',
-    description: 'A team with 5 members in different roles and tickets.',
-    yaml: teamPreset,
-  },
-  {
     id: 'tech-teams',
-    label: 'Tech Teams',
-    description: 'Developers, Builders, and CAD teams (root-level, attach to any org).',
+    label: 'Technical Teams',
+    description: 'Add Developers, Builders, and CAD teams to active org.',
     yaml: techTeamsPreset,
   },
   {
-    id: 'org-team',
-    label: 'Org + Team',
-    description: 'A single organization with one team and tickets.',
-    yaml: orgPreset,
-  },
-  {
     id: 'business-org',
-    label: 'Business Org',
+    label: 'Generic Business',
     description: 'Marketing, Accounting, and Payroll under one organization.',
     yaml: businessOrgPreset,
   },
   {
     id: 'full-enterprise',
-    label: 'Full Org',
-    description: 'Five-team org (Developers, Product, Design, Support, Ops) with 16 users.',
+    label: 'Multiple Orgs',
+    description: 'Create a handful of Org types with various teams each.',
     yaml: fullEnterprisePreset,
   },
   {
     id: 'single-user',
     label: 'Single User',
-    description: 'Just a few users for quick login and role tests.',
+    description: 'Create users not associated with an organization.',
     yaml: userPreset,
   },
 ];
@@ -78,7 +64,7 @@ const PRESETS: Preset[] = [
 export const SeederPage: React.FC = () => {
   const { selectedOrgId, organizations } = useTeam();
   const selectedOrg = organizations.find((o) => o.id === selectedOrgId) ?? null;
-  const [yaml, setYaml] = useState(teamPreset);
+  const [yaml, setYaml] = useState(techTeamsPreset);
   const [parseError, setParseError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
