@@ -19,20 +19,31 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PRESETS_DIR = join(__dirname, "../../src/features/seeder/presets");
 
-const ORG_WITH_TEAM_YAML = readFileSync(join(PRESETS_DIR, "org-with-team.yaml"), "utf-8");
-const TEAM_ONLY_YAML = readFileSync(join(PRESETS_DIR, "team-only.yaml"), "utf-8");
+const BUSINESS_ORG_YAML = readFileSync(join(PRESETS_DIR, "business-org.yaml"), "utf-8");
+const TECH_TEAMS_YAML = readFileSync(join(PRESETS_DIR, "tech-teams.yaml"), "utf-8");
 const SINGLE_USER_YAML = readFileSync(join(PRESETS_DIR, "single-user.yaml"), "utf-8");
 
-// Emails defined in the org-with-team preset
-const DEMO_EMAILS = ["demo-owner@example.com", "demo-admin@example.com", "demo-member@example.com"];
+// Emails defined in the business-org preset
+const BUSINESS_ORG_EMAILS = [
+  "diane-owner@example.com",
+  "frank-cfo@example.com",
+  "maya-marketing@example.com",
+  "chris-content@example.com",
+  "grace-accounting@example.com",
+  "olivia-analyst@example.com",
+  "hana-payroll@example.com",
+];
 
-// Emails defined in the team-only preset
-const TEAM_ONLY_EMAILS = [
-  "sarah-team-lead@example.com",
-  "alex-developer@example.com",
-  "jordan-designer@example.com",
-  "casey-qa@example.com",
-  "morgan-product@example.com",
+// Emails defined in the tech-teams preset
+const TECH_TEAMS_EMAILS = [
+  "sam-dev@example.com",
+  "dana-dev@example.com",
+  "pat-pm@example.com",
+  "mike-builder@example.com",
+  "jose-builder@example.com",
+  "kat-builder@example.com",
+  "lee-cad@example.com",
+  "morgan-cad@example.com",
 ];
 
 // Emails defined in the single-user preset
@@ -64,28 +75,28 @@ beforeAll(async () => {
 
   const db = client.db();
 
-  // Clean up org-with-team preset data from any prior run
-  await db.collection("user").deleteMany({ email: { $in: DEMO_EMAILS } });
-  const demoOrg = await organizationsCollection().findOne({ slug: "demo-org" });
-  if (demoOrg) {
-    const demoTeam = await teamsCollection().findOne({
-      orgId: demoOrg._id.toHexString(),
-      code: "DEMO1234",
-    });
-    if (demoTeam) {
-      await ticketsCollection().deleteMany({ teamId: demoTeam._id.toHexString() });
-      await teamsCollection().deleteOne({ _id: demoTeam._id });
+  // Clean up business-org preset data from any prior run
+  await db.collection("user").deleteMany({ email: { $in: BUSINESS_ORG_EMAILS } });
+  const bizOrg = await organizationsCollection().findOne({ slug: "midwest-services" });
+  if (bizOrg) {
+    const bizTeams = await teamsCollection().find({ orgId: bizOrg._id.toHexString() }).toArray();
+    for (const t of bizTeams) {
+      await ticketsCollection().deleteMany({ teamId: t._id.toHexString() });
     }
-    await organizationsCollection().deleteOne({ _id: demoOrg._id });
+    await teamsCollection().deleteMany({ orgId: bizOrg._id.toHexString() });
+    await organizationsCollection().deleteOne({ _id: bizOrg._id });
   }
 
-  // Clean up team-only preset data from any prior run
-  await db.collection("user").deleteMany({ email: { $in: TEAM_ONLY_EMAILS } });
-  const dappTeams = await teamsCollection().find({ code: "DAPP1234" }).toArray();
-  for (const t of dappTeams) {
+  // Clean up tech-teams preset data from any prior run
+  await db.collection("user").deleteMany({ email: { $in: TECH_TEAMS_EMAILS } });
+  const techTeamCodes = ["DEVT1234", "BLDS5678", "CADX9012"];
+  const techTeams = await teamsCollection()
+    .find({ code: { $in: techTeamCodes } })
+    .toArray();
+  for (const t of techTeams) {
     await ticketsCollection().deleteMany({ teamId: t._id.toHexString() });
   }
-  await teamsCollection().deleteMany({ code: "DAPP1234" });
+  await teamsCollection().deleteMany({ code: { $in: techTeamCodes } });
   await organizationsCollection().deleteMany({ slug: { $in: ["seeder-test-anchor-org"] } });
 
   // Create a stable anchor org that the team-only preset will attach its teams to
@@ -125,12 +136,12 @@ afterAll(async () => {
 });
 
 describe("dev seed import routes", () => {
-  it("parses and imports the org-with-team preset", async () => {
+  it("parses and imports the business-org preset", async () => {
     const parseRes = await app.inject({
       method: "POST",
       url: "/v1/seed/import/parse",
       headers: { cookie: sessionCookie },
-      payload: { yaml: ORG_WITH_TEAM_YAML },
+      payload: { yaml: BUSINESS_ORG_YAML },
     });
     expect(parseRes.statusCode).toBe(200);
     expect(parseRes.json().ok).toBe(true);
@@ -139,7 +150,7 @@ describe("dev seed import routes", () => {
       method: "POST",
       url: "/v1/seed/import",
       headers: { cookie: sessionCookie },
-      payload: { yaml: ORG_WITH_TEAM_YAML },
+      payload: { yaml: BUSINESS_ORG_YAML },
     });
     expect(importRes.statusCode).toBe(200);
     const body = importRes.json();
@@ -150,9 +161,9 @@ describe("dev seed import routes", () => {
     expect(body.summary).toContain("users");
 
     // Verify a known user from the preset exists in the DB
-    const owner = await usersCollection().findOne({ email: "demo-owner@example.com" });
+    const owner = await usersCollection().findOne({ email: "diane-owner@example.com" });
     expect(owner).not.toBeNull();
-    expect(owner!.name).toBe("Demo Owner");
+    expect(owner!.name).toBe("Diane Owner");
   });
 
   it("rejects malformed YAML", async () => {
@@ -204,34 +215,31 @@ describe("dev seed import routes", () => {
     expect(quickAdmin!.name).toBe("Quick Admin");
   });
 
-  it("imports the team-only preset, attaching the team to the provided orgId", async () => {
+  it("imports the tech-teams preset, attaching teams to the provided orgId", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/v1/seed/import",
       headers: { cookie: sessionCookie },
-      payload: { yaml: TEAM_ONLY_YAML, orgId: teamOnlyAnchorOrgId },
+      payload: { yaml: TECH_TEAMS_YAML, orgId: teamOnlyAnchorOrgId },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.created.users).toBe(5);
+    expect(body.created.users).toBe(8);
     expect(body.created.organizations).toBe(0);
-    expect(body.created.teams).toBe(1);
-    expect(body.created.tickets).toBe(2);
+    expect(body.created.teams).toBe(3);
+    expect(body.created.tickets).toBe(6);
 
-    // Team must be attached to the anchor org, not a newly created one
-    const team = await teamsCollection().findOne({ code: "DAPP1234" });
+    // First team must be attached to the anchor org, not a newly created one
+    const team = await teamsCollection().findOne({ code: "DEVT1234" });
     expect(team).not.toBeNull();
     expect(team!.orgId).toBe(teamOnlyAnchorOrgId);
 
-    // All 5 members must be in the team's members array
-    expect(team!.members).toHaveLength(5);
+    // Developers team has 3 members
+    expect(team!.members).toHaveLength(3);
 
-    // Admins (sarah + alex) must also appear in members
-    const sarah = await usersCollection().findOne({ email: "sarah-team-lead@example.com" });
-    const alex = await usersCollection().findOne({ email: "alex-developer@example.com" });
-    expect(team!.admins).toContain(sarah!._id.toHexString());
-    expect(team!.admins).toContain(alex!._id.toHexString());
-    expect(team!.members).toContain(sarah!._id.toHexString());
-    expect(team!.members).toContain(alex!._id.toHexString());
+    // Admin (sam-dev) must also appear in members
+    const sam = await usersCollection().findOne({ email: "sam-dev@example.com" });
+    expect(team!.admins).toContain(sam!._id.toHexString());
+    expect(team!.members).toContain(sam!._id.toHexString());
   });
 });
