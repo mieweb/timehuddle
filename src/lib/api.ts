@@ -1247,8 +1247,7 @@ export const attachmentApi = {
     attachedTo: { kind: AttachmentKind; id: string };
   }) => wormholeCall<{ attachment: Attachment }>('attachments.add', data).then((r) => r.attachment),
 
-  remove: (id: string) =>
-    wormholeCall<{ ok: boolean }>('attachments.remove', { attachmentId: id }),
+  remove: (id: string) => wormholeCall<{ ok: boolean }>('attachments.remove', { attachmentId: id }),
 };
 
 // ─── Timer API ────────────────────────────────────────────────────────────────

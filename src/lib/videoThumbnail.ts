@@ -30,9 +30,7 @@ export function extractVideoThumbnail(file: File): Promise<Blob> {
  * Capture a thumbnail from an existing <video> element at its current frame.
  * Fetches the video as a blob first to avoid cross-origin canvas tainting.
  */
-export async function captureFromVideoElement(
-  videoEl: HTMLVideoElement,
-): Promise<Blob> {
+export async function captureFromVideoElement(videoEl: HTMLVideoElement): Promise<Blob> {
   const currentTime = videoEl.currentTime;
 
   const { sessionToken } = await import('./api');
