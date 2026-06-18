@@ -55,6 +55,7 @@
     "@mieweb/ychart": "^1.1.0",
     "@swc/helpers": "^0.5.17",
     "cmdk": "^1.1.1",
+    "date-fns": "^4.4.0",
     "motion": "^12.34.3",
     "postcss-load-config": "^6.0.1",
     "qrcode.react": "^4.2.0",

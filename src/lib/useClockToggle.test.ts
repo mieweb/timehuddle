@@ -32,6 +32,7 @@ function setupTeam(
 ) {
   mockUseTeam.mockReturnValue({
     teams: [],
+    pendingRequests: [],
     enterprises: [],
     organizations: [],
     selectedOrgId: null,

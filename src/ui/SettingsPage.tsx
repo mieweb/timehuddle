@@ -202,6 +202,16 @@ const PushNotificationsSettings: React.FC = () => {
         detail += 'Please allow notifications in your browser settings.';
       } else if (msg.includes('not-configured')) {
         detail += 'The server is missing VAPID keys in settings.';
+      } else if (msg.includes('Timed out waiting for push')) {
+        if (isNative) {
+          detail += 'Unable to connect to Apple Push Notification service. Please check:\n\n';
+          detail += '1. Your device has an active internet connection\n';
+          detail += '2. You are not using a VPN that blocks APNs\n';
+          detail += '3. Try restarting the app and trying again\n\n';
+          detail += 'If the issue persists, push notifications may not be available in your region or network.';
+        } else {
+          detail += 'Service worker registration timed out. Please refresh the page and try again.';
+        }
       } else {
         detail += msg;
       }
@@ -342,7 +352,7 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
 
     void (async () => {
       try {
-        const teams = await teamApi.getTeams();
+        const { teams } = await teamApi.getTeams();
         const nonPersonalTeams = teams.filter((team) => !team.isPersonal);
 
         if (nonPersonalTeams.length === 0) {

@@ -189,6 +189,15 @@ const AppLayoutContent: React.FC = () => {
             detail: { clockEventId: data.clockEventId, teamId: data.teamId },
           }),
         );
+      } else if (data.type === 'team-join-request') {
+        // Navigate to notifications page where user can approve/decline
+        navigate('/app/notifications');
+      } else if (data.type === 'team-join-request-approved') {
+        // Navigate to the team page
+        if (data.url) navigate(data.url);
+      } else if (data.type === 'team-join-request-declined') {
+        // Navigate to teams page
+        if (data.url) navigate(data.url);
       } else if (data.url) {
         const safePath = data.url.split('?')[0];
         console.log('[handleNotificationData] safePath:', safePath);

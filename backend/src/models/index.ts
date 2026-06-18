@@ -20,6 +20,7 @@ import type { MediaItem } from "./media-item.model.js";
 import type { Enterprise } from "./enterprise.model.js";
 import type { OrgMembership } from "./org-membership.model.js";
 import type { Installation } from "./installation.model.js";
+import type { TeamJoinRequest } from "./team-join-request.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
 export function usersCollection() {
@@ -29,6 +30,11 @@ export function usersCollection() {
 // Teams — populated once Phase 3 timehuddle migration is complete
 export function teamsCollection() {
   return getDB().collection<Team>("teams");
+}
+
+// Team join requests — pending approval workflow
+export function teamJoinRequestsCollection() {
+  return getDB().collection<TeamJoinRequest>("teamjoinrequests");
 }
 
 // Organizations
