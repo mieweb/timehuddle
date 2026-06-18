@@ -39,7 +39,6 @@
     "@capacitor/browser": "^8.0.3",
     "@capacitor/core": "^8.3.1",
     "@capacitor/haptics": "^8.0.2",
-    "@capacitor/local-notifications": "^8.2.0",
     "@capacitor/push-notifications": "^8.0.3",
     "@codemirror/commands": "^6.10.3",
     "@codemirror/lang-yaml": "^6.1.3",
