@@ -43,6 +43,25 @@ vi.mock('@mieweb/ui', () => ({
     [key: string]: unknown;
   }) => <button {...rest}>{children}</button>,
   Text: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+  Select: ({
+    options,
+    onValueChange,
+    value,
+    ...rest
+  }: {
+    options: { value: string; label: string }[];
+    onValueChange?: (val: string) => void;
+    value?: string;
+    [key: string]: unknown;
+  }) => (
+    <select value={value} onChange={(e) => onValueChange?.(e.target.value)} {...rest}>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  ),
 }));
 
 import { runSeedImport } from './seedImport';

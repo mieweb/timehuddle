@@ -1,4 +1,4 @@
-import { Button, Text } from '@mieweb/ui';
+import { Button, Select, Text } from '@mieweb/ui';
 import YAML from 'yaml';
 import React, { useRef, useMemo, useState } from 'react';
 
@@ -55,7 +55,7 @@ const PRESETS: Preset[] = [
   },
   {
     id: 'single-user',
-    label: 'Single User',
+    label: 'User Import',
     description: 'Create users not associated with an organization.',
     yaml: userPreset,
   },
@@ -125,38 +125,57 @@ export const SeederPage: React.FC = () => {
       <div className="space-y-6">
         <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
           <div>
-            <div className="mb-3">
-              <Text variant="muted" size="sm" weight="medium">
-                Presets
-              </Text>
-            </div>
-            <div className="space-y-2">
-              {PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  onClick={() => applyPreset(preset)}
-                  className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-3 text-left transition hover:border-primary-400 hover:bg-primary-50 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-primary-500 dark:hover:bg-primary-950/40"
-                >
-                  <div className="font-medium text-neutral-900 dark:text-neutral-50">
-                    {preset.label}
-                  </div>
-                  <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-                    {preset.description}
-                  </div>
-                </button>
-              ))}
+            {/* Mobile: dropdown */}
+            <div className="lg:hidden">
+              <Select
+                label="Preset"
+                hideLabel
+                size="sm"
+                value={PRESETS[0].id}
+                onValueChange={(val) => {
+                  const preset = PRESETS.find((p) => p.id === val);
+                  if (preset) applyPreset(preset);
+                }}
+                options={PRESETS.map((p) => ({ value: p.id, label: p.label }))}
+                aria-label="Select a preset"
+              />
             </div>
 
-            {organizations.length === 0 && needsOrg && (
-              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-                No organizations exist yet. Run the <strong>Org + Team</strong> preset first to
-                create one, then come back to <strong>Team</strong>.
+            {/* Desktop: full preset buttons */}
+            <div className="hidden lg:block">
+              <div className="mb-3">
+                <Text variant="muted" size="sm" weight="medium">
+                  Presets
+                </Text>
               </div>
-            )}
+              <div className="space-y-2">
+                {PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-3 text-left transition hover:border-primary-400 hover:bg-primary-50 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-primary-500 dark:hover:bg-primary-950/40"
+                  >
+                    <div className="font-medium text-neutral-900 dark:text-neutral-50">
+                      {preset.label}
+                    </div>
+                    <div className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+                      {preset.description}
+                    </div>
+                  </button>
+                ))}
+              </div>
 
-            <div className="mt-3 rounded-lg border border-dashed border-neutral-300 p-3 text-sm text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">
-              Paste or edit YAML below. The parser validates syntax before the import runs.
+              {organizations.length === 0 && needsOrg && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                  No organizations exist yet. Run the <strong>Org + Team</strong> preset first to
+                  create one, then come back to <strong>Team</strong>.
+                </div>
+              )}
+
+              <div className="mt-3 rounded-lg border border-dashed border-neutral-300 p-3 text-sm text-neutral-600 dark:border-neutral-700 dark:text-neutral-400">
+                Paste or edit YAML below. The parser validates syntax before the import runs.
+              </div>
             </div>
           </div>
 
