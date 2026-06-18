@@ -1018,42 +1018,33 @@ export interface TeamMember {
 }
 
 export const teamApi = {
-  getTeams: () => request<{ teams: Team[] }>('/v1/teams').then((r) => r.teams),
+  getTeams: () =>
+    wormholeCall<{ teams: Team[] }>('teams.list', {}).then((r) => r.teams),
 
   ensurePersonal: () =>
-    request<{ team: Team }>('/v1/teams/ensure-personal', { method: 'POST' }).then((r) => r.team),
+    wormholeCall<{ team: Team }>('teams.ensurePersonal', {}).then((r) => r.team),
 
   createTeam: (data: {
     name: string;
     description?: string;
     orgId?: string;
     parentTeamId?: string | null;
-  }) =>
-    request<{ team: Team }>('/v1/teams', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.team),
+  }) => wormholeCall<{ team: Team }>('teams.create', data).then((r) => r.team),
 
   getSubTeams: (id: string) =>
-    request<{ teams: Team[] }>(`/v1/teams/${encodeURIComponent(id)}/subteams`).then((r) => r.teams),
+    wormholeCall<{ teams: Team[] }>('teams.subteams', { teamId: id }).then((r) => r.teams),
 
   joinTeam: (teamCode: string) =>
-    request<{ team: Team }>('/v1/teams/join', {
-      method: 'POST',
-      body: JSON.stringify({ teamCode }),
-    }).then((r) => r.team),
+    wormholeCall<{ team: Team }>('teams.join', { teamCode }).then((r) => r.team),
 
   renameTeam: (id: string, newName: string) =>
-    request<{ team: Team }>(`/v1/teams/${encodeURIComponent(id)}/name`, {
-      method: 'PUT',
-      body: JSON.stringify({ newName }),
-    }).then((r) => r.team),
+    wormholeCall<{ team: Team }>('teams.rename', { teamId: id, newName }).then((r) => r.team),
 
   deleteTeam: (id: string) =>
-    request<{ ok: boolean }>(`/v1/teams/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    wormholeCall<{ ok: boolean }>('teams.delete', { teamId: id }),
 
   getMembers: (id: string) =>
-    request<{ members: TeamMember[] }>(`/v1/teams/${encodeURIComponent(id)}/members`).then((r) =>
+    wormholeCall<{ members: TeamMember[] }>('teams.getMembers', { teamId: id }).then((r) =>
       r.members.map((m) =>
         m.image && !/^https?:\/\//i.test(m.image)
           ? { ...m, image: `${TIMECORE_BASE_URL}${m.image.startsWith('/') ? '' : '/'}${m.image}` }
@@ -1062,36 +1053,16 @@ export const teamApi = {
     ),
 
   inviteMember: (id: string, email: string) =>
-    request<{ ok: boolean }>(`/v1/teams/${encodeURIComponent(id)}/invite`, {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    }),
+    wormholeCall<{ ok: boolean }>('teams.invite', { teamId: id, email }),
 
   removeMember: (id: string, userId: string) =>
-    request<{ ok: boolean }>(
-      `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
-      { method: 'DELETE' },
-    ),
+    wormholeCall<{ ok: boolean }>('teams.removeMember', { teamId: id, userId }),
 
   setMemberRole: (id: string, userId: string, role: 'admin' | 'member') =>
-    request<{ ok: boolean }>(
-      `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
-      { method: 'PUT', body: JSON.stringify({ role }) },
-    ),
+    wormholeCall<{ ok: boolean }>('teams.setRole', { teamId: id, userId, role }),
 
   setMemberPassword: (id: string, userId: string, newPassword: string) =>
-    request<{ ok: boolean }>(
-      `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/password`,
-      { method: 'PUT', body: JSON.stringify({ newPassword }) },
-    ),
-
-  /** Open a WebSocket connection for live team updates. Auto-reconnects on drop. */
-  openLiveStream: (): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const token = sessionToken.get();
-      const base = `${WS_BASE_URL}/v1/teams/ws`;
-      return token ? `${base}?token=${encodeURIComponent(token)}` : base;
-    }),
+    wormholeCall<{ ok: boolean }>('teams.setMemberPassword', { teamId: id, userId, newPassword }),
 };
 
 // ─── Clock API ────────────────────────────────────────────────────────────────
@@ -1257,39 +1228,21 @@ export interface Message {
 }
 
 export const messageApi = {
-  /** Fetch a thread's message history. Pass `before` ISO string for cursor-based pagination. */
-  getThread: (teamId: string, adminId: string, memberId: string, before?: string) => {
-    const qs = new URLSearchParams({
+  getThread: (teamId: string, adminId: string, memberId: string, before?: string) =>
+    wormholeCall<{ messages: Message[]; hasMore: boolean }>('messages.getThread', {
       teamId,
       adminId,
       memberId,
-    });
-    if (before) qs.set('before', before);
-    return request<{ messages: Message[]; hasMore: boolean }>(`/v1/messages?${qs.toString()}`);
-  },
+      ...(before ? { before } : {}),
+    }),
 
-  /** Send a message. */
   send: (data: {
     teamId: string;
     toUserId: string;
     text: string;
     adminId: string;
     ticketId?: string;
-  }) =>
-    request<{ message: Message }>('/v1/messages', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.message),
-
-  /** Open a WebSocket stream for a thread. Auto-reconnects on drop. */
-  openStream: (threadId: string): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const token = sessionToken.get();
-      const url = new URL(`${WS_BASE_URL}/v1/messages/ws`);
-      url.searchParams.set('threadId', threadId);
-      if (token) url.searchParams.set('token', token);
-      return url.toString();
-    }),
+  }) => wormholeCall<{ message: Message }>('messages.send', data).then((r) => r.message),
 };
 
 export type TeamInvitePreview = {
@@ -1694,9 +1647,7 @@ export interface ChannelMessage {
 
 export const channelApi = {
   getChannels: (teamId: string): Promise<Channel[]> =>
-    request<{ channels: Channel[] }>(`/v1/channels?teamId=${encodeURIComponent(teamId)}`).then(
-      (r) => r.channels,
-    ),
+    wormholeCall<{ channels: Channel[] }>('channels.list', { teamId }).then((r) => r.channels),
 
   createChannel: (data: {
     teamId: string;
@@ -1704,45 +1655,27 @@ export const channelApi = {
     description?: string;
     members?: string[];
   }): Promise<Channel> =>
-    request<{ channel: Channel }>('/v1/channels', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    }).then((r) => r.channel),
+    wormholeCall<{ channel: Channel }>('channels.create', data).then((r) => r.channel),
 
   getMessages: (
     channelId: string,
     teamId: string,
     before?: string,
-  ): Promise<{ messages: ChannelMessage[]; hasMore: boolean }> => {
-    const url = new URL(
-      `/v1/channels/${encodeURIComponent(channelId)}/messages`,
-      TIMECORE_BASE_URL,
-    );
-    url.searchParams.set('teamId', teamId);
-    if (before) url.searchParams.set('before', before);
-    return request<{ messages: ChannelMessage[]; hasMore: boolean }>(url.pathname + url.search);
-  },
+  ): Promise<{ messages: ChannelMessage[]; hasMore: boolean }> =>
+    wormholeCall<{ messages: ChannelMessage[]; hasMore: boolean }>('channels.getMessages', {
+      channelId,
+      teamId,
+      ...(before ? { before } : {}),
+    }),
 
   sendMessage: (
     channelId: string,
     data: { teamId: string; text: string },
   ): Promise<ChannelMessage> =>
-    request<{ message: ChannelMessage }>(`/v1/channels/${encodeURIComponent(channelId)}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+    wormholeCall<{ message: ChannelMessage }>('channels.sendMessage', {
+      channelId,
+      ...data,
     }).then((r) => r.message),
-
-  openStream: (channelId: string, teamId: string): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const url = new URL(`${WS_BASE_URL}/v1/channels/ws`);
-      url.searchParams.set('channelId', channelId);
-      url.searchParams.set('teamId', teamId);
-      const token = sessionToken.get();
-      if (token) url.searchParams.set('token', token);
-      return url.toString();
-    }),
 };
 
 // ─── Personal Access Tokens ───────────────────────────────────────────────────

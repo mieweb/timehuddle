@@ -16,7 +16,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { teamApi, orgApi, enterpriseApi, clockApi, type Team, type ClockEvent } from './api';
-import { getDdpClient, ddpDocToClockEvent } from './ddp';
+import { getDdpClient, ddpDocToClockEvent, ddpDocToTeam } from './ddp';
 import { useSession } from './useSession';
 
 const TEAM_KEY = 'app:selectedTeamId';
@@ -162,45 +162,30 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     refetchOrganizations();
   }, [refetchOrganizations, teamsReady]);
 
-  // Real-time WebSocket connection for team updates
+  // Real-time DDP subscription for team updates (replaces WebSocket)
   useEffect(() => {
     if (!userId) return;
+    const ddp = getDdpClient();
 
-    const ws = teamApi.openLiveStream();
-
-    ws.onmessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'snapshot') {
-          // Initial snapshot: replace teams state
-          const newTeams = data.teams as Team[];
-          setTeams(newTeams);
-          setTeamsReady(true);
-        } else if (data.type === 'update') {
-          // Real-time team update — upsert by id
-          const updatedTeam = data.team as Team;
-          setTeams((prev) => {
-            const idx = prev.findIndex((t) => t.id === updatedTeam.id);
-            if (idx >= 0) {
-              const copy = [...prev];
-              copy[idx] = updatedTeam;
-              return copy;
-            }
-            return [...prev, updatedTeam];
-          });
-        } else if (data.type === 'delete') {
-          // Team deleted — remove from state
-          setTeams((prev) => prev.filter((t) => t.id !== data.teamId));
-        }
-      } catch (err) {
-        console.warn('Failed to parse teams WebSocket message:', err);
-      }
+    const applyLiveDocs = () => {
+      const liveTeams = ddp.docs('teams').map(ddpDocToTeam);
+      setTeams(
+        liveTeams.sort((a, b) => {
+          if (a.isPersonal !== b.isPersonal) return a.isPersonal ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        }),
+      );
     };
 
-    // Cleanup: close WebSocket when userId changes or component unmounts
+    const offChange = ddp.onCollectionChange('teams', applyLiveDocs);
+    const unsubscribe = ddp.subscribe('teams.byUser', [], () => {
+      applyLiveDocs();
+      setTeamsReady(true);
+    });
+
     return () => {
-      ws.close();
+      offChange();
+      unsubscribe();
     };
   }, [userId]);
 

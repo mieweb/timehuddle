@@ -342,6 +342,23 @@ export function ddpDocToTicket(doc: DdpDoc): import('./api').Ticket {
   };
 }
 
+/** Map a raw DDP teams doc to the frontend Team shape. */
+export function ddpDocToTeam(doc: DdpDoc): import('./api').Team {
+  return {
+    id: doc._id,
+    orgId: String(doc.orgId ?? ''),
+    parentTeamId: (doc.parentTeamId as string | undefined) ?? null,
+    name: String(doc.name ?? ''),
+    description: (doc.description as string | undefined) ?? null,
+    members: Array.isArray(doc.members) ? doc.members.map(String) : [],
+    admins: Array.isArray(doc.admins) ? doc.admins.map(String) : [],
+    code: String(doc.code ?? ''),
+    isPersonal: Boolean(doc.isPersonal),
+    createdAt: String(doc.createdAt ?? ''),
+    updatedAt: (doc.updatedAt as string | undefined) ?? null,
+  };
+}
+
 /** Live "who is clocked in" events for the given teams (oplog-reactive). */
 export function useLiveClockEvents(teamIds: string[]) {
   return useLiveCollection('clockevents', 'clock.liveForTeams', [teamIds]);

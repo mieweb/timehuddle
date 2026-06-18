@@ -18,6 +18,10 @@ import './timers';
 import './notifications';
 import './presence';
 import './activity';
+// M2 — Collaboration
+import './channels'; // must precede teams (teams.create calls ensureDefaultChannel)
+import './teams';
+import './messages';
 // M0.e foundations — built/validated now, consumed by M1 clock + notifications.
 import './email';
 import './push';
@@ -320,6 +324,205 @@ Meteor.startup(() => {
         limit: { type: 'integer', minimum: 1, maximum: 100 },
       },
       required: ['ticketId'],
+    },
+  });
+
+  // ── Teams ───────────────────────────────────────────────────────────────────
+
+  Wormhole.expose('teams.list', {
+    description: 'List teams the caller belongs to',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('teams.ensurePersonal', {
+    description: 'Create personal workspace if missing (idempotent)',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('teams.create', {
+    description: 'Create a new team',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+        orgId: { type: 'string' },
+        parentTeamId: { type: 'string' },
+      },
+      required: ['name'],
+    },
+  });
+
+  Wormhole.expose('teams.join', {
+    description: 'Join a team by invite code',
+    inputSchema: {
+      type: 'object',
+      properties: { teamCode: { type: 'string' } },
+      required: ['teamCode'],
+    },
+  });
+
+  Wormhole.expose('teams.subteams', {
+    description: 'List sub-teams of a team',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('teams.rename', {
+    description: 'Rename a team (admin only)',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' }, newName: { type: 'string' } },
+      required: ['teamId', 'newName'],
+    },
+  });
+
+  Wormhole.expose('teams.delete', {
+    description: 'Delete a team (admin only)',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('teams.getMembers', {
+    description: 'Get team members with resolved user details',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('teams.invite', {
+    description: 'Invite a user to a team by email',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' }, email: { type: 'string' } },
+      required: ['teamId', 'email'],
+    },
+  });
+
+  Wormhole.expose('teams.removeMember', {
+    description: 'Remove a member from a team (admin only)',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' }, userId: { type: 'string' } },
+      required: ['teamId', 'userId'],
+    },
+  });
+
+  Wormhole.expose('teams.setRole', {
+    description: 'Set a member\'s role to admin or member (admin only)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        userId: { type: 'string' },
+        role: { type: 'string', enum: ['admin', 'member'] },
+      },
+      required: ['teamId', 'userId', 'role'],
+    },
+  });
+
+  Wormhole.expose('teams.setMemberPassword', {
+    description: 'Admin-forced password reset for a team member',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        userId: { type: 'string' },
+        newPassword: { type: 'string' },
+      },
+      required: ['teamId', 'userId', 'newPassword'],
+    },
+  });
+
+  // ── Channels ───────────────────────────────────────────────────────────────
+
+  Wormhole.expose('channels.list', {
+    description: 'List channels the caller can see in a team',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('channels.create', {
+    description: 'Create a new channel in a team',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        members: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['teamId', 'name'],
+    },
+  });
+
+  Wormhole.expose('channels.getMessages', {
+    description: 'Get paginated messages for a channel',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channelId: { type: 'string' },
+        teamId: { type: 'string' },
+        before: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      required: ['channelId', 'teamId'],
+    },
+  });
+
+  Wormhole.expose('channels.sendMessage', {
+    description: 'Send a message to a channel',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channelId: { type: 'string' },
+        teamId: { type: 'string' },
+        text: { type: 'string' },
+      },
+      required: ['channelId', 'teamId', 'text'],
+    },
+  });
+
+  // ── Messages (DMs) ────────────────────────────────────────────────────────
+
+  Wormhole.expose('messages.getThread', {
+    description: 'Get paginated messages for a DM thread',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        adminId: { type: 'string' },
+        memberId: { type: 'string' },
+        before: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      required: ['teamId', 'adminId', 'memberId'],
+    },
+  });
+
+  Wormhole.expose('messages.send', {
+    description: 'Send a direct message',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        toUserId: { type: 'string' },
+        text: { type: 'string' },
+        adminId: { type: 'string' },
+        ticketId: { type: 'string' },
+      },
+      required: ['teamId', 'toUserId', 'text', 'adminId'],
     },
   });
 
