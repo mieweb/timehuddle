@@ -1,16 +1,5 @@
-/**
- * ReportIssueModal — Bug description form.
- *
- * Submits to Pollenate /collect with type="text" + required comment.
- *
- * Required env vars (VITE_ prefix — safe, collect-scope only):
- *   VITE_POLLENATE_API_KEY
- *   VITE_POLLENATE_BUGS_INBOX_KEY
- */
-import { Button, Modal, ModalBody, ModalFooter, ModalHeader } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
-
-import { useSession } from '../../lib/useSession';
+import { Modal, ModalBody, ModalHeader } from '@mieweb/ui';
+import React from 'react';
 
 interface ReportIssueModalProps {
   open: boolean;
@@ -18,80 +7,12 @@ interface ReportIssueModalProps {
 }
 
 const ENV = (import.meta as { env?: Record<string, string> }).env ?? {};
-const API_KEY = ENV.VITE_POLLENATE_API_KEY || undefined;
-const INBOX_KEY = ENV.VITE_POLLENATE_BUGS_INBOX_KEY || undefined;
-const FEATURE_INBOX_KEY = ENV.VITE_POLLENATE_FEATURE_INBOX_KEY || undefined;
-const API_URL = 'https://api.pollenate.dev/collect';
-
-type IssueType = 'bug' | 'feature';
-
-const ISSUE_TYPES: { value: IssueType; label: string; emoji: string }[] = [
-  { value: 'bug', label: 'Bug', emoji: '🐛' },
-  { value: 'feature', label: 'Feature Request', emoji: '✨' },
-];
+const PAGE_SLUG = ENV.VITE_POLLENATE_BUGS_PAGE_SLUG || 'bug-reports';
+const PAGE_URL = `https://pollenate.dev/f/medical-informatics-engineering-3/${PAGE_SLUG}?embed=true`;
 
 export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({ open, onClose }) => {
-  const { user } = useSession();
-  const [comment, setComment] = useState('');
-  const [issueType, setIssueType] = useState<IssueType>('bug');
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (open) {
-      setComment('');
-      setIssueType('bug');
-      setSubmitting(false);
-      setSubmitted(false);
-      setError(null);
-    }
-  }, [open]);
-
-  const handleSubmit = useCallback(async () => {
-    if (!comment.trim()) {
-      setError('Please describe the issue.');
-      return;
-    }
-    if (!API_KEY || !INBOX_KEY) return;
-
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      const res = await fetch(API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Pollenate-Key': API_KEY },
-        body: JSON.stringify({
-          inboxKey: issueType === 'bug' ? INBOX_KEY : FEATURE_INBOX_KEY,
-          type: 'text',
-          comment: comment.trim(),
-          context: {
-            ...(user?.id ? { userId: user.id } : {}),
-            ...(user?.name ? { userName: user.name } : {}),
-            page: window.location.pathname,
-            source: 'report-issue',
-            issueType, // 'bug' or 'feature' — used in GitHub issue label
-          },
-        }),
-      });
-
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error ?? `HTTP ${res.status}`);
-      }
-
-      setSubmitted(true);
-      setTimeout(onClose, 1500);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  }, [comment, issueType, onClose, user]);
-
   return (
-    <Modal open={open} onOpenChange={(isOpen) => !isOpen && onClose()} size="sm">
+    <Modal open={open} onOpenChange={(isOpen) => !isOpen && onClose()} size="md">
       <ModalHeader>
         <div className="flex w-full items-center justify-between">
           <span>Report an Issue</span>
@@ -109,83 +30,15 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({ open, onClos
           </a>
         </div>
       </ModalHeader>
-      <ModalBody>
-        {!API_KEY || !INBOX_KEY ? (
-          <p className="py-4 text-center text-sm text-neutral-500">
-            Issue reporting is not configured yet.
-          </p>
-        ) : submitted ? (
-          <p className="py-6 text-center text-sm font-medium text-green-600">
-            🎉 Thank you — we received your report!
-          </p>
-        ) : (
-          <div className="flex flex-col gap-4">
-            {/* Issue Type Selector */}
-            <div className="flex flex-col gap-2">
-              <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">Type</p>
-              <div className="flex gap-2">
-                {ISSUE_TYPES.map(({ value, label, emoji }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setIssueType(value)}
-                    disabled={submitting}
-                    className={`flex flex-1 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors
-                      ${
-                        issueType === value
-                          ? 'border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400'
-                          : 'border-neutral-300 bg-white text-neutral-600 hover:border-neutral-400 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-400'
-                      }`}
-                  >
-                    <span>{emoji}</span>
-                    <span>{label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Comment */}
-            <div className="flex flex-col gap-2">
-              <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                Describe the issue
-              </p>
-              <textarea
-                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/30 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100"
-                rows={4}
-                placeholder="Tell us more..."
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                disabled={submitting}
-                aria-label="Issue description"
-              />
-            </div>
-
-            {error && <p className="text-sm text-red-500">{error}</p>}
-
-            <p className="text-right text-xs text-neutral-400">
-              Powered by{' '}
-              <a
-                href="https://pollenate.dev"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline"
-              >
-                Pollenate
-              </a>
-            </p>
-          </div>
-        )}
+      <ModalBody className="p-0">
+        <iframe
+          src={PAGE_URL}
+          width="100%"
+          height="600"
+          style={{ border: 'none', borderRadius: '0 0 12px 12px' }}
+          title="Report an Issue"
+        />
       </ModalBody>
-      {API_KEY && INBOX_KEY && !submitted && (
-        <ModalFooter>
-          <Button variant="ghost" onClick={onClose} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button onClick={handleSubmit} disabled={submitting || !comment.trim()}>
-            {submitting ? 'Sending…' : 'Send Report'}
-          </Button>
-        </ModalFooter>
-      )}
     </Modal>
   );
 };
