@@ -34,7 +34,7 @@ export function isPushSupported(): boolean {
  */
 async function isIOSSimulator(): Promise<boolean> {
   if (Capacitor.getPlatform() !== 'ios') return false;
-  
+
   try {
     const { Device } = await import('@capacitor/device');
     const info = await Device.getInfo();
@@ -54,7 +54,7 @@ export async function subscribeToPush(): Promise<void> {
   const isSimulator = await isIOSSimulator();
   if (isSimulator) {
     throw new Error(
-      'Push notifications do not work on iOS simulators. Please test on a real device.'
+      'Push notifications do not work on iOS simulators. Please test on a real device.',
     );
   }
 
@@ -62,7 +62,7 @@ export async function subscribeToPush(): Promise<void> {
   console.log('🔔 [nativePush] subscribeToPush: Checking permissions...');
   const { receive } = await PushNotifications.requestPermissions();
   console.log('🔔 [nativePush] subscribeToPush: Permission status:', receive);
-  
+
   if (receive !== 'granted') {
     throw new Error('Notification permission denied');
   }
@@ -258,14 +258,14 @@ async function _autoRegisterWeb(userId: string): Promise<void> {
 
 async function _registerAndSaveToken(): Promise<void> {
   console.log('🔔 [nativePush] Starting native push registration...');
-  
+
   // Check if running on iOS simulator
   const isSimulator = await isIOSSimulator();
   if (isSimulator) {
     console.warn('⚠️ [nativePush] Skipping push registration on iOS simulator');
     return;
   }
-  
+
   const token = await new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(() => {
       console.error('❌ [nativePush] Registration timed out after 30 seconds');

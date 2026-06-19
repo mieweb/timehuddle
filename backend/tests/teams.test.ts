@@ -239,10 +239,7 @@ describe("POST /v1/teams/join", () => {
     expect(request.userId).toBe(outsiderId);
     expect(request.teamId).toBe(teamId);
     // cleanup: remove the pending request
-    await client
-      .db()
-      .collection("teamJoinRequests")
-      .deleteOne({ userId: outsiderId, teamId });
+    await client.db().collection("teamJoinRequests").deleteOne({ userId: outsiderId, teamId });
   });
 
   it("returns 404 for bad code", async () => {

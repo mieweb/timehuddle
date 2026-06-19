@@ -9,6 +9,7 @@ If you see "Registration timed out after 30 seconds", this indicates that the iO
 ## Prerequisites
 
 ### 1. Physical Device Required
+
 ⚠️ **Push notifications do NOT work on iOS simulators.** You must test on a real device.
 
 The code now detects simulators and shows a clear error message.
@@ -16,11 +17,13 @@ The code now detects simulators and shows a clear error message.
 ### 2. Xcode Push Notification Capability
 
 Open the project in Xcode:
+
 ```bash
 npx cap open ios
 ```
 
 #### Enable Push Notifications:
+
 1. Select the **App** target in the project navigator
 2. Go to the **Signing & Capabilities** tab
 3. Click **+ Capability**
@@ -40,16 +43,19 @@ The app must be signed with a provisioning profile that includes push notificati
 ### 4. Entitlements Files
 
 The app already has entitlements configured:
+
 - `ios/App/App/AppDebug.entitlements`
 - `ios/App/App/AppRelease.entitlements`
 
 Both should contain:
+
 ```xml
 <key>aps-environment</key>
 <string>development</string>
 ```
 
 For production builds, change to:
+
 ```xml
 <key>aps-environment</key>
 <string>production</string>
@@ -58,6 +64,7 @@ For production builds, change to:
 ### 5. Network Connectivity
 
 APNs requires outbound connectivity on port 443 and 5223:
+
 - Ensure the device has internet access
 - Check if a VPN or firewall is blocking APNs
 - APNs endpoints: `api.push.apple.com` and `api.development.push.apple.com`
@@ -69,6 +76,7 @@ APNs requires outbound connectivity on port 443 and 5223:
 When enabling notifications, watch the console for these logs:
 
 ✅ **Success:**
+
 ```
 🔔 [nativePush] subscribeToPush: Starting registration...
 🔔 [nativePush] subscribeToPush: Calling PushNotifications.register()...
@@ -77,6 +85,7 @@ When enabling notifications, watch the console for these logs:
 ```
 
 ❌ **Failure:**
+
 ```
 ❌ [nativePush] subscribeToPush: Registration timed out after 30 seconds
 ❌ [nativePush] This usually means:
@@ -88,6 +97,7 @@ When enabling notifications, watch the console for these logs:
 ### 2. Test the Implementation
 
 1. Build and install the app on a real device:
+
    ```bash
    npm run build
    npx cap sync ios
@@ -105,24 +115,29 @@ When enabling notifications, watch the console for these logs:
 ### 3. Verify Permissions
 
 In Settings app on the device:
+
 - Go to **Settings** → **TimeHuddle**
 - Ensure **Notifications** are enabled
 
 ## Troubleshooting
 
 ### Error: "Push notifications do not work on iOS simulators"
+
 - **Solution:** Run the app on a physical device
 
 ### Error: "Notification permission denied"
+
 - **Solution:** Go to device Settings → TimeHuddle → Notifications and enable
 
 ### Error: "Timed out waiting for push registration token"
+
 - **Check:** Push Notification capability is enabled in Xcode
 - **Check:** Provisioning profile includes push entitlement
 - **Check:** Device has internet connectivity
 - **Check:** No VPN blocking APNs
 
 ### Error: "Registration error: <error>"
+
 - **Check:** Entitlements files are correct
 - **Check:** App is properly signed
 - **Re-generate:** Provisioning profile in Apple Developer portal
@@ -132,6 +147,7 @@ In Settings app on the device:
 Ensure the backend has APNs configured:
 
 1. Check `backend/settings.json` has:
+
    ```json
    {
      "push": {
@@ -170,6 +186,7 @@ Ensure the backend has APNs configured:
 ### 3. Regenerate Provisioning Profile
 
 If you changed the App ID:
+
 1. Go to **Profiles**
 2. Delete the old profile
 3. Create a new one with push notifications enabled

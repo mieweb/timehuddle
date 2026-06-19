@@ -198,7 +198,7 @@ const PushNotificationsSettings: React.FC = () => {
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       let detail = 'Failed to enable notifications. ';
-      
+
       if (msg.includes('iOS simulator')) {
         detail += msg + '\n\nPush notifications require a physical iOS device.';
       } else if (msg.includes('permission') || msg.includes('denied')) {
@@ -211,7 +211,8 @@ const PushNotificationsSettings: React.FC = () => {
           detail += '1. Your device has an active internet connection\n';
           detail += '2. You are not using a VPN that blocks APNs\n';
           detail += '3. Try restarting the app and trying again\n\n';
-          detail += 'If the issue persists, push notifications may not be available in your region or network.';
+          detail +=
+            'If the issue persists, push notifications may not be available in your region or network.';
         } else {
           detail += 'Service worker registration timed out. Please refresh the page and try again.';
         }
