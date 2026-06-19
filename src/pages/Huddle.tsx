@@ -46,7 +46,7 @@ export default function Huddle() {
       }
 
       try {
-        const teams = await teamApi.getTeams();
+        const teams = await teamApi.getTeamsOnly();
         const foundTeam = teams.find((t) => t.id === selectedTeamId);
         setTeam(foundTeam || null);
       } catch (err) {
