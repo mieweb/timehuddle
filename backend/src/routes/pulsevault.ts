@@ -164,17 +164,17 @@ async function createReserveResponse(
   if (target === "library") {
     const videoid = randomUUID();
     const uploadToken = reserveVideoForLibrary(videoid, userId);
-
+    
     // Generate uploadLink with proper protocol detection
     const betterAuthUrl = process.env.BETTER_AUTH_URL;
-    const defaultProto = betterAuthUrl ? new URL(betterAuthUrl).protocol.replace(":", "") : "http";
+    const defaultProto = betterAuthUrl ? new URL(betterAuthUrl).protocol.replace(':', '') : 'http';
     const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? defaultProto;
     const host =
       (req.headers["x-forwarded-host"] as string | undefined) ??
       (req.headers["host"] as string | undefined) ??
       "localhost:4000";
     const uploadLink = buildUploadLink({ server: `${proto}://${host}`, videoid });
-
+    
     return { videoid, uploadToken, uploadLink };
   }
 
@@ -202,8 +202,8 @@ async function createReserveResponse(
 
   // Use BETTER_AUTH_URL's protocol if available (production), otherwise fall back to x-forwarded-proto or http
   const betterAuthUrl = process.env.BETTER_AUTH_URL;
-  const defaultProto = betterAuthUrl ? new URL(betterAuthUrl).protocol.replace(":", "") : "http";
-
+  const defaultProto = betterAuthUrl ? new URL(betterAuthUrl).protocol.replace(':', '') : 'http';
+  
   const proto = (req.headers["x-forwarded-proto"] as string | undefined) ?? defaultProto;
   const host =
     (req.headers["x-forwarded-host"] as string | undefined) ??
@@ -255,7 +255,9 @@ async function rewriteRawLocationHeader(request: any, reply: any) {
   };
 
   const fixLocationValue = (v: any) =>
-    typeof v === "string" && v.startsWith("http://") ? "https://" + v.slice("http://".length) : v;
+    typeof v === "string" && v.startsWith("http://")
+      ? "https://" + v.slice("http://".length)
+      : v;
 
   const originalWriteHead = raw.writeHead.bind(raw);
   raw.writeHead = (statusCode: number, ...rest: any[]) => {

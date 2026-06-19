@@ -198,7 +198,10 @@ const PushNotificationsSettings: React.FC = () => {
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       let detail = 'Failed to enable notifications. ';
-      if (msg.includes('permission') || msg.includes('denied')) {
+      
+      if (msg.includes('iOS simulator')) {
+        detail += msg + '\n\nPush notifications require a physical iOS device.';
+      } else if (msg.includes('permission') || msg.includes('denied')) {
         detail += 'Please allow notifications in your browser settings.';
       } else if (msg.includes('not-configured')) {
         detail += 'The server is missing VAPID keys in settings.';

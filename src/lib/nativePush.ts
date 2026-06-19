@@ -28,26 +28,55 @@ export function isPushSupported(): boolean {
 
 // ─── Subscribe ────────────────────────────────────────────────────────────────
 
+/**
+ * Check if running on iOS simulator.
+ * APNs does not work on iOS simulators - only real devices.
+ */
+async function isIOSSimulator(): Promise<boolean> {
+  if (Capacitor.getPlatform() !== 'ios') return false;
+  
+  try {
+    const { Device } = await import('@capacitor/device');
+    const info = await Device.getInfo();
+    // On simulators, isVirtual is true
+    return info.isVirtual === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function subscribeToPush(): Promise<void> {
   if (!Capacitor.isNativePlatform()) {
     return subscribeToWebPush();
   }
 
+  // Check if running on iOS simulator
+  const isSimulator = await isIOSSimulator();
+  if (isSimulator) {
+    throw new Error(
+      'Push notifications do not work on iOS simulators. Please test on a real device.'
+    );
+  }
+
   // Native path: request permission, register, then wait for the device token.
+  console.log('🔔 [nativePush] subscribeToPush: Checking permissions...');
   const { receive } = await PushNotifications.requestPermissions();
+  console.log('🔔 [nativePush] subscribeToPush: Permission status:', receive);
+  
   if (receive !== 'granted') {
     throw new Error('Notification permission denied');
   }
-
-  // Clear any stale listeners before adding new ones to prevent stacking.
-  //await PushNotifications.removeAllListeners();
 
   console.log('🔔 [nativePush] subscribeToPush: Starting registration...');
   const token = await new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(() => {
       console.error('❌ [nativePush] subscribeToPush: Registration timed out after 30 seconds');
+      console.error('❌ [nativePush] This usually means:');
+      console.error('   1. No internet connection or APNs servers are blocked');
+      console.error('   2. App is not properly signed with a push-enabled provisioning profile');
+      console.error('   3. Push Notifications capability is not enabled in Xcode');
       reject(new Error('Timed out waiting for push registration token'));
-    }, 30_000); // Increased from 15s to 30s
+    }, 30_000); // 30 second timeout
 
     let handles: Array<{ remove: () => void }> = [];
     const cleanup = () => {
@@ -58,6 +87,7 @@ export async function subscribeToPush(): Promise<void> {
     Promise.all([
       PushNotifications.addListener('registration', ({ value }) => {
         console.log('✅ [nativePush] subscribeToPush: Registration successful');
+        console.log('✅ [nativePush] Token received:', value.substring(0, 20) + '...');
         cleanup();
         resolve(value);
       }),
@@ -228,11 +258,23 @@ async function _autoRegisterWeb(userId: string): Promise<void> {
 
 async function _registerAndSaveToken(): Promise<void> {
   console.log('🔔 [nativePush] Starting native push registration...');
+  
+  // Check if running on iOS simulator
+  const isSimulator = await isIOSSimulator();
+  if (isSimulator) {
+    console.warn('⚠️ [nativePush] Skipping push registration on iOS simulator');
+    return;
+  }
+  
   const token = await new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(() => {
       console.error('❌ [nativePush] Registration timed out after 30 seconds');
+      console.error('❌ [nativePush] This usually means:');
+      console.error('   1. No internet connection or APNs servers are blocked');
+      console.error('   2. App is not properly signed with a push-enabled provisioning profile');
+      console.error('   3. Push Notifications capability is not enabled in Xcode');
       reject(new Error('Timed out waiting for push token'));
-    }, 30_000); // Increased from 15s to 30s
+    }, 30_000); // 30 second timeout
 
     let handles: Array<{ remove: () => void }> = [];
     const cleanup = () => {
@@ -243,6 +285,7 @@ async function _registerAndSaveToken(): Promise<void> {
     Promise.all([
       PushNotifications.addListener('registration', ({ value }) => {
         console.log('✅ [nativePush] Registration successful, token received');
+        console.log('✅ [nativePush] Token:', value.substring(0, 20) + '...');
         cleanup();
         resolve(value);
       }),
