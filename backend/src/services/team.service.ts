@@ -51,8 +51,12 @@ export type TeamError =
 // ─── WebSocket Pub/Sub ────────────────────────────────────────────────────────
 
 type TeamListener = (userId: string, team: PublicTeam | null, action: "update" | "delete") => void;
+type PendingRequestsListener = (userId: string, pendingRequests: PublicTeamJoinRequest[]) => void;
+
 // Map by userId → Set of listeners (each user subscribes to their own teams)
 const teamListeners = new Map<string, Set<TeamListener>>();
+// Map by userId → Set of pending request listeners
+const pendingRequestsListeners = new Map<string, Set<PendingRequestsListener>>();
 
 /** Subscribe to team updates for a specific user. Returns unsubscribe function. */
 export function subscribeToUser(userId: string, fn: TeamListener): () => void {
@@ -65,6 +69,21 @@ export function subscribeToUser(userId: string, fn: TeamListener): () => void {
     if (listeners) {
       listeners.delete(fn);
       if (listeners.size === 0) teamListeners.delete(userId);
+    }
+  };
+}
+
+/** Subscribe to pending requests updates for a specific user. Returns unsubscribe function. */
+export function subscribeToPendingRequests(userId: string, fn: PendingRequestsListener): () => void {
+  if (!pendingRequestsListeners.has(userId)) {
+    pendingRequestsListeners.set(userId, new Set());
+  }
+  pendingRequestsListeners.get(userId)!.add(fn);
+  return () => {
+    const listeners = pendingRequestsListeners.get(userId);
+    if (listeners) {
+      listeners.delete(fn);
+      if (listeners.size === 0) pendingRequestsListeners.delete(userId);
     }
   };
 }
@@ -84,6 +103,15 @@ export function broadcastToTeamMembers(
     for (const fn of listeners) {
       fn(userId, publicTeam, action);
     }
+  }
+}
+
+/** Broadcast pending requests update to a specific user. */
+export function broadcastPendingRequests(userId: string, pendingRequests: PublicTeamJoinRequest[]) {
+  const listeners = pendingRequestsListeners.get(userId);
+  if (!listeners) return;
+  for (const fn of listeners) {
+    fn(userId, pendingRequests);
   }
 }
 

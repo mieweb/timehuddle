@@ -3,7 +3,7 @@ import { teamJoinRequestsCollection, teamsCollection, usersCollection } from "..
 import type { TeamJoinRequest, PublicTeamJoinRequest } from "../models/team-join-request.model.js";
 import { toPublicTeamJoinRequest } from "../models/team-join-request.model.js";
 import { notificationService } from "./notification.service.js";
-import { broadcastToTeamMembers } from "./team.service.js";
+import { broadcastToTeamMembers, broadcastPendingRequests } from "./team.service.js";
 
 interface TeamJoinRequestWithUser extends PublicTeamJoinRequest {
   user: {
@@ -41,6 +41,9 @@ class TeamJoinRequestService {
 
     // Notify all team admins
     await this.notifyAdmins(teamId, userId, doc._id.toHexString());
+    
+    // Broadcast pending requests update to admins
+    await this.broadcastPendingRequestsToAdmins(teamId);
 
     return toPublicTeamJoinRequest(doc);
   }
@@ -92,6 +95,9 @@ class TeamJoinRequestService {
 
     // Notify the requester that they were approved
     await this.notifyRequesterApproved(request.userId, request.teamId, adminId);
+    
+    // Broadcast pending requests update to admins (request is now gone from pending)
+    await this.broadcastPendingRequestsToAdmins(request.teamId);
 
     return "ok";
   }
@@ -131,6 +137,9 @@ class TeamJoinRequestService {
 
     // Notify the requester that they were declined
     await this.notifyRequesterDeclined(request.userId, request.teamId, adminId);
+    
+    // Broadcast pending requests update to admins (request is now gone from pending)
+    await this.broadcastPendingRequestsToAdmins(request.teamId);
 
     return "ok";
   }
@@ -187,6 +196,27 @@ class TeamJoinRequestService {
    */
   async getById(requestId: string): Promise<TeamJoinRequest | null> {
     return teamJoinRequestsCollection().findOne({ _id: new ObjectId(requestId) });
+  }
+
+  /**
+   * Broadcast pending requests to all team admins via WebSocket.
+   */
+  private async broadcastPendingRequestsToAdmins(teamId: string): Promise<void> {
+    const team = await teamsCollection().findOne({ _id: new ObjectId(teamId) });
+    if (!team) return;
+
+    // Get all pending requests for this team
+    const requests = await teamJoinRequestsCollection()
+      .find({ teamId, status: "pending" })
+      .sort({ requestedAt: -1 })
+      .toArray();
+
+    const publicRequests = requests.map(toPublicTeamJoinRequest);
+
+    // Broadcast to each admin
+    for (const adminId of team.admins) {
+      broadcastPendingRequests(adminId, publicRequests);
+    }
   }
 
   /**
