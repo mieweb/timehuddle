@@ -8,6 +8,7 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import multipart from "@fastify/multipart"; // Register Fastify multipart plugin for file uploads
 import fastifyStatic from "@fastify/static";
+import { ObjectId } from "mongodb";
 import { connectDB } from "./lib/db.js";
 import { ensureMongooseConnected } from "./lib/mongoose.js";
 import { ensureIndexes } from "./lib/ensure-indexes.js";
@@ -18,6 +19,7 @@ import { userRoutes } from "./routes/users.js";
 import { orgRoutes } from "./routes/org.js";
 import { organizationsRoutes } from "./routes/organizations.js";
 import { enterpriseRoutes } from "./routes/enterprises.js";
+import { seedImportRoutes } from "./routes/seeder.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { ticketsWsRoutes } from "./routes/tickets-ws.js";
 import { huddleRoutes } from "./routes/huddle.js";
@@ -38,11 +40,24 @@ import { channelRoutes } from "./routes/channels.js";
 import { tokenRoutes } from "./routes/tokens.js";
 import { initAgenda, stopAgenda } from "./services/agenda.service.js";
 import { orgService } from "./services/org.service.js";
+import {
+  enterprisesCollection,
+  orgMembersCollection,
+  teamsCollection,
+  usersCollection,
+} from "./models/index.js";
+import { teamService } from "./services/team.service.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
+  // trustProxy: TLS is terminated at the reverse proxy in production, so
+  // `request.protocol` would otherwise always be "http". Trusting the proxy
+  // makes Fastify honour x-forwarded-proto / x-forwarded-host so internal
+  // URLs (e.g. the TUS `Location` header from @mieweb/pulsevault) are built
+  // with the correct https:// scheme and avoid Mixed Content blocks.
   const app = Fastify({ 
     logger: opts.logger ?? true,
     bodyLimit: 100 * 1024 * 1024, // 100 MB — supports video and document uploads
+    trustProxy: true,
   });
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -422,6 +437,191 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     betterAuthHandler
   );
 
+  app.post(
+    "/api/auth/dev/member-sign-in",
+    {
+      schema: {
+        hide: true,
+        body: {
+          type: "object",
+          properties: {
+            domain: { type: "string", enum: ["enterprise", "organization"] },
+            role: { type: "string", enum: ["member", "admin", "owner"] },
+            joinTeam: { type: "boolean" },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              token: { type: "string" },
+              user: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  email: { type: "string" },
+                  name: { type: "string" },
+                  emailVerified: { type: "boolean" },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (process.env.NODE_ENV === "production") {
+        return (reply as any).status(404).send({ error: "Not found" });
+      }
+
+      const {
+        domain = "organization",
+        role = "member",
+        joinTeam = false,
+      } = (req.body as {
+        domain?: "enterprise" | "organization";
+        role?: "member" | "admin" | "owner";
+        joinTeam?: boolean;
+      }) ?? {};
+      if (domain === "enterprise" && role === "member") {
+        return (reply as any)
+          .status(400)
+          .send({ error: "Enterprise dev logins require admin or owner" });
+      }
+      const devEmail = `dev-${domain}-${role}@timehuddle.local`;
+      const devName = `${domain[0].toUpperCase()}${domain.slice(1)} ${role[0].toUpperCase()}${role.slice(1)} Dev`;
+      const devPassword = "Password1!";
+
+      const existingUser = await usersCollection().findOne({ email: devEmail });
+      if (!existingUser) {
+        const signUpResponse = (await auth.api.signUpEmail({
+          body: { name: devName, email: devEmail, password: devPassword },
+          asResponse: true,
+        })) as Response;
+        if (!signUpResponse.ok) {
+          return (reply as any)
+            .status(signUpResponse.status)
+            .send(
+              await signUpResponse
+                .json()
+                .catch(() => ({ error: "Failed to bootstrap dev member user" }))
+            );
+        }
+      }
+
+      const memberUser = await usersCollection().findOne({ email: devEmail });
+      if (!memberUser) {
+        return (reply as any).status(500).send({ error: "Failed to bootstrap dev member user" });
+      }
+
+      const defaultOrg = await orgService.ensureDefaultOrganization();
+      const defaultEnterprise = await orgService.ensureDefaultEnterprise();
+
+      if (domain === "organization") {
+        const membership = await orgMembersCollection().findOne({
+          orgId: defaultOrg._id.toHexString(),
+          userId: memberUser._id.toHexString(),
+        });
+        if (!membership) {
+          await orgMembersCollection().insertOne({
+            _id: new ObjectId(),
+            orgId: defaultOrg._id.toHexString(),
+            userId: memberUser._id.toHexString(),
+            role,
+            auto: true,
+            createdAt: new Date(),
+          });
+        } else if (membership.role !== role) {
+          await orgMembersCollection().updateOne(
+            { _id: membership._id },
+            { $set: { role, updatedAt: new Date() } }
+          );
+        }
+        await orgService.ensureDefaultOrganization();
+      } else {
+        const owners = new Set(defaultEnterprise.owners ?? []);
+        const admins = new Set(defaultEnterprise.admins ?? []);
+        owners.delete(memberUser._id.toHexString());
+        admins.delete(memberUser._id.toHexString());
+        if (role === "owner") owners.add(memberUser._id.toHexString());
+        if (role === "admin") admins.add(memberUser._id.toHexString());
+        await enterprisesCollection().updateOne(
+          { _id: defaultEnterprise._id },
+          {
+            $set: {
+              owners: Array.from(owners),
+              admins: Array.from(admins),
+              updatedAt: new Date(),
+            },
+          }
+        );
+        const membership = await orgMembersCollection().findOne({
+          orgId: defaultOrg._id.toHexString(),
+          userId: memberUser._id.toHexString(),
+        });
+        if (!membership) {
+          await orgMembersCollection().insertOne({
+            _id: new ObjectId(),
+            orgId: defaultOrg._id.toHexString(),
+            userId: memberUser._id.toHexString(),
+            role: "member",
+            auto: true,
+            createdAt: new Date(),
+          });
+        }
+      }
+
+      if (domain === "organization" && role === "member" && joinTeam) {
+        const devTeamName = "Dev Members";
+        let devTeam = await teamsCollection().findOne({
+          orgId: defaultOrg._id.toHexString(),
+          name: devTeamName,
+          isPersonal: false,
+        });
+        if (!devTeam) {
+          await teamService.createTeam(memberUser._id.toHexString(), {
+            name: devTeamName,
+            orgId: defaultOrg._id.toHexString(),
+          });
+          devTeam = await teamsCollection().findOne({
+            orgId: defaultOrg._id.toHexString(),
+            name: devTeamName,
+            isPersonal: false,
+          });
+        }
+        if (devTeam && !devTeam.members.includes(memberUser._id.toHexString())) {
+          await teamsCollection().updateOne(
+            { _id: devTeam._id },
+            {
+              $addToSet: { members: memberUser._id.toHexString() },
+              $set: { updatedAt: new Date() },
+            }
+          );
+        }
+      }
+
+      const signInResponse = (await auth.api.signInEmail({
+        body: { email: devEmail, password: devPassword },
+        asResponse: true,
+      })) as Response;
+      const rawCookies = signInResponse.headers.getSetCookie?.() ?? [
+        signInResponse.headers.get("set-cookie") ?? "",
+      ];
+      const authToken = signInResponse.headers.get("set-auth-token");
+      if (authToken) {
+        reply.header("set-auth-token", authToken);
+      }
+      if (rawCookies.length > 0 && rawCookies[0]) {
+        reply.header("set-cookie", rawCookies);
+      }
+      reply.header(
+        "content-type",
+        signInResponse.headers.get("content-type") ?? "application/json"
+      );
+      return reply.send(await signInResponse.json().catch(() => ({})));
+    }
+  );
+
   app.get(
     "/api/auth/callback/:provider",
     {
@@ -493,6 +693,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(orgRoutes, { prefix: "/v1" });
   await app.register(organizationsRoutes, { prefix: "/v1" });
   await app.register(enterpriseRoutes, { prefix: "/v1" });
+  await app.register(seedImportRoutes, { prefix: "/v1" });
   await app.register(teamsWsRoutes, { prefix: "/v1" });
   await app.register(teamRoutes, { prefix: "/v1" });
   await app.register(ticketRoutes, { prefix: "/v1" });

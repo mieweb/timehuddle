@@ -69,7 +69,7 @@ const ticketShape = {
     status: { type: "string", enum: ALL_STATUSES },
     priority: { type: "string", enum: ALL_PRIORITIES, nullable: true },
     createdBy: { type: "string" },
-    assignedTo: { type: "string", nullable: true },
+    assignedTo: { type: "array", items: { type: "string" } },
     reviewedBy: { type: "string", nullable: true },
     reviewedAt: { type: "string", nullable: true },
     createdAt: { type: "string" },
@@ -77,7 +77,7 @@ const ticketShape = {
     sharedWithTimeharbor: { type: "boolean" },
     externalTrackedMs: { type: "number" },
     createdByName: { type: "string" },
-    assignedToName: { type: "string", nullable: true },
+    assignedToNames: { type: "array", items: { type: "string" } },
   },
 };
 
@@ -113,13 +113,15 @@ export async function ticketRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const tickets = await ticketService.findSharedWithTimeharbor(req.user!.id);
-      const userIds = tickets.flatMap((t) => [t.createdBy, t.assignedTo ?? ""].filter(Boolean));
+      const userIds = tickets.flatMap((t) =>
+        [t.createdBy, ...(t.assignedTo ?? [])].filter(Boolean)
+      );
       const names = await resolveUserNames(userIds);
       return reply.send({
         tickets: tickets.map((t) => ({
           ...toPublicTicket(t),
           createdByName: names[t.createdBy] ?? "",
-          assignedToName: t.assignedTo ? (names[t.assignedTo] ?? "") : null,
+          assignedToNames: (t.assignedTo ?? []).map((uid) => names[uid] ?? ""),
         })),
       });
     }
@@ -149,13 +151,13 @@ export async function ticketRoutes(app: FastifyInstance) {
       const { teamId } = req.query as { teamId: string };
       const result = await ticketService.findByTeam(teamId, req.user!.id);
       if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
-      const userIds = result.flatMap((t) => [t.createdBy, t.assignedTo ?? ""].filter(Boolean));
+      const userIds = result.flatMap((t) => [t.createdBy, ...(t.assignedTo ?? [])].filter(Boolean));
       const names = await resolveUserNames(userIds);
       return reply.send({
         tickets: result.map((t) => ({
           ...toPublicTicket(t),
           createdByName: names[t.createdBy] ?? "",
-          assignedToName: t.assignedTo ? (names[t.assignedTo] ?? "") : null,
+          assignedToNames: (t.assignedTo ?? []).map((uid) => names[uid] ?? ""),
         })),
       });
     }
@@ -238,7 +240,7 @@ export async function ticketRoutes(app: FastifyInstance) {
           required: ["teamId", "title"],
           additionalProperties: false,
           properties: {
-            teamId: { type: "string" },
+            teamId: { type: "string", minLength: 1, pattern: "^[0-9a-f]{24}$" },
             title: { type: "string", minLength: 1, maxLength: 500 },
             github: { type: "string", maxLength: 1000, default: "" },
           },
@@ -246,6 +248,7 @@ export async function ticketRoutes(app: FastifyInstance) {
         response: {
           201: { type: "object", properties: { ticket: ticketShape } },
           ...unauth,
+          400: err("teamId is required"),
           403: err("Not a team member"),
         },
       },
@@ -262,6 +265,9 @@ export async function ticketRoutes(app: FastifyInstance) {
         github: body.github ?? "",
         createdBy: req.user!.id,
       });
+      if (result === "bad-request") {
+        return reply.status(400).send({ error: "teamId is required" });
+      }
       if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
       const ticket = await ticketService.findById(result.id);
       return reply.status(201).send({ ticket: toPublicTicket(ticket!) });
@@ -557,14 +563,14 @@ export async function ticketRoutes(app: FastifyInstance) {
       preHandler: [requireAuth],
       schema: {
         tags: ["Tickets"],
-        summary: "Assign ticket to a team member (any team member)",
+        summary: "Assign ticket to team members (any team member)",
         params: idParam,
         body: {
           type: "object",
-          required: ["assignedToUserId"],
+          required: ["assignedToUserIds"],
           additionalProperties: false,
           properties: {
-            assignedToUserId: { type: ["string", "null"] },
+            assignedToUserIds: { type: "array", items: { type: "string" } },
           },
         },
         response: {
@@ -572,18 +578,18 @@ export async function ticketRoutes(app: FastifyInstance) {
           ...unauth,
           403: err("Not authorized"),
           404: err("Ticket not found"),
-          422: err("Assignee must be a team member"),
+          422: err("All assignees must be team members"),
         },
       },
     },
     async (req, reply) => {
       const { id } = req.params as { id: string };
-      const { assignedToUserId } = req.body as { assignedToUserId: string | null };
-      const result = await ticketService.assign(id, req.user!.id, assignedToUserId);
+      const { assignedToUserIds } = req.body as { assignedToUserIds: string[] };
+      const result = await ticketService.assign(id, req.user!.id, assignedToUserIds);
       if (result === "not-found") return reply.status(404).send({ error: "Ticket not found" });
       if (result === "forbidden") return reply.status(403).send({ error: "Not authorized" });
       if (result === "bad-assignee")
-        return reply.status(422).send({ error: "Assignee must be a team member" });
+        return reply.status(422).send({ error: "All assignees must be team members" });
       return reply.send({ ticket: toPublicTicket(result) });
     }
   );

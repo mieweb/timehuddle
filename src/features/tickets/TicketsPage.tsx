@@ -142,8 +142,8 @@ async function fetchIssueTitle(url: string): Promise<string | null> {
 interface TicketRowProps {
   ticket: Ticket;
   isCreator: boolean;
-  assigneeName: string | null;
-  assigneeId: string | null;
+  assigneeNames: string[];
+  assigneeIds: string[];
   createdByName: string | null;
   suppressAvatars?: boolean;
   onEditRequest: (ticket: Ticket) => void;
@@ -159,8 +159,8 @@ interface TicketRowProps {
 const TicketRow: React.FC<TicketRowProps> = ({
   ticket,
   isCreator,
-  assigneeName,
-  assigneeId,
+  assigneeNames,
+  assigneeIds,
   createdByName,
   suppressAvatars = false,
   onEditRequest,
@@ -241,7 +241,12 @@ const TicketRow: React.FC<TicketRowProps> = ({
             #{ticket.id.slice(-5)} opened {timeAgo(ticket.createdAt)} by{' '}
             {createdByName ?? `user-${ticket.createdBy.slice(-4)}`}
           </span>
-          {assigneeName && <span>· assigned to {assigneeName}</span>}
+          {assigneeNames.length > 0 && (
+            <span>
+              · assigned to {assigneeNames.slice(0, 2).join(', ')}
+              {assigneeNames.length > 2 && ` +${assigneeNames.length - 2} more`}
+            </span>
+          )}
           {ticket.github && (
             <a
               href={ticket.github}
@@ -256,17 +261,33 @@ const TicketRow: React.FC<TicketRowProps> = ({
         </div>
       </div>
 
-      {/* Right side: timer toggle + assignee avatar + overflow menu */}
+      {/* Right side: timer toggle + assignee avatars + overflow menu */}
       <div className="flex shrink-0 items-center gap-2">
-        {!suppressAvatars && assigneeName && assigneeId && (
-          <button
-            className="rounded-full ring-offset-1 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            onClick={() => navigate(`/app/profile/${assigneeId}`)}
-            aria-label={`View ${assigneeName}'s profile`}
-            title={assigneeName}
-          >
-            <UserAvatar name={assigneeName} size="xs" />
-          </button>
+        {!suppressAvatars && assigneeIds.length > 0 && (
+          <div className="flex -space-x-1">
+            {assigneeIds.slice(0, 3).map((id, idx) => {
+              const name = assigneeNames[idx];
+              return (
+                <button
+                  key={id}
+                  className="rounded-full ring-2 ring-white dark:ring-neutral-900 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary hover:z-10"
+                  onClick={() => navigate(`/app/profile/${id}`)}
+                  aria-label={`View ${name}'s profile`}
+                  title={name}
+                >
+                  <UserAvatar name={name} size="xs" />
+                </button>
+              );
+            })}
+            {assigneeIds.length > 3 && (
+              <div
+                className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-200 text-[10px] font-medium text-neutral-600 ring-2 ring-white dark:bg-neutral-700 dark:text-neutral-300 dark:ring-neutral-900"
+                title={`${assigneeIds.length - 3} more assignees`}
+              >
+                +{assigneeIds.length - 3}
+              </div>
+            )}
+          </div>
         )}
         <Dropdown
           className="z-1000 bg-white dark:bg-neutral-800"
@@ -447,8 +468,9 @@ const TicketListSkeleton: React.FC = () => (
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { teams, selectedTeamId, teamsReady } = useTeam();
+  const { teams, selectedTeam, selectedTeamId, teamsReady } = useTeam();
   const { isClockedIn, clockIn } = useClockToggle();
+  const { navigate } = useRouter();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(true);
@@ -633,6 +655,7 @@ export const TicketsPage: React.FC = () => {
 
   // Create state
   const [showCreate, setShowCreate] = useState(false);
+  const [showNoTeamDialog, setShowNoTeamDialog] = useState(false);
   const [createTitle, setCreateTitle] = useState('');
   const [createGithub, setCreateGithub] = useState('');
   const [createTitleFetching, setCreateTitleFetching] = useState(false);
@@ -658,7 +681,7 @@ export const TicketsPage: React.FC = () => {
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editGithub, setEditGithub] = useState('');
-  const [editAssignee, setEditAssignee] = useState('');
+  const [editAssignees, setEditAssignees] = useState<string[]>([]);
   const [editPriority, setEditPriority] = useState('');
   const [titleFetching, setTitleFetching] = useState(false);
   const editFetchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -689,9 +712,9 @@ export const TicketsPage: React.FC = () => {
       result = result.filter((t) => t.teamId === teamFilter);
     }
     if (assigneeFilter === '__unassigned__') {
-      result = result.filter((t) => !t.assignedTo);
+      result = result.filter((t) => !t.assignedTo || t.assignedTo.length === 0);
     } else if (assigneeFilter) {
-      result = result.filter((t) => t.assignedTo === assigneeFilter);
+      result = result.filter((t) => t.assignedTo?.includes(assigneeFilter));
     }
     if (statusDetailFilter) {
       result = result.filter((t) => (t.status ?? 'open') === statusDetailFilter);
@@ -834,6 +857,7 @@ export const TicketsPage: React.FC = () => {
         ticketId,
         date: today,
         startNow: true,
+        notifyAdmins: false,
       });
 
       if (result.session) {
@@ -895,11 +919,16 @@ export const TicketsPage: React.FC = () => {
   }, [pendingStartTicketId, selectedTeamId, clockIn, startTimerForTicket]);
 
   const handleCreate = useCallback(async () => {
-    if (!createTitle.trim() || !selectedTeamId) return;
+    if (!createTitle.trim()) return;
+    if (!selectedTeam) {
+      setShowCreate(false);
+      setShowNoTeamDialog(true);
+      return;
+    }
     setCreateLoading(true);
     try {
       await ticketApi.createTicket({
-        teamId: selectedTeamId,
+        teamId: selectedTeam.id,
         title: createTitle.trim(),
         github: createGithub.trim() || undefined,
       });
@@ -910,14 +939,14 @@ export const TicketsPage: React.FC = () => {
     } finally {
       setCreateLoading(false);
     }
-  }, [createTitle, createGithub, selectedTeamId, refetch]);
+  }, [createTitle, createGithub, refetch, selectedTeam]);
 
   const openEditModal = (ticket: Ticket) => {
     setEditTicket(ticket);
     setEditTitle(ticket.title);
     setEditDescription(ticket.description || '');
     setEditGithub(ticket.github || '');
-    setEditAssignee(ticket.assignedTo || '');
+    setEditAssignees(ticket.assignedTo ?? []);
     setEditPriority(ticket.priority || '');
   };
 
@@ -930,8 +959,12 @@ export const TicketsPage: React.FC = () => {
         description: editDescription.trim() || undefined,
         github: editGithub.trim() || undefined,
       });
-      if (editAssignee !== (editTicket.assignedTo || '')) {
-        await ticketApi.assignTicket(editTicket.id, editAssignee || null);
+      const currentAssignees = editTicket.assignedTo ?? [];
+      const hasChanged =
+        editAssignees.length !== currentAssignees.length ||
+        !editAssignees.every((id) => currentAssignees.includes(id));
+      if (hasChanged) {
+        await ticketApi.assignTicket(editTicket.id, editAssignees);
       }
       if (editPriority !== (editTicket.priority || '')) {
         await ticketApi.updateStatusPriority(editTicket.id, {
@@ -943,7 +976,7 @@ export const TicketsPage: React.FC = () => {
     } finally {
       setEditSaving(false);
     }
-  }, [editTicket, editTitle, editDescription, editGithub, editAssignee, editPriority, refetch]);
+  }, [editTicket, editTitle, editDescription, editGithub, editAssignees, editPriority, refetch]);
 
   const handleSaveStatus = useCallback(async () => {
     if (!changeStatusTicket || !changeStatusValue) return;
@@ -982,7 +1015,13 @@ export const TicketsPage: React.FC = () => {
               variant="primary"
               size="sm"
               leftIcon={<FontAwesomeIcon icon={faPlus} />}
-              onClick={() => setShowCreate(true)}
+              onClick={() => {
+                if (!selectedTeam) {
+                  setShowNoTeamDialog(true);
+                  return;
+                }
+                setShowCreate(true);
+              }}
               className="shrink-0 rounded-lg"
             >
               New Ticket
@@ -1095,7 +1134,7 @@ export const TicketsPage: React.FC = () => {
                   type="submit"
                   isLoading={createLoading}
                   loadingText="Creating…"
-                  disabled={!createTitle.trim()}
+                  disabled={!createTitle.trim() || !selectedTeam}
                 >
                   Create Ticket
                 </Button>
@@ -1275,8 +1314,8 @@ export const TicketsPage: React.FC = () => {
                     key={t.id}
                     ticket={t}
                     isCreator={t.createdBy === userId}
-                    assigneeName={getAssigneeName(t.assignedTo)}
-                    assigneeId={t.assignedTo}
+                    assigneeNames={(t.assignedTo ?? []).map((id) => getAssigneeName(id) ?? id)}
+                    assigneeIds={t.assignedTo ?? []}
                     createdByName={getAssigneeName(t.createdBy)}
                     suppressAvatars={
                       openFilterMenu !== 'team' &&
@@ -1383,12 +1422,31 @@ export const TicketsPage: React.FC = () => {
                   }
                 }}
               />
-              <Select
-                label="Assignee"
-                options={memberOptions}
-                value={editAssignee}
-                onValueChange={setEditAssignee}
-              />
+              <div>
+                <label className="mb-2 block text-sm font-medium">Assignees</label>
+                <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-neutral-200 p-3 dark:border-neutral-700">
+                  {memberOptions.map((option) => (
+                    <label
+                      key={option.value}
+                      className="flex items-center gap-2 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 p-1 rounded"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={editAssignees.includes(option.value)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setEditAssignees([...editAssignees, option.value]);
+                          } else {
+                            setEditAssignees(editAssignees.filter((id) => id !== option.value));
+                          }
+                        }}
+                        className="h-4 w-4 rounded border-neutral-300 text-primary focus:ring-primary"
+                      />
+                      <span className="text-sm">{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
               <Select
                 label="Priority"
                 options={[{ value: '', label: 'No Priority' }, ...PRIORITY_OPTIONS]}
@@ -1534,14 +1592,22 @@ export const TicketsPage: React.FC = () => {
                     </Text>
                   </div>
                 </div>
-                {detailsTicket.assignedTo && (
+                {detailsTicket.assignedTo && detailsTicket.assignedTo.length > 0 && (
                   <div>
                     <Text size="xs" variant="muted" weight="medium">
                       Assigned To
                     </Text>
-                    <Text size="sm">
-                      {getAssigneeName(detailsTicket.assignedTo) ?? detailsTicket.assignedTo}
-                    </Text>
+                    <div className="flex flex-wrap gap-2">
+                      {detailsTicket.assignedTo.map((id) => {
+                        const name = getAssigneeName(id);
+                        return (
+                          <div key={id} className="flex items-center gap-2">
+                            <UserAvatar name={name ?? id} size="xs" />
+                            <Text size="sm">{name ?? id}</Text>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
                 <div className="space-y-1 pt-1">
@@ -1559,12 +1625,13 @@ export const TicketsPage: React.FC = () => {
               </div>
             </ModalBody>
             <ModalFooter>
-              {userId && detailsTicket.assignedTo !== userId && (
+              {userId && !detailsTicket.assignedTo?.includes(userId) && (
                 <Button
                   variant="secondary"
                   onClick={async () => {
-                    await ticketApi.assignTicket(detailsTicket.id, userId);
-                    setDetailsTicket((t) => (t ? { ...t, assignedTo: userId } : t));
+                    const updatedAssignees = [...(detailsTicket.assignedTo ?? []), userId];
+                    await ticketApi.assignTicket(detailsTicket.id, updatedAssignees);
+                    setDetailsTicket((t) => (t ? { ...t, assignedTo: updatedAssignees } : t));
                     void refetch();
                   }}
                 >
@@ -1641,6 +1708,36 @@ export const TicketsPage: React.FC = () => {
             </Button>
             <Button variant="primary" onClick={handleClockInAndStart}>
               Clock In Now
+            </Button>
+          </ModalFooter>
+        </Modal>
+
+        <Modal open={showNoTeamDialog} onOpenChange={setShowNoTeamDialog} size="sm">
+          <ModalHeader>
+            <ModalTitle>No team available</ModalTitle>
+            <ModalClose />
+          </ModalHeader>
+          <ModalBody className="space-y-3">
+            <Text size="sm" className="text-neutral-600 dark:text-neutral-300">
+              This organization does not have a team yet. A team must exist before tickets can be
+              created.
+            </Text>
+            <Text size="sm" className="text-neutral-600 dark:text-neutral-300">
+              Create or join a team in this organization, then come back to add tickets.
+            </Text>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="outline" onClick={() => setShowNoTeamDialog(false)}>
+              Close
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setShowNoTeamDialog(false);
+                navigate('/app/teams');
+              }}
+            >
+              Go to Teams
             </Button>
           </ModalFooter>
         </Modal>

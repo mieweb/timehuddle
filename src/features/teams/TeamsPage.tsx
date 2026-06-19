@@ -7,6 +7,7 @@
  *   • Copy team code, rename, delete team
  *   • Promote/demote admins, remove members, invite by email
  *   • Set member passwords (admin only)
+ *   • Deep-link support: ?tab=timesheet&teamId=XXX&memberId=YYY
  */
 import {
   faCopy,
@@ -54,6 +55,7 @@ import { usePresence } from '../../lib/usePresence';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { AdminTimesheetPanel } from './AdminTimesheetPanel';
+import { PendingJoinRequests } from './PendingJoinRequests';
 import { UserAvatar } from '../../ui/UserAvatar';
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
@@ -61,8 +63,51 @@ import { UserAvatar } from '../../ui/UserAvatar';
 export const TeamsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { navigate } = useRouter();
-  const { teams, teamsReady, selectedTeamId, setSelectedTeamId, isAdmin, refetchTeams } = useTeam();
+  const { navigate, pathname } = useRouter();
+  const {
+    teams,
+    pendingRequests,
+    teamsReady,
+    selectedOrgId,
+    selectedTeamId,
+    setSelectedTeamId,
+    isAdmin,
+    refetchTeams,
+  } = useTeam();
+
+  // Controlled tab value so deep-links can set the initial tab
+  const [activeTab, setActiveTab] = useState<string>('members');
+  const [initialMemberId, setInitialMemberId] = useState<string>('');
+  const [urlCheckCounter, setUrlCheckCounter] = useState(0);
+
+  // ── Parse deep-link query params whenever URL changes ──
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    const memberId = params.get('memberId');
+    const teamId = params.get('teamId');
+
+    if (tab === 'timesheet') setActiveTab('timesheet');
+    if (memberId) setInitialMemberId(memberId);
+    if (teamId && teams.some((t) => t.id === teamId)) setSelectedTeamId(teamId);
+
+    // Clean up query params from URL without triggering a navigation
+    if (tab || memberId || teamId) {
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState(null, '', cleanUrl);
+    }
+  }, [pathname, urlCheckCounter, setSelectedTeamId, teams]);
+
+  // ── Listen for navigation events (from navigate()) ──
+  useEffect(() => {
+    const handleUrlChange = () => setUrlCheckCounter((c) => c + 1);
+    window.addEventListener('timehuddle:navigate', handleUrlChange);
+    window.addEventListener('popstate', handleUrlChange);
+    return () => {
+      window.removeEventListener('timehuddle:navigate', handleUrlChange);
+      window.removeEventListener('popstate', handleUrlChange);
+    };
+  }, []);
 
   // Fetch members for selected team
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -96,6 +141,12 @@ export const TeamsPage: React.FC = () => {
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId) ?? null;
 
+  // Count of pending join requests for the selected team (admin only)
+  const pendingRequestCount = useMemo(
+    () => (selectedTeamId ? pendingRequests.filter((r) => r.teamId === selectedTeamId).length : 0),
+    [selectedTeamId, pendingRequests],
+  );
+
   // Real-time online/offline presence for team members
   const memberIds = useMemo(() => members.map((m) => m.id), [members]);
   const onlineUsers = usePresence(memberIds);
@@ -120,6 +171,7 @@ export const TeamsPage: React.FC = () => {
     | { type: 'password'; memberId: string }
     | { type: 'remove'; memberId: string }
     | { type: 'created'; code: string }
+    | { type: 'pending-request'; teamCode: string }
   >(null);
 
   const [formValue, setFormValue] = useState('');
@@ -139,11 +191,16 @@ export const TeamsPage: React.FC = () => {
 
   const handleCreate = useCallback(async () => {
     if (!formValue.trim()) return;
+    if (!selectedOrgId) {
+      setFormError('Select an organization before creating a team.');
+      return;
+    }
     setCreateLoading(true);
     try {
       const team = await teamApi.createTeam({
         name: formValue.trim(),
         description: createDescription.trim() || undefined,
+        orgId: selectedOrgId,
       });
       setSelectedTeamId(team.id);
       setModal({ type: 'created', code: team.code });
@@ -155,16 +212,36 @@ export const TeamsPage: React.FC = () => {
     } finally {
       setCreateLoading(false);
     }
-  }, [formValue, createDescription, setSelectedTeamId, refetchTeams]);
+  }, [formValue, createDescription, selectedOrgId, setSelectedTeamId, refetchTeams]);
 
   const handleJoin = useCallback(async () => {
     if (!formValue.trim()) return;
     setJoinLoading(true);
     try {
-      const team = await teamApi.joinTeam(formValue.trim());
-      setSelectedTeamId(team.id);
-      closeModal();
-      refetchTeams();
+      const result = await teamApi.joinTeam(formValue.trim());
+
+      // Check if result is a pending request or immediate team join
+      if (
+        typeof result === 'object' &&
+        result !== null &&
+        'status' in result &&
+        result.status === 'pending'
+      ) {
+        // Request is pending approval
+        closeModal();
+        setModal({ type: 'pending-request', teamCode: formValue.trim() });
+        refetchTeams();
+      } else if (
+        typeof result === 'object' &&
+        result !== null &&
+        'id' in result &&
+        typeof result.id === 'string'
+      ) {
+        // Immediate team join (no approval required)
+        setSelectedTeamId(result.id);
+        closeModal();
+        refetchTeams();
+      }
     } catch (e: any) {
       setFormError(e.message || 'Failed to join team');
     } finally {
@@ -337,12 +414,17 @@ export const TeamsPage: React.FC = () => {
             )}
           </div>
 
-          {/* Tabs: Members | Timesheet */}
-          <Tabs defaultValue="members" className="mt-2">
+          {/* Tabs: Members | Pending | Timesheet — controlled so deep-links can set initial tab */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
             <TabsList className="w-full">
               <TabsTrigger value="members" className="flex-1">
                 Members
               </TabsTrigger>
+              {!selectedTeam.isPersonal && isAdmin && pendingRequestCount > 0 && (
+                <TabsTrigger value="pending" className="flex-1">
+                  Pending ({pendingRequestCount})
+                </TabsTrigger>
+              )}
               {!selectedTeam.isPersonal && isAdmin && (
                 <TabsTrigger value="timesheet" className="flex-1">
                   Timesheet
@@ -495,12 +577,19 @@ export const TeamsPage: React.FC = () => {
               </div>
             </TabsContent>
 
+            {!selectedTeam.isPersonal && isAdmin && selectedTeamId && (
+              <TabsContent value="pending">
+                <PendingJoinRequests teamId={selectedTeamId} />
+              </TabsContent>
+            )}
+
             {!selectedTeam.isPersonal && isAdmin && (
               <TabsContent value="timesheet">
                 <AdminTimesheetPanel
                   members={members}
                   selectedTeamId={selectedTeamId}
                   teams={teams}
+                  initialMemberId={initialMemberId}
                 />
               </TabsContent>
             )}
@@ -544,6 +633,7 @@ export const TeamsPage: React.FC = () => {
             onClick={handleCreate}
             isLoading={createLoading}
             loadingText="Creating…"
+            disabled={!selectedOrgId}
           >
             Create
           </Button>
@@ -774,6 +864,39 @@ export const TeamsPage: React.FC = () => {
         <ModalFooter>
           <Button variant="primary" fullWidth onClick={closeModal}>
             Done
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      <Modal
+        open={typeof modal === 'object' && modal !== null && modal.type === 'pending-request'}
+        onOpenChange={(open) => !open && closeModal()}
+        size="md"
+      >
+        <ModalHeader>
+          <ModalTitle>Join Request Sent</ModalTitle>
+          <ModalClose />
+        </ModalHeader>
+        <ModalBody>
+          <div className="space-y-3">
+            <Text size="sm">
+              Your request to join team{' '}
+              <Text as="span" weight="semibold" className="font-mono">
+                {typeof modal === 'object' && modal !== null && modal.type === 'pending-request'
+                  ? modal.teamCode
+                  : ''}
+              </Text>{' '}
+              has been sent to the team admins.
+            </Text>
+            <Text size="sm" variant="muted">
+              You&apos;ll receive a notification when your request is reviewed. The team will appear
+              in your teams list with a &quot;Pending&quot; badge.
+            </Text>
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="primary" fullWidth onClick={closeModal}>
+            Got it
           </Button>
         </ModalFooter>
       </Modal>

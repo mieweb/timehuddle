@@ -21,6 +21,7 @@ import { pushService } from "./push.service.js";
 
 type OwnerError = "not-found" | "forbidden";
 type AssignError = "not-found" | "forbidden" | "bad-assignee";
+type CreateError = "forbidden" | "bad-request";
 
 function isValidId(id: string): boolean {
   return /^[0-9a-f]{24}$/i.test(id);
@@ -259,7 +260,11 @@ export class TicketService {
     title: string;
     github: string;
     createdBy: string;
-  }): Promise<{ id: string } | "forbidden"> {
+  }): Promise<{ id: string } | CreateError> {
+    if (!data.teamId || !isValidId(data.teamId)) {
+      return "bad-request";
+    }
+
     const context = await this.buildTeamAbility(data.createdBy, data.teamId);
     if (!context) return "forbidden";
     if (!context.ability.can("create", subject("Ticket", { teamId: data.teamId }))) {
@@ -273,7 +278,7 @@ export class TicketService {
       github: data.github,
       status: "open",
       createdBy: data.createdBy,
-      assignedTo: data.createdBy,
+      assignedTo: [data.createdBy],
       createdAt: new Date(),
     });
     await this.emitTicketCreatedActivity(data.createdBy, data.teamId, {
@@ -406,7 +411,7 @@ export class TicketService {
   async assign(
     id: string,
     requesterId: string,
-    assignedToUserId: string | null
+    assignedToUserIds: string[]
   ): Promise<Ticket | AssignError> {
     const ticket = await this.findAuthorizedTicket(id, requesterId, "assign");
     if (ticket === "not-found" || ticket === "forbidden") return ticket;
@@ -414,67 +419,90 @@ export class TicketService {
     const team = await teamsCollection().findOne({ _id: new ObjectId(ticket.teamId) });
     if (!team) return "forbidden";
 
-    if (assignedToUserId !== null) {
-      const allMembers = [...new Set([...(team.members ?? []), ...(team.admins ?? [])])];
-      if (!allMembers.includes(assignedToUserId)) return "bad-assignee";
+    // Validate all assignees are team members
+    const allMembers = [...new Set([...(team.members ?? []), ...(team.admins ?? [])])];
+    for (const userId of assignedToUserIds) {
+      if (!allMembers.includes(userId)) return "bad-assignee";
     }
+
     await ticketsCollection().updateOne(
       { _id: new ObjectId(id) },
-      { $set: { assignedTo: assignedToUserId, updatedAt: new Date(), updatedBy: requesterId } }
+      { $set: { assignedTo: assignedToUserIds, updatedAt: new Date(), updatedBy: requesterId } }
     );
     const updated = (await this.findById(id))!;
-    const assignee =
-      assignedToUserId && isValidId(assignedToUserId)
-        ? await usersCollection().findOne({ _id: new ObjectId(assignedToUserId) })
-        : null;
+
+    // Determine newly added assignees (not previously assigned)
+    const previousAssignees = ticket.assignedTo ?? [];
+    const newAssignees = assignedToUserIds.filter((uid) => !previousAssignees.includes(uid));
+
+    // Fetch assignee names for activity log
+    const assigneeNames =
+      assignedToUserIds.length > 0
+        ? await usersCollection()
+            .find({ _id: { $in: assignedToUserIds.map((uid) => new ObjectId(uid)) } })
+            .toArray()
+            .then((users) =>
+              users.map((u) => u.name ?? u.email?.split("@")[0] ?? "Unknown").join(", ")
+            )
+        : "";
+
     await this.emitTicketUpdatedActivity(requesterId, updated.teamId, {
       ticketId: updated._id.toHexString(),
       ticketTitle: updated.title,
       teamId: updated.teamId,
-      action: assignedToUserId ? "assigned" : "unassigned",
-      assigneeId: assignedToUserId,
-      assigneeName: assignee?.name ?? assignee?.email?.split("@")[0],
+      action: assignedToUserIds.length > 0 ? "assigned" : "unassigned",
+      assigneeId: assignedToUserIds[0] ?? null,
+      assigneeName: assigneeNames || undefined,
     });
 
-    // Notify the assignee (skip if unassigning or assigning to self)
-    if (assignedToUserId && assignedToUserId !== requesterId) {
-      const requester = await usersCollection().findOne({ _id: new ObjectId(requesterId) });
-      const requesterName = requester?.name ?? requester?.email?.split("@")[0] ?? "Someone";
-      await Promise.all([
-        notificationService
-          .create({
-            userId: assignedToUserId,
-            title: "Huddle",
-            body: `${requesterName} assigned you "${ticket.title}"`,
-            notificationData: {
-              type: "ticket-assigned",
-              assignedBy: requesterId,
-              assignedByName: requesterName,
-              ticketId: id,
-              ticketTitle: ticket.title,
-              teamId: ticket.teamId,
-              url: `/app/tickets`,
-            },
-          })
-          .catch(() => {}),
-        pushService
-          .sendPush(assignedToUserId, {
-            title: `Ticket assigned to you`,
-            body: `${requesterName} assigned you "${ticket.title}"`,
-            tag: `ticket-assigned-${id}`,
-            data: {
-              type: "ticket-assigned",
-              assignedBy: requesterId,
-              assignedByName: requesterName,
-              ticketId: id,
-              ticketTitle: ticket.title,
-              teamId: ticket.teamId,
-              url: `/app/tickets`,
-            },
-          })
-          .catch(() => {}),
-      ]);
-    }
+    // Notify newly added assignees (skip requester)
+    const requester = await usersCollection().findOne({ _id: new ObjectId(requesterId) });
+    const requesterName = requester?.name ?? requester?.email?.split("@")[0] ?? "Someone";
+
+    await Promise.all(
+      newAssignees
+        .filter((uid) => uid !== requesterId)
+        .map((uid) =>
+          Promise.all([
+            notificationService
+              .create({
+                userId: uid,
+                title: "Huddle",
+                body: `${requesterName} assigned you "${ticket.title}"`,
+                notificationData: {
+                  type: "ticket-assigned",
+                  assignedBy: requesterId,
+                  assignedByName: requesterName,
+                  ticketId: id,
+                  ticketTitle: ticket.title,
+                  teamId: ticket.teamId,
+                  url: `/app/tickets`,
+                },
+              })
+              .catch((err) => {
+                console.error(`[ticket] Failed to create notification for user ${uid}:`, err);
+              }),
+            pushService
+              .sendPush(uid, {
+                title: `Ticket assigned to you`,
+                body: `${requesterName} assigned you "${ticket.title}"`,
+                tag: `ticket-assigned-${id}`,
+                data: {
+                  type: "ticket-assigned",
+                  assignedBy: requesterId,
+                  assignedByName: requesterName,
+                  ticketId: id,
+                  ticketTitle: ticket.title,
+                  teamId: ticket.teamId,
+                  url: `/app/tickets`,
+                },
+              })
+              .catch((err) => {
+                console.error(`[ticket] Failed to send push notification to user ${uid}:`, err);
+              }),
+          ])
+        )
+    );
 
     broadcast(updated.teamId, updated, "update");
     return updated;

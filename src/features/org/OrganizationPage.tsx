@@ -31,7 +31,7 @@ export const OrganizationPage: React.FC = () => {
     try {
       const [org, members] = await Promise.all([
         orgApi.getOrganizationById(selectedOrgId),
-        orgApi.listMembers(selectedOrgId),
+        orgApi.listOrganizationUsers(selectedOrgId),
       ]);
       setOrganizationName(org.name);
       setDisplayUsers(members);

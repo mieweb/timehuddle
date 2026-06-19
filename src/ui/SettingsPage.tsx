@@ -198,10 +198,24 @@ const PushNotificationsSettings: React.FC = () => {
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       let detail = 'Failed to enable notifications. ';
-      if (msg.includes('permission') || msg.includes('denied')) {
+
+      if (msg.includes('iOS simulator')) {
+        detail += msg + '\n\nPush notifications require a physical iOS device.';
+      } else if (msg.includes('permission') || msg.includes('denied')) {
         detail += 'Please allow notifications in your browser settings.';
       } else if (msg.includes('not-configured')) {
         detail += 'The server is missing VAPID keys in settings.';
+      } else if (msg.includes('Timed out waiting for push')) {
+        if (isNative) {
+          detail += 'Unable to connect to Apple Push Notification service. Please check:\n\n';
+          detail += '1. Your device has an active internet connection\n';
+          detail += '2. You are not using a VPN that blocks APNs\n';
+          detail += '3. Try restarting the app and trying again\n\n';
+          detail +=
+            'If the issue persists, push notifications may not be available in your region or network.';
+        } else {
+          detail += 'Service worker registration timed out. Please refresh the page and try again.';
+        }
       } else {
         detail += msg;
       }
@@ -342,7 +356,7 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
 
     void (async () => {
       try {
-        const teams = await teamApi.getTeams();
+        const { teams } = await teamApi.getTeams();
         const nonPersonalTeams = teams.filter((team) => !team.isPersonal);
 
         if (nonPersonalTeams.length === 0) {

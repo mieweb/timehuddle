@@ -207,6 +207,16 @@ describe("auth gate", () => {
 // ─── Create ───────────────────────────────────────────────────────────────────
 
 describe("POST /v1/tickets", () => {
+  it("rejects missing teamId — 400", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/tickets",
+      headers: { cookie: ownerCookie },
+      payload: { title: "Missing team" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("creates a ticket as a team member — 201", async () => {
     const res = await app.inject({
       method: "POST",
@@ -220,7 +230,7 @@ describe("POST /v1/tickets", () => {
     expect(ticket.title).toBe("My first ticket");
     expect(ticket.status).toBe("open");
     expect(ticket.createdBy).toBe(ownerId);
-    expect(ticket.assignedTo).toBe(ownerId);
+    expect(ticket.assignedTo).toEqual([ownerId]);
     expect(ticket.teamId).toBe(teamId);
     // Timer fields must NOT be present on ticket
     expect(ticket.accumulatedTime).toBeUndefined();
@@ -482,10 +492,10 @@ describe("PUT /v1/tickets/:id/assign", () => {
       method: "PUT",
       url: `/v1/tickets/${ticketId}/assign`,
       headers: { cookie: ownerCookie },
-      payload: { assignedToUserId: memberId },
+      payload: { assignedToUserIds: [memberId] },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().ticket.assignedTo).toBe(memberId);
+    expect(res.json().ticket.assignedTo).toEqual([memberId]);
   });
 
   it("admin can unassign (null) — 200", async () => {
@@ -493,10 +503,10 @@ describe("PUT /v1/tickets/:id/assign", () => {
       method: "PUT",
       url: `/v1/tickets/${ticketId}/assign`,
       headers: { cookie: ownerCookie },
-      payload: { assignedToUserId: null },
+      payload: { assignedToUserIds: [] },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().ticket.assignedTo).toBeNull();
+    expect(res.json().ticket.assignedTo).toEqual([]);
   });
 
   it("assigning to outsider (not in team) — 422", async () => {
@@ -504,7 +514,7 @@ describe("PUT /v1/tickets/:id/assign", () => {
       method: "PUT",
       url: `/v1/tickets/${ticketId}/assign`,
       headers: { cookie: ownerCookie },
-      payload: { assignedToUserId: outsiderId },
+      payload: { assignedToUserIds: [outsiderId] },
     });
     expect(res.statusCode).toBe(422);
   });
@@ -514,10 +524,10 @@ describe("PUT /v1/tickets/:id/assign", () => {
       method: "PUT",
       url: `/v1/tickets/${ticketId}/assign`,
       headers: { cookie: memberCookie },
-      payload: { assignedToUserId: memberId },
+      payload: { assignedToUserIds: [memberId] },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().ticket.assignedTo).toBe(memberId);
+    expect(res.json().ticket.assignedTo).toEqual([memberId]);
   });
 });
 
@@ -563,7 +573,7 @@ describe("org admin outside team", () => {
       method: "PUT",
       url: `/v1/tickets/${ticketId}/assign`,
       headers: { cookie: orgAdminCookie },
-      payload: { assignedToUserId: memberId },
+      payload: { assignedToUserIds: [memberId] },
     });
     expect(assignRes.statusCode).toBe(200);
 
@@ -668,7 +678,7 @@ describe("ticket activity log emission", () => {
       method: "PUT",
       url: `/v1/tickets/${activityTicketId}/assign`,
       headers: { cookie: ownerCookie },
-      payload: { assignedToUserId: memberId },
+      payload: { assignedToUserIds: [memberId] },
     });
     expect(assignRes.statusCode).toBe(200);
 

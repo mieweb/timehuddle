@@ -44,6 +44,7 @@ import {
   fromLocalDateTimeInputValue,
   getDateRange,
   PRESETS,
+  roundDurationSecondsForDisplay,
   toLocalDateTimeInputValue,
   type Preset,
 } from './timesheetUtils';
@@ -499,7 +500,7 @@ export const TimesheetPage: React.FC = () => {
                   Total Hours
                 </Text>
                 <Text size="lg" weight="semibold" data-testid="stat-total-hours">
-                  {formatDuration(filteredSummary.totalSeconds)}
+                  {formatDuration(roundDurationSecondsForDisplay(filteredSummary.totalSeconds))}
                 </Text>
               </CardContent>
             </Card>
@@ -509,7 +510,9 @@ export const TimesheetPage: React.FC = () => {
                   Break Hours
                 </Text>
                 <Text size="lg" weight="semibold">
-                  {formatDuration(filteredSummary.totalBreakSeconds)}
+                  {formatDuration(
+                    roundDurationSecondsForDisplay(filteredSummary.totalBreakSeconds),
+                  )}
                 </Text>
               </CardContent>
             </Card>
@@ -529,7 +532,9 @@ export const TimesheetPage: React.FC = () => {
                   Avg Session
                 </Text>
                 <Text size="lg" weight="semibold">
-                  {formatDuration(filteredSummary.averageSessionSeconds)}
+                  {formatDuration(
+                    roundDurationSecondsForDisplay(filteredSummary.averageSessionSeconds),
+                  )}
                 </Text>
               </CardContent>
             </Card>
@@ -656,7 +661,7 @@ export const TimesheetPage: React.FC = () => {
                 Duration
               </Text>
               <Text size="sm" weight="medium">
-                {formatDuration(editDurationSeconds)}
+                {formatDuration(roundDurationSecondsForDisplay(editDurationSeconds))}
               </Text>
             </div>
           )}
@@ -819,7 +824,7 @@ export const TimesheetPage: React.FC = () => {
                 Duration
               </Text>
               <Text size="sm" weight="medium">
-                {formatDuration(newDurationSeconds)}
+                {formatDuration(roundDurationSecondsForDisplay(newDurationSeconds))}
               </Text>
             </div>
           )}

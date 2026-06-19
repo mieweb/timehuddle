@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
 import { teamService } from "../services/team.service.js";
+import { teamJoinRequestService } from "../services/team-join-request.service.js";
 
 // Reusable team shape for Swagger response schemas
 const teamShape = {
@@ -41,11 +42,14 @@ export async function teamRoutes(app: FastifyInstance) {
     {
       schema: {
         tags: ["Teams"],
-        summary: "List teams for current user",
+        summary: "List teams for current user with pending join requests",
         response: {
           200: {
             type: "object",
-            properties: { teams: { type: "array", items: teamShape } },
+            properties: {
+              teams: { type: "array", items: teamShape },
+              pendingRequests: { type: "array" },
+            },
           },
         },
       },
@@ -53,7 +57,25 @@ export async function teamRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const userId = (req as any).user.id as string;
       const teams = await teamService.getTeamsForUser(userId);
-      return reply.send({ teams });
+
+      // Get pending requests where user is the requester
+      const userPendingRequests = await teamJoinRequestService.getPendingForUser(userId);
+
+      // Get pending requests for teams where user is an admin
+      const adminTeamIds = teams.filter((t) => t.admins.includes(userId)).map((t) => t.id);
+      const adminPendingRequestsResults = await Promise.all(
+        adminTeamIds.map((teamId) => teamJoinRequestService.getPendingForTeam(teamId, userId))
+      );
+
+      // Filter out error results and flatten
+      const adminPendingRequests = adminPendingRequestsResults
+        .filter((r) => Array.isArray(r))
+        .flat();
+
+      // Combine both lists (user's own requests + requests for teams they admin)
+      const pendingRequests = [...userPendingRequests, ...adminPendingRequests];
+
+      return reply.send({ teams, pendingRequests });
     }
   );
 
@@ -82,13 +104,22 @@ export async function teamRoutes(app: FastifyInstance) {
     {
       schema: {
         tags: ["Teams"],
-        summary: "Join a team by code",
+        summary: "Join a team by code - creates a pending approval request",
         body: {
           type: "object",
           required: ["teamCode"],
           properties: { teamCode: { type: "string" } },
         },
-        response: { 200: { type: "object", properties: { team: teamShape } } },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              status: { type: "string", enum: ["pending", "joined"] },
+              request: { type: "object", additionalProperties: true },
+              team: teamShape,
+            },
+          },
+        },
       },
     },
     async (req, reply) => {
@@ -99,7 +130,9 @@ export async function teamRoutes(app: FastifyInstance) {
         return (reply as any).status(404).send({ error: "Team not found" });
       if (result === "already-member")
         return (reply as any).status(409).send({ error: "Already a member" });
-      return reply.send({ team: result });
+
+      // Result is a PublicTeamJoinRequest (pending approval)
+      return reply.send({ status: "pending", request: result });
     }
   );
 
@@ -380,6 +413,122 @@ export async function teamRoutes(app: FastifyInstance) {
       if (result === "not-member")
         return (reply as any).status(400).send({ error: "User is not a member" });
       return reply.send({ ok: true });
+    }
+  );
+
+  // ── GET /v1/teams/:teamId/join-requests ───────────────────────────────────
+
+  app.get(
+    "/teams/:teamId/join-requests",
+    {
+      schema: {
+        tags: ["Teams"],
+        summary: "List pending join requests for a team (admin only)",
+        params: {
+          type: "object",
+          properties: { teamId: { type: "string" } },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              requests: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    teamId: { type: "string" },
+                    userId: { type: "string" },
+                    status: { type: "string" },
+                    requestedAt: { type: "string" },
+                    user: {
+                      type: "object",
+                      properties: {
+                        id: { type: "string" },
+                        name: { type: "string" },
+                        email: { type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const userId = (req as any).user.id as string;
+      const { teamId } = req.params as { teamId: string };
+      const result = await teamJoinRequestService.getPendingForTeam(teamId, userId);
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "Team not found" });
+      if (result === "forbidden")
+        return (reply as any).status(403).send({ error: "Admin access required" });
+      return reply.send({ requests: result });
+    }
+  );
+
+  // ── POST /v1/teams/join-requests/:requestId/approve ───────────────────────
+
+  app.post(
+    "/teams/join-requests/:requestId/approve",
+    {
+      schema: {
+        tags: ["Teams"],
+        summary: "Approve a team join request (admin only)",
+        params: {
+          type: "object",
+          properties: { requestId: { type: "string" } },
+        },
+        response: {
+          200: { type: "object", properties: { status: { type: "string" } } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const userId = (req as any).user.id as string;
+      const { requestId } = req.params as { requestId: string };
+      const result = await teamJoinRequestService.approve(requestId, userId);
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "Request not found" });
+      if (result === "forbidden")
+        return (reply as any).status(403).send({ error: "Admin access required" });
+      if (result === "already-processed")
+        return (reply as any).status(409).send({ error: "Request already processed" });
+      return reply.send({ status: "ok" });
+    }
+  );
+
+  // ── POST /v1/teams/join-requests/:requestId/decline ───────────────────────
+
+  app.post(
+    "/teams/join-requests/:requestId/decline",
+    {
+      schema: {
+        tags: ["Teams"],
+        summary: "Decline a team join request (admin only)",
+        params: {
+          type: "object",
+          properties: { requestId: { type: "string" } },
+        },
+        response: {
+          200: { type: "object", properties: { status: { type: "string" } } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const userId = (req as any).user.id as string;
+      const { requestId } = req.params as { requestId: string };
+      const result = await teamJoinRequestService.decline(requestId, userId);
+      if (result === "not-found")
+        return (reply as any).status(404).send({ error: "Request not found" });
+      if (result === "forbidden")
+        return (reply as any).status(403).send({ error: "Admin access required" });
+      if (result === "already-processed")
+        return (reply as any).status(409).send({ error: "Request already processed" });
+      return reply.send({ status: "ok" });
     }
   );
 }

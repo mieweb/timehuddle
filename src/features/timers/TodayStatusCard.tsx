@@ -147,27 +147,35 @@ export function TodayStatusCard({ userId: propUserId }: TodayStatusCardProps) {
           <div className="h-px bg-border" aria-hidden="true" />
 
           {/* Active ticket */}
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-start gap-2 min-w-0">
             <FontAwesomeIcon
               icon={faPlay}
-              className={runningEntry ? 'text-primary shrink-0' : 'text-muted-foreground shrink-0'}
+              className={
+                runningEntry
+                  ? 'text-primary shrink-0 mt-0.5'
+                  : 'text-muted-foreground shrink-0 mt-0.5'
+              }
             />
             {runningEntry && ticketTitle ? (
               <>
-                <Text size="sm" className="min-w-0 truncate flex-1">
-                  <span className="text-muted-foreground">Working on: </span>
-                  <button
-                    type="button"
-                    onClick={handleTicketClick}
-                    className="font-medium hover:underline focus:outline-none focus-visible:underline"
-                    aria-label={`Open ticket: ${ticketTitle}`}
-                  >
-                    {ticketTitle}
-                  </button>
+                <div className="min-w-0 flex-1">
+                  <Text size="sm" className="block">
+                    <span className="text-muted-foreground">Working on: </span>
+                    <button
+                      type="button"
+                      onClick={handleTicketClick}
+                      className="font-medium hover:underline focus:outline-none focus-visible:underline wrap-break-word"
+                      aria-label={`Open ticket: ${ticketTitle}`}
+                    >
+                      {ticketTitle}
+                    </button>
+                  </Text>
                   {ticketStartTime && (
-                    <span className="text-muted-foreground"> · since {ticketStartTime}</span>
+                    <Text size="xs" className="text-muted-foreground mt-0.5">
+                      since {ticketStartTime}
+                    </Text>
                   )}
-                </Text>
+                </div>
                 <Badge variant="secondary" size="sm" className="shrink-0 font-mono">
                   {formatDuration(activeTicketSeconds)}
                 </Badge>

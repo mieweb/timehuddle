@@ -1,0 +1,7 @@
+users:
+  - email: quick-user@example.com
+    name: Quick User
+    username: quick-user
+  - email: quick-admin@example.com
+    name: Quick Admin
+    username: quick-admin

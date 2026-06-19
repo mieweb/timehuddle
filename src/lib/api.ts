@@ -207,6 +207,31 @@ export const authApi = {
     return res.json();
   },
 
+  /** Dev-only sign-in used by the login probe. */
+  devMemberSignIn: async (
+    domain: 'enterprise' | 'organization' = 'organization',
+    role: 'member' | 'admin' | 'owner' = 'member',
+    joinTeam = false,
+  ): Promise<{ token?: string; user?: TimecoreUser }> => {
+    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/dev/member-sign-in`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain, role, joinTeam }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+      );
+    }
+    const token = res.headers.get('set-auth-token');
+    if (token) sessionToken.set(token);
+    return res.json();
+  },
+
   /**
    * Initiate a social OAuth sign-in (e.g. GitHub).
    * Returns the provider redirect URL; caller should set window.location.href to it.
@@ -554,6 +579,16 @@ export const orgApi = {
       `/v1/organizations/${encodeURIComponent(id)}/members`,
     ).then((r) => r.users),
 
+  listOrganizationUsers: (id: string) =>
+    request<{ users: OrganizationAdminUser[] }>(
+      `/v1/organizations/${encodeURIComponent(id)}/users`,
+    ).then((r) => r.users),
+
+  searchUsers: (id: string, q: string) =>
+    request<{ users: Array<{ id: string; name: string; username: string | null }> }>(
+      `/v1/organizations/${encodeURIComponent(id)}/users/search?q=${encodeURIComponent(q)}`,
+    ).then((r) => r.users),
+
   setMemberRole: (id: string, userId: string, role: DefaultOrganizationRole) =>
     request<{ user: { userId: string; role: DefaultOrganizationRole } }>(
       `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
@@ -568,6 +603,15 @@ export const orgApi = {
       `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
       {
         method: 'DELETE',
+      },
+    ).then((r) => r.user),
+
+  updateMemberReportsTo: (id: string, userId: string, reportsTo: string | null) =>
+    request<{ user: { id: string; reportsToUserId: string | null } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/reports-to`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ reportsToUserId: reportsTo }),
       },
     ).then((r) => r.user),
 
@@ -676,6 +720,45 @@ export const enterpriseApi = {
     }),
 };
 
+export type SeedImportPreview = {
+  ok: true;
+  value: unknown;
+};
+
+export type SeedImportError = {
+  ok: false;
+  error: { type: string; message: string };
+};
+
+export const seedImportApi = {
+  parse: (yaml: string) =>
+    request<SeedImportPreview | SeedImportError>('/v1/seed/import/parse', {
+      method: 'POST',
+      body: JSON.stringify({ yaml }),
+    }),
+
+  import: (yaml: string, orgId?: string) =>
+    request<{
+      created: {
+        enterprises: number;
+        organizations: number;
+        teams: number;
+        users: number;
+        tickets: number;
+      };
+      updated: {
+        enterprises: number;
+        organizations: number;
+        teams: number;
+        users: number;
+      };
+      summary?: string;
+    }>('/v1/seed/import', {
+      method: 'POST',
+      body: JSON.stringify({ yaml, orgId }),
+    }),
+};
+
 // ─── Username API ─────────────────────────────────────────────────────────────
 
 export const usernameApi = {
@@ -710,7 +793,7 @@ export interface Ticket {
   status: string;
   priority: string | null;
   createdBy: string;
-  assignedTo: string | null;
+  assignedTo: string[];
   reviewedBy: string | null;
   reviewedAt: string | null;
   createdAt: string;
@@ -759,10 +842,10 @@ export const ticketApi = {
       body: JSON.stringify(data),
     }),
 
-  assignTicket: (id: string, assignedToUserId: string | null) =>
+  assignTicket: (id: string, assignedToUserIds: string[]) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/assign`, {
       method: 'PUT',
-      body: JSON.stringify({ assignedToUserId }),
+      body: JSON.stringify({ assignedToUserIds }),
     }).then((r) => r.ticket),
 
   /** Get total accumulated seconds for a ticket from Timers. */
@@ -923,8 +1006,39 @@ export interface TeamMember {
   image: string | null;
 }
 
+export interface TeamJoinRequest {
+  id: string;
+  teamId: string;
+  userId: string;
+  teamCode: string;
+  status: 'pending' | 'approved' | 'declined' | 'expired';
+  requestedAt: string;
+  respondedAt?: string;
+  respondedBy?: string;
+}
+
+export interface TeamJoinRequestWithUser extends TeamJoinRequest {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
+export interface TeamJoinRequestPreview {
+  notificationId: string;
+  requestId: string;
+  teamId: string;
+  teamName: string;
+  teamDescription: string;
+  requester: { id: string; name: string; email: string } | null;
+  alreadyProcessed: boolean;
+}
+
 export const teamApi = {
-  getTeams: () => request<{ teams: Team[] }>('/v1/teams').then((r) => r.teams),
+  getTeams: () => request<{ teams: Team[]; pendingRequests: TeamJoinRequest[] }>('/v1/teams'),
+
+  getTeamsOnly: () => request<{ teams: Team[] }>('/v1/teams').then((r) => r.teams),
 
   ensurePersonal: () =>
     request<{ team: Team }>('/v1/teams/ensure-personal', { method: 'POST' }).then((r) => r.team),
@@ -944,10 +1058,17 @@ export const teamApi = {
     request<{ teams: Team[] }>(`/v1/teams/${encodeURIComponent(id)}/subteams`).then((r) => r.teams),
 
   joinTeam: (teamCode: string) =>
-    request<{ team: Team }>('/v1/teams/join', {
+    request<
+      { status: 'pending'; request: TeamJoinRequest } | { status: 'joined'; team: Team } | Team
+    >('/v1/teams/join', {
       method: 'POST',
       body: JSON.stringify({ teamCode }),
-    }).then((r) => r.team),
+    }).then((r) => {
+      // Handle different response formats for backward compatibility
+      if ('status' in r) return r;
+      if ('team' in r) return r.team;
+      return r as Team;
+    }),
 
   renameTeam: (id: string, newName: string) =>
     request<{ team: Team }>(`/v1/teams/${encodeURIComponent(id)}/name`, {
@@ -989,6 +1110,24 @@ export const teamApi = {
     request<{ ok: boolean }>(
       `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/password`,
       { method: 'PUT', body: JSON.stringify({ newPassword }) },
+    ),
+
+  // Join request management
+  getPendingJoinRequests: (teamId: string) =>
+    request<{ requests: TeamJoinRequestWithUser[] }>(
+      `/v1/teams/${encodeURIComponent(teamId)}/join-requests`,
+    ).then((r) => r.requests),
+
+  approveJoinRequest: (requestId: string) =>
+    request<{ status: string }>(
+      `/v1/teams/join-requests/${encodeURIComponent(requestId)}/approve`,
+      { method: 'POST' },
+    ),
+
+  declineJoinRequest: (requestId: string) =>
+    request<{ status: string }>(
+      `/v1/teams/join-requests/${encodeURIComponent(requestId)}/decline`,
+      { method: 'POST' },
     ),
 
   /** Open a WebSocket connection for live team updates. Auto-reconnects on drop. */
@@ -1275,6 +1414,19 @@ export const notificationApi = {
   /** Accept or ignore a team invite. */
   respondToInvite: (id: string, action: 'join' | 'ignore') =>
     request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/invite-respond`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+
+  /** Fetch team join request preview for a notification. */
+  getJoinRequestPreview: (id: string) =>
+    request<TeamJoinRequestPreview>(
+      `/v1/notifications/${encodeURIComponent(id)}/join-request-preview`,
+    ),
+
+  /** Approve or decline a team join request. */
+  respondToJoinRequest: (id: string, action: 'approve' | 'decline') =>
+    request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/join-request-respond`, {
       method: 'POST',
       body: JSON.stringify({ action }),
     }),
