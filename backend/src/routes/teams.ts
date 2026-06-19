@@ -115,7 +115,7 @@ export async function teamRoutes(app: FastifyInstance) {
             type: "object",
             properties: {
               status: { type: "string", enum: ["pending", "joined"] },
-              request: { type: "object" },
+              request: { type: "object", additionalProperties: true },
               team: teamShape,
             },
           },

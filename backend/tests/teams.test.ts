@@ -233,13 +233,16 @@ describe("POST /v1/teams/join", () => {
   it("joins an existing team by code — 200", async () => {
     const res = await inject("POST", "/v1/teams/join", outsiderCookie, { teamCode: "TEAMCODE1" });
     expect(res.statusCode).toBe(200);
-    const { team } = res.json();
-    expect(team.members).toContain(outsiderId);
-    // cleanup: remove outsider from the fixture team
+    const { status, request } = res.json();
+    expect(status).toBe("pending");
+    expect(request).toBeDefined();
+    expect(request.userId).toBe(outsiderId);
+    expect(request.teamId).toBe(teamId);
+    // cleanup: remove the pending request
     await client
       .db()
-      .collection("teams")
-      .updateOne({ _id: new ObjectId(teamId) }, { $pull: { members: outsiderId } } as any);
+      .collection("teamJoinRequests")
+      .deleteOne({ userId: outsiderId, teamId });
   });
 
   it("returns 404 for bad code", async () => {
