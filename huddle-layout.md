@@ -24,6 +24,7 @@ This document extracts the layout structure, styling patterns, and interactive b
 ```
 
 ### Container Classes
+
 - **Main wrapper**: `flex flex-col h-full bg-gray-50 min-h-screen`
 - **Header**: `flex items-center justify-between px-5 py-3 bg-white border-b border-gray-100 shrink-0`
 - **Feed**: `flex-1 overflow-y-auto`
@@ -51,6 +52,7 @@ This document extracts the layout structure, styling patterns, and interactive b
 ```
 
 **Key patterns**:
+
 - Buttons: `w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors`
 - Title: `text-lg font-semibold text-gray-900 tracking-tight`
 - Padding: `px-5 py-3`
@@ -73,7 +75,10 @@ This document extracts the layout structure, styling patterns, and interactive b
 ### Collapsed Layout
 
 ```tsx
-<div className="flex items-center gap-3 px-5 py-3 bg-white cursor-pointer" onClick={() => setExpanded(true)}>
+<div
+  className="flex items-center gap-3 px-5 py-3 bg-white cursor-pointer"
+  onClick={() => setExpanded(true)}
+>
   <Avatar initials="PD" color="indigo" />
   <div className="flex-1 bg-gray-100 border border-gray-200 rounded-full px-4 py-2.5 text-sm text-gray-400">
     Share an update...
@@ -97,7 +102,7 @@ This document extracts the layout structure, styling patterns, and interactive b
         className="w-full bg-white border border-indigo-300 rounded-xl px-3 py-2.5 text-sm text-gray-800 placeholder:text-gray-300 outline-none resize-none leading-relaxed min-h-20"
         placeholder="What's on your mind?"
       />
-      
+
       {/* Button bar */}
       <div className="flex items-center gap-2 mt-2 flex-wrap">
         <button className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-full hover:bg-gray-50 transition-colors">
@@ -109,10 +114,17 @@ This document extracts the layout structure, styling patterns, and interactive b
         <button className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-full hover:bg-gray-50 transition-colors">
           {/* Icon */} Ticket
         </button>
-        <button onClick={cancel} className="text-xs text-gray-400 hover:text-gray-600 transition-colors ml-1">
+        <button
+          onClick={cancel}
+          className="text-xs text-gray-400 hover:text-gray-600 transition-colors ml-1"
+        >
           Cancel
         </button>
-        <button onClick={submit} disabled={!text.trim()} className="ml-auto text-xs font-semibold px-4 py-1.5 rounded-full bg-indigo-500 text-white hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+        <button
+          onClick={submit}
+          disabled={!text.trim()}
+          className="ml-auto text-xs font-semibold px-4 py-1.5 rounded-full bg-indigo-500 text-white hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
           Post
         </button>
       </div>
@@ -122,6 +134,7 @@ This document extracts the layout structure, styling patterns, and interactive b
 ```
 
 **Key patterns**:
+
 - Textarea: `border-indigo-300` for focus, `rounded-xl`, `min-h-20`
 - Action buttons: `rounded-full`, small text (`text-xs`), `gap-1.5` for icon spacing
 - Primary button (Post): `bg-indigo-500 hover:bg-indigo-600`, `ml-auto` for right alignment
@@ -132,22 +145,25 @@ This document extracts the layout structure, styling patterns, and interactive b
 ## Avatar Component
 
 **Sizes**:
+
 - `md` (default): `w-9 h-9 text-[13px]`
 - `sm`: `w-7 h-7 text-[10px]`
 
 **Colors** (background + text combos):
+
 ```tsx
 const avatarClasses = {
   indigo: 'bg-indigo-100 text-indigo-600',
-  teal:   'bg-teal-100 text-teal-600',
-  coral:  'bg-red-100 text-red-500',
-  amber:  'bg-amber-100 text-amber-600',
-  pink:   'bg-pink-100 text-pink-500',
-  green:  'bg-green-100 text-green-600',
+  teal: 'bg-teal-100 text-teal-600',
+  coral: 'bg-red-100 text-red-500',
+  amber: 'bg-amber-100 text-amber-600',
+  pink: 'bg-pink-100 text-pink-500',
+  green: 'bg-green-100 text-green-600',
 };
 ```
 
 **Structure**:
+
 ```tsx
 <div className="w-9 h-9 rounded-full flex items-center justify-center font-semibold shrink-0 bg-indigo-100 text-indigo-600">
   PD
@@ -181,6 +197,7 @@ const avatarClasses = {
 **Container**: `border-b border-gray-100 px-5 pt-4 bg-white`
 
 **Header**:
+
 ```tsx
 <div className="flex items-center gap-2.5 mb-3">
   <Avatar initials={initials} color={color} />
@@ -195,6 +212,7 @@ const avatarClasses = {
 ```
 
 **Body text**:
+
 ```tsx
 <p className="text-sm text-gray-700 leading-relaxed mb-3">{body}</p>
 ```
@@ -223,6 +241,7 @@ const avatarClasses = {
 ```
 
 **Key patterns**:
+
 - Height: `h-48`
 - Play button: `w-12 h-12 rounded-full bg-white shadow-md`
 - Filename badge: `text-[10px] bg-gray-800/70` (bottom-left)
@@ -244,7 +263,7 @@ const avatarClasses = {
       {status}
     </span>
   </div>
-  
+
   {/* Details row */}
   <div className="flex items-center gap-4 px-3 py-2 bg-white">
     <span className="text-xs text-gray-400 flex items-center gap-1">
@@ -261,6 +280,7 @@ const avatarClasses = {
 ```
 
 **Colors**:
+
 - Container: `border-amber-200`
 - Header background: `bg-amber-50`
 - Icon background: `bg-amber-100` (for ticket icon)
@@ -277,21 +297,21 @@ const avatarClasses = {
   <button className="flex items-center gap-1.5 text-xs px-2.5 py-2 rounded-lg transition-colors text-gray-400 hover:text-gray-600">
     {/* Heart icon */} {likeCount}
   </button>
-  
+
   <div className="w-px h-4 bg-gray-200 mx-1" />
-  
+
   {/* Comment button */}
   <button className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 px-2.5 py-2 rounded-lg transition-colors">
     {/* Comment icon */} {commentCount}
   </button>
-  
+
   <div className="w-px h-4 bg-gray-200 mx-1" />
-  
+
   {/* Share button */}
   <button className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 px-2.5 py-2 rounded-lg transition-colors">
     {/* Share icon */}
   </button>
-  
+
   {/* View count (right-aligned) */}
   <div className="ml-auto flex items-center gap-1 text-xs text-gray-300">
     {/* Eye icon */} {views}
@@ -300,6 +320,7 @@ const avatarClasses = {
 ```
 
 **Key patterns**:
+
 - Dividers: `w-px h-4 bg-gray-200 mx-1`
 - Buttons: `px-2.5 py-2 rounded-lg`, `gap-1.5` for icon spacing
 - Liked state: `text-pink-500` (filled heart icon)
@@ -310,10 +331,11 @@ const avatarClasses = {
 ## Comments Section
 
 **Container** (shown when `showComments` is true):
+
 ```tsx
 <div className="pb-3 bg-gray-50 -mx-5 px-5 pt-3 border-t border-gray-100">
   {/* Existing comments */}
-  {comments.map(c => (
+  {comments.map((c) => (
     <div key={c.id} className="flex gap-2 mb-2.5">
       <Avatar initials={c.initials} color={c.avatarColor} size="sm" />
       <div className="flex-1 bg-white border border-gray-200 rounded-t-none rounded-xl px-3 py-2">
@@ -323,7 +345,7 @@ const avatarClasses = {
       </div>
     </div>
   ))}
-  
+
   {/* Comment input */}
   <div className="flex items-center gap-2 mt-3">
     <Avatar initials="PD" color="indigo" size="sm" />
@@ -339,6 +361,7 @@ const avatarClasses = {
 ```
 
 **Key patterns**:
+
 - Section background: `bg-gray-50` (extends beyond card with `-mx-5 px-5`)
 - Comment bubbles: `rounded-t-none` for speech bubble effect
 - Input: `rounded-full`, `focus:border-indigo-400`
@@ -348,24 +371,26 @@ const avatarClasses = {
 
 ## Typography Scale
 
-| Element | Class | Size |
-|---------|-------|------|
-| Page title | `text-lg font-semibold` | 18px |
-| Post author | `text-sm font-semibold` | 14px |
-| Post body | `text-sm` | 14px |
-| Timestamp | `text-xs` | 12px |
-| Button labels | `text-xs` | 12px |
-| Badges | `text-[10px]` | 10px |
+| Element       | Class                   | Size |
+| ------------- | ----------------------- | ---- |
+| Page title    | `text-lg font-semibold` | 18px |
+| Post author   | `text-sm font-semibold` | 14px |
+| Post body     | `text-sm`               | 14px |
+| Timestamp     | `text-xs`               | 12px |
+| Button labels | `text-xs`               | 12px |
+| Badges        | `text-[10px]`           | 10px |
 
 ---
 
 ## Color Palette
 
 ### Primary Actions
+
 - **Indigo** (primary): `bg-indigo-500 hover:bg-indigo-600`, `text-indigo-500`, `border-indigo-300/400`
 - **Pink** (like/favorite): `text-pink-500`
 
 ### Neutrals
+
 - Background (page): `bg-gray-50`
 - Background (cards): `bg-white`
 - Background (input collapsed): `bg-gray-100`
@@ -377,6 +402,7 @@ const avatarClasses = {
 - Text (placeholder): `text-gray-300`
 
 ### Ticket Accent (Amber)
+
 - Border: `border-amber-200`
 - Background (header): `bg-amber-50`
 - Icon background: `bg-amber-100`
@@ -386,31 +412,34 @@ const avatarClasses = {
 
 ## Spacing Patterns
 
-| Context | Class | Value |
-|---------|-------|-------|
-| Page padding (horizontal) | `px-5` | 20px |
-| Section padding (vertical) | `py-3` | 12px |
-| Card padding (top) | `pt-4` | 16px |
-| Element gap (small) | `gap-1.5` | 6px |
-| Element gap (medium) | `gap-2.5` | 10px |
-| Element gap (large) | `gap-3` | 12px |
-| Bottom margin (elements) | `mb-3` | 12px |
+| Context                    | Class     | Value |
+| -------------------------- | --------- | ----- |
+| Page padding (horizontal)  | `px-5`    | 20px  |
+| Section padding (vertical) | `py-3`    | 12px  |
+| Card padding (top)         | `pt-4`    | 16px  |
+| Element gap (small)        | `gap-1.5` | 6px   |
+| Element gap (medium)       | `gap-2.5` | 10px  |
+| Element gap (large)        | `gap-3`   | 12px  |
+| Bottom margin (elements)   | `mb-3`    | 12px  |
 
 ---
 
 ## Interactive Behaviors
 
 ### Composer
+
 1. **Collapsed → Expanded**: Entire container is clickable, onClick sets `expanded` state
 2. **Post submission**: Validates non-empty text, creates new post, resets state
 3. **Cancel**: Clears text, collapses composer
 
 ### PostCard
+
 1. **Like toggle**: Button changes color to pink, increments/decrements count
 2. **Comment toggle**: Expands/collapses comment section below action bar
 3. **Comment submission**: Enter key or send button, adds comment to local state
 
 ### Video Thumbnail
+
 - Hover: Darkens overlay (`bg-black/10`)
 - Click: Would open video player (not implemented)
 
@@ -459,6 +488,7 @@ type AvatarColor = 'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green';
 ## Icon Sizes
 
 All icons use consistent sizing within their context:
+
 - Header buttons: `w-4 h-4`
 - Action bar: `w-4 h-4` (or `w-3.5 h-3.5` for inline icons)
 - Button labels: `w-3.5 h-3.5`
@@ -468,13 +498,13 @@ All icons use consistent sizing within their context:
 
 ## Border Radius Scale
 
-| Element | Class | Value |
-|---------|-------|-------|
-| Page elements (cards, videos) | `rounded-xl` | 12px |
-| Buttons (small) | `rounded-lg` | 8px |
-| Pills (inputs, chips) | `rounded-full` | 9999px |
-| Avatars | `rounded-full` | 9999px |
-| Badges | `rounded` or `rounded-md` | 4-6px |
+| Element                       | Class                     | Value  |
+| ----------------------------- | ------------------------- | ------ |
+| Page elements (cards, videos) | `rounded-xl`              | 12px   |
+| Buttons (small)               | `rounded-lg`              | 8px    |
+| Pills (inputs, chips)         | `rounded-full`            | 9999px |
+| Avatars                       | `rounded-full`            | 9999px |
+| Badges                        | `rounded` or `rounded-md` | 4-6px  |
 
 ---
 

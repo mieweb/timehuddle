@@ -338,18 +338,18 @@ Ticket (1) ──< WorkItem (M) ──< Timer (M)
 
 Team communication feed for sharing updates, linking tickets, and posting media attachments. Posts are visible to all team members.
 
-| Method   | Path                     | Auth   | Description                                        |
-| -------- | ------------------------ | ------ | -------------------------------------------------- |
-| `GET`    | `/v1/huddle/posts`       | Member | List posts for a team (`?teamId=`)                 |
-| `POST`   | `/v1/huddle/posts`       | Member | Create a post with text, mentions, ticket, media   |
-| `PATCH`  | `/v1/huddle/posts/:id`   | Author | Update post content (author only)                  |
-| `DELETE` | `/v1/huddle/posts/:id`   | Auth   | Delete post (author/admin/org owner)               |
+| Method   | Path                   | Auth   | Description                                      |
+| -------- | ---------------------- | ------ | ------------------------------------------------ |
+| `GET`    | `/v1/huddle/posts`     | Member | List posts for a team (`?teamId=`)               |
+| `POST`   | `/v1/huddle/posts`     | Member | Create a post with text, mentions, ticket, media |
+| `PATCH`  | `/v1/huddle/posts/:id` | Author | Update post content (author only)                |
+| `DELETE` | `/v1/huddle/posts/:id` | Auth   | Delete post (author/admin/org owner)             |
 
 **WebSocket — Huddle**
 
-| Protocol | Path             | Description                                                |
-| -------- | ---------------- | ---------------------------------------------------------- |
-| `WS`     | `/v1/huddle/ws`  | Real-time post stream (`?teamId=&token=`); snapshot + diffs |
+| Protocol | Path            | Description                                                 |
+| -------- | --------------- | ----------------------------------------------------------- |
+| `WS`     | `/v1/huddle/ws` | Real-time post stream (`?teamId=&token=`); snapshot + diffs |
 
 **Post Structure**
 

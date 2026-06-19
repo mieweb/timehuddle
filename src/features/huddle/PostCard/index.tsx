@@ -2,24 +2,35 @@ import { useState, useRef, useEffect } from 'react';
 import type { HuddlePost } from '@lib/api';
 import { huddleApi } from '@lib/api';
 import { MarkdownContent } from '../MarkdownContent';
-import { HuddleComments } from '../HuddleComments';import { Share } from '@capacitor/share';
+import { HuddleComments } from '../HuddleComments';
+import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
 // ── Avatar ────────────────────────────────────────────────────────────────────
 type AvatarColor = 'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green';
 
 const avatarClasses: Record<AvatarColor, string> = {
   indigo: 'bg-indigo-100 text-indigo-600',
-  teal:   'bg-teal-100 text-teal-600',
-  coral:  'bg-red-100 text-red-500',
-  amber:  'bg-amber-100 text-amber-600',
-  pink:   'bg-pink-100 text-pink-500',
-  green:  'bg-green-100 text-green-600',
+  teal: 'bg-teal-100 text-teal-600',
+  coral: 'bg-red-100 text-red-500',
+  amber: 'bg-amber-100 text-amber-600',
+  pink: 'bg-pink-100 text-pink-500',
+  green: 'bg-green-100 text-green-600',
 };
 
-function Avatar({ initials, color, size = 'md' }: { initials: string; color: AvatarColor; size?: 'sm' | 'md' }) {
+function Avatar({
+  initials,
+  color,
+  size = 'md',
+}: {
+  initials: string;
+  color: AvatarColor;
+  size?: 'sm' | 'md';
+}) {
   const sz = size === 'sm' ? 'w-7 h-7 text-[10px]' : 'w-9 h-9 text-[13px]';
   return (
-    <div className={`${sz} rounded-full flex items-center justify-center font-semibold shrink-0 ${avatarClasses[color]}`}>
+    <div
+      className={`${sz} rounded-full flex items-center justify-center font-semibold shrink-0 ${avatarClasses[color]}`}
+    >
       {initials}
     </div>
   );
@@ -46,18 +57,24 @@ interface PostCardProps {
   onPostUpdated?: () => void;
 }
 
-export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdated }: PostCardProps) {
-  const [isEditing, setIsEditing]     = useState(false);
+export function PostCard({
+  post,
+  currentUserId,
+  canEdit,
+  canDelete,
+  onPostUpdated,
+}: PostCardProps) {
+  const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(post.content.text);
-  const [editTab, setEditTab]         = useState<'write' | 'preview'>('write');
-  const [showMenu, setShowMenu]       = useState(false);
-  const [isDeleting, setIsDeleting]   = useState(false);
+  const [editTab, setEditTab] = useState<'write' | 'preview'>('write');
+  const [showMenu, setShowMenu] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [showComments, setShowComments] = useState(false);
-  const [likeCount, setLikeCount]     = useState(post.likes?.length ?? 0);
-  const [hasLiked, setHasLiked]       = useState(post.likes?.includes(currentUserId) ?? false);
+  const [likeCount, setLikeCount] = useState(post.likes?.length ?? 0);
+  const [hasLiked, setHasLiked] = useState(post.likes?.includes(currentUserId) ?? false);
   const [commentCount, setCommentCount] = useState(post.commentCount ?? 0);
-  const menuRef                       = useRef<HTMLDivElement>(null);
-  const editTextareaRef               = useRef<HTMLTextAreaElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -79,7 +96,11 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
     setCommentCount(post.commentCount ?? 0);
   }, [post, currentUserId]);
 
-  const handleEdit = () => { setIsEditing(true); setEditTab('write'); setShowMenu(false); };
+  const handleEdit = () => {
+    setIsEditing(true);
+    setEditTab('write');
+    setShowMenu(false);
+  };
 
   const handleSaveEdit = async () => {
     try {
@@ -94,7 +115,10 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
     }
   };
 
-  const handleCancelEdit = () => { setEditContent(post.content.text); setIsEditing(false); };
+  const handleCancelEdit = () => {
+    setEditContent(post.content.text);
+    setIsEditing(false);
+  };
 
   const handleDelete = async () => {
     if (!confirm('Are you sure you want to delete this post?')) return;
@@ -114,35 +138,36 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
   };
 
   const formatTimestamp = (date: string) => {
-    const d       = new Date(date);
-    const now     = new Date();
-    const diffMs  = now.getTime() - d.getTime();
-    const diffMins  = Math.floor(diffMs / 60000);
+    const d = new Date(date);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMins / 60);
-    const diffDays  = Math.floor(diffHours / 24);
-    if (diffMins < 1)  return 'just now';
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffMins < 1) return 'just now';
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7)  return `${diffDays}d ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
     return d.toLocaleDateString();
   };
 
   if (isDeleting) return null;
 
-  const authorName     = (post as any).userName || 'Unknown User';
+  const authorName = (post as any).userName || 'Unknown User';
   const authorInitials = (post as any).userInitials || getUserInitials(authorName);
-  const avatarColor    = getUserColor(post.userId);
+  const avatarColor = getUserColor(post.userId);
 
   return (
     <div className="border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800">
-
       {/* ── Author header ── */}
       <div className="flex items-center gap-2.5 mb-3">
         <Avatar initials={authorInitials} color={avatarColor} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-medium text-sm text-gray-900 dark:text-white">{authorName}</span>
-            <span className="text-xs text-gray-500 dark:text-neutral-400">{formatTimestamp(post.createdAt)}</span>
+            <span className="text-xs text-gray-500 dark:text-neutral-400">
+              {formatTimestamp(post.createdAt)}
+            </span>
             {post.updatedAt && post.updatedAt !== post.createdAt && (
               <span className="text-xs text-gray-400 dark:text-neutral-500 italic">edited</span>
             )}
@@ -156,7 +181,11 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
               className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-neutral-700 transition-colors"
               onClick={() => setShowMenu(!showMenu)}
             >
-              <svg className="w-4 h-4 text-gray-400 dark:text-neutral-500" fill="currentColor" viewBox="0 0 24 24">
+              <svg
+                className="w-4 h-4 text-gray-400 dark:text-neutral-500"
+                fill="currentColor"
+                viewBox="0 0 24 24"
+              >
                 <circle cx="12" cy="5" r="1.5" />
                 <circle cx="12" cy="12" r="1.5" />
                 <circle cx="12" cy="19" r="1.5" />
@@ -193,8 +222,18 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
           onClick={handleTicketClick}
         >
           <div className="w-3.5 h-3.5 rounded bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center shrink-0">
-            <svg className="w-2 h-2 text-amber-500 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+            <svg
+              className="w-2 h-2 text-amber-500 dark:text-amber-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
+              />
             </svg>
           </div>
           <span className="text-xs font-medium text-amber-700 dark:text-amber-300 truncate">
@@ -208,7 +247,7 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
         <div className="mb-3">
           {/* Edit write/preview tabs */}
           <div className="flex gap-1 border-b border-gray-100 dark:border-neutral-700 mb-0">
-            {(['write', 'preview'] as const).map(t => (
+            {(['write', 'preview'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setEditTab(t)}
@@ -228,10 +267,10 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
               ref={editTextareaRef}
               autoFocus
               value={editContent}
-              onChange={e => setEditContent(e.target.value)}
+              onChange={(e) => setEditContent(e.target.value)}
               className="w-full min-h-24 p-3 mt-2 text-sm font-mono border border-gray-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-900 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-neutral-500 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors resize-none leading-relaxed"
               placeholder="Write your post... (markdown supported)"
-              onKeyDown={e => {
+              onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();
                   handleSaveEdit();
@@ -240,10 +279,13 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
             />
           ) : (
             <div className="mt-2 min-h-24 border border-gray-200 dark:border-neutral-700 rounded-lg px-3 py-2.5">
-              {editContent.trim()
-                ? <MarkdownContent content={editContent} />
-                : <span className="text-gray-300 dark:text-neutral-600 text-sm">Nothing to preview...</span>
-              }
+              {editContent.trim() ? (
+                <MarkdownContent content={editContent} />
+              ) : (
+                <span className="text-gray-300 dark:text-neutral-600 text-sm">
+                  Nothing to preview...
+                </span>
+              )}
             </div>
           )}
 
@@ -260,7 +302,9 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
             >
               Cancel
             </button>
-            <span className="text-xs text-gray-300 dark:text-neutral-600 self-center ml-1 hidden sm:block">⌘↵ to save</span>
+            <span className="text-xs text-gray-300 dark:text-neutral-600 self-center ml-1 hidden sm:block">
+              ⌘↵ to save
+            </span>
           </div>
         </div>
       ) : (
@@ -273,24 +317,24 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
       {/* ── Attachments ── */}
       {post.attachments && post.attachments.length > 0 && (
         <div className={`mb-3 ${post.attachments.length === 1 ? '' : 'grid grid-cols-2'} gap-2`}>
-          {post.attachments.map(attachment => (
+          {post.attachments.map((attachment) => (
             <div key={attachment.mediaId} className="relative rounded-xl overflow-hidden">
               {attachment.type === 'image' && (
                 <div className="relative w-full bg-gray-100 dark:bg-neutral-800 rounded-xl max-h-[500px] flex items-center justify-center">
-                  <img 
-                    src={attachment.url} 
-                    alt={attachment.filename || 'Image'} 
-                    className="max-w-full max-h-[500px] object-contain rounded-xl" 
+                  <img
+                    src={attachment.url}
+                    alt={attachment.filename || 'Image'}
+                    className="max-w-full max-h-[500px] object-contain rounded-xl"
                   />
                 </div>
               )}
               {attachment.type === 'video' && (
                 <div className="relative w-full aspect-video bg-black rounded-xl max-h-96">
                   {attachment.thumbnailUrl ? (
-                    <img 
-                      src={attachment.thumbnailUrl} 
-                      alt={attachment.filename || 'Video thumbnail'} 
-                      className="w-full h-full object-cover rounded-xl" 
+                    <img
+                      src={attachment.thumbnailUrl}
+                      alt={attachment.filename || 'Video thumbnail'}
+                      className="w-full h-full object-cover rounded-xl"
                     />
                   ) : (
                     <video controls className="w-full h-full rounded-xl">
@@ -307,12 +351,26 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
                   className="block bg-neutral-100 dark:bg-neutral-700 p-4 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-600 transition-colors"
                 >
                   <div className="flex items-center gap-3">
-                    <svg className="w-8 h-8 text-gray-500 dark:text-neutral-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    <svg
+                      className="w-8 h-8 text-gray-500 dark:text-neutral-400 shrink-0"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                      />
                     </svg>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{attachment.filename || 'Document'}</p>
-                      <p className="text-xs text-gray-500 dark:text-neutral-400">Click to download</p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                        {attachment.filename || 'Document'}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-neutral-400">
+                        Click to download
+                      </p>
                     </div>
                   </div>
                 </a>
@@ -332,7 +390,7 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
               const previousCount = likeCount;
               setHasLiked(!previousLiked);
               setLikeCount(previousLiked ? previousCount - 1 : previousCount + 1);
-              
+
               // Call API (WebSocket will broadcast update to other clients)
               await huddleApi.toggleLike(post.id);
               // Don't set count from response - let WebSocket update handle it
@@ -392,7 +450,10 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
               if (Capacitor.isNativePlatform()) {
                 await Share.share({
                   title: `${authorName}'s post`,
-                  text: post.content.text.length > 200 ? post.content.text.substring(0, 197) + '...' : post.content.text,
+                  text:
+                    post.content.text.length > 200
+                      ? post.content.text.substring(0, 197) + '...'
+                      : post.content.text,
                   url: postUrl,
                   dialogTitle: 'Share post',
                 });
@@ -400,7 +461,10 @@ export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdate
                 // Use Web Share API on web
                 await navigator.share({
                   title: `${authorName}'s post`,
-                  text: post.content.text.length > 200 ? post.content.text.substring(0, 197) + '...' : post.content.text,
+                  text:
+                    post.content.text.length > 200
+                      ? post.content.text.substring(0, 197) + '...'
+                      : post.content.text,
                   url: postUrl,
                 });
               } else {

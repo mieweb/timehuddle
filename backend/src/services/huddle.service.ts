@@ -131,7 +131,7 @@ export class HuddleService {
   /** Find all huddle posts for a specific ticket. */
   async findByTicket(ticketId: string, userId: string): Promise<HuddlePost[] | ServiceError> {
     if (!isValidId(ticketId)) return "not-found";
-    
+
     // First, verify the ticket exists and get its teamId
     const ticket = await ticketsCollection().findOne({ _id: new ObjectId(ticketId) });
     if (!ticket) return "not-found";
@@ -379,20 +379,20 @@ export class HuddleService {
 
     // Send notifications
     const commenter = await usersCollection().findOne({ _id: new ObjectId(data.userId) });
-    const commenterName = commenter?.name || 'Someone';
+    const commenterName = commenter?.name || "Someone";
 
     // Notify post author (if not the commenter)
     if (post.userId !== data.userId) {
       await notificationService.create({
         userId: post.userId,
         title: `${commenterName} commented on your post`,
-        body: data.content.length > 100 ? data.content.substring(0, 97) + '...' : data.content,
+        body: data.content.length > 100 ? data.content.substring(0, 97) + "..." : data.content,
         notificationData: {
-          type: 'huddle-comment',
+          type: "huddle-comment",
           postId: data.postId,
           commentId: comment._id.toHexString(),
           teamId: post.teamId,
-          url: '/app/huddle',
+          url: "/app/huddle",
         },
       });
     }
@@ -405,13 +405,13 @@ export class HuddleService {
       await notificationService.create({
         userId: mentionedUserId,
         title: `${commenterName} mentioned you in a comment`,
-        body: data.content.length > 100 ? data.content.substring(0, 97) + '...' : data.content,
+        body: data.content.length > 100 ? data.content.substring(0, 97) + "..." : data.content,
         notificationData: {
-          type: 'huddle-mention',
+          type: "huddle-mention",
           postId: data.postId,
           commentId: comment._id.toHexString(),
           teamId: post.teamId,
-          url: '/app/huddle',
+          url: "/app/huddle",
         },
       });
     }
@@ -420,10 +420,7 @@ export class HuddleService {
   }
 
   /** Get comments for a huddle post. */
-  async getComments(
-    postId: string,
-    userId: string
-  ): Promise<PublicHuddleComment[] | ServiceError> {
+  async getComments(postId: string, userId: string): Promise<PublicHuddleComment[] | ServiceError> {
     if (!isValidId(postId)) return "not-found";
 
     const post = await huddlePostsCollection().findOne({ _id: new ObjectId(postId) });
@@ -499,7 +496,9 @@ export class HuddleService {
     );
 
     // Broadcast update to WebSocket clients
-    const updatedPost = await huddlePostsCollection().findOne({ _id: new ObjectId(comment.postId) });
+    const updatedPost = await huddlePostsCollection().findOne({
+      _id: new ObjectId(comment.postId),
+    });
     if (updatedPost) {
       broadcast(post.teamId, updatedPost, "update");
     }

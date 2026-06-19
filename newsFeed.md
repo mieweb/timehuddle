@@ -34,7 +34,7 @@ In `src/App.tsx`, import the component and add a route:
 import Huddle from './pages/Huddle';
 
 // inside your <Routes>:
-<Route path="/huddle" element={<Huddle />} />
+<Route path="/huddle" element={<Huddle />} />;
 ```
 
 ### 2. Add a nav link
@@ -68,13 +68,13 @@ type AvatarColor = 'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green';
 interface Post {
   id: string;
   author: string;
-  initials: string;         // e.g. "SK" for Sara Kim
+  initials: string; // e.g. "SK" for Sara Kim
   avatarColor: AvatarColor;
-  time: string;             // display string e.g. "2 hours ago"
-  body: string;             // post text
-  videoFile?: string;       // filename shown on video thumbnail
-  videoTicketId?: number;   // ticket number shown on video badge
-  ticket?: Ticket;          // optional embedded ticket card
+  time: string; // display string e.g. "2 hours ago"
+  body: string; // post text
+  videoFile?: string; // filename shown on video thumbnail
+  videoTicketId?: number; // ticket number shown on video badge
+  ticket?: Ticket; // optional embedded ticket card
   likes: number;
   comments: Comment[];
   views: number;
@@ -82,9 +82,9 @@ interface Post {
 
 interface Ticket {
   id: number;
-  title: string;            // e.g. "#41 — API rate limiting"
+  title: string; // e.g. "#41 — API rate limiting"
   status: 'Open' | 'In progress';
-  time: string;             // logged time e.g. "4h 30m"
+  time: string; // logged time e.g. "4h 30m"
   assignee: string;
 }
 
@@ -116,13 +116,13 @@ export default function Huddle({ posts, onPost }: {
 
 ## Extending it
 
-| What you want | Where to change |
-|---|---|
-| Real video playback | Replace `VideoThumb` with an `<video>` element |
-| Real ticket data | Fetch from backend and pass into `Post.ticket` |
-| @mention support | Add mention parsing inside `ComposeBar` textarea |
-| Infinite scroll | Wrap the post list in an intersection observer |
-| Dark mode | The component is light mode only — wrap with a theme context to toggle |
+| What you want       | Where to change                                                        |
+| ------------------- | ---------------------------------------------------------------------- |
+| Real video playback | Replace `VideoThumb` with an `<video>` element                         |
+| Real ticket data    | Fetch from backend and pass into `Post.ticket`                         |
+| @mention support    | Add mention parsing inside `ComposeBar` textarea                       |
+| Infinite scroll     | Wrap the post list in an intersection observer                         |
+| Dark mode           | The component is light mode only — wrap with a theme context to toggle |
 
 ---
 

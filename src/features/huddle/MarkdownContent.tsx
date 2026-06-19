@@ -21,7 +21,7 @@ function ensureMermaidInit() {
 // memo() means this component only re-renders if `code` actually changes —
 // parent re-renders won't touch it, eliminating the flicker completely.
 const MermaidBlock = memo(function MermaidBlock({ code }: { code: string }) {
-  const ref      = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
   const stableId = useRef('mermaid-' + Math.random().toString(36).slice(2));
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -41,7 +41,9 @@ const MermaidBlock = memo(function MermaidBlock({ code }: { code: string }) {
       }
     }, 300);
 
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
   }, [code]);
 
   return (
@@ -92,13 +94,17 @@ export const MarkdownContent = memo(function MarkdownContent({ content }: { cont
         ]}
         components={{
           code({ className, children, node, ...rest }) {
-            const code        = String(children).trim();
+            const code = String(children).trim();
             const nodeClasses = (node?.properties?.className as string[]) ?? [];
             // Check all possible places rehype might store the language class
-            const allClasses  = [className, ...nodeClasses].filter(Boolean).join(' ');
-            const isMermaid   = allClasses.includes('mermaid');
+            const allClasses = [className, ...nodeClasses].filter(Boolean).join(' ');
+            const isMermaid = allClasses.includes('mermaid');
             if (isMermaid) return <MermaidBlock code={code} />;
-            return <code className={className} {...rest}>{children}</code>;
+            return (
+              <code className={className} {...rest}>
+                {children}
+              </code>
+            );
           },
           table({ children }) {
             return (
@@ -109,12 +115,20 @@ export const MarkdownContent = memo(function MarkdownContent({ content }: { cont
               </div>
             );
           },
-          thead({ children }) { return <thead className="bg-neutral-800">{children}</thead>; },
+          thead({ children }) {
+            return <thead className="bg-neutral-800">{children}</thead>;
+          },
           th({ children }) {
-            return <th className="px-3 py-2 text-neutral-300 font-medium text-left border-b border-neutral-700">{children}</th>;
+            return (
+              <th className="px-3 py-2 text-neutral-300 font-medium text-left border-b border-neutral-700">
+                {children}
+              </th>
+            );
           },
           td({ children }) {
-            return <td className="px-3 py-2 text-neutral-300 border-b border-neutral-800">{children}</td>;
+            return (
+              <td className="px-3 py-2 text-neutral-300 border-b border-neutral-800">{children}</td>
+            );
           },
           tr({ children }) {
             return <tr className="hover:bg-neutral-800/50 transition-colors">{children}</tr>;
@@ -126,10 +140,15 @@ export const MarkdownContent = memo(function MarkdownContent({ content }: { cont
                 if (parts.length === 1) return child;
                 return parts.map((part, i) =>
                   part.startsWith('@') ? (
-                    <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 text-xs font-medium">
+                    <span
+                      key={i}
+                      className="inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 text-xs font-medium"
+                    >
                       {part}
                     </span>
-                  ) : part
+                  ) : (
+                    part
+                  ),
                 );
               }
               return child;

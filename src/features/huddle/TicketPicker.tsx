@@ -36,12 +36,12 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
 
   const loadTickets = async () => {
     console.log('[TicketPicker] loadTickets called, teamId:', teamId);
-    
+
     if (!teamId) {
       console.error('[TicketPicker] Cannot load tickets: no teamId');
       return;
     }
-    
+
     setLoading(true);
     try {
       console.log('[TicketPicker] Fetching tickets for team:', teamId);
@@ -63,8 +63,8 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
     setSearchQuery('');
   };
 
-  const filteredTickets = tickets.filter(ticket =>
-    ticket.title.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredTickets = tickets.filter((ticket) =>
+    ticket.title.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   return (
@@ -75,7 +75,12 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
         className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-neutral-400 border border-gray-200 dark:border-neutral-700 px-3 py-1.5 rounded-full hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
+          />
         </svg>
         Ticket
       </button>
@@ -87,7 +92,7 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
             <input
               type="text"
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search tickets..."
               className="w-full bg-gray-50 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-700 rounded-lg px-3 py-2 text-xs text-gray-700 dark:text-neutral-300 placeholder:text-gray-400 dark:placeholder:text-neutral-600 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors"
             />
@@ -96,21 +101,37 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
           {/* Ticket list */}
           <div className="max-h-64 overflow-y-auto overflow-x-hidden">
             {loading ? (
-              <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">Loading tickets...</div>
+              <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">
+                Loading tickets...
+              </div>
             ) : filteredTickets.length === 0 ? (
-              <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">No tickets found</div>
+              <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">
+                No tickets found
+              </div>
             ) : (
-              filteredTickets.map(ticket => (
+              filteredTickets.map((ticket) => (
                 <button
                   key={ticket.id}
                   onClick={() => handleSelect(ticket.id)}
                   className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors ${
-                    selectedId === ticket.id ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400' : 'text-gray-700 dark:text-neutral-300'
+                    selectedId === ticket.id
+                      ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
+                      : 'text-gray-700 dark:text-neutral-300'
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                    <svg
+                      className="w-3.5 h-3.5 shrink-0"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
+                      />
                     </svg>
                     <span className="flex-1 truncate min-w-0">{ticket.title}</span>
                     {ticket.status && (

@@ -906,9 +906,9 @@ export interface HuddleComment {
 export const huddleApi = {
   /** Fetch all huddle posts for a team. */
   getPosts: (teamId: string) =>
-    request<{ posts: HuddlePost[] }>(
-      `/v1/huddle/posts?teamId=${encodeURIComponent(teamId)}`,
-    ).then((r) => r.posts),
+    request<{ posts: HuddlePost[] }>(`/v1/huddle/posts?teamId=${encodeURIComponent(teamId)}`).then(
+      (r) => r.posts,
+    ),
 
   /** Fetch all huddle posts for a specific ticket. */
   getPostsByTicket: (ticketId: string) =>

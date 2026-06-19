@@ -9,6 +9,7 @@ The backend is working correctly and sending userName and userInitials.
    - On web: Press Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows) to hard refresh
 
 2. **Check browser console** - After refresh, you should see logs like:
+
    ```
    [Huddle] Received snapshot: 2 posts
    [Huddle] First post sample: {userName: "Jane Doe", userInitials: "JD", ...}
@@ -21,7 +22,7 @@ The backend is working correctly and sending userName and userInitials.
 ## What Was Fixed:
 
 - ✅ Backend WebSocket now enriches posts with userName and userInitials
-- ✅ Backend HTTP API enriches posts with userName and userInitials  
+- ✅ Backend HTTP API enriches posts with userName and userInitials
 - ✅ Frontend displays the userName above timestamp
 - ✅ Frontend shows initials in colored avatar circles
 

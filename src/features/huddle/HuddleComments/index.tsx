@@ -115,14 +115,14 @@ export function HuddleComments({
 
     try {
       setSubmitting(true);
-      
+
       // Parse @mentions from content (format: @username or @jane)
       // Extract unique user IDs from mentions
       const mentionUserIds: string[] = [];
-      
+
       // ⚠️ LIMITATION: @mentions currently send empty array to backend
       // This means @mention text is displayed but does NOT trigger notifications
-      // 
+      //
       // SOLUTION NEEDED:
       // 1. Add GET /v1/teams/:teamId/members endpoint to fetch team member list
       // 2. Add autocomplete dropdown that appears when typing '@' in comment box
@@ -131,7 +131,7 @@ export function HuddleComments({
       // 5. Backend already validates mentions and sends notifications ✅
       //
       // Until implemented, @mentions are visual-only decoration
-      
+
       await huddleApi.addComment(postId, {
         content: newComment,
         mentions: mentionUserIds,

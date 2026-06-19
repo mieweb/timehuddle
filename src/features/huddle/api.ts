@@ -15,12 +15,12 @@ export async function fetchTeamMembers(teamId: string): Promise<TeamMember[]> {
  */
 export async function fetchTeamTickets(teamId: string) {
   console.log('[fetchTeamTickets] Called with teamId:', teamId, 'type:', typeof teamId);
-  
+
   if (!teamId) {
     console.error('[fetchTeamTickets] No teamId provided');
     throw new Error('Team ID is required to fetch tickets');
   }
-  
+
   try {
     console.log('[fetchTeamTickets] Calling ticketApi.getTickets...');
     const tickets = await ticketApi.getTickets(teamId);

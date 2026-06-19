@@ -54,7 +54,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // makes Fastify honour x-forwarded-proto / x-forwarded-host so internal
   // URLs (e.g. the TUS `Location` header from @mieweb/pulsevault) are built
   // with the correct https:// scheme and avoid Mixed Content blocks.
-  const app = Fastify({ 
+  const app = Fastify({
     logger: opts.logger ?? true,
     bodyLimit: 100 * 1024 * 1024, // 100 MB — supports video and document uploads
     trustProxy: true,

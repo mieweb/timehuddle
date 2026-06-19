@@ -35,7 +35,7 @@ export function MentionMenu({ teamId, onSelect }: MentionMenuProps) {
 
   const loadMembers = async () => {
     if (!teamId) return;
-    
+
     setLoading(true);
     try {
       const data = await fetchTeamMembers(teamId);
@@ -53,8 +53,8 @@ export function MentionMenu({ teamId, onSelect }: MentionMenuProps) {
     setSearchQuery('');
   };
 
-  const filteredMembers = members.filter(member =>
-    member.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredMembers = members.filter((member) =>
+    member.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   return (
@@ -65,7 +65,12 @@ export function MentionMenu({ teamId, onSelect }: MentionMenuProps) {
         className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-neutral-400 border border-gray-200 dark:border-neutral-700 px-3 py-1.5 rounded-full hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"
+          />
         </svg>
         @Mention
       </button>
@@ -77,7 +82,7 @@ export function MentionMenu({ teamId, onSelect }: MentionMenuProps) {
             <input
               type="text"
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search members..."
               autoFocus
               className="w-full bg-gray-50 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-700 rounded-lg px-3 py-2 text-xs text-gray-700 dark:text-neutral-300 placeholder:text-gray-400 dark:placeholder:text-neutral-600 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors"
@@ -87,11 +92,15 @@ export function MentionMenu({ teamId, onSelect }: MentionMenuProps) {
           {/* Members list */}
           <div className="max-h-64 overflow-y-auto">
             {loading ? (
-              <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">Loading members...</div>
+              <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">
+                Loading members...
+              </div>
             ) : filteredMembers.length === 0 ? (
-              <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">No members found</div>
+              <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">
+                No members found
+              </div>
             ) : (
-              filteredMembers.map(member => (
+              filteredMembers.map((member) => (
                 <button
                   key={member.id}
                   onClick={() => handleSelect(member.id, member.name)}
@@ -111,7 +120,9 @@ export function MentionMenu({ teamId, onSelect }: MentionMenuProps) {
                     )}
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{member.name}</div>
-                      <div className="text-[10px] text-gray-400 dark:text-neutral-500 truncate">{member.email}</div>
+                      <div className="text-[10px] text-gray-400 dark:text-neutral-500 truncate">
+                        {member.email}
+                      </div>
                     </div>
                   </div>
                 </button>

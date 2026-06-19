@@ -69,7 +69,9 @@ function documentExtFromMime(mimeType: string): string | null {
   }
 }
 
-function getFileTypeAndExt(mimeType: string): { type: "image" | "video" | "document"; ext: string } | null {
+function getFileTypeAndExt(
+  mimeType: string
+): { type: "image" | "video" | "document"; ext: string } | null {
   const imageExt = imageExtFromMime(mimeType);
   if (imageExt) return { type: "image", ext: imageExt };
 

@@ -12,7 +12,7 @@ import type { HuddlePost, PublicHuddlePost } from "../models/huddle-post.model.j
 
 function getUserInitials(name: string): string {
   const trimmed = name.trim();
-  if (!trimmed) return '??'; // Defensive: never return empty string
+  if (!trimmed) return "??"; // Defensive: never return empty string
   const parts = trimmed.split(/\s+/);
   if (parts.length >= 2) {
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();

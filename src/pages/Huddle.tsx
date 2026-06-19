@@ -15,14 +15,17 @@ function getUserInitials(name: string): string {
 }
 
 function getUserColor(userId: string): 'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green' {
-  const colors: Array<'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green'> = ['indigo', 'teal', 'coral', 'amber', 'pink', 'green'];
+  const colors: Array<'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green'> = [
+    'indigo',
+    'teal',
+    'coral',
+    'amber',
+    'pink',
+    'green',
+  ];
   const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   return colors[hash % colors.length];
 }
-
-
-
-
 
 export default function Huddle() {
   const [posts, setPosts] = useState<HuddlePost[]>([]);
@@ -44,7 +47,7 @@ export default function Huddle() {
 
       try {
         const teams = await teamApi.getTeams();
-        const foundTeam = teams.find(t => t.id === selectedTeamId);
+        const foundTeam = teams.find((t) => t.id === selectedTeamId);
         setTeam(foundTeam || null);
       } catch (err) {
         console.error('[Huddle] Failed to load team:', err);
@@ -89,7 +92,7 @@ export default function Huddle() {
     ws.onmessage = (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data as string);
-        
+
         if (data.type === 'snapshot') {
           // Initial snapshot - replace all posts
           console.log('[Huddle] Received snapshot:', data.posts.length, 'posts');
@@ -100,8 +103,8 @@ export default function Huddle() {
         } else if (data.type === 'create') {
           // New post created
           console.log('[Huddle] Received create event:', data.post);
-          setPosts(prev => {
-            const existing = prev.findIndex(p => p.id === data.post.id);
+          setPosts((prev) => {
+            const existing = prev.findIndex((p) => p.id === data.post.id);
             if (existing >= 0) {
               // Update existing post
               const updated = [...prev];
@@ -114,8 +117,8 @@ export default function Huddle() {
         } else if (data.type === 'update') {
           // Post updated (e.g., comment count changed)
           console.log('[Huddle] Received update event:', data.post);
-          setPosts(prev => {
-            const existing = prev.findIndex(p => p.id === data.post.id);
+          setPosts((prev) => {
+            const existing = prev.findIndex((p) => p.id === data.post.id);
             if (existing >= 0) {
               const updated = [...prev];
               updated[existing] = data.post;
@@ -125,7 +128,7 @@ export default function Huddle() {
           });
         } else if (data.type === 'delete') {
           // Post deleted
-          setPosts(prev => prev.filter(p => p.id !== data.postId));
+          setPosts((prev) => prev.filter((p) => p.id !== data.postId));
         }
       } catch (err) {
         console.error('[Huddle] WebSocket message error:', err);
@@ -143,9 +146,9 @@ export default function Huddle() {
         alert('Please select a team first');
         return;
       }
-    
+
       // Prepare attachments for API
-      const attachments = content.attachments.map(att => {
+      const attachments = content.attachments.map((att) => {
         // Map MediaItem type to attachment type
         let type: 'image' | 'video' | 'file';
         if (att.type === 'image') {
@@ -158,7 +161,7 @@ export default function Huddle() {
           // Fallback based on mimeType
           type = att.mimeType?.startsWith('image/') ? 'image' : 'file';
         }
-        
+
         return {
           mediaId: att.id,
           type,
@@ -168,7 +171,7 @@ export default function Huddle() {
       });
 
       // Extract user IDs from mentions
-      const mentionUserIds = (content.mentions || []).map(m => m.userId);
+      const mentionUserIds = (content.mentions || []).map((m) => m.userId);
 
       // Call API to create post
       await huddleApi.createPost({
@@ -205,8 +208,9 @@ export default function Huddle() {
     if (!user || !team) return false;
     const isAuthor = post.userId === user.id;
     const isTeamAdmin = team.admins.includes(user.id);
-    const isOrgOwner = user.organizationMembership?.role === 'owner' && 
-                       user.organizationMembership?.organizationId === team.orgId;
+    const isOrgOwner =
+      user.organizationMembership?.role === 'owner' &&
+      user.organizationMembership?.organizationId === team.orgId;
     return isAuthor || isTeamAdmin || isOrgOwner;
   }
 
@@ -221,24 +225,46 @@ export default function Huddle() {
       <div className="sticky top-0 z-10 bg-white dark:bg-neutral-800 shrink-0">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 dark:border-neutral-700">
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-neutral-100 tracking-tight">Huddle</h1>
+          <h1 className="text-lg font-semibold text-gray-900 dark:text-neutral-100 tracking-tight">
+            Huddle
+          </h1>
           <div className="flex gap-2">
-            <button 
+            <button
               onClick={() => setShowSearch(!showSearch)}
               className="w-8 h-8 rounded-full bg-gray-100 dark:bg-neutral-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-neutral-600 transition-colors"
               title="Search posts"
             >
-              <svg className="w-4 h-4 text-gray-500 dark:text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              <svg
+                className="w-4 h-4 text-gray-500 dark:text-neutral-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
               </svg>
             </button>
-            <a 
+            <a
               href="/app/notifications"
               className="w-8 h-8 rounded-full bg-gray-100 dark:bg-neutral-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-neutral-600 transition-colors"
               title="Notifications"
             >
-              <svg className="w-4 h-4 text-gray-500 dark:text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              <svg
+                className="w-4 h-4 text-gray-500 dark:text-neutral-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
+                />
               </svg>
             </a>
           </div>
@@ -256,8 +282,18 @@ export default function Huddle() {
                 className="w-full px-4 py-2 pl-10 text-sm bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-neutral-500"
                 autoFocus
               />
-              <svg className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              <svg
+                className="absolute left-3 top-2.5 w-4 h-4 text-gray-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
               </svg>
             </div>
           </div>
@@ -265,7 +301,7 @@ export default function Huddle() {
 
         {/* Composer - part of sticky section */}
         {selectedTeamId && (
-          <HuddleComposer 
+          <HuddleComposer
             onPost={addPost}
             userInitials={user ? getUserInitials(user.name) : 'U'}
             userColor={user ? getUserColor(user.id) : 'indigo'}
@@ -277,7 +313,9 @@ export default function Huddle() {
       <div className="flex-1 overflow-y-auto">
         {!selectedTeamId && (
           <div className="flex items-center justify-center py-16 px-4">
-            <p className="text-sm text-gray-500 dark:text-neutral-400">Please select a team to view the huddle feed</p>
+            <p className="text-sm text-gray-500 dark:text-neutral-400">
+              Please select a team to view the huddle feed
+            </p>
           </div>
         )}
 
@@ -299,30 +337,35 @@ export default function Huddle() {
 
             {!loading && !error && posts.length === 0 && (
               <div className="flex items-center justify-center py-16 px-4">
-                <p className="text-sm text-gray-500 dark:text-neutral-400">No posts yet. Be the first to share!</p>
+                <p className="text-sm text-gray-500 dark:text-neutral-400">
+                  No posts yet. Be the first to share!
+                </p>
               </div>
             )}
 
-            {!loading && !error && user && posts
-              .filter(post => {
-                if (!searchQuery.trim()) return true;
-                const query = searchQuery.toLowerCase();
-                return (
-                  post.content.text.toLowerCase().includes(query) ||
-                  post.userName?.toLowerCase().includes(query) ||
-                  post.ticketTitle?.toLowerCase().includes(query)
-                );
-              })
-              .map(post => (
-                <PostCard 
-                  key={post.id} 
-                  post={post}
-                  currentUserId={user?.id ?? ''}
-                  canEdit={canEditPost(post)}
-                  canDelete={canDeletePost(post)}
-                  onPostUpdated={handlePostUpdated}
-                />
-              ))}
+            {!loading &&
+              !error &&
+              user &&
+              posts
+                .filter((post) => {
+                  if (!searchQuery.trim()) return true;
+                  const query = searchQuery.toLowerCase();
+                  return (
+                    post.content.text.toLowerCase().includes(query) ||
+                    post.userName?.toLowerCase().includes(query) ||
+                    post.ticketTitle?.toLowerCase().includes(query)
+                  );
+                })
+                .map((post) => (
+                  <PostCard
+                    key={post.id}
+                    post={post}
+                    currentUserId={user?.id ?? ''}
+                    canEdit={canEditPost(post)}
+                    canDelete={canDeletePost(post)}
+                    onPostUpdated={handlePostUpdated}
+                  />
+                ))}
           </>
         )}
       </div>
