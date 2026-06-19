@@ -193,6 +193,9 @@ const AppLayoutContent: React.FC = () => {
             detail: { clockEventId: data.clockEventId, teamId: data.teamId },
           }),
         );
+      } else if (data.type === 'huddle-comment' || data.type === 'huddle-mention') {
+        // Navigate to huddle page (future: scroll to specific post via postId)
+        navigate('/app/huddle');
       } else if (data.url) {
         const safePath = data.url.split('?')[0];
         if (safePath.startsWith('/app/')) {

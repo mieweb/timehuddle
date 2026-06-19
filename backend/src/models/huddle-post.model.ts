@@ -16,6 +16,8 @@ export interface HuddlePost {
     thumbnailUrl?: string;
     filename?: string;
   }>;
+  likes?: string[]; // array of userId strings who liked this post
+  commentCount?: number; // denormalized count for performance
   createdAt: Date;
   updatedAt: Date;
 }
@@ -39,6 +41,8 @@ export interface PublicHuddlePost {
     thumbnailUrl?: string;
     filename?: string;
   }>;
+  likes: string[]; // array of userId strings
+  commentCount: number;
   createdAt: string; // ISO
   updatedAt: string; // ISO
 }

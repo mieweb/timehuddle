@@ -43,6 +43,8 @@ async function toPublicHuddlePost(post: HuddlePost): Promise<PublicHuddlePost> {
     ticketId: post.ticketId,
     ticketTitle,
     attachments: post.attachments,
+    likes: post.likes ?? [],
+    commentCount: post.commentCount ?? 0,
     createdAt: post.createdAt.toISOString(),
     updatedAt: post.updatedAt.toISOString(),
   };
@@ -109,6 +111,15 @@ export async function huddleWsRoutes(app: FastifyInstance) {
           socket.send(
             JSON.stringify({
               type: "create",
+              teamId: broadcastTeamId,
+              post: enrichedPost,
+            })
+          );
+        } else if (action === "update") {
+          const enrichedPost = await toPublicHuddlePost(post);
+          socket.send(
+            JSON.stringify({
+              type: "update",
               teamId: broadcastTeamId,
               post: enrichedPost,
             })

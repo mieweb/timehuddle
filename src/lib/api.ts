@@ -801,6 +801,21 @@ export interface HuddlePost {
     thumbnailUrl?: string;
     filename?: string;
   }>;
+  likes: string[];
+  commentCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HuddleComment {
+  id: string;
+  postId: string;
+  userId: string;
+  userName: string;
+  userInitials: string;
+  userAvatarUrl?: string;
+  content: string;
+  mentions: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -856,6 +871,31 @@ export const huddleApi = {
       const token = sessionToken.get();
       const base = `${WS_BASE_URL}/v1/huddle/ws?teamId=${encodeURIComponent(teamId)}`;
       return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+    }),
+
+  /** Toggle like on a post */
+  toggleLike: (postId: string) =>
+    request<{ count: number }>(`/v1/huddle/posts/${encodeURIComponent(postId)}/like`, {
+      method: 'POST',
+    }).then((r) => r.count),
+
+  /** Get comments for a post */
+  getComments: (postId: string) =>
+    request<{ comments: HuddleComment[] }>(
+      `/v1/huddle/posts/${encodeURIComponent(postId)}/comments`,
+    ).then((r) => r.comments),
+
+  /** Add a comment to a post */
+  addComment: (postId: string, data: { content: string; mentions: string[] }) =>
+    request<{ id: string }>(`/v1/huddle/posts/${encodeURIComponent(postId)}/comments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.id),
+
+  /** Delete a comment */
+  deleteComment: (commentId: string) =>
+    request<{ ok: boolean }>(`/v1/huddle/comments/${encodeURIComponent(commentId)}`, {
+      method: 'DELETE',
     }),
 };
 

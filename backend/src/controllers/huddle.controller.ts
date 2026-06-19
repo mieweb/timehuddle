@@ -37,6 +37,8 @@ async function toPublicHuddlePost(post: HuddlePost): Promise<PublicHuddlePost> {
     ticketId: post.ticketId,
     ticketTitle,
     attachments: post.attachments,
+    likes: post.likes ?? [],
+    commentCount: post.commentCount ?? 0,
     createdAt: post.createdAt.toISOString(),
     updatedAt: post.updatedAt.toISOString(),
   };
@@ -170,6 +172,97 @@ export const huddleController = {
 
     if (result === "not-found") {
       return reply.status(404).send({ error: "Huddle post not found" });
+    }
+    if (result === "forbidden") {
+      return reply.status(403).send({ error: "Forbidden" });
+    }
+
+    return { ok: true };
+  },
+
+  async toggleLike(req: FastifyRequest, reply: FastifyReply) {
+    const userId = req.user!.id;
+    const { postId } = req.params as { postId: string };
+
+    const result = await huddleService.toggleLike(postId, userId);
+
+    if (result === "not-found") {
+      return reply.status(404).send({ error: "Huddle post not found" });
+    }
+    if (result === "forbidden") {
+      return reply.status(403).send({ error: "Forbidden" });
+    }
+
+    // Type guard
+    if (typeof result === "string") {
+      return reply.status(500).send({ error: "Unexpected error" });
+    }
+
+    return { count: result.count };
+  },
+
+  async addComment(req: FastifyRequest, reply: FastifyReply) {
+    const userId = req.user!.id;
+    const { postId } = req.params as { postId: string };
+    const { content, mentions } = req.body as {
+      content: string;
+      mentions: string[];
+    };
+
+    const result = await huddleService.addComment({
+      postId,
+      userId,
+      content,
+      mentions: mentions ?? [],
+    });
+
+    if (result === "not-found") {
+      return reply.status(404).send({ error: "Huddle post not found" });
+    }
+    if (result === "forbidden") {
+      return reply.status(403).send({ error: "Forbidden" });
+    }
+    if (result === "invalid-mentions") {
+      return reply.status(400).send({ error: "One or more mentioned users not found" });
+    }
+
+    // Type guard
+    if (typeof result === "string") {
+      return reply.status(500).send({ error: "Unexpected error" });
+    }
+
+    return { id: result.id };
+  },
+
+  async getComments(req: FastifyRequest, reply: FastifyReply) {
+    const userId = req.user!.id;
+    const { postId } = req.params as { postId: string };
+
+    const result = await huddleService.getComments(postId, userId);
+
+    if (result === "not-found") {
+      return reply.status(404).send({ error: "Huddle post not found" });
+    }
+    if (result === "forbidden") {
+      return reply.status(403).send({ error: "Forbidden" });
+    }
+
+    // Type guard
+    if (typeof result === "string") {
+      return reply.status(500).send({ error: "Unexpected error" });
+    }
+
+    return { comments: result };
+  },
+
+  async deleteComment(req: FastifyRequest, reply: FastifyReply) {
+    const userId = req.user!.id;
+    const { commentId } = req.params as { commentId: string };
+
+    const result = await huddleService.deleteComment(commentId, userId);
+
+    if (result === "not-found") {
+      return reply.status(404).send({ error: "Comment not found" });
     }
     if (result === "forbidden") {
       return reply.status(403).send({ error: "Forbidden" });

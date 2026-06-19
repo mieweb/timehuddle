@@ -2,15 +2,19 @@ import { subject } from "@casl/ability";
 import { ObjectId } from "mongodb";
 import {
   huddlePostsCollection,
+  huddleCommentsCollection,
   teamsCollection,
   ticketsCollection,
   usersCollection,
   orgMembersCollection,
   organizationsCollection,
   enterprisesCollection,
+  profilesCollection,
 } from "../models/index.js";
 import { buildAbilityFor } from "../lib/permissions.js";
 import type { HuddlePost } from "../models/huddle-post.model.js";
+import type { HuddleComment, PublicHuddleComment } from "../models/huddle-comment.model.js";
+import { notificationService } from "./notification.service.js";
 
 type ServiceError = "not-found" | "forbidden" | "invalid-ticket" | "invalid-mentions";
 
@@ -23,7 +27,7 @@ function isValidId(id: string): boolean {
 type HuddleListener = (
   teamId: string,
   post: HuddlePost,
-  action: "create" | "delete"
+  action: "create" | "update" | "delete"
 ) => void | Promise<void>;
 const huddleListeners = new Map<string, Set<HuddleListener>>();
 
@@ -43,7 +47,7 @@ export function subscribeToTeam(teamId: string, fn: HuddleListener): () => void 
 }
 
 /** Broadcast a huddle post event to all subscribers of the team. */
-function broadcast(teamId: string, post: HuddlePost, action: "create" | "delete") {
+function broadcast(teamId: string, post: HuddlePost, action: "create" | "update" | "delete") {
   const listeners = huddleListeners.get(teamId);
   if (!listeners) return;
   for (const fn of listeners) {
@@ -279,6 +283,238 @@ export class HuddleService {
     broadcast(post.teamId, post, "delete");
 
     return "ok";
+  }
+
+  /** Toggle like on a huddle post. Returns the updated like count. */
+  async toggleLike(postId: string, userId: string): Promise<{ count: number } | ServiceError> {
+    if (!isValidId(postId)) return "not-found";
+
+    const post = await huddlePostsCollection().findOne({ _id: new ObjectId(postId) });
+    if (!post) return "not-found";
+
+    const context = await this.buildTeamAbility(userId, post.teamId);
+    if (!context) return "forbidden";
+    if (!context.ability.can("read", subject("Ticket", { teamId: post.teamId }))) {
+      return "forbidden";
+    }
+
+    const likes = post.likes ?? [];
+    const hasLiked = likes.includes(userId);
+
+    let updatedLikes: string[];
+    if (hasLiked) {
+      // Remove like
+      updatedLikes = likes.filter((id) => id !== userId);
+    } else {
+      // Add like
+      updatedLikes = [...likes, userId];
+    }
+
+    await huddlePostsCollection().updateOne(
+      { _id: new ObjectId(postId) },
+      { $set: { likes: updatedLikes } }
+    );
+
+    // Broadcast update to WebSocket clients
+    const updatedPost = await huddlePostsCollection().findOne({ _id: new ObjectId(postId) });
+    if (updatedPost) {
+      broadcast(post.teamId, updatedPost, "update");
+    }
+
+    return { count: updatedLikes.length };
+  }
+
+  /** Add a comment to a huddle post. */
+  async addComment(data: {
+    postId: string;
+    userId: string;
+    content: string;
+    mentions: string[];
+  }): Promise<{ id: string } | ServiceError> {
+    if (!isValidId(data.postId)) return "not-found";
+
+    const post = await huddlePostsCollection().findOne({ _id: new ObjectId(data.postId) });
+    if (!post) return "not-found";
+
+    const context = await this.buildTeamAbility(data.userId, post.teamId);
+    if (!context) return "forbidden";
+    if (!context.ability.can("read", subject("Ticket", { teamId: post.teamId }))) {
+      return "forbidden";
+    }
+
+    // Validate mentioned users exist
+    if (data.mentions.length > 0) {
+      const mentionedUsers = await usersCollection()
+        .find({ _id: { $in: data.mentions.map((id) => new ObjectId(id)) } })
+        .toArray();
+      if (mentionedUsers.length !== data.mentions.length) {
+        return "invalid-mentions";
+      }
+    }
+
+    const now = new Date();
+    const comment: HuddleComment = {
+      _id: new ObjectId(),
+      postId: data.postId,
+      userId: data.userId,
+      content: data.content,
+      mentions: data.mentions,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await huddleCommentsCollection().insertOne(comment);
+
+    // Increment comment count on post
+    await huddlePostsCollection().updateOne(
+      { _id: new ObjectId(data.postId) },
+      { $inc: { commentCount: 1 } }
+    );
+
+    // Broadcast update to WebSocket clients
+    const updatedPost = await huddlePostsCollection().findOne({ _id: new ObjectId(data.postId) });
+    if (updatedPost) {
+      broadcast(post.teamId, updatedPost, "update");
+    }
+
+    // Send notifications
+    const commenter = await usersCollection().findOne({ _id: new ObjectId(data.userId) });
+    const commenterName = commenter?.name || 'Someone';
+
+    // Notify post author (if not the commenter)
+    if (post.userId !== data.userId) {
+      await notificationService.create({
+        userId: post.userId,
+        title: `${commenterName} commented on your post`,
+        body: data.content.length > 100 ? data.content.substring(0, 97) + '...' : data.content,
+        notificationData: {
+          type: 'huddle-comment',
+          postId: data.postId,
+          commentId: comment._id.toHexString(),
+          teamId: post.teamId,
+          url: '/app/huddle',
+        },
+      });
+    }
+
+    // Notify mentioned users (if any)
+    for (const mentionedUserId of data.mentions) {
+      // Skip if mentioned user is the commenter or post author (already notified)
+      if (mentionedUserId === data.userId || mentionedUserId === post.userId) continue;
+
+      await notificationService.create({
+        userId: mentionedUserId,
+        title: `${commenterName} mentioned you in a comment`,
+        body: data.content.length > 100 ? data.content.substring(0, 97) + '...' : data.content,
+        notificationData: {
+          type: 'huddle-mention',
+          postId: data.postId,
+          commentId: comment._id.toHexString(),
+          teamId: post.teamId,
+          url: '/app/huddle',
+        },
+      });
+    }
+
+    return { id: comment._id.toHexString() };
+  }
+
+  /** Get comments for a huddle post. */
+  async getComments(
+    postId: string,
+    userId: string
+  ): Promise<PublicHuddleComment[] | ServiceError> {
+    if (!isValidId(postId)) return "not-found";
+
+    const post = await huddlePostsCollection().findOne({ _id: new ObjectId(postId) });
+    if (!post) return "not-found";
+
+    const context = await this.buildTeamAbility(userId, post.teamId);
+    if (!context) return "forbidden";
+    if (!context.ability.can("read", subject("Ticket", { teamId: post.teamId }))) {
+      return "forbidden";
+    }
+
+    const comments = await huddleCommentsCollection()
+      .find({ postId })
+      .sort({ createdAt: 1 })
+      .toArray();
+
+    // Enrich with user data
+    const publicComments: PublicHuddleComment[] = await Promise.all(
+      comments.map(async (comment) => {
+        const user = await usersCollection().findOne({ _id: new ObjectId(comment.userId) });
+        const userName = user?.name || "Unknown User";
+        const userInitials = this.getUserInitials(userName);
+
+        // Try to get avatar from profile
+        const profile = await profilesCollection().findOne({ userId: comment.userId });
+        const userAvatarUrl = profile?.avatarUrl ?? user?.image ?? undefined;
+
+        return {
+          id: comment._id.toHexString(),
+          postId: comment.postId,
+          userId: comment.userId,
+          userName,
+          userInitials,
+          userAvatarUrl,
+          content: comment.content,
+          mentions: comment.mentions,
+          createdAt: comment.createdAt.toISOString(),
+          updatedAt: comment.updatedAt.toISOString(),
+        };
+      })
+    );
+
+    return publicComments;
+  }
+
+  /** Delete a comment. Only the author, team admin, or org owner can delete. */
+  async deleteComment(commentId: string, userId: string): Promise<"ok" | ServiceError> {
+    if (!isValidId(commentId)) return "not-found";
+
+    const comment = await huddleCommentsCollection().findOne({ _id: new ObjectId(commentId) });
+    if (!comment) return "not-found";
+
+    const post = await huddlePostsCollection().findOne({ _id: new ObjectId(comment.postId) });
+    if (!post) return "not-found";
+
+    const context = await this.buildTeamAbility(userId, post.teamId);
+    if (!context) return "forbidden";
+
+    // Allow deletion if user is the author, team admin, or org owner
+    const isAuthor = comment.userId === userId;
+    const isTeamAdmin = (context.team.admins ?? []).includes(userId);
+    const orgRole = await this.resolveOrgRoleForTeam(userId, context.team);
+    const isOrgOwner = orgRole === "owner";
+
+    if (!isAuthor && !isTeamAdmin && !isOrgOwner) return "forbidden";
+
+    await huddleCommentsCollection().deleteOne({ _id: new ObjectId(commentId) });
+
+    // Decrement comment count on post
+    await huddlePostsCollection().updateOne(
+      { _id: new ObjectId(comment.postId) },
+      { $inc: { commentCount: -1 } }
+    );
+
+    // Broadcast update to WebSocket clients
+    const updatedPost = await huddlePostsCollection().findOne({ _id: new ObjectId(comment.postId) });
+    if (updatedPost) {
+      broadcast(post.teamId, updatedPost, "update");
+    }
+
+    return "ok";
+  }
+
+  private getUserInitials(name: string): string {
+    const trimmed = name.trim();
+    if (!trimmed) return "??";
+    const parts = trimmed.split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    }
+    return trimmed.substring(0, 2).toUpperCase();
   }
 }
 

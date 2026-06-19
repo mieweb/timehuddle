@@ -29,6 +29,8 @@ export default function Huddle() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const { user } = useSession();
   const { selectedTeamId } = useTeam();
 
@@ -96,7 +98,7 @@ export default function Huddle() {
           }
           setPosts(data.posts);
         } else if (data.type === 'create') {
-          // New post created or updated
+          // New post created
           console.log('[Huddle] Received create event:', data.post);
           setPosts(prev => {
             const existing = prev.findIndex(p => p.id === data.post.id);
@@ -108,6 +110,18 @@ export default function Huddle() {
             }
             // Add new post
             return [data.post, ...prev];
+          });
+        } else if (data.type === 'update') {
+          // Post updated (e.g., comment count changed)
+          console.log('[Huddle] Received update event:', data.post);
+          setPosts(prev => {
+            const existing = prev.findIndex(p => p.id === data.post.id);
+            if (existing >= 0) {
+              const updated = [...prev];
+              updated[existing] = data.post;
+              return updated;
+            }
+            return prev;
           });
         } else if (data.type === 'delete') {
           // Post deleted
@@ -209,18 +223,45 @@ export default function Huddle() {
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 dark:border-neutral-700">
           <h1 className="text-lg font-semibold text-gray-900 dark:text-neutral-100 tracking-tight">Huddle</h1>
           <div className="flex gap-2">
-            <button className="w-8 h-8 rounded-full bg-gray-100 dark:bg-neutral-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-neutral-600 transition-colors">
+            <button 
+              onClick={() => setShowSearch(!showSearch)}
+              className="w-8 h-8 rounded-full bg-gray-100 dark:bg-neutral-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-neutral-600 transition-colors"
+              title="Search posts"
+            >
               <svg className="w-4 h-4 text-gray-500 dark:text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </button>
-            <button className="w-8 h-8 rounded-full bg-gray-100 dark:bg-neutral-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-neutral-600 transition-colors">
+            <a 
+              href="/app/notifications"
+              className="w-8 h-8 rounded-full bg-gray-100 dark:bg-neutral-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-neutral-600 transition-colors"
+              title="Notifications"
+            >
               <svg className="w-4 h-4 text-gray-500 dark:text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
               </svg>
-            </button>
+            </a>
           </div>
         </div>
+
+        {/* Search bar (shows when search button clicked) */}
+        {showSearch && (
+          <div className="px-5 py-3 border-b border-gray-100 dark:border-neutral-700 bg-gray-50 dark:bg-neutral-900">
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search posts..."
+                className="w-full px-4 py-2 pl-10 text-sm bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-neutral-500"
+                autoFocus
+              />
+              <svg className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+          </div>
+        )}
 
         {/* Composer - part of sticky section */}
         {selectedTeamId && (
@@ -262,15 +303,26 @@ export default function Huddle() {
               </div>
             )}
 
-            {!loading && !error && user && posts.map(post => (
-              <PostCard 
-                key={post.id} 
-                post={post}
-                canEdit={canEditPost(post)}
-                canDelete={canDeletePost(post)}
-                onPostUpdated={handlePostUpdated}
-              />
-            ))}
+            {!loading && !error && user && posts
+              .filter(post => {
+                if (!searchQuery.trim()) return true;
+                const query = searchQuery.toLowerCase();
+                return (
+                  post.content.text.toLowerCase().includes(query) ||
+                  post.userName?.toLowerCase().includes(query) ||
+                  post.ticketTitle?.toLowerCase().includes(query)
+                );
+              })
+              .map(post => (
+                <PostCard 
+                  key={post.id} 
+                  post={post}
+                  currentUserId={user?.id ?? ''}
+                  canEdit={canEditPost(post)}
+                  canDelete={canDeletePost(post)}
+                  onPostUpdated={handlePostUpdated}
+                />
+              ))}
           </>
         )}
       </div>

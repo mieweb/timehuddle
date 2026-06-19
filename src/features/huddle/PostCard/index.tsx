@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import type { HuddlePost } from '@lib/api';
 import { huddleApi } from '@lib/api';
 import { MarkdownContent } from '../MarkdownContent';
-
+import { HuddleComments } from '../HuddleComments';import { Share } from '@capacitor/share';
+import { Capacitor } from '@capacitor/core';
 // ── Avatar ────────────────────────────────────────────────────────────────────
 type AvatarColor = 'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green';
 
@@ -39,17 +40,22 @@ function getUserInitials(name: string): string {
 // ── PostCard ──────────────────────────────────────────────────────────────────
 interface PostCardProps {
   post: HuddlePost;
+  currentUserId: string;
   canEdit: boolean;
   canDelete: boolean;
   onPostUpdated?: () => void;
 }
 
-export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardProps) {
+export function PostCard({ post, currentUserId, canEdit, canDelete, onPostUpdated }: PostCardProps) {
   const [isEditing, setIsEditing]     = useState(false);
   const [editContent, setEditContent] = useState(post.content.text);
   const [editTab, setEditTab]         = useState<'write' | 'preview'>('write');
   const [showMenu, setShowMenu]       = useState(false);
   const [isDeleting, setIsDeleting]   = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [likeCount, setLikeCount]     = useState(post.likes?.length ?? 0);
+  const [hasLiked, setHasLiked]       = useState(post.likes?.includes(currentUserId) ?? false);
+  const [commentCount, setCommentCount] = useState(post.commentCount ?? 0);
   const menuRef                       = useRef<HTMLDivElement>(null);
   const editTextareaRef               = useRef<HTMLTextAreaElement>(null);
 
@@ -65,10 +71,13 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
     }
   }, [showMenu]);
 
-  // Reset edit state when post changes
+  // Reset edit state and update counts when post changes
   useEffect(() => {
     setEditContent(post.content.text);
-  }, [post.content.text]);
+    setLikeCount(post.likes?.length ?? 0);
+    setHasLiked(post.likes?.includes(currentUserId) ?? false);
+    setCommentCount(post.commentCount ?? 0);
+  }, [post, currentUserId]);
 
   const handleEdit = () => { setIsEditing(true); setEditTab('write'); setShowMenu(false); };
 
@@ -315,21 +324,127 @@ export function PostCard({ post, canEdit, canDelete, onPostUpdated }: PostCardPr
 
       {/* ── Actions ── */}
       <div className="flex items-center gap-0.5 py-2 border-t border-gray-100 dark:border-neutral-700 -mx-1">
-        <button className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 px-2.5 py-2 rounded-lg transition-colors">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+        <button
+          onClick={async () => {
+            try {
+              // Optimistic update
+              const previousLiked = hasLiked;
+              const previousCount = likeCount;
+              setHasLiked(!previousLiked);
+              setLikeCount(previousLiked ? previousCount - 1 : previousCount + 1);
+              
+              // Call API (WebSocket will broadcast update to other clients)
+              await huddleApi.toggleLike(post.id);
+              // Don't set count from response - let WebSocket update handle it
+            } catch (error) {
+              console.error('[PostCard] Failed to toggle like:', error);
+              // Revert optimistic update on error
+              setHasLiked(hasLiked);
+              setLikeCount(likeCount);
+            }
+          }}
+          className={`flex items-center gap-1.5 text-xs px-2.5 py-2 rounded-lg transition-colors ${
+            hasLiked
+              ? 'text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300'
+              : 'text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400'
+          }`}
+        >
+          <svg
+            className="w-4 h-4"
+            fill={hasLiked ? 'currentColor' : 'none'}
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"
+            />
           </svg>
-          0
+          {likeCount}
         </button>
         <div className="w-px h-4 bg-gray-200 dark:bg-neutral-700 mx-1" />
-        <button className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 px-2.5 py-2 rounded-lg transition-colors">
+        <button
+          onClick={() => setShowComments(!showComments)}
+          className={`flex items-center gap-1.5 text-xs px-2.5 py-2 rounded-lg transition-colors ${
+            showComments
+              ? 'text-indigo-500 dark:text-indigo-400'
+              : 'text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400'
+          }`}
+        >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+            />
           </svg>
-          0
+          {commentCount}
+        </button>
+        <div className="w-px h-4 bg-gray-200 dark:bg-neutral-700 mx-1" />
+        <button
+          onClick={async () => {
+            const postUrl = `${window.location.origin}/app/huddle?postId=${post.id}`;
+            try {
+              // Use Capacitor Share plugin on native platforms
+              if (Capacitor.isNativePlatform()) {
+                await Share.share({
+                  title: `${authorName}'s post`,
+                  text: post.content.text.length > 200 ? post.content.text.substring(0, 197) + '...' : post.content.text,
+                  url: postUrl,
+                  dialogTitle: 'Share post',
+                });
+              } else if (navigator.share) {
+                // Use Web Share API on web
+                await navigator.share({
+                  title: `${authorName}'s post`,
+                  text: post.content.text.length > 200 ? post.content.text.substring(0, 197) + '...' : post.content.text,
+                  url: postUrl,
+                });
+              } else {
+                // Fallback: copy to clipboard
+                await navigator.clipboard.writeText(postUrl);
+                alert('Link copied to clipboard!');
+              }
+            } catch (error) {
+              if ((error as Error).name !== 'AbortError') {
+                console.error('[PostCard] Failed to share:', error);
+              }
+            }
+          }}
+          className="flex items-center gap-1.5 text-xs px-2.5 py-2 rounded-lg transition-colors text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400"
+          title="Share post"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+            />
+          </svg>
+          Share
         </button>
       </div>
 
+      {/* ── Comments section ── */}
+      {showComments && (
+        <HuddleComments
+          postId={post.id}
+          currentUserId={currentUserId}
+          canDelete={canDelete}
+          onCommentAdded={() => {
+            setCommentCount(commentCount + 1);
+            onPostUpdated?.();
+          }}
+          onCommentDeleted={() => {
+            setCommentCount(commentCount - 1);
+            onPostUpdated?.();
+          }}
+        />
+      )}
     </div>
   );
 }

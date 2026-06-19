@@ -207,4 +207,137 @@ export async function huddleRoutes(app: FastifyInstance) {
     },
     huddleController.delete
   );
+
+  // POST /v1/huddle/posts/:postId/like — Toggle like
+  app.post(
+    "/huddle/posts/:postId/like",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Huddle"],
+        summary: "Toggle like on a huddle post (team members only)",
+        params: {
+          type: "object",
+          required: ["postId"],
+          properties: { postId: { type: "string", pattern: "^[0-9a-f]{24}$" } },
+        },
+        response: {
+          200: { type: "object", properties: { count: { type: "number" } } },
+          ...unauth,
+          403: err("Not authorized"),
+          404: err("Huddle post not found"),
+        },
+      },
+    },
+    huddleController.toggleLike
+  );
+
+  // GET /v1/huddle/posts/:postId/comments — Get all comments
+  app.get(
+    "/huddle/posts/:postId/comments",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Huddle"],
+        summary: "Get comments for a huddle post (team members only)",
+        params: {
+          type: "object",
+          required: ["postId"],
+          properties: { postId: { type: "string", pattern: "^[0-9a-f]{24}$" } },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              comments: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    postId: { type: "string" },
+                    userId: { type: "string" },
+                    userName: { type: "string" },
+                    userInitials: { type: "string" },
+                    userAvatarUrl: { type: "string" },
+                    content: { type: "string" },
+                    mentions: { type: "array", items: { type: "string" } },
+                    createdAt: { type: "string" },
+                    updatedAt: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          ...unauth,
+          403: err("Not authorized"),
+          404: err("Huddle post not found"),
+        },
+      },
+    },
+    huddleController.getComments
+  );
+
+  // POST /v1/huddle/posts/:postId/comments — Add a comment
+  app.post(
+    "/huddle/posts/:postId/comments",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Huddle"],
+        summary: "Add a comment to a huddle post (team members only)",
+        params: {
+          type: "object",
+          required: ["postId"],
+          properties: { postId: { type: "string", pattern: "^[0-9a-f]{24}$" } },
+        },
+        body: {
+          type: "object",
+          required: ["content"],
+          properties: {
+            content: { type: "string", minLength: 1, maxLength: 5000 },
+            mentions: { type: "array", items: { type: "string" } },
+          },
+        },
+        response: {
+          201: { type: "object", properties: { id: { type: "string" } } },
+          ...unauth,
+          400: err("Invalid mentioned users"),
+          403: err("Not authorized"),
+          404: err("Huddle post not found"),
+        },
+      },
+    },
+    async (req, reply) => {
+      const result = await huddleController.addComment(req, reply);
+      if (result && "id" in result) {
+        return reply.status(201).send(result);
+      }
+      return result;
+    }
+  );
+
+  // DELETE /v1/huddle/comments/:commentId — Delete a comment
+  app.delete(
+    "/huddle/comments/:commentId",
+    {
+      preHandler: [requireAuth],
+      schema: {
+        tags: ["Huddle"],
+        summary: "Delete a comment (author, team admin, or org owner only)",
+        params: {
+          type: "object",
+          required: ["commentId"],
+          properties: { commentId: { type: "string", pattern: "^[0-9a-f]{24}$" } },
+        },
+        response: {
+          200: { type: "object", properties: { ok: { type: "boolean" } } },
+          ...unauth,
+          403: err("Not authorized"),
+          404: err("Comment not found"),
+        },
+      },
+    },
+    huddleController.deleteComment
+  );
 }
