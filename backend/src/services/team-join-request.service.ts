@@ -41,7 +41,7 @@ class TeamJoinRequestService {
 
     // Notify all team admins
     await this.notifyAdmins(teamId, userId, doc._id.toHexString());
-    
+
     // Broadcast pending requests update to admins
     await this.broadcastPendingRequestsToAdmins(teamId);
 
@@ -95,7 +95,7 @@ class TeamJoinRequestService {
 
     // Notify the requester that they were approved
     await this.notifyRequesterApproved(request.userId, request.teamId, adminId);
-    
+
     // Broadcast pending requests update to admins (request is now gone from pending)
     await this.broadcastPendingRequestsToAdmins(request.teamId);
 
@@ -137,7 +137,7 @@ class TeamJoinRequestService {
 
     // Notify the requester that they were declined
     await this.notifyRequesterDeclined(request.userId, request.teamId, adminId);
-    
+
     // Broadcast pending requests update to admins (request is now gone from pending)
     await this.broadcastPendingRequestsToAdmins(request.teamId);
 

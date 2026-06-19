@@ -1,6 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { auth } from "../lib/auth.js";
-import { teamService, subscribeToUser, subscribeToPendingRequests } from "../services/team.service.js";
+import {
+  teamService,
+  subscribeToUser,
+  subscribeToPendingRequests,
+} from "../services/team.service.js";
 import { teamJoinRequestService } from "../services/team-join-request.service.js";
 
 export async function teamsWsRoutes(app: FastifyInstance) {
@@ -40,12 +44,15 @@ export async function teamsWsRoutes(app: FastifyInstance) {
     });
 
     // Subscribe to pending requests updates
-    const unsubscribePendingRequests = subscribeToPendingRequests(userId, (broadcastUserId, pendingRequests) => {
-      if (broadcastUserId !== userId) return;
-      if (socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify({ type: "pending-requests", pendingRequests }));
+    const unsubscribePendingRequests = subscribeToPendingRequests(
+      userId,
+      (broadcastUserId, pendingRequests) => {
+        if (broadcastUserId !== userId) return;
+        if (socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ type: "pending-requests", pendingRequests }));
+        }
       }
-    });
+    );
 
     socket.on("close", () => {
       unsubscribe();

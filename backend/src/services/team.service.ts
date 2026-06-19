@@ -74,7 +74,10 @@ export function subscribeToUser(userId: string, fn: TeamListener): () => void {
 }
 
 /** Subscribe to pending requests updates for a specific user. Returns unsubscribe function. */
-export function subscribeToPendingRequests(userId: string, fn: PendingRequestsListener): () => void {
+export function subscribeToPendingRequests(
+  userId: string,
+  fn: PendingRequestsListener
+): () => void {
   if (!pendingRequestsListeners.has(userId)) {
     pendingRequestsListeners.set(userId, new Set());
   }
