@@ -308,6 +308,9 @@ describe("GET /v1/channels/ws", () => {
       });
     });
 
+    // Small delay to ensure the WebSocket subscription is fully registered
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
     // Send the message after the listener is in place
     await inject("POST", `/v1/channels/${generalChannelId}/messages`, memberCookie, {
       teamId,

@@ -882,8 +882,39 @@ export interface TeamMember {
   image: string | null;
 }
 
+export interface TeamJoinRequest {
+  id: string;
+  teamId: string;
+  userId: string;
+  teamCode: string;
+  status: 'pending' | 'approved' | 'declined' | 'expired';
+  requestedAt: string;
+  respondedAt?: string;
+  respondedBy?: string;
+}
+
+export interface TeamJoinRequestWithUser extends TeamJoinRequest {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
+export interface TeamJoinRequestPreview {
+  notificationId: string;
+  requestId: string;
+  teamId: string;
+  teamName: string;
+  teamDescription: string;
+  requester: { id: string; name: string; email: string } | null;
+  alreadyProcessed: boolean;
+}
+
 export const teamApi = {
-  getTeams: () => request<{ teams: Team[] }>('/v1/teams').then((r) => r.teams),
+  getTeams: () => request<{ teams: Team[]; pendingRequests: TeamJoinRequest[] }>('/v1/teams'),
+
+  getTeamsOnly: () => request<{ teams: Team[] }>('/v1/teams').then((r) => r.teams),
 
   ensurePersonal: () =>
     request<{ team: Team }>('/v1/teams/ensure-personal', { method: 'POST' }).then((r) => r.team),
@@ -903,10 +934,17 @@ export const teamApi = {
     request<{ teams: Team[] }>(`/v1/teams/${encodeURIComponent(id)}/subteams`).then((r) => r.teams),
 
   joinTeam: (teamCode: string) =>
-    request<{ team: Team }>('/v1/teams/join', {
+    request<
+      { status: 'pending'; request: TeamJoinRequest } | { status: 'joined'; team: Team } | Team
+    >('/v1/teams/join', {
       method: 'POST',
       body: JSON.stringify({ teamCode }),
-    }).then((r) => r.team),
+    }).then((r) => {
+      // Handle different response formats for backward compatibility
+      if ('status' in r) return r;
+      if ('team' in r) return r.team;
+      return r as Team;
+    }),
 
   renameTeam: (id: string, newName: string) =>
     request<{ team: Team }>(`/v1/teams/${encodeURIComponent(id)}/name`, {
@@ -948,6 +986,24 @@ export const teamApi = {
     request<{ ok: boolean }>(
       `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/password`,
       { method: 'PUT', body: JSON.stringify({ newPassword }) },
+    ),
+
+  // Join request management
+  getPendingJoinRequests: (teamId: string) =>
+    request<{ requests: TeamJoinRequestWithUser[] }>(
+      `/v1/teams/${encodeURIComponent(teamId)}/join-requests`,
+    ).then((r) => r.requests),
+
+  approveJoinRequest: (requestId: string) =>
+    request<{ status: string }>(
+      `/v1/teams/join-requests/${encodeURIComponent(requestId)}/approve`,
+      { method: 'POST' },
+    ),
+
+  declineJoinRequest: (requestId: string) =>
+    request<{ status: string }>(
+      `/v1/teams/join-requests/${encodeURIComponent(requestId)}/decline`,
+      { method: 'POST' },
     ),
 
   /** Open a WebSocket connection for live team updates. Auto-reconnects on drop. */
@@ -1234,6 +1290,19 @@ export const notificationApi = {
   /** Accept or ignore a team invite. */
   respondToInvite: (id: string, action: 'join' | 'ignore') =>
     request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/invite-respond`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+
+  /** Fetch team join request preview for a notification. */
+  getJoinRequestPreview: (id: string) =>
+    request<TeamJoinRequestPreview>(
+      `/v1/notifications/${encodeURIComponent(id)}/join-request-preview`,
+    ),
+
+  /** Approve or decline a team join request. */
+  respondToJoinRequest: (id: string, action: 'approve' | 'decline') =>
+    request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/join-request-respond`, {
       method: 'POST',
       body: JSON.stringify({ action }),
     }),

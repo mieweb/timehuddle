@@ -18,7 +18,12 @@ import {
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { notificationApi, type Notification, type TeamInvitePreview } from '../../lib/api';
+import {
+  notificationApi,
+  type Notification,
+  type TeamInvitePreview,
+  type TeamJoinRequestPreview,
+} from '../../lib/api';
 import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
@@ -174,6 +179,8 @@ export const NotificationsPage: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [invitePreview, setInvitePreview] = useState<TeamInvitePreview | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [joinRequestPreview, setJoinRequestPreview] = useState<TeamJoinRequestPreview | null>(null);
+  const [joinRequestError, setJoinRequestError] = useState<string | null>(null);
 
   const hasUnread = useMemo(() => notifications.some((n) => !n.read), [notifications]);
   const allIds = useMemo(() => notifications.map((n) => n.id), [notifications]);
@@ -203,6 +210,14 @@ export const NotificationsPage: React.FC = () => {
           const preview = await notificationApi.getInvitePreview(doc.id);
           setInvitePreview(preview);
           setInviteError(null);
+          return;
+        }
+        if (data.type === 'team-join-request') {
+          await notificationApi.markOneRead(doc.id);
+          setNotifications((prev) => prev.map((n) => (n.id === doc.id ? { ...n, read: true } : n)));
+          const preview = await notificationApi.getJoinRequestPreview(doc.id);
+          setJoinRequestPreview(preview);
+          setJoinRequestError(null);
           return;
         }
         if (data.type === 'shift-end-reminder') {
@@ -256,6 +271,11 @@ export const NotificationsPage: React.FC = () => {
     setInviteError(null);
   }, []);
 
+  const closeJoinRequestModal = useCallback(() => {
+    setJoinRequestPreview(null);
+    setJoinRequestError(null);
+  }, []);
+
   const handleInviteAction = useCallback(
     async (action: 'join' | 'ignore') => {
       if (!invitePreview) return;
@@ -272,6 +292,24 @@ export const NotificationsPage: React.FC = () => {
       }
     },
     [invitePreview, closeInviteModal, navigate],
+  );
+
+  const handleJoinRequestAction = useCallback(
+    async (action: 'approve' | 'decline') => {
+      if (!joinRequestPreview) return;
+      setRespondLoading(true);
+      try {
+        await notificationApi.respondToJoinRequest(joinRequestPreview.notificationId, action);
+        setNotifications((prev) => prev.filter((n) => n.id !== joinRequestPreview.notificationId));
+        closeJoinRequestModal();
+        if (action === 'approve') navigate('/app/teams?tab=pending');
+      } catch (e: any) {
+        setJoinRequestError(e?.message || 'Failed to process join request');
+      } finally {
+        setRespondLoading(false);
+      }
+    },
+    [joinRequestPreview, closeJoinRequestModal, navigate],
   );
 
   if (loading) {
@@ -507,6 +545,88 @@ export const NotificationsPage: React.FC = () => {
           >
             {invitePreview?.alreadyMember ? 'Already in team' : 'Join'}
           </Button>
+        </ModalFooter>
+      </Modal>
+
+      <Modal
+        open={!!joinRequestPreview}
+        onOpenChange={(open) => !open && closeJoinRequestModal()}
+        size="lg"
+      >
+        <ModalHeader>
+          <ModalTitle>Team Join Request</ModalTitle>
+          <ModalClose />
+        </ModalHeader>
+        <ModalBody>
+          {joinRequestPreview && (
+            <div className="space-y-4">
+              {joinRequestPreview.alreadyProcessed ? (
+                <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 p-4">
+                  <Text size="sm" variant="muted">
+                    This request has already been processed.
+                  </Text>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <Text size="sm" variant="muted">
+                      Team name
+                    </Text>
+                    <Text size="lg" weight="semibold">
+                      {joinRequestPreview.teamName}
+                    </Text>
+                  </div>
+                  <div>
+                    <Text size="sm" variant="muted">
+                      Team description
+                    </Text>
+                    <Text size="sm">
+                      {joinRequestPreview.teamDescription || 'No team description provided.'}
+                    </Text>
+                  </div>
+                  <div>
+                    <Text size="sm" variant="muted">
+                      Requested by
+                    </Text>
+                    <Text size="sm">
+                      {joinRequestPreview.requester
+                        ? `${joinRequestPreview.requester.name}${joinRequestPreview.requester.email ? ` (${joinRequestPreview.requester.email})` : ''}`
+                        : 'Unknown'}
+                    </Text>
+                  </div>
+                  {joinRequestError && (
+                    <Text size="sm" variant="destructive">
+                      {joinRequestError}
+                    </Text>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          {joinRequestPreview?.alreadyProcessed ? (
+            <Button variant="outline" onClick={closeJoinRequestModal}>
+              Close
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => handleJoinRequestAction('decline')}
+                isLoading={respondLoading}
+              >
+                Decline
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => handleJoinRequestAction('approve')}
+                isLoading={respondLoading}
+              >
+                Approve
+              </Button>
+            </>
+          )}
         </ModalFooter>
       </Modal>
     </AppPage>

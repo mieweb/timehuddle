@@ -1,12 +1,21 @@
-import { faCheck, faChevronDown } from '@fortawesome/free-solid-svg-icons';
+import { faCheck, faChevronDown, faClock } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Dropdown, DropdownItem, Text } from '@mieweb/ui';
-import React, { useCallback, useState } from 'react';
+import { Badge, Dropdown, DropdownItem, Text } from '@mieweb/ui';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import { useTeam } from '../lib/TeamContext';
 
 export const TeamSelector: React.FC = () => {
-  const { teams, selectedTeam, setSelectedTeamId, teamsReady } = useTeam();
+  const { teams, pendingRequests, selectedTeam, setSelectedTeamId, teamsReady } = useTeam();
+
+  // Map of teamId → count of pending requests for that team
+  const pendingCountByTeam = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const req of pendingRequests) {
+      map.set(req.teamId, (map.get(req.teamId) || 0) + 1);
+    }
+    return map;
+  }, [pendingRequests]);
   const [open, setOpen] = useState(false);
 
   const handleSelectTeam = useCallback(
@@ -38,19 +47,54 @@ export const TeamSelector: React.FC = () => {
       placement="bottom-end"
       width={200}
     >
-      {teams.map((team) => (
-        <DropdownItem key={team.id} onClick={() => handleSelectTeam(team.id)}>
-          <span className="flex items-center gap-2">
-            <FontAwesomeIcon
-              icon={faCheck}
-              className={`text-xs text-blue-600 transition-opacity ${
-                team.id === selectedTeam?.id ? 'opacity-100' : 'opacity-0'
-              }`}
-            />
-            <span>{team.name}</span>
-          </span>
-        </DropdownItem>
-      ))}
+      {/* User's pending join requests (not yet approved) */}
+      {pendingRequests.length > 0 && (
+        <>
+          {pendingRequests.map((req) => (
+            <DropdownItem
+              key={`pending-${req.id}`}
+              disabled
+              className="opacity-60 cursor-not-allowed"
+            >
+              <span className="flex items-center justify-between gap-2 w-full">
+                <span className="flex items-center gap-2">
+                  <FontAwesomeIcon icon={faClock} className="text-xs text-neutral-400" />
+                  <span className="text-sm">{req.teamCode}</span>
+                </span>
+                <Badge variant="warning" size="sm">
+                  Pending
+                </Badge>
+              </span>
+            </DropdownItem>
+          ))}
+          <div className="border-t border-neutral-200 dark:border-neutral-700 my-1" />
+        </>
+      )}
+
+      {/* Actual teams user belongs to */}
+      {teams.map((team) => {
+        const pendingCount = pendingCountByTeam.get(team.id);
+        return (
+          <DropdownItem key={team.id} onClick={() => handleSelectTeam(team.id)}>
+            <span className="flex items-center justify-between gap-2 w-full">
+              <span className="flex items-center gap-2">
+                <FontAwesomeIcon
+                  icon={faCheck}
+                  className={`text-xs text-blue-600 transition-opacity ${
+                    team.id === selectedTeam?.id ? 'opacity-100' : 'opacity-0'
+                  }`}
+                />
+                <span>{team.name}</span>
+              </span>
+              {pendingCount && pendingCount > 0 ? (
+                <Badge variant="default" size="sm">
+                  {pendingCount}
+                </Badge>
+              ) : null}
+            </span>
+          </DropdownItem>
+        );
+      })}
     </Dropdown>
   );
 };

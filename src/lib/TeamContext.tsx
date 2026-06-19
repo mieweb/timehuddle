@@ -15,7 +15,15 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import { teamApi, orgApi, enterpriseApi, clockApi, type Team, type ClockEvent } from './api';
+import {
+  teamApi,
+  orgApi,
+  enterpriseApi,
+  clockApi,
+  type Team,
+  type ClockEvent,
+  type TeamJoinRequest,
+} from './api';
 import { useSession } from './useSession';
 
 const TEAM_KEY = 'app:selectedTeamId';
@@ -43,6 +51,7 @@ type EnterpriseSummary = {
 
 export interface TeamContextValue {
   teams: Team[];
+  pendingRequests: TeamJoinRequest[];
   enterprises: EnterpriseSummary[];
   organizations: Array<{
     id: string;
@@ -71,6 +80,7 @@ export interface TeamContextValue {
 }
 
 const TeamCtx = createContext<TeamContextValue>({
+  pendingRequests: [],
   teams: [],
   enterprises: [],
   organizations: [],
@@ -101,6 +111,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // ── Teams via REST ──────────────────────────────────────────────────────────
 
   const [teams, setTeams] = useState<Team[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<TeamJoinRequest[]>([]);
   const [enterprises, setEnterprises] = useState<EnterpriseSummary[]>([]);
   const [organizations, setOrganizations] = useState<
     Array<{
@@ -117,7 +128,10 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refetchTeams = useCallback(() => {
     teamApi
       .getTeams()
-      .then(setTeams)
+      .then((result) => {
+        setTeams(result.teams);
+        setPendingRequests(result.pendingRequests);
+      })
       .catch(() => {})
       .finally(() => setTeamsReady(true));
   }, []);
@@ -172,9 +186,11 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const data = JSON.parse(event.data);
 
         if (data.type === 'snapshot') {
-          // Initial snapshot: replace teams state
+          // Initial snapshot: replace teams and pending requests state
           const newTeams = data.teams as Team[];
+          const newPendingRequests = (data.pendingRequests ?? []) as TeamJoinRequest[];
           setTeams(newTeams);
+          setPendingRequests(newPendingRequests);
           setTeamsReady(true);
         } else if (data.type === 'update') {
           // Real-time team update — upsert by id
@@ -191,6 +207,10 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else if (data.type === 'delete') {
           // Team deleted — remove from state
           setTeams((prev) => prev.filter((t) => t.id !== data.teamId));
+        } else if (data.type === 'pending-requests') {
+          // Real-time pending requests update
+          const newPendingRequests = data.pendingRequests as TeamJoinRequest[];
+          setPendingRequests(newPendingRequests);
         }
       } catch (err) {
         console.warn('Failed to parse teams WebSocket message:', err);
@@ -409,6 +429,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value = useMemo<TeamContextValue>(
     () => ({
       teams: scopedTeams,
+      pendingRequests,
       enterprises,
       organizations,
       teamsReady,
@@ -430,6 +451,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }),
     [
       scopedTeams,
+      pendingRequests,
       enterprises,
       organizations,
       teamsReady,
