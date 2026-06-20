@@ -1,6 +1,6 @@
 import { ObjectId } from "mongodb";
 
-export type MediaItemType = "video" | "image";
+export type MediaItemType = "video" | "image" | "document";
 
 export interface ImageMeta {
   kind: "image";
@@ -15,7 +15,12 @@ export interface VideoMeta {
   duration: number;
 }
 
-export type MediaItemMetadata = ImageMeta | VideoMeta;
+export interface DocumentMeta {
+  kind: "document";
+  pageCount?: number;
+}
+
+export type MediaItemMetadata = ImageMeta | VideoMeta | DocumentMeta;
 
 export interface MediaItem {
   _id: ObjectId;

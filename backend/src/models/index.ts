@@ -20,6 +20,8 @@ import type { MediaItem } from "./media-item.model.js";
 import type { Enterprise } from "./enterprise.model.js";
 import type { OrgMembership } from "./org-membership.model.js";
 import type { Installation } from "./installation.model.js";
+import type { HuddlePost } from "./huddle-post.model.js";
+import type { HuddleComment } from "./huddle-comment.model.js";
 import type { TeamJoinRequest } from "./team-join-request.model.js";
 
 // Collection accessor — better-auth's MongoDB adapter uses "user" (singular)
@@ -135,4 +137,14 @@ export function personalAccessTokensCollection() {
 // Media library items
 export function mediaItemsCollection() {
   return getDB().collection<MediaItem>("mediaitems");
+}
+
+// Huddle posts — team feed
+export function huddlePostsCollection() {
+  return getDB().collection<HuddlePost>("huddleposts");
+}
+
+// Huddle comments — comments on huddle posts
+export function huddleCommentsCollection() {
+  return getDB().collection<HuddleComment>("huddlecomments");
 }
