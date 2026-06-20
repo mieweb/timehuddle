@@ -1,7 +1,6 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, rawDb, isValidId } from './collections';
-import { requireIdentity } from './auth-bridge';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -62,29 +61,35 @@ async function toPublicUser(u, profileMap) {
 }
 
 Meteor.methods({
-  async 'users.get'({ userId }) {
-    const identity = await requireIdentity(this);
-    if (!isValidId(userId)) throw new Meteor.Error('not-found', 'Invalid user id');
-    const user = await rawDb().collection('user').findOne({ _id: new ObjectId(userId) });
+  async 'users.get'({ userId: targetUserId }) {
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
+    if (!isValidId(targetUserId)) throw new Meteor.Error('not-found', 'Invalid user id');
+    const user = await rawDb().collection('user').findOne({ _id: new ObjectId(targetUserId) });
     if (!user) throw new Meteor.Error('not-found', 'User not found');
 
-    const sharedTeamDocs = identity.userId !== userId
+    const sharedTeamDocs = userId !== targetUserId
       ? await Teams.rawCollection().find({
-          members: { $all: [identity.userId, userId] },
+          members: { $all: [userId, targetUserId] },
           isPersonal: { $ne: true },
         }).toArray()
       : [];
     const sharedTeams = sharedTeamDocs.map((t) => ({
       id: t._id.toHexString ? t._id.toHexString() : String(t._id),
       name: t.name,
-      isAdmin: t.admins.includes(identity.userId),
+      isAdmin: t.admins.includes(userId),
     }));
 
     return { user: { ...(await toPublicUser(user)), sharedTeams } };
   },
 
   async 'users.getByUsername'({ username }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (typeof username !== 'string' || !username.trim()) {
       throw new Meteor.Error('bad-request', 'username is required');
     }
@@ -92,23 +97,25 @@ Meteor.methods({
     if (!user) throw new Meteor.Error('not-found', 'User not found');
 
     const targetId = user._id.toHexString();
-    const sharedTeamDocs = identity.userId !== targetId
+    const sharedTeamDocs = userId !== targetId
       ? await Teams.rawCollection().find({
-          members: { $all: [identity.userId, targetId] },
+          members: { $all: [userId, targetId] },
           isPersonal: { $ne: true },
         }).toArray()
       : [];
     const sharedTeams = sharedTeamDocs.map((t) => ({
       id: t._id.toHexString ? t._id.toHexString() : String(t._id),
       name: t.name,
-      isAdmin: t.admins.includes(identity.userId),
+      isAdmin: t.admins.includes(userId),
     }));
 
     return { user: { ...(await toPublicUser(user)), sharedTeams } };
   },
 
   async 'users.batchGet'({ ids }) {
-    await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
     if (!ids || !Array.isArray(ids)) return { users: [] };
     const validIds = ids.slice(0, 200).filter(isValidId).map((id) => new ObjectId(id));
     if (validIds.length === 0) return { users: [] };
@@ -125,10 +132,13 @@ Meteor.methods({
   },
 
   async 'users.updateProfile'({ name, bio, website, reportsToUserId }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
 
     if (reportsToUserId !== undefined) {
-      if (reportsToUserId === identity.userId) {
+      if (reportsToUserId === userId) {
         throw new Meteor.Error('bad-request', 'Cannot report to yourself');
       }
       if (reportsToUserId !== null) {
@@ -136,7 +146,7 @@ Meteor.methods({
         const rtUser = await rawDb().collection('user').findOne({ _id: new ObjectId(reportsToUserId) });
         if (!rtUser) throw new Meteor.Error('not-found', 'Reports-to user not found');
         const sharedTeam = await Teams.rawCollection().findOne({
-          members: { $all: [identity.userId, reportsToUserId] },
+          members: { $all: [userId, reportsToUserId] },
           isPersonal: { $ne: true },
         });
         if (!sharedTeam) throw new Meteor.Error('forbidden', 'Must share a non-personal team');
@@ -149,13 +159,15 @@ Meteor.methods({
     if (website !== undefined) $set.website = website;
     if (reportsToUserId !== undefined) $set.reportsToUserId = reportsToUserId;
 
-    await rawDb().collection('user').updateOne({ _id: new ObjectId(identity.userId) }, { $set });
-    const updated = await rawDb().collection('user').findOne({ _id: new ObjectId(identity.userId) });
+    await rawDb().collection('user').updateOne({ _id: new ObjectId(userId) }, { $set });
+    const updated = await rawDb().collection('user').findOne({ _id: new ObjectId(userId) });
     return { user: await toPublicUser(updated) };
   },
 
   async 'users.checkUsername'({ username }) {
-    await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
     if (typeof username !== 'string') return { available: false, reason: 'invalid-chars' };
     const normalized = username.trim().toLowerCase();
     const formatError = validateUsernameFormat(normalized);
@@ -166,18 +178,21 @@ Meteor.methods({
   },
 
   async 'users.claimUsername'({ username }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (typeof username !== 'string') throw new Meteor.Error('bad-request', 'username is required');
     const normalized = username.trim().toLowerCase();
     const formatError = validateUsernameFormat(normalized);
     if (formatError) throw new Meteor.Error('bad-request', formatError);
 
-    const user = await rawDb().collection('user').findOne({ _id: new ObjectId(identity.userId) });
+    const user = await rawDb().collection('user').findOne({ _id: new ObjectId(userId) });
     if (user?.username) throw new Meteor.Error('already-claimed', 'Username already set');
 
     try {
       await rawDb().collection('user').updateOne(
-        { _id: new ObjectId(identity.userId), username: { $eq: null } },
+        { _id: new ObjectId(userId), username: { $eq: null } },
         { $set: { username: normalized, updatedAt: new Date() } },
       );
     } catch (err) {

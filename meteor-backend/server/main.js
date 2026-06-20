@@ -12,6 +12,7 @@ import { Wormhole } from 'meteor/wreiske:meteor-wormhole';
 
 import './collections';
 import './auth-bridge';
+import { signProxyJwt } from './auth-bridge';
 import './tickets';
 import './clock';
 import './timers';
@@ -58,6 +59,61 @@ WebApp.rawConnectHandlers.use('/api', (req, res, next) => {
     return;
   }
   next();
+});
+
+WebApp.rawConnectHandlers.use('/auth', (req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Max-Age', '86400');
+  }
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+  next();
+});
+
+WebApp.connectHandlers.use('/auth/whoami', async (req, res) => {
+  // Only works when proxy headers are trusted
+  if (process.env.TRUST_PROXY_HEADERS !== 'true') {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+
+  if (!process.env.PROXY_JWT_SECRET) {
+    res.writeHead(500);
+    res.end(JSON.stringify({ error: 'PROXY_JWT_SECRET not configured' }));
+    return;
+  }
+
+  const email = req.headers['x-email'];
+  if (!email) {
+    res.writeHead(401);
+    res.end(JSON.stringify({ error: 'No proxy identity headers' }));
+    return;
+  }
+
+  const firstName = req.headers['x-user-first-name'] || '';
+  const lastName = req.headers['x-user-last-name'] || '';
+  const name = `${firstName} ${lastName}`.trim() || email;
+
+  try {
+    const token = await signProxyJwt(email, name);
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    });
+    res.end(JSON.stringify({ token }));
+  } catch (err) {
+    console.error('[auth/whoami] failed:', err);
+    res.writeHead(500);
+    res.end(JSON.stringify({ error: 'Failed to sign token' }));
+  }
 });
 
 Meteor.startup(() => {

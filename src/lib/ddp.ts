@@ -13,7 +13,7 @@
  * (wormhole), or even mongosh appears here without polling.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { METEOR_BASE_URL, getAccessToken, decodeJwtExp } from './api';
+import { METEOR_BASE_URL, getAccessToken } from './api';
 
 const METEOR_WS_URL = METEOR_BASE_URL.replace(/^http/, 'ws') + '/websocket';
 
@@ -70,8 +70,6 @@ class DdpClient {
   private activeSubs = new Map<string, { name: string; params: unknown[] }>();
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Proactive re-bridge timer — refreshes connection auth before the JWT expires. */
-  private reauthTimer: ReturnType<typeof setTimeout> | null = null;
   status: 'idle' | 'connecting' | 'connected' | 'failed' = 'idle';
 
   /** Connect (once) and authenticate the connection via auth.bridge. */
@@ -119,10 +117,6 @@ class DdpClient {
     this.connectPromise = null;
     this.authPromise = null;
     this.ws = null;
-    if (this.reauthTimer) {
-      clearTimeout(this.reauthTimer);
-      this.reauthTimer = null;
-    }
 
     if (this.activeSubs.size === 0 || this.reconnectTimer) return;
     const delay = Math.min(30_000, 1000 * 2 ** this.reconnectAttempt++);
@@ -148,29 +142,71 @@ class DdpClient {
   private async ensureAuthed(): Promise<void> {
     await this.ensureConnected();
     if (!this.authPromise) {
-      this.authPromise = this.bridgeAuth();
+      this.authPromise = (async () => {
+        // Try resume token first (handles reconnects automatically)
+        const resumed = await this.tryResumeLogin();
+        if (!resumed) {
+          // Try proxy auth (Authentik via os.mieweb.org)
+          const proxied = await this.loginWithProxy();
+          if (!proxied) {
+            // Fall back to fresh JWT login (GitHub/Google/Apple)
+            await this.loginWithJwt();
+          }
+        }
+      })();
     }
     return this.authPromise;
   }
 
-  /**
-   * Authenticate the DDP connection with a short-lived JWT and schedule a
-   * re-bridge ~60s before it expires so the connection identity never lapses.
-   */
-  private async bridgeAuth(): Promise<void> {
+  private async loginWithJwt(): Promise<void> {
     const token = await getAccessToken();
     if (!token) return;
-    await this.call('auth.bridge', token);
-    const expMs = decodeJwtExp(token) * 1000;
-    const delay = Math.max(10_000, expMs - Date.now() - 60_000);
-    if (this.reauthTimer) clearTimeout(this.reauthTimer);
-    this.reauthTimer = setTimeout(() => {
-      this.reauthTimer = null;
-      // Re-bridge in place — subscriptions stay up, identity is refreshed.
-      this.bridgeAuth().catch(() => {
-        // Socket issues are handled by handleDisconnect's reconnect path.
+
+    const result = await this.call('login', [{ oidcJwt: token }]);
+    const loginResult = result as {
+      id: string;
+      token: string;
+      tokenExpires?: { $date: number };
+    };
+
+    // Store Meteor resume token for reconnects
+    if (loginResult?.token) {
+      localStorage.setItem('meteor_resume_token', loginResult.token);
+    }
+  }
+
+  private async tryResumeLogin(): Promise<boolean> {
+    const resumeToken = localStorage.getItem('meteor_resume_token');
+    if (!resumeToken) return false;
+    try {
+      await this.call('login', [{ resume: resumeToken }]);
+      return true;
+    } catch {
+      localStorage.removeItem('meteor_resume_token');
+      return false;
+    }
+  }
+
+  async loginWithProxy(): Promise<boolean> {
+    try {
+      const res = await fetch(`${METEOR_BASE_URL}/auth/whoami`, {
+        credentials: 'include',
       });
-    }, delay);
+      if (!res.ok) return false;
+      const data = (await res.json()) as { token: string };
+
+      const result = await this.call('login', [{
+        proxyJwt: data.token,
+      }]);
+      const loginResult = result as { token: string };
+
+      if (loginResult?.token) {
+        localStorage.setItem('meteor_resume_token', loginResult.token);
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private handleMessage(data: DdpMessage): void {

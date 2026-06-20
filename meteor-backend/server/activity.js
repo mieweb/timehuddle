@@ -1,7 +1,6 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, rawDb, isValidId } from './collections';
-import { requireIdentity } from './auth-bridge';
 import { requireTeamMembership } from './permissions';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -44,19 +43,25 @@ async function getLog(userId, limit = 50, before) {
 
 Meteor.methods({
   async 'activity.log'({ limit, before } = {}) {
-    const identity = await requireIdentity(this);
-    return getLog(identity.userId, limit, before);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
+    return getLog(userId, limit, before);
   },
 
-  async 'activity.userLog'({ userId, limit, before } = {}) {
-    const identity = await requireIdentity(this);
-    if (typeof userId !== 'string' || !userId) {
+  async 'activity.userLog'({ userId: targetUserId, limit, before } = {}) {
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
+    if (typeof targetUserId !== 'string' || !targetUserId) {
       throw new Meteor.Error('bad-request', 'userId is required');
     }
 
-    if (identity.userId !== userId) {
+    if (userId !== targetUserId) {
       const sharedTeam = await Teams.rawCollection().findOne({
-        members: { $all: [identity.userId, userId] },
+        members: { $all: [userId, targetUserId] },
         isPersonal: { $ne: true },
       });
       if (!sharedTeam) {
@@ -64,11 +69,14 @@ Meteor.methods({
       }
     }
 
-    return getLog(userId, limit, before);
+    return getLog(targetUserId, limit, before);
   },
 
   async 'activity.ticketActivity'({ ticketId, limit } = {}) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (typeof ticketId !== 'string' || !ticketId) {
       throw new Meteor.Error('bad-request', 'ticketId is required');
     }
@@ -78,7 +86,7 @@ Meteor.methods({
         .collection('tickets')
         .findOne({ _id: new ObjectId(ticketId) });
       if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');
-      await requireTeamMembership(identity.userId, ticket.teamId);
+      await requireTeamMembership(userId, ticket.teamId);
     }
 
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);

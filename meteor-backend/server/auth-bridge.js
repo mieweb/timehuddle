@@ -1,6 +1,6 @@
 /**
  * Auth bridge: resolves caller credentials issued by the better-auth IdP
- * (Fastify backend) WITHOUT reading the session collection.
+ * (Fastify backend) using Meteor's built-in Accounts system.
  *
  * Accepted token formats:
  *  - JWT access token (better-auth `jwt` plugin, 15-min TTL) — verified
@@ -9,17 +9,14 @@
  *    `personal_access_tokens` collection (parity with Fastify).
  *
  * Token sources:
- *  - DDP:   client calls `Meteor.call('auth.bridge', token)` once per
- *           connection (and again before the JWT expires); subsequent
- *           methods/publications read the cached identity.
- *  - REST/MCP: `Authorization: Bearer <token>` header, surfaced by the
- *           wormhole invocation context (`currentBearerToken()`).
+ *  - DDP:   client calls Meteor login handlers via DDP login protocol
+ *  - HTTP:  `Authorization: Bearer <token>` header (handled by uploads.js)
  */
 import { Meteor } from 'meteor/meteor';
+import { Accounts } from 'meteor/accounts-base';
 import { MongoInternals } from 'meteor/mongo';
-import { currentBearerToken } from 'meteor/wreiske:meteor-wormhole';
 import { createHash } from 'crypto';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
 import { rawDb } from './collections';
 
 // Use Meteor's bundled driver so BSON types match the rawDb() connection.
@@ -32,9 +29,6 @@ const PAT_PREFIX = 'th_pat_';
 const JWKS_URL = process.env.AUTH_JWKS_URL || 'http://localhost:4000/api/auth/jwks';
 let jwks = null;
 
-/** connectionId -> { userId, name } for DDP sessions. */
-const connectionIdentity = new Map();
-
 /** A JWT has exactly three dot-separated segments. */
 function looksLikeJwt(token) {
   return token.split('.').length === 3;
@@ -45,7 +39,11 @@ async function resolveJwt(token) {
     jwks ??= createRemoteJWKSet(new URL(JWKS_URL));
     const { payload } = await jwtVerify(token, jwks);
     if (!payload.sub) return null;
-    return { userId: payload.sub, name: payload.name || payload.email || 'Unknown' };
+    return { 
+      userId: payload.sub, 
+      name: payload.name || payload.email || 'Unknown',
+      email: payload.email 
+    };
   } catch (err) {
     console.error('[auth-bridge] JWT verification failed:', err.message || err);
     return null;
@@ -73,45 +71,91 @@ export async function resolveToken(raw) {
 }
 
 /**
- * Resolve the calling identity inside a method:
- *  1. bearer token from the Authorization header when called through a
- *     Wormhole transport (REST/MCP), else
- *  2. identity cached for this DDP connection via `auth.bridge`.
- * Throws 'not-authorized' when neither resolves.
+ * Find or create a Meteor user account by email.
+ * Used by login handlers to ensure a user exists before returning userId.
  */
-export async function requireIdentity(methodContext) {
-  const token = currentBearerToken();
-  if (token) {
-    const identity = await resolveToken(token);
-    if (identity) return identity;
-    throw new Meteor.Error('not-authorized', 'Invalid or expired token');
+async function findOrCreateUser(email, name) {
+  // Look up existing Meteor user by email
+  const existing = Accounts.findUserByEmail(email);
+  if (existing) return existing._id;
+
+  // Create new Meteor user with email and profile
+  const userId = Accounts.createUser({
+    email,
+    profile: { name },
+  });
+  return userId;
+}
+
+// ============================================================================
+// Meteor Accounts Login Handlers
+// ============================================================================
+
+// Register login handler for OIDC JWT tokens (GitHub/Google/Apple via Fastify)
+Accounts.registerLoginHandler('oidc', async (options) => {
+  if (!options.oidcJwt) return undefined;
+
+  const claims = await resolveJwt(options.oidcJwt);
+  if (!claims) return undefined;
+
+  const userId = await findOrCreateUser(claims.email || claims.userId, claims.name);
+
+  return { userId };
+});
+
+// Register login handler for Personal Access Tokens
+Accounts.registerLoginHandler('pat', async (options) => {
+  if (!options.patToken) return undefined;
+
+  const identity = await resolvePat(options.patToken);
+  if (!identity) return undefined;
+
+  return { userId: identity.userId };
+});
+
+// ============================================================================
+// Proxy JWT Support (Authentik)
+// ============================================================================
+
+// Get proxy secret as Uint8Array
+function getProxySecret() {
+  const secret = process.env.PROXY_JWT_SECRET;
+  if (!secret) return null;
+  return new TextEncoder().encode(secret);
+}
+
+// Verify a proxy JWT
+async function verifyProxyJwt(token) {
+  const secret = getProxySecret();
+  if (!secret) return null;
+  try {
+    const { payload } = await jwtVerify(token, secret);
+    if (!payload.proxy || !payload.email) return null;
+    return { email: payload.email, name: payload.name };
+  } catch {
+    return null;
   }
-  const connId = methodContext?.connection?.id;
-  const cached = connId ? connectionIdentity.get(connId) : null;
-  if (cached) return cached;
-  throw new Meteor.Error(
-    'not-authorized',
-    'Provide an Authorization: Bearer header or call auth.bridge first',
-  );
 }
 
-/** Identity for publications (DDP only — must have called auth.bridge). */
-export function identityForConnection(connection) {
-  return connection?.id ? (connectionIdentity.get(connection.id) ?? null) : null;
+// Sign a short-lived proxy JWT (called by /auth/whoami endpoint)
+export async function signProxyJwt(email, name) {
+  const secret = getProxySecret();
+  if (!secret) throw new Error('PROXY_JWT_SECRET not set');
+  return new SignJWT({ email, name, proxy: true })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('60s')
+    .sign(secret);
 }
 
-Meteor.methods({
-  /** Authenticate this DDP connection with a JWT or PAT. Re-call before exp. */
-  async 'auth.bridge'(token) {
-    const identity = await resolveToken(token);
-    if (!identity) {
-      throw new Meteor.Error('not-authorized', 'Invalid or expired token');
-    }
-    const conn = this.connection;
-    if (conn?.id) {
-      connectionIdentity.set(conn.id, identity);
-      conn.onClose(() => connectionIdentity.delete(conn.id));
-    }
-    return { userId: identity.userId, name: identity.name };
-  },
+// Register login handler for Authentik proxy JWT
+Accounts.registerLoginHandler('proxy', async (options) => {
+  if (!options.proxyJwt) return undefined;
+  if (process.env.TRUST_PROXY_HEADERS !== 'true') return undefined;
+
+  const claims = await verifyProxyJwt(options.proxyJwt);
+  if (!claims) return undefined;
+
+  const userId = await findOrCreateUser(claims.email, claims.name);
+  return { userId };
 });

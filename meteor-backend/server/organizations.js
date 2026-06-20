@@ -1,7 +1,6 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, rawDb, isValidId } from './collections';
-import { requireIdentity } from './auth-bridge';
 import {
   ensureDefaultOrganization,
   addOrgMember,
@@ -138,9 +137,12 @@ Meteor.methods({
   // ── Org CRUD ──────────────────────────────────────────────────────────────
 
   async 'orgs.list'() {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     const db = rawDb();
-    const orgIds = await getAccessibleOrgIds(identity.userId);
+    const orgIds = await getAccessibleOrgIds(userId);
     if (orgIds.length === 0) return { organizations: [] };
 
     const validIds = orgIds.filter(isValidId).map((id) => new ObjectId(id));
@@ -151,9 +153,9 @@ Meteor.methods({
 
     const summaries = await Promise.all(
       organizations.map(async (org) => {
-        const membership = await getOrgMembership(org._id.toHexString(), identity.userId);
+        const membership = await getOrgMembership(org._id.toHexString(), userId);
         if (membership) return toOrgSummary(org, membership.role);
-        const entRole = await getEnterpriseRoleForOrg(identity.userId, org);
+        const entRole = await getEnterpriseRoleForOrg(userId, org);
         return toOrgSummary(org, entRole ?? 'member');
       }),
     );
@@ -161,7 +163,9 @@ Meteor.methods({
   },
 
   async 'orgs.checkSlug'({ slug, excludeId }) {
-    await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
     if (typeof slug !== 'string') return { available: false };
     const filter = { slug };
     if (excludeId && isValidId(excludeId)) filter._id = { $ne: new ObjectId(excludeId) };
@@ -170,12 +174,15 @@ Meteor.methods({
   },
 
   async 'orgs.create'({ enterpriseId, name, slug: inputSlug, allowAutoJoin }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (!isValidId(enterpriseId)) throw new Meteor.Error('not-found', 'Invalid enterpriseId');
     const db = rawDb();
     const enterprise = await db.collection('enterprises').findOne({ _id: new ObjectId(enterpriseId) });
     if (!enterprise) throw new Meteor.Error('not-found', 'Enterprise not found');
-    const isEntAdmin = (enterprise.owners ?? []).includes(identity.userId) || (enterprise.admins ?? []).includes(identity.userId);
+    const isEntAdmin = (enterprise.owners ?? []).includes(userId) || (enterprise.admins ?? []).includes(userId);
     if (!isEntAdmin) throw new Meteor.Error('forbidden', 'Enterprise admin required');
 
     const trimmedName = (name ?? '').trim();
@@ -190,27 +197,30 @@ Meteor.methods({
       enterpriseId,
       slug,
       name: trimmedName,
-      owners: [identity.userId],
+      owners: [userId],
       admins: [],
       allowAutoJoin: allowAutoJoin !== false,
       createdAt: now,
       updatedAt: now,
     };
     await db.collection('organizations').insertOne(org);
-    await addOrgMember(org._id.toHexString(), identity.userId, 'owner', false);
+    await addOrgMember(org._id.toHexString(), userId, 'owner', false);
     return { organization: toOrgSummary(org, 'owner') };
   },
 
   async 'orgs.get'({ orgId }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-    const accessible = await getAccessibleOrgIds(identity.userId);
+    const accessible = await getAccessibleOrgIds(userId);
     if (!accessible.includes(orgId)) throw new Meteor.Error('forbidden', 'Not accessible');
-    const membership = await getOrgMembership(orgId, identity.userId);
-    const entRole = await getEnterpriseRoleForOrg(identity.userId, org);
-    const access = await buildOrgAccess(identity.userId, org);
+    const membership = await getOrgMembership(orgId, userId);
+    const entRole = await getEnterpriseRoleForOrg(userId, org);
+    const access = await buildOrgAccess(userId, org);
     return {
       organization: {
         ...toOrgSummary(org, membership?.role ?? entRole ?? 'member'),
@@ -220,12 +230,15 @@ Meteor.methods({
   },
 
   async 'orgs.update'({ orgId, name, slug: inputSlug, allowAutoJoin }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     const db = rawDb();
     const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-    const access = await buildOrgAccess(identity.userId, org);
+    const access = await buildOrgAccess(userId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
 
     const updates = { updatedAt: new Date() };
@@ -249,13 +262,16 @@ Meteor.methods({
   },
 
   async 'orgs.updateSettings'({ orgId, allowAutoJoin }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     if (typeof allowAutoJoin !== 'boolean') throw new Meteor.Error('bad-request', 'allowAutoJoin is required');
     const db = rawDb();
     const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-    const access = await buildOrgAccess(identity.userId, org);
+    const access = await buildOrgAccess(userId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
 
     const result = await db.collection('organizations').findOneAndUpdate(
@@ -267,12 +283,15 @@ Meteor.methods({
   },
 
   async 'orgs.join'({ orgId }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
     if (org.allowAutoJoin === false) throw new Meteor.Error('forbidden', 'Auto-join is disabled');
-    const membership = await addOrgMember(orgId, identity.userId, 'member', true);
+    const membership = await addOrgMember(orgId, userId, 'member', true);
     if (membership === 'not-found') throw new Meteor.Error('not-found', 'Organization not found');
     return { membership: { orgId: membership.orgId, role: membership.role } };
   },
@@ -280,29 +299,38 @@ Meteor.methods({
   // ── Org members ───────────────────────────────────────────────────────────
 
   async 'orgs.listMembers'({ orgId }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-    const access = await buildOrgAccess(identity.userId, org);
+    const access = await buildOrgAccess(userId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
     return { users: await loadOrgMembers(orgId) };
   },
 
   async 'orgs.listUsers'({ orgId }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
-    const accessible = await getAccessibleOrgIds(identity.userId);
+    const accessible = await getAccessibleOrgIds(userId);
     if (!accessible.includes(orgId)) throw new Meteor.Error('forbidden', 'Not accessible');
     return { users: await loadOrgMembers(orgId) };
   },
 
   async 'orgs.searchUsers'({ orgId, q }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-    const access = await buildOrgAccess(identity.userId, org);
+    const access = await buildOrgAccess(userId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
 
     const query = (q ?? '').trim();
@@ -322,7 +350,10 @@ Meteor.methods({
   },
 
   async 'orgs.setMemberRole'({ orgId, userId, role }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const currentUserId = this.userId;
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     if (!isValidId(userId)) throw new Meteor.Error('not-found', 'Invalid userId');
     if (!['owner', 'admin', 'member'].includes(role)) throw new Meteor.Error('bad-request', 'Invalid role');
@@ -333,7 +364,7 @@ Meteor.methods({
       db.collection('org_members').find({ orgId }).toArray(),
     ]);
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-    const access = await buildOrgAccess(identity.userId, org);
+    const access = await buildOrgAccess(currentUserId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
     if (!targetUser) throw new Meteor.Error('not-found', 'User not found');
 
@@ -352,7 +383,10 @@ Meteor.methods({
   },
 
   async 'orgs.removeMember'({ orgId, userId }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const currentUserId = this.userId;
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     if (!isValidId(userId)) throw new Meteor.Error('not-found', 'Invalid userId');
     const db = rawDb();
@@ -362,7 +396,7 @@ Meteor.methods({
       db.collection('org_members').find({ orgId }).toArray(),
     ]);
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-    const access = await buildOrgAccess(identity.userId, org);
+    const access = await buildOrgAccess(currentUserId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
     if (!targetUser) throw new Meteor.Error('not-found', 'User not found');
 
@@ -388,12 +422,15 @@ Meteor.methods({
   },
 
   async 'orgs.updateMemberReportsTo'({ orgId, userId, reportsToUserId }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const currentUserId = this.userId;
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     if (!isValidId(userId)) throw new Meteor.Error('not-found', 'Invalid userId');
     const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
-    const access = await buildOrgAccess(identity.userId, org);
+    const access = await buildOrgAccess(currentUserId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
 
     const targetMembership = await getOrgMembership(orgId, userId);
@@ -414,9 +451,12 @@ Meteor.methods({
   },
 
   async 'orgs.updateReportsTo'({ userId, reportsToUserId }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const currentUserId = this.userId;
     if (!isValidId(userId)) throw new Meteor.Error('not-found', 'Invalid userId');
-    const defaultOrg = await requireDefaultOrgAdmin(identity.userId);
+    const defaultOrg = await requireDefaultOrgAdmin(currentUserId);
     const user = await rawDb().collection('user').findOne({ _id: new ObjectId(userId) });
     if (!user) throw new Meteor.Error('not-found', 'User not found');
 
@@ -436,8 +476,11 @@ Meteor.methods({
   // ── Default org admin endpoints (from users.ts) ───────────────────────────
 
   async 'orgs.adminGet'() {
-    const identity = await requireIdentity(this);
-    const defaultOrg = await requireDefaultOrgAdmin(identity.userId);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
+    const defaultOrg = await requireDefaultOrgAdmin(userId);
     return {
       organization: {
         id: defaultOrg._id.toHexString(),
@@ -450,8 +493,11 @@ Meteor.methods({
   },
 
   async 'orgs.adminUpdate'({ name }) {
-    const identity = await requireIdentity(this);
-    const defaultOrg = await requireDefaultOrgAdmin(identity.userId);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
+    const defaultOrg = await requireDefaultOrgAdmin(userId);
     const nextName = (name ?? '').trim();
     if (!nextName) throw new Meteor.Error('bad-request', 'Organization name is required');
     await rawDb().collection('organizations').updateOne(
@@ -462,8 +508,11 @@ Meteor.methods({
   },
 
   async 'orgs.adminListUsers'() {
-    const identity = await requireIdentity(this);
-    const defaultOrg = await requireDefaultOrgAdmin(identity.userId);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
+    const defaultOrg = await requireDefaultOrgAdmin(userId);
     const owners = defaultOrg.owners ?? [];
     const admins = defaultOrg.admins ?? [];
     const users = await rawDb().collection('user')
@@ -485,10 +534,13 @@ Meteor.methods({
   },
 
   async 'orgs.adminSetUserRole'({ userId, role }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const currentUserId = this.userId;
     if (!isValidId(userId)) throw new Meteor.Error('not-found', 'Invalid userId');
     if (!['owner', 'admin', 'member'].includes(role)) throw new Meteor.Error('bad-request', 'Invalid role');
-    const defaultOrg = await requireDefaultOrgAdmin(identity.userId);
+    const defaultOrg = await requireDefaultOrgAdmin(currentUserId);
     const db = rawDb();
     const targetUser = await db.collection('user').findOne({ _id: new ObjectId(userId) });
     if (!targetUser) throw new Meteor.Error('not-found', 'User not found');
@@ -513,14 +565,18 @@ Meteor.methods({
   // ── Public org endpoints ──────────────────────────────────────────────────
 
   async 'orgs.publicGet'() {
-    await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
     const defaultOrg = await rawDb().collection('organizations').findOne({ slug: DEFAULT_ORG_KEY });
     if (!defaultOrg) throw new Meteor.Error('not-found', 'Default organization not found');
     return { organization: { id: defaultOrg._id.toHexString(), slug: defaultOrg.slug, name: defaultOrg.name } };
   },
 
   async 'orgs.publicListUsers'() {
-    await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
     const defaultOrg = await rawDb().collection('organizations').findOne({ slug: DEFAULT_ORG_KEY });
     if (!defaultOrg) throw new Meteor.Error('not-found', 'Organization not found');
     const owners = defaultOrg.owners ?? [];

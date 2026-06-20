@@ -2,7 +2,6 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, Messages, rawDb, isValidId } from './collections';
-import { requireIdentity, identityForConnection } from './auth-bridge';
 import { createNotification } from './notify-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -29,20 +28,23 @@ function toPublicMessage(m) {
 }
 
 Meteor.publish('messages.byThread', function (threadId) {
-  const identity = identityForConnection(this.connection);
-  if (!identity) return this.ready();
+  if (!this.userId) return this.ready();
+  const userId = this.userId;
   if (typeof threadId !== 'string') return this.ready();
   const parts = threadId.split(':');
   if (parts.length !== 3) return this.ready();
   const [, adminId, memberId] = parts;
-  if (identity.userId !== adminId && identity.userId !== memberId) return this.ready();
+  if (userId !== adminId && userId !== memberId) return this.ready();
   return Messages.find({ threadId }, { sort: { createdAt: -1 }, limit: 100 });
 });
 
 Meteor.methods({
   async 'messages.getThread'({ teamId, adminId, memberId, before, limit }) {
-    const identity = await requireIdentity(this);
-    if (identity.userId !== adminId && identity.userId !== memberId) {
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
+    if (userId !== adminId && userId !== memberId) {
       throw new Meteor.Error('forbidden', 'Not a thread participant');
     }
 
@@ -66,7 +68,10 @@ Meteor.methods({
   },
 
   async 'messages.send'({ teamId, toUserId, text, adminId, ticketId }) {
-    const identity = await requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (typeof text !== 'string' || !text.trim()) {
       throw new Meteor.Error('bad-request', 'text is required');
     }
@@ -75,14 +80,14 @@ Meteor.methods({
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
 
-    const isAdmin = team.admins.includes(identity.userId);
-    const isMember = team.members.includes(identity.userId);
+    const isAdmin = team.admins.includes(userId);
+    const isMember = team.members.includes(userId);
     if (!isAdmin && !isMember) throw new Meteor.Error('forbidden', 'Not a team member');
 
-    const memberId = isAdmin ? toUserId : identity.userId;
+    const memberId = isAdmin ? toUserId : userId;
     const threadId = buildThreadId(teamId, adminId, memberId);
 
-    if (identity.userId !== adminId && identity.userId !== memberId) {
+    if (userId !== adminId && userId !== memberId) {
       throw new Meteor.Error('forbidden', 'Not a thread participant');
     }
     if (!team.admins.includes(adminId)) {
@@ -93,7 +98,7 @@ Meteor.methods({
       throw new Meteor.Error('forbidden', 'memberId is not a team member');
     }
 
-    const sender = await rawDb().collection('user').findOne({ _id: new ObjectId(identity.userId) });
+    const sender = await rawDb().collection('user').findOne({ _id: new ObjectId(userId) });
     const senderName = sender?.name ?? sender?.email?.split('@')[0] ?? 'Unknown';
 
     const doc = {
@@ -102,7 +107,7 @@ Meteor.methods({
       teamId,
       adminId,
       memberId,
-      fromUserId: identity.userId,
+      fromUserId: userId,
       toUserId,
       text,
       senderName,
@@ -123,7 +128,7 @@ Meteor.methods({
         adminId,
         memberId,
         senderName,
-        url: `/app/messages?openTeam=${encodeURIComponent(teamId)}&openPeer=${encodeURIComponent(identity.userId)}`,
+        url: `/app/messages?openTeam=${encodeURIComponent(teamId)}&openPeer=${encodeURIComponent(userId)}`,
       },
     }).catch((err) => console.error('[message] notification failed:', err));
 
