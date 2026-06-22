@@ -14,6 +14,7 @@
 import { Meteor } from 'meteor/meteor';
 import { Mongo, MongoInternals } from 'meteor/mongo';
 import { ClockEvents, ClockBreaks, Teams, isValidId, rawDb } from './collections';
+import { requireIdentity } from './auth-bridge';
 import { requireTeamMembership } from './permissions';
 import {
   toPublicClockEvent,
@@ -57,10 +58,8 @@ async function findUserTeam(userId, teamId) {
 Meteor.methods({
   /** The caller's active clock event in a team, or null. */
   async 'clock.active'({ teamId } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     await requireTeamMembership(userId, teamId);
     const event = await ClockEvents.findOneAsync({
       userId,
@@ -74,10 +73,8 @@ Meteor.methods({
 
   /** The caller's active clock event across any team, or null (frontend getActive). */
   async 'clock.activeForUser'() {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const event = await ClockEvents.findOneAsync({ userId, endTime: null });
     if (!event) return null;
     const breaks = await findBreaksForEvent(event._id.toHexString());
@@ -86,10 +83,8 @@ Meteor.methods({
 
   /** Live clock status for a team: { event, workSeconds, isPaused } or null. */
   async 'clock.status'({ teamId } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     await requireTeamMembership(userId, teamId);
     const event = await ClockEvents.findOneAsync({
       userId,
@@ -108,10 +103,8 @@ Meteor.methods({
 
   /** All clock events for the caller (their own history & timesheet). */
   async 'clock.events'() {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const events = await ClockEvents.find(
       { userId },
       { sort: { startTime: -1 } }
@@ -131,10 +124,8 @@ Meteor.methods({
 
   /** Clock in: close any dangling open events, open a new one, fire side-effects. */
   async 'clock.start'({ teamId } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const team = await findUserTeam(userId, teamId);
     if (!team) throw new Meteor.Error('forbidden', 'Not a member of this team');
 
@@ -194,10 +185,8 @@ Meteor.methods({
 
   /** Clock out: cancel jobs, close timers + open break, recompute, notify, log. */
   async 'clock.stop'({ teamId } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
     if (!event) throw new Meteor.Error('not-found', 'No active clock event');
 
@@ -290,10 +279,8 @@ Meteor.methods({
 
   /** Pause (break start): close running timer, open a break. */
   async 'clock.pause'({ teamId } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
     if (!event) throw new Meteor.Error('not-found', 'No active clock event');
 
@@ -313,10 +300,8 @@ Meteor.methods({
 
   /** Resume (break end): close + classify the open break, restart the timer. */
   async 'clock.resume'({ teamId } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
     if (!event) throw new Meteor.Error('not-found', 'No active clock event');
 
@@ -347,10 +332,8 @@ Meteor.methods({
 
   /** Update a clock event's timestamps and optional break intervals. */
   async 'clock.updateTimes'({ clockEventId, startTime, endTime, breaks } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const requesterId = this.userId;
+    const identity = await requireIdentity(this);
+    const requesterId = identity.userId;
     if (!isValidId(clockEventId)) throw new Meteor.Error('not-found', 'Clock event not found');
     const event = await ClockEvents.findOneAsync(oid(clockEventId));
     if (!event) throw new Meteor.Error('not-found', 'Clock event not found');
@@ -419,10 +402,8 @@ Meteor.methods({
 
   /** Delete a clock event (owner or team admin). */
   async 'clock.deleteEvent'({ clockEventId } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const requesterId = this.userId;
+    const identity = await requireIdentity(this);
+    const requesterId = identity.userId;
     if (!isValidId(clockEventId)) throw new Meteor.Error('not-found', 'Clock event not found');
     const event = await ClockEvents.findOneAsync(oid(clockEventId));
     if (!event) throw new Meteor.Error('not-found', 'Clock event not found');
@@ -450,10 +431,8 @@ Meteor.methods({
 
   /** Create a completed clock event for a past time range (manual backfill). */
   async 'clock.createManual'({ teamId, startTime, endTime } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const team = await findUserTeam(userId, teamId);
     if (!team) throw new Meteor.Error('forbidden', 'Not a member of this team');
 
@@ -480,10 +459,8 @@ Meteor.methods({
 
   /** Timesheet data for a user over a date range (epoch-ms boundaries). */
   async 'clock.timesheet'({ userId, startMs, endMs } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const requesterId = this.userId;
+    const identity = await requireIdentity(this);
+    const requesterId = identity.userId;
     const targetUserId = userId;
 
     if (requesterId !== targetUserId) {
@@ -547,10 +524,8 @@ Meteor.methods({
 
   /** Mark the caller's active clock event as agreed to auto clock-out at 8h. */
   async 'clock.agreeAutoClockout'({ clockEventId } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(clockEventId)) throw new Meteor.Error('not-found', 'Clock event not found');
     const event = await ClockEvents.findOneAsync(oid(clockEventId));
     if (!event) throw new Meteor.Error('not-found', 'Clock event not found');
@@ -567,10 +542,8 @@ Meteor.methods({
 
   /** Handle agree/disagree to a shift-end reminder notification. */
   async 'clock.respondShiftReminder'({ notificationId, action } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(notificationId)) throw new Meteor.Error('not-found', 'Notification not found');
 
     const notifications = rawDb().collection('notifications');

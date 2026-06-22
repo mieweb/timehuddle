@@ -2,6 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, Channels, ChannelMessages, rawDb, isValidId } from './collections';
+import { requireIdentity } from './auth-bridge';
 import { createNotification } from './notify-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -60,10 +61,8 @@ Meteor.publish('channelmessages.byChannel', function (channelId, teamId) {
 
 Meteor.methods({
   async 'channels.list'({ teamId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('bad-request', 'Invalid teamId');
 
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
@@ -91,10 +90,8 @@ Meteor.methods({
   },
 
   async 'channels.create'({ teamId, name, description, members }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('bad-request', 'Invalid teamId');
     if (typeof name !== 'string' || !name.trim()) {
       throw new Meteor.Error('bad-request', 'name is required');
@@ -133,10 +130,8 @@ Meteor.methods({
   },
 
   async 'channels.getMessages'({ channelId, teamId, before, limit }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId) || !isValidId(channelId)) {
       throw new Meteor.Error('bad-request', 'Invalid channelId or teamId');
     }
@@ -175,10 +170,8 @@ Meteor.methods({
   },
 
   async 'channels.sendMessage'({ channelId, teamId, text }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId) || !isValidId(channelId)) {
       throw new Meteor.Error('bad-request', 'Invalid channelId or teamId');
     }

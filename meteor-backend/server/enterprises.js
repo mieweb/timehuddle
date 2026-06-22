@@ -1,6 +1,7 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
+import { requireIdentity } from './auth-bridge';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -29,10 +30,8 @@ async function resolveMembers(owners, admins) {
 
 Meteor.methods({
   async 'enterprises.list'() {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const enterprises = await rawDb().collection('enterprises')
       .find({ $or: [{ owners: userId }, { admins: userId }] })
       .sort({ name: 1 })
@@ -48,10 +47,8 @@ Meteor.methods({
   },
 
   async 'enterprises.create'({ name, slug: inputSlug }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const trimmed = (name ?? '').trim();
     if (!trimmed) throw new Meteor.Error('bad-request', 'name is required');
     const slug = slugify(inputSlug ?? trimmed) || `enterprise-${Date.now()}`;
@@ -86,10 +83,8 @@ Meteor.methods({
   },
 
   async 'enterprises.get'({ enterpriseId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(enterpriseId)) throw new Meteor.Error('not-found', 'Invalid enterpriseId');
     const enterprise = await rawDb().collection('enterprises').findOne({ _id: new ObjectId(enterpriseId) });
     if (!enterprise) throw new Meteor.Error('not-found', 'Enterprise not found');
@@ -112,10 +107,8 @@ Meteor.methods({
   },
 
   async 'enterprises.updateName'({ enterpriseId, name }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(enterpriseId)) throw new Meteor.Error('not-found', 'Invalid enterpriseId');
     const trimmed = (name ?? '').trim();
     if (!trimmed) throw new Meteor.Error('bad-request', 'name is required');
@@ -145,10 +138,8 @@ Meteor.methods({
   },
 
   async 'enterprises.searchUsers'({ enterpriseId, q }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(enterpriseId)) throw new Meteor.Error('not-found', 'Invalid enterpriseId');
     const enterprise = await rawDb().collection('enterprises').findOne({ _id: new ObjectId(enterpriseId) });
     if (!enterprise) throw new Meteor.Error('not-found', 'Enterprise not found');
@@ -175,10 +166,8 @@ Meteor.methods({
   },
 
   async 'enterprises.setMemberRole'({ enterpriseId, userId: targetUserId, role }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(enterpriseId)) throw new Meteor.Error('not-found', 'Invalid enterpriseId');
     if (role !== 'owner' && role !== 'admin') throw new Meteor.Error('bad-request', 'role must be owner or admin');
     const enterprise = await rawDb().collection('enterprises').findOne({ _id: new ObjectId(enterpriseId) });
@@ -202,10 +191,8 @@ Meteor.methods({
   },
 
   async 'enterprises.removeMember'({ enterpriseId, userId: targetUserId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(enterpriseId)) throw new Meteor.Error('not-found', 'Invalid enterpriseId');
     const enterprise = await rawDb().collection('enterprises').findOne({ _id: new ObjectId(enterpriseId) });
     if (!enterprise) throw new Meteor.Error('not-found', 'Enterprise not found');

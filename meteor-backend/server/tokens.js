@@ -2,6 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { createHash, randomBytes } from 'crypto';
 import { rawDb, isValidId } from './collections';
+import { requireIdentity } from './auth-bridge';
 import { emitActivity } from './activity-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -14,10 +15,8 @@ function hashToken(raw) {
 
 Meteor.methods({
   async 'tokens.list'() {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const tokens = await rawDb()
       .collection('personal_access_tokens')
       .find({ userId: userId }, { projection: { tokenHash: 0, userId: 0 } })
@@ -34,10 +33,8 @@ Meteor.methods({
   },
 
   async 'tokens.create'({ name }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (typeof name !== 'string' || !name.trim() || name.length > 100) {
       throw new Meteor.Error('bad-request', 'name is required (1-100 chars)');
     }
@@ -65,10 +62,8 @@ Meteor.methods({
   },
 
   async 'tokens.revoke'({ tokenId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(tokenId)) throw new Meteor.Error('not-found', 'Invalid token id');
 
     const result = await rawDb().collection('personal_access_tokens').deleteOne({

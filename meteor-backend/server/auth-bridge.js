@@ -17,6 +17,7 @@ import { Accounts } from 'meteor/accounts-base';
 import { MongoInternals } from 'meteor/mongo';
 import { createHash } from 'crypto';
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
+import { currentBearerToken } from 'meteor/wreiske:meteor-wormhole';
 import { rawDb } from './collections';
 
 // Use Meteor's bundled driver so BSON types match the rawDb() connection.
@@ -75,16 +76,112 @@ export async function resolveToken(raw) {
  * Used by login handlers to ensure a user exists before returning userId.
  */
 async function findOrCreateUser(email, name) {
-  // Look up existing Meteor user by email
-  const existing = Accounts.findUserByEmail(email);
-  if (existing) return existing._id;
+  const db = rawDb()
+  const normalizedEmail = email.toLowerCase().trim()
 
-  // Create new Meteor user with email and profile
-  const userId = Accounts.createUser({
-    email,
-    profile: { name },
-  });
-  return userId;
+  // Step 1: Check if Meteor user already exists
+  const existingMeteorUser = Accounts.findUserByEmail(normalizedEmail)
+  if (existingMeteorUser?._id) {
+    console.log('[auth-bridge] found existing Meteor user:', 
+      existingMeteorUser._id)
+    return existingMeteorUser._id
+  }
+
+  // Step 2: Check if Fastify user exists in 'user' collection
+  const fastifyUser = await db.collection('user')
+    .findOne({ email: normalizedEmail })
+  
+  if (fastifyUser) {
+    console.log('[auth-bridge] found Fastify user:', 
+      fastifyUser._id.toHexString())
+    
+    // Create Meteor user with SAME _id as Fastify user
+    try {
+      await Meteor.users.insertAsync({
+        _id: fastifyUser._id.toHexString(),
+        emails: [{ 
+          address: normalizedEmail, 
+          verified: true 
+        }],
+        profile: { 
+          name: name || fastifyUser.name || normalizedEmail 
+        },
+        createdAt: fastifyUser.createdAt || new Date()
+      })
+      console.log('[auth-bridge] created Meteor user with Fastify _id:', 
+        fastifyUser._id.toHexString())
+      return fastifyUser._id.toHexString()
+    } catch (err) {
+      console.error('[auth-bridge] Meteor.users.insert error:', err.message)
+      // Maybe created by concurrent request - retry lookup
+      const retryUser = Accounts.findUserByEmail(normalizedEmail)
+      if (retryUser?._id) return retryUser._id
+      // Last resort - return the fastify user id directly
+      return fastifyUser._id.toHexString()
+    }
+  }
+
+  // Step 3: Brand new user - create in Meteor Accounts
+  console.log('[auth-bridge] creating brand new Meteor user:', normalizedEmail)
+  try {
+    const userId = Accounts.createUser({
+      email: normalizedEmail,
+      profile: { name: name || normalizedEmail }
+    })
+    console.log('[auth-bridge] created new user:', userId)
+    
+    // Also create in Fastify user collection
+    await db.collection('user').insertOne({
+      _id: new ObjectId(userId),  // same _id!
+      email: normalizedEmail,
+      name: name || normalizedEmail,
+      emailVerified: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    })
+    console.log('[auth-bridge] synced user to Fastify collection:', userId)
+    
+    return userId
+  } catch (err) {
+    console.error('[auth-bridge] Accounts.createUser error:', err.message)
+    throw err
+  }
+}
+
+export async function requireIdentity(methodContext) {
+  // Path 1: REST/MCP via wormhole
+  // reads Authorization: Bearer header
+  const token = currentBearerToken()
+  if (token) {
+    const identity = await resolveToken(token)
+    if (identity) return identity
+    throw new Meteor.Error('not-authorized', 'Invalid or expired token')
+  }
+
+  // Path 2: DDP via Meteor Accounts
+  // this.userId set after login({ oidcJwt })
+  const userId = methodContext?.userId
+  if (userId) {
+    const user = await Meteor.users.findOneAsync(userId)
+    return {
+      userId,
+      name: user?.profile?.name || user?.emails?.[0]?.address || 'Unknown'
+    }
+  }
+
+  throw new Meteor.Error('not-authorized', 'Not logged in')
+}
+
+export function identityForConnection(connection) {
+  const userId = connection?.userId
+  if (userId) {
+    const user = Meteor.users.findOne(userId)
+    return {
+      userId,
+      name: user?.profile?.name || user?.emails?.[0]?.address || 'Unknown'
+    }
+  }
+  return null
 }
 
 // ============================================================================
@@ -93,6 +190,7 @@ async function findOrCreateUser(email, name) {
 
 // Register login handler for OIDC JWT tokens (GitHub/Google/Apple via Fastify)
 Accounts.registerLoginHandler('oidc', async (options) => {
+  console.log('[auth-bridge] oidc handler called with options:', JSON.stringify(options));
   if (!options.oidcJwt) return undefined;
 
   const claims = await resolveJwt(options.oidcJwt);
@@ -105,6 +203,7 @@ Accounts.registerLoginHandler('oidc', async (options) => {
 
 // Register login handler for Personal Access Tokens
 Accounts.registerLoginHandler('pat', async (options) => {
+  console.log('[auth-bridge] pat handler called with options:', JSON.stringify(options));
   if (!options.patToken) return undefined;
 
   const identity = await resolvePat(options.patToken);
@@ -150,6 +249,7 @@ export async function signProxyJwt(email, name) {
 
 // Register login handler for Authentik proxy JWT
 Accounts.registerLoginHandler('proxy', async (options) => {
+  console.log('[auth-bridge] proxy handler called with options:', JSON.stringify(options));
   if (!options.proxyJwt) return undefined;
   if (process.env.TRUST_PROXY_HEADERS !== 'true') return undefined;
 
