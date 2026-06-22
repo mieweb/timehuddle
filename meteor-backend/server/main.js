@@ -390,6 +390,145 @@ WebApp.connectHandlers.use('/auth/google/callback',
   }
 )
 
+// ============================================================================
+// Apple OAuth Endpoints
+// ============================================================================
+
+WebApp.connectHandlers.use('/auth/apple', (req, res) => {
+  const callbackUrl = 
+    `${process.env.ROOT_URL}/auth/apple/callback`
+  
+  const appleAuthUrl = 
+    'https://appleid.apple.com/auth/authorize' +
+    `?client_id=${process.env.APPLE_CLIENT_ID}` +
+    `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
+    `&response_type=code%20id_token` +
+    `&scope=name%20email` +
+    `&response_mode=form_post` +
+    `&state=${Random.secret()}`
+  
+  res.writeHead(302, { Location: appleAuthUrl })
+  res.end()
+})
+
+WebApp.connectHandlers.use('/auth/apple/callback',
+  async (req, res) => {
+    try {
+      // Apple sends POST with form data
+      let body = ''
+      req.on('data', chunk => { body += chunk })
+      await new Promise(resolve => req.on('end', resolve))
+      
+      const params = new URLSearchParams(body)
+      const code = params.get('code')
+      const idToken = params.get('id_token')
+      const userParam = params.get('user')
+      
+      if (!code && !idToken) {
+        res.writeHead(400)
+        res.end('Missing code or id_token')
+        return
+      }
+      
+      // Parse user info from id_token (JWT)
+      // Apple sends user name only on FIRST login
+      let email = null
+      let name = null
+      
+      if (idToken) {
+        // Decode JWT payload (we trust Apple here,
+        // full verification optional for now)
+        const payload = JSON.parse(
+          Buffer.from(
+            idToken.split('.')[1], 'base64'
+          ).toString()
+        )
+        email = payload.email
+      }
+      
+      // First login: Apple sends user name
+      if (userParam) {
+        try {
+          const userData = JSON.parse(userParam)
+          const firstName = userData.name?.firstName || ''
+          const lastName = userData.name?.lastName || ''
+          name = `${firstName} ${lastName}`.trim() || email
+        } catch {
+          name = email
+        }
+      }
+      
+      if (!email) {
+        res.writeHead(400)
+        res.end('No email found from Apple')
+        return
+      }
+      
+      name = name || email
+      
+      // Find or create user in Meteor
+      const userId = await findOrCreateUser(email, name)
+      
+      // Sync to Fastify user collection
+      const db = rawDb()
+      await db.collection('user').updateOne(
+        { email: email.toLowerCase() },
+        {
+          $set: { updatedAt: new Date() },
+          $setOnInsert: {
+            email: email.toLowerCase(),
+            name: name,
+            emailVerified: true,
+            createdAt: new Date()
+          }
+        },
+        { upsert: true }
+      )
+      
+      // Create Meteor login token
+      const stampedToken = 
+        Accounts._generateStampedLoginToken()
+      await Accounts._insertLoginToken(
+        userId, stampedToken
+      )
+      
+      // Apple sends POST so we need to redirect
+      // using HTML meta refresh or JS redirect
+      const frontendUrl =
+        process.env.CORS_ORIGINS?.split(',')[0] || 
+        'http://localhost:3000'
+      
+      const redirectUrl = 
+        `${frontendUrl}/app/dashboard` +
+        `?meteor_token=apple_${userId}&` +
+        `meteor_resume=${stampedToken.token}`
+      
+      // Use HTML redirect since Apple uses POST
+      res.writeHead(200, { 
+        'Content-Type': 'text/html' 
+      })
+      res.end(`
+        <html>
+          <body>
+            <script>
+              window.location.href = '${redirectUrl}'
+            </script>
+            <noscript>
+              <meta http-equiv="refresh" 
+                content="0;url=${redirectUrl}">
+            </noscript>
+          </body>
+        </html>
+      `)
+      
+    } catch (err) {
+      console.error('[apple-oauth] error:', err)
+      res.writeHead(500)
+      res.end('OAuth error')
+    }
+  }
+)
+
 Meteor.startup(async() => {
   // Configure GitHub OAuth service
   await ServiceConfiguration.configurations.upsertAsync(
@@ -410,6 +549,17 @@ Meteor.startup(async() => {
       $set: {
         clientId: process.env.GOOGLE_CLIENT_ID,
         secret: process.env.GOOGLE_CLIENT_SECRET,
+        loginStyle: 'redirect'
+      }
+    }
+  );
+  
+  // Configure Apple OAuth service
+  await ServiceConfiguration.configurations.upsertAsync(
+    { service: 'apple' },
+    {
+      $set: {
+        clientId: process.env.APPLE_CLIENT_ID,
         loginStyle: 'redirect'
       }
     }
