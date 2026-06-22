@@ -43,7 +43,7 @@ import { createRoot } from 'react-dom/client';
 
 import { InboxPage } from './features/inbox/InboxPage';
 import { enterpriseApi } from './lib/api';
-import { subscribeNewNotifications } from './lib/ddp';
+import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { MESSAGES_PENDING_THREAD_KEY } from './lib/constants';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
@@ -126,6 +126,33 @@ const App: React.FC = () => {
   const { user, loading, needsUsernameClaim } = useSession();
   const [ownershipChecked, setOwnershipChecked] = React.useState(false);
   const [showTakeOwnershipModal, setShowTakeOwnershipModal] = React.useState(false);
+
+  // Handle GitHub OAuth callback via Meteor
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const meteorToken = params.get('meteor_token');
+    const meteorResume = params.get('meteor_resume');
+
+    if (meteorToken && meteorResume) {
+      // Clear params from URL
+      window.history.replaceState({}, '', window.location.pathname);
+
+      // Login to Meteor DDP with the resume token
+      const ddp = getDdpClient();
+      ddp
+        .loginWithMeteorToken(meteorToken, meteorResume)
+        .then((success) => {
+          if (success) {
+            console.log('[App] GitHub OAuth login success');
+            // Trigger session refetch
+            window.location.reload();
+          }
+        })
+        .catch((err) => {
+          console.error('[App] GitHub OAuth login failed:', err);
+        });
+    }
+  }, []);
 
   // Auto-register push on native (APNs/FCM) and web (VAPID) after login.
   React.useEffect(() => {

@@ -209,6 +209,35 @@ class DdpClient {
     }
   }
 
+  /**
+   * Login via Meteor OAuth callback tokens.
+   * After GitHub OAuth completes, Meteor redirects with meteor_token and meteor_resume params.
+   */
+  async loginWithMeteorToken(
+    meteorToken: string,
+    resumeToken: string,
+  ): Promise<boolean> {
+    try {
+      await this.ensureConnected();
+
+      // Login using the resume token Meteor issued
+      const result = await this.call('login', {
+        resume: resumeToken,
+      });
+
+      const loginResult = result as { token: string };
+      if (loginResult?.token) {
+        localStorage.setItem('meteor_resume_token', loginResult.token);
+      }
+
+      console.log('[DDP] logged in via GitHub OAuth');
+      return true;
+    } catch (err) {
+      console.error('[DDP] GitHub login error:', err);
+      return false;
+    }
+  }
+
   private handleMessage(data: DdpMessage): void {
     switch (data.msg) {
       case 'ping':

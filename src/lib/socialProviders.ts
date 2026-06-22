@@ -21,11 +21,18 @@ export interface SocialProvider {
   /** Human-readable name shown as "Continue with {label}". */
   label: string;
   icon: IconDefinition;
-  kind: 'social' | 'oauth2';
+  kind: 'social' | 'oauth2' | 'meteor-oauth';
+  /** Path for Meteor OAuth endpoints (only for meteor-oauth kind). */
+  meteorPath?: string;
 }
 
 const REGISTRY: Record<string, Omit<SocialProvider, 'id'>> = {
-  github: { label: 'GitHub', icon: faGithub, kind: 'social' },
+  github: {
+    label: 'GitHub',
+    icon: faGithub,
+    kind: 'meteor-oauth',
+    meteorPath: '/auth/github',
+  },
   google: { label: 'Google', icon: faGoogle, kind: 'social' },
   apple: { label: 'Apple', icon: faApple, kind: 'social' },
   

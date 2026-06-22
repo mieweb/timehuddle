@@ -9,7 +9,7 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useState } from 'react';
 
-import { authApi } from '../lib/api';
+import { authApi, METEOR_BASE_URL } from '../lib/api';
 import { getEnabledSocialProviders, type SocialProvider } from '../lib/socialProviders';
 import { useSession } from '../lib/useSession';
 import { Button, Input, Select, Text } from '@mieweb/ui';
@@ -242,6 +242,13 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setSocialLoadingId(provider.id);
     setSocialError(null);
     try {
+      if (provider.kind === 'meteor-oauth') {
+        // Redirect to Meteor OAuth endpoint
+        window.location.href = `${METEOR_BASE_URL}${provider.meteorPath}`;
+        return;
+      }
+
+      // Existing oauth2 and social handling
       const callbackURL = `${window.location.origin}/app/dashboard`;
       const url =
         provider.kind === 'oauth2'
