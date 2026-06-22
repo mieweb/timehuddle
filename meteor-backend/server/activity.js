@@ -1,6 +1,7 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, rawDb, isValidId } from './collections';
+import { requireIdentity } from './auth-bridge';
 import { requireTeamMembership } from './permissions';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -43,18 +44,14 @@ async function getLog(userId, limit = 50, before) {
 
 Meteor.methods({
   async 'activity.log'({ limit, before } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     return getLog(userId, limit, before);
   },
 
   async 'activity.userLog'({ userId: targetUserId, limit, before } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (typeof targetUserId !== 'string' || !targetUserId) {
       throw new Meteor.Error('bad-request', 'userId is required');
     }
@@ -73,10 +70,8 @@ Meteor.methods({
   },
 
   async 'activity.ticketActivity'({ ticketId, limit } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (typeof ticketId !== 'string' || !ticketId) {
       throw new Meteor.Error('bad-request', 'ticketId is required');
     }

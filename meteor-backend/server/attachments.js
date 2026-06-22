@@ -1,6 +1,7 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
+import { requireIdentity } from './auth-bridge';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -37,9 +38,8 @@ async function fetchYouTubeTitle(url) {
 
 Meteor.methods({
   async 'attachments.list'({ kind, id }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!VALID_KINDS.includes(kind)) throw new Meteor.Error('bad-request', 'Invalid kind');
     if (typeof id !== 'string' || !id) throw new Meteor.Error('bad-request', 'id is required');
 
@@ -51,10 +51,8 @@ Meteor.methods({
   },
 
   async 'attachments.add'({ url, type, title, thumbnail, attachedTo }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (typeof url !== 'string' || !url.trim()) throw new Meteor.Error('bad-request', 'url is required');
     if (!VALID_TYPES.includes(type)) throw new Meteor.Error('bad-request', 'Invalid type');
     if (!attachedTo?.kind || !attachedTo?.id) throw new Meteor.Error('bad-request', 'attachedTo is required');
@@ -77,10 +75,8 @@ Meteor.methods({
   },
 
   async 'attachments.remove'({ attachmentId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(attachmentId)) throw new Meteor.Error('not-found', 'Invalid attachment id');
     const doc = await rawDb().collection('attachments').findOne({ _id: new ObjectId(attachmentId) });
     if (!doc) throw new Meteor.Error('not-found', 'Attachment not found');

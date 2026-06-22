@@ -1,6 +1,7 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, rawDb, isValidId } from './collections';
+import { requireIdentity } from './auth-bridge';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -62,10 +63,8 @@ async function toPublicUser(u, profileMap) {
 
 Meteor.methods({
   async 'users.get'({ userId: targetUserId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(targetUserId)) throw new Meteor.Error('not-found', 'Invalid user id');
     const user = await rawDb().collection('user').findOne({ _id: new ObjectId(targetUserId) });
     if (!user) throw new Meteor.Error('not-found', 'User not found');
@@ -86,10 +85,8 @@ Meteor.methods({
   },
 
   async 'users.getByUsername'({ username }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (typeof username !== 'string' || !username.trim()) {
       throw new Meteor.Error('bad-request', 'username is required');
     }
@@ -113,9 +110,8 @@ Meteor.methods({
   },
 
   async 'users.batchGet'({ ids }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!ids || !Array.isArray(ids)) return { users: [] };
     const validIds = ids.slice(0, 200).filter(isValidId).map((id) => new ObjectId(id));
     if (validIds.length === 0) return { users: [] };
@@ -132,10 +128,8 @@ Meteor.methods({
   },
 
   async 'users.updateProfile'({ name, bio, website, reportsToUserId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
 
     if (reportsToUserId !== undefined) {
       if (reportsToUserId === userId) {
@@ -165,9 +159,8 @@ Meteor.methods({
   },
 
   async 'users.checkUsername'({ username }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (typeof username !== 'string') return { available: false, reason: 'invalid-chars' };
     const normalized = username.trim().toLowerCase();
     const formatError = validateUsernameFormat(normalized);
@@ -178,10 +171,8 @@ Meteor.methods({
   },
 
   async 'users.claimUsername'({ username }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (typeof username !== 'string') throw new Meteor.Error('bad-request', 'username is required');
     const normalized = username.trim().toLowerCase();
     const formatError = validateUsernameFormat(normalized);

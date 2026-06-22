@@ -17,6 +17,7 @@ import { Accounts } from 'meteor/accounts-base';
 import { MongoInternals } from 'meteor/mongo';
 import { createHash } from 'crypto';
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
+import { currentBearerToken } from 'meteor/wreiske:meteor-wormhole';
 import { rawDb } from './collections';
 
 // Use Meteor's bundled driver so BSON types match the rawDb() connection.
@@ -96,7 +97,7 @@ async function findOrCreateUser(email, name) {
     
     // Create Meteor user with SAME _id as Fastify user
     try {
-      Meteor.users.insert({
+      await Meteor.users.insertAsync({
         _id: fastifyUser._id.toHexString(),
         emails: [{ 
           address: normalizedEmail, 
@@ -128,11 +129,59 @@ async function findOrCreateUser(email, name) {
       profile: { name: name || normalizedEmail }
     })
     console.log('[auth-bridge] created new user:', userId)
+    
+    // Also create in Fastify user collection
+    await db.collection('user').insertOne({
+      _id: new ObjectId(userId),  // same _id!
+      email: normalizedEmail,
+      name: name || normalizedEmail,
+      emailVerified: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    })
+    console.log('[auth-bridge] synced user to Fastify collection:', userId)
+    
     return userId
   } catch (err) {
     console.error('[auth-bridge] Accounts.createUser error:', err.message)
     throw err
   }
+}
+
+export async function requireIdentity(methodContext) {
+  // Path 1: REST/MCP via wormhole
+  // reads Authorization: Bearer header
+  const token = currentBearerToken()
+  if (token) {
+    const identity = await resolveToken(token)
+    if (identity) return identity
+    throw new Meteor.Error('not-authorized', 'Invalid or expired token')
+  }
+
+  // Path 2: DDP via Meteor Accounts
+  // this.userId set after login({ oidcJwt })
+  const userId = methodContext?.userId
+  if (userId) {
+    const user = await Meteor.users.findOneAsync(userId)
+    return {
+      userId,
+      name: user?.profile?.name || user?.emails?.[0]?.address || 'Unknown'
+    }
+  }
+
+  throw new Meteor.Error('not-authorized', 'Not logged in')
+}
+
+export function identityForConnection(connection) {
+  const userId = connection?.userId
+  if (userId) {
+    const user = Meteor.users.findOne(userId)
+    return {
+      userId,
+      name: user?.profile?.name || user?.emails?.[0]?.address || 'Unknown'
+    }
+  }
+  return null
 }
 
 // ============================================================================

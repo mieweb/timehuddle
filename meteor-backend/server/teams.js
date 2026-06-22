@@ -2,6 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, rawDb, isValidId } from './collections';
+import { requireIdentity } from './auth-bridge';
 import { ensureDefaultOrganization, addOrgMember, getAccessibleOrgIds } from './org-helpers';
 import { ensureDefaultChannel } from './channels';
 
@@ -36,10 +37,8 @@ Meteor.publish('teams.byUser', function () {
 
 Meteor.methods({
   async 'teams.list'() {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const teams = await Teams.find({ members: userId }).fetchAsync();
     return {
       teams: teams.map(toPublicTeam).sort((a, b) => {
@@ -50,10 +49,8 @@ Meteor.methods({
   },
 
   async 'teams.ensurePersonal'() {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const existing = await Teams.findOneAsync({ isPersonal: true, members: userId });
     if (existing) return { team: toPublicTeam(existing) };
 
@@ -75,10 +72,8 @@ Meteor.methods({
   },
 
   async 'teams.create'({ name, description, orgId: requestedOrgId, parentTeamId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (typeof name !== 'string' || !name.trim()) {
       throw new Meteor.Error('bad-request', 'name is required');
     }
@@ -125,10 +120,8 @@ Meteor.methods({
   },
 
   async 'teams.join'({ teamCode }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (typeof teamCode !== 'string' || !teamCode.trim()) {
       throw new Meteor.Error('bad-request', 'teamCode is required');
     }
@@ -157,10 +150,8 @@ Meteor.methods({
   },
 
   async 'teams.subteams'({ teamId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const parent = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!parent) throw new Meteor.Error('not-found', 'Team not found');
@@ -175,10 +166,8 @@ Meteor.methods({
   },
 
   async 'teams.rename'({ teamId, newName }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     if (typeof newName !== 'string' || !newName.trim()) {
       throw new Meteor.Error('bad-request', 'newName is required');
@@ -194,10 +183,8 @@ Meteor.methods({
   },
 
   async 'teams.delete'({ teamId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
@@ -209,10 +196,8 @@ Meteor.methods({
   },
 
   async 'teams.getMembers'({ teamId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
@@ -240,10 +225,8 @@ Meteor.methods({
   },
 
   async 'teams.invite'({ teamId, email }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     if (typeof email !== 'string' || !email.trim()) {
       throw new Meteor.Error('bad-request', 'email is required');
@@ -279,10 +262,8 @@ Meteor.methods({
   },
 
   async 'teams.removeMember'({ teamId, userId: targetUserId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
@@ -307,10 +288,8 @@ Meteor.methods({
   },
 
   async 'teams.setRole'({ teamId, userId: targetUserId, role }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     if (role !== 'admin' && role !== 'member') {
       throw new Meteor.Error('bad-request', 'role must be admin or member');
@@ -340,10 +319,8 @@ Meteor.methods({
   },
 
   async 'teams.setMemberPassword'({ teamId, userId: targetUserId, newPassword }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     if (typeof newPassword !== 'string' || !newPassword) {
       throw new Meteor.Error('bad-request', 'newPassword is required');

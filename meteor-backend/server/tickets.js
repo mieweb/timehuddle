@@ -11,6 +11,7 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
 import { Tickets, Teams, isValidId, rawDb } from './collections';
+import { requireIdentity } from './auth-bridge';
 import { requireTeamMembership, requireTicketPermission } from './permissions';
 import { createNotification, userDisplayName } from './notify-core';
 
@@ -59,10 +60,8 @@ function toPublicTicket(doc) {
 Meteor.methods({
   /** List non-deleted tickets for a team (newest first). */
   async 'tickets.list'({ teamId } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     await requireTeamMembership(userId, teamId);
     const docs = await Tickets.find(
       { teamId, status: { $ne: 'deleted' } },
@@ -73,15 +72,8 @@ Meteor.methods({
 
   /** Create a ticket. Mirrors TicketService.create (creator auto-assigned). */
   async 'tickets.create'({ teamId, title, description, github, priority } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
-    const user = await Meteor.users.findOneAsync(userId);
-    const identity = {
-      userId,
-      name: user?.profile?.name || user?.emails?.[0]?.address || 'Unknown',
-    };
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     await requireTeamMembership(userId, teamId);
     if (typeof title !== 'string' || !title.trim()) {
       throw new Meteor.Error('validation-error', 'title is required');
@@ -111,15 +103,8 @@ Meteor.methods({
 
   /** Update a ticket's status (and optionally priority). Reviewed sets reviewedBy/At. */
   async 'tickets.updateStatus'({ ticketId, status, priority } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
-    const user = await Meteor.users.findOneAsync(userId);
-    const identity = {
-      userId,
-      name: user?.profile?.name || user?.emails?.[0]?.address || 'Unknown',
-    };
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'update');
     if (status !== undefined && !ALL_STATUSES.includes(status)) {
       throw new Meteor.Error('validation-error', `status must be one of ${ALL_STATUSES.join(', ')}`);
@@ -151,15 +136,8 @@ Meteor.methods({
 
   /** Edit a ticket's title / github / description. Mirrors TicketService.update. */
   async 'tickets.update'({ ticketId, title, github, description } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
-    const user = await Meteor.users.findOneAsync(userId);
-    const identity = {
-      userId,
-      name: user?.profile?.name || user?.emails?.[0]?.address || 'Unknown',
-    };
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'update');
     const $set = { updatedAt: new Date(), updatedBy: identity.userId };
     if (title !== undefined) {
@@ -191,15 +169,8 @@ Meteor.methods({
 
   /** Soft-delete a ticket (status: deleted). Mirrors TicketService.delete. */
   async 'tickets.delete'({ ticketId } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
-    const user = await Meteor.users.findOneAsync(userId);
-    const identity = {
-      userId,
-      name: user?.profile?.name || user?.emails?.[0]?.address || 'Unknown',
-    };
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'delete');
     await Tickets.updateAsync(new Mongo.ObjectID(ticketId), {
       $set: { status: 'deleted', updatedAt: new Date() },
@@ -219,15 +190,8 @@ Meteor.methods({
    * which remain in the Fastify backend (notification fan-out not yet ported).
    */
   async 'tickets.assign'({ ticketId, assignedToUserIds } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
-    const user = await Meteor.users.findOneAsync(userId);
-    const identity = {
-      userId,
-      name: user?.profile?.name || user?.emails?.[0]?.address || 'Unknown',
-    };
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'assign');
     if (!Array.isArray(assignedToUserIds) || !assignedToUserIds.every((id) => isValidId(id))) {
       throw new Meteor.Error('validation-error', 'assignedToUserIds must be an array of user ids');
@@ -302,15 +266,8 @@ Meteor.methods({
 
   /** Batch status change for tickets within one team. Mirrors batchUpdateStatus. */
   async 'tickets.batchStatus'({ ticketIds, teamId, status } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
-    const user = await Meteor.users.findOneAsync(userId);
-    const identity = {
-      userId,
-      name: user?.profile?.name || user?.emails?.[0]?.address || 'Unknown',
-    };
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     await requireTeamMembership(userId, teamId);
     if (!ALL_STATUSES.includes(status)) {
       throw new Meteor.Error('validation-error', `status must be one of ${ALL_STATUSES.join(', ')}`);

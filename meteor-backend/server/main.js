@@ -37,20 +37,21 @@ import './push';
 import { initAgenda } from './agenda';
 
 /**
- * CORS for the wormhole REST bridge (/api) — the Vite frontend on another
- * origin calls it directly. rawConnectHandlers runs before wormhole's
- * middleware, so preflights are answered here.
+ * CORS for ALL routes — the Vite frontend on another origin calls both DDP and
+ * HTTP endpoints. Global middleware catches everything before any other handlers.
  */
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3000')
   .split(',')
   .map((s) => s.trim());
 
-WebApp.rawConnectHandlers.use('/api', (req, res, next) => {
+// Global CORS — catches ALL routes (DDP, /api, /uploads, etc.)
+WebApp.rawConnectHandlers.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
   if (req.method === 'OPTIONS') {
@@ -61,23 +62,9 @@ WebApp.rawConnectHandlers.use('/api', (req, res, next) => {
   next();
 });
 
-WebApp.rawConnectHandlers.use('/auth', (req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    res.setHeader('Access-Control-Max-Age', '86400');
-  }
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
-    return;
-  }
-  next();
-});
+// /api/whoami — no extra CORS needed (global middleware handles it)
+WebApp.connectHandlers.use('/api/whoami', async (req, res) => {
 
-WebApp.connectHandlers.use('/auth/whoami', async (req, res) => {
   // Only works when proxy headers are trusted
   if (process.env.TRUST_PROXY_HEADERS !== 'true') {
     res.writeHead(404);

@@ -657,6 +657,17 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     betterAuthHandler
   );
 
+  // Apple domain verification for Sign In with Apple
+  // To obtain the association file:
+  // 1. Go to https://developer.apple.com/account/resources/identifiers/list/serviceId
+  // 2. Select your Service ID (com.mieweb.timehuddle.web)
+  // 3. Configure Web Authentication and add domain: timehuddledev.os.mieweb.org
+  // 4. Download the association file and set APPLE_DOMAIN_ASSOCIATION env var
+  app.get("/.well-known/apple-developer-domain-association.txt", async (req, reply) => {
+    const content = process.env.APPLE_DOMAIN_ASSOCIATION || "";
+    return reply.type("text/plain").code(200).send(content);
+  });
+
   // Health check
   await app.register(healthRoutes);
 

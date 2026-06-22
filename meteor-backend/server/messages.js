@@ -2,6 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, Messages, rawDb, isValidId } from './collections';
+import { requireIdentity } from './auth-bridge';
 import { createNotification } from './notify-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -40,10 +41,8 @@ Meteor.publish('messages.byThread', function (threadId) {
 
 Meteor.methods({
   async 'messages.getThread'({ teamId, adminId, memberId, before, limit }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (userId !== adminId && userId !== memberId) {
       throw new Meteor.Error('forbidden', 'Not a thread participant');
     }
@@ -68,10 +67,8 @@ Meteor.methods({
   },
 
   async 'messages.send'({ teamId, toUserId, text, adminId, ticketId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (typeof text !== 'string' || !text.trim()) {
       throw new Meteor.Error('bad-request', 'text is required');
     }
