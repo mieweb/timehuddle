@@ -4,6 +4,8 @@ import { organizationsCollection, teamsCollection, usersCollection } from "../mo
 import type { Team } from "../models/team.model.js";
 import { channelService } from "./channel.service.js";
 import { orgService } from "./org.service.js";
+import { teamJoinRequestService } from "./team-join-request.service.js";
+import type { PublicTeamJoinRequest } from "../models/team-join-request.model.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -49,8 +51,12 @@ export type TeamError =
 // ─── WebSocket Pub/Sub ────────────────────────────────────────────────────────
 
 type TeamListener = (userId: string, team: PublicTeam | null, action: "update" | "delete") => void;
+type PendingRequestsListener = (userId: string, pendingRequests: PublicTeamJoinRequest[]) => void;
+
 // Map by userId → Set of listeners (each user subscribes to their own teams)
 const teamListeners = new Map<string, Set<TeamListener>>();
+// Map by userId → Set of pending request listeners
+const pendingRequestsListeners = new Map<string, Set<PendingRequestsListener>>();
 
 /** Subscribe to team updates for a specific user. Returns unsubscribe function. */
 export function subscribeToUser(userId: string, fn: TeamListener): () => void {
@@ -67,8 +73,26 @@ export function subscribeToUser(userId: string, fn: TeamListener): () => void {
   };
 }
 
+/** Subscribe to pending requests updates for a specific user. Returns unsubscribe function. */
+export function subscribeToPendingRequests(
+  userId: string,
+  fn: PendingRequestsListener
+): () => void {
+  if (!pendingRequestsListeners.has(userId)) {
+    pendingRequestsListeners.set(userId, new Set());
+  }
+  pendingRequestsListeners.get(userId)!.add(fn);
+  return () => {
+    const listeners = pendingRequestsListeners.get(userId);
+    if (listeners) {
+      listeners.delete(fn);
+      if (listeners.size === 0) pendingRequestsListeners.delete(userId);
+    }
+  };
+}
+
 /** Broadcast a team update to all members of the team. */
-function broadcastToTeamMembers(
+export function broadcastToTeamMembers(
   team: (Team & { _id: ObjectId }) | null,
   action: "update" | "delete"
 ) {
@@ -82,6 +106,15 @@ function broadcastToTeamMembers(
     for (const fn of listeners) {
       fn(userId, publicTeam, action);
     }
+  }
+}
+
+/** Broadcast pending requests update to a specific user. */
+export function broadcastPendingRequests(userId: string, pendingRequests: PublicTeamJoinRequest[]) {
+  const listeners = pendingRequestsListeners.get(userId);
+  if (!listeners) return;
+  for (const fn of listeners) {
+    fn(userId, pendingRequests);
   }
 }
 
@@ -181,28 +214,23 @@ export class TeamService {
     return created;
   }
 
-  /** Join an existing team by code. */
+  /** Join an existing team by code - creates a pending approval request. */
   async joinByCode(
     userId: string,
     teamCode: string
-  ): Promise<PublicTeam | "not-found" | "already-member"> {
+  ): Promise<PublicTeam | PublicTeamJoinRequest | "not-found" | "already-member"> {
     const team = await teamsCollection().findOne({ code: teamCode.toUpperCase() });
     if (!team) return "not-found";
     if (team.members.includes(userId)) return "already-member";
-    await teamsCollection().updateOne(
-      { _id: team._id },
-      { $addToSet: { members: userId }, $set: { updatedAt: new Date() } }
+
+    // Create pending join request instead of directly adding to team
+    const request = await teamJoinRequestService.create(
+      userId,
+      team._id.toHexString(),
+      teamCode.toUpperCase()
     );
-    const org =
-      team.orgId && /^[0-9a-f]{24}$/i.test(team.orgId)
-        ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
-        : null;
-    if (org?.allowAutoJoin !== false) {
-      await orgService.addOrgMember(team.orgId, userId, "member", true);
-    }
-    const updated = await teamsCollection().findOne({ _id: team._id });
-    broadcastToTeamMembers(updated!, "update");
-    return toPublicTeam(updated!);
+
+    return request;
   }
 
   /** Rename a team (admin only). */

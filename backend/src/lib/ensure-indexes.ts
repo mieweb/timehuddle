@@ -62,5 +62,10 @@ export async function ensureIndexes() {
   await db.collection("enterprises").createIndex({ slug: 1 }, { unique: true });
   await db.collection("organizations").createIndex({ slug: 1 }, { unique: true });
 
+  // ── Huddle posts indexes ────────────────────────────────────────────────────
+  const huddlePosts = db.collection("huddleposts");
+  // Team feed query — newest first
+  await huddlePosts.createIndex({ teamId: 1, createdAt: -1 });
+
   console.log("MongoDB indexes ensured");
 }

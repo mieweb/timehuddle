@@ -31,6 +31,7 @@ import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
 import { MediaPage } from '../features/media/MediaPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
+import Huddle from '../pages/Huddle';
 import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
 import { OrganizationPage } from '../features/org/OrganizationPage';
 import { EnterprisePage } from '../features/enterprise/EnterprisePage';
@@ -67,6 +68,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/activity': { title: 'Activity Log', component: ActivityLogPage },
   '/app/clock': { title: 'Clock In/Out', component: ClockPage },
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
+  '/app/huddle': { title: 'Huddle', component: Huddle },
   '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/enterprise': { title: 'Enterprise', component: EnterprisePage },
@@ -189,6 +191,18 @@ const AppLayoutContent: React.FC = () => {
             detail: { clockEventId: data.clockEventId, teamId: data.teamId },
           }),
         );
+      } else if (data.type === 'huddle-comment' || data.type === 'huddle-mention') {
+        // Navigate to huddle page (future: scroll to specific post via postId)
+        navigate('/app/huddle');
+      } else if (data.type === 'team-join-request') {
+        // Navigate to notifications page where user can approve/decline
+        navigate('/app/notifications');
+      } else if (data.type === 'team-join-request-approved') {
+        // Navigate to the team page
+        if (data.url) navigate(data.url);
+      } else if (data.type === 'team-join-request-declined') {
+        // Navigate to teams page
+        if (data.url) navigate(data.url);
       } else if (data.url) {
         const safePath = data.url.split('?')[0];
         console.log('[handleNotificationData] safePath:', safePath);

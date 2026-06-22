@@ -866,10 +866,15 @@ function toTicket(raw: Record<string, unknown>): Ticket {
 }
 
 export const ticketApi = {
-  getTickets: (teamId: string) =>
-    request<{ tickets: Ticket[] }>(`/v1/tickets?teamId=${encodeURIComponent(teamId)}`).then(
-      (r) => r.tickets,
-    ),
+  getTickets: (teamId: string) => {
+    console.log('[ticketApi.getTickets] Called with teamId:', teamId, 'type:', typeof teamId);
+    const url = `/v1/tickets?teamId=${encodeURIComponent(teamId)}`;
+    console.log('[ticketApi.getTickets] Request URL:', url);
+    return request<{ tickets: Ticket[] }>(url).then((r) => {
+      console.log('[ticketApi.getTickets] Response:', r);
+      return r.tickets;
+    });
+  },
 
   getTicket: (id: string) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`).then((r) => r.ticket),
@@ -918,6 +923,125 @@ export const ticketApi = {
     }),
 };
 
+// ─── Huddle API ───────────────────────────────────────────────────────────────
+
+export interface HuddlePost {
+  id: string;
+  teamId: string;
+  userId: string;
+  userName: string;
+  userInitials: string;
+  content: {
+    text: string;
+    mentions: string[];
+  };
+  ticketId?: string;
+  ticketTitle?: string;
+  attachments: Array<{
+    mediaId: string;
+    type: 'image' | 'video' | 'file';
+    url: string;
+    thumbnailUrl?: string;
+    filename?: string;
+  }>;
+  likes: string[];
+  commentCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HuddleComment {
+  id: string;
+  postId: string;
+  userId: string;
+  userName: string;
+  userInitials: string;
+  userAvatarUrl?: string;
+  content: string;
+  mentions: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const huddleApi = {
+  /** Fetch all huddle posts for a team. */
+  getPosts: (teamId: string) =>
+    request<{ posts: HuddlePost[] }>(`/v1/huddle/posts?teamId=${encodeURIComponent(teamId)}`).then(
+      (r) => r.posts,
+    ),
+
+  /** Fetch all huddle posts for a specific ticket. */
+  getPostsByTicket: (ticketId: string) =>
+    request<{ posts: HuddlePost[] }>(
+      `/v1/huddle/tickets/${encodeURIComponent(ticketId)}/posts`,
+    ).then((r) => r.posts),
+
+  /** Create a new huddle post. */
+  createPost: (data: {
+    teamId: string;
+    content: {
+      text: string;
+      mentions: string[];
+    };
+    ticketId?: string;
+    attachments?: Array<{
+      mediaId: string;
+      type: 'image' | 'video' | 'file';
+      url: string;
+      thumbnailUrl?: string;
+      filename?: string;
+    }>;
+  }) =>
+    request<{ id: string }>('/v1/huddle/posts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.id),
+
+  /** Update a huddle post. */
+  updatePost: (id: string, data: { content: { text: string; mentions: string[] } }) =>
+    request<{ post: HuddlePost }>(`/v1/huddle/posts/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }).then((r) => r.post),
+
+  /** Delete a huddle post. */
+  deletePost: (id: string) =>
+    request<{ ok: boolean }>(`/v1/huddle/posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  /** Open a WebSocket connection for live huddle post updates. Auto-reconnects on drop. */
+  openLiveStream: (teamId: string): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/huddle/ws?teamId=${encodeURIComponent(teamId)}`;
+      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+    }),
+
+  /** Toggle like on a post */
+  toggleLike: (postId: string) =>
+    request<{ count: number }>(`/v1/huddle/posts/${encodeURIComponent(postId)}/like`, {
+      method: 'POST',
+    }).then((r) => r.count),
+
+  /** Get comments for a post */
+  getComments: (postId: string) =>
+    request<{ comments: HuddleComment[] }>(
+      `/v1/huddle/posts/${encodeURIComponent(postId)}/comments`,
+    ).then((r) => r.comments),
+
+  /** Add a comment to a post */
+  addComment: (postId: string, data: { content: string; mentions: string[] }) =>
+    request<{ id: string }>(`/v1/huddle/posts/${encodeURIComponent(postId)}/comments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.id),
+
+  /** Delete a comment */
+  deleteComment: (commentId: string) =>
+    request<{ ok: boolean }>(`/v1/huddle/comments/${encodeURIComponent(commentId)}`, {
+      method: 'DELETE',
+    }),
+};
+
 // ─── Team API ─────────────────────────────────────────────────────────────────
 
 export interface Team {
@@ -942,8 +1066,40 @@ export interface TeamMember {
   image: string | null;
 }
 
+export interface TeamJoinRequest {
+  id: string;
+  teamId: string;
+  userId: string;
+  teamCode: string;
+  status: 'pending' | 'approved' | 'declined' | 'expired';
+  requestedAt: string;
+  respondedAt?: string;
+  respondedBy?: string;
+}
+
+export interface TeamJoinRequestWithUser extends TeamJoinRequest {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
+export interface TeamJoinRequestPreview {
+  notificationId: string;
+  requestId: string;
+  teamId: string;
+  teamName: string;
+  teamDescription: string;
+  requester: { id: string; name: string; email: string } | null;
+  alreadyProcessed: boolean;
+}
+
 export const teamApi = {
-  getTeams: () => wormholeCall<{ teams: Team[] }>('teams.list', {}).then((r) => r.teams),
+  getTeams: () =>
+    wormholeCall<{ teams: Team[]; pendingRequests: TeamJoinRequest[] }>('teams.list', {}),
+
+  getTeamsOnly: () => wormholeCall<{ teams: Team[] }>('teams.list', {}).then((r) => r.teams),
 
   ensurePersonal: () =>
     wormholeCall<{ team: Team }>('teams.ensurePersonal', {}).then((r) => r.team),
@@ -959,7 +1115,9 @@ export const teamApi = {
     wormholeCall<{ teams: Team[] }>('teams.subteams', { teamId: id }).then((r) => r.teams),
 
   joinTeam: (teamCode: string) =>
-    wormholeCall<{ team: Team }>('teams.join', { teamCode }).then((r) => r.team),
+    wormholeCall<
+      { status: 'pending'; request: TeamJoinRequest } | { status: 'joined'; team: Team }
+    >('teams.join', { teamCode }),
 
   renameTeam: (id: string, newName: string) =>
     wormholeCall<{ team: Team }>('teams.rename', { teamId: id, newName }).then((r) => r.team),
@@ -986,6 +1144,17 @@ export const teamApi = {
 
   setMemberPassword: (id: string, userId: string, newPassword: string) =>
     wormholeCall<{ ok: boolean }>('teams.setMemberPassword', { teamId: id, userId, newPassword }),
+
+  getPendingJoinRequests: (teamId: string) =>
+    wormholeCall<{ requests: TeamJoinRequestWithUser[] }>('teams.getPendingJoinRequests', {
+      teamId,
+    }).then((r) => r.requests),
+
+  approveJoinRequest: (requestId: string) =>
+    wormholeCall<{ status: string }>('teams.approveJoinRequest', { requestId }),
+
+  declineJoinRequest: (requestId: string) =>
+    wormholeCall<{ status: string }>('teams.declineJoinRequest', { requestId }),
 };
 
 // ─── Clock API ────────────────────────────────────────────────────────────────
@@ -1211,6 +1380,19 @@ export const notificationApi = {
       body: JSON.stringify({ action }),
     }),
 
+  /** Fetch team join request preview for a notification. */
+  getJoinRequestPreview: (id: string) =>
+    request<TeamJoinRequestPreview>(
+      `/v1/notifications/${encodeURIComponent(id)}/join-request-preview`,
+    ),
+
+  /** Approve or decline a team join request. */
+  respondToJoinRequest: (id: string, action: 'approve' | 'decline') =>
+    request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/join-request-respond`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+
   /** Consent to auto-clockout at 8h — called when user clicks "Agree to Clock Out" on the shift reminder. */
   agreeClockout: (clockEventId: string) =>
     wormholeCall<{ ok: boolean }>('clock.agreeAutoClockout', { clockEventId }),
@@ -1425,7 +1607,7 @@ export const videoApi = {
 export interface MediaItem {
   id: string;
   userId: string;
-  type: 'video' | 'image';
+  type: 'video' | 'image' | 'document';
   mimeType: string;
   url: string;
   videoid: string | null;
