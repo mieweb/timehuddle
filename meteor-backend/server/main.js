@@ -267,6 +267,129 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
   }
 });
 
+// ============================================================================
+// Google OAuth Endpoints
+// ============================================================================
+
+WebApp.connectHandlers.use('/auth/google', (req, res) => {
+  const callbackUrl = 
+    `${process.env.ROOT_URL}/auth/google/callback`
+  
+  const googleAuthUrl = 
+    'https://accounts.google.com/o/oauth2/v2/auth' +
+    `?client_id=${process.env.GOOGLE_CLIENT_ID}` +
+    `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
+    `&response_type=code` +
+    `&scope=openid%20email%20profile` +
+    `&state=${Random.secret()}`
+  
+  res.writeHead(302, { Location: googleAuthUrl })
+  res.end()
+})
+
+WebApp.connectHandlers.use('/auth/google/callback',
+  async (req, res) => {
+    const { code } = Object.fromEntries(
+      new URL(req.url, process.env.ROOT_URL).searchParams
+    )
+    
+    if (!code) {
+      res.writeHead(400)
+      res.end('Missing code')
+      return
+    }
+    
+    try {
+      const callbackUrl = 
+        `${process.env.ROOT_URL}/auth/google/callback`
+      
+      // Exchange code for token
+      const tokenRes = await fetch(
+        'https://oauth2.googleapis.com/token',
+        {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: new URLSearchParams({
+            client_id: process.env.GOOGLE_CLIENT_ID,
+            client_secret: process.env.GOOGLE_CLIENT_SECRET,
+            code,
+            grant_type: 'authorization_code',
+            redirect_uri: callbackUrl
+          })
+        }
+      )
+      const tokenData = await tokenRes.json()
+      const accessToken = tokenData.access_token
+      
+      // Get user info from Google
+      const userRes = await fetch(
+        'https://www.googleapis.com/oauth2/v2/userinfo',
+        {
+          headers: { 
+            Authorization: `Bearer ${accessToken}`
+          }
+        }
+      )
+      const googleUser = await userRes.json()
+      
+      const email = googleUser.email
+      if (!email) {
+        res.writeHead(400)
+        res.end('No email found')
+        return
+      }
+      
+      const name = googleUser.name || email
+      
+      // Find or create user in Meteor
+      const userId = await findOrCreateUser(email, name)
+      
+      // Sync to Fastify user collection
+      const db = rawDb()
+      await db.collection('user').updateOne(
+        { email: email.toLowerCase() },
+        {
+          $set: { updatedAt: new Date() },
+          $setOnInsert: {
+            email: email.toLowerCase(),
+            name: name,
+            emailVerified: true,
+            createdAt: new Date()
+          }
+        },
+        { upsert: true }
+      )
+      
+      // Create Meteor login token
+      const stampedToken = 
+        Accounts._generateStampedLoginToken()
+      await Accounts._insertLoginToken(
+        userId, stampedToken
+      )
+      
+      // Redirect to frontend with token
+      const frontendUrl =
+        process.env.CORS_ORIGINS?.split(',')[0] || 
+        'http://localhost:3000'
+      
+      res.writeHead(302, {
+        Location:
+          `${frontendUrl}/app/dashboard` +
+          `?meteor_token=google_${userId}&` +
+          `meteor_resume=${stampedToken.token}`
+      })
+      res.end()
+      
+    } catch (err) {
+      console.error('[google-oauth] error:', err)
+      res.writeHead(500)
+      res.end('OAuth error')
+    }
+  }
+)
+
 Meteor.startup(async() => {
   // Configure GitHub OAuth service
   await ServiceConfiguration.configurations.upsertAsync(
@@ -277,6 +400,18 @@ Meteor.startup(async() => {
         secret: process.env.GITHUB_CLIENT_SECRET,
         loginStyle: 'redirect',
       },
+    }
+  );
+  
+  // Configure Google OAuth service
+  await ServiceConfiguration.configurations.upsertAsync(
+    { service: 'google' },
+    {
+      $set: {
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        secret: process.env.GOOGLE_CLIENT_SECRET,
+        loginStyle: 'redirect'
+      }
     }
   );
   

@@ -305,4 +305,36 @@ Accounts.onLogin(async (info) => {
       err.message
     );
   }
+  
+  // Sync Google OAuth users to Fastify user collection
+  try {
+    if (user?.services?.google) {
+      const email = user.services.google.email ||
+                    user.emails?.[0]?.address
+      if (email) {
+        const name = user.services.google.name || email
+        await db.collection('user').updateOne(
+          { email: email.toLowerCase() },
+          {
+            $set: { updatedAt: new Date(), name },
+            $setOnInsert: {
+              email: email.toLowerCase(),
+              emailVerified: true,
+              createdAt: new Date()
+            }
+          },
+          { upsert: true }
+        )
+        console.log(
+          '[auth-bridge] synced Google user to Fastify collection:',
+          email
+        );
+      }
+    }
+  } catch (err) {
+    console.error(
+      '[auth-bridge] Google sync error:',
+      err.message
+    );
+  }
 });
