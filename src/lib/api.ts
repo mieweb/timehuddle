@@ -1099,8 +1099,7 @@ export const teamApi = {
   getTeams: () =>
     wormholeCall<{ teams: Team[]; pendingRequests: TeamJoinRequest[] }>('teams.list', {}),
 
-  getTeamsOnly: () =>
-    wormholeCall<{ teams: Team[] }>('teams.list', {}).then((r) => r.teams),
+  getTeamsOnly: () => wormholeCall<{ teams: Team[] }>('teams.list', {}).then((r) => r.teams),
 
   ensurePersonal: () =>
     wormholeCall<{ team: Team }>('teams.ensurePersonal', {}).then((r) => r.team),
