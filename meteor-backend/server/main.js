@@ -9,10 +9,15 @@
 import { Meteor } from 'meteor/meteor';
 import { WebApp } from 'meteor/webapp';
 import { Wormhole } from 'meteor/wreiske:meteor-wormhole';
+import { ServiceConfiguration } from 'meteor/service-configuration';
+import { OAuth } from 'meteor/oauth';
+import { Random } from 'meteor/random';
+import { Accounts } from 'meteor/accounts-base';
 
 import './collections';
+import { rawDb } from './collections';
 import './auth-bridge';
-import { signProxyJwt } from './auth-bridge';
+import { signProxyJwt, findOrCreateUser } from './auth-bridge';
 import './tickets';
 import './clock';
 import './timers';
@@ -120,7 +125,161 @@ const proxyWhoamiHandler = async (req, res) => {
 
 WebApp.connectHandlers.use('/api/whoami', proxyWhoamiHandler);
 
-Meteor.startup(() => {
+// ============================================================================
+// GitHub OAuth Endpoints
+// ============================================================================
+
+WebApp.connectHandlers.use('/auth/github', (req, res) => {
+  const credentialToken = Random.secret();
+  const callbackUrl = `${process.env.ROOT_URL}/auth/github/callback`;
+  
+  const githubAuthUrl =
+    'https://github.com/login/oauth/authorize' +
+    `?client_id=${process.env.GITHUB_CLIENT_ID}` +
+    `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
+    `&scope=user:email` +
+    `&state=${credentialToken}`;
+  
+  res.writeHead(302, { Location: githubAuthUrl });
+  res.end();
+});
+
+WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
+  const { code, state } = Object.fromEntries(
+    new URL(req.url, process.env.ROOT_URL).searchParams
+  );
+  
+  if (!code) {
+    res.writeHead(400);
+    res.end('Missing code');
+    return;
+  }
+  
+  try {
+    // Exchange code for token
+    const tokenRes = await fetch(
+      'https://github.com/login/oauth/access_token',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: process.env.GITHUB_CLIENT_ID,
+          client_secret: process.env.GITHUB_CLIENT_SECRET,
+          code,
+        }),
+      }
+    );
+    const tokenData = await tokenRes.json();
+    const accessToken = tokenData.access_token;
+    
+    // Get user info from GitHub
+    const userRes = await fetch('https://api.github.com/user', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    });
+    const githubUser = await userRes.json();
+    
+    // Get user email
+    const emailRes = await fetch('https://api.github.com/user/emails', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    });
+    const emails = await emailRes.json();
+    const primaryEmail =
+      emails.find((e) => e.primary && e.verified)?.email || githubUser.email;
+    
+    if (!primaryEmail) {
+      res.writeHead(400);
+      res.end('No email found');
+      return;
+    }
+    
+    // Find or create user in Meteor
+    const userId = await findOrCreateUser(
+      primaryEmail,
+      githubUser.name || githubUser.login
+    );
+    
+    // Also sync to Fastify user collection
+    const db = rawDb();
+    await db.collection('user').updateOne(
+      { email: primaryEmail.toLowerCase() },
+      {
+        $set: { updatedAt: new Date() },
+        $setOnInsert: {
+          email: primaryEmail.toLowerCase(),
+          name: githubUser.name || githubUser.login,
+          emailVerified: true,
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+    
+    // Create Meteor login token for this user
+    const stampedToken = Accounts._generateStampedLoginToken();
+    await Accounts._insertLoginToken(userId, stampedToken);
+    
+    // Sign a short-lived JWT for the frontend
+    const { SignJWT } = await import('jose');
+    
+    // Use PROXY_JWT_SECRET as a simple token
+    const secret = new TextEncoder().encode(
+      process.env.PROXY_JWT_SECRET ||
+        process.env.BETTER_AUTH_SECRET ||
+        'fallback-secret'
+    );
+    
+    const token = await new SignJWT({
+      sub: userId,
+      email: primaryEmail,
+      name: githubUser.name || githubUser.login,
+      provider: 'github',
+      meteorToken: stampedToken.token,
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('5m')
+      .sign(secret);
+    
+    // Redirect to frontend with token
+    const frontendUrl =
+      process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
+    
+    res.writeHead(302, {
+      Location:
+        `${frontendUrl}/app/dashboard` +
+        `?meteor_token=${token}&` +
+        `meteor_resume=${stampedToken.token}`,
+    });
+    res.end();
+  } catch (err) {
+    console.error('[github-oauth] error:', err);
+    res.writeHead(500);
+    res.end('OAuth error');
+  }
+});
+
+Meteor.startup(async() => {
+  // Configure GitHub OAuth service
+  await ServiceConfiguration.configurations.upsertAsync(
+    { service: 'github' },
+    {
+      $set: {
+        clientId: process.env.GITHUB_CLIENT_ID,
+        secret: process.env.GITHUB_CLIENT_SECRET,
+        loginStyle: 'redirect',
+      },
+    }
+  );
+  
   Wormhole.init({
     mode: 'opt-in',
     path: '/mcp',

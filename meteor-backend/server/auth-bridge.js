@@ -75,7 +75,7 @@ export async function resolveToken(raw) {
  * Find or create a Meteor user account by email.
  * Used by login handlers to ensure a user exists before returning userId.
  */
-async function findOrCreateUser(email, name) {
+export async function findOrCreateUser(email, name) {
   const db = rawDb()
   const normalizedEmail = email.toLowerCase().trim()
 
@@ -258,4 +258,51 @@ Accounts.registerLoginHandler('proxy', async (options) => {
 
   const userId = await findOrCreateUser(claims.email, claims.name);
   return { userId };
+});
+
+// ============================================================================
+// GitHub OAuth User Sync
+// ============================================================================
+
+// Sync GitHub OAuth users to Fastify user collection
+Accounts.onLogin(async (info) => {
+  try {
+    const user = info.user;
+    if (!user?.services?.github) return;
+    
+    const email =
+      user.services.github.email || user.emails?.[0]?.address;
+    if (!email) return;
+    
+    const name =
+      user.services.github.name ||
+      user.services.github.login ||
+      email;
+    
+    const db = rawDb();
+    await db.collection('user').updateOne(
+      { email: email.toLowerCase() },
+      {
+        $set: {
+          updatedAt: new Date(),
+          name: name,
+        },
+        $setOnInsert: {
+          email: email.toLowerCase(),
+          emailVerified: true,
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+    console.log(
+      '[auth-bridge] synced GitHub user to Fastify collection:',
+      email
+    );
+  } catch (err) {
+    console.error(
+      '[auth-bridge] GitHub sync error:',
+      err.message
+    );
+  }
 });

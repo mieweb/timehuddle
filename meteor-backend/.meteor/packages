@@ -13,3 +13,5 @@ standard-minifier-js@3.2.0    # JS minifier run for production mode
 wreiske:meteor-wormhole       # Meteor methods -> MCP tools + REST + OpenAPI
 
 accounts-base
+accounts-github
+service-configuration
