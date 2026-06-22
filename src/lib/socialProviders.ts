@@ -28,7 +28,7 @@ const REGISTRY: Record<string, Omit<SocialProvider, 'id'>> = {
   github: { label: 'GitHub', icon: faGithub, kind: 'social' },
   google: { label: 'Google', icon: faGoogle, kind: 'social' },
   apple: { label: 'Apple', icon: faApple, kind: 'social' },
-  authentik: { label: 'Authentik', icon: faKey, kind: 'oauth2' },
+  
 };
 
 const DEFAULT_PROVIDERS = 'github';

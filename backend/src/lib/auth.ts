@@ -46,17 +46,9 @@ if (process.env.APPLE_CLIENT_ID) {
 
 // Authentik (or any OIDC provider) via discovery. Registered as providerId
 // "authentik" so the client calls `signIn.oauth2({ providerId: "authentik" })`.
-const genericOAuthConfig = process.env.AUTHENTIK_CLIENT_ID
-  ? [
-      {
-        providerId: "authentik",
-        clientId: process.env.AUTHENTIK_CLIENT_ID,
-        clientSecret: process.env.AUTHENTIK_CLIENT_SECRET ?? "",
-        discoveryUrl: process.env.AUTHENTIK_DISCOVERY_URL ?? "",
-        scopes: ["openid", "profile", "email"],
-      },
-    ]
-  : [];
+
+ 
+
 
 export const auth = betterAuth({
   database: mongodbAdapter(client.db()),

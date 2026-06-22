@@ -162,7 +162,7 @@ class DdpClient {
     const token = await getAccessToken();
     if (!token) return;
 
-    const result = await this.call('login', [{ oidcJwt: token }]);
+    const result = await this.call('login', { oidcJwt: token });
     const loginResult = result as {
       id: string;
       token: string;
@@ -179,7 +179,7 @@ class DdpClient {
     const resumeToken = localStorage.getItem('meteor_resume_token');
     if (!resumeToken) return false;
     try {
-      await this.call('login', [{ resume: resumeToken }]);
+      await this.call('login', { resume: resumeToken });
       return true;
     } catch {
       localStorage.removeItem('meteor_resume_token');
@@ -189,15 +189,15 @@ class DdpClient {
 
   async loginWithProxy(): Promise<boolean> {
     try {
-      const res = await fetch(`${METEOR_BASE_URL}/auth/whoami`, {
+      const res = await fetch(`${METEOR_BASE_URL}/api/whoami`, {
         credentials: 'include',
       });
       if (!res.ok) return false;
       const data = (await res.json()) as { token: string };
 
-      const result = await this.call('login', [{
+      const result = await this.call('login', {
         proxyJwt: data.token,
-      }]);
+      });
       const loginResult = result as { token: string };
 
       if (loginResult?.token) {
@@ -270,6 +270,9 @@ class DdpClient {
   async call(method: string, ...params: unknown[]): Promise<unknown> {
     await this.ensureConnected();
     const id = String(this.nextId++);
+    // ADD THIS:
+    if (method === 'login') {
+    }
     return new Promise((resolve, reject) => {
       this.pendingMethods.set(id, { resolve, reject });
       this.ws!.send(JSON.stringify({ msg: 'method', id, method, params }));
