@@ -62,9 +62,24 @@ WebApp.rawConnectHandlers.use((req, res, next) => {
   next();
 });
 
-// /api/whoami — no extra CORS needed (global middleware handles it)
-WebApp.connectHandlers.use('/api/whoami', async (req, res) => {
+// Root endpoint — identifies the server as Meteor backend
+WebApp.connectHandlers.use('/', (req, res, next) => {
+  if (req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ service: 'timehuddle-meteor-backend', status: 'ok' }));
+  } else {
+    next();
+  }
+});
 
+// Health check endpoint for deployment smoke tests
+WebApp.connectHandlers.use('/health', (req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }));
+});
+
+// Proxy JWT endpoints - both /api/whoami and /auth/whoami for compatibility
+const proxyWhoamiHandler = async (req, res) => {
   // Only works when proxy headers are trusted
   if (process.env.TRUST_PROXY_HEADERS !== 'true') {
     res.writeHead(404);
@@ -97,11 +112,13 @@ WebApp.connectHandlers.use('/api/whoami', async (req, res) => {
     });
     res.end(JSON.stringify({ token }));
   } catch (err) {
-    console.error('[auth/whoami] failed:', err);
+    console.error('[/api/whoami] failed:', err);
     res.writeHead(500);
     res.end(JSON.stringify({ error: 'Failed to sign token' }));
   }
-});
+};
+
+WebApp.connectHandlers.use('/api/whoami', proxyWhoamiHandler);
 
 Meteor.startup(() => {
   Wormhole.init({
