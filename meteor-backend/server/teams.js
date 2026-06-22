@@ -270,10 +270,10 @@ Meteor.methods({
       throw new Meteor.Error('last-admin', 'Cannot remove the last admin');
     }
 
-    await Teams.rawCollection().updateOne(
-      { _id: team._id },
-      { $pull: { members: userId, admins: userId }, $set: { updatedAt: new Date() } },
-    );
+    await Teams.updateAsync(team._id, {
+      $pull: { members: userId, admins: userId },
+      $set: { updatedAt: new Date() },
+    });
     return { ok: true };
   },
 

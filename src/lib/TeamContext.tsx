@@ -131,7 +131,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .getTeams()
       .then((result) => {
         setTeams(result.teams);
-        setPendingRequests(result.pendingRequests);
+        setPendingRequests(result.pendingRequests ?? []);
       })
       .catch(() => {})
       .finally(() => setTeamsReady(true));
