@@ -28,24 +28,55 @@ export function isPushSupported(): boolean {
 
 // ─── Subscribe ────────────────────────────────────────────────────────────────
 
+/**
+ * Check if running on iOS simulator.
+ * APNs does not work on iOS simulators - only real devices.
+ */
+async function isIOSSimulator(): Promise<boolean> {
+  if (Capacitor.getPlatform() !== 'ios') return false;
+
+  try {
+    const { Device } = await import('@capacitor/device');
+    const info = await Device.getInfo();
+    // On simulators, isVirtual is true
+    return info.isVirtual === true;
+  } catch {
+    return false;
+  }
+}
+
 export async function subscribeToPush(): Promise<void> {
   if (!Capacitor.isNativePlatform()) {
     return subscribeToWebPush();
   }
 
+  // Check if running on iOS simulator
+  const isSimulator = await isIOSSimulator();
+  if (isSimulator) {
+    throw new Error(
+      'Push notifications do not work on iOS simulators. Please test on a real device.',
+    );
+  }
+
   // Native path: request permission, register, then wait for the device token.
+  console.log('🔔 [nativePush] subscribeToPush: Checking permissions...');
   const { receive } = await PushNotifications.requestPermissions();
+  console.log('🔔 [nativePush] subscribeToPush: Permission status:', receive);
+
   if (receive !== 'granted') {
     throw new Error('Notification permission denied');
   }
 
-  // Clear any stale listeners before adding new ones to prevent stacking.
-  //await PushNotifications.removeAllListeners();
-
+  console.log('🔔 [nativePush] subscribeToPush: Starting registration...');
   const token = await new Promise<string>((resolve, reject) => {
     const timeout = setTimeout(() => {
+      console.error('❌ [nativePush] subscribeToPush: Registration timed out after 30 seconds');
+      console.error('❌ [nativePush] This usually means:');
+      console.error('   1. No internet connection or APNs servers are blocked');
+      console.error('   2. App is not properly signed with a push-enabled provisioning profile');
+      console.error('   3. Push Notifications capability is not enabled in Xcode');
       reject(new Error('Timed out waiting for push registration token'));
-    }, 15_000);
+    }, 30_000); // 30 second timeout
 
     let handles: Array<{ remove: () => void }> = [];
     const cleanup = () => {
@@ -55,16 +86,20 @@ export async function subscribeToPush(): Promise<void> {
 
     Promise.all([
       PushNotifications.addListener('registration', ({ value }) => {
+        console.log('✅ [nativePush] subscribeToPush: Registration successful');
+        console.log('✅ [nativePush] Token received:', value.substring(0, 20) + '...');
         cleanup();
         resolve(value);
       }),
       PushNotifications.addListener('registrationError', ({ error }) => {
+        console.error('❌ [nativePush] subscribeToPush: Registration error:', error);
         cleanup();
         reject(new Error(String(error)));
       }),
     ])
       .then((hs) => {
         handles = hs;
+        console.log('🔔 [nativePush] subscribeToPush: Calling PushNotifications.register()...');
         return PushNotifications.register();
       })
       .catch(reject);
@@ -153,46 +188,93 @@ export async function autoRegisterPush(userId: string): Promise<void> {
 }
 
 async function _autoRegisterWeb(userId: string): Promise<void> {
-  if (!isPushNotificationSupported()) return;
+  console.log('🔔 [nativePush] Starting web push registration for user:', userId);
+
+  if (!isPushNotificationSupported()) {
+    console.warn('🔔 [nativePush] Push notifications not supported in this browser');
+    return;
+  }
 
   const vapidKey =
     (typeof import.meta !== 'undefined' &&
       (import.meta as { env?: Record<string, string> }).env?.VITE_VAPID_PUBLIC_KEY) ||
     '';
-  if (!vapidKey) return;
+  if (!vapidKey) {
+    console.warn('🔔 [nativePush] VITE_VAPID_PUBLIC_KEY not configured');
+    return;
+  }
+  console.log('🔔 [nativePush] VAPID key configured:', vapidKey.substring(0, 20) + '...');
 
   try {
     const permission = Notification.permission;
+    console.log('🔔 [nativePush] Current permission:', permission);
 
     if (permission === 'granted') {
       // Check if there's already an active subscription — if so, nothing to do.
+      console.log('🔔 [nativePush] Permission granted, checking existing subscription...');
       const status = await checkPushNotificationStatus();
-      if (status.subscribed) return;
+      console.log('🔔 [nativePush] Push status:', status);
+
+      if (status.subscribed) {
+        console.log('✅ [nativePush] Already subscribed to web push');
+        return;
+      }
       // No active subscription (e.g. SW was cleared) — re-subscribe silently.
+      console.log('🔔 [nativePush] No active subscription, subscribing now...');
       await subscribeToWebPush();
+      console.log('✅ [nativePush] Successfully subscribed to web push');
       return;
     }
 
-    if (permission === 'denied') return;
+    if (permission === 'denied') {
+      console.warn('🔔 [nativePush] Notification permission denied by user');
+      return;
+    }
 
     // 'default': prompt once per user
     const promptedKey = `${PUSH_PROMPTED_KEY}:${userId}`;
     const alreadyPrompted = localStorage.getItem(promptedKey) === '1';
-    if (alreadyPrompted) return;
+    console.log('🔔 [nativePush] Already prompted for this user:', alreadyPrompted);
 
+    if (alreadyPrompted) {
+      console.log('🔔 [nativePush] User was already prompted, skipping');
+      return;
+    }
+
+    console.log('🔔 [nativePush] Requesting notification permission...');
     localStorage.setItem(promptedKey, '1');
     const granted = await Notification.requestPermission();
+    console.log('🔔 [nativePush] Permission result:', granted);
+
     if (granted !== 'granted') return;
 
+    console.log('🔔 [nativePush] Subscribing to web push...');
     await subscribeToWebPush();
+    console.log('✅ [nativePush] Successfully subscribed to web push');
   } catch (err) {
-    console.warn('[nativePush] autoRegisterWeb failed:', err);
+    console.error('❌ [nativePush] autoRegisterWeb failed:', err);
   }
 }
 
 async function _registerAndSaveToken(): Promise<void> {
+  console.log('🔔 [nativePush] Starting native push registration...');
+
+  // Check if running on iOS simulator
+  const isSimulator = await isIOSSimulator();
+  if (isSimulator) {
+    console.warn('⚠️ [nativePush] Skipping push registration on iOS simulator');
+    return;
+  }
+
   const token = await new Promise<string>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error('Timed out waiting for push token')), 15_000);
+    const timeout = setTimeout(() => {
+      console.error('❌ [nativePush] Registration timed out after 30 seconds');
+      console.error('❌ [nativePush] This usually means:');
+      console.error('   1. No internet connection or APNs servers are blocked');
+      console.error('   2. App is not properly signed with a push-enabled provisioning profile');
+      console.error('   3. Push Notifications capability is not enabled in Xcode');
+      reject(new Error('Timed out waiting for push token'));
+    }, 30_000); // 30 second timeout
 
     let handles: Array<{ remove: () => void }> = [];
     const cleanup = () => {
@@ -202,16 +284,20 @@ async function _registerAndSaveToken(): Promise<void> {
 
     Promise.all([
       PushNotifications.addListener('registration', ({ value }) => {
+        console.log('✅ [nativePush] Registration successful, token received');
+        console.log('✅ [nativePush] Token:', value.substring(0, 20) + '...');
         cleanup();
         resolve(value);
       }),
       PushNotifications.addListener('registrationError', ({ error }) => {
+        console.error('❌ [nativePush] Registration error:', error);
         cleanup();
         reject(new Error(String(error)));
       }),
     ])
       .then((hs) => {
         handles = hs;
+        console.log('🔔 [nativePush] Calling PushNotifications.register()...');
         return PushNotifications.register();
       })
       .catch(reject);

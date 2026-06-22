@@ -22,6 +22,8 @@ import { enterpriseRoutes } from "./routes/enterprises.js";
 import { seedImportRoutes } from "./routes/seeder.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { ticketsWsRoutes } from "./routes/tickets-ws.js";
+import { huddleRoutes } from "./routes/huddle.js";
+import { huddleWsRoutes } from "./routes/huddle-ws.js";
 import { teamRoutes } from "./routes/teams.js";
 import { teamsWsRoutes } from "./routes/teams-ws.js";
 import { clockRoutes } from "./routes/clock.js";
@@ -52,13 +54,17 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // makes Fastify honour x-forwarded-proto / x-forwarded-host so internal
   // URLs (e.g. the TUS `Location` header from @mieweb/pulsevault) are built
   // with the correct https:// scheme and avoid Mixed Content blocks.
-  const app = Fastify({ logger: opts.logger ?? true, trustProxy: true });
+  const app = Fastify({
+    logger: opts.logger ?? true,
+    bodyLimit: 100 * 1024 * 1024, // 100 MB — supports video and document uploads
+    trustProxy: true,
+  });
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
   // Register multipart before routes and before Swagger
   await app.register(multipart, {
     limits: {
-      fileSize: 10 * 1024 * 1024, // 10 MB
+      fileSize: 100 * 1024 * 1024, // 100 MB — supports videos and large documents
     },
   });
 
@@ -692,6 +698,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(teamRoutes, { prefix: "/v1" });
   await app.register(ticketRoutes, { prefix: "/v1" });
   await app.register(ticketsWsRoutes, { prefix: "/v1" });
+  await app.register(huddleRoutes, { prefix: "/v1" });
+  await app.register(huddleWsRoutes, { prefix: "/v1" });
   await app.register(clockRoutes, { prefix: "/v1" });
   await app.register(timerRoutes, { prefix: "/v1" });
   await app.register(notificationRoutes, { prefix: "/v1" });

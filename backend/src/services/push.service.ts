@@ -207,7 +207,12 @@ class PushService {
     console.log(
       `[push] sendToUser userId=${userId} native=${tokens.length} web=${webSubs.length} title="${payload.title}"`
     );
-    if (totalTargets === 0) return;
+    if (totalTargets === 0) {
+      console.warn(
+        `[push] No devices registered for userId=${userId} — notification will not be delivered as push`
+      );
+      return;
+    }
 
     const tasks: Promise<void>[] = [];
 
