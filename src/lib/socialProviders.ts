@@ -39,7 +39,12 @@ const REGISTRY: Record<string, Omit<SocialProvider, 'id'>> = {
     kind: 'meteor-oauth',
     meteorPath: '/auth/google'
   },
-  apple: { label: 'Apple', icon: faApple, kind: 'social' },
+  apple: { 
+    label: 'Apple', 
+    icon: faApple, 
+    kind: 'meteor-oauth',
+    meteorPath: '/auth/apple'
+  },
   
 };
 
