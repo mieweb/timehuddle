@@ -85,6 +85,8 @@ export const clockController = {
       return reply
         .status(422)
         .send({ error: "Times must be in the past and clock-out must be after clock-in." });
+    if (result === "overlap")
+      return reply.status(409).send({ error: "This entry overlaps an existing clock session." });
     return reply.status(201).send({ event: result });
   },
 
