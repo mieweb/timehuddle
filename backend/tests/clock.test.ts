@@ -631,3 +631,52 @@ describe("GET /v1/clock/timesheet", () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+// ─── POST /v1/clock/manual ───────────────────────────────────────────────────
+
+describe("POST /v1/clock/manual", () => {
+  const base = new Date().setHours(0, 0, 0, 0) - 24 * 60 * 60 * 1000; // yesterday midnight
+  const startTime = base + 8 * 60 * 60 * 1000; // 8:00
+  const endTime = base + 12 * 60 * 60 * 1000; // 12:00
+
+  afterAll(async () => {
+    await client.db().collection("clockevents").deleteMany({ teamId });
+  });
+
+  it("creates a completed past entry — 201", async () => {
+    const res = await inject("POST", "/v1/clock/manual", workerCookie, {
+      teamId,
+      startTime,
+      endTime,
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().event.accumulatedTime).toBe(4 * 60 * 60);
+  });
+
+  it("rejects an exact duplicate of an existing entry — 409", async () => {
+    const res = await inject("POST", "/v1/clock/manual", workerCookie, {
+      teamId,
+      startTime,
+      endTime,
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("rejects an entry that partially overlaps an existing entry — 409", async () => {
+    const res = await inject("POST", "/v1/clock/manual", workerCookie, {
+      teamId,
+      startTime: startTime + 60 * 60 * 1000, // 9:00 — inside the 8:00–12:00 window
+      endTime: endTime + 60 * 60 * 1000, // 13:00
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("allows a non-overlapping entry — 201", async () => {
+    const res = await inject("POST", "/v1/clock/manual", workerCookie, {
+      teamId,
+      startTime: endTime, // 12:00 — abuts the previous entry, no overlap
+      endTime: endTime + 60 * 60 * 1000, // 13:00
+    });
+    expect(res.statusCode).toBe(201);
+  });
+});
