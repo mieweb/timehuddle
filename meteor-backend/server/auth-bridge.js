@@ -267,64 +267,6 @@ Accounts.registerLoginHandler('proxy', async (options) => {
 });
 
 // ============================================================================
-// Meteor Methods
-// ============================================================================
-
-Meteor.methods({
-  'accounts.createUser': async function({ email, password, name }) {
-    // Create user via Meteor Accounts with password
-    const userId = await findOrCreateUser(email, name);
-    
-    // Set password for the user
-    Accounts.setPassword(userId, password, { logout: false });
-    
-    console.log('[auth-bridge] Created user via accounts.createUser:', userId);
-    return { userId };
-  },
-
-  'auth.loginWithPassword': async function({ email, password }) {
-    const normalizedEmail = email.toLowerCase().trim();
-    
-    // Find user by email
-    const user = Accounts.findUserByEmail(normalizedEmail);
-    if (!user) {
-      throw new Meteor.Error('user-not-found', 'User not found');
-    }
-    
-    // Check password using Accounts._checkPassword
-    const result = Accounts._checkPassword(user, {
-      digest: password.digest,
-      algorithm: password.algorithm
-    });
-    
-    if (result.error) {
-      throw new Meteor.Error('incorrect-password', 'Incorrect password');
-    }
-    
-    // Generate and return a resume token
-    const stampedToken = Accounts._generateStampedLoginToken();
-    await Accounts._insertLoginToken(user._id, stampedToken);
-    
-    return {
-      id: user._id,
-      token: stampedToken.token,
-      tokenExpires: stampedToken.when
-    };
-  },
-
-  'users.getCurrentUser': async function() {
-    if (!this.userId) return null;
-    const user = await Meteor.users.findOneAsync(this.userId);
-    if (!user) return null;
-    return {
-      id: this.userId,
-      email: user.emails?.[0]?.address || '',
-      name: user.profile?.name || user.emails?.[0]?.address || 'Unknown'
-    };
-  }
-});
-
-// ============================================================================
 // GitHub OAuth User Sync
 // ============================================================================
 
