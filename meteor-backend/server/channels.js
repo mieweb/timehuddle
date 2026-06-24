@@ -2,7 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, Channels, ChannelMessages, rawDb, isValidId } from './collections';
-import { requireIdentity, identityForConnection } from './auth-bridge';
+import { requireIdentity } from './auth-bridge';
 import { createNotification } from './notify-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -53,8 +53,8 @@ function hasChannelAccess(channel, userId) {
 }
 
 Meteor.publish('channelmessages.byChannel', function (channelId, teamId) {
-  const identity = identityForConnection(this.connection);
-  if (!identity) return this.ready();
+  if (!this.userId) return this.ready();
+  const userId = this.userId;
   if (typeof channelId !== 'string' || typeof teamId !== 'string') return this.ready();
   return ChannelMessages.find({ channelId }, { sort: { createdAt: -1 }, limit: 100 });
 });
@@ -62,12 +62,13 @@ Meteor.publish('channelmessages.byChannel', function (channelId, teamId) {
 Meteor.methods({
   async 'channels.list'({ teamId }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('bad-request', 'Invalid teamId');
 
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('forbidden', 'Team not found');
     const allMembers = [...team.members, ...(team.admins || [])];
-    if (!allMembers.includes(identity.userId)) {
+    if (!allMembers.includes(userId)) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
 
@@ -77,19 +78,20 @@ Meteor.methods({
       .toArray();
 
     if (allChannels.length === 0) {
-      await ensureDefaultChannel(teamId, identity.userId);
+      await ensureDefaultChannel(teamId, userId);
       allChannels = await Channels.rawCollection()
         .find({ teamId })
         .sort({ isDefault: -1, createdAt: 1 })
         .toArray();
     }
 
-    const visible = allChannels.filter((ch) => hasChannelAccess(ch, identity.userId));
+    const visible = allChannels.filter((ch) => hasChannelAccess(ch, userId));
     return { channels: visible.map(toPublicChannel) };
   },
 
   async 'channels.create'({ teamId, name, description, members }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('bad-request', 'Invalid teamId');
     if (typeof name !== 'string' || !name.trim()) {
       throw new Meteor.Error('bad-request', 'name is required');
@@ -98,7 +100,7 @@ Meteor.methods({
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
     const allTeamMembers = [...team.members, ...(team.admins || [])];
-    if (!allTeamMembers.includes(identity.userId)) {
+    if (!allTeamMembers.includes(userId)) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
 
@@ -109,7 +111,7 @@ Meteor.methods({
     let channelMembers;
     if (members && members.length > 0) {
       const validIds = members.filter((id) => allTeamMembers.includes(id));
-      if (!validIds.includes(identity.userId)) validIds.push(identity.userId);
+      if (!validIds.includes(userId)) validIds.push(userId);
       channelMembers = validIds;
     }
 
@@ -120,7 +122,7 @@ Meteor.methods({
       ...(description?.trim() ? { description: description.trim() } : {}),
       isDefault: false,
       ...(channelMembers ? { members: channelMembers } : {}),
-      createdBy: identity.userId,
+      createdBy: userId,
       createdAt: new Date(),
     };
     await Channels.rawCollection().insertOne(doc);
@@ -129,13 +131,14 @@ Meteor.methods({
 
   async 'channels.getMessages'({ channelId, teamId, before, limit }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId) || !isValidId(channelId)) {
       throw new Meteor.Error('bad-request', 'Invalid channelId or teamId');
     }
 
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('forbidden', 'Team not found');
-    if (![...team.members, ...(team.admins || [])].includes(identity.userId)) {
+    if (![...team.members, ...(team.admins || [])].includes(userId)) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
 
@@ -144,7 +147,7 @@ Meteor.methods({
       teamId,
     });
     if (!channel) throw new Meteor.Error('forbidden', 'Channel not found');
-    if (!hasChannelAccess(channel, identity.userId)) {
+    if (!hasChannelAccess(channel, userId)) {
       throw new Meteor.Error('forbidden', 'No access to this channel');
     }
 
@@ -168,6 +171,7 @@ Meteor.methods({
 
   async 'channels.sendMessage'({ channelId, teamId, text }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId) || !isValidId(channelId)) {
       throw new Meteor.Error('bad-request', 'Invalid channelId or teamId');
     }
@@ -178,7 +182,7 @@ Meteor.methods({
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
     const allTeamMembers = [...team.members, ...(team.admins || [])];
-    if (!allTeamMembers.includes(identity.userId)) {
+    if (!allTeamMembers.includes(userId)) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
 
@@ -187,18 +191,18 @@ Meteor.methods({
       teamId,
     });
     if (!channel) throw new Meteor.Error('not-found', 'Channel not found');
-    if (!hasChannelAccess(channel, identity.userId)) {
+    if (!hasChannelAccess(channel, userId)) {
       throw new Meteor.Error('forbidden', 'No access to this channel');
     }
 
-    const sender = await rawDb().collection('user').findOne({ _id: new ObjectId(identity.userId) });
+    const sender = await rawDb().collection('user').findOne({ _id: new ObjectId(userId) });
     const senderName = sender?.name ?? sender?.email?.split('@')[0] ?? 'Unknown';
 
     const doc = {
       _id: new ObjectId(),
       channelId,
       teamId,
-      fromUserId: identity.userId,
+      fromUserId: userId,
       senderName,
       text,
       createdAt: new Date(),
@@ -207,7 +211,7 @@ Meteor.methods({
 
     const recipientIds = (
       channel.members && channel.members.length > 0 ? channel.members : allTeamMembers
-    ).filter((id) => id !== identity.userId);
+    ).filter((id) => id !== userId);
 
     const truncatedText = text.length > 200 ? text.slice(0, 197) + '…' : text;
     for (const recipientId of recipientIds) {

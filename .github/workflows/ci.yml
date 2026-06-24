@@ -157,7 +157,7 @@ jobs:
             fi
           ENDSSH
 
-      - name: Deploy backend to DEV (timecoredev:2063)
+      - name: Deploy backend to DEV (timecoredev:2063) - Meteor
         run: |
           ssh -i ~/.ssh/deploy_key \
               -p ${{ secrets.DEPLOY_DEV_BACKEND_PORT }} \
@@ -167,10 +167,6 @@ jobs:
             set -e
             cd ~/timehuddle || { echo "ERROR: repo dir missing"; exit 1; }
 
-            # echo "=== git stash ==="
-            # STASH_OUT=$(git stash 2>&1)
-            # echo "$STASH_OUT"
-
             echo "=== git fetch + pull → development ==="
             git fetch origin
             git merge --abort 2>/dev/null || true
@@ -179,21 +175,15 @@ jobs:
             git checkout development
             git reset --hard origin/development
 
-            # echo "=== git stash pop ==="
-            # echo "$STASH_OUT" | grep -q "No local changes to save" || git stash pop
-            # echo "branch: $(git branch --show-current)"
-
             echo "=== sudo npm install (root) ==="
             sudo npm install --no-audit --no-fund
 
-            echo "=== sudo npm install (backend) ==="
-            cd backend
+            echo "=== sudo npm install (meteor-backend) ==="
+            cd meteor-backend
             sudo npm install --no-audit --no-fund
 
-            echo "=== build backend ==="
-            sudo npm run build
-
-            echo "=== migrate ==="
+            echo "=== run migrations (via backend dir) ==="
+            cd ../backend
             MONGODB_URI=$(sudo pm2 env 0 2>/dev/null | awk '/^MONGODB_URI:/{print $2}')
             if [ -z "$MONGODB_URI" ]; then
               MONGODB_URI=$(sudo pm2 env 0 2>/dev/null | grep MONGODB_URI | head -1 | sed 's/.*: //')
@@ -209,7 +199,7 @@ jobs:
             sudo pm2 list
 
             echo "=== sudo pm2 restart ==="
-            sudo pm2 restart timehuddle-api
+            sudo pm2 restart timehuddle-meteor
             sudo pm2 save
 
             echo "=== backend smoke test ==="
@@ -220,11 +210,11 @@ jobs:
               HEALTH=$(curl -s "http://localhost:${BACKEND_PORT}/health" 2>/dev/null || echo "")
               if echo "$HEALTH" | grep -q '"status":"ok"'; then
                 echo "Health response: $HEALTH"
-                echo "DEV backend smoke test passed (attempt $attempt)"
+                echo "DEV Meteor backend smoke test passed (attempt $attempt)"
                 break
               fi
               if [ $attempt -eq 10 ]; then
-                echo "ERROR: backend smoke test failed after 10 attempts"
+                echo "ERROR: Meteor backend smoke test failed after 10 attempts"
                 exit 1
               fi
               echo "Attempt $attempt: not ready yet, waiting 3s..."

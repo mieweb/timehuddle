@@ -13,15 +13,14 @@
  */
 import { Meteor } from 'meteor/meteor';
 import { Notifications } from './collections';
-import { identityForConnection } from './auth-bridge';
 
 const INBOX_LIMIT = 200;
 
 Meteor.publish('notifications.liveForUser', function () {
-  const identity = identityForConnection(this.connection);
-  if (!identity) return this.ready();
+  if (!this.userId) return this.ready();
+  const userId = this.userId;
   return Notifications.find(
-    { userId: identity.userId },
+    { userId: userId },
     { sort: { createdAt: -1 }, limit: INBOX_LIMIT }
   );
 });

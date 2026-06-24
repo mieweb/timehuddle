@@ -129,17 +129,26 @@ export function decodeJwtExp(token: string): number {
 
 /**
  * Get a short-lived JWT access token from better-auth (`GET /api/auth/token`),
- * cached until ~60s before expiry. Authenticated via the session cookie or the
- * stored bearer session token. Returns null when signed out.
+ * cached until ~60s before expiry. Falls back to Meteor resume token when no
+ * Fastify session is available. Returns null when signed out.
  */
 export async function getAccessToken(): Promise<string | null> {
+  // First try cached JWT (still valid for Fastify sessions)
   if (cachedJwt && cachedJwt.exp * 1000 - Date.now() > 60_000) return cachedJwt.token;
+  
+  // Fall back to Meteor resume token for Meteor-authenticated users
+  const meteorToken = localStorage.getItem('meteor_resume_token');
+  if (meteorToken) return meteorToken;
+  
+  // Try Fastify JWT if we have a session token
+  const session = sessionToken.get();
+  if (!session) return null;
+  
   jwtFetch ??= (async () => {
     try {
-      const session = sessionToken.get();
       const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/token`, {
         credentials: 'include',
-        headers: session ? { Authorization: `Bearer ${session}` } : undefined,
+        headers: { Authorization: `Bearer ${session}` },
       });
       if (!res.ok) return null;
       const data = (await res.json()) as { token?: string };
@@ -165,7 +174,7 @@ export function clearAccessToken(): void {
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const hasBody = options.body != null;
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  const token = sessionToken.get();
+  const token = await getAccessToken();
   const controller = new AbortController();
   const timeoutId = setTimeout(
     () =>
@@ -220,48 +229,6 @@ async function timedFetch(url: string, options: RequestInit = {}): Promise<Respo
 }
 
 export const authApi = {
-  /** Sign in — stores session token from `set-auth-token` header (better-auth bearer plugin). */
-  signIn: async (email: string, password: string) => {
-    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/email`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new Error(
-        (body.message as string | undefined) ??
-          (body.error as string | undefined) ??
-          `HTTP ${res.status}`,
-      );
-    }
-    const token = res.headers.get('set-auth-token');
-    if (token) sessionToken.set(token);
-    return res.json();
-  },
-
-  /** Sign up — stores session token from `set-auth-token` header (better-auth bearer plugin). */
-  signUp: async (email: string, password: string, name: string) => {
-    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/sign-up/email`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name }),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new Error(
-        (body.message as string | undefined) ??
-          (body.error as string | undefined) ??
-          `HTTP ${res.status}`,
-      );
-    }
-    const token = res.headers.get('set-auth-token');
-    if (token) sessionToken.set(token);
-    return res.json();
-  },
-
   /** Dev-only sign-in used by the login probe. */
   devMemberSignIn: async (
     domain: 'enterprise' | 'organization' = 'organization',
@@ -354,7 +321,14 @@ export const authApi = {
   },
 
   /** List auth providers linked to the current account. */
-  listAccounts: (): Promise<AuthAccount[]> => request<AuthAccount[]>('/api/auth/list-accounts'),
+  listAccounts: async (): Promise<AuthAccount[]> => {
+    try {
+      return await request<AuthAccount[]>('/api/auth/list-accounts');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return [];
+      throw err;
+    }
+  },
 
   /** Sign out — clears better-auth session cookie and stored token. */
   signOut: async () => {
@@ -362,27 +336,6 @@ export const authApi = {
     sessionToken.clear();
     clearAccessToken();
   },
-
-  /**
-   * Request a password-reset email.
-   * @param redirectTo - URL to include in the email link as the callbackURL.
-   *                     better-auth will append ?token=TOKEN before redirecting.
-   */
-  requestPasswordReset: (email: string, redirectTo: string) =>
-    request('/api/auth/request-password-reset', {
-      method: 'POST',
-      body: JSON.stringify({ email, redirectTo }),
-    }),
-
-  /**
-   * Reset password using the token from the reset-password email.
-   * @param token - from the ?token= query param on the reset-password landing page.
-   */
-  resetPassword: (token: string, newPassword: string) =>
-    request('/api/auth/reset-password', {
-      method: 'POST',
-      body: JSON.stringify({ token, newPassword }),
-    }),
 
   /**
    * Fetch the currently authenticated user.

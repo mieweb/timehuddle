@@ -38,7 +38,8 @@ async function fetchYouTubeTitle(url) {
 
 Meteor.methods({
   async 'attachments.list'({ kind, id }) {
-    await requireIdentity(this);
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!VALID_KINDS.includes(kind)) throw new Meteor.Error('bad-request', 'Invalid kind');
     if (typeof id !== 'string' || !id) throw new Meteor.Error('bad-request', 'id is required');
 
@@ -51,6 +52,7 @@ Meteor.methods({
 
   async 'attachments.add'({ url, type, title, thumbnail, attachedTo }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (typeof url !== 'string' || !url.trim()) throw new Meteor.Error('bad-request', 'url is required');
     if (!VALID_TYPES.includes(type)) throw new Meteor.Error('bad-request', 'Invalid type');
     if (!attachedTo?.kind || !attachedTo?.id) throw new Meteor.Error('bad-request', 'attachedTo is required');
@@ -65,7 +67,7 @@ Meteor.methods({
       ...(resolvedTitle ? { title: resolvedTitle } : {}),
       ...(thumbnail ? { thumbnail } : {}),
       attachedTo,
-      addedBy: identity.userId,
+      addedBy: userId,
       addedAt: new Date(),
     };
     await rawDb().collection('attachments').insertOne(doc);
@@ -74,10 +76,11 @@ Meteor.methods({
 
   async 'attachments.remove'({ attachmentId }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(attachmentId)) throw new Meteor.Error('not-found', 'Invalid attachment id');
     const doc = await rawDb().collection('attachments').findOne({ _id: new ObjectId(attachmentId) });
     if (!doc) throw new Meteor.Error('not-found', 'Attachment not found');
-    if (doc.addedBy !== identity.userId) throw new Meteor.Error('forbidden', 'Not the owner');
+    if (doc.addedBy !== userId) throw new Meteor.Error('forbidden', 'Not the owner');
     await rawDb().collection('attachments').deleteOne({ _id: doc._id });
     return { ok: true };
   },

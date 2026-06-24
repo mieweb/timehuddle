@@ -15,10 +15,9 @@
  */
 import { Meteor } from 'meteor/meteor';
 import { Timers } from './collections';
-import { identityForConnection } from './auth-bridge';
 
 Meteor.publish('timers.liveForUser', function () {
-  const identity = identityForConnection(this.connection);
-  if (!identity) return this.ready();
-  return Timers.find({ userId: identity.userId, endTime: null });
+  if (!this.userId) return this.ready();
+  const userId = this.userId;
+  return Timers.find({ userId: userId, endTime: null });
 });

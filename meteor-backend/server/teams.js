@@ -9,6 +9,11 @@ import { createNotification } from './notify-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
+// Safe ObjectId conversion — only converts 24-char hex strings
+function toId(id) {
+  return /^[a-f0-9]{24}$/i.test(id) ? new ObjectId(id) : id;
+}
+
 function generateTeamCode() {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
 }
@@ -31,9 +36,9 @@ function toPublicTeam(team) {
 }
 
 Meteor.publish('teams.byUser', function () {
-  const identity = identityForConnection(this.connection);
-  if (!identity) return this.ready();
-  return Teams.find({ members: identity.userId });
+  if (!this.userId) return this.ready();
+  const userId = this.userId;
+  return Teams.find({ members: userId });
 });
 
 Meteor.methods({
@@ -89,7 +94,8 @@ Meteor.methods({
 
   async 'teams.ensurePersonal'() {
     const identity = await requireIdentity(this);
-    const existing = await Teams.findOneAsync({ isPersonal: true, members: identity.userId });
+    const userId = identity.userId;
+    const existing = await Teams.findOneAsync({ isPersonal: true, members: userId });
     if (existing) return { team: toPublicTeam(existing) };
 
     const defaultOrg = await ensureDefaultOrganization();
@@ -98,35 +104,36 @@ Meteor.methods({
       orgId: defaultOrg._id.toHexString(),
       parentTeamId: null,
       name: 'Personal',
-      members: [identity.userId],
-      admins: [identity.userId],
+      members: [userId],
+      admins: [userId],
       code: generateTeamCode(),
       isPersonal: true,
       createdAt: new Date(),
     };
     await Teams.insertAsync(doc);
-    ensureDefaultChannel(doc._id.toHexString(), identity.userId).catch(() => {});
+    ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
     return { team: toPublicTeam(doc) };
   },
 
   async 'teams.create'({ name, description, orgId: requestedOrgId, parentTeamId }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (typeof name !== 'string' || !name.trim()) {
       throw new Meteor.Error('bad-request', 'name is required');
     }
 
-    const accessibleOrgIds = await getAccessibleOrgIds(identity.userId);
+    const accessibleOrgIds = await getAccessibleOrgIds(userId);
     let orgId = requestedOrgId ?? accessibleOrgIds[0] ?? null;
 
     if (!orgId) {
       const defaultOrg = await ensureDefaultOrganization();
-      await addOrgMember(defaultOrg._id.toHexString(), identity.userId, 'member', true);
+      await addOrgMember(defaultOrg._id.toHexString(), userId, 'member', true);
       orgId = defaultOrg._id.toHexString();
     }
 
     if (requestedOrgId && !accessibleOrgIds.includes(requestedOrgId)) {
       const defaultOrg = await ensureDefaultOrganization();
-      await addOrgMember(defaultOrg._id.toHexString(), identity.userId, 'member', true);
+      await addOrgMember(defaultOrg._id.toHexString(), userId, 'member', true);
       orgId = defaultOrg._id.toHexString();
     }
 
@@ -144,15 +151,15 @@ Meteor.methods({
       parentTeamId: parentTeamId ?? null,
       name: name.trim(),
       description: description?.trim() || undefined,
-      members: [identity.userId],
-      admins: [identity.userId],
+      members: [userId],
+      admins: [userId],
       code: generateTeamCode(),
       isPersonal: false,
       createdAt: new Date(),
     };
     await Teams.insertAsync(doc);
-    await addOrgMember(orgId, identity.userId, 'member', true);
-    ensureDefaultChannel(doc._id.toHexString(), identity.userId).catch(() => {});
+    await addOrgMember(orgId, userId, 'member', true);
+    ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
     return { team: toPublicTeam(doc) };
   },
 
@@ -164,7 +171,7 @@ Meteor.methods({
 
     const team = await Teams.rawCollection().findOne({ code: teamCode.toUpperCase() });
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    const teamId = team._id.toHexString();
+    const teamId = team._id.toHexString ? team._id.toHexString() : String(team._id);
 
     if (team.members.includes(identity.userId)) {
       throw new Meteor.Error('already-member', 'Already a member');
@@ -179,7 +186,7 @@ Meteor.methods({
       return {
         status: 'pending',
         request: {
-          id: existing._id.toHexString(),
+          id: existing._id.toHexString ? existing._id.toHexString() : String(existing._id),
           teamId: existing.teamId,
           userId: existing.userId,
           teamCode: existing.teamCode,
@@ -202,8 +209,11 @@ Meteor.methods({
 
     const requestId = doc._id.toHexString();
 
-    const requester = await rawDb().collection('user').findOne({ _id: new ObjectId(identity.userId) });
-    const requesterName = requester?.name ?? 'Someone';
+    // Notify admins — use toId() to support both Meteor and Fastify user IDs
+    const requester = await rawDb().collection('user').findOne({ _id: toId(identity.userId) })
+      ?? await rawDb().collection('users').findOne({ _id: identity.userId });
+    const requesterName = requester?.name ?? requester?.profile?.name ?? 'Someone';
+
     for (const adminId of (team.admins || [])) {
       createNotification({
         userId: adminId,
@@ -234,10 +244,11 @@ Meteor.methods({
 
   async 'teams.subteams'({ teamId }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const parent = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!parent) throw new Meteor.Error('not-found', 'Team not found');
-    if (!parent.members.includes(identity.userId)) {
+    if (!parent.members.includes(userId)) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
     const subs = await Teams.find(
@@ -249,13 +260,14 @@ Meteor.methods({
 
   async 'teams.rename'({ teamId, newName }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     if (typeof newName !== 'string' || !newName.trim()) {
       throw new Meteor.Error('bad-request', 'newName is required');
     }
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(identity.userId)) {
+    if (!team.admins.includes(userId)) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
     await Teams.updateAsync(team._id, { $set: { name: newName.trim(), updatedAt: new Date() } });
@@ -265,10 +277,11 @@ Meteor.methods({
 
   async 'teams.delete'({ teamId }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(identity.userId)) {
+    if (!team.admins.includes(userId)) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
     await Teams.removeAsync(team._id);
@@ -277,17 +290,36 @@ Meteor.methods({
 
   async 'teams.getMembers'({ teamId }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.members.includes(identity.userId)) {
+    if (!team.members.includes(userId)) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
 
     const allIds = Array.from(new Set([...team.members, ...team.admins]));
-    const objectIds = allIds.filter(isValidId).map((id) => new ObjectId(id));
-    const users = await rawDb().collection('user').find({ _id: { $in: objectIds } }).toArray();
-    const byId = new Map(users.map((u) => [u._id.toHexString(), u]));
+    
+    // Fetch from both collections
+    const fastifyIds = allIds.filter(id => /^[0-9a-f]{24}$/i.test(id)).map(id => new ObjectId(id));
+    const fastifyUsers = fastifyIds.length
+      ? await rawDb().collection('user').find({ _id: { $in: fastifyIds } }).toArray()
+      : [];
+    const meteorUsers = await rawDb().collection('users').find({ _id: { $in: allIds } }).toArray();
+
+    const byId = new Map();
+    for (const u of fastifyUsers) byId.set(u._id.toHexString(), { 
+      name: u.name, email: u.email, username: u.username, image: u.image 
+    });
+    for (const u of meteorUsers) {
+      const id = String(u._id);
+      if (!byId.has(id)) byId.set(id, {
+        name: u.profile?.name ?? null,
+        email: u.emails?.[0]?.address ?? '',
+        username: u.username ?? null,
+        image: u.image ?? null,
+      });
+    }
 
     return {
       members: allIds.map((id) => {
@@ -305,6 +337,7 @@ Meteor.methods({
 
   async 'teams.invite'({ teamId, email }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     if (typeof email !== 'string' || !email.trim()) {
       throw new Meteor.Error('bad-request', 'email is required');
@@ -312,7 +345,7 @@ Meteor.methods({
 
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.members.includes(identity.userId)) {
+    if (!team.members.includes(userId)) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
 
@@ -339,53 +372,55 @@ Meteor.methods({
     return { ok: true };
   },
 
-  async 'teams.removeMember'({ teamId, userId }) {
+  async 'teams.removeMember'({ teamId, userId: targetUserId }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(identity.userId)) {
+    if (!team.admins.includes(userId)) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
-    if (userId === identity.userId) {
+    if (targetUserId === userId) {
       throw new Meteor.Error('cannot-remove-self', 'Cannot remove yourself');
     }
-    if (!team.members.includes(userId)) {
+    if (!team.members.includes(targetUserId)) {
       throw new Meteor.Error('not-member', 'Not a team member');
     }
-    if (team.admins.includes(userId) && team.admins.filter((id) => id !== userId).length === 0) {
+    if (team.admins.includes(targetUserId) && team.admins.filter((id) => id !== targetUserId).length === 0) {
       throw new Meteor.Error('last-admin', 'Cannot remove the last admin');
     }
 
-    await Teams.updateAsync(team._id, {
-      $pull: { members: userId, admins: userId },
-      $set: { updatedAt: new Date() },
-    });
+    await Teams.rawCollection().updateOne(
+      { _id: team._id },
+      { $pull: { members: targetUserId, admins: targetUserId }, $set: { updatedAt: new Date() } },
+    );
     return { ok: true };
   },
 
-  async 'teams.setRole'({ teamId, userId, role }) {
+  async 'teams.setRole'({ teamId, userId: targetUserId, role }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     if (role !== 'admin' && role !== 'member') {
       throw new Meteor.Error('bad-request', 'role must be admin or member');
     }
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(identity.userId)) {
+    if (!team.admins.includes(userId)) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
-    if (!team.members.includes(userId)) {
+    if (!team.members.includes(targetUserId)) {
       throw new Meteor.Error('not-member', 'Not a team member');
     }
 
     if (role === 'admin') {
       await Teams.updateAsync(team._id, {
-        $addToSet: { admins: userId },
+        $addToSet: { admins: targetUserId },
         $set: { updatedAt: new Date() },
       });
     } else {
-      const remaining = team.admins.filter((id) => id !== userId);
+      const remaining = team.admins.filter((id) => id !== targetUserId);
       if (remaining.length === 0) throw new Meteor.Error('last-admin', 'Cannot demote the last admin');
       await Teams.updateAsync(team._id, {
         $set: { admins: remaining, updatedAt: new Date() },
@@ -394,25 +429,26 @@ Meteor.methods({
     return { ok: true };
   },
 
-  async 'teams.setMemberPassword'({ teamId, userId, newPassword }) {
+  async 'teams.setMemberPassword'({ teamId, userId: targetUserId, newPassword }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     if (typeof newPassword !== 'string' || !newPassword) {
       throw new Meteor.Error('bad-request', 'newPassword is required');
     }
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(identity.userId)) {
+    if (!team.admins.includes(userId)) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
-    if (!team.members.includes(userId)) {
+    if (!team.members.includes(targetUserId)) {
       throw new Meteor.Error('not-member', 'Not a team member');
     }
 
     const bcrypt = await import('bcryptjs');
     const hashed = await bcrypt.hash(newPassword, 10);
     const result = await rawDb().collection('account').updateOne(
-      { userId, providerId: 'credential' },
+      { userId: targetUserId, providerId: 'credential' },
       { $set: { password: hashed } },
     );
     if (result.matchedCount === 0) throw new Meteor.Error('not-found', 'No credential account found');

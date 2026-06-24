@@ -13,7 +13,7 @@
  * (wormhole), or even mongosh appears here without polling.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { METEOR_BASE_URL, getAccessToken, decodeJwtExp } from './api';
+import { METEOR_BASE_URL } from './api';
 
 const METEOR_WS_URL = METEOR_BASE_URL.replace(/^http/, 'ws') + '/websocket';
 
@@ -70,21 +70,24 @@ class DdpClient {
   private activeSubs = new Map<string, { name: string; params: unknown[] }>();
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Proactive re-bridge timer — refreshes connection auth before the JWT expires. */
-  private reauthTimer: ReturnType<typeof setTimeout> | null = null;
   status: 'idle' | 'connecting' | 'connected' | 'failed' = 'idle';
 
   /** Connect (once) and authenticate the connection via auth.bridge. */
-  ensureConnected(): Promise<void> {
+  public ensureConnected(): Promise<void> {
     if (!this.connectPromise) {
       this.status = 'connecting';
       this.connectPromise = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('DDP connection timeout'));
+        }, 5000);  // 5 second timeout
+
         const ws = new WebSocket(METEOR_WS_URL);
         this.ws = ws;
         ws.onopen = () => ws.send(JSON.stringify({ msg: 'connect', version: '1', support: ['1'] }));
         ws.onmessage = (e) => {
           const data = JSON.parse(e.data as string) as DdpMessage;
           if (data.msg === 'connected') {
+            clearTimeout(timeout);
             this.status = 'connected';
             this.reconnectAttempt = 0;
             resolve();
@@ -92,10 +95,12 @@ class DdpClient {
           this.handleMessage(data);
         };
         ws.onerror = () => {
+          clearTimeout(timeout);
           this.status = 'failed';
           reject(new Error('DDP connection failed'));
         };
         ws.onclose = () => {
+          clearTimeout(timeout);
           if (this.status !== 'connected') reject(new Error('DDP connection closed'));
           this.status = 'failed';
           this.handleDisconnect();
@@ -119,10 +124,6 @@ class DdpClient {
     this.connectPromise = null;
     this.authPromise = null;
     this.ws = null;
-    if (this.reauthTimer) {
-      clearTimeout(this.reauthTimer);
-      this.reauthTimer = null;
-    }
 
     if (this.activeSubs.size === 0 || this.reconnectTimer) return;
     const delay = Math.min(30_000, 1000 * 2 ** this.reconnectAttempt++);
@@ -145,32 +146,154 @@ class DdpClient {
     }, delay);
   }
 
-  private async ensureAuthed(): Promise<void> {
+  public async ensureAuthed(): Promise<void> {
     await this.ensureConnected();
     if (!this.authPromise) {
-      this.authPromise = this.bridgeAuth();
+      this.authPromise = (async () => {
+        // Try resume token first (handles reconnects automatically)
+        const resumed = await this.tryResumeLogin();
+        if (!resumed) {
+          // Try proxy auth (Authentik via os.mieweb.org)
+          await this.loginWithProxy();
+        }
+      })().catch(() => {
+        // Reset so next call can retry
+        this.authPromise = null;
+      });
     }
-    return this.authPromise;
+    return this.authPromise ?? Promise.resolve();
+  }
+
+  private async tryResumeLogin(): Promise<boolean> {
+    const resumeToken = localStorage.getItem('meteor_resume_token');
+    if (!resumeToken) return false;
+    try {
+      await this.call('login', { resume: resumeToken });
+      return true;
+    } catch {
+      localStorage.removeItem('meteor_resume_token');
+      return false;
+    }
+  }
+
+  async loginWithPassword(email: string, password: string): Promise<void> {
+    await this.ensureConnected();
+    const msgBuffer = new TextEncoder().encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const digest = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+    const result = await this.call('login', {
+      emailPassword: {
+        email: email.toLowerCase().trim(),
+        password: { digest, algorithm: 'sha-256', raw: password }
+      }
+    });
+
+    const loginResult = result as { token: string; id: string };
+    if (loginResult?.token) {
+      localStorage.setItem('meteor_resume_token', loginResult.token);
+    }
+  }
+
+  async signUpWithPassword(email: string, password: string, name: string): Promise<void> {
+    // Call the custom Meteor method we added in auth-bridge.js
+    await this.call('accounts.createUser', { email, password, name });
+    // After creating, log in immediately
+    await this.loginWithPassword(email, password);
+  }
+
+  async loginWithProxy(): Promise<boolean> {
+    try {
+      const res = await fetch(`${METEOR_BASE_URL}/api/whoami`, {
+        credentials: 'include',
+      });
+      if (!res.ok) return false;
+      const data = (await res.json()) as { token: string };
+
+      const result = await this.call('login', {
+        proxyJwt: data.token,
+      });
+      const loginResult = result as { token: string };
+
+      if (loginResult?.token) {
+        localStorage.setItem('meteor_resume_token', loginResult.token);
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
-   * Authenticate the DDP connection with a short-lived JWT and schedule a
-   * re-bridge ~60s before it expires so the connection identity never lapses.
+   * Login via Meteor OAuth callback tokens.
+   * After GitHub OAuth completes, Meteor redirects with meteor_token and meteor_resume params.
    */
-  private async bridgeAuth(): Promise<void> {
-    const token = await getAccessToken();
-    if (!token) return;
-    await this.call('auth.bridge', token);
-    const expMs = decodeJwtExp(token) * 1000;
-    const delay = Math.max(10_000, expMs - Date.now() - 60_000);
-    if (this.reauthTimer) clearTimeout(this.reauthTimer);
-    this.reauthTimer = setTimeout(() => {
-      this.reauthTimer = null;
-      // Re-bridge in place — subscriptions stay up, identity is refreshed.
-      this.bridgeAuth().catch(() => {
-        // Socket issues are handled by handleDisconnect's reconnect path.
+  async loginWithMeteorToken(
+    meteorToken: string,
+    resumeToken: string,
+  ): Promise<boolean> {
+    try {
+      await this.ensureConnected();
+
+      // Login using the resume token Meteor issued
+      const result = await this.call('login', {
+        resume: resumeToken,
       });
-    }, delay);
+
+      const loginResult = result as { token: string };
+      if (loginResult?.token) {
+        localStorage.setItem('meteor_resume_token', loginResult.token);
+      }
+
+      console.log('[DDP] logged in via GitHub OAuth');
+      return true;
+    } catch (err) {
+      console.error('[DDP] GitHub login error:', err);
+      return false;
+    }
+  }
+
+  async getCurrentUser(): Promise<{ 
+    id: string; 
+    email: string; 
+    name: string; 
+    username: string | null;
+    image: string | null;
+    emailVerified: boolean;
+  } | null> {
+    try {
+      // Use a timeout to prevent hanging
+      const authedWithTimeout = Promise.race([
+        this.ensureAuthed(),
+        new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('timeout')), 5000)
+        )
+      ]);
+      await authedWithTimeout;
+      
+      const resumeToken = localStorage.getItem('meteor_resume_token');
+      if (!resumeToken) return null;
+      
+      const result = await this.call('users.getCurrentUser', {});
+      return result as { 
+        id: string; 
+        email: string; 
+        name: string; 
+        username: string | null;
+        image: string | null;
+        emailVerified: boolean;
+      } | null;
+    } catch {
+      return null;
+    }
+  }
+
+  async logout(): Promise<void> {
+    try {
+      await this.call('logout');
+    } catch {}
+    localStorage.removeItem('meteor_resume_token');
   }
 
   private handleMessage(data: DdpMessage): void {
@@ -231,9 +354,12 @@ class DdpClient {
     for (const fn of this.listeners.get(collection) ?? []) fn();
   }
 
-  async call(method: string, ...params: unknown[]): Promise<unknown> {
+  public async call(method: string, ...params: unknown[]): Promise<unknown> {
     await this.ensureConnected();
     const id = String(this.nextId++);
+    // ADD THIS:
+    if (method === 'login') {
+    }
     return new Promise((resolve, reject) => {
       this.pendingMethods.set(id, { resolve, reject });
       this.ws!.send(JSON.stringify({ msg: 'method', id, method, params }));

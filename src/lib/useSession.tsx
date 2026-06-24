@@ -8,6 +8,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 import { authApi, type TimecoreUser } from './api';
+import { getDdpClient } from './ddp';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -40,14 +41,34 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const fetchSession = useCallback(async () => {
     setLoading(true);
-    const t = performance.now();
     console.log('[TimeHuddle] fetchSession: calling getMe...');
+    const t = performance.now();
     try {
-      const data = await authApi.getMe();
-      console.log(
-        `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${data?.user?.email ?? 'null'}`,
-      );
-      setUser(data?.user ?? null);
+      const ddp = getDdpClient();
+      const meteorUser = await ddp.getCurrentUser();
+      
+      if (meteorUser) {
+        console.log(
+          `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${meteorUser.email}`
+        );
+        setUser({
+          id: meteorUser.id,
+          email: meteorUser.email,
+          name: meteorUser.name,
+          createdAt: new Date().toISOString(),
+          emailVerified: meteorUser.emailVerified ?? true,
+          image: meteorUser.image ?? null,
+          backgroundUrl: null,
+          username: meteorUser.username ?? null,
+          organizationMembership: null,
+          organizations: [],
+        });
+      } else {
+        console.log(
+          `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — no user found`
+        );
+        setUser(null);
+      }
     } catch (err) {
       console.log(
         `[TimeHuddle] fetchSession: getMe failed in ${(performance.now() - t).toFixed(0)}ms — ${String(err)}`,
@@ -63,6 +84,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [fetchSession]);
 
   const signOut = useCallback(async () => {
+    const ddp = getDdpClient();
+    await ddp.logout().catch(() => {});
     await authApi.signOut().catch(() => {});
     setUser(null);
   }, []);

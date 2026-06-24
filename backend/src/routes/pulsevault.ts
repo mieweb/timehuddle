@@ -8,9 +8,8 @@ import pulseVault, {
   createMp4Sniffer,
   buildUploadLink,
 } from "@mieweb/pulsevault";
-import { fromNodeHeaders } from "better-auth/node";
 import { requireAuth } from "../middleware/require-auth.js";
-import { auth } from "../lib/auth.js";
+import { verifyWsToken } from "../lib/ws-auth.js";
 import { mediaItemsCollection, teamsCollection } from "../models/index.js";
 import { ticketService } from "../services/ticket.service.js";
 import { attachmentService } from "../services/attachment.service.js";
@@ -84,10 +83,10 @@ async function authorizeHandler(request: any, ctx: any) {
     }
   }
 
-  const session = await auth.api.getSession({
-    headers: fromNodeHeaders(request.headers as Record<string, string | string[]>),
-  });
-  if (!session) {
+  const bearerHeader = (request.headers as any)["authorization"] as string | undefined;
+  const rawToken = bearerHeader?.replace(/^bearer /i, "");
+  const wsUser = await verifyWsToken(rawToken);
+  if (!wsUser) {
     throw pulseVaultHttpError(401, "Unauthorized");
   }
 
@@ -96,9 +95,9 @@ async function authorizeHandler(request: any, ctx: any) {
     // /v1/media/user/:userId shared-team gating.
     const mediaItem = await mediaItemsCollection().findOne({ videoid: ctx.videoid });
     if (mediaItem) {
-      if (mediaItem.userId === session.user.id) return;
+      if (mediaItem.userId === wsUser.id) return;
       const sharedTeam = await teamsCollection().findOne({
-        members: { $all: [session.user.id, mediaItem.userId] },
+        members: { $all: [wsUser.id, mediaItem.userId] },
         isPersonal: { $ne: true },
       });
       if (!sharedTeam) {
@@ -114,7 +113,7 @@ async function authorizeHandler(request: any, ctx: any) {
   if (!reservation) {
     throw pulseVaultHttpError(403, "Video reservation required");
   }
-  if (reservation.userId !== session.user.id) {
+  if (reservation.userId !== wsUser.id) {
     throw pulseVaultHttpError(403, "Forbidden");
   }
 }

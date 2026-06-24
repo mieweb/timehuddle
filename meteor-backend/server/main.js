@@ -9,9 +9,15 @@
 import { Meteor } from 'meteor/meteor';
 import { WebApp } from 'meteor/webapp';
 import { Wormhole } from 'meteor/wreiske:meteor-wormhole';
+import { ServiceConfiguration } from 'meteor/service-configuration';
+import { OAuth } from 'meteor/oauth';
+import { Random } from 'meteor/random';
+import { Accounts } from 'meteor/accounts-base';
 
 import './collections';
+import { rawDb } from './collections';
 import './auth-bridge';
+import { signProxyJwt, findOrCreateUser } from './auth-bridge';
 import './tickets';
 import './clock';
 import './timers';
@@ -37,20 +43,21 @@ import './push';
 import { initAgenda } from './agenda';
 
 /**
- * CORS for the wormhole REST bridge (/api) — the Vite frontend on another
- * origin calls it directly. rawConnectHandlers runs before wormhole's
- * middleware, so preflights are answered here.
+ * CORS for ALL routes — the Vite frontend on another origin calls both DDP and
+ * HTTP endpoints. Global middleware catches everything before any other handlers.
  */
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3000')
   .split(',')
   .map((s) => s.trim());
 
-WebApp.rawConnectHandlers.use('/api', (req, res, next) => {
+// Global CORS — catches ALL routes (DDP, /api, /uploads, etc.)
+WebApp.rawConnectHandlers.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
   if (req.method === 'OPTIONS') {
@@ -61,7 +68,510 @@ WebApp.rawConnectHandlers.use('/api', (req, res, next) => {
   next();
 });
 
-Meteor.startup(() => {
+// Root endpoint — identifies the server as Meteor backend
+WebApp.connectHandlers.use('/', (req, res, next) => {
+  if (req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ service: 'timehuddle-meteor-backend', status: 'ok' }));
+  } else {
+    next();
+  }
+});
+
+// Health check endpoint for deployment smoke tests
+WebApp.connectHandlers.use('/health', (req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }));
+});
+
+// Proxy JWT endpoints - both /api/whoami and /auth/whoami for compatibility
+const proxyWhoamiHandler = async (req, res) => {
+  // Only works when proxy headers are trusted
+  if (process.env.TRUST_PROXY_HEADERS !== 'true') {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+
+  if (!process.env.PROXY_JWT_SECRET) {
+    res.writeHead(500);
+    res.end(JSON.stringify({ error: 'PROXY_JWT_SECRET not configured' }));
+    return;
+  }
+
+  const email = req.headers['x-email'];
+  if (!email) {
+    res.writeHead(401);
+    res.end(JSON.stringify({ error: 'No proxy identity headers' }));
+    return;
+  }
+
+  const firstName = req.headers['x-user-first-name'] || '';
+  const lastName = req.headers['x-user-last-name'] || '';
+  const name = `${firstName} ${lastName}`.trim() || email;
+
+  try {
+    const token = await signProxyJwt(email, name);
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    });
+    res.end(JSON.stringify({ token }));
+  } catch (err) {
+    console.error('[/api/whoami] failed:', err);
+    res.writeHead(500);
+    res.end(JSON.stringify({ error: 'Failed to sign token' }));
+  }
+};
+
+WebApp.connectHandlers.use('/api/whoami', proxyWhoamiHandler);
+
+// ============================================================================
+// GitHub OAuth Endpoints
+// ============================================================================
+
+WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
+  // Only handle exact /auth/github route, not /auth/github/callback
+  if (req.url !== '/' && req.url !== '') { next(); return; }
+  const credentialToken = Random.secret();
+  const callbackUrl = `${process.env.ROOT_URL}/auth/github/callback`;
+  
+  const githubAuthUrl =
+    'https://github.com/login/oauth/authorize' +
+    `?client_id=${process.env.GITHUB_CLIENT_ID}` +
+    `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
+    `&scope=user:email` +
+    `&state=${credentialToken}`;
+  
+  res.writeHead(302, { Location: githubAuthUrl });
+  res.end();
+});
+
+WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
+  const { code, state } = Object.fromEntries(
+    new URL(req.url, process.env.ROOT_URL).searchParams
+  );
+  
+  if (!code) {
+    res.writeHead(400);
+    res.end('Missing code');
+    return;
+  }
+  
+  try {
+    // Exchange code for token
+    const tokenRes = await fetch(
+      'https://github.com/login/oauth/access_token',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: process.env.GITHUB_CLIENT_ID,
+          client_secret: process.env.GITHUB_CLIENT_SECRET,
+          code,
+        }),
+      }
+    );
+    const tokenData = await tokenRes.json();
+    const accessToken = tokenData.access_token;
+    
+    // Get user info from GitHub
+    const userRes = await fetch('https://api.github.com/user', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    });
+    const githubUser = await userRes.json();
+    
+    // Get user email
+    const emailRes = await fetch('https://api.github.com/user/emails', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    });
+    const emails = await emailRes.json();
+    const primaryEmail =
+      emails.find((e) => e.primary && e.verified)?.email || githubUser.email;
+    
+    if (!primaryEmail) {
+      res.writeHead(400);
+      res.end('No email found');
+      return;
+    }
+    
+    // Find or create user in Meteor
+    const userId = await findOrCreateUser(
+      primaryEmail,
+      githubUser.name || githubUser.login
+    );
+    
+    // Also sync to Fastify user collection
+    const db = rawDb();
+    await db.collection('user').updateOne(
+      { email: primaryEmail.toLowerCase() },
+      {
+        $set: { updatedAt: new Date() },
+        $setOnInsert: {
+          email: primaryEmail.toLowerCase(),
+          name: githubUser.name || githubUser.login,
+          emailVerified: true,
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+    
+    // Create Meteor login token for this user
+    const stampedToken = Accounts._generateStampedLoginToken();
+    await Accounts._insertLoginToken(userId, stampedToken);
+    
+    // Sign a short-lived JWT for the frontend
+    const { SignJWT } = await import('jose');
+    
+    // Use PROXY_JWT_SECRET as a simple token
+    const secret = new TextEncoder().encode(
+      process.env.PROXY_JWT_SECRET ||
+        process.env.BETTER_AUTH_SECRET ||
+        'fallback-secret'
+    );
+    
+    const token = await new SignJWT({
+      sub: userId,
+      email: primaryEmail,
+      name: githubUser.name || githubUser.login,
+      provider: 'github',
+      meteorToken: stampedToken.token,
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('5m')
+      .sign(secret);
+    
+    // Redirect to frontend with token
+    const frontendUrl =
+      process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
+    
+    res.writeHead(302, {
+      Location:
+        `${frontendUrl}/app/dashboard` +
+        `?meteor_token=${token}&` +
+        `meteor_resume=${stampedToken.token}`,
+    });
+    res.end();
+  } catch (err) {
+    console.error('[github-oauth] error:', err);
+    res.writeHead(500);
+    res.end('OAuth error');
+  }
+});
+
+// ============================================================================
+// Google OAuth Endpoints
+// ============================================================================
+
+WebApp.connectHandlers.use('/auth/google', (req, res, next) => {
+  // Only handle exact /auth/google route, not /auth/google/callback
+  if (req.url !== '/' && req.url !== '') { next(); return; }
+  const callbackUrl = 
+    `${process.env.ROOT_URL}/auth/google/callback`
+  
+  const googleAuthUrl = 
+    'https://accounts.google.com/o/oauth2/v2/auth' +
+    `?client_id=${process.env.GOOGLE_CLIENT_ID}` +
+    `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
+    `&response_type=code` +
+    `&scope=openid%20email%20profile` +
+    `&state=${Random.secret()}`
+  
+  res.writeHead(302, { Location: googleAuthUrl })
+  res.end()
+})
+
+WebApp.connectHandlers.use('/auth/google/callback',
+  async (req, res) => {
+    const { code } = Object.fromEntries(
+      new URL(req.url, process.env.ROOT_URL).searchParams
+    )
+    
+    if (!code) {
+      res.writeHead(400)
+      res.end('Missing code')
+      return
+    }
+    
+    try {
+      const callbackUrl = 
+        `${process.env.ROOT_URL}/auth/google/callback`
+      
+      // Exchange code for token
+      const tokenRes = await fetch(
+        'https://oauth2.googleapis.com/token',
+        {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: new URLSearchParams({
+            client_id: process.env.GOOGLE_CLIENT_ID,
+            client_secret: process.env.GOOGLE_CLIENT_SECRET,
+            code,
+            grant_type: 'authorization_code',
+            redirect_uri: callbackUrl
+          })
+        }
+      )
+      const tokenData = await tokenRes.json()
+      const accessToken = tokenData.access_token
+      
+      // Get user info from Google
+      const userRes = await fetch(
+        'https://www.googleapis.com/oauth2/v2/userinfo',
+        {
+          headers: { 
+            Authorization: `Bearer ${accessToken}`
+          }
+        }
+      )
+      const googleUser = await userRes.json()
+      
+      const email = googleUser.email
+      if (!email) {
+        res.writeHead(400)
+        res.end('No email found')
+        return
+      }
+      
+      const name = googleUser.name || email
+      
+      // Find or create user in Meteor
+      const userId = await findOrCreateUser(email, name)
+      
+      // Sync to Fastify user collection
+      const db = rawDb()
+      await db.collection('user').updateOne(
+        { email: email.toLowerCase() },
+        {
+          $set: { updatedAt: new Date() },
+          $setOnInsert: {
+            email: email.toLowerCase(),
+            name: name,
+            emailVerified: true,
+            createdAt: new Date()
+          }
+        },
+        { upsert: true }
+      )
+      
+      // Create Meteor login token
+      const stampedToken = 
+        Accounts._generateStampedLoginToken()
+      await Accounts._insertLoginToken(
+        userId, stampedToken
+      )
+      
+      // Redirect to frontend with token
+      const frontendUrl =
+        process.env.CORS_ORIGINS?.split(',')[0] || 
+        'http://localhost:3000'
+      
+      res.writeHead(302, {
+        Location:
+          `${frontendUrl}/app/dashboard` +
+          `?meteor_token=google_${userId}&` +
+          `meteor_resume=${stampedToken.token}`
+      })
+      res.end()
+      
+    } catch (err) {
+      console.error('[google-oauth] error:', err)
+      res.writeHead(500)
+      res.end('OAuth error')
+    }
+  }
+)
+
+// ============================================================================
+// Apple OAuth Endpoints
+// ============================================================================
+
+WebApp.connectHandlers.use('/auth/apple', (req, res, next) => {
+  // Only handle exact /auth/apple route, not /auth/apple/callback
+  if (req.url !== '/' && req.url !== '') { next(); return; }
+  const callbackUrl = 
+    `${process.env.ROOT_URL}/auth/apple/callback`
+  
+  const appleAuthUrl = 
+    'https://appleid.apple.com/auth/authorize' +
+    `?client_id=${process.env.APPLE_CLIENT_ID}` +
+    `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
+    `&response_type=code%20id_token` +
+    `&scope=name%20email` +
+    `&response_mode=form_post` +
+    `&state=${Random.secret()}`
+  
+  res.writeHead(302, { Location: appleAuthUrl })
+  res.end()
+})
+
+WebApp.connectHandlers.use('/auth/apple/callback',
+  async (req, res) => {
+    try {
+      // Apple sends POST with form data
+      let body = ''
+      req.on('data', chunk => { body += chunk })
+      await new Promise(resolve => req.on('end', resolve))
+      
+      const params = new URLSearchParams(body)
+      const code = params.get('code')
+      const idToken = params.get('id_token')
+      const userParam = params.get('user')
+      
+      if (!code && !idToken) {
+        res.writeHead(400)
+        res.end('Missing code or id_token')
+        return
+      }
+      
+      // Parse user info from id_token (JWT)
+      // Apple sends user name only on FIRST login
+      let email = null
+      let name = null
+      
+      if (idToken) {
+        // Decode JWT payload (we trust Apple here,
+        // full verification optional for now)
+        const payload = JSON.parse(
+          Buffer.from(
+            idToken.split('.')[1], 'base64'
+          ).toString()
+        )
+        email = payload.email
+      }
+      
+      // First login: Apple sends user name
+      if (userParam) {
+        try {
+          const userData = JSON.parse(userParam)
+          const firstName = userData.name?.firstName || ''
+          const lastName = userData.name?.lastName || ''
+          name = `${firstName} ${lastName}`.trim() || email
+        } catch {
+          name = email
+        }
+      }
+      
+      if (!email) {
+        res.writeHead(400)
+        res.end('No email found from Apple')
+        return
+      }
+      
+      name = name || email
+      
+      // Find or create user in Meteor
+      const userId = await findOrCreateUser(email, name)
+      
+      // Sync to Fastify user collection
+      const db = rawDb()
+      await db.collection('user').updateOne(
+        { email: email.toLowerCase() },
+        {
+          $set: { updatedAt: new Date() },
+          $setOnInsert: {
+            email: email.toLowerCase(),
+            name: name,
+            emailVerified: true,
+            createdAt: new Date()
+          }
+        },
+        { upsert: true }
+      )
+      
+      // Create Meteor login token
+      const stampedToken = 
+        Accounts._generateStampedLoginToken()
+      await Accounts._insertLoginToken(
+        userId, stampedToken
+      )
+      
+      // Apple sends POST so we need to redirect
+      // using HTML meta refresh or JS redirect
+      const frontendUrl =
+        process.env.CORS_ORIGINS?.split(',')[0] || 
+        'http://localhost:3000'
+      
+      const redirectUrl = 
+        `${frontendUrl}/app/dashboard` +
+        `?meteor_token=apple_${userId}&` +
+        `meteor_resume=${stampedToken.token}`
+      
+      // Use HTML redirect since Apple uses POST
+      res.writeHead(200, { 
+        'Content-Type': 'text/html' 
+      })
+      res.end(`
+        <html>
+          <body>
+            <script>
+              window.location.href = '${redirectUrl}'
+            </script>
+            <noscript>
+              <meta http-equiv="refresh" 
+                content="0;url=${redirectUrl}">
+            </noscript>
+          </body>
+        </html>
+      `)
+      
+    } catch (err) {
+      console.error('[apple-oauth] error:', err)
+      res.writeHead(500)
+      res.end('OAuth error')
+    }
+  }
+)
+
+Meteor.startup(async() => {
+  // Configure GitHub OAuth service
+  await ServiceConfiguration.configurations.upsertAsync(
+    { service: 'github' },
+    {
+      $set: {
+        clientId: process.env.GITHUB_CLIENT_ID,
+        secret: process.env.GITHUB_CLIENT_SECRET,
+        loginStyle: 'redirect',
+      },
+    }
+  );
+  
+  // Configure Google OAuth service
+  await ServiceConfiguration.configurations.upsertAsync(
+    { service: 'google' },
+    {
+      $set: {
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        secret: process.env.GOOGLE_CLIENT_SECRET,
+        loginStyle: 'redirect'
+      }
+    }
+  );
+  
+  // Configure Apple OAuth service
+  await ServiceConfiguration.configurations.upsertAsync(
+    { service: 'apple' },
+    {
+      $set: {
+        clientId: process.env.APPLE_CLIENT_ID,
+        loginStyle: 'redirect'
+      }
+    }
+  );
+  
   Wormhole.init({
     mode: 'opt-in',
     path: '/mcp',

@@ -1,5 +1,4 @@
 import { Meteor } from 'meteor/meteor';
-import { identityForConnection } from './auth-bridge';
 
 const TIMEOUT_MS = 75_000;
 
@@ -35,10 +34,8 @@ function isOnline(userId) {
 }
 
 Meteor.publish('presence.watch', function (watchIds) {
-  const identity = identityForConnection(this.connection);
-  if (!identity) return this.ready();
-
-  const userId = identity.userId;
+  if (!this.userId) return this.ready();
+  const userId = this.userId;
   markOnline(userId);
 
   for (const id of watchIds) {

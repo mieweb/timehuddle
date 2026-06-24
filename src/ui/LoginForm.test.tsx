@@ -14,10 +14,6 @@ vi.mock('../lib/useSession', () => ({
 
 vi.mock('../lib/api', () => ({
   authApi: {
-    signIn: vi.fn(),
-    signUp: vi.fn(),
-    requestPasswordReset: vi.fn(),
-    resetPassword: vi.fn(),
     signInWithSocial: vi.fn(),
     devMemberSignIn: vi.fn(),
   },

@@ -3,6 +3,11 @@ import { ObjectId } from "mongodb";
 import { personalAccessTokensCollection } from "../models/index.js";
 import { emitActivity } from "./activity.service.js";
 
+function toId(id: string): any {
+  // Return ObjectId for 24-char hex strings, plain string otherwise
+  return /^[0-9a-fA-F]{24}$/.test(id) ? new ObjectId(id) : id;
+}
+
 const TOKEN_PREFIX = "th_pat_";
 
 function hashToken(raw: string): string {
@@ -49,10 +54,10 @@ export const patService = {
     tokenId: string,
     actor: { id: string; name: string; avatar?: string }
   ) {
-    if (!ObjectId.isValid(tokenId)) return false;
+    if (!ObjectId.isValid(tokenId) && !/^[0-9a-fA-F]{24}$/.test(tokenId)) return false;
 
     const result = await personalAccessTokensCollection().deleteOne({
-      _id: new ObjectId(tokenId),
+      _id: toId(tokenId),
       userId,
     });
 

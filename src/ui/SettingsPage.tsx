@@ -51,6 +51,7 @@ import {
   tokenApi,
   type PersonalAccessToken,
 } from '../lib/api';
+import { getDdpClient } from '../lib/ddp';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
@@ -710,7 +711,10 @@ export const SettingsPage: React.FC = () => {
     setResetBusy(true);
     setResetMessage(null);
     try {
-      await authApi.requestPasswordReset(user.email, `${window.location.origin}/app`);
+      const ddp = getDdpClient();
+      await ddp.call('accounts.sendResetPasswordEmail', { 
+        email: user.email.toLowerCase() 
+      });
       setResetMessage('Check your email for a password reset link.');
     } catch (error: unknown) {
       setResetMessage(error instanceof Error ? error.message : 'Failed to send reset email.');

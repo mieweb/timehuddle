@@ -16,9 +16,10 @@ function hashToken(raw) {
 Meteor.methods({
   async 'tokens.list'() {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const tokens = await rawDb()
       .collection('personal_access_tokens')
-      .find({ userId: identity.userId }, { projection: { tokenHash: 0, userId: 0 } })
+      .find({ userId: userId }, { projection: { tokenHash: 0, userId: 0 } })
       .sort({ createdAt: -1 })
       .toArray();
     return {
@@ -33,6 +34,7 @@ Meteor.methods({
 
   async 'tokens.create'({ name }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (typeof name !== 'string' || !name.trim() || name.length > 100) {
       throw new Meteor.Error('bad-request', 'name is required (1-100 chars)');
     }
@@ -43,15 +45,15 @@ Meteor.methods({
 
     await rawDb().collection('personal_access_tokens').insertOne({
       _id: tokenId,
-      userId: identity.userId,
+      userId: userId,
       tokenHash,
       name: name.trim(),
       createdAt: new Date(),
     });
 
     emitActivity({
-      userId: identity.userId,
-      actor: { id: identity.userId, name: identity.name },
+      userId: userId,
+      actor: { id: userId, name: 'User' },
       type: 'pat.created',
       payload: { tokenId: tokenId.toHexString(), name: name.trim() },
     }).catch(() => {});
@@ -61,18 +63,19 @@ Meteor.methods({
 
   async 'tokens.revoke'({ tokenId }) {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(tokenId)) throw new Meteor.Error('not-found', 'Invalid token id');
 
     const result = await rawDb().collection('personal_access_tokens').deleteOne({
       _id: new ObjectId(tokenId),
-      userId: identity.userId,
+      userId: userId,
     });
 
     if (result.deletedCount === 0) throw new Meteor.Error('not-found', 'Token not found');
 
     emitActivity({
-      userId: identity.userId,
-      actor: { id: identity.userId, name: identity.name },
+      userId: userId,
+      actor: { id: userId, name: 'User' },
       type: 'pat.revoked',
       payload: { tokenId },
     }).catch(() => {});

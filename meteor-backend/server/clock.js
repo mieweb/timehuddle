@@ -14,7 +14,7 @@
 import { Meteor } from 'meteor/meteor';
 import { Mongo, MongoInternals } from 'meteor/mongo';
 import { ClockEvents, ClockBreaks, Teams, isValidId, rawDb } from './collections';
-import { requireIdentity, identityForConnection } from './auth-bridge';
+import { requireIdentity } from './auth-bridge';
 import { requireTeamMembership } from './permissions';
 import {
   toPublicClockEvent,
@@ -59,9 +59,10 @@ Meteor.methods({
   /** The caller's active clock event in a team, or null. */
   async 'clock.active'({ teamId } = {}) {
     const identity = await requireIdentity(this);
-    await requireTeamMembership(identity.userId, teamId);
+    const userId = identity.userId;
+    await requireTeamMembership(userId, teamId);
     const event = await ClockEvents.findOneAsync({
-      userId: identity.userId,
+      userId,
       teamId,
       endTime: null,
     });
@@ -73,7 +74,8 @@ Meteor.methods({
   /** The caller's active clock event across any team, or null (frontend getActive). */
   async 'clock.activeForUser'() {
     const identity = await requireIdentity(this);
-    const event = await ClockEvents.findOneAsync({ userId: identity.userId, endTime: null });
+    const userId = identity.userId;
+    const event = await ClockEvents.findOneAsync({ userId, endTime: null });
     if (!event) return null;
     const breaks = await findBreaksForEvent(event._id.toHexString());
     return toPublicClockEvent(event, breaks);
@@ -82,9 +84,10 @@ Meteor.methods({
   /** Live clock status for a team: { event, workSeconds, isPaused } or null. */
   async 'clock.status'({ teamId } = {}) {
     const identity = await requireIdentity(this);
-    await requireTeamMembership(identity.userId, teamId);
+    const userId = identity.userId;
+    await requireTeamMembership(userId, teamId);
     const event = await ClockEvents.findOneAsync({
-      userId: identity.userId,
+      userId,
       teamId,
       endTime: null,
     });
@@ -101,8 +104,9 @@ Meteor.methods({
   /** All clock events for the caller (their own history & timesheet). */
   async 'clock.events'() {
     const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const events = await ClockEvents.find(
-      { userId: identity.userId },
+      { userId },
       { sort: { startTime: -1 } }
     ).fetchAsync();
     const eventIds = events.map((e) => e._id.toHexString());
@@ -604,13 +608,13 @@ Meteor.methods({
  * clock-ins/outs from ANY writer (Meteor, Agenda auto-clockout).
  */
 Meteor.publish('clock.liveForTeams', async function (teamIds) {
-  const identity = identityForConnection(this.connection);
-  if (!identity) return this.ready();
+  if (!this.userId) return this.ready();
+  const userId = this.userId;
   if (!Array.isArray(teamIds) || teamIds.length === 0) return this.ready();
 
   const memberTeams = await Teams.find({
     _id: { $in: teamIds.filter(isValidId).map((id) => new Mongo.ObjectID(id)) },
-    $or: [{ members: identity.userId }, { admins: identity.userId }],
+    $or: [{ members: userId }, { admins: userId }],
   }).fetchAsync();
   const allowedIds = memberTeams.map((t) => t._id.toHexString());
   if (!allowedIds.length) return this.ready();

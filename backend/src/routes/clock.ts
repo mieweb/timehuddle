@@ -1,7 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { ObjectId } from "mongodb";
-import { auth } from "../lib/auth.js";
 import { requireAuth } from "../middleware/require-auth.js";
+import { verifyWsToken } from "../lib/ws-auth.js";
 import {
   clockService,
   toPublicClockEvent,
@@ -460,10 +460,9 @@ export async function clockRoutes(app: FastifyInstance) {
     };
 
     // Auth: accept Bearer token from query param (Capacitor) or cookie
-    const headers: Record<string, string> = { ...(req.headers as any) };
-    if (queryToken) headers["authorization"] = `Bearer ${queryToken}`;
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user) {
+    const rawToken = queryToken ?? req.headers["authorization"]?.replace(/^bearer /i, "");
+    const wsUser = await verifyWsToken(rawToken);
+    if (!wsUser) {
       socket.close(4001, "Unauthorized");
       return;
     }
@@ -489,7 +488,7 @@ export async function clockRoutes(app: FastifyInstance) {
       .find({ _id: { $in: objectIds } })
       .toArray();
 
-    const userId = session.user.id;
+    const userId = wsUser.id;
     const teamIds = allTeams
       .filter((t) => {
         const tid = t._id.toHexString();

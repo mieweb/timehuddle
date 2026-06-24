@@ -43,7 +43,7 @@ import { createRoot } from 'react-dom/client';
 
 import { InboxPage } from './features/inbox/InboxPage';
 import { enterpriseApi } from './lib/api';
-import { subscribeNewNotifications } from './lib/ddp';
+import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { MESSAGES_PENDING_THREAD_KEY } from './lib/constants';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
@@ -118,6 +118,22 @@ if (Capacitor.isNativePlatform()) {
     }
   });
 }
+
+// ─── OAuth callback handler (synchronous, before session check) ───────────────
+// Handle OAuth callback tokens synchronously before session check runs.
+// Stores meteor_resume token in localStorage so tryResumeLogin() picks it up.
+(function handleOAuthCallback() {
+  const params = new URLSearchParams(window.location.search);
+  const meteorResume = params.get('meteor_resume');
+  if (meteorResume) {
+    localStorage.setItem('meteor_resume_token', meteorResume);
+    // Clean URL
+    const url = new URL(window.location.href);
+    url.searchParams.delete('meteor_token');
+    url.searchParams.delete('meteor_resume');
+    window.history.replaceState({}, '', url.toString());
+  }
+})();
 
 // ─── App (client-side rendered, /app and all non-root routes) ─────────────────
 _log('App component defined — modules loaded');

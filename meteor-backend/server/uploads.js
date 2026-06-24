@@ -367,26 +367,10 @@ function toPublicMediaItem(m) {
 
 Meteor.methods({
   async 'media.list'({ limit } = {}) {
-    const identity = await (await import('./auth-bridge')).requireIdentity(this);
-    const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
-    const docs = await rawDb().collection('mediaitems')
-      .find({ userId: identity.userId })
-      .sort({ uploadedAt: -1 })
-      .limit(safeLimit)
-      .toArray();
-    return { items: docs.map(toPublicMediaItem) };
-  },
-
-  async 'media.listForUser'({ userId, limit } = {}) {
-    const identity = await (await import('./auth-bridge')).requireIdentity(this);
-    if (!isValidId(userId)) throw new Meteor.Error('bad-request', 'Invalid userId');
-    if (identity.userId !== userId) {
-      const sharedTeam = await Teams.rawCollection().findOne({
-        members: { $all: [identity.userId, userId] },
-        isPersonal: { $ne: true },
-      });
-      if (!sharedTeam) throw new Meteor.Error('forbidden', 'Not a teammate');
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
     }
+    const userId = this.userId;
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
       .find({ userId })
@@ -396,13 +380,38 @@ Meteor.methods({
     return { items: docs.map(toPublicMediaItem) };
   },
 
+  async 'media.listForUser'({ userId: targetUserId, limit } = {}) {
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
+    if (!isValidId(targetUserId)) throw new Meteor.Error('bad-request', 'Invalid userId');
+    if (userId !== targetUserId) {
+      const sharedTeam = await Teams.rawCollection().findOne({
+        members: { $all: [userId, targetUserId] },
+        isPersonal: { $ne: true },
+      });
+      if (!sharedTeam) throw new Meteor.Error('forbidden', 'Not a teammate');
+    }
+    const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
+    const docs = await rawDb().collection('mediaitems')
+      .find({ userId: targetUserId })
+      .sort({ uploadedAt: -1 })
+      .limit(safeLimit)
+      .toArray();
+    return { items: docs.map(toPublicMediaItem) };
+  },
+
   async 'media.update'({ mediaId, title, caption, altText } = {}) {
-    const identity = await (await import('./auth-bridge')).requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (!isValidId(mediaId)) throw new Meteor.Error('not-found', 'Invalid media id');
     const db = rawDb();
     const doc = await db.collection('mediaitems').findOne({ _id: new ObjectId(mediaId) });
     if (!doc) throw new Meteor.Error('not-found', 'Not found');
-    if (doc.userId !== identity.userId) throw new Meteor.Error('forbidden', 'Not the owner');
+    if (doc.userId !== userId) throw new Meteor.Error('forbidden', 'Not the owner');
     const $set = {};
     if (title !== undefined) $set.title = title;
     if (caption !== undefined) $set.caption = caption;
@@ -416,12 +425,15 @@ Meteor.methods({
   },
 
   async 'media.remove'({ mediaId } = {}) {
-    const identity = await (await import('./auth-bridge')).requireIdentity(this);
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Not logged in');
+    }
+    const userId = this.userId;
     if (!isValidId(mediaId)) throw new Meteor.Error('not-found', 'Invalid media id');
     const db = rawDb();
     const doc = await db.collection('mediaitems').findOne({ _id: new ObjectId(mediaId) });
     if (!doc) throw new Meteor.Error('not-found', 'Not found');
-    if (doc.userId !== identity.userId) throw new Meteor.Error('forbidden', 'Not the owner');
+    if (doc.userId !== userId) throw new Meteor.Error('forbidden', 'Not the owner');
     await db.collection('mediaitems').deleteOne({ _id: doc._id });
 
     unlinkSafe(resolveUploadPath(doc.url, '/uploads/media/', MEDIA_DIR));
