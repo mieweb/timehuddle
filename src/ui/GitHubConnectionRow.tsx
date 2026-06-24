@@ -3,7 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
-import { authApi, type AuthAccount } from '../lib/api';
+import { authApi, sessionToken, type AuthAccount } from '../lib/api';
 
 interface RowProps {
   label: string;
@@ -33,6 +33,8 @@ export const GitHubConnectionRow: React.FC = () => {
 
   const refresh = useCallback(async () => {
     try {
+      // Skip if no Fastify session — Meteor users don't have linked Better Auth accounts
+      if (!sessionToken.get()) return;
       const list = await authApi.listAccounts();
       setAccounts(list);
     } catch {

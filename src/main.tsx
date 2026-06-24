@@ -119,6 +119,22 @@ if (Capacitor.isNativePlatform()) {
   });
 }
 
+// ─── OAuth callback handler (synchronous, before session check) ───────────────
+// Handle OAuth callback tokens synchronously before session check runs.
+// Stores meteor_resume token in localStorage so tryResumeLogin() picks it up.
+(function handleOAuthCallback() {
+  const params = new URLSearchParams(window.location.search);
+  const meteorResume = params.get('meteor_resume');
+  if (meteorResume) {
+    localStorage.setItem('meteor_resume_token', meteorResume);
+    // Clean URL
+    const url = new URL(window.location.href);
+    url.searchParams.delete('meteor_token');
+    url.searchParams.delete('meteor_resume');
+    window.history.replaceState({}, '', url.toString());
+  }
+})();
+
 // ─── App (client-side rendered, /app and all non-root routes) ─────────────────
 _log('App component defined — modules loaded');
 
@@ -126,33 +142,6 @@ const App: React.FC = () => {
   const { user, loading, needsUsernameClaim } = useSession();
   const [ownershipChecked, setOwnershipChecked] = React.useState(false);
   const [showTakeOwnershipModal, setShowTakeOwnershipModal] = React.useState(false);
-
-  // Handle GitHub OAuth callback via Meteor
-  React.useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const meteorToken = params.get('meteor_token');
-    const meteorResume = params.get('meteor_resume');
-
-    if (meteorToken && meteorResume) {
-      // Clear params from URL
-      window.history.replaceState({}, '', window.location.pathname);
-
-      // Login to Meteor DDP with the resume token
-      const ddp = getDdpClient();
-      ddp
-        .loginWithMeteorToken(meteorToken, meteorResume)
-        .then((success) => {
-          if (success) {
-            console.log('[App] GitHub OAuth login success');
-            // Trigger session refetch
-            window.location.reload();
-          }
-        })
-        .catch((err) => {
-          console.error('[App] GitHub OAuth login failed:', err);
-        });
-    }
-  }, []);
 
   // Auto-register push on native (APNs/FCM) and web (VAPID) after login.
   React.useEffect(() => {

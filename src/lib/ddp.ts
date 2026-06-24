@@ -146,7 +146,7 @@ class DdpClient {
     }, delay);
   }
 
-  private async ensureAuthed(): Promise<void> {
+  public async ensureAuthed(): Promise<void> {
     await this.ensureConnected();
     if (!this.authPromise) {
       this.authPromise = (async () => {
@@ -264,13 +264,13 @@ class DdpClient {
   } | null> {
     try {
       // Use a timeout to prevent hanging
-      const connectWithTimeout = Promise.race([
-        this.ensureConnected(),
+      const authedWithTimeout = Promise.race([
+        this.ensureAuthed(),
         new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('timeout')), 3000)
+          setTimeout(() => reject(new Error('timeout')), 5000)
         )
       ]);
-      await connectWithTimeout;
+      await authedWithTimeout;
       
       const resumeToken = localStorage.getItem('meteor_resume_token');
       if (!resumeToken) return null;
