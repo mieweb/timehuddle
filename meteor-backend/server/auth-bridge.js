@@ -16,7 +16,7 @@ import { Meteor } from 'meteor/meteor';
 import { Accounts } from 'meteor/accounts-base';
 import { MongoInternals } from 'meteor/mongo';
 import { createHash } from 'crypto';
-import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
+import { jwtVerify, SignJWT } from 'jose';
 import { currentBearerToken } from 'meteor/wreiske:meteor-wormhole';
 import { rawDb } from './collections';
 
@@ -24,32 +24,6 @@ import { rawDb } from './collections';
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 const PAT_PREFIX = 'th_pat_';
-
-// JWKS published by the better-auth backend. jose caches keys and handles
-// `kid` rotation with a cooldown — verification itself is local.
-const JWKS_URL = process.env.AUTH_JWKS_URL || 'http://localhost:4000/api/auth/jwks';
-let jwks = null;
-
-/** A JWT has exactly three dot-separated segments. */
-function looksLikeJwt(token) {
-  return token.split('.').length === 3;
-}
-
-async function resolveJwt(token) {
-  try {
-    jwks ??= createRemoteJWKSet(new URL(JWKS_URL));
-    const { payload } = await jwtVerify(token, jwks);
-    if (!payload.sub) return null;
-    return { 
-      userId: payload.sub, 
-      name: payload.name || payload.email || 'Unknown',
-      email: payload.email 
-    };
-  } catch (err) {
-    console.error('[auth-bridge] JWT verification failed:', err.message || err);
-    return null;
-  }
-}
 
 async function resolvePat(token) {
   const tokenHash = createHash('sha256').update(token).digest('hex');
@@ -62,12 +36,37 @@ async function resolvePat(token) {
   return { userId: String(pat.userId), name: user?.name ?? user?.email ?? 'Unknown' };
 }
 
-/** Resolve a bearer token (JWT or PAT) to { userId, name } or null. */
+async function resolveMeteorToken(token) {
+  // Look up the hashed token in Meteor's users collection
+  const bcrypt = Npm.require('bcrypt');
+  const users = await Meteor.users.find({
+    'services.resume.loginTokens': { $exists: true }
+  }).fetchAsync();
+  
+  for (const user of users) {
+    const tokens = user.services?.resume?.loginTokens ?? [];
+    for (const lt of tokens) {
+      if (lt.hashedToken) {
+        // Meteor hashes tokens with SHA256 then base64
+        const { createHash } = Npm.require('crypto');
+        const hashed = createHash('sha256').update(token).digest('base64');
+        if (hashed === lt.hashedToken) {
+          return { userId: user._id, name: user.profile?.name || user.emails?.[0]?.address || 'Unknown' };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** Resolve a bearer token (PAT or Meteor resume token) to { userId, name } or null. */
 export async function resolveToken(raw) {
   if (typeof raw !== 'string' || !raw.trim()) return null;
   const token = raw.trim();
   if (token.startsWith(PAT_PREFIX)) return resolvePat(token);
-  if (looksLikeJwt(token)) return resolveJwt(token);
+  // Try as Meteor resume token
+  const meteorIdentity = await resolveMeteorToken(token);
+  if (meteorIdentity) return meteorIdentity;
   return null;
 }
 
@@ -187,19 +186,6 @@ export function identityForConnection(connection) {
 // ============================================================================
 // Meteor Accounts Login Handlers
 // ============================================================================
-
-// Register login handler for OIDC JWT tokens (GitHub/Google/Apple via Fastify)
-Accounts.registerLoginHandler('oidc', async (options) => {
-  console.log('[auth-bridge] oidc handler called with options:', JSON.stringify(options));
-  if (!options.oidcJwt) return undefined;
-
-  const claims = await resolveJwt(options.oidcJwt);
-  if (!claims) return undefined;
-
-  const userId = await findOrCreateUser(claims.email || claims.userId, claims.name);
-
-  return { userId };
-});
 
 // Register login handler for Personal Access Tokens
 Accounts.registerLoginHandler('pat', async (options) => {
@@ -324,39 +310,41 @@ Meteor.methods({
 
 // Sync GitHub OAuth users to Fastify user collection
 Accounts.onLogin(async (info) => {
+  const user = info.user;
+  const db = rawDb();
+
+  // GitHub sync
   try {
-    const user = info.user;
-    if (!user?.services?.github) return;
-    
-    const email =
-      user.services.github.email || user.emails?.[0]?.address;
-    if (!email) return;
-    
-    const name =
-      user.services.github.name ||
-      user.services.github.login ||
-      email;
-    
-    const db = rawDb();
-    await db.collection('user').updateOne(
-      { email: email.toLowerCase() },
-      {
-        $set: {
-          updatedAt: new Date(),
-          name: name,
-        },
-        $setOnInsert: {
-          email: email.toLowerCase(),
-          emailVerified: true,
-          createdAt: new Date(),
-        },
-      },
-      { upsert: true }
-    );
-    console.log(
-      '[auth-bridge] synced GitHub user to Fastify collection:',
-      email
-    );
+    if (user?.services?.github) {
+      const email =
+        user.services.github.email || user.emails?.[0]?.address;
+      if (email) {
+        const name =
+          user.services.github.name ||
+          user.services.github.login ||
+          email;
+        
+        await db.collection('user').updateOne(
+          { email: email.toLowerCase() },
+          {
+            $set: {
+              updatedAt: new Date(),
+              name: name,
+            },
+            $setOnInsert: {
+              email: email.toLowerCase(),
+              emailVerified: true,
+              createdAt: new Date(),
+            },
+          },
+          { upsert: true }
+        );
+        console.log(
+          '[auth-bridge] synced GitHub user to Fastify collection:',
+          email
+        );
+      }
+    }
   } catch (err) {
     console.error(
       '[auth-bridge] GitHub sync error:',
@@ -364,13 +352,13 @@ Accounts.onLogin(async (info) => {
     );
   }
   
-  // Sync Google OAuth users to Fastify user collection
+  // Google sync
   try {
     if (user?.services?.google) {
       const email = user.services.google.email ||
-                    user.emails?.[0]?.address
+                    user.emails?.[0]?.address;
       if (email) {
-        const name = user.services.google.name || email
+        const name = user.services.google.name || email;
         await db.collection('user').updateOne(
           { email: email.toLowerCase() },
           {
@@ -382,7 +370,7 @@ Accounts.onLogin(async (info) => {
             }
           },
           { upsert: true }
-        )
+        );
         console.log(
           '[auth-bridge] synced Google user to Fastify collection:',
           email
@@ -394,5 +382,111 @@ Accounts.onLogin(async (info) => {
       '[auth-bridge] Google sync error:',
       err.message
     );
+  }
+});
+
+// ============================================================================
+// DDP Signup Method
+// ============================================================================
+
+Meteor.methods({
+  'accounts.createUser': async function({ email, password, name }) {
+    // Rate limit: not logged in only
+    if (this.userId) throw new Meteor.Error('already-logged-in', 'Already logged in');
+    
+    const normalizedEmail = email.toLowerCase().trim();
+    
+    // Check if user already exists in Fastify collection
+    const db = rawDb();
+    const existingFastify = await db.collection('user').findOne({ email: normalizedEmail });
+    if (existingFastify) {
+      throw new Meteor.Error('email-exists', 'An account with this email already exists');
+    }
+    
+    // Create in Meteor Accounts (accounts-password handles password hashing)
+    let userId;
+    try {
+      userId = await Accounts.createUserAsync({
+        email: normalizedEmail,
+        password,
+        profile: { name: name || normalizedEmail }
+      });
+    } catch (err) {
+      if (err.message?.includes('already exists')) {
+        throw new Meteor.Error('email-exists', 'An account with this email already exists');
+      }
+      throw err;
+    }
+    
+    // Sync to Fastify user collection with same _id
+    await db.collection('user').insertOne({
+      _id: new ObjectId(userId),
+      email: normalizedEmail,
+      name: name || normalizedEmail,
+      emailVerified: false,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+    
+    console.log('[auth-bridge] created new user via accounts.createUser:', userId);
+    return { userId };
+  }
+});
+
+// ============================================================================
+// Email/Password Login Handler
+// ============================================================================
+
+Accounts.registerLoginHandler('emailPassword', async (options) => {
+  console.log('[emailPassword] handler called');
+  if (!options.emailPassword) return undefined;
+  
+  const { email, password } = options.emailPassword;
+  const normalizedEmail = email.toLowerCase().trim();
+  console.log('[emailPassword] looking up user:', normalizedEmail);
+  
+  // Find user directly via MongoDB (Accounts.findUserByEmail may miss string _id users)
+  const user = await Meteor.users.findOneAsync({ 'emails.address': normalizedEmail });
+  console.log('[emailPassword] user found:', user?._id ?? 'NOT FOUND');
+  if (!user) return undefined;
+  
+  // Verify via Fastify better-auth
+  const fastifyUrl = process.env.AUTH_FASTIFY_URL || 'http://localhost:4000';
+  try {
+    console.log('[emailPassword] calling Fastify at:', fastifyUrl);
+    const authRes = await fetch(`${fastifyUrl}/api/auth/sign-in/email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: normalizedEmail, password: password.raw })
+    });
+    console.log('[emailPassword] Fastify response status:', authRes.status);
+    if (!authRes.ok) return undefined;
+  } catch (err) {
+    console.error('[emailPassword] Fastify fetch error:', err.message);
+    return undefined;
+  }
+  
+  console.log('[emailPassword] login success, userId:', user._id);
+  return { userId: user._id };
+});
+
+// Add getCurrentUser to existing Meteor.methods
+Meteor.methods({
+  'users.getCurrentUser': async function() {
+    if (!this.userId) return null;
+    const user = await Meteor.users.findOneAsync(this.userId);
+    if (!user) return null;
+    const email = user.emails?.[0]?.address || '';
+    // Also fetch username and extra fields from Fastify user collection
+    const db = rawDb();
+    const fastifyUser = await db.collection('user').findOne({ email: email.toLowerCase() });
+    return {
+      id: this.userId,
+      email,
+      name: user.profile?.name || fastifyUser?.name || email || 'Unknown',
+      username: fastifyUser?.username || null,
+      image: fastifyUser?.image || null,
+      emailVerified: fastifyUser?.emailVerified ?? true
+    };
   }
 });
