@@ -419,7 +419,6 @@ WebApp.connectHandlers.use('/auth/apple', (req, res, next) => {
 
 WebApp.connectHandlers.use('/auth/apple/callback',
   async (req, res) => {
-    console.log('[apple-callback] received request, method:', req.method);
     try {
       // Apple sends POST with form data
       let body = ''

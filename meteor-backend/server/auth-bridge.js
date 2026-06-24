@@ -189,7 +189,6 @@ export function identityForConnection(connection) {
 
 // Register login handler for Personal Access Tokens
 Accounts.registerLoginHandler('pat', async (options) => {
-  console.log('[auth-bridge] pat handler called with options:', JSON.stringify(options));
   if (!options.patToken) return undefined;
 
   const identity = await resolvePat(options.patToken);
@@ -235,7 +234,6 @@ export async function signProxyJwt(email, name) {
 
 // Register login handler for Authentik proxy JWT
 Accounts.registerLoginHandler('proxy', async (options) => {
-  console.log('[auth-bridge] proxy handler called with options:', JSON.stringify(options));
   if (!options.proxyJwt) return undefined;
   if (process.env.TRUST_PROXY_HEADERS !== 'true') return undefined;
 
@@ -461,35 +459,29 @@ Meteor.methods({
 // ============================================================================
 
 Accounts.registerLoginHandler('emailPassword', async (options) => {
-  console.log('[emailPassword] handler called');
   if (!options.emailPassword) return undefined;
   
   const { email, password } = options.emailPassword;
   const normalizedEmail = email.toLowerCase().trim();
-  console.log('[emailPassword] looking up user:', normalizedEmail);
   
   // Find user directly via MongoDB (Accounts.findUserByEmail may miss string _id users)
   const user = await Meteor.users.findOneAsync({ 'emails.address': normalizedEmail });
-  console.log('[emailPassword] user found:', user?._id ?? 'NOT FOUND');
   if (!user) return undefined;
   
   // Verify via Fastify better-auth
   const fastifyUrl = process.env.AUTH_FASTIFY_URL || 'http://localhost:4000';
   try {
-    console.log('[emailPassword] calling Fastify at:', fastifyUrl);
     const authRes = await fetch(`${fastifyUrl}/api/auth/sign-in/email`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: normalizedEmail, password: password.raw })
     });
-    console.log('[emailPassword] Fastify response status:', authRes.status);
     if (!authRes.ok) return undefined;
   } catch (err) {
     console.error('[emailPassword] Fastify fetch error:', err.message);
     return undefined;
   }
   
-  console.log('[emailPassword] login success, userId:', user._id);
   return { userId: user._id };
 });
 
