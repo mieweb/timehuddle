@@ -25,6 +25,11 @@ const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 const PAT_PREFIX = 'th_pat_';
 
+// Safe ObjectId conversion — only converts 24-char hex strings
+function toId(id) {
+  return /^[a-f0-9]{24}$/i.test(id) ? new ObjectId(id) : id;
+}
+
 async function findUserById(id) {
   // Try Meteor collection first (new users created via accounts.createUser)
   const meteorUser = await rawDb().collection('users').findOne({ _id: String(id) });
@@ -39,7 +44,7 @@ async function findUserById(id) {
     reportsToUserId: meteorUser.reportsToUserId ?? null,
   };
   // Fall back to Fastify collection (old migrated users)
-  return await rawDb().collection('user').findOne({ _id: new ObjectId(String(id)) }) ?? null;
+  return await rawDb().collection('user').findOne({ _id: toId(String(id)) }) ?? null;
 }
 
 async function resolvePat(token) {

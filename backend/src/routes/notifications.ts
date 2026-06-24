@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { auth } from "../lib/auth.js";
 import { requireAuth } from "../middleware/require-auth.js";
+import { verifyWsToken } from "../lib/ws-auth.js";
 import { notificationService, subscribe } from "../services/notification.service.js";
 import { pushService } from "../services/push.service.js";
 import { respondToShiftReminder } from "../services/clock.service.js";
@@ -138,15 +138,14 @@ export async function notificationRoutes(app: FastifyInstance) {
   // GET /v1/notifications/ws — WebSocket (new notifications pushed in real-time)
   app.get("/notifications/ws", { websocket: true }, async (socket, req) => {
     const { token: queryToken } = req.query as { token?: string };
-    const headers: Record<string, string> = { ...(req.headers as any) };
-    if (queryToken) headers["authorization"] = `Bearer ${queryToken}`;
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user) {
+    const rawToken = queryToken ?? req.headers["authorization"]?.replace(/^bearer /i, "");
+    const wsUser = await verifyWsToken(rawToken);
+    if (!wsUser) {
       socket.close(4001, "Unauthorized");
       return;
     }
 
-    const userId = session.user.id;
+    const userId = wsUser.id;
     const unsub = subscribe(userId, (n) => {
       if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(n));
     });

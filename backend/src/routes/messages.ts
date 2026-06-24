@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { auth } from "../lib/auth.js";
+import { requireAuth } from "../middleware/require-auth.js";
+import { verifyWsToken } from "../lib/ws-auth.js";
 import { messageService, subscribe } from "../services/message.service.js";
 
 const sendSchema = z.object({
@@ -13,10 +14,7 @@ const sendSchema = z.object({
 
 export async function messageRoutes(app: FastifyInstance) {
   // GET /v1/messages?teamId=&adminId=&memberId=
-  app.get("/messages", async (req, reply) => {
-    const session = await auth.api.getSession({ headers: req.headers as any });
-    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
-
+  app.get("/messages", { preHandler: requireAuth }, async (req, reply) => {
     const { teamId, adminId, memberId, before, limit } = req.query as Record<string, string>;
     if (!teamId || !adminId || !memberId) {
       return reply.status(400).send({ error: "teamId, adminId, memberId required" });
@@ -27,7 +25,7 @@ export async function messageRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: "Invalid 'before' date" });
     }
     const parsedLimit = limit ? Math.min(parseInt(limit, 10) || 50, 100) : 50;
-    const result = await messageService.getThread(session.user.id, teamId, adminId, memberId, {
+    const result = await messageService.getThread(req.user!.id, teamId, adminId, memberId, {
       before: beforeDate,
       limit: parsedLimit,
     });
@@ -36,16 +34,13 @@ export async function messageRoutes(app: FastifyInstance) {
   });
 
   // POST /v1/messages
-  app.post("/messages", async (req, reply) => {
-    const session = await auth.api.getSession({ headers: req.headers as any });
-    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
-
+  app.post("/messages", { preHandler: requireAuth }, async (req, reply) => {
     const parsed = sendSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid" });
     }
 
-    const result = await messageService.send(session.user.id, parsed.data);
+    const result = await messageService.send(req.user!.id, parsed.data);
     if (result === "not-found") return reply.status(404).send({ error: "Team not found" });
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
     return reply.send({ message: result });
@@ -59,8 +54,9 @@ export async function messageRoutes(app: FastifyInstance) {
     };
     const headers: Record<string, string> = { ...(req.headers as any) };
     if (queryToken) headers["authorization"] = `Bearer ${queryToken}`;
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user) {
+    const rawToken = queryToken ?? req.headers["authorization"]?.replace(/^bearer /i, "");
+    const wsUser = await verifyWsToken(rawToken);
+    if (!wsUser) {
       socket.close(4001, "Unauthorized");
       return;
     }
@@ -74,7 +70,7 @@ export async function messageRoutes(app: FastifyInstance) {
     const parts = threadId.split(":");
     const adminId = parts[1];
     const memberId = parts[2];
-    if (session.user.id !== adminId && session.user.id !== memberId) {
+    if (wsUser.id !== adminId && wsUser.id !== memberId) {
       socket.close(4003, "Forbidden");
       return;
     }
