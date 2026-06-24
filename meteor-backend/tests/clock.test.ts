@@ -121,4 +121,33 @@ describe('clock (wormhole)', () => {
     expect(Array.isArray(res.result)).toBe(true);
     expect(res.result.length).toBeGreaterThanOrEqual(1);
   });
+
+  describe('createManual', () => {
+    const oneHour = 60 * 60 * 1000;
+    let manualStart: number;
+    let manualEnd: number;
+
+    it('creates a manual clock entry', async () => {
+      manualEnd = Date.now() - oneHour;
+      manualStart = manualEnd - oneHour;
+      const res = await wormhole<{ id: string; startTime: number; endTime: number }>(
+        'clock.createManual',
+        { teamId, startTime: manualStart, endTime: manualEnd },
+        jwt,
+      );
+      expect(res.ok).toBe(true);
+      expect(res.result.startTime).toBe(manualStart);
+      expect(res.result.endTime).toBe(manualEnd);
+    });
+
+    it('rejects overlapping manual entry', async () => {
+      const res = await wormhole(
+        'clock.createManual',
+        { teamId, startTime: manualStart + 1000, endTime: manualEnd - 1000 },
+        jwt,
+      );
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/overlap/i);
+    });
+  });
 });

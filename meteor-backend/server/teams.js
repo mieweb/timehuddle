@@ -1,10 +1,11 @@
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
-import { Teams, rawDb, isValidId } from './collections';
+import { Teams, TeamJoinRequests, rawDb, isValidId } from './collections';
 import { requireIdentity, identityForConnection } from './auth-bridge';
 import { ensureDefaultOrganization, addOrgMember, getAccessibleOrgIds } from './org-helpers';
 import { ensureDefaultChannel } from './channels';
+import { createNotification } from './notify-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -39,11 +40,50 @@ Meteor.methods({
   async 'teams.list'() {
     const identity = await requireIdentity(this);
     const teams = await Teams.find({ members: identity.userId }).fetchAsync();
+
+    const userPending = await TeamJoinRequests.rawCollection()
+      .find({ userId: identity.userId, status: 'pending' })
+      .sort({ requestedAt: -1 })
+      .toArray();
+
+    const adminTeamIds = teams.filter((t) => t.admins?.includes(identity.userId)).map((t) => {
+      const id = t._id?.toHexString ? t._id.toHexString() : String(t._id);
+      return id;
+    });
+
+    let adminPending = [];
+    if (adminTeamIds.length > 0) {
+      adminPending = await TeamJoinRequests.rawCollection()
+        .find({ teamId: { $in: adminTeamIds }, status: 'pending' })
+        .sort({ requestedAt: -1 })
+        .toArray();
+    }
+
+    const seen = new Set();
+    const allPending = [...userPending, ...adminPending].filter((r) => {
+      const id = r._id?.toHexString ? r._id.toHexString() : String(r._id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+
+    const toPublic = (r) => ({
+      id: r._id?.toHexString ? r._id.toHexString() : String(r._id),
+      teamId: r.teamId,
+      userId: r.userId,
+      teamCode: r.teamCode,
+      status: r.status,
+      requestedAt: r.requestedAt instanceof Date ? r.requestedAt.toISOString() : String(r.requestedAt),
+      respondedAt: r.respondedAt instanceof Date ? r.respondedAt.toISOString() : undefined,
+      respondedBy: r.respondedBy,
+    });
+
     return {
       teams: teams.map(toPublicTeam).sort((a, b) => {
         if (a.isPersonal !== b.isPersonal) return a.isPersonal ? -1 : 1;
         return a.name.localeCompare(b.name);
       }),
+      pendingRequests: allPending.map(toPublic),
     };
   },
 
@@ -124,25 +164,72 @@ Meteor.methods({
 
     const team = await Teams.rawCollection().findOne({ code: teamCode.toUpperCase() });
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
+    const teamId = team._id.toHexString();
+
     if (team.members.includes(identity.userId)) {
       throw new Meteor.Error('already-member', 'Already a member');
     }
 
-    await Teams.rawCollection().updateOne(
-      { _id: team._id },
-      { $addToSet: { members: identity.userId }, $set: { updatedAt: new Date() } },
-    );
-
-    const db = rawDb();
-    const org = team.orgId && isValidId(team.orgId)
-      ? await db.collection('organizations').findOne({ _id: new ObjectId(team.orgId) })
-      : null;
-    if (org?.allowAutoJoin !== false) {
-      await addOrgMember(team.orgId, identity.userId, 'member', true);
+    const existing = await TeamJoinRequests.rawCollection().findOne({
+      teamId,
+      userId: identity.userId,
+      status: 'pending',
+    });
+    if (existing) {
+      return {
+        status: 'pending',
+        request: {
+          id: existing._id.toHexString(),
+          teamId: existing.teamId,
+          userId: existing.userId,
+          teamCode: existing.teamCode,
+          status: existing.status,
+          requestedAt: existing.requestedAt instanceof Date ? existing.requestedAt.toISOString() : String(existing.requestedAt),
+        },
+      };
     }
 
-    const updated = await Teams.rawCollection().findOne({ _id: team._id });
-    return { team: toPublicTeam(updated) };
+    const doc = {
+      _id: new ObjectId(),
+      teamId,
+      userId: identity.userId,
+      teamCode: teamCode.toUpperCase(),
+      status: 'pending',
+      requestedAt: new Date(),
+      createdAt: new Date(),
+    };
+    await TeamJoinRequests.rawCollection().insertOne(doc);
+
+    const requestId = doc._id.toHexString();
+
+    const requester = await rawDb().collection('user').findOne({ _id: new ObjectId(identity.userId) });
+    const requesterName = requester?.name ?? 'Someone';
+    for (const adminId of (team.admins || [])) {
+      createNotification({
+        userId: adminId,
+        title: 'New team join request',
+        body: `${requesterName} wants to join ${team.name}`,
+        data: {
+          type: 'team-join-request',
+          teamId,
+          requesterId: identity.userId,
+          requestId,
+          url: `/app/teams?tab=pending&teamId=${teamId}`,
+        },
+      }).catch((err) => console.error('[teams] notify admin failed:', err));
+    }
+
+    return {
+      status: 'pending',
+      request: {
+        id: requestId,
+        teamId,
+        userId: identity.userId,
+        teamCode: teamCode.toUpperCase(),
+        status: 'pending',
+        requestedAt: doc.requestedAt.toISOString(),
+      },
+    };
   },
 
   async 'teams.subteams'({ teamId }) {

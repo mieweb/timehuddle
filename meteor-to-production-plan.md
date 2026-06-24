@@ -132,9 +132,38 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
 - [x] Uploads/Media/Attachments: static file serving at `/uploads/*` via `WebApp.connectHandlers`. Avatar/background multipart upload+delete via busboy (`/api/me/avatar`, `/api/me/background`). Media library image upload (`/api/media/upload`), thumbnail upload (`/api/media-thumbnail/:id`), CRUD methods (`media.list`, `media.listForUser`, `media.update`, `media.remove`). Attachments metadata-only methods (`attachments.list`, `attachments.add`, `attachments.remove`). All in `meteor-backend/server/uploads.js` + `attachments.js`. Frontend `attachmentApi`, `mediaApi`, `userApi` upload/delete all cut over. `toAbsoluteUrl` routes `/uploads/` paths through `METEOR_BASE_URL`. Video thumbnail regeneration uses authenticated blob fetch to avoid cross-origin canvas tainting.
 - [ ] PulseVault TUS resumable uploads: raw WebApp handlers (protocol untouched)
 - [x] Port remaining backend test suites to Meteor methods — Vitest integration tests (`meteor-backend/tests/`) covering tickets (10), teams (11), clock (9). `scripts/checks.sh` gains `meteor` job. Infrastructure: `helpers.ts` (auth + wormhole wrapper), `setup.ts`, `vitest.config.ts`.
+
+## M5 — Reconcile post-merge drift from main
+
+Work that landed on **Fastify** via `main` merges for domains **already cut over to Meteor**, so it sits in code paths the frontend no longer calls. Each needs porting to the Meteor side (and the Fastify copy left as dead-on-arrival until the route is deleted).
+
+- [x] **Clock overlap guard (M1, live regression)** — PR #386 added overlap rejection to Fastify
+      `clock.service.createManual` (`"overlap"` → 409), but clock is fully on Meteor, so the live
+      path `clock.createManual` (`meteor-backend/server/clock.js`) still inserts with no overlap
+      check. Ported: overlap query added to `clock.js` before insert, throws `Meteor.Error('overlap')`.
+      Integration test added to `meteor-backend/tests/clock.test.ts` (happy path + rejection).
+- [x] **Team join-request / pending-approval workflow (M2, ported)** — PR #382's Fastify flow
+      ported to Meteor. `teams.join` now creates a pending request + notifies admins (was: direct
+      add). `teams.list` returns `pendingRequests`. New methods: `teams.getPendingJoinRequests`,
+      `teams.approveJoinRequest`, `teams.declineJoinRequest`, `teams.getJoinRequestPreview`,
+      `teams.respondToJoinRequest`. DDP publications `teamJoinRequests.forUser` /
+      `teamJoinRequests.forTeam` replace the WS fan-out. Frontend `notificationApi`
+      `getJoinRequestPreview` + `respondToJoinRequest` cut over from Fastify REST to wormhole.
+      `TeamJoinRequests` collection added to `collections.js`. All wormhole schemas exposed in
+      `main.js`.
+- [ ] **Huddle / newsfeed (net-new, built on the retired pattern)** — PR #383 added `huddle.ts`,
+      `huddle.service.ts`, and a new WS hub `huddle-ws.ts` on Fastify; frontend consumes Fastify REST + WS. Not a regression, but it's a brand-new WebSocket hub for exactly the pattern this
+      migration retires. Decide: port now (Meteor methods + `huddlePosts.byTeam` publication) or
+      accept as Fastify debt and schedule.
+- [ ] **Media document-upload parity (M4)** — Fastify `media.ts` gained an upload route advertising
+      image/video/**document**, but frontend `mediaApi` uploads to `METEOR_BASE_URL/api/media/upload`,
+      so the Fastify route is dead. Confirm whether it added document-type support absent from
+      `meteor-backend/server/uploads.js`; if so port that capability, otherwise drop the Fastify route.
+
+## Finalize Transition
+
 - [ ] Remove `WS_BASE_URL`, `autoReconnectWs`, legacy `openLiveStream` helpers from `src/lib/api.ts`
-- [ ] Move `backend/` to `.attic/` (better-auth extracted to a slim standalone identity service
-      that remains at `/api/auth/*`)
+- [ ] Move `backend/` to `.attic/` (better-auth extracted to a slim standalone identity service that remains at `/api/auth/*`)
 - [ ] docker-compose + CI (`scripts/checks.sh`) updated; Fastify gone
 
 ---

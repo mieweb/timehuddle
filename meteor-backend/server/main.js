@@ -21,6 +21,7 @@ import './activity';
 // M2 — Collaboration
 import './channels'; // must precede teams (teams.create calls ensureDefaultChannel)
 import './teams';
+import './team-join-requests';
 import './messages';
 // M3 — Org & profiles
 import './users';
@@ -447,6 +448,56 @@ Meteor.startup(() => {
         newPassword: { type: 'string' },
       },
       required: ['teamId', 'userId', 'newPassword'],
+    },
+  });
+
+  // ── Team Join Requests ────────────────────────────────────────────────────
+
+  Wormhole.expose('teams.getPendingJoinRequests', {
+    description: 'List pending join requests for a team (admin only)',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('teams.approveJoinRequest', {
+    description: 'Approve a team join request (admin only)',
+    inputSchema: {
+      type: 'object',
+      properties: { requestId: { type: 'string' } },
+      required: ['requestId'],
+    },
+  });
+
+  Wormhole.expose('teams.declineJoinRequest', {
+    description: 'Decline a team join request (admin only)',
+    inputSchema: {
+      type: 'object',
+      properties: { requestId: { type: 'string' } },
+      required: ['requestId'],
+    },
+  });
+
+  Wormhole.expose('teams.getJoinRequestPreview', {
+    description: 'Get join request preview from a notification (for notification action)',
+    inputSchema: {
+      type: 'object',
+      properties: { notificationId: { type: 'string' } },
+      required: ['notificationId'],
+    },
+  });
+
+  Wormhole.expose('teams.respondToJoinRequest', {
+    description: 'Approve or decline a join request from a notification',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        notificationId: { type: 'string' },
+        action: { type: 'string', enum: ['approve', 'decline'] },
+      },
+      required: ['notificationId', 'action'],
     },
   });
 

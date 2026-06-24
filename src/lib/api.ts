@@ -1382,16 +1382,11 @@ export const notificationApi = {
 
   /** Fetch team join request preview for a notification. */
   getJoinRequestPreview: (id: string) =>
-    request<TeamJoinRequestPreview>(
-      `/v1/notifications/${encodeURIComponent(id)}/join-request-preview`,
-    ),
+    wormholeCall<TeamJoinRequestPreview>('teams.getJoinRequestPreview', { notificationId: id }),
 
   /** Approve or decline a team join request. */
   respondToJoinRequest: (id: string, action: 'approve' | 'decline') =>
-    request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/join-request-respond`, {
-      method: 'POST',
-      body: JSON.stringify({ action }),
-    }),
+    wormholeCall<{ ok: boolean }>('teams.respondToJoinRequest', { notificationId: id, action }),
 
   /** Consent to auto-clockout at 8h — called when user clicks "Agree to Clock Out" on the shift reminder. */
   agreeClockout: (clockEventId: string) =>
