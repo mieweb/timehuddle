@@ -363,7 +363,14 @@ export const authApi = {
   },
 
   /** List auth providers linked to the current account. */
-  listAccounts: (): Promise<AuthAccount[]> => request<AuthAccount[]>('/api/auth/list-accounts'),
+  listAccounts: async (): Promise<AuthAccount[]> => {
+    try {
+      return await request<AuthAccount[]>('/api/auth/list-accounts');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return [];
+      throw err;
+    }
+  },
 
   /** Sign out — clears better-auth session cookie and stored token. */
   signOut: async () => {
