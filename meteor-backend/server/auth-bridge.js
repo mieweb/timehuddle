@@ -25,6 +25,23 @@ const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 const PAT_PREFIX = 'th_pat_';
 
+async function findUserById(id) {
+  // Try Meteor collection first (new users created via accounts.createUser)
+  const meteorUser = await rawDb().collection('users').findOne({ _id: String(id) });
+  if (meteorUser) return {
+    _id: meteorUser._id,
+    name: meteorUser.profile?.name ?? null,
+    email: meteorUser.emails?.[0]?.address ?? null,
+    username: meteorUser.username ?? null,
+    image: meteorUser.image ?? null,
+    bio: meteorUser.bio ?? '',
+    website: meteorUser.website ?? '',
+    reportsToUserId: meteorUser.reportsToUserId ?? null,
+  };
+  // Fall back to Fastify collection (old migrated users)
+  return await rawDb().collection('user').findOne({ _id: new ObjectId(String(id)) }) ?? null;
+}
+
 async function resolvePat(token) {
   const tokenHash = createHash('sha256').update(token).digest('hex');
   const db = rawDb();
@@ -32,7 +49,7 @@ async function resolvePat(token) {
     .collection('personal_access_tokens')
     .findOneAndUpdate({ tokenHash }, { $set: { lastUsedAt: new Date() } });
   if (!pat?.userId) return null;
-  const user = await db.collection('user').findOne({ _id: new ObjectId(String(pat.userId)) });
+  const user = await findUserById(pat.userId);
   return { userId: String(pat.userId), name: user?.name ?? user?.email ?? 'Unknown' };
 }
 
@@ -79,7 +96,7 @@ export async function findOrCreateUser(email, name) {
   const normalizedEmail = email.toLowerCase().trim()
 
   // Step 1: Check if Meteor user already exists
-  const existingMeteorUser = Accounts.findUserByEmail(normalizedEmail)
+  const existingMeteorUser = await Meteor.users.findOneAsync({ 'emails.address': normalizedEmail })
   if (existingMeteorUser?._id) {
     console.log('[auth-bridge] found existing Meteor user:', 
       existingMeteorUser._id)
@@ -131,7 +148,7 @@ export async function findOrCreateUser(email, name) {
     
     // Also create in Fastify user collection
     await db.collection('user').insertOne({
-      _id: new ObjectId(userId),  // same _id!
+      _id: userId,  // same _id!
       email: normalizedEmail,
       name: name || normalizedEmail,
       emailVerified: false,
@@ -418,7 +435,7 @@ Meteor.methods({
     
     // Sync to Fastify user collection with same _id
     await db.collection('user').insertOne({
-      _id: new ObjectId(userId),
+      _id: userId,  // keep as string to match Meteor's _id
       email: normalizedEmail,
       name: name || normalizedEmail,
       emailVerified: false,
@@ -464,11 +481,27 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
   const { email, password } = options.emailPassword;
   const normalizedEmail = email.toLowerCase().trim();
   
-  // Find user directly via MongoDB (Accounts.findUserByEmail may miss string _id users)
+  // Find user directly via MongoDB
   const user = await Meteor.users.findOneAsync({ 'emails.address': normalizedEmail });
   if (!user) return undefined;
   
-  // Verify via Fastify better-auth
+  // Path 1: User already has bcrypt hash — verify natively
+  const storedBcrypt = user?.services?.password?.bcrypt;
+  if (storedBcrypt) {
+    const bcrypt = Npm.require('bcrypt');
+    // Meteor hashes passwords as SHA256(password) before bcrypt
+    // Try both raw and SHA256 hashed to support both Meteor-created
+    // and migrated-from-Fastify users
+    let match = await bcrypt.compare(password.raw, storedBcrypt);
+    if (!match) {
+      // Try SHA256 digest (Meteor's native format)
+      match = await bcrypt.compare(password.digest, storedBcrypt);
+    }
+    if (!match) return undefined;
+    return { userId: user._id };
+  }
+  
+  // Path 2: No bcrypt hash yet — verify via Fastify better-auth
   const fastifyUrl = process.env.AUTH_FASTIFY_URL || 'http://localhost:4000';
   try {
     const authRes = await fetch(`${fastifyUrl}/api/auth/sign-in/email`, {
@@ -477,12 +510,26 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
       body: JSON.stringify({ email: normalizedEmail, password: password.raw })
     });
     if (!authRes.ok) return undefined;
+    
+    // Migration: store bcrypt hash so next login bypasses Fastify
+    try {
+      const bcrypt = Npm.require('bcrypt');
+      const hash = await bcrypt.hash(password.raw, 10);
+      await Meteor.users.updateAsync(
+        { _id: user._id },
+        { $set: { 'services.password.bcrypt': hash } }
+      );
+      console.log('[emailPassword] migrated password hash for:', normalizedEmail);
+    } catch (err) {
+      // Non-fatal — user can still login, migration will retry next time
+      console.error('[emailPassword] hash migration failed:', err.message);
+    }
+    
+    return { userId: user._id };
   } catch (err) {
     console.error('[emailPassword] Fastify fetch error:', err.message);
     return undefined;
   }
-  
-  return { userId: user._id };
 });
 
 // Add getCurrentUser to existing Meteor.methods
@@ -499,7 +546,7 @@ Meteor.methods({
       id: this.userId,
       email,
       name: user.profile?.name || fastifyUser?.name || email || 'Unknown',
-      username: fastifyUser?.username || null,
+      username: user.username || fastifyUser?.username || null,
       image: fastifyUser?.image || null,
       emailVerified: fastifyUser?.emailVerified ?? true
     };

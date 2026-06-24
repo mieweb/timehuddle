@@ -8,6 +8,11 @@ import { usersCollection } from "../models/index.js";
 import { getDB } from "../lib/db.js";
 import { createHash } from "crypto";
 
+function toId(id: string): any {
+  // Return ObjectId for 24-char hex strings, plain string otherwise
+  return /^[0-9a-fA-F]{24}$/.test(id) ? new ObjectId(id) : id;
+}
+
 export type AppUser = {
   id: string;
   name: string;
@@ -55,7 +60,7 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
     if (!userId) {
       return reply.status(401).send({ error: "Invalid or expired token" });
     }
-    const user = await usersCollection().findOne({ _id: new ObjectId(userId) });
+    const user = await usersCollection().findOne({ _id: toId(userId) });
     if (!user) {
       return reply.status(401).send({ error: "Unauthorized" });
     }
@@ -136,7 +141,7 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
       if (oidcToken.expiresAt && oidcToken.expiresAt < new Date()) {
         return reply.status(401).send({ error: "Token expired" });
       }
-      const user = await usersCollection().findOne({ _id: new ObjectId(oidcToken.userId) });
+      const user = await usersCollection().findOne({ _id: toId(oidcToken.userId) });
       if (!user) {
         return reply.status(401).send({ error: "Unauthorized" });
       }

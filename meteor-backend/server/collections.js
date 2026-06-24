@@ -25,5 +25,6 @@ export function rawDb() {
 }
 
 export function isValidId(id) {
-  return typeof id === 'string' && /^[0-9a-f]{24}$/i.test(id);
+  if (typeof id !== 'string') return false;
+  return /^[0-9a-f]{24}$/i.test(id) || /^[a-zA-Z0-9]{7,32}$/.test(id);
 }
