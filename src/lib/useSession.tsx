@@ -84,9 +84,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [fetchSession]);
 
   const signOut = useCallback(async () => {
-    // Clear Meteor resume token
-    localStorage.removeItem('meteor_resume_token');
-    // Clear Fastify session
+    const ddp = getDdpClient();
+    await ddp.logout().catch(() => {});
     await authApi.signOut().catch(() => {});
     setUser(null);
   }, []);

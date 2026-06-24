@@ -289,6 +289,13 @@ class DdpClient {
     }
   }
 
+  async logout(): Promise<void> {
+    try {
+      await this.call('logout');
+    } catch {}
+    localStorage.removeItem('meteor_resume_token');
+  }
+
   private handleMessage(data: DdpMessage): void {
     switch (data.msg) {
       case 'ping':
