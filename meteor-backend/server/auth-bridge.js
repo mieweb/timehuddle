@@ -113,7 +113,7 @@ export async function findOrCreateUser(email, name) {
     } catch (err) {
       console.error('[auth-bridge] Meteor.users.insert error:', err.message)
       // Maybe created by concurrent request - retry lookup
-      const retryUser = Accounts.findUserByEmail(normalizedEmail)
+      const retryUser = await Meteor.users.findOneAsync({ 'emails.address': normalizedEmail })
       if (retryUser?._id) return retryUser._id
       // Last resort - return the fastify user id directly
       return fastifyUser._id.toHexString()

@@ -129,7 +129,9 @@ WebApp.connectHandlers.use('/api/whoami', proxyWhoamiHandler);
 // GitHub OAuth Endpoints
 // ============================================================================
 
-WebApp.connectHandlers.use('/auth/github', (req, res) => {
+WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
+  // Only handle exact /auth/github route, not /auth/github/callback
+  if (req.url !== '/' && req.url !== '') { next(); return; }
   const credentialToken = Random.secret();
   const callbackUrl = `${process.env.ROOT_URL}/auth/github/callback`;
   
@@ -271,7 +273,9 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
 // Google OAuth Endpoints
 // ============================================================================
 
-WebApp.connectHandlers.use('/auth/google', (req, res) => {
+WebApp.connectHandlers.use('/auth/google', (req, res, next) => {
+  // Only handle exact /auth/google route, not /auth/google/callback
+  if (req.url !== '/' && req.url !== '') { next(); return; }
   const callbackUrl = 
     `${process.env.ROOT_URL}/auth/google/callback`
   
@@ -394,7 +398,9 @@ WebApp.connectHandlers.use('/auth/google/callback',
 // Apple OAuth Endpoints
 // ============================================================================
 
-WebApp.connectHandlers.use('/auth/apple', (req, res) => {
+WebApp.connectHandlers.use('/auth/apple', (req, res, next) => {
+  // Only handle exact /auth/apple route, not /auth/apple/callback
+  if (req.url !== '/' && req.url !== '') { next(); return; }
   const callbackUrl = 
     `${process.env.ROOT_URL}/auth/apple/callback`
   
@@ -413,6 +419,7 @@ WebApp.connectHandlers.use('/auth/apple', (req, res) => {
 
 WebApp.connectHandlers.use('/auth/apple/callback',
   async (req, res) => {
+    console.log('[apple-callback] received request, method:', req.method);
     try {
       // Apple sends POST with form data
       let body = ''
