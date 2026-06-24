@@ -164,8 +164,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setLoading(true);
     setError(null);
     try {
-      const redirectTo = `${window.location.origin}/app`;
-      await authApi.requestPasswordReset(email.trim().toLowerCase(), redirectTo);
+      const ddp = getDdpClient();
+      await ddp.ensureConnected();
+      await ddp.call('accounts.sendResetPasswordEmail', { 
+        email: email.trim().toLowerCase() 
+      });
       setSuccessMessage('Check your email for a reset link.');
     } catch (err: unknown) {
       setError((err as Error).message || 'Request failed');
@@ -188,7 +191,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     }
     setLoading(true);
     try {
-      await authApi.resetPassword(resetToken, password);
+      const ddp = getDdpClient();
+      await ddp.ensureConnected();
+      await ddp.call('accounts.resetPassword', { 
+        token: resetToken, 
+        newPassword: password 
+      });
       const url = new URL(window.location.href);
       url.searchParams.delete('token');
 

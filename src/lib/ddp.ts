@@ -73,7 +73,7 @@ class DdpClient {
   status: 'idle' | 'connecting' | 'connected' | 'failed' = 'idle';
 
   /** Connect (once) and authenticate the connection via auth.bridge. */
-  ensureConnected(): Promise<void> {
+  public ensureConnected(): Promise<void> {
     if (!this.connectPromise) {
       this.status = 'connecting';
       this.connectPromise = new Promise((resolve, reject) => {
@@ -347,7 +347,7 @@ class DdpClient {
     for (const fn of this.listeners.get(collection) ?? []) fn();
   }
 
-  async call(method: string, ...params: unknown[]): Promise<unknown> {
+  public async call(method: string, ...params: unknown[]): Promise<unknown> {
     await this.ensureConnected();
     const id = String(this.nextId++);
     // ADD THIS:
