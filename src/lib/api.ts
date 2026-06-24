@@ -229,48 +229,6 @@ async function timedFetch(url: string, options: RequestInit = {}): Promise<Respo
 }
 
 export const authApi = {
-  /** Sign in — stores session token from `set-auth-token` header (better-auth bearer plugin). */
-  signIn: async (email: string, password: string) => {
-    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/email`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new Error(
-        (body.message as string | undefined) ??
-          (body.error as string | undefined) ??
-          `HTTP ${res.status}`,
-      );
-    }
-    const token = res.headers.get('set-auth-token');
-    if (token) sessionToken.set(token);
-    return res.json();
-  },
-
-  /** Sign up — stores session token from `set-auth-token` header (better-auth bearer plugin). */
-  signUp: async (email: string, password: string, name: string) => {
-    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/sign-up/email`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name }),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new Error(
-        (body.message as string | undefined) ??
-          (body.error as string | undefined) ??
-          `HTTP ${res.status}`,
-      );
-    }
-    const token = res.headers.get('set-auth-token');
-    if (token) sessionToken.set(token);
-    return res.json();
-  },
-
   /** Dev-only sign-in used by the login probe. */
   devMemberSignIn: async (
     domain: 'enterprise' | 'organization' = 'organization',
@@ -378,27 +336,6 @@ export const authApi = {
     sessionToken.clear();
     clearAccessToken();
   },
-
-  /**
-   * Request a password-reset email.
-   * @param redirectTo - URL to include in the email link as the callbackURL.
-   *                     better-auth will append ?token=TOKEN before redirecting.
-   */
-  requestPasswordReset: (email: string, redirectTo: string) =>
-    request('/api/auth/request-password-reset', {
-      method: 'POST',
-      body: JSON.stringify({ email, redirectTo }),
-    }),
-
-  /**
-   * Reset password using the token from the reset-password email.
-   * @param token - from the ?token= query param on the reset-password landing page.
-   */
-  resetPassword: (token: string, newPassword: string) =>
-    request('/api/auth/reset-password', {
-      method: 'POST',
-      body: JSON.stringify({ token, newPassword }),
-    }),
 
   /**
    * Fetch the currently authenticated user.
