@@ -442,6 +442,13 @@ Meteor.methods({
     }
     if (endTime <= startTime) throw new Meteor.Error('invalid-range', 'End is before start');
 
+    const overlapping = await ClockEvents.findOneAsync({
+      userId,
+      startTime: { $lt: endTime },
+      $or: [{ endTime: null }, { endTime: { $gt: startTime } }],
+    });
+    if (overlapping) throw new Meteor.Error('overlap', 'This entry overlaps an existing clock session');
+
     const accumulatedTime = Math.floor((endTime - startTime) / 1000);
     const _id = await ClockEvents.insertAsync({
       userId,

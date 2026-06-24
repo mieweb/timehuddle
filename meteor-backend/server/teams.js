@@ -52,7 +52,8 @@ Meteor.methods({
       .toArray();
 
     const adminTeamIds = teams.filter((t) => t.admins?.includes(identity.userId)).map((t) => {
-      return t._id?.toHexString ? t._id.toHexString() : String(t._id);
+      const id = t._id?.toHexString ? t._id.toHexString() : String(t._id);
+      return id;
     });
 
     let adminPending = [];

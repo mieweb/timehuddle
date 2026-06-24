@@ -18,6 +18,7 @@ export const Notifications = new Mongo.Collection('notifications', { idGeneratio
 export const Messages = new Mongo.Collection('messages', { idGeneration: 'MONGO' });
 export const Channels = new Mongo.Collection('channels', { idGeneration: 'MONGO' });
 export const ChannelMessages = new Mongo.Collection('channelmessages', { idGeneration: 'MONGO' });
+export const TeamJoinRequests = new Mongo.Collection('teamjoinrequests', { idGeneration: 'MONGO' });
 
 /** Raw native-driver handle for collections we only read ad hoc (sessions, users). */
 export function rawDb() {
