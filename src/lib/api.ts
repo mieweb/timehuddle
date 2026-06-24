@@ -174,7 +174,7 @@ export function clearAccessToken(): void {
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const hasBody = options.body != null;
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  const token = sessionToken.get();
+  const token = await getAccessToken();
   const controller = new AbortController();
   const timeoutId = setTimeout(
     () =>
