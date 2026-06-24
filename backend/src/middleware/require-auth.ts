@@ -6,6 +6,7 @@ import { ObjectId } from "mongodb";
 import { patService } from "../services/pat.service.js";
 import { usersCollection } from "../models/index.js";
 import { getDB } from "../lib/db.js";
+import { createHash } from "crypto";
 
 export type AppUser = {
   id: string;
@@ -60,6 +61,43 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
     }
     req.user = { id: user._id.toString(), name: user.name, email: user.email, image: user.image };
     return;
+  }
+
+  // Meteor resume token: look up hashed token in Meteor's users collection
+  if (lowerHeader.startsWith("bearer ") && !looksLikeJwt(authHeader!.slice("bearer ".length))) {
+    const rawToken = authHeader!.slice("bearer ".length);
+    if (!rawToken.startsWith(PAT_PREFIX)) {
+      // Meteor hashes resume tokens with SHA256 then base64
+      const hashedToken = createHash("sha256").update(rawToken).digest("base64");
+      const db = getDB();
+      const meteorUser = await db.collection("users").findOne({
+        "services.resume.loginTokens.hashedToken": hashedToken
+      });
+      if (meteorUser) {
+        const email = meteorUser.emails?.[0]?.address ?? "";
+        // Get full profile from Fastify user collection
+        const fastifyUser = await usersCollection().findOne({ 
+          email: email.toLowerCase() 
+        });
+        if (fastifyUser) {
+          req.user = { 
+            id: fastifyUser._id.toString(), 
+            name: fastifyUser.name, 
+            email: fastifyUser.email, 
+            image: fastifyUser.image 
+          };
+          return;
+        }
+        // Fallback: use Meteor user data directly
+        req.user = {
+          id: meteorUser._id.toString(),
+          name: meteorUser.profile?.name ?? email,
+          email,
+          image: null
+        };
+        return;
+      }
+    }
   }
 
   // Better-auth-issued JWT access token: stateless local verification.
