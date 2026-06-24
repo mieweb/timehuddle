@@ -430,6 +430,29 @@ Meteor.methods({
     
     console.log('[auth-bridge] created new user via accounts.createUser:', userId);
     return { userId };
+  },
+
+  'accounts.sendResetPasswordEmail': async function({ email }) {
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await Meteor.users.findOneAsync({ 'emails.address': normalizedEmail });
+    if (!user) {
+      // Don't reveal if email exists
+      return { ok: true };
+    }
+    if (!process.env.SMTP_HOST) {
+      throw new Meteor.Error('smtp-not-configured', 
+        'Password reset emails are not configured yet. Please contact your administrator.');
+    }
+    await Accounts.sendResetPasswordEmail(user._id);
+    return { ok: true };
+  },
+
+  'accounts.resetPassword': async function({ token, newPassword }) {
+    if (!token || !newPassword) {
+      throw new Meteor.Error('invalid-params', 'Token and new password are required');
+    }
+    await Accounts.resetPassword(token, newPassword);
+    return { ok: true };
   }
 });
 
