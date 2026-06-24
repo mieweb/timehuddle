@@ -10,6 +10,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useState } from 'react';
 
 import { authApi, METEOR_BASE_URL } from '../lib/api';
+import { getDdpClient } from '../lib/ddp';
 import { getEnabledSocialProviders, type SocialProvider } from '../lib/socialProviders';
 import { useSession } from '../lib/useSession';
 import { Button, Input, Select, Text } from '@mieweb/ui';
@@ -107,24 +108,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setLoading(true);
     setError(null);
     try {
-      await authApi.signIn(email.trim().toLowerCase(), password);
-      // If this sign-in was initiated as part of an OAuth 2.0 authorization request
-      // (e.g. from TimeHarbor), redirect back to the authorization endpoint so
-      // Better Auth can issue the authorization code now that the user is authenticated.
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('response_type') && params.get('client_id') && params.get('state')) {
-        // Copy the fresh Bearer token into a cookie so Better Auth reads the session.
-        const token = localStorage.getItem('timecore_session_token');
-        if (token) {
-          document.cookie = `better-auth.session_token=${token}; path=/; SameSite=Lax`;
-        }
-        // Use same-origin URL (/api proxy) so the session cookie is sent along.
-        window.location.href = `/api/auth/oauth2/authorize?${params.toString()}`;
-        return;
-      }
+      const ddp = getDdpClient();
+      await ddp.loginWithPassword(email.trim().toLowerCase(), password);
       await session.refetch();
     } catch (err: unknown) {
-      setError((err as Error).message || 'Login failed');
+      setError((err as Error).message || 'Invalid email or password');
       setLoading(false);
     }
   };
@@ -161,9 +149,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setLoading(true);
     try {
       const name = `${firstName.trim()} ${lastName.trim()}`.trim();
-      await authApi.signUp(email.trim().toLowerCase(), password, name);
-      // Sign in immediately after signup to establish the session cookie
-      await authApi.signIn(email.trim().toLowerCase(), password);
+      const ddp = getDdpClient();
+      await ddp.signUpWithPassword(email.trim().toLowerCase(), password, name);
       await session.refetch();
     } catch (err: unknown) {
       setLoading(false);

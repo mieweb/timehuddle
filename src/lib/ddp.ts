@@ -13,7 +13,7 @@
  * (wormhole), or even mongosh appears here without polling.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { METEOR_BASE_URL, getAccessToken } from './api';
+import { METEOR_BASE_URL } from './api';
 
 const METEOR_WS_URL = METEOR_BASE_URL.replace(/^http/, 'ws') + '/websocket';
 
@@ -77,12 +77,17 @@ class DdpClient {
     if (!this.connectPromise) {
       this.status = 'connecting';
       this.connectPromise = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error('DDP connection timeout'));
+        }, 5000);  // 5 second timeout
+
         const ws = new WebSocket(METEOR_WS_URL);
         this.ws = ws;
         ws.onopen = () => ws.send(JSON.stringify({ msg: 'connect', version: '1', support: ['1'] }));
         ws.onmessage = (e) => {
           const data = JSON.parse(e.data as string) as DdpMessage;
           if (data.msg === 'connected') {
+            clearTimeout(timeout);
             this.status = 'connected';
             this.reconnectAttempt = 0;
             resolve();
@@ -90,10 +95,12 @@ class DdpClient {
           this.handleMessage(data);
         };
         ws.onerror = () => {
+          clearTimeout(timeout);
           this.status = 'failed';
           reject(new Error('DDP connection failed'));
         };
         ws.onclose = () => {
+          clearTimeout(timeout);
           if (this.status !== 'connected') reject(new Error('DDP connection closed'));
           this.status = 'failed';
           this.handleDisconnect();
@@ -147,32 +154,14 @@ class DdpClient {
         const resumed = await this.tryResumeLogin();
         if (!resumed) {
           // Try proxy auth (Authentik via os.mieweb.org)
-          const proxied = await this.loginWithProxy();
-          if (!proxied) {
-            // Fall back to fresh JWT login (GitHub/Google/Apple)
-            await this.loginWithJwt();
-          }
+          await this.loginWithProxy();
         }
-      })();
+      })().catch(() => {
+        // Reset so next call can retry
+        this.authPromise = null;
+      });
     }
-    return this.authPromise;
-  }
-
-  private async loginWithJwt(): Promise<void> {
-    const token = await getAccessToken();
-    if (!token) return;
-
-    const result = await this.call('login', { oidcJwt: token });
-    const loginResult = result as {
-      id: string;
-      token: string;
-      tokenExpires?: { $date: number };
-    };
-
-    // Store Meteor resume token for reconnects
-    if (loginResult?.token) {
-      localStorage.setItem('meteor_resume_token', loginResult.token);
-    }
+    return this.authPromise ?? Promise.resolve();
   }
 
   private async tryResumeLogin(): Promise<boolean> {
@@ -185,6 +174,33 @@ class DdpClient {
       localStorage.removeItem('meteor_resume_token');
       return false;
     }
+  }
+
+  async loginWithPassword(email: string, password: string): Promise<void> {
+    await this.ensureConnected();
+    const msgBuffer = new TextEncoder().encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const digest = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+    const result = await this.call('login', {
+      emailPassword: {
+        email: email.toLowerCase().trim(),
+        password: { digest, algorithm: 'sha-256', raw: password }
+      }
+    });
+
+    const loginResult = result as { token: string; id: string };
+    if (loginResult?.token) {
+      localStorage.setItem('meteor_resume_token', loginResult.token);
+    }
+  }
+
+  async signUpWithPassword(email: string, password: string, name: string): Promise<void> {
+    // Call the custom Meteor method we added in auth-bridge.js
+    await this.call('accounts.createUser', { email, password, name });
+    // After creating, log in immediately
+    await this.loginWithPassword(email, password);
   }
 
   async loginWithProxy(): Promise<boolean> {
@@ -235,6 +251,41 @@ class DdpClient {
     } catch (err) {
       console.error('[DDP] GitHub login error:', err);
       return false;
+    }
+  }
+
+  async getCurrentUser(): Promise<{ 
+    id: string; 
+    email: string; 
+    name: string; 
+    username: string | null;
+    image: string | null;
+    emailVerified: boolean;
+  } | null> {
+    try {
+      // Use a timeout to prevent hanging
+      const connectWithTimeout = Promise.race([
+        this.ensureConnected(),
+        new Promise<never>((_, reject) => 
+          setTimeout(() => reject(new Error('timeout')), 3000)
+        )
+      ]);
+      await connectWithTimeout;
+      
+      const resumeToken = localStorage.getItem('meteor_resume_token');
+      if (!resumeToken) return null;
+      
+      const result = await this.call('users.getCurrentUser', {});
+      return result as { 
+        id: string; 
+        email: string; 
+        name: string; 
+        username: string | null;
+        image: string | null;
+        emailVerified: boolean;
+      } | null;
+    } catch {
+      return null;
     }
   }
 

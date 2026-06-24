@@ -9,6 +9,11 @@ export default defineConfig({
     alias: {
       '@ui': path.resolve(__dirname, 'src/ui'),
       '@lib': path.resolve(__dirname, 'src/lib'),
+      // Map Capacitor modules to empty stubs for web builds
+      '@capacitor/device': path.resolve(__dirname, 'src/lib/capacitor-stubs.ts'),
+      '@capacitor/push-notifications': path.resolve(__dirname, 'src/lib/capacitor-stubs.ts'),
+      '@capacitor/core': path.resolve(__dirname, 'src/lib/capacitor-stubs.ts'),
+      '@capacitor/share': path.resolve(__dirname, 'src/lib/capacitor-stubs.ts'),
     },
   },
 
