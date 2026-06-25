@@ -46,10 +46,10 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const ddp = getDdpClient();
       const meteorUser = await ddp.getCurrentUser();
-      
+
       if (meteorUser) {
         console.log(
-          `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${meteorUser.email}`
+          `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${meteorUser.email}`,
         );
         setUser({
           id: meteorUser.id,
@@ -65,7 +65,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
       } else {
         console.log(
-          `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — no user found`
+          `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — no user found`,
         );
         setUser(null);
       }

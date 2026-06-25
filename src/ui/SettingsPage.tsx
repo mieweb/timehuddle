@@ -43,14 +43,7 @@ import {
   unsubscribeFromPush,
 } from '../lib/nativePush';
 import { useRefresh } from '../lib/RefreshContext';
-import {
-  authApi,
-  userApi,
-  notificationApi,
-  teamApi,
-  tokenApi,
-  type PersonalAccessToken,
-} from '../lib/api';
+import { userApi, notificationApi, teamApi, tokenApi, type PersonalAccessToken } from '../lib/api';
 import { getDdpClient } from '../lib/ddp';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
@@ -712,8 +705,8 @@ export const SettingsPage: React.FC = () => {
     setResetMessage(null);
     try {
       const ddp = getDdpClient();
-      await ddp.call('accounts.sendResetPasswordEmail', { 
-        email: user.email.toLowerCase() 
+      await ddp.call('accounts.sendResetPasswordEmail', {
+        email: user.email.toLowerCase(),
       });
       setResetMessage('Check your email for a password reset link.');
     } catch (error: unknown) {

@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { fromNodeHeaders } from "better-auth/node";
 import { requireAuth } from "../middleware/require-auth.js";
 import { verifyWsToken } from "../lib/ws-auth.js";
 import { channelService, subscribeChannel } from "../services/channel.service.js";

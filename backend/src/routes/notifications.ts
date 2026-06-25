@@ -73,11 +73,7 @@ export async function notificationRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid" });
     }
 
-    const result = await notificationService.respondToInvite(
-      req.user!.id,
-      id,
-      parsed.data.action
-    );
+    const result = await notificationService.respondToInvite(req.user!.id, id, parsed.data.action);
     if (result === "not-found") return reply.status(404).send({ error: "Not found" });
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
     if (result === "bad-request") return reply.status(400).send({ error: "Not a team invite" });
@@ -85,37 +81,45 @@ export async function notificationRoutes(app: FastifyInstance) {
   });
 
   // GET /v1/notifications/:id/join-request-preview — team join request preview
-  app.get("/notifications/:id/join-request-preview", { preHandler: requireAuth }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const result = await notificationService.getJoinRequestPreview(req.user!.id, id);
-    if (result === "not-found") return reply.status(404).send({ error: "Not found" });
-    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
-    if (result === "bad-request")
-      return reply.status(400).send({ error: "Not a team join request" });
-    return reply.send(result);
-  });
+  app.get(
+    "/notifications/:id/join-request-preview",
+    { preHandler: requireAuth },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const result = await notificationService.getJoinRequestPreview(req.user!.id, id);
+      if (result === "not-found") return reply.status(404).send({ error: "Not found" });
+      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      if (result === "bad-request")
+        return reply.status(400).send({ error: "Not a team join request" });
+      return reply.send(result);
+    }
+  );
 
   // POST /v1/notifications/:id/join-request-respond — approve or decline join request
-  app.post("/notifications/:id/join-request-respond", { preHandler: requireAuth }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const parsed = joinRequestRespondSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid" });
-    }
+  app.post(
+    "/notifications/:id/join-request-respond",
+    { preHandler: requireAuth },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const parsed = joinRequestRespondSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid" });
+      }
 
-    const result = await notificationService.respondToJoinRequest(
-      req.user!.id,
-      id,
-      parsed.data.action
-    );
-    if (result === "not-found") return reply.status(404).send({ error: "Not found" });
-    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
-    if (result === "bad-request")
-      return reply.status(400).send({ error: "Not a team join request" });
-    if (result === "already-processed")
-      return reply.status(409).send({ error: "Request already processed" });
-    return reply.send({ ok: true });
-  });
+      const result = await notificationService.respondToJoinRequest(
+        req.user!.id,
+        id,
+        parsed.data.action
+      );
+      if (result === "not-found") return reply.status(404).send({ error: "Not found" });
+      if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+      if (result === "bad-request")
+        return reply.status(400).send({ error: "Not a team join request" });
+      if (result === "already-processed")
+        return reply.status(409).send({ error: "Request already processed" });
+      return reply.send({ ok: true });
+    }
+  );
 
   // POST /v1/notifications/:id/shift-respond — agree or disagree to shift-end auto-clockout
   app.post("/notifications/:id/shift-respond", { preHandler: requireAuth }, async (req, reply) => {

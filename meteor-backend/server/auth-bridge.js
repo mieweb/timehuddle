@@ -439,7 +439,7 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
     if (!match) {
       match = await bcrypt.compare(password.digest, storedBcrypt);
     }
-    if (!match) return undefined;
+    if (!match) throw new Meteor.Error(403, 'Invalid email or password');
     return { userId: user._id };
   }
 
@@ -454,7 +454,7 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
       },
       body: JSON.stringify({ email: normalizedEmail, password: password.raw })
     });
-    if (!authRes.ok) return undefined;
+    if (!authRes.ok) throw new Meteor.Error(403, 'Invalid email or password');
 
     // Ensure Meteor user exists (creates from Fastify user if needed)
     if (!user) {
@@ -478,8 +478,9 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
 
     return { userId: user._id };
   } catch (err) {
+    if (err instanceof Meteor.Error) throw err;
     console.error('[emailPassword] Fastify fetch error:', err.message);
-    return undefined;
+    throw new Meteor.Error(500, 'Login service unavailable');
   }
 });
 
@@ -503,4 +504,6 @@ Meteor.methods({
     };
   }
 });
+
+
 

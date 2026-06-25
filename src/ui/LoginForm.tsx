@@ -166,8 +166,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     try {
       const ddp = getDdpClient();
       await ddp.ensureConnected();
-      await ddp.call('accounts.sendResetPasswordEmail', { 
-        email: email.trim().toLowerCase() 
+      await ddp.call('accounts.sendResetPasswordEmail', {
+        email: email.trim().toLowerCase(),
       });
       setSuccessMessage('Check your email for a reset link.');
     } catch (err: unknown) {
@@ -193,9 +193,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     try {
       const ddp = getDdpClient();
       await ddp.ensureConnected();
-      await ddp.call('accounts.resetPassword', { 
-        token: resetToken, 
-        newPassword: password 
+      await ddp.call('accounts.resetPassword', {
+        token: resetToken,
+        newPassword: password,
       });
       const url = new URL(window.location.href);
       url.searchParams.delete('token');

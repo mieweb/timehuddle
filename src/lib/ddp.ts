@@ -79,7 +79,7 @@ class DdpClient {
       this.connectPromise = new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('DDP connection timeout'));
-        }, 5000);  // 5 second timeout
+        }, 5000); // 5 second timeout
 
         const ws = new WebSocket(METEOR_WS_URL);
         this.ws = ws;
@@ -181,13 +181,13 @@ class DdpClient {
     const msgBuffer = new TextEncoder().encode(password);
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const digest = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    const digest = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 
     const result = await this.call('login', {
       emailPassword: {
         email: email.toLowerCase().trim(),
-        password: { digest, algorithm: 'sha-256', raw: password }
-      }
+        password: { digest, algorithm: 'sha-256', raw: password },
+      },
     });
 
     const loginResult = result as { token: string; id: string };
@@ -229,10 +229,7 @@ class DdpClient {
    * Login via Meteor OAuth callback tokens.
    * After GitHub OAuth completes, Meteor redirects with meteor_token and meteor_resume params.
    */
-  async loginWithMeteorToken(
-    meteorToken: string,
-    resumeToken: string,
-  ): Promise<boolean> {
+  async loginWithMeteorToken(meteorToken: string, resumeToken: string): Promise<boolean> {
     try {
       await this.ensureConnected();
 
@@ -254,10 +251,10 @@ class DdpClient {
     }
   }
 
-  async getCurrentUser(): Promise<{ 
-    id: string; 
-    email: string; 
-    name: string; 
+  async getCurrentUser(): Promise<{
+    id: string;
+    email: string;
+    name: string;
     username: string | null;
     image: string | null;
     emailVerified: boolean;
@@ -266,20 +263,18 @@ class DdpClient {
       // Use a timeout to prevent hanging
       const authedWithTimeout = Promise.race([
         this.ensureAuthed(),
-        new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('timeout')), 5000)
-        )
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
       ]);
       await authedWithTimeout;
-      
+
       const resumeToken = localStorage.getItem('meteor_resume_token');
       if (!resumeToken) return null;
-      
+
       const result = await this.call('users.getCurrentUser', {});
-      return result as { 
-        id: string; 
-        email: string; 
-        name: string; 
+      return result as {
+        id: string;
+        email: string;
+        name: string;
         username: string | null;
         image: string | null;
         emailVerified: boolean;
@@ -292,7 +287,9 @@ class DdpClient {
   async logout(): Promise<void> {
     try {
       await this.call('logout');
-    } catch {}
+    } catch {
+      // Ignore logout transport errors; we always clear the local token.
+    }
     localStorage.removeItem('meteor_resume_token');
   }
 
@@ -357,9 +354,6 @@ class DdpClient {
   public async call(method: string, ...params: unknown[]): Promise<unknown> {
     await this.ensureConnected();
     const id = String(this.nextId++);
-    // ADD THIS:
-    if (method === 'login') {
-    }
     return new Promise((resolve, reject) => {
       this.pendingMethods.set(id, { resolve, reject });
       this.ws!.send(JSON.stringify({ msg: 'method', id, method, params }));
