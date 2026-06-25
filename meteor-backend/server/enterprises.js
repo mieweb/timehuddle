@@ -214,4 +214,14 @@ Meteor.methods({
     );
     return { userId: targetUserId };
   },
+
+  async 'enterprise.installStatus'() {
+    await requireIdentity(this);
+    const installation = await rawDb().collection('installations').findOne({ _id: 'Installation' });
+    const completed = !!installation?.completedAt;
+    return {
+      hasOwner: completed,
+      installCompleted: completed,
+    };
+  },
 });

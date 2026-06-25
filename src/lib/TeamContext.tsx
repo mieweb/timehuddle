@@ -336,7 +336,10 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Initial fetch (fallback if the DDP connection fails)
   useEffect(() => {
-    void refetchClock();
+    // Wait for token to be available before fetching
+    if (localStorage.getItem('meteor_resume_token')) {
+      void refetchClock();
+    }
   }, [refetchClock]);
 
   // Real-time clock updates via the oplog-backed `clock.liveForTeams`
@@ -369,9 +372,11 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const offChange = ddp.onCollectionChange('clockevents', applyLiveDocs);
     const unsubscribe = ddp.subscribe('clock.liveForTeams', [[selectedTeamId]], () => {
       applyLiveDocs();
-      // The publication only covers the selected team — check globally via
-      // REST, since the user may be clocked in to a different team.
-      void refetchClock();
+      // Only refetch if we have a valid token — avoids 500 errors when
+      // the subscription ready fires before auth is fully established
+      if (localStorage.getItem('meteor_resume_token')) {
+        void refetchClock();
+      }
     });
 
     return () => {

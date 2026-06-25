@@ -173,7 +173,13 @@ class DdpClient {
     const resumeToken = localStorage.getItem('meteor_resume_token');
     if (!resumeToken) return false;
     try {
-      await this.call('login', { resume: resumeToken });
+      const result = await this.call('login', { resume: resumeToken });
+      // Meteor returns a new token on every resume login — save it
+      // so the browser always has the latest valid token
+      const loginResult = result as { token?: string; id?: string };
+      if (loginResult?.token) {
+        localStorage.setItem('meteor_resume_token', loginResult.token);
+      }
       return true;
     } catch {
       localStorage.removeItem('meteor_resume_token');

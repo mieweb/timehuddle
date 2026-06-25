@@ -683,9 +683,11 @@ export const enterpriseApi = {
       { enterpriseId: id, userId, role },
     ).then((r) => r.user),
 
-  /** Still on Fastify (M4) */
   getOwnershipStatus: () =>
-    request<{ hasOwner: boolean; installCompleted: boolean }>('/v1/install-status'),
+    wormholeCall<{ hasOwner: boolean; installCompleted: boolean }>(
+      'enterprise.installStatus',
+      {},
+    ),
 
   /** Still on Fastify (M4) */
   takeOwnership: () => request<{ role: 'owner' }>('/v1/install', { method: 'POST' }),
@@ -755,6 +757,15 @@ async function wormholeCall<T = unknown>(
   params: Record<string, unknown>,
 ): Promise<T> {
   const route = method.replace(/\./g, '_');
+  
+  // Ensure DDP auth is complete before reading token
+  // This guarantees tryResumeLogin has run and updated localStorage
+  try {
+    await getDdpClient().ensureAuthed();
+  } catch {
+    // If auth fails, proceed anyway — getAccessToken will handle it
+  }
+  
   const token = await getAccessToken();
   const res = await fetch(`${METEOR_BASE_URL}/api/${route}`, {
     method: 'POST',

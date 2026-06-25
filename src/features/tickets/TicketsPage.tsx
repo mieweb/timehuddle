@@ -519,6 +519,8 @@ export const TicketsPage: React.FC = () => {
 
   // Fetch today's timer to determine if any ticket has a running timer
   const fetchRunningTimer = useCallback(async () => {
+    // Wait for token to be available before fetching
+    if (!localStorage.getItem('meteor_resume_token')) return;
     try {
       const dayEntries = await timerApi.getToday();
       const running = dayEntries.flatMap((de) => de.sessions).find((t) => !t.endTime);

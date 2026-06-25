@@ -84,10 +84,14 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [fetchSession]);
 
   const signOut = useCallback(async () => {
+    // Clear token FIRST so no wormhole calls fire with invalidated token
+    localStorage.removeItem('meteor_resume_token');
+    // Clear user state immediately to stop any reactive refetches
+    setUser(null);
+    // Then invalidate server-side session
     const ddp = getDdpClient();
     await ddp.logout().catch(() => {});
     await authApi.signOut().catch(() => {});
-    setUser(null);
   }, []);
 
   const needsUsernameClaim = !!user && user.username === null;
