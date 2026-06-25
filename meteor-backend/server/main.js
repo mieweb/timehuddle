@@ -29,6 +29,7 @@ import './channels'; // must precede teams (teams.create calls ensureDefaultChan
 import './teams';
 import './team-join-requests';
 import './messages';
+import './huddle';
 // M3 — Org & profiles
 import './users';
 import './organizations';
