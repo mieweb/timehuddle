@@ -16,11 +16,8 @@ import { auth } from "./lib/auth.js";
 import { appContext } from "./middleware/app-context.js";
 import { healthRoutes } from "./routes/health.js";
 import { seedImportRoutes } from "./routes/seeder.js";
-import { ticketRoutes } from "./routes/tickets.js";
-import { ticketsWsRoutes } from "./routes/tickets-ws.js";
 import { clockRoutes } from "./routes/clock.js";
 import { timerRoutes } from "./routes/timers.js";
-import { notificationRoutes } from "./routes/notifications.js";
 import { attachmentRoutes } from "./routes/attachments.js";
 import { workRoutes } from "./routes/work.js";
 import { pulseVaultRoutes, pulseVaultCompatRoutes } from "./routes/pulsevault.js";
@@ -79,10 +76,6 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
         {
           name: "Clock",
           description: "Clock in/out, ticket timers, timesheet, and SSE live stream",
-        },
-        {
-          name: "Notifications",
-          description: "User notification inbox, mark-read, delete, and SSE stream",
         },
         {
           name: "Attachments",
@@ -688,11 +681,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
   // App routes
   await app.register(seedImportRoutes, { prefix: "/v1" });
-  await app.register(ticketRoutes, { prefix: "/v1" });
-  await app.register(ticketsWsRoutes, { prefix: "/v1" });
   await app.register(clockRoutes, { prefix: "/v1" });
   await app.register(timerRoutes, { prefix: "/v1" });
-  await app.register(notificationRoutes, { prefix: "/v1" });
   await app.register(attachmentRoutes, { prefix: "/v1" });
   await app.register(mediaRoutes, { prefix: "/v1" });
   await app.register(pulseVaultRoutes, { prefix: "/v1" });

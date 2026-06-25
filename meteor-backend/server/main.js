@@ -847,6 +847,68 @@ Meteor.startup(async() => {
     },
   });
 
+  // ── Notifications ────────────────────────────────────────────────────────────
+
+  Wormhole.expose('notifications.getInbox', {
+    description: 'Get the current user\'s notification inbox',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('notifications.markOneRead', {
+    description: 'Mark a single notification as read',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        notificationId: { type: 'string', description: 'Notification ID' },
+      },
+      required: ['notificationId'],
+    },
+  });
+
+  Wormhole.expose('notifications.markAllRead', {
+    description: 'Mark all notifications as read for the current user',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('notifications.deleteMany', {
+    description: 'Delete multiple notifications',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ids: { type: 'array', items: { type: 'string' }, description: 'Array of notification IDs' },
+      },
+      required: ['ids'],
+    },
+  });
+
+  Wormhole.expose('notifications.getInvitePreview', {
+    description: 'Get team invite preview from a notification',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        notificationId: { type: 'string', description: 'Notification ID' },
+      },
+      required: ['notificationId'],
+    },
+  });
+
+  Wormhole.expose('notifications.respondToInvite', {
+    description: 'Respond to a team invite notification (join or ignore)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        notificationId: { type: 'string', description: 'Notification ID' },
+        action: { type: 'string', enum: ['join', 'ignore'], description: 'Join the team or ignore the invite' },
+      },
+      required: ['notificationId', 'action'],
+    },
+  });
+
+  Wormhole.expose('notifications.testPush', {
+    description: 'Create a test push notification for the current user',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
   // ── Teams ───────────────────────────────────────────────────────────────────
 
   Wormhole.expose('teams.list', {
