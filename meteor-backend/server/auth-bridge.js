@@ -424,40 +424,45 @@ Meteor.methods({
 
 Accounts.registerLoginHandler('emailPassword', async (options) => {
   if (!options.emailPassword) return undefined;
-  
+
   const { email, password } = options.emailPassword;
   const normalizedEmail = email.toLowerCase().trim();
-  
+
   // Find user directly via MongoDB
-  const user = await Meteor.users.findOneAsync({ 'emails.address': normalizedEmail });
-  if (!user) return undefined;
-  
-  // Path 1: User already has bcrypt hash — verify natively
+  let user = await Meteor.users.findOneAsync({ 'emails.address': normalizedEmail });
+
+  // Path 1: Meteor user exists with bcrypt hash — verify natively
   const storedBcrypt = user?.services?.password?.bcrypt;
   if (storedBcrypt) {
     const bcrypt = Npm.require('bcrypt');
-    // Meteor hashes passwords as SHA256(password) before bcrypt
-    // Try both raw and SHA256 hashed to support both Meteor-created
-    // and migrated-from-Fastify users
     let match = await bcrypt.compare(password.raw, storedBcrypt);
     if (!match) {
-      // Try SHA256 digest (Meteor's native format)
       match = await bcrypt.compare(password.digest, storedBcrypt);
     }
     if (!match) return undefined;
     return { userId: user._id };
   }
-  
-  // Path 2: No bcrypt hash yet — verify via Fastify better-auth
+
+  // Path 2: No bcrypt hash (or no Meteor user yet) — verify via Fastify
   const fastifyUrl = process.env.AUTH_FASTIFY_URL || 'http://localhost:4000';
   try {
     const authRes = await fetch(`${fastifyUrl}/api/auth/sign-in/email`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': process.env.AUTH_FASTIFY_ORIGIN || 'http://localhost:4000',
+      },
       body: JSON.stringify({ email: normalizedEmail, password: password.raw })
     });
     if (!authRes.ok) return undefined;
-    
+
+    // Ensure Meteor user exists (creates from Fastify user if needed)
+    if (!user) {
+      const userId = await findOrCreateUser(normalizedEmail);
+      user = await Meteor.users.findOneAsync(userId);
+      if (!user) return undefined;
+    }
+
     // Migration: store bcrypt hash so next login bypasses Fastify
     try {
       const bcrypt = Npm.require('bcrypt');
@@ -468,10 +473,9 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
       );
       console.log('[emailPassword] migrated password hash for:', normalizedEmail);
     } catch (err) {
-      // Non-fatal — user can still login, migration will retry next time
       console.error('[emailPassword] hash migration failed:', err.message);
     }
-    
+
     return { userId: user._id };
   } catch (err) {
     console.error('[emailPassword] Fastify fetch error:', err.message);
@@ -499,3 +503,4 @@ Meteor.methods({
     };
   }
 });
+
