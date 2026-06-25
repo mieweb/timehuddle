@@ -182,7 +182,7 @@ Work that landed on **Fastify** via `main` merges for domains **already cut over
 ## Finalize Transition
 
 - [ ] Remove `WS_BASE_URL`, `autoReconnectWs`, legacy `openLiveStream` helpers from `src/lib/api.ts`
-- [ ] Move `backend/` to `.attic/` (better-auth extracted to a slim standalone identity service that remains at `/api/auth/*`)
+- [ ] Move `backend/` to `.attic/` — ⚠️ **depends on the TimeHarbor SSO decision** (see Architecture decisions / `docs/meteor-audit.md`): Option A → better-auth extracted to a slim standalone identity service that remains at `/api/auth/*`; Option B → better-auth removed entirely
 - [ ] docker-compose + CI (`scripts/checks.sh`) updated; Fastify gone
 
 ---
@@ -191,8 +191,8 @@ Work that landed on **Fastify** via `main` merges for domains **already cut over
 
 | Decision                                            | Resolution                                                                                  |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| OIDC provider role (TimeHuddle is TimeHarbor's IdP) | better-auth keeps it permanently; never ported to Meteor                                    |
-| Meteor auth model                                   | Pure resource server: JWKS-verified JWTs + PAT lookup (the one DB-read exception)           |
+| OIDC provider role (TimeHuddle is TimeHarbor's IdP) | ⚠️ **Revisited — goal is now 100% Meteor.** Login/signup/reset/social already on Meteor; the only piece still on better-auth is the OIDC provider TimeHarbor logs in through. **Open decision:** (A) build an OIDC provider on Meteor / keep a slim dedicated SSO service, or (B) TimeHarbor re-points elsewhere and better-auth is fully retired. See `docs/meteor-audit.md`. |
+| Meteor auth model                                   | ⚠️ **Revisited.** No longer a pure resource server: Meteor now owns interactive login (`accounts-password`, Google/GitHub/Apple OAuth, resume tokens, password reset). Still verifies PATs and (for now) better-auth JWTs during coexistence. Per-user password fallback to better-auth is migration scaffolding, removed once legacy/seed accounts migrate. |
 | Background jobs                                     | Same `agenda` npm lib inside Meteor, same `agendajobs` collection — zero handover migration |
 | Real-time                                           | DDP publications only; all 7 Fastify WS hubs retire                                         |
 | Credentials over wormhole                           | `Authorization: Bearer` header via invocation context — never in the body                   |
