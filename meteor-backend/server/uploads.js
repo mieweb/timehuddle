@@ -2,7 +2,7 @@ import { WebApp } from 'meteor/webapp';
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { Teams } from './collections';
-import { resolveToken } from './auth-bridge';
+import { resolveToken, requireIdentity } from './auth-bridge';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -424,10 +424,8 @@ function toPublicMediaItem(m) {
 
 Meteor.methods({
   async 'media.list'({ limit } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
       .find({ userId })
@@ -438,10 +436,8 @@ Meteor.methods({
   },
 
   async 'media.listForUser'({ userId: targetUserId, limit } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(targetUserId)) throw new Meteor.Error('bad-request', 'Invalid userId');
     if (userId !== targetUserId) {
       const sharedTeam = await Teams.rawCollection().findOne({
@@ -460,10 +456,8 @@ Meteor.methods({
   },
 
   async 'media.update'({ mediaId, title, caption, altText } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(mediaId)) throw new Meteor.Error('not-found', 'Invalid media id');
     const db = rawDb();
     const doc = await db.collection('mediaitems').findOne({ _id: new ObjectId(mediaId) });
@@ -482,10 +476,8 @@ Meteor.methods({
   },
 
   async 'media.remove'({ mediaId } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(mediaId)) throw new Meteor.Error('not-found', 'Invalid media id');
     const db = rawDb();
     const doc = await db.collection('mediaitems').findOne({ _id: new ObjectId(mediaId) });
