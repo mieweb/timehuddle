@@ -25,6 +25,13 @@ const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 const PAT_PREFIX = 'th_pat_';
 
+// Configure Accounts to expire login tokens after 30 days
+Meteor.startup(() => {
+  Accounts.config({
+    loginExpirationInDays: 30,
+  });
+});
+
 // Safe ObjectId conversion — only converts 24-char hex strings
 function toId(id) {
   return /^[a-f0-9]{24}$/i.test(id) ? new ObjectId(id) : id;
@@ -59,26 +66,19 @@ async function resolvePat(token) {
 }
 
 async function resolveMeteorToken(token) {
-  // Look up the hashed token in Meteor's users collection
-  const bcrypt = Npm.require('bcrypt');
-  const users = await Meteor.users.find({
-    'services.resume.loginTokens': { $exists: true }
-  }).fetchAsync();
+  const { createHash } = Npm.require('crypto');
+  const hashedToken = createHash('sha256').update(token).digest('base64');
   
-  for (const user of users) {
-    const tokens = user.services?.resume?.loginTokens ?? [];
-    for (const lt of tokens) {
-      if (lt.hashedToken) {
-        // Meteor hashes tokens with SHA256 then base64
-        const { createHash } = Npm.require('crypto');
-        const hashed = createHash('sha256').update(token).digest('base64');
-        if (hashed === lt.hashedToken) {
-          return { userId: user._id, name: user.profile?.name || user.emails?.[0]?.address || 'Unknown' };
-        }
-      }
-    }
-  }
-  return null;
+  const user = await Meteor.users.findOneAsync({
+    'services.resume.loginTokens.hashedToken': hashedToken
+  });
+  
+  if (!user) return null;
+  
+  return {
+    userId: user._id,
+    name: user.profile?.name || user.emails?.[0]?.address || 'Unknown'
+  };
 }
 
 /** Resolve a bearer token (PAT or Meteor resume token) to { userId, name } or null. */

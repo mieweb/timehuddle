@@ -214,4 +214,14 @@ Meteor.methods({
     );
     return { userId: targetUserId };
   },
+
+  async 'enterprise.installStatus'() {
+    // No auth required — called before login to check setup state
+    const db = rawDb();
+    const enterprise = await db.collection('enterprises').findOne({});
+    const hasOwner = enterprise
+      ? ((enterprise.owners ?? []).length > 0 || (enterprise.admins ?? []).length > 0)
+      : false;
+    return { hasOwner, installCompleted: hasOwner };
+  },
 });
