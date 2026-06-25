@@ -5,6 +5,7 @@
  * falling back to localhost:4000 for local development.
  */
 import { autoReconnectWs, type AutoReconnectWs } from './autoReconnectWs.js';
+import { getDdpClient } from './ddp.js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -917,82 +918,37 @@ export interface HuddleComment {
 }
 
 export const huddleApi = {
-  /** Fetch all huddle posts for a team. */
-  getPosts: (teamId: string) =>
-    request<{ posts: HuddlePost[] }>(`/v1/huddle/posts?teamId=${encodeURIComponent(teamId)}`).then(
-      (r) => r.posts,
-    ),
-
   /** Fetch all huddle posts for a specific ticket. */
   getPostsByTicket: (ticketId: string) =>
     request<{ posts: HuddlePost[] }>(
       `/v1/huddle/tickets/${encodeURIComponent(ticketId)}/posts`,
     ).then((r) => r.posts),
 
-  /** Create a new huddle post. */
-  createPost: (data: {
-    teamId: string;
-    content: {
-      text: string;
-      mentions: string[];
-    };
-    ticketId?: string;
-    attachments?: Array<{
-      mediaId: string;
-      type: 'image' | 'video' | 'file';
-      url: string;
-      thumbnailUrl?: string;
-      filename?: string;
-    }>;
-  }) =>
-    request<{ id: string }>('/v1/huddle/posts', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.id),
-
   /** Update a huddle post. */
-  updatePost: (id: string, data: { content: { text: string; mentions: string[] } }) =>
-    request<{ post: HuddlePost }>(`/v1/huddle/posts/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }).then((r) => r.post),
+  updatePost: (postId: string, content: { text: string; mentions: string[] }) =>
+    getDdpClient().call('huddle.updatePost', { postId, content }),
 
   /** Delete a huddle post. */
-  deletePost: (id: string) =>
-    request<{ ok: boolean }>(`/v1/huddle/posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-
-  /** Open a WebSocket connection for live huddle post updates. Auto-reconnects on drop. */
-  openLiveStream: (teamId: string): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const token = sessionToken.get();
-      const base = `${WS_BASE_URL}/v1/huddle/ws?teamId=${encodeURIComponent(teamId)}`;
-      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
-    }),
+  deletePost: (postId: string) =>
+    getDdpClient().call('huddle.deletePost', { postId }),
 
   /** Toggle like on a post */
   toggleLike: (postId: string) =>
-    request<{ count: number }>(`/v1/huddle/posts/${encodeURIComponent(postId)}/like`, {
-      method: 'POST',
-    }).then((r) => r.count),
+    getDdpClient().call('huddle.toggleLike', { postId }),
 
   /** Get comments for a post */
-  getComments: (postId: string) =>
-    request<{ comments: HuddleComment[] }>(
-      `/v1/huddle/posts/${encodeURIComponent(postId)}/comments`,
-    ).then((r) => r.comments),
+  getComments: async (postId: string) => {
+    const result = await getDdpClient().call('huddle.getComments', { postId });
+    return Array.isArray(result) ? result : (result?.comments ?? []);
+  },
 
   /** Add a comment to a post */
   addComment: (postId: string, data: { content: string; mentions: string[] }) =>
-    request<{ id: string }>(`/v1/huddle/posts/${encodeURIComponent(postId)}/comments`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.id),
+    getDdpClient().call('huddle.addComment', { postId, ...data }),
 
   /** Delete a comment */
   deleteComment: (commentId: string) =>
-    request<{ ok: boolean }>(`/v1/huddle/comments/${encodeURIComponent(commentId)}`, {
-      method: 'DELETE',
-    }),
+    getDdpClient().call('huddle.deleteComment', { commentId }),
 };
 
 // ─── Team API ─────────────────────────────────────────────────────────────────

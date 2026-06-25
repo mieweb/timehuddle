@@ -36,6 +36,8 @@ export async function fetchTeamTickets(teamId: string) {
  * Upload a media file (photo, video, doc)
  */
 export async function uploadMedia(file: File): Promise<MediaItem> {
-  const item = await mediaApi.uploadImage(file);
-  return item;
+  // Upload all file types through the media endpoint
+  // (backend now accepts images, videos, and documents)
+  const media = await mediaApi.uploadImage(file);
+  return media;
 }

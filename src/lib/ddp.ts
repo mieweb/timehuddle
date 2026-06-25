@@ -15,7 +15,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { METEOR_BASE_URL } from './api';
 
-const METEOR_WS_URL = METEOR_BASE_URL.replace(/^http/, 'ws') + '/websocket';
+const meteorBase =
+  (typeof import.meta !== 'undefined' &&
+    (import.meta as { env?: Record<string, string> }).env?.VITE_METEOR_URL) ||
+  METEOR_BASE_URL ||
+  'http://localhost:3100';
+const METEOR_WS_URL = meteorBase.replace(/^http/, 'ws') + '/websocket';
 
 type DdpDoc = { _id: string } & Record<string, unknown>;
 type CollectionStore = Map<string, DdpDoc>;
