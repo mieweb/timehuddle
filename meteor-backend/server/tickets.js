@@ -70,6 +70,14 @@ Meteor.methods({
     return docs.map(toPublicTicket);
   },
 
+  /** Get a single ticket by ID. */
+  async 'tickets.get'({ ticketId } = {}) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    const ticket = await requireTicketPermission(userId, ticketId, 'read');
+    return toPublicTicket(ticket);
+  },
+
   /** Create a ticket. Mirrors TicketService.create (creator auto-assigned). */
   async 'tickets.create'({ teamId, title, description, github, priority } = {}) {
     const identity = await requireIdentity(this);

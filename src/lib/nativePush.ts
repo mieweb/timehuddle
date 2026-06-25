@@ -106,7 +106,7 @@ export async function subscribeToPush(): Promise<void> {
   });
 
   const platform = Capacitor.getPlatform() as 'ios' | 'android';
-  const token2 = sessionToken.get();
+  const token2 = localStorage.getItem('meteor_resume_token') || sessionToken.get();
   const res = await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-subscribe`, {
     method: 'POST',
     credentials: 'include',
@@ -304,7 +304,7 @@ async function _registerAndSaveToken(): Promise<void> {
   });
 
   const platform = Capacitor.getPlatform() as 'ios' | 'android';
-  const authToken = sessionToken.get();
+  const authToken = localStorage.getItem('meteor_resume_token') || sessionToken.get();
   const res = await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-subscribe`, {
     method: 'POST',
     credentials: 'include',
@@ -330,7 +330,7 @@ export async function unsubscribeFromPush(): Promise<void> {
     return unsubscribeFromWebPush();
   }
 
-  const token3 = sessionToken.get();
+  const token3 = localStorage.getItem('meteor_resume_token') || sessionToken.get();
   await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-unsubscribe`, {
     method: 'POST',
     credentials: 'include',

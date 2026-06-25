@@ -4,7 +4,7 @@
  * Base URL is read from the VITE_TIMECORE_URL env var (set in .env),
  * falling back to localhost:4000 for local development.
  */
-import { autoReconnectWs, type AutoReconnectWs } from './autoReconnectWs.js';
+// autoReconnectWs removed - no longer needed after migrating tickets to wormhole
 import { getDdpClient } from './ddp.js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -798,7 +798,7 @@ export interface Ticket {
 function toTicket(raw: Record<string, unknown>): Ticket {
   const assignedTo = raw.assignedTo;
   return {
-    id: String(raw.id),
+    id: String(raw.id ?? raw._id),
     teamId: String(raw.teamId),
     title: String(raw.title),
     description: (raw.description as string | undefined) ?? null,
@@ -820,18 +820,13 @@ function toTicket(raw: Record<string, unknown>): Ticket {
 }
 
 export const ticketApi = {
-  getTickets: (teamId: string) => {
-    console.log('[ticketApi.getTickets] Called with teamId:', teamId, 'type:', typeof teamId);
-    const url = `/v1/tickets?teamId=${encodeURIComponent(teamId)}`;
-    console.log('[ticketApi.getTickets] Request URL:', url);
-    return request<{ tickets: Ticket[] }>(url).then((r) => {
-      console.log('[ticketApi.getTickets] Response:', r);
-      return r.tickets;
-    });
-  },
+  getTickets: (teamId: string) =>
+    wormholeCall<Array<Record<string, unknown>>>('tickets.list', { teamId }).then((tickets) =>
+      tickets.map(toTicket),
+    ),
 
   getTicket: (id: string) =>
-    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`).then((r) => r.ticket),
+    wormholeCall<Record<string, unknown>>('tickets.get', { ticketId: id }).then(toTicket),
 
   createTicket: (data: { teamId: string; title: string; github?: string }) =>
     wormholeCall<Record<string, unknown>>('tickets.create', data).then(toTicket),
@@ -867,14 +862,6 @@ export const ticketApi = {
     request<{ totalSeconds: number }>(
       `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
     ).then((r) => r.totalSeconds),
-
-  /** Open a WebSocket connection for live ticket updates. Auto-reconnects on drop. */
-  openLiveStream: (teamIds: string[]): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const token = sessionToken.get();
-      const base = `${WS_BASE_URL}/v1/tickets/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`;
-      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
-    }),
 };
 
 // ─── Huddle API ───────────────────────────────────────────────────────────────
@@ -1260,34 +1247,28 @@ export type TeamInvitePreview = {
 export const notificationApi = {
   /** Fetch the user's notification inbox. */
   getInbox: () =>
-    request<{ notifications: Notification[] }>('/v1/notifications').then((r) => r.notifications),
+    wormholeCall<{ notifications: Notification[] }>('notifications.getInbox', {}).then(
+      (r) => r.notifications
+    ),
 
   /** Mark a single notification as read. */
   markOneRead: (id: string) =>
-    request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/read`, {
-      method: 'PATCH',
-    }),
+    wormholeCall<{ ok: boolean }>('notifications.markOneRead', { notificationId: id }),
 
   /** Mark all notifications as read. */
-  markAllRead: () => request<{ ok: boolean }>('/v1/notifications/read', { method: 'POST' }),
+  markAllRead: () => wormholeCall<{ ok: boolean }>('notifications.markAllRead', {}),
 
   /** Bulk-delete notifications by ID. */
   deleteMany: (ids: string[]) =>
-    request<{ deletedCount: number }>('/v1/notifications', {
-      method: 'DELETE',
-      body: JSON.stringify({ ids }),
-    }),
+    wormholeCall<{ deletedCount: number }>('notifications.deleteMany', { ids }),
 
   /** Fetch team-invite preview for a notification. */
   getInvitePreview: (id: string) =>
-    request<TeamInvitePreview>(`/v1/notifications/${encodeURIComponent(id)}/invite-preview`),
+    wormholeCall<TeamInvitePreview>('notifications.getInvitePreview', { notificationId: id }),
 
   /** Accept or ignore a team invite. */
   respondToInvite: (id: string, action: 'join' | 'ignore') =>
-    request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/invite-respond`, {
-      method: 'POST',
-      body: JSON.stringify({ action }),
-    }),
+    wormholeCall<{ ok: boolean }>('notifications.respondToInvite', { notificationId: id, action }),
 
   /** Fetch team join request preview for a notification. */
   getJoinRequestPreview: (id: string) =>

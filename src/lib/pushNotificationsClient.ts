@@ -81,7 +81,7 @@ export async function subscribeToWebPush(): Promise<void> {
   console.log('✅ [pushClient] Push manager subscription created');
 
   const json = subscription.toJSON();
-  const token = sessionToken.get();
+  const token = localStorage.getItem('meteor_resume_token') || sessionToken.get();
 
   console.log('🔔 [pushClient] Sending subscription to server...');
   const res = await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-subscribe`, {
@@ -117,7 +117,7 @@ export async function unsubscribeFromWebPush(): Promise<void> {
     /* ignore browser errors */
   }
 
-  const token = sessionToken.get();
+  const token = localStorage.getItem('meteor_resume_token') || sessionToken.get();
   await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-unsubscribe`, {
     method: 'POST',
     credentials: 'include',
