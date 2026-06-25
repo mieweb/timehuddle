@@ -8,6 +8,7 @@ import {
   ticketsCollection,
   usersCollection,
 } from "../models/index.js";
+import { toId } from "../lib/toId.js";
 import { buildAbilityFor, type AppAction } from "../lib/permissions.js";
 import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.model.js";
 import {
@@ -144,7 +145,7 @@ export class TicketService {
 
   private async getActor(userId: string): Promise<{ id: string; name: string }> {
     const user = isValidId(userId)
-      ? await usersCollection().findOne({ _id: new ObjectId(userId) })
+      ? await usersCollection().findOne({ _id: toId(userId) as any })
       : null;
     return {
       id: userId,

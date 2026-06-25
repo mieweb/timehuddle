@@ -1,10 +1,6 @@
 import { ObjectId } from "mongodb";
 import { teamsCollection, usersCollection } from "../models/index.js";
-
-function toId(id: string): any {
-  // Return ObjectId for 24-char hex strings, plain string otherwise
-  return /^[0-9a-fA-F]{24}$/.test(id) ? new ObjectId(id) : id;
-}
+import { toId } from "../lib/toId.js";
 
 // ─── Username policy ──────────────────────────────────────────────────────────
 
@@ -66,7 +62,7 @@ export function validateUsernameFormat(username: string): UsernameValidationErro
 
 export class UserService {
   async findById(id: string) {
-    return usersCollection().findOne({ _id: toId(id) });
+    return usersCollection().findOne({ _id: toId(id) as any });
   }
 
   async findByEmail(email: string) {
@@ -81,7 +77,7 @@ export class UserService {
     const objectIds = ids.slice(0, 200).map((id) => toId(id));
     if (objectIds.length === 0) return [];
     return usersCollection()
-      .find({ _id: { $in: objectIds } })
+      .find({ _id: { $in: objectIds as any } })
       .toArray();
   }
 
@@ -116,7 +112,7 @@ export class UserService {
     if (data.bio !== undefined) $set.bio = data.bio;
     if (data.website !== undefined) $set.website = data.website;
     if (data.reportsToUserId !== undefined) $set.reportsToUserId = data.reportsToUserId;
-    await usersCollection().updateOne({ _id: toId(id) }, { $set });
+    await usersCollection().updateOne({ _id: toId(id) as any }, { $set });
     return this.findById(id);
   }
 
@@ -162,7 +158,7 @@ export class UserService {
     // Catch a MongoDB duplicate-key error (E11000) and surface it as "taken".
     try {
       await usersCollection().updateOne(
-        { _id: toId(userId), username: { $eq: null } },
+        { _id: toId(userId) as any, username: { $eq: null } },
         { $set: { username: normalized, updatedAt: new Date() } }
       );
     } catch (err: unknown) {
