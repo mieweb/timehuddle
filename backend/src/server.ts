@@ -22,8 +22,6 @@ import { enterpriseRoutes } from "./routes/enterprises.js";
 import { seedImportRoutes } from "./routes/seeder.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { ticketsWsRoutes } from "./routes/tickets-ws.js";
-import { huddleRoutes } from "./routes/huddle.js";
-import { huddleWsRoutes } from "./routes/huddle-ws.js";
 import { teamRoutes } from "./routes/teams.js";
 import { teamsWsRoutes } from "./routes/teams-ws.js";
 import { clockRoutes } from "./routes/clock.js";
@@ -709,8 +707,6 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(teamRoutes, { prefix: "/v1" });
   await app.register(ticketRoutes, { prefix: "/v1" });
   await app.register(ticketsWsRoutes, { prefix: "/v1" });
-  await app.register(huddleRoutes, { prefix: "/v1" });
-  await app.register(huddleWsRoutes, { prefix: "/v1" });
   await app.register(clockRoutes, { prefix: "/v1" });
   await app.register(timerRoutes, { prefix: "/v1" });
   await app.register(notificationRoutes, { prefix: "/v1" });
