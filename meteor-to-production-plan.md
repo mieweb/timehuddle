@@ -82,6 +82,25 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
 - [x] `ddp.ts`: fetch JWT from better-auth token endpoint; proactive re-bridge before `exp`
 - [x] Zero `session`-collection reads remain in `meteor-backend/`
 
+### M0.f — Interactive login via Meteor Accounts (DDP)
+
+Direct email/password login over DDP (no better-auth token round-trip from the browser), so the
+SPA authenticates against Meteor and gets a resume token. Credentials are verified against the
+Fastify IdP server-to-server during coexistence.
+
+- [x] `emailPassword` login handler (`auth-bridge.js`): native bcrypt verify when a Meteor hash
+      exists, else verify via Fastify `POST /api/auth/sign-in/email`, then `findOrCreateUser`
+      provisions the Meteor user (same `_id` as the Fastify `user`) and migrates the bcrypt hash
+      for subsequent logins
+- [x] `AUTH_FASTIFY_URL` wired into the `meteor-backend` container (Docker service name `backend`,
+      not `localhost`); `Origin` header set to `BETTER_AUTH_URL` so better-auth's CSRF/origin check
+      passes on the server-to-server call (Node `fetch` sends `sec-fetch-mode: cors`)
+- [x] Failed credentials throw `Meteor.Error(403, 'Invalid email or password')` instead of
+      returning `undefined` (which surfaced as the misleading "Unrecognized options for login request")
+- [x] Signup: `accounts.createUser` method (creates Meteor user + mirrors into Fastify `user`)
+- [x] Forgot/reset: `accounts.sendResetPasswordEmail` / `accounts.resetPassword` methods
+- [x] `LoginForm.tsx` + `ddp.ts` `loginWithPassword` / `signUpWithPassword` consume the above
+
 ### M0.d — Social sign-in (parallel track; Fastify + UI only)
 
 - [x] Google (`GOOGLE_CLIENT_ID/SECRET`) + sign-in button (`@mieweb/ui`, i18n label)
@@ -111,7 +130,7 @@ receiving credentials in the JSON body (which leaks into Swagger examples, MCP t
 
 - [x] Presence: `presence.watch` custom DDP publication (`meteor-backend/server/presence.js`) — in-memory tracking with 75s timeout, connection lifecycle marks online/offline. Frontend `usePresence.ts` cut over from raw WebSocket to DDP subscription; `presenceApi` removed from `api.ts`.
 - [x] Activity log read methods: `activity.log`, `activity.userLog`, `activity.ticketActivity` Meteor methods (`meteor-backend/server/activity.js`) with wormhole REST exposure. Cursor-paginated, shared-team access check for teammate feeds. Frontend `activityApi` cut over to wormhole REST (`getUserWorkSummary` stays on Fastify — depends on timer reads in `work.ts`).
-- [x] Docker auth fix: added `AUTH_JWKS_URL=http://backend:4000/api/auth/jwks` to `meteor-backend` service in docker-compose (was defaulting to `localhost:4000` which is unreachable inside Docker). Added error logging to `resolveJwt()` in `auth-bridge.js` so JWKS failures are no longer silent.
+- [x] Docker auth fix: added `AUTH_JWKS_URL=http://backend:4000/api/auth/jwks` (and later `AUTH_FASTIFY_URL=http://backend:4000` for the email/password handler — see M0.f) to `meteor-backend` service in docker-compose (both defaulted to `localhost:4000`, unreachable inside Docker). Added error logging to `resolveJwt()` in `auth-bridge.js` so JWKS failures are no longer silent.
 - [x] Teams: 12 Meteor methods (`teams.list`, `ensurePersonal`, `create`, `join`, `subteams`, `rename`, `delete`, `getMembers`, `invite`, `removeMember`, `setRole`, `setMemberPassword`) + `teams.byUser` DDP publication (oplog-backed, replaces `teams-ws.ts`). Org auto-provisioning ported to `org-helpers.js` (`ensureDefaultOrganization`, `addOrgMember`, `getAccessibleOrgIds`). Frontend `teamApi` cut over to wormhole REST; `TeamContext.tsx` cut over from WebSocket to DDP subscription. `bcryptjs` added for admin password resets.
 - [x] Messages: `messages.getThread` + `messages.send` Meteor methods with `messages.byThread` DDP publication. Cursor-paginated, participant-checked, notification on send. Frontend `messageApi` cut over to wormhole REST; `MessagesPage.tsx` DM streams cut over from WebSocket to DDP subscription.
 - [x] Channels: `channels.list`, `channels.create`, `channels.getMessages`, `channels.sendMessage` Meteor methods with `channelmessages.byChannel` DDP publication. `ensureDefaultChannel` exported for team creation. Channel visibility model (team-wide vs restricted) + `#general` auto-provisioning preserved. Frontend `channelApi` cut over to wormhole REST; `MessagesPage.tsx` channel streams cut over from WebSocket to DDP subscription. Notification fan-out to channel members via `createNotification`.
