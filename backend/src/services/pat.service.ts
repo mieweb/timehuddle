@@ -2,11 +2,7 @@ import { createHash, randomBytes } from "crypto";
 import { ObjectId } from "mongodb";
 import { personalAccessTokensCollection } from "../models/index.js";
 import { emitActivity } from "./activity.service.js";
-
-function toId(id: string): any {
-  // Return ObjectId for 24-char hex strings, plain string otherwise
-  return /^[0-9a-fA-F]{24}$/.test(id) ? new ObjectId(id) : id;
-}
+import { toId } from "../lib/toId.js";
 
 const TOKEN_PREFIX = "th_pat_";
 
@@ -57,7 +53,7 @@ export const patService = {
     if (!ObjectId.isValid(tokenId) && !/^[0-9a-fA-F]{24}$/.test(tokenId)) return false;
 
     const result = await personalAccessTokensCollection().deleteOne({
-      _id: toId(tokenId),
+      _id: toId(tokenId) as any,
       userId,
     });
 

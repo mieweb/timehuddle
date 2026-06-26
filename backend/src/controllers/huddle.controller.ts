@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { ObjectId } from "mongodb";
 import { huddleService } from "../services/huddle.service.js";
+import { toId } from "../lib/toId.js";
 import { usersCollection, ticketsCollection } from "../models/index.js";
 import type { HuddlePost, PublicHuddlePost } from "../models/huddle-post.model.js";
 
@@ -16,7 +17,7 @@ function getUserInitials(name: string): string {
 
 async function toPublicHuddlePost(post: HuddlePost): Promise<PublicHuddlePost> {
   // Fetch user data
-  const user = await usersCollection().findOne({ _id: new ObjectId(post.userId) });
+  const user = await usersCollection().findOne({ _id: toId(post.userId) as any });
   const userName = user?.name || "Unknown User";
   const userInitials = getUserInitials(userName);
 

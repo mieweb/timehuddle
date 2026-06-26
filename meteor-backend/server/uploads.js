@@ -2,7 +2,7 @@ import { WebApp } from 'meteor/webapp';
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { Teams } from './collections';
-import { resolveToken } from './auth-bridge';
+import { resolveToken, requireIdentity } from './auth-bridge';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -20,11 +20,25 @@ const VIDEOS_DIR = process.env.VIDEOS_DIR || path.resolve(process.cwd(), '../bac
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 const MIME_TO_EXT = {
+  // Images
   'image/png': 'png',
   'image/jpeg': 'jpg',
   'image/webp': 'webp',
   'image/gif': 'gif',
   'image/avif': 'avif',
+  'image/svg+xml': 'svg',
+  // Videos
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+  'video/avi': 'avi',
+  // Documents
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.ms-excel': 'xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'text/plain': 'txt',
 };
 
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3000').split(',').map((s) => s.trim());
@@ -96,7 +110,7 @@ function resolveUploadPath(url, prefix, baseDir) {
 WebApp.connectHandlers.use('/uploads', (req, res, next) => {
   setCors(req, res);
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-  if (req.method !== 'GET') { next(); return; }
+  if (req.method !== 'GET' && req.method !== 'HEAD') { next(); return; }
 
   const safePath = path.normalize(req.url).replace(/^(\.\.(\/|\\|$))+/, '');
   const filePath = path.join(UPLOADS_DIR, safePath);
@@ -107,17 +121,51 @@ WebApp.connectHandlers.use('/uploads', (req, res, next) => {
     return;
   }
 
-  const stream = fs.createReadStream(filePath);
-  stream.on('error', () => {
+  // Check if file exists and get stats
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch (err) {
     res.writeHead(404);
     res.end();
-  });
-  stream.on('open', () => {
-    const ext = path.extname(filePath).toLowerCase();
-    const mimeMap = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.avif': 'image/avif', '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime' };
-    res.writeHead(200, { 'Content-Type': mimeMap[ext] || 'application/octet-stream', 'Cache-Control': 'public, max-age=86400' });
-  });
-  stream.pipe(res);
+    return;
+  }
+
+  const fileSize = stat.size;
+  const range = req.headers['range'];
+
+  // Determine content type
+  const ext = path.extname(filePath).toLowerCase();
+  const mimeTypes = {
+    '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+    '.avi': 'video/x-msvideo', '.png': 'image/png', '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+    '.avif': 'image/avif', '.pdf': 'application/pdf',
+  };
+  const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-');
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunkSize = (end - start) + 1;
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': chunkSize,
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=86400',
+    });
+    fs.createReadStream(filePath, { start, end }).pipe(res);
+  } else {
+    res.writeHead(200, {
+      'Content-Length': fileSize,
+      'Accept-Ranges': 'bytes',
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=86400',
+    });
+    fs.createReadStream(filePath).pipe(res);
+  }
 });
 
 // ── Avatar upload/delete (/api/me/avatar) ─────────────────────────────────────
@@ -246,10 +294,19 @@ WebApp.connectHandlers.use('/api/media/upload', async (req, res, next) => {
     await fsp.writeFile(path.join(MEDIA_DIR, filename), file.buffer);
 
     const url = `/uploads/media/${filename}`;
+    
+    // Classify file type based on MIME type
+    let type = 'image';
+    if (file.mimeType.startsWith('video/')) {
+      type = 'video';
+    } else if (!file.mimeType.startsWith('image/')) {
+      type = 'document';
+    }
+    
     const doc = {
       _id: new ObjectId(),
       userId: identity.userId,
-      type: 'image',
+      type,
       mimeType: file.mimeType,
       url,
       filename,
@@ -367,10 +424,8 @@ function toPublicMediaItem(m) {
 
 Meteor.methods({
   async 'media.list'({ limit } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
     const docs = await rawDb().collection('mediaitems')
       .find({ userId })
@@ -381,10 +436,8 @@ Meteor.methods({
   },
 
   async 'media.listForUser'({ userId: targetUserId, limit } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(targetUserId)) throw new Meteor.Error('bad-request', 'Invalid userId');
     if (userId !== targetUserId) {
       const sharedTeam = await Teams.rawCollection().findOne({
@@ -403,10 +456,8 @@ Meteor.methods({
   },
 
   async 'media.update'({ mediaId, title, caption, altText } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(mediaId)) throw new Meteor.Error('not-found', 'Invalid media id');
     const db = rawDb();
     const doc = await db.collection('mediaitems').findOne({ _id: new ObjectId(mediaId) });
@@ -425,10 +476,8 @@ Meteor.methods({
   },
 
   async 'media.remove'({ mediaId } = {}) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Not logged in');
-    }
-    const userId = this.userId;
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!isValidId(mediaId)) throw new Meteor.Error('not-found', 'Invalid media id');
     const db = rawDb();
     const doc = await db.collection('mediaitems').findOne({ _id: new ObjectId(mediaId) });

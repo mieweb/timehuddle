@@ -221,7 +221,7 @@ Meteor.methods({
     const updated = await ClockEvents.findOneAsync(event._id);
     const pub = toPublicClockEvent(updated, closedBreaks);
 
-    const team = await Teams.findOneAsync(oid(teamId));
+    const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (team) {
       const userName = await userDisplayName(userId);
       const totalSecs = pub.accumulatedTime ?? 0;
@@ -599,6 +599,108 @@ Meteor.methods({
 
     await notifications.deleteOne({ _id: new ObjectId(notificationId), userId });
     return { ok: true };
+  },
+
+  /** Team-wide clock status: all member clock states + today's hours. */
+  async 'clock.teamStatus'({ teamId } = {}) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+
+    if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Team not found');
+
+    const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+    if (!team) throw new Meteor.Error('not-found', 'Team not found');
+
+    const allMemberIds = Array.from(new Set([...(team.members ?? []), ...(team.admins ?? [])]));
+    if (!allMemberIds.includes(userId)) {
+      throw new Meteor.Error('forbidden', 'Forbidden');
+    }
+
+    // Get today's start (UTC midnight)
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const todayStartMs = todayStart.getTime();
+    const now = Date.now();
+
+    // Get today's clock events for all members
+    const clockEvents = await ClockEvents.find({
+      userId: { $in: allMemberIds },
+      teamId,
+      startTime: { $gte: todayStartMs },
+    }).fetchAsync();
+
+    // Load all breaks for today's events
+    const eventIds = clockEvents.map((e) => e._id.toHexString());
+    const allBreaks = eventIds.length > 0 ? await findBreaksForEvents(eventIds) : [];
+    const breaksByEventId = new Map();
+    for (const b of allBreaks) {
+      const arr = breaksByEventId.get(b.clockEventId) ?? [];
+      arr.push(b);
+      breaksByEventId.set(b.clockEventId, arr);
+    }
+
+    // Resolve display names using userDisplayName helper
+    const namePromises = allMemberIds.map((memberId) => userDisplayName(memberId));
+    const names = await Promise.all(namePromises);
+    const nameMap = new Map();
+    allMemberIds.forEach((memberId, i) => {
+      nameMap.set(memberId, names[i]);
+    });
+
+    // Resolve images: Meteor users (string _id) vs legacy ObjectId users
+    const meteorIds = allMemberIds.filter((id) => !/^[0-9a-f]{24}$/i.test(id));
+    const legacyIds = allMemberIds.filter((id) => /^[0-9a-f]{24}$/i.test(id));
+
+    const [meteorUsers, legacyUsers] = await Promise.all([
+      meteorIds.length > 0
+        ? rawDb().collection('users').find({ _id: { $in: meteorIds } }).project({ image: 1 }).toArray()
+        : Promise.resolve([]),
+      legacyIds.length > 0
+        ? rawDb().collection('user').find({ _id: { $in: legacyIds.map((id) => new ObjectId(id)) } }).project({ image: 1 }).toArray()
+        : Promise.resolve([]),
+    ]);
+
+    const meteorImageMap = new Map(meteorUsers.map((u) => [String(u._id), u.image ?? null]));
+    const legacyImageMap = new Map(legacyUsers.map((u) => [u._id.toHexString(), u.image ?? null]));
+
+    // Group clock events by userId
+    const eventsByUser = new Map();
+    for (const ev of clockEvents) {
+      if (!eventsByUser.has(ev.userId)) eventsByUser.set(ev.userId, []);
+      eventsByUser.get(ev.userId).push(ev);
+    }
+
+    const members = allMemberIds.map((memberId) => {
+      const name = nameMap.get(memberId) ?? 'Unknown';
+      const image = meteorImageMap.get(memberId) ?? legacyImageMap.get(memberId) ?? null;
+
+      const userEvents = eventsByUser.get(memberId) ?? [];
+      const activeEvent = userEvents.find((e) => e.endTime === null) ?? null;
+      const isClockedIn = activeEvent !== null;
+      const activeBreaks = activeEvent
+        ? (breaksByEventId.get(activeEvent._id.toHexString()) ?? [])
+        : [];
+      const isOnBreak = activeBreaks.some((b) => b.endTime === null);
+
+      // Sum today's work seconds
+      let todaySeconds = 0;
+      for (const ev of userEvents) {
+        const breaks = breaksByEventId.get(ev._id.toHexString()) ?? [];
+        todaySeconds += computeWorkSeconds(ev, breaks, now);
+      }
+
+      return {
+        userId: memberId,
+        name,
+        image,
+        isClockedIn,
+        isOnBreak,
+        activeClockStart: activeEvent?.startTime ?? null,
+        todaySeconds,
+      };
+    });
+
+    return { members };
   },
 });
 

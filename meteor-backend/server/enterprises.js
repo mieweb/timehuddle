@@ -216,12 +216,12 @@ Meteor.methods({
   },
 
   async 'enterprise.installStatus'() {
-    await requireIdentity(this);
-    const installation = await rawDb().collection('installations').findOne({ _id: 'Installation' });
-    const completed = !!installation?.completedAt;
-    return {
-      hasOwner: completed,
-      installCompleted: completed,
-    };
+    // No auth required — called before login to check setup state
+    const db = rawDb();
+    const enterprise = await db.collection('enterprises').findOne({});
+    const hasOwner = enterprise
+      ? ((enterprise.owners ?? []).length > 0 || (enterprise.admins ?? []).length > 0)
+      : false;
+    return { hasOwner, installCompleted: hasOwner };
   },
 });

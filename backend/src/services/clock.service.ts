@@ -9,6 +9,7 @@ import {
   teamsCollection,
   usersCollection,
 } from "../models/index.js";
+import { toId } from "../lib/toId.js";
 import type { ClockBreak, ClockBreakInterval, ClockEvent } from "../models/clock.model.js";
 import {
   findActiveClockEventByUser,
@@ -250,7 +251,7 @@ export class ClockService {
     const actorName =
       profile?.displayName ||
       (isValidId(actorUserId)
-        ? (await usersCollection().findOne({ _id: new ObjectId(actorUserId) }))?.name
+        ? (await usersCollection().findOne({ _id: toId(actorUserId) as any }))?.name
         : undefined) ||
       "A team member";
     const date = new Date(startTime).toISOString().slice(0, 10);
@@ -329,7 +330,7 @@ export class ClockService {
 
     // Notify team admins
     const user = isValidId(userId)
-      ? await usersCollection().findOne({ _id: new ObjectId(userId) })
+      ? await usersCollection().findOne({ _id: toId(userId) as any })
       : null;
     const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
     const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
@@ -410,7 +411,7 @@ export class ClockService {
     const team = await teamsCollection().findOne({ _id: new ObjectId(teamId) });
     if (team) {
       const user = isValidId(userId)
-        ? await usersCollection().findOne({ _id: new ObjectId(userId) })
+        ? await usersCollection().findOne({ _id: toId(userId) as any })
         : null;
       const userName = user?.name ?? user?.email?.split("@")[0] ?? "Someone";
       const totalSecs = pub.accumulatedTime ?? 0;

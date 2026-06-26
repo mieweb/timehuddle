@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { ObjectId } from "mongodb";
 import { verifyWsToken } from "../lib/ws-auth.js";
+import { toId } from "../lib/toId.js";
 import {
   teamsCollection,
   huddlePostsCollection,
@@ -22,7 +23,7 @@ function getUserInitials(name: string): string {
 
 async function toPublicHuddlePost(post: HuddlePost): Promise<PublicHuddlePost> {
   // Fetch user data
-  const user = await usersCollection().findOne({ _id: new ObjectId(post.userId) });
+  const user = await usersCollection().findOne({ _id: toId(post.userId) as any });
   const userName = user?.name || "Unknown User";
   const userInitials = getUserInitials(userName);
 

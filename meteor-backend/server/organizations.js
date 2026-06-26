@@ -92,11 +92,43 @@ async function loadOrgMembers(orgId) {
     })),
   ];
 
-  const validUserIds = allMembers.filter((m) => isValidId(m.userId)).map((m) => new ObjectId(m.userId));
-  const users = await db.collection('user')
-    .find({ _id: { $in: validUserIds } }, { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } })
-    .toArray();
-  const byId = new Map(users.map((u) => [u._id.toHexString(), u]));
+  // Split IDs by type
+  const hexIds = allMembers
+    .filter((m) => /^[0-9a-f]{24}$/i.test(m.userId))
+    .map((m) => new ObjectId(m.userId));
+  const stringIds = allMembers
+    .filter((m) => !/^[0-9a-f]{24}$/i.test(m.userId) && m.userId)
+    .map((m) => m.userId);
+
+  // Query both collections
+  const [fastifyUsers, meteorUsers] = await Promise.all([
+    hexIds.length > 0
+      ? db.collection('user')
+          .find({ _id: { $in: hexIds } }, { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } })
+          .toArray()
+      : [],
+    stringIds.length > 0
+      ? db.collection('users')
+          .find({ _id: { $in: stringIds } }, { projection: { profile: 1, emails: 1, username: 1, image: 1, reportsToUserId: 1 } })
+          .toArray()
+      : [],
+  ]);
+
+  // Normalize Meteor users to same shape as Fastify users
+  const normalizedMeteorUsers = meteorUsers.map((u) => ({
+    _id: u._id,
+    name: u.profile?.name ?? u.username ?? 'Unknown',
+    email: u.emails?.[0]?.address ?? '',
+    username: u.username ?? null,
+    image: u.image ?? null,
+    reportsToUserId: u.reportsToUserId ?? null,
+  }));
+
+  // Build lookup map by id string
+  const byId = new Map([
+    ...fastifyUsers.map((u) => [u._id.toHexString(), u]),
+    ...normalizedMeteorUsers.map((u) => [String(u._id), u]),
+  ]);
 
   return allMembers
     .map((m) => {

@@ -310,6 +310,25 @@ Meteor.methods({
     );
     return { modified };
   },
+
+  /** Get a single ticket by ID. Mirrors TicketService.findOne. */
+  async 'tickets.get'({ ticketId } = {}) {
+    if (!ticketId) {
+      throw new Meteor.Error('bad-request', 'ticketId is required');
+    }
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+
+    const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
+    if (!ticket) {
+      throw new Meteor.Error('not-found', 'Ticket not found');
+    }
+
+    // Check team membership
+    await requireTeamMembership(userId, ticket.teamId);
+
+    return toPublicTicket(ticket);
+  },
 });
 
 /**
