@@ -887,6 +887,15 @@ Meteor.startup(async() => {
   });
 
 
+  Wormhole.expose('huddle.getPostsByTicket', {
+    description: 'Fetch all huddle posts for a specific ticket',
+    inputSchema: {
+      type: 'object',
+      properties: { ticketId: { type: 'string' } },
+      required: ['ticketId'],
+    },
+  });
+
   // ─── Timers ────────────────────────────────────────────────────────────────
   Wormhole.expose('timers.getDay', {
     description: 'List WorkItems with timers for a local calendar day',

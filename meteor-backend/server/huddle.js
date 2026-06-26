@@ -1,5 +1,6 @@
 import { Meteor } from 'meteor/meteor';
 import { rawDb, isValidId } from './collections';
+import { requireIdentity } from './auth-bridge';
 import { ObjectId } from 'mongodb';
 
 const METEOR_BASE_URL = process.env.ROOT_URL?.replace(/\/$/, '') ?? 'http://localhost:3100';
@@ -591,5 +592,17 @@ Meteor.methods({
     );
     
     return 'ok';
+  },
+
+  async 'huddle.getPostsByTicket'({ ticketId } = {}) {
+    const identity = await requireIdentity(this);
+    if (!ticketId) throw new Meteor.Error('bad-request', 'ticketId is required');
+    const posts = await rawDb()
+      .collection('huddlePosts')
+      .find({ ticketId })
+      .sort({ createdAt: -1 })
+      .toArray();
+    const enriched = await Promise.all(posts.map(enrichPost));
+    return { posts: enriched };
   },
 });
