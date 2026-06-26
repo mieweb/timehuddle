@@ -28,6 +28,9 @@ import './activity';
 import './channels'; // must precede teams (teams.create calls ensureDefaultChannel)
 import './teams';
 import './team-join-requests';
+
+// PulseVault — TUS video upload + serving
+import './pulsevault.js';
 import './messages';
 import './huddle';
 // M3 — Org & profiles
@@ -52,7 +55,13 @@ const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3000')
   .map((s) => s.trim());
 
 // Global CORS — catches ALL routes (DDP, /api, /uploads, etc.)
+// EXCEPT /uploads/tus which handles its own protocol-specific OPTIONS
 WebApp.rawConnectHandlers.use((req, res, next) => {
+  // Skip TUS endpoints — they handle their own OPTIONS with protocol headers
+  if (req.url?.startsWith('/uploads/tus')) {
+    return next();
+  }
+  
   const origin = req.headers.origin;
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -593,6 +602,15 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('tickets.get', {
+    description: 'Get a single ticket by ID',
+    inputSchema: {
+      type: 'object',
+      properties: { ticketId: { type: 'string' } },
+      required: ['ticketId'],
+    },
+  });
+
   Wormhole.expose('tickets.create', {
     description: 'Create a ticket in a team (creator is auto-assigned)',
     inputSchema: {
@@ -810,6 +828,15 @@ Meteor.startup(async() => {
   });
 
   // ── Activity (read-only) ────────────────────────────────────────────────────
+
+  Wormhole.expose('clock.teamStatus', {
+    description: 'Active clock status and today hours for all members of a team',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
 
   Wormhole.expose('activity.log', {
     description: 'Get the current user\'s activity log (cursor-paginated)',
@@ -1250,6 +1277,24 @@ Meteor.startup(async() => {
   Wormhole.expose('media.listForUser', { description: 'List media for a user profile', inputSchema: { type: 'object', properties: { userId: { type: 'string' }, limit: { type: 'integer' } }, required: ['userId'] } });
   Wormhole.expose('media.update', { description: 'Update media metadata (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' }, title: { type: 'string' }, caption: { type: 'string' }, altText: { type: 'string' } }, required: ['mediaId'] } });
   Wormhole.expose('media.remove', { description: 'Delete media item + files (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' } }, required: ['mediaId'] } });
+
+  // ── PulseVault ────────────────────────────────────────────────────────────
+
+  Wormhole.expose('pulsevault.reserve', {
+    description: 'Reserve a videoid for TUS video upload',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        existingVideoid: { type: 'string' },
+        target: { type: 'string', enum: ['ticket', 'library'] },
+      },
+    },
+  });
+  Wormhole.expose('pulsevault.reserveForLibrary', {
+    description: 'Reserve a videoid for media library TUS upload',
+    inputSchema: { type: 'object', properties: {} },
+  });
 
   // Agenda foundation: defines clock jobs against the shared `agendajobs`
   // collection. Processor stays OFF unless METEOR_AGENDA_ENABLED=true, so it
