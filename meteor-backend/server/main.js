@@ -7,6 +7,7 @@
  *   /api/docs) and MCP tools (/mcp) for AI agents.
  */
 import { Meteor } from 'meteor/meteor';
+import { MongoInternals } from 'meteor/mongo';
 import { WebApp } from 'meteor/webapp';
 import { Wormhole } from 'meteor/wreiske:meteor-wormhole';
 import { ServiceConfiguration } from 'meteor/service-configuration';
@@ -17,7 +18,7 @@ import { Accounts } from 'meteor/accounts-base';
 import './collections';
 import { rawDb } from './collections';
 import './auth-bridge';
-import { signProxyJwt, findOrCreateUser } from './auth-bridge';
+import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
 import './clock';
 import './timers';
@@ -96,29 +97,75 @@ WebApp.connectHandlers.use('/health', (req, res) => {
 
 // Proxy JWT endpoints - both /api/whoami and /auth/whoami for compatibility
 const proxyWhoamiHandler = async (req, res) => {
-  // Only works when proxy headers are trusted
-  if (process.env.TRUST_PROXY_HEADERS !== 'true') {
-    res.writeHead(404);
-    res.end();
-    return;
-  }
-
   if (!process.env.PROXY_JWT_SECRET) {
     res.writeHead(500);
     res.end(JSON.stringify({ error: 'PROXY_JWT_SECRET not configured' }));
     return;
   }
 
-  const email = req.headers['x-email'];
+  let email, name;
+
+  // Path 1: SSO proxy headers (Authentik/nginx)
+  if (process.env.TRUST_PROXY_HEADERS === 'true' && req.headers['x-email']) {
+    email = req.headers['x-email'];
+    const firstName = req.headers['x-user-first-name'] || '';
+    const lastName = req.headers['x-user-last-name'] || '';
+    name = `${firstName} ${lastName}`.trim() || email;
+  }
+
+  // Path 2: better-auth session token or Meteor token (header or cookie)
+  if (!email) {
+    const authHeader = req.headers['authorization'] || '';
+    let bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+    // Also check better-auth session cookie (browser flow)
+    // Production uses __Secure-better-auth.session_token, dev uses better-auth.session_token
+    if (!bearerToken && req.headers.cookie) {
+      const match = req.headers.cookie.match(/(?:__Secure-)?better-auth\.session_token=([^;]+)/);
+      if (match) {
+        const raw = decodeURIComponent(match[1]);
+        // Strip the HMAC signature suffix (token.signature)
+        bearerToken = raw.split('.')[0];
+      }
+    }
+
+    if (bearerToken) {
+      const db = rawDb();
+      const ObjectId = MongoInternals.NpmModules.mongodb.module.ObjectId;
+
+      // Try better-auth session collection first
+      const session = await db.collection('session').findOne({ token: bearerToken });
+      if (session?.userId) {
+        const uid = String(session.userId);
+        const isMeteorId = !/^[0-9a-f]{24}$/i.test(uid);
+        const userDoc = isMeteorId
+          ? await db.collection('users').findOne({ _id: uid }, { projection: { emails: 1, profile: 1 } })
+          : await db.collection('user').findOne({ _id: new ObjectId(uid) }, { projection: { email: 1, name: 1 } });
+        email = userDoc?.emails?.[0]?.address ?? userDoc?.email ?? uid;
+        name = userDoc?.profile?.name ?? userDoc?.name ?? email;
+      }
+
+      // Fall back to PAT/Meteor resume token
+      if (!email) {
+        const identity = await resolveToken(bearerToken);
+        if (identity) {
+          const uid = String(identity.userId);
+          const isMeteorId = !/^[0-9a-f]{24}$/i.test(uid);
+          const userDoc = isMeteorId
+            ? await db.collection('users').findOne({ _id: uid }, { projection: { emails: 1, profile: 1 } })
+            : await db.collection('user').findOne({ _id: new ObjectId(uid) }, { projection: { email: 1, name: 1 } });
+          email = userDoc?.emails?.[0]?.address ?? userDoc?.email ?? identity.userId;
+          name = userDoc?.profile?.name ?? userDoc?.name ?? identity.name ?? email;
+        }
+      }
+    }
+  }
+
   if (!email) {
     res.writeHead(401);
     res.end(JSON.stringify({ error: 'No proxy identity headers' }));
     return;
   }
-
-  const firstName = req.headers['x-user-first-name'] || '';
-  const lastName = req.headers['x-user-last-name'] || '';
-  const name = `${firstName} ${lastName}`.trim() || email;
 
   try {
     const token = await signProxyJwt(email, name);
