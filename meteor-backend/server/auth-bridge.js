@@ -501,23 +501,3 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
     throw new Meteor.Error(500, 'Login service unavailable');
   }
 });
-// Add getCurrentUser to existing Meteor.methods
-Meteor.methods({
-  'users.getCurrentUser': async function() {
-    if (!this.userId) return null;
-    const user = await Meteor.users.findOneAsync(this.userId);
-    if (!user) return null;
-    const email = user.emails?.[0]?.address || '';
-    // Also fetch username and extra fields from Fastify user collection
-    const db = rawDb();
-    const fastifyUser = await db.collection('user').findOne({ email: email.toLowerCase() });
-    return {
-      id: this.userId,
-      email,
-      name: user.profile?.name || fastifyUser?.name || email || 'Unknown',
-      username: user.username || fastifyUser?.username || null,
-      image: fastifyUser?.image || null,
-      emailVerified: fastifyUser?.emailVerified ?? true
-    };
-  }
-});
