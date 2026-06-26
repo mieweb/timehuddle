@@ -916,9 +916,7 @@ export interface HuddleComment {
 export const huddleApi = {
   /** Fetch all huddle posts for a specific ticket. */
   getPostsByTicket: (ticketId: string) =>
-    request<{ posts: HuddlePost[] }>(
-      `/v1/huddle/tickets/${encodeURIComponent(ticketId)}/posts`,
-    ).then((r) => r.posts),
+    wormholeCall<{ posts: HuddlePost[] }>('huddle.getPostsByTicket', { ticketId }).then((r) => r.posts),
 
   /** Update a huddle post. */
   updatePost: (postId: string, content: { text: string; mentions: string[] }) =>
