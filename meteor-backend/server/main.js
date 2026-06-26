@@ -22,6 +22,7 @@ import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
 import './clock';
 import './timers';
+import './timers';
 import './notifications';
 import './presence';
 import './activity';
@@ -883,6 +884,57 @@ Meteor.startup(async() => {
       properties: { teamId: { type: 'string' } },
       required: ['teamId'],
     },
+  });
+
+
+  // ─── Timers ────────────────────────────────────────────────────────────────
+  Wormhole.expose('timers.getDay', {
+    description: 'List WorkItems with timers for a local calendar day',
+    inputSchema: { type: 'object', properties: { date: { type: 'string' }, tz: { type: 'string' } }, required: ['date'] },
+  });
+  Wormhole.expose('timers.getToday', {
+    description: 'List WorkItems for today (local time). Admin can pass userId.',
+    inputSchema: { type: 'object', properties: { tz: { type: 'string' }, userId: { type: 'string' } } },
+  });
+  Wormhole.expose('timers.getWeek', {
+    description: 'Get per-day totals for a 7-day week',
+    inputSchema: { type: 'object', properties: { date: { type: 'string' }, tz: { type: 'string' } }, required: ['date'] },
+  });
+  Wormhole.expose('timers.getRunning', {
+    description: 'Get the current user running timer or null',
+    inputSchema: { type: 'object', properties: {} },
+  });
+  Wormhole.expose('timers.getTeamRunning', {
+    description: 'Get all running timers for members of a team',
+    inputSchema: { type: 'object', properties: { teamId: { type: 'string' } }, required: ['teamId'] },
+  });
+  Wormhole.expose('timers.getTicketTotal', {
+    description: 'Get total seconds for a ticket across all closed sessions',
+    inputSchema: { type: 'object', properties: { ticketId: { type: 'string' } }, required: ['ticketId'] },
+  });
+  Wormhole.expose('timers.createEntry', {
+    description: 'Create a WorkItem for a ticket on a given date',
+    inputSchema: { type: 'object', properties: { ticketId: { type: 'string' }, date: { type: 'string' }, note: { type: 'string' }, startNow: { type: 'boolean' }, notifyAdmins: { type: 'boolean' } }, required: ['ticketId', 'date'] },
+  });
+  Wormhole.expose('timers.startSession', {
+    description: 'Start a timer for a WorkItem',
+    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, now: { type: 'number' }, tz: { type: 'string' } }, required: ['entryId'] },
+  });
+  Wormhole.expose('timers.stopSession', {
+    description: 'Stop a running timer session',
+    inputSchema: { type: 'object', properties: { sessionId: { type: 'string' }, now: { type: 'number' } }, required: ['sessionId'] },
+  });
+  Wormhole.expose('timers.updateEntry', {
+    description: 'Update a WorkItem note, duration, and/or ticket',
+    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, note: { type: 'string' }, durationSeconds: { type: 'number' }, ticketId: { type: 'string' } }, required: ['entryId'] },
+  });
+  Wormhole.expose('timers.deleteEntry', {
+    description: 'Delete a WorkItem and all its timers',
+    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, notifyAdmins: { type: 'boolean' } }, required: ['entryId'] },
+  });
+  Wormhole.expose('timers.copyPrevious', {
+    description: 'Copy entries from the most recent previous day into toDate',
+    inputSchema: { type: 'object', properties: { toDate: { type: 'string' } }, required: ['toDate'] },
   });
 
   Wormhole.expose('activity.log', {
