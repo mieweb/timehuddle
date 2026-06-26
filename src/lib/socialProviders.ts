@@ -13,7 +13,6 @@
  */
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { faApple, faGithub, faGoogle } from '@fortawesome/free-brands-svg-icons';
-import { faKey } from '@fortawesome/free-solid-svg-icons';
 
 export interface SocialProvider {
   /** Provider id (`github`/`google`/`apple`) or genericOAuth providerId (`authentik`). */
@@ -33,19 +32,18 @@ const REGISTRY: Record<string, Omit<SocialProvider, 'id'>> = {
     kind: 'meteor-oauth',
     meteorPath: '/auth/github',
   },
-  google: { 
-    label: 'Google', 
-    icon: faGoogle, 
+  google: {
+    label: 'Google',
+    icon: faGoogle,
     kind: 'meteor-oauth',
-    meteorPath: '/auth/google'
+    meteorPath: '/auth/google',
   },
-  apple: { 
-    label: 'Apple', 
-    icon: faApple, 
+  apple: {
+    label: 'Apple',
+    icon: faApple,
     kind: 'meteor-oauth',
-    meteorPath: '/auth/apple'
+    meteorPath: '/auth/apple',
   },
-  
 };
 
 const DEFAULT_PROVIDERS = 'github';

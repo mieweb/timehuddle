@@ -76,20 +76,20 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
       const hashedToken = createHash("sha256").update(rawToken).digest("base64");
       const db = getDB();
       const meteorUser = await db.collection("users").findOne({
-        "services.resume.loginTokens.hashedToken": hashedToken
+        "services.resume.loginTokens.hashedToken": hashedToken,
       });
       if (meteorUser) {
         const email = meteorUser.emails?.[0]?.address ?? "";
         // Get full profile from Fastify user collection
-        const fastifyUser = await usersCollection().findOne({ 
-          email: email.toLowerCase() 
+        const fastifyUser = await usersCollection().findOne({
+          email: email.toLowerCase(),
         });
         if (fastifyUser) {
-          req.user = { 
-            id: fastifyUser._id.toString(), 
-            name: fastifyUser.name, 
-            email: fastifyUser.email, 
-            image: fastifyUser.image 
+          req.user = {
+            id: fastifyUser._id.toString(),
+            name: fastifyUser.name,
+            email: fastifyUser.email,
+            image: fastifyUser.image,
           };
           return;
         }
@@ -98,7 +98,7 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
           id: meteorUser._id.toString(),
           name: meteorUser.profile?.name ?? email,
           email,
-          image: null
+          image: null,
         };
         return;
       }

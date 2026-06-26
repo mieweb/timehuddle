@@ -103,6 +103,7 @@ services:
       # M1 clock cutover: Meteor owns clock processing (Agenda reminders /
       # auto-clockout). Fastify's processor is disabled (see backend service).
       - METEOR_AGENDA_ENABLED=true
+      - AUTH_FASTIFY_URL=http://backend:4000
       - AUTH_JWKS_URL=http://backend:4000/api/auth/jwks
       - UPLOADS_DIR=/app/backend/uploads
     env_file:

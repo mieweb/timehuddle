@@ -78,9 +78,7 @@ export class UserService {
   }
 
   async findManyByIds(ids: string[]) {
-    const objectIds = ids
-      .slice(0, 200)
-      .map((id) => toId(id));
+    const objectIds = ids.slice(0, 200).map((id) => toId(id));
     if (objectIds.length === 0) return [];
     return usersCollection()
       .find({ _id: { $in: objectIds } })

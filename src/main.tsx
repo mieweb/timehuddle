@@ -43,7 +43,7 @@ import { createRoot } from 'react-dom/client';
 
 import { InboxPage } from './features/inbox/InboxPage';
 import { enterpriseApi } from './lib/api';
-import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
+import { subscribeNewNotifications } from './lib/ddp';
 import { MESSAGES_PENDING_THREAD_KEY } from './lib/constants';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';

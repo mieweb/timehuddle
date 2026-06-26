@@ -136,15 +136,15 @@ export function decodeJwtExp(token: string): number {
 export async function getAccessToken(): Promise<string | null> {
   // First try cached JWT (still valid for Fastify sessions)
   if (cachedJwt && cachedJwt.exp * 1000 - Date.now() > 60_000) return cachedJwt.token;
-  
+
   // Fall back to Meteor resume token for Meteor-authenticated users
   const meteorToken = localStorage.getItem('meteor_resume_token');
   if (meteorToken) return meteorToken;
-  
+
   // Try Fastify JWT if we have a session token
   const session = sessionToken.get();
   if (!session) return null;
-  
+
   jwtFetch ??= (async () => {
     try {
       const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/token`, {
