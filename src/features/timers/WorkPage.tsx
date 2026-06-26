@@ -376,6 +376,7 @@ export const WorkPage: React.FC = () => {
           })),
         );
         void fetchWeekTotals();
+        void fetchDay();
       } catch {
         void fetchDay();
       }

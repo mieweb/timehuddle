@@ -134,23 +134,31 @@ Fastify IdP server-to-server during coexistence.
 - [x] Teams: 12 Meteor methods (`teams.list`, `ensurePersonal`, `create`, `join`, `subteams`, `rename`, `delete`, `getMembers`, `invite`, `removeMember`, `setRole`, `setMemberPassword`) + `teams.byUser` DDP publication (oplog-backed, replaces `teams-ws.ts`). Org auto-provisioning ported to `org-helpers.js` (`ensureDefaultOrganization`, `addOrgMember`, `getAccessibleOrgIds`). Frontend `teamApi` cut over to wormhole REST; `TeamContext.tsx` cut over from WebSocket to DDP subscription. `bcryptjs` added for admin password resets.
 - [x] Messages: `messages.getThread` + `messages.send` Meteor methods with `messages.byThread` DDP publication. Cursor-paginated, participant-checked, notification on send. Frontend `messageApi` cut over to wormhole REST; `MessagesPage.tsx` DM streams cut over from WebSocket to DDP subscription.
 - [x] Channels: `channels.list`, `channels.create`, `channels.getMessages`, `channels.sendMessage` Meteor methods with `channelmessages.byChannel` DDP publication. `ensureDefaultChannel` exported for team creation. Channel visibility model (team-wide vs restricted) + `#general` auto-provisioning preserved. Frontend `channelApi` cut over to wormhole REST; `MessagesPage.tsx` channel streams cut over from WebSocket to DDP subscription. Notification fan-out to channel members via `createNotification`.
-- [ ] Work summary read method (depends on timer reads — deferred)
-- [ ] Delete Fastify routes: `teams*.ts`, `messages.ts`, `channels.ts`, `presence.ts`,
-      `activity.ts`, `work.ts`
+- [x] Huddle mutations: `huddle.createPost`, `huddle.updatePost`, `huddle.deletePost`, `huddle.toggleLike`, `huddle.getComments`, `huddle.addComment`, `huddle.deleteComment` Meteor methods with `huddlePosts.byTeam` DDP publication. Frontend mutations cut over to DDP; live updates via change stream. `getPostsByTicket` still on Fastify (GET `/v1/huddle/tickets/:id/posts`) — needs Meteor method `huddle.getPostsByTicket`.
+- [ ] Huddle read: `huddle.getPostsByTicket` method (blocked — needs implementation)
+- [ ] Activity getUserWorkSummary (depends on timer reads — deferred to M4)
+- [ ] Delete Fastify routes: `teams*.ts`, `messages.ts`, `channels.ts`, `presence.ts`, `activity.ts`, `work.ts`, `huddle*.ts` — blocked until huddle read + work summary migrate
 
 ## M3 — Org & profiles
 
-- [x] Users/Profiles (6 methods): `users.get`, `users.getByUsername`, `users.batchGet`, `users.updateProfile`, `users.checkUsername`, `users.claimUsername` in `meteor-backend/server/users.js`. Frontend `userApi` reads/writes + `usernameApi` cut over to wormhole REST. Avatar/background uploads + `GET /v1/me` deferred to M4 (multipart / better-auth session).
+- [x] Users/Profiles (6 methods): `users.get`, `users.getByUsername`, `users.batchGet`, `users.updateProfile`, `users.checkUsername`, `users.claimUsername` in `meteor-backend/server/users.js`. Frontend `userApi` reads/writes + `usernameApi` cut over to wormhole REST. Avatar/background uploads migrated to Meteor in M4.
 - [x] Organizations (20 methods): full org CRUD, member management, CASL ability checks, slug validation, auto-join, search, reports-to — all in `meteor-backend/server/organizations.js`. Includes default-org admin endpoints (from `users.ts`): `orgs.adminGet`, `orgs.adminUpdate`, `orgs.adminListUsers`, `orgs.adminSetUserRole`, `orgs.publicGet`, `orgs.publicListUsers`. Frontend `orgApi` + `orgAdminApi` cut over to wormhole REST.
-- [x] Enterprises (7 methods): `enterprises.list`, `create`, `get`, `updateName`, `searchUsers`, `setMemberRole`, `removeMember` in `meteor-backend/server/enterprises.js`. Frontend `enterpriseApi` cut over to wormhole REST. `getOwnershipStatus` + `takeOwnership` stay on Fastify (M4 onboarding).
+- [x] Enterprises (7 methods): `enterprises.list`, `create`, `get`, `updateName`, `searchUsers`, `setMemberRole`, `removeMember`, `installStatus` in `meteor-backend/server/enterprises.js`. Frontend `enterpriseApi` cut over to wormhole REST. `takeOwnership` stays on Fastify (M4 onboarding) — **migrated 2026-06-25**.
 - [x] PAT management (3 methods): `tokens.list`, `tokens.create`, `tokens.revoke` in `meteor-backend/server/tokens.js`. SHA-256 hashing, activity log emission, raw token shown once on create. Frontend `tokenApi` cut over to wormhole REST.
-- [ ] Delete Fastify routes: `users.ts`, `org*.ts`, `enterprises.ts`, `tokens.ts` — deferred until avatar/background uploads + install endpoints migrate in M4
+- [ ] Delete Fastify routes: `users.ts` (still serves `/v1/me`), `org*.ts`, `enterprises.ts` (still serves `/v1/install`), `tokens.ts` — deferred until M4 endpoints migrate
 
 ## M4 — HTTP-native surfaces + decommission
 
 - [x] Uploads/Media/Attachments: static file serving at `/uploads/*` via `WebApp.connectHandlers`. Avatar/background multipart upload+delete via busboy (`/api/me/avatar`, `/api/me/background`). Media library image upload (`/api/media/upload`), thumbnail upload (`/api/media-thumbnail/:id`), CRUD methods (`media.list`, `media.listForUser`, `media.update`, `media.remove`). Attachments metadata-only methods (`attachments.list`, `attachments.add`, `attachments.remove`). All in `meteor-backend/server/uploads.js` + `attachments.js`. Frontend `attachmentApi`, `mediaApi`, `userApi` upload/delete all cut over. `toAbsoluteUrl` routes `/uploads/` paths through `METEOR_BASE_URL`. Video thumbnail regeneration uses authenticated blob fetch to avoid cross-origin canvas tainting.
-- [ ] PulseVault TUS resumable uploads: raw WebApp handlers (protocol untouched)
+- [x] PulseVault TUS resumable uploads: raw WebApp handlers in `meteor-backend/server/pulsevault.js` — protocol unchanged, storage paths preserved, auth via resume tokens
 - [x] Port remaining backend test suites to Meteor methods — Vitest integration tests (`meteor-backend/tests/`) covering tickets (10), teams (11), clock (9). `scripts/checks.sh` gains `meteor` job. Infrastructure: `helpers.ts` (auth + wormhole wrapper), `setup.ts`, `vitest.config.ts`.
+- [ ] Timers: Full timer API migration — `createEntry`, `startSession`, `stopSession`, `updateEntry`, `deleteEntry`, `getRunning`, `getToday`, `getDay`, `getWeek`, `getTicketTotal`, `copyPrevious`, `getTeamRunningTimers` (all currently on Fastify `/v1/timers/*`). Blocks work summary migration + deletion of `timers.ts`, `work.ts`.
+- [ ] Seed Import: `seed.parse`, `seed.import` Meteor methods (currently Fastify `/v1/seed/import/*`) — dev/test utility, low priority.
+- [ ] Enterprise onboarding: `enterprises.takeOwnership` (currently Fastify `POST /v1/install`) — first-run flow.
+- [ ] Notification utilities: `notifications.testPush` (currently Fastify `POST /v1/notifications/test-push`) — debug endpoint.
+- [ ] TimeHarbor share: `tickets.shareWithTimeharbor`, `tickets.bulkShareWithTimeharbor` (currently Fastify `PATCH /v1/tickets/:id/timeharbor-share`, `PATCH /v1/tickets/bulk-timeharbor-share`) — cross-product integration.
+- [ ] Better-auth session endpoint: `authApi.getMe` (currently Fastify `GET /v1/me`) — last session-dependent read after Meteor owns all auth.
+- [ ] Delete Fastify routes: `timers.ts`, `work.ts`, `seeder.ts`, `enterprises.ts` (`/v1/install`), `notifications.ts` (`test-push`), `tickets.ts` (TimeHarbor share), `users.ts` (`/v1/me`) — blocked until above endpoints migrate
 
 ## M5 — Reconcile post-merge drift from main
 
@@ -170,14 +178,58 @@ Work that landed on **Fastify** via `main` merges for domains **already cut over
       `getJoinRequestPreview` + `respondToJoinRequest` cut over from Fastify REST to wormhole.
       `TeamJoinRequests` collection added to `collections.js`. All wormhole schemas exposed in
       `main.js`.
-- [ ] **Huddle / newsfeed (net-new, built on the retired pattern)** — PR #383 added `huddle.ts`,
-      `huddle.service.ts`, and a new WS hub `huddle-ws.ts` on Fastify; frontend consumes Fastify REST + WS. Not a regression, but it's a brand-new WebSocket hub for exactly the pattern this
-      migration retires. Decide: port now (Meteor methods + `huddlePosts.byTeam` publication) or
-      accept as Fastify debt and schedule.
-- [ ] **Media document-upload parity (M4)** — Fastify `media.ts` gained an upload route advertising
-      image/video/**document**, but frontend `mediaApi` uploads to `METEOR_BASE_URL/api/media/upload`,
-      so the Fastify route is dead. Confirm whether it added document-type support absent from
-      `meteor-backend/server/uploads.js`; if so port that capability, otherwise drop the Fastify route.
+- [x] **Huddle / newsfeed (M2, ported)** — PR #383's huddle implementation fully ported to Meteor. `huddle.createPost`, `huddle.updatePost`, `huddle.deletePost`, `huddle.toggleLike`, `huddle.getComments`, `huddle.addComment`, `huddle.deleteComment` Meteor methods + `huddlePosts.byTeam` DDP publication in `meteor-backend/server/huddle.js`. Frontend mutations cut over to DDP, live updates via change stream. **Remaining:** `getPostsByTicket` still calls Fastify `GET /v1/huddle/tickets/:id/posts` — needs `huddle.getPostsByTicket` Meteor method.
+- [x] **Media uploads (M4, complete)** — Fastify `media.ts` route is unused. Frontend `mediaApi.uploadImage` calls Meteor `POST ${METEOR_BASE_URL}/api/media/upload` (multipart handler in `meteor-backend/server/uploads.js`). No document-type parity issue — Fastify route is dead code, can be deleted with the rest of the route file.
+
+## Migration Status Summary (as of 2026-06-26)
+
+### Completed ✅
+- **M0**: Identity & Foundations — JWT/JWKS auth, header auth, Meteor Accounts (email/password + social OAuth), CASL abilities, Agenda jobs, push/email services
+- **M1**: Core time-tracking — Clock (full CRUD + live pub), Timers (live pub only), Tickets (full CRUD + live pub + assignment notifications)
+- **M2**: Collaboration — Teams, Messages, Channels, Presence, Activity log, Team join requests, Huddle mutations, Notifications inbox/mutations
+- **M3**: Org & profiles — Users, Organizations, Enterprises (except `takeOwnership`), PATs
+- **M4 (partial)**: Uploads (avatars, backgrounds, media library, attachments), PulseVault TUS, Meteor test infrastructure
+
+### Remaining Work 🚧
+
+#### High Priority (blocking route deletion)
+1. **Timers full API** (`timers.ts`, `work.ts` routes) — all timer CRUD + reads still on Fastify:
+   - `createEntry`, `startSession`, `stopSession`, `updateEntry`, `deleteEntry`
+   - `getRunning`, `getToday`, `getDay`, `getWeek`, `getTicketTotal`, `copyPrevious`
+   - `getTeamRunningTimers` (team dashboard)
+   - `getUserWorkSummary` (activity log dependency)
+   
+2. **Huddle read** (`huddle.ts`, `huddle-ws.ts` routes):
+   - `getPostsByTicket` — needs `huddle.getPostsByTicket` Meteor method
+
+#### Medium Priority (cross-product / onboarding)
+3. **Enterprise onboarding** (`enterprises.ts` route):
+   - `takeOwnership` (POST `/v1/install`) — first-run ownership claim
+
+4. **TimeHarbor integration** (`tickets.ts` route):
+   - `shareTicketWithTimeharbor` (PATCH `/v1/tickets/:id/timeharbor-share`)
+   - `bulkShareTicketsWithTimeharbor` (PATCH `/v1/tickets/bulk-timeharbor-share`)
+
+#### Low Priority (dev utilities)
+5. **Seed Import** (`seeder.ts` route):
+   - `parse` (POST `/v1/seed/import/parse`)
+   - `import` (POST `/v1/seed/import`)
+
+6. **Debug endpoints**:
+   - `testPush` (POST `/v1/notifications/test-push`) in `notifications.ts`
+
+7. **Auth session endpoint** (`users.ts` route):
+   - `getMe` (GET `/v1/me`) — last better-auth session read after Meteor owns all interactive auth
+
+### Fastify Routes Ready for Deletion (when migrations above complete)
+- `timers.ts`, `work.ts` — blocked by timer API migration
+- `huddle.ts`, `huddle-ws.ts` — blocked by huddle read migration
+- `enterprises.ts` — blocked by takeOwnership migration
+- `tickets.ts` (TimeHarbor share only) — blocked by share endpoints migration
+- `seeder.ts` — blocked by seed import migration
+- `notifications.ts` (testPush only) — blocked by testPush migration
+- `users.ts` (getMe only) — blocked by getMe migration
+- Already dead (frontend migrated): `teams*.ts`, `messages.ts`, `channels.ts`, `presence.ts`, `activity.ts`, `org*.ts`, `tokens.ts`, `attachments.ts`, `media.ts`, `clock.ts`
 
 ## Finalize Transition
 

@@ -870,9 +870,7 @@ export const ticketApi = {
 
   /** Get total accumulated seconds for a ticket from Timers. */
   getTotal: (ticketId: string) =>
-    request<{ totalSeconds: number }>(
-      `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
-    ).then((r) => r.totalSeconds),
+    wormholeCall<{ totalSeconds: number }>('timers.getTicketTotal', { ticketId }).then((r) => r.totalSeconds),
 };
 
 // ─── Huddle API ───────────────────────────────────────────────────────────────
@@ -1184,9 +1182,7 @@ export const teamDashboardApi = {
     ),
 
   getTeamRunningTimers: (teamId: string) =>
-    request<{ timers: TeamRunningTimer[] }>(
-      `/v1/timers/team-running?teamId=${encodeURIComponent(teamId)}`,
-    ).then((r) =>
+    wormholeCall<{ timers: TeamRunningTimer[] }>('timers.getTeamRunning', { teamId }).then((r) =>
       r.timers.map((t) =>
         t.userImage && !/^https?:\/\//i.test(t.userImage)
           ? {
@@ -1385,87 +1381,58 @@ export const timerApi = {
     notifyAdmins?: boolean;
     startNow?: boolean;
   }) =>
-    request<{ entry: WorkItem; session: Timer | null }>('/v1/timers/entries', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+    wormholeCall<{ entry: WorkItem; session: Timer | null }>('timers.createEntry', data),
 
   /** Start a timer for a WorkItem. Closes any open timer first. */
   startSession: (entryId: string, now?: number) =>
-    request<{ session: Timer; closedSessionId?: string }>(
-      `/v1/timers/entries/${encodeURIComponent(entryId)}/start`,
-      { method: 'POST', body: JSON.stringify({ now: now ?? Date.now(), tz: clientTz() }) },
-    ),
+    wormholeCall<{ session: Timer; closedSessionId?: string }>('timers.startSession', { entryId, now: now ?? Date.now(), tz: clientTz() }),
 
   /** Stop a running timer. */
   stopSession: (sessionId: string, now?: number) =>
-    request<{ session: Timer }>(`/v1/timers/sessions/${encodeURIComponent(sessionId)}/stop`, {
-      method: 'POST',
-      body: JSON.stringify({ now: now ?? Date.now() }),
-    }).then((r) => r.session),
+    wormholeCall<{ session: Timer }>('timers.stopSession', { sessionId, now: now ?? Date.now() }).then((r) => r.session),
 
   /** Update a WorkItem's note, duration, and/or ticket (duration ignored while running). */
   updateEntry: (
     entryId: string,
     data: { note?: string | null; durationSeconds?: number; ticketId?: string },
   ) =>
-    request<{ entry: WorkItem }>(`/v1/timers/entries/${encodeURIComponent(entryId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }).then((r) => r.entry),
+    wormholeCall<{ entry: WorkItem }>('timers.updateEntry', { entryId, ...data }).then((r) => r.entry),
 
   /** Delete a WorkItem and all of its timers. */
   deleteEntry: (entryId: string, options?: { notifyAdmins?: boolean }) =>
-    request<{ deletedEntry: boolean; deletedSessions: number }>(
-      `/v1/timers/entries/${encodeURIComponent(entryId)}${options?.notifyAdmins === false ? '?notifyAdmins=false' : ''}`,
-      {
-        method: 'DELETE',
-      },
-    ),
+    wormholeCall<{ deletedEntry: boolean; deletedSessions: number }>('timers.deleteEntry', { entryId, notifyAdmins: options?.notifyAdmins ?? true }),
 
   /** Get the currently running timer for the authenticated user, or null. */
-  getRunning: () => request<{ session: Timer | null }>('/v1/timers/running').then((r) => r.session),
+  getRunning: () => wormholeCall<{ session: Timer | null }>('timers.getRunning', {}).then((r) => r.session),
 
   /** Get all entries + sessions for today in local time. Admin can pass userId. */
   getToday: (userId?: string) => {
     const tz = clientTz();
-    const userParam = userId ? `&userId=${encodeURIComponent(userId)}` : '';
-    return request<{ entries: DayEntry[] }>(
-      `/v1/timers/today?tz=${encodeURIComponent(tz)}${userParam}`,
-    ).then((r) => r.entries);
+    return wormholeCall<{ entries: DayEntry[] }>('timers.getToday', { tz, ...(userId ? { userId } : {}) }).then((r) => r.entries);
   },
 
   /** Get all entries + sessions for a local day (YYYY-MM-DD). */
   getDay: (date: string) => {
     const tz = clientTz();
-    return request<{ entries: DayEntry[] }>(
-      `/v1/timers/day?date=${encodeURIComponent(date)}&tz=${encodeURIComponent(tz)}`,
-    ).then((r) => r.entries);
+    return wormholeCall<{ entries: DayEntry[] }>('timers.getDay', { date, tz }).then((r) => r.entries);
   },
 
   /** Get 7-day totals for the week starting at the given date (YYYY-MM-DD). */
   getWeek: (date: string) => {
     const tz = clientTz();
-    return request<{ days: WeekDay[] }>(
-      `/v1/timers/week?date=${encodeURIComponent(date)}&tz=${encodeURIComponent(tz)}`,
-    ).then((r) => r.days);
+    return wormholeCall<{ days: WeekDay[] }>('timers.getWeek', { date, tz }).then((r) => r.days);
   },
 
   /** Get total seconds for a ticket from all closed Timers. */
   getTicketTotal: (ticketId: string) =>
-    request<{ totalSeconds: number }>(
-      `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
-    ).then((r) => r.totalSeconds),
+    wormholeCall<{ totalSeconds: number }>('timers.getTicketTotal', { ticketId }).then((r) => r.totalSeconds),
 
   /**
    * Copy entries from the most recent previous day into toDate.
    * Skips rows that already exist with the same ticket + note + sortOrder signature.
    */
   copyPrevious: (toDate: string) =>
-    request<{ created: number }>('/v1/timers/copy-previous', {
-      method: 'POST',
-      body: JSON.stringify({ toDate }),
-    }).then((r) => r.created),
+    wormholeCall<{ created: number }>('timers.copyPrevious', { toDate }).then((r) => r.created),
 };
 
 // ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
