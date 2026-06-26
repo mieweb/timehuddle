@@ -1175,9 +1175,7 @@ export interface TeamRunningTimer {
 
 export const teamDashboardApi = {
   getTeamClockStatus: (teamId: string) =>
-    request<{ members: TeamMemberClockStatus[] }>(
-      `/v1/clock/team-status?teamId=${encodeURIComponent(teamId)}`,
-    ).then((r) =>
+    wormholeCall<{ members: TeamMemberClockStatus[] }>('clock.teamStatus', { teamId }).then((r) =>
       r.members.map((m) =>
         m.image && !/^https?:\/\//i.test(m.image)
           ? { ...m, image: `${TIMECORE_BASE_URL}${m.image.startsWith('/') ? '' : '/'}${m.image}` }
@@ -1474,28 +1472,23 @@ export const timerApi = {
 
 export const videoApi = {
   /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
-  uploadEndpoint: () => `${TIMECORE_BASE_URL.replace(/\/$/, '')}/v1/video/upload`,
+  uploadEndpoint: () => `${METEOR_BASE_URL.replace(/\/$/, '')}/uploads/tus`,
 
   /** Reserve a videoid for a ticket upload before starting TUS.
    *  Pass `existingVideoid` when resuming a recording session so the backend
    *  re-registers the same id instead of creating a new one.
    */
   reserve: (ticketId: string, existingVideoid?: string) =>
-    request<{ videoid: string; uploadToken: string; uploadLink?: string }>('/v1/video/reserve', {
-      method: 'POST',
-      body: JSON.stringify(
-        existingVideoid
-          ? { target: 'ticket', ticketId, videoid: existingVideoid }
-          : { target: 'ticket', ticketId },
-      ),
-    }),
+    wormholeCall<{ videoid: string; uploadToken: string; uploadLink?: string }>(
+      'pulsevault.reserve',
+      existingVideoid
+        ? { target: 'ticket', ticketId, existingVideoid }
+        : { target: 'ticket', ticketId },
+    ),
 
   /** Reserve a videoid for a media library upload (no ticket context). */
   reserveForLibrary: () =>
-    request<{ videoid: string; uploadToken: string }>('/v1/video/reserve', {
-      method: 'POST',
-      body: JSON.stringify({ target: 'library' }),
-    }),
+    wormholeCall<{ videoid: string; uploadToken: string }>('pulsevault.reserveForLibrary', {}),
 };
 
 // ─── Media Library ────────────────────────────────────────────────────────────
