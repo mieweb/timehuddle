@@ -1365,6 +1365,11 @@ Meteor.startup(async() => {
   Wormhole.expose('enterprises.searchUsers', { description: 'Search users for enterprise', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, q: { type: 'string' } }, required: ['enterpriseId'] } });
   Wormhole.expose('enterprises.setMemberRole', { description: 'Set enterprise member role (owner only)', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, userId: { type: 'string' }, role: { type: 'string', enum: ['owner', 'admin'] } }, required: ['enterpriseId', 'userId', 'role'] } });
   Wormhole.expose('enterprises.removeMember', { description: 'Remove enterprise member (owner only)', inputSchema: { type: 'object', properties: { enterpriseId: { type: 'string' }, userId: { type: 'string' } }, required: ['enterpriseId', 'userId'] } });
+  Wormhole.expose('enterprises.takeOwnership', {
+    description: 'Complete initial installation and take ownership',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
   Wormhole.expose('enterprise.installStatus', { description: 'Check enterprise installation status', inputSchema: { type: 'object', properties: {} } });
 
   // ── Personal Access Tokens ────────────────────────────────────────────────

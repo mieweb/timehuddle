@@ -2,6 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
+import { ensureDefaultOrganization } from './org-helpers';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -213,6 +214,70 @@ Meteor.methods({
       { $set: { owners: Array.from(owners), admins: Array.from(admins), updatedAt: new Date() } },
     );
     return { userId: targetUserId };
+  },
+
+  async 'enterprises.takeOwnership'() {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    const db = rawDb();
+    const now = new Date();
+
+    // Check if already completed
+    const installation = await db.collection('installations').findOne({ _id: 'Installation' });
+    if (installation?.completedAt) {
+      throw new Meteor.Error('conflict', 'Owner already exists or install is already complete');
+    }
+
+    // Ensure default org + enterprise exist
+    const defaultOrg = await ensureDefaultOrganization();
+    const defaultEnterpriseId = defaultOrg.enterpriseId;
+    if (!defaultEnterpriseId) throw new Meteor.Error('not-found', 'No default enterprise found');
+
+    // Set user as enterprise owner (atomic, first-writer wins)
+    const enterpriseResult = await db.collection('enterprises').updateOne(
+      { _id: new ObjectId(defaultEnterpriseId), 'owners.0': { $exists: false } },
+      { $set: { owners: [userId], admins: [], updatedAt: now } }
+    );
+    if (enterpriseResult.matchedCount === 0) {
+      throw new Meteor.Error('conflict', 'Owner already exists or install is already complete');
+    }
+
+    // Attach all orgs missing an enterprise
+    await db.collection('organizations').updateMany(
+      { $or: [{ enterpriseId: { $exists: false } }, { enterpriseId: null }, { enterpriseId: '' }] },
+      { $set: { enterpriseId: defaultEnterpriseId, updatedAt: now } }
+    );
+
+    // Set user as org owner if no owners yet
+    const orgDoc = await db.collection('organizations').findOne({ _id: new ObjectId(defaultOrg._id.toHexString()) });
+    if (!orgDoc?.owners || orgDoc.owners.length === 0) {
+      await db.collection('organizations').updateOne(
+        { _id: new ObjectId(defaultOrg._id.toHexString()) },
+        { $set: { owners: [userId], admins: [], updatedAt: now } }
+      );
+    }
+
+    // Upsert org membership
+    await db.collection('org_members').updateOne(
+      { orgId: defaultOrg._id.toHexString(), userId },
+      {
+        $setOnInsert: { _id: new ObjectId(), createdAt: now },
+        $set: { orgId: defaultOrg._id.toHexString(), userId, role: 'owner', auto: false, updatedAt: now },
+      },
+      { upsert: true }
+    );
+
+    // Mark installation completed
+    await db.collection('installations').updateOne(
+      { _id: 'Installation' },
+      {
+        $setOnInsert: { _id: 'Installation', createdAt: now },
+        $set: { completedAt: now, completedByUserId: userId, updatedAt: now },
+      },
+      { upsert: true }
+    );
+
+    return { role: 'owner' };
   },
 
   async 'enterprise.installStatus'() {
