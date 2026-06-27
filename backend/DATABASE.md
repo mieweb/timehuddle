@@ -86,6 +86,7 @@ Core fields used by app code:
 - `bio?: string`
 - `website?: string`
 - `reportsToUserId?: string | null`
+- `blocked?: Array<{ orgId: string; blockedBy: string; blockedAt: Date; reason?: string }>` — array of organization-level blocking records. When a user is blocked from an org, they are removed from all org teams and cannot access org-scoped routes. Admins can unblock to restore access (but not team memberships). Sparse index on `blocked.orgId` for efficient blocking queries.
 - `createdAt: Date`
 - `updatedAt: Date`
 

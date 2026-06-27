@@ -6,6 +6,10 @@ import {
   CardHeader,
   CardTitle,
   Input,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
   Select,
   Spinner,
   Switch,
@@ -16,6 +20,7 @@ import {
   TableHeader,
   TableRow,
   Text,
+  Textarea,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -46,6 +51,9 @@ export const OrganizationMembersPage: React.FC = () => {
   const [savingMember, setSavingMember] = useState(false);
   const [userOptions, setUserOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [memberSearch, setMemberSearch] = useState('');
+  const [blockUserId, setBlockUserId] = useState<string | null>(null);
+  const [blockReason, setBlockReason] = useState('');
+  const [blockingSaving, setBlockingSaving] = useState(false);
 
   const loadUsers = useCallback(async () => {
     if (!selectedOrgId) {
@@ -154,6 +162,55 @@ export const OrganizationMembersPage: React.FC = () => {
           setError(err.message);
         } else {
           setError('Failed to remove member');
+        }
+      } finally {
+        setSavingUserId(null);
+      }
+    },
+    [loadUsers, selectedOrgId],
+  );
+
+  const handleBlockMember = useCallback(
+    async (targetUserId: string) => {
+      setBlockUserId(targetUserId);
+      setBlockReason('');
+    },
+    [],
+  );
+
+  const handleConfirmBlock = useCallback(async () => {
+    if (!selectedOrgId || !blockUserId) return;
+    setBlockingSaving(true);
+    setError(null);
+    try {
+      await orgApi.blockMember(selectedOrgId, blockUserId, blockReason.trim() || undefined);
+      setBlockUserId(null);
+      setBlockReason('');
+      await loadUsers();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError('Failed to block member');
+      }
+    } finally {
+      setBlockingSaving(false);
+    }
+  }, [blockReason, blockUserId, loadUsers, selectedOrgId]);
+
+  const handleUnblockMember = useCallback(
+    async (targetUserId: string) => {
+      if (!selectedOrgId) return;
+      setSavingUserId(targetUserId);
+      setError(null);
+      try {
+        await orgApi.unblockMember(selectedOrgId, targetUserId);
+        await loadUsers();
+      } catch (err) {
+        if (err instanceof ApiError) {
+          setError(err.message);
+        } else {
+          setError('Failed to unblock member');
         }
       } finally {
         setSavingUserId(null);
@@ -324,6 +381,8 @@ export const OrganizationMembersPage: React.FC = () => {
                 {visibleUsers.map((orgUser) => {
                   const isCurrent = orgUser.id === user?.id;
                   const isSaving = savingUserId === orgUser.id;
+                  const isBlocked = orgUser.blocked?.some((b) => b.orgId === selectedOrgId);
+                  const blockInfo = orgUser.blocked?.find((b) => b.orgId === selectedOrgId);
                   return (
                     <TableRow key={orgUser.id}>
                       <TableCell>
@@ -332,6 +391,7 @@ export const OrganizationMembersPage: React.FC = () => {
                             {orgUser.name}
                           </Text>
                           {isCurrent && <Badge variant="secondary">You</Badge>}
+                          {isBlocked && <Badge variant="warning">Blocked</Badge>}
                         </div>
                       </TableCell>
                       <TableCell>{orgUser.email}</TableCell>
@@ -403,15 +463,52 @@ export const OrganizationMembersPage: React.FC = () => {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => void handleRemoveMember(orgUser.id)}
-                          disabled={isSaving || !canManage}
-                          aria-label={`Remove ${orgUser.name} from organization`}
-                        >
-                          Remove
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          {isBlocked ? (
+                            <>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                onClick={() => void handleUnblockMember(orgUser.id)}
+                                disabled={isSaving || !canManage}
+                                aria-label={`Unblock ${orgUser.name}`}
+                                title={blockInfo?.reason ? `Reason: ${blockInfo.reason}` : undefined}
+                              >
+                                Unblock
+                              </Button>
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                onClick={() => void handleRemoveMember(orgUser.id)}
+                                disabled={isSaving || !canManage}
+                                aria-label={`Remove ${orgUser.name} from organization`}
+                              >
+                                Remove
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                variant="warning"
+                                size="sm"
+                                onClick={() => void handleBlockMember(orgUser.id)}
+                                disabled={isSaving || !canManage || isCurrent}
+                                aria-label={`Block ${orgUser.name} from organization`}
+                              >
+                                Block
+                              </Button>
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                onClick={() => void handleRemoveMember(orgUser.id)}
+                                disabled={isSaving || !canManage}
+                                aria-label={`Remove ${orgUser.name} from organization`}
+                              >
+                                Remove
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -430,6 +527,41 @@ export const OrganizationMembersPage: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Block member modal */}
+      <Modal open={blockUserId !== null} onOpenChange={(open) => !open && setBlockUserId(null)}>
+        <ModalHeader>Block Member</ModalHeader>
+        <ModalBody className="space-y-3">
+          <Text variant="muted" size="sm">
+            Blocking this member will prevent them from accessing the organization and remove them
+            from all teams. You can optionally provide a reason for the block.
+          </Text>
+          <Textarea
+            label="Reason (optional)"
+            value={blockReason}
+            onChange={(e) => setBlockReason(e.target.value)}
+            placeholder="Enter a reason for blocking this member…"
+            rows={3}
+            maxLength={500}
+          />
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            variant="outline"
+            onClick={() => setBlockUserId(null)}
+            disabled={blockingSaving}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="warning"
+            onClick={() => void handleConfirmBlock()}
+            disabled={blockingSaving}
+          >
+            {blockingSaving ? 'Blocking…' : 'Block Member'}
+          </Button>
+        </ModalFooter>
+      </Modal>
     </AppPage>
   );
 };

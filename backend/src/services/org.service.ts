@@ -18,6 +18,9 @@ import { slugify } from "../lib/slug.js";
 import type { Enterprise } from "../models/enterprise.model.js";
 import type { OrgMembershipRole } from "../models/org-membership.model.js";
 import type { Organization } from "../models/organization.model.js";
+import type { OrgBlock } from "../models/user.model.js";
+import { emitActivity } from "./activity.service.js";
+import { ActivityType } from "../models/activity.model.js";
 
 export type OrgUserReportsToUpdateResult =
   | { userId: string; reportsToUserId: string | null }
@@ -73,6 +76,20 @@ export type OrgAllowAutoJoinResult =
   | { orgId: string; allowAutoJoin: boolean }
   | "forbidden"
   | "not-found";
+
+export type OrgMemberBlockResult =
+  | { userId: string; block: OrgBlock }
+  | "forbidden"
+  | "not-found"
+  | "user-not-found"
+  | "already-blocked";
+
+export type OrgMemberUnblockResult =
+  | { userId: string }
+  | "forbidden"
+  | "not-found"
+  | "user-not-found"
+  | "not-blocked";
 
 const ELEVATED_ROLES: readonly OrgMembershipRole[] = ["owner", "admin"];
 const ROLE_RANK: Record<OrgMembershipRole, number> = {
@@ -423,7 +440,7 @@ export class OrgService {
   }
 
   async listOrganizationsForUser(userId: string): Promise<OrgSummary[]> {
-    const [memberships, ownedOrAdminOrgs, teamOrgs, enterpriseManagedOrgs] = await Promise.all([
+    const [memberships, ownedOrAdminOrgs, teamOrgs, enterpriseManagedOrgs, user] = await Promise.all([
       orgMembersCollection().find({ userId }).toArray(),
       organizationsCollection()
         .find({ $or: [{ owners: userId }, { admins: userId }] }, { projection: { _id: 1 } })
@@ -441,14 +458,17 @@ export class OrgService {
           .find({ enterpriseId: { $in: enterpriseIds } }, { projection: { _id: 1 } })
           .toArray();
       })(),
+      usersCollection().findOne({ _id: new ObjectId(userId) }, { projection: { blocked: 1 } }),
     ]);
+
+    const blockedOrgIds = new Set(user?.blocked?.map((b) => b.orgId) ?? []);
 
     const orgIds = uniqueIds([
       ...memberships.map((membership) => membership.orgId),
       ...ownedOrAdminOrgs.map((org) => org._id.toHexString()),
       ...teamOrgs.map((team) => team.orgId).filter((orgId): orgId is string => !!orgId),
       ...enterpriseManagedOrgs.map((org) => org._id.toHexString()),
-    ]).filter(isValidId);
+    ]).filter((orgId) => isValidId(orgId) && !blockedOrgIds.has(orgId)); // Filter out blocked orgs
 
     if (orgIds.length === 0) return [];
 
@@ -606,6 +626,154 @@ export class OrgService {
 
     await orgMembersCollection().deleteMany({ orgId, userId: targetUserId });
     await this.syncLegacyRoleArrays(orgId, targetUserId, "member");
+
+    return { userId: targetUserId };
+  }
+
+  async blockOrgMember(
+    requesterUserId: string,
+    orgId: string,
+    targetUserId: string,
+    reason?: string
+  ): Promise<OrgMemberBlockResult> {
+    if (!isValidId(orgId)) return "not-found";
+    if (!isValidId(targetUserId)) return "user-not-found";
+
+    const [org, targetUser] = await Promise.all([
+      organizationsCollection().findOne({ _id: new ObjectId(orgId) }),
+      usersCollection().findOne({ _id: new ObjectId(targetUserId) }),
+    ]);
+
+    if (!org) return "not-found";
+
+    const access = await this.buildOrganizationAccess(requesterUserId, org);
+    if (!access.canManage) return "forbidden";
+
+    if (!targetUser) return "user-not-found";
+
+    // Check if already blocked from this org
+    if (targetUser.blocked?.some((b) => b.orgId === orgId)) {
+      return "already-blocked";
+    }
+
+    // Create block entry
+    const block: OrgBlock = {
+      orgId,
+      blockedBy: requesterUserId,
+      blockedAt: new Date(),
+      reason,
+    };
+
+    // Add block to user's blocked array
+    await usersCollection().updateOne(
+      { _id: targetUser._id },
+      { $push: { blocked: block }, $set: { updatedAt: new Date() } }
+    );
+
+    // Remove user from all teams in this organization
+    await teamsCollection().updateMany(
+      { orgId, $or: [{ members: targetUserId }, { admins: targetUserId }] },
+      {
+        $pull: { members: targetUserId, admins: targetUserId } as any,
+        $set: { updatedAt: new Date() },
+      }
+    );
+
+    // Remove from org membership
+    await orgMembersCollection().deleteMany({ orgId, userId: targetUserId });
+    await this.syncLegacyRoleArrays(orgId, targetUserId, "member");
+
+    // Emit activity log
+    const [requester, targetUserFull] = await Promise.all([
+      usersCollection().findOne({ _id: new ObjectId(requesterUserId) }),
+      usersCollection().findOne({ _id: new ObjectId(targetUserId) }),
+    ]);
+    if (requester && targetUserFull) {
+      emitActivity({
+        userId: targetUserId,
+        type: ActivityType.OrgMemberBlocked,
+        actor: {
+          id: requester._id.toHexString(),
+          name: requester.name,
+          avatar: requester.image ?? undefined,
+        },
+        payload: {
+          orgId,
+          orgName: org.name,
+          targetUserId,
+          targetUserName: targetUserFull.name,
+          reason: block.reason,
+        },
+      }).catch(() => {});
+    }
+
+    return { userId: targetUserId, block };
+  }
+
+  async unblockOrgMember(
+    requesterUserId: string,
+    orgId: string,
+    targetUserId: string
+  ): Promise<OrgMemberUnblockResult> {
+    if (!isValidId(orgId)) return "not-found";
+    if (!isValidId(targetUserId)) return "user-not-found";
+
+    const [org, targetUser] = await Promise.all([
+      organizationsCollection().findOne({ _id: new ObjectId(orgId) }),
+      usersCollection().findOne({ _id: new ObjectId(targetUserId) }),
+    ]);
+
+    if (!org) return "not-found";
+
+    const access = await this.buildOrganizationAccess(requesterUserId, org);
+    if (!access.canManage) return "forbidden";
+
+    if (!targetUser) return "user-not-found";
+
+    // Check if user is actually blocked from this org
+    if (!targetUser.blocked?.some((b) => b.orgId === orgId)) {
+      return "not-blocked";
+    }
+
+    // Remove block from user's blocked array
+    await usersCollection().updateOne(
+      { _id: targetUser._id },
+      { $pull: { blocked: { orgId } } as any, $set: { updatedAt: new Date() } }
+    );
+
+    // Automatically re-add user as member when unblocking (if not already a member)
+    const existingMembership = await orgMembersCollection().findOne({ orgId, userId: targetUserId });
+    if (!existingMembership) {
+      await orgMembersCollection().insertOne({
+        _id: new ObjectId(),
+        orgId,
+        userId: targetUserId,
+        role: "member",
+        auto: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+    }
+
+    // Emit activity log
+    const requester = await usersCollection().findOne({ _id: new ObjectId(requesterUserId) });
+    if (requester) {
+      emitActivity({
+        userId: targetUserId,
+        type: ActivityType.OrgMemberUnblocked,
+        actor: {
+          id: requester._id.toHexString(),
+          name: requester.name,
+          avatar: requester.image ?? undefined,
+        },
+        payload: {
+          orgId,
+          orgName: org.name,
+          targetUserId,
+          targetUserName: targetUser.name,
+        },
+      }).catch(() => {});
+    }
 
     return { userId: targetUserId };
   }
@@ -814,6 +982,15 @@ export class OrgService {
       name: u.name,
       username: u.username ?? null,
     }));
+  }
+
+  /**
+   * Check if a user has access to at least one organization.
+   * Returns false if user is blocked from all orgs or has no org memberships.
+   */
+  async hasAccessibleOrganizations(userId: string): Promise<boolean> {
+    const orgs = await this.listOrganizationsForUser(userId);
+    return orgs.length > 0;
   }
 }
 

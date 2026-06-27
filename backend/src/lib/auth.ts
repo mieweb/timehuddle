@@ -2,9 +2,88 @@ import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
 import { bearer } from "better-auth/plugins";
 import { oidcProvider } from "better-auth/plugins/oidc-provider";
+import { ObjectId } from "mongodb";
 import { client } from "./db.js";
 import { sendEmail } from "./email.js";
 import { teamService } from "../services/team.service.js";
+import { usersCollection, orgMembersCollection } from "../models/index.js";
+
+/**
+ * Check if a user is blocked from all their organizations.
+ * Returns { blocked: true, message } if user cannot access ANY org.
+ * Returns { blocked: false } if user has at least one accessible org.
+ */
+async function checkUserBlocking(userId: string): Promise<{ blocked: boolean; message?: string }> {
+  const user = await usersCollection().findOne(
+    { _id: new ObjectId(userId) },
+    { projection: { blocked: 1 } }
+  );
+
+  // No blocking records = user is not blocked
+  if (!user?.blocked || user.blocked.length === 0) {
+    return { blocked: false };
+  }
+
+  // Get all org memberships for this user
+  const memberships = await orgMembersCollection()
+    .find({ userId })
+    .project({ orgId: 1 })
+    .toArray();
+
+  // User has no org memberships = can't sign in
+  if (memberships.length === 0) {
+    return {
+      blocked: true,
+      message: "Your account has been suspended from all organizations",
+    };
+  }
+
+  // Build set of org IDs the user is currently a member of
+  const memberOrgIds = new Set(memberships.map((m) => m.orgId));
+
+  // Filter out stale blocking records where user is currently a member
+  // (This handles cases where a user was manually re-added without using unblock)
+  const activeBlocks = user.blocked.filter((b) => !memberOrgIds.has(b.orgId));
+
+  // If no active blocks remain, user can sign in
+  if (activeBlocks.length === 0) {
+    // Clean up stale blocking records in the background
+    if (user.blocked.length > 0) {
+      usersCollection()
+        .updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: { blocked: activeBlocks, updatedAt: new Date() } }
+        )
+        .catch(() => {});
+    }
+    return { blocked: false };
+  }
+
+  // Check if user has at least one org they're NOT blocked from
+  const blockedOrgIds = new Set(activeBlocks.map((b) => b.orgId));
+  const hasAccessibleOrg = memberships.some((m) => !blockedOrgIds.has(m.orgId));
+
+  if (hasAccessibleOrg) {
+    // User can access at least one org = allow sign in
+    // Clean up stale blocks in the background
+    usersCollection()
+      .updateOne(
+        { _id: new ObjectId(userId) },
+        { $set: { blocked: activeBlocks, updatedAt: new Date() } }
+      )
+      .catch(() => {});
+    return { blocked: false };
+  }
+
+  // User is blocked from ALL their orgs
+  const reasons = activeBlocks.map((b) => b.reason).filter(Boolean);
+  const message =
+    reasons.length > 0
+      ? `Your account has been suspended: ${reasons[0]}`
+      : "Your account has been suspended from all organizations";
+
+  return { blocked: true, message };
+}
 
 // TimeHarbor is the only registered OAuth client (trusted — skips consent).
 const TIMEHARBOR_CLIENT_ID = process.env.TIMEHARBOR_CLIENT_ID ?? "timeharbor";
@@ -93,12 +172,34 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
+        before: async (user) => {
+          // Prevent signup with a blocked email
+          const existingUser = await usersCollection().findOne(
+            { email: user.email.toLowerCase() },
+            { projection: { blocked: 1 } }
+          );
+
+          if (existingUser?.blocked && existingUser.blocked.length > 0) {
+            throw new Error("This email address cannot be used to create an account");
+          }
+        },
         after: async (user) => {
           try {
             await teamService.ensurePersonalWorkspace(user.id);
           } catch (err) {
             // Non-fatal — the user can still sign in; personal org is idempotent.
             console.error("[auth] Failed to bootstrap personal workspace for", user.id, err);
+          }
+        },
+      },
+    },
+    session: {
+      create: {
+        before: async (session) => {
+          // Check if user is blocked from all organizations before creating session
+          const result = await checkUserBlocking(session.userId);
+          if (result.blocked) {
+            throw new Error(result.message || "Account suspended");
           }
         },
       },
