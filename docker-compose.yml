@@ -1,12 +1,22 @@
 services:
   mongodb:
     image: mongo:8
+    # Single-node replica set so Meteor can tail the oplog for reactive publications.
+    command: ['mongod', '--replSet', 'rs0', '--bind_ip_all']
     ports:
       - '27017:27017'
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      # Initiates the replica set on first run; afterwards just reports health.
+      test:
+        [
+          'CMD',
+          'mongosh',
+          '--quiet',
+          '--eval',
+          "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }).ok }",
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -41,8 +51,13 @@ services:
       - root_nm:/app/node_modules
       - backend_nm:/app/backend/node_modules
     environment:
-      - MONGODB_URI=mongodb://mongodb:27017/timehuddle
+      # directConnection: the replica-set member advertises localhost:27017 (host-friendly),
+      # so containers must skip topology discovery and connect to the seed directly.
+      - MONGODB_URI=mongodb://mongodb:27017/timehuddle?directConnection=true
       - PORT=4000
+      # M1 clock cutover: Meteor runs the Agenda clock processor now, so the
+      # Fastify processor stays OFF to avoid double-processing shared jobs.
+      - FASTIFY_AGENDA_ENABLED=false
       - BETTER_AUTH_URL=http://localhost:4000
       - APP_URL=http://localhost:3000
       - TRUSTED_ORIGINS=http://localhost:3000,http://localhost:8080
@@ -59,6 +74,45 @@ services:
       mongodb:
         condition: service_healthy
 
+  # Meteor 3 backend (meteor-wormhole REST/MCP bridge) — runs alongside the
+  # Fastify backend during the migration. Custom image because Meteor can't run
+  # on the node:24-alpine base the other services use (see Dockerfile.dev).
+  meteor-backend:
+    build:
+      context: ./meteor-backend
+      dockerfile: Dockerfile.dev
+    working_dir: /app/meteor-backend
+    command: sh -c "npm install && meteor run --allow-superuser --port 3100"
+    ports:
+      - '3100:3100'
+    volumes:
+      - .:/app
+      # Shadow host (macOS) build artifacts with Linux-native ones.
+      - meteor_nm:/app/meteor-backend/node_modules
+      - meteor_local:/app/meteor-backend/.meteor/local
+    environment:
+      # meteor-wormhole lives in vendor/, resolved relative to this working_dir.
+      - METEOR_PACKAGE_DIRS=../vendor/meteor-wormhole/packages
+      - METEOR_ALLOW_SUPERUSER=true
+      # directConnection: the rs0 member advertises localhost; containers must
+      # connect to the seed directly and tail the oplog from the `local` db.
+      - MONGO_URL=mongodb://mongodb:27017/timehuddle?directConnection=true
+      - MONGO_OPLOG_URL=mongodb://mongodb:27017/local?directConnection=true
+      # Allowed CORS origins for the /api REST bridge (the Vite frontend).
+      - CORS_ORIGINS=http://localhost:3000
+      # M1 clock cutover: Meteor owns clock processing (Agenda reminders /
+      # auto-clockout). Fastify's processor is disabled (see backend service).
+      - METEOR_AGENDA_ENABLED=true
+      - AUTH_FASTIFY_URL=http://backend:4000
+      - AUTH_JWKS_URL=http://backend:4000/api/auth/jwks
+      - UPLOADS_DIR=/app/backend/uploads
+    env_file:
+      - path: ./meteor-backend/.env.local
+        required: false
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
   frontend:
     image: node:24-alpine
     working_dir: /app
@@ -70,6 +124,11 @@ services:
       - frontend_nm:/app/node_modules
     environment:
       - API_TARGET=http://backend:4000
+      # Base URL the SPA uses to reach the Meteor backend (browser-side origin).
+      - VITE_METEOR_URL=http://localhost:3100
+      # Comma-separated social sign-in buttons to show on the login form.
+      # Options: github, google, apple, authentik (each also needs backend creds).
+      - VITE_SOCIAL_PROVIDERS=github
     depends_on:
       - backend
 
@@ -78,3 +137,5 @@ volumes:
   root_nm:
   backend_nm:
   frontend_nm:
+  meteor_nm:
+  meteor_local:

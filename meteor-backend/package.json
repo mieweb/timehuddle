@@ -1,0 +1,39 @@
+{
+  "name": "meteor-backend",
+  "private": true,
+  "scripts": {
+    "start": "MONGO_URL=\"mongodb://localhost:27017/timeharbor?directConnection=true&replicaSet=rs0\" MONGO_OPLOG_URL=\"mongodb://localhost:27017/local?directConnection=true&replicaSet=rs0\" METEOR_AGENDA_ENABLED=\"${METEOR_AGENDA_ENABLED:-true}\" METEOR_PACKAGE_DIRS=../vendor/meteor-wormhole/packages meteor run --port 3100",
+    "test": "meteor test --once --driver-package meteortesting:mocha",
+    "test:integration": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@agendajs/mongo-backend": "^4.0.2",
+    "@babel/runtime": "^7.23.5",
+    "@casl/ability": "^6.8.1",
+    "@parse/node-apn": "^8.1.0",
+    "@swc/helpers": "^0.5.17",
+    "@tus/file-store": "^2.1.0",
+    "@tus/server": "^2.4.1",
+    "agenda": "^6.2.5",
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.3",
+    "busboy": "^1.6.0",
+    "firebase-admin": "^14.0.0",
+    "jose": "^6.2.3",
+    "lodash.throttle": "^4.1.1",
+    "meteor-node-stubs": "^1.2.12",
+    "nodemailer": "^8.0.11",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "mongodb": "^6.12.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.9"
+  },
+  "meteor": {
+    "mainModule": {
+      "server": "server/main.js"
+    },
+    "modern": true
+  }
+}

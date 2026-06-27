@@ -117,7 +117,7 @@ function emailsToIds(emails: string[], userIdsByEmail: Map<string, string>): str
   );
 }
 
-async function upsertSeedTeam(team: TeamSeed, userIdsByEmail: Map<string, string>) {
+async function upsertSeedTeam(team: TeamSeed, userIdsByEmail: Map<string, string>, orgId: string) {
   const memberIds = emailsToIds(team.members, userIdsByEmail);
   const adminIds = emailsToIds(team.admins, userIdsByEmail).filter((id) => memberIds.includes(id));
 
@@ -131,6 +131,7 @@ async function upsertSeedTeam(team: TeamSeed, userIdsByEmail: Map<string, string
   if (!existing) {
     await teamsCollection().insertOne({
       _id: new ObjectId(),
+      orgId,
       name: team.name,
       description: team.description,
       members: memberIds,
@@ -147,6 +148,7 @@ async function upsertSeedTeam(team: TeamSeed, userIdsByEmail: Map<string, string
     { _id: existing._id },
     {
       $set: {
+        orgId,
         description: team.description,
         code: team.code,
         updatedAt: new Date(),
@@ -354,6 +356,7 @@ async function seedTickets(
       continue;
     }
     const id = new ObjectId();
+    const assignedToId = t.assignedTo ? userIdsByEmail.get(t.assignedTo) : undefined;
     await ticketsCollection().insertOne({
       _id: id,
       teamId,
@@ -362,7 +365,7 @@ async function seedTickets(
       status: t.status,
       priority: t.priority,
       createdBy,
-      assignedTo: t.assignedTo ? (userIdsByEmail.get(t.assignedTo) ?? null) : null,
+      assignedTo: assignedToId ? [assignedToId] : [],
       createdAt: new Date(),
     });
     ticketIdsByTitle.set(t.title, id.toHexString());
@@ -1147,7 +1150,7 @@ async function seed() {
   }
 
   for (const team of SEED_TEAMS) {
-    await upsertSeedTeam(team, userIdsByEmail);
+    await upsertSeedTeam(team, userIdsByEmail, defaultOrgId);
   }
 
   // Build team name → id map for downstream seeders

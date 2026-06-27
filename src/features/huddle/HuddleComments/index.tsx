@@ -101,8 +101,10 @@ export function HuddleComments({
   async function loadComments() {
     try {
       setLoading(true);
-      const data = await huddleApi.getComments(postId);
-      setComments(data);
+      const result = await huddleApi.getComments(postId);
+      // Normalize result shape: handle both { comments: [...] } and [...]
+      const comments = Array.isArray(result) ? result : (result?.comments ?? []);
+      setComments(comments);
     } catch (error) {
       console.error('[HuddleComments] Failed to load comments:', error);
     } finally {

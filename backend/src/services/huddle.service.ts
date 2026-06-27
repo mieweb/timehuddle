@@ -11,6 +11,7 @@ import {
   enterprisesCollection,
   profilesCollection,
 } from "../models/index.js";
+import { toId } from "../lib/toId.js";
 import { buildAbilityFor } from "../lib/permissions.js";
 import type { HuddlePost } from "../models/huddle-post.model.js";
 import type { HuddleComment, PublicHuddleComment } from "../models/huddle-comment.model.js";
@@ -378,7 +379,7 @@ export class HuddleService {
     }
 
     // Send notifications
-    const commenter = await usersCollection().findOne({ _id: new ObjectId(data.userId) });
+    const commenter = await usersCollection().findOne({ _id: toId(data.userId) as any });
     const commenterName = commenter?.name || "Someone";
 
     // Notify post author (if not the commenter)
@@ -440,7 +441,7 @@ export class HuddleService {
     // Enrich with user data
     const publicComments: PublicHuddleComment[] = await Promise.all(
       comments.map(async (comment) => {
-        const user = await usersCollection().findOne({ _id: new ObjectId(comment.userId) });
+        const user = await usersCollection().findOne({ _id: toId(comment.userId) as any });
         const userName = user?.name || "Unknown User";
         const userInitials = this.getUserInitials(userName);
 

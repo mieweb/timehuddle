@@ -4,7 +4,8 @@ import { PostCard } from '../features/huddle/PostCard';
 import type { ComposerContent } from '../features/huddle/types';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
-import { huddleApi, teamApi, type HuddlePost, type Team } from '@lib/api';
+import { teamApi, type HuddlePost, type Team } from '@lib/api';
+import { getDdpClient } from '@lib/ddp';
 
 function getUserInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -57,86 +58,43 @@ export default function Huddle() {
     loadTeam();
   }, [selectedTeamId]);
 
-  // Load posts on mount or when team changes
+  // Subscribe to live DDP publication for huddle posts
   useEffect(() => {
-    async function loadPosts() {
-      if (!selectedTeamId) {
-        setPosts([]);
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-        const apiPosts = await huddleApi.getPosts(selectedTeamId);
-        setPosts(apiPosts);
-      } catch (err) {
-        console.error('[Huddle] Failed to load posts:', err);
-        setError('Failed to load posts');
-        setPosts([]);
-      } finally {
-        setLoading(false);
-      }
+    if (!selectedTeamId) {
+      setPosts([]);
+      setLoading(false);
+      return;
     }
 
-    loadPosts();
-  }, [selectedTeamId]);
+    setLoading(true);
+    setError(null);
 
-  // WebSocket for real-time updates
-  useEffect(() => {
-    if (!selectedTeamId) return;
+    const ddp = getDdpClient();
+    const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId], () => setLoading(false));
 
-    const ws = huddleApi.openLiveStream(selectedTeamId);
+    // Helper to sync collection → state
+    function syncPosts() {
+      const docs = ddp.docs('huddlePosts');
+      const teamPosts = docs
+        .filter((p) => p.teamId === selectedTeamId)
+        .sort((a, b) => new Date(b.createdAt as string).getTime() - new Date(a.createdAt as string).getTime())
+        .map((p) => ({ ...p, id: (p.id ?? p._id) as string }));
+      setPosts(teamPosts as HuddlePost[]);
+    }
 
-    ws.onmessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data as string);
+    // Sync immediately in case data is already cached
+    syncPosts();
 
-        if (data.type === 'snapshot') {
-          // Initial snapshot - replace all posts
-          console.log('[Huddle] Received snapshot:', data.posts.length, 'posts');
-          if (data.posts.length > 0) {
-            console.log('[Huddle] First post sample:', data.posts[0]);
-          }
-          setPosts(data.posts);
-        } else if (data.type === 'create') {
-          // New post created
-          console.log('[Huddle] Received create event:', data.post);
-          setPosts((prev) => {
-            const existing = prev.findIndex((p) => p.id === data.post.id);
-            if (existing >= 0) {
-              // Update existing post
-              const updated = [...prev];
-              updated[existing] = data.post;
-              return updated;
-            }
-            // Add new post
-            return [data.post, ...prev];
-          });
-        } else if (data.type === 'update') {
-          // Post updated (e.g., comment count changed)
-          console.log('[Huddle] Received update event:', data.post);
-          setPosts((prev) => {
-            const existing = prev.findIndex((p) => p.id === data.post.id);
-            if (existing >= 0) {
-              const updated = [...prev];
-              updated[existing] = data.post;
-              return updated;
-            }
-            return prev;
-          });
-        } else if (data.type === 'delete') {
-          // Post deleted
-          setPosts((prev) => prev.filter((p) => p.id !== data.postId));
-        }
-      } catch (err) {
-        console.error('[Huddle] WebSocket message error:', err);
-      }
-    };
+    // Then keep syncing on every change
+    const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
+
+    const loadingFallback = setTimeout(() => setLoading(false), 3000);
 
     return () => {
-      ws.close();
+      clearTimeout(loadingFallback);
+      unsub();
+      offChange();
+      setPosts([]);
     };
   }, [selectedTeamId]);
 
@@ -173,33 +131,18 @@ export default function Huddle() {
       // Extract user IDs from mentions
       const mentionUserIds = (content.mentions || []).map((m) => m.userId);
 
-      // Call API to create post
-      await huddleApi.createPost({
+      // Call DDP method to create post
+      await getDdpClient().call('huddle.createPost', {
         teamId: selectedTeamId,
-        content: {
-          text: content.text,
-          mentions: mentionUserIds,
-        },
+        content: { text: content.text, mentions: mentionUserIds },
         ticketId: content.ticketId,
         attachments,
       });
 
-      // WebSocket will add the post to the feed automatically
+      // DDP subscription will automatically reflect the new post
     } catch (error) {
       console.error('[Huddle] Error in addPost:', error);
       alert('Failed to create post. Please try again.');
-    }
-  }
-
-  async function handlePostUpdated() {
-    // Reload posts after update/delete
-    if (selectedTeamId) {
-      try {
-        const apiPosts = await huddleApi.getPosts(selectedTeamId);
-        setPosts(apiPosts);
-      } catch (err) {
-        console.error('[Huddle] Failed to reload posts:', err);
-      }
     }
   }
 
@@ -363,7 +306,6 @@ export default function Huddle() {
                     currentUserId={user?.id ?? ''}
                     canEdit={canEditPost(post)}
                     canDelete={canDeletePost(post)}
-                    onPostUpdated={handlePostUpdated}
                   />
                 ))}
           </>

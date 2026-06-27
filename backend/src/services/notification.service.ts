@@ -1,5 +1,6 @@
 import { ObjectId } from "mongodb";
 import { notificationsCollection, teamsCollection, usersCollection } from "../models/index.js";
+import { toId } from "../lib/toId.js";
 import type { Notification, PublicNotification } from "../models/notification.model.js";
 import { pushService } from "./push.service.js";
 import { teamJoinRequestService } from "./team-join-request.service.js";
@@ -248,7 +249,7 @@ class NotificationService {
     const team = await teamsCollection().findOne({ _id: new ObjectId(request.teamId) });
     if (!team) return "not-found";
 
-    const requester = await usersCollection().findOne({ _id: new ObjectId(request.userId) });
+    const requester = await usersCollection().findOne({ _id: toId(request.userId) as any });
 
     return {
       notificationId,

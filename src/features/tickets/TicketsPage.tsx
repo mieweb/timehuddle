@@ -60,6 +60,7 @@ import {
   type Ticket,
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
+import { getDdpClient, ddpDocToTicket } from '../../lib/ddp';
 import { useSession } from '../../lib/useSession';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -518,6 +519,8 @@ export const TicketsPage: React.FC = () => {
 
   // Fetch today's timer to determine if any ticket has a running timer
   const fetchRunningTimer = useCallback(async () => {
+    // Wait for token to be available before fetching
+    if (!localStorage.getItem('meteor_resume_token')) return;
     try {
       const dayEntries = await timerApi.getToday();
       const running = dayEntries.flatMap((de) => de.sessions).find((t) => !t.endTime);
@@ -555,49 +558,32 @@ export const TicketsPage: React.FC = () => {
     [teams],
   );
 
-  // Real-time WebSocket connection for ticket updates
+  // Real-time updates via Meteor DDP (oplog-backed publication `tickets.byTeam`).
+  // Replaces the hand-rolled /v1/tickets/ws WebSocket: any write to the shared
+  // Mongo (Fastify REST, Meteor methods, wormhole REST, MCP agents) is pushed
+  // here automatically — no broadcast code on any server.
   useEffect(() => {
     if (!teamIdsKey || !userId) return;
 
     const teamIds = teamIdsKey.split(',');
-    const ws = ticketApi.openLiveStream(teamIds);
+    const ddp = getDdpClient();
 
-    ws.onmessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
+    const offChange = ddp.onCollectionChange('tickets', () => {
+      const liveDocs = ddp.docs('tickets').map(ddpDocToTicket);
+      const liveIds = new Set(liveDocs.map((t) => t.id));
+      const subscribedTeams = new Set(teamIds);
+      setTickets((prev) => [
+        // Keep tickets outside the subscription (other teams) untouched;
+        // drop subscribed-team tickets that the live set no longer contains.
+        ...prev.filter((t) => !subscribedTeams.has(t.teamId) && !liveIds.has(t.id)),
+        ...liveDocs,
+      ]);
+    });
+    const unsubscribe = ddp.subscribe('tickets.byTeam', [teamIds]);
 
-        if (data.type === 'snapshot') {
-          // Initial snapshot for a single team — merge with existing tickets
-          const newTickets = data.tickets as Ticket[];
-          setTickets((prev) => {
-            // Remove tickets from this team, then add the snapshot
-            const filtered = prev.filter((t) => t.teamId !== data.teamId);
-            return [...filtered, ...newTickets];
-          });
-        } else if (data.type === 'update') {
-          // Real-time ticket update — upsert by id
-          const updatedTicket = data.ticket as Ticket;
-          setTickets((prev) => {
-            const idx = prev.findIndex((t) => t.id === updatedTicket.id);
-            if (idx >= 0) {
-              const copy = [...prev];
-              copy[idx] = updatedTicket;
-              return copy;
-            }
-            return [...prev, updatedTicket];
-          });
-        } else if (data.type === 'delete') {
-          // Ticket deleted — remove from state
-          setTickets((prev) => prev.filter((t) => t.id !== data.ticketId));
-        }
-      } catch (err) {
-        console.warn('Failed to parse tickets WebSocket message:', err);
-      }
-    };
-
-    // Cleanup: close WebSocket when teams change or component unmounts
     return () => {
-      ws.close();
+      offChange();
+      unsubscribe();
     };
   }, [teamIdsKey, userId]);
 

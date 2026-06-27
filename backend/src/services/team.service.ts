@@ -1,6 +1,7 @@
 import { ObjectId } from "mongodb";
 import { getDB } from "../lib/db.js";
 import { organizationsCollection, teamsCollection, usersCollection } from "../models/index.js";
+import { toId } from "../lib/toId.js";
 import type { Team } from "../models/team.model.js";
 import { channelService } from "./channel.service.js";
 import { orgService } from "./org.service.js";
@@ -267,9 +268,9 @@ export class TeamService {
     if (!team) return "not-found";
 
     const allIds = Array.from(new Set([...team.members, ...team.admins]));
-    const objectIds = allIds.map((id) => new ObjectId(id));
+    const objectIds = allIds.map((id) => toId(id));
     const users = await usersCollection()
-      .find({ _id: { $in: objectIds } })
+      .find({ _id: { $in: objectIds as any } })
       .toArray();
     const byId = new Map(users.map((u) => [u._id.toString(), u]));
 

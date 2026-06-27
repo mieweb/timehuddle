@@ -1,0 +1,13 @@
+# Test configuration files
+vitest.config.ts
+vitest.config.js
+
+# Test files
+**/*.test.ts
+**/*.test.js
+**/*.spec.ts
+**/*.spec.js
+
+# Test directories
+tests/
+__tests__/

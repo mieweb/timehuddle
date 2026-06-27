@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { ObjectId } from "mongodb";
 import { requireAuth } from "../middleware/require-auth.js";
+import { verifyWsToken } from "../lib/ws-auth.js";
 import { ticketsCollection } from "../models/index.js";
 import {
   timerService,
@@ -9,7 +10,6 @@ import {
   toUtcDateKey,
   subscribeToTimerUpdates,
 } from "../services/timer.service.js";
-import { auth } from "../lib/auth.js";
 
 // ─── Response shapes ──────────────────────────────────────────────────────────
 
@@ -659,17 +659,16 @@ export async function timerRoutes(app: FastifyInstance) {
       const { token: queryToken } = req.query as { token?: string };
 
       // Auth: accept Bearer token from query param (Capacitor) or cookie
-      const headers: Record<string, string> = { ...(req.headers as any) };
-      if (queryToken) headers["authorization"] = `Bearer ${queryToken}`;
-      const session = await auth.api.getSession({ headers });
+      const rawToken = queryToken ?? req.headers["authorization"]?.replace(/^bearer /i, "");
+      const wsUser = await verifyWsToken(rawToken);
 
-      if (!session?.user) {
+      if (!wsUser) {
         console.log("[timers/ws] Unauthorized connection attempt");
         socket.close(4001, "Unauthorized");
         return;
       }
 
-      const userId = session.user.id;
+      const userId = wsUser.id;
       console.log(`[timers/ws] User ${userId} connected`);
 
       // Subscribe to timer updates for this user

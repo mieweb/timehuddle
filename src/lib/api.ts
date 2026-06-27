@@ -4,7 +4,8 @@
  * Base URL is read from the VITE_TIMECORE_URL env var (set in .env),
  * falling back to localhost:4000 for local development.
  */
-import { autoReconnectWs, type AutoReconnectWs } from './autoReconnectWs.js';
+// autoReconnectWs removed - no longer needed after migrating tickets to wormhole
+import { getDdpClient } from './ddp.js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -14,6 +15,12 @@ export const TIMECORE_BASE_URL: string =
   'http://localhost:4000';
 
 const WS_BASE_URL = TIMECORE_BASE_URL.replace(/^http/, 'ws');
+
+/** Meteor backend (wormhole REST + DDP) base URL. */
+export const METEOR_BASE_URL: string =
+  (typeof import.meta !== 'undefined' &&
+    (import.meta as { env?: Record<string, string> }).env?.VITE_METEOR_URL) ||
+  'http://localhost:3100';
 
 const FORCED_TIMEZONE: string | undefined =
   (typeof import.meta !== 'undefined' &&
@@ -74,7 +81,8 @@ export interface PublicUser {
 
 function toAbsoluteUrl(url: string | null): string | null {
   if (!url || /^https?:\/\//i.test(url)) return url;
-  return `${TIMECORE_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+  const base = url.startsWith('/uploads/') ? METEOR_BASE_URL : TIMECORE_BASE_URL;
+  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
 function withAbsoluteImage(user: PublicUser): PublicUser {
@@ -105,12 +113,69 @@ export const sessionToken = {
   clear: () => localStorage.removeItem(TOKEN_KEY),
 };
 
+// ─── JWT access token (stateless auth for the Meteor backend) ──────────────────────
+
+let cachedJwt: { token: string; exp: number } | null = null;
+let jwtFetch: Promise<string | null> | null = null;
+
+/** Decode the `exp` claim (seconds since epoch) from a JWT, or 0 on failure. */
+export function decodeJwtExp(token: string): number {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return typeof payload.exp === 'number' ? payload.exp : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Get a short-lived JWT access token from better-auth (`GET /api/auth/token`),
+ * cached until ~60s before expiry. Falls back to Meteor resume token when no
+ * Fastify session is available. Returns null when signed out.
+ */
+export async function getAccessToken(): Promise<string | null> {
+  // First try cached JWT (still valid for Fastify sessions)
+  if (cachedJwt && cachedJwt.exp * 1000 - Date.now() > 60_000) return cachedJwt.token;
+
+  // Fall back to Meteor resume token for Meteor-authenticated users
+  const meteorToken = localStorage.getItem('meteor_resume_token');
+  if (meteorToken) return meteorToken;
+
+  // Try Fastify JWT if we have a session token
+  const session = sessionToken.get();
+  if (!session) return null;
+
+  jwtFetch ??= (async () => {
+    try {
+      const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/token`, {
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${session}` },
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { token?: string };
+      if (!data.token) return null;
+      cachedJwt = { token: data.token, exp: decodeJwtExp(data.token) };
+      return data.token;
+    } catch {
+      return null;
+    } finally {
+      jwtFetch = null;
+    }
+  })();
+  return jwtFetch;
+}
+
+/** Drop the cached JWT (on sign-out). */
+export function clearAccessToken(): void {
+  cachedJwt = null;
+}
+
 // ─── Base request ─────────────────────────────────────────────────────────────
 
 async function request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const hasBody = options.body != null;
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  const token = sessionToken.get();
+  const token = await getAccessToken();
   const controller = new AbortController();
   const timeoutId = setTimeout(
     () =>
@@ -165,48 +230,6 @@ async function timedFetch(url: string, options: RequestInit = {}): Promise<Respo
 }
 
 export const authApi = {
-  /** Sign in — stores session token from `set-auth-token` header (better-auth bearer plugin). */
-  signIn: async (email: string, password: string) => {
-    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/email`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new Error(
-        (body.message as string | undefined) ??
-          (body.error as string | undefined) ??
-          `HTTP ${res.status}`,
-      );
-    }
-    const token = res.headers.get('set-auth-token');
-    if (token) sessionToken.set(token);
-    return res.json();
-  },
-
-  /** Sign up — stores session token from `set-auth-token` header (better-auth bearer plugin). */
-  signUp: async (email: string, password: string, name: string) => {
-    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/sign-up/email`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name }),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new Error(
-        (body.message as string | undefined) ??
-          (body.error as string | undefined) ??
-          `HTTP ${res.status}`,
-      );
-    }
-    const token = res.headers.get('set-auth-token');
-    if (token) sessionToken.set(token);
-    return res.json();
-  },
-
   /** Dev-only sign-in used by the login probe. */
   devMemberSignIn: async (
     domain: 'enterprise' | 'organization' = 'organization',
@@ -233,15 +256,41 @@ export const authApi = {
   },
 
   /**
-   * Initiate a social OAuth sign-in (e.g. GitHub).
+   * Initiate a social OAuth sign-in (GitHub / Google / Apple).
    * Returns the provider redirect URL; caller should set window.location.href to it.
    */
-  signInWithSocial: async (provider: 'github' | 'google', callbackURL: string): Promise<string> => {
+  signInWithSocial: async (
+    provider: 'github' | 'google' | 'apple',
+    callbackURL: string,
+  ): Promise<string> => {
     const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/social`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ provider, callbackURL }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+      );
+    }
+    const data = (await res.json()) as { url: string };
+    return data.url;
+  },
+
+  /**
+   * Initiate a generic OAuth2 / OIDC sign-in (e.g. Authentik) via the
+   * better-auth `genericOAuth` plugin. Returns the provider redirect URL.
+   */
+  signInWithOAuth2: async (providerId: string, callbackURL: string): Promise<string> => {
+    const res = await fetch(`${TIMECORE_BASE_URL}/api/auth/sign-in/oauth2`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerId, callbackURL }),
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -273,34 +322,21 @@ export const authApi = {
   },
 
   /** List auth providers linked to the current account. */
-  listAccounts: (): Promise<AuthAccount[]> => request<AuthAccount[]>('/api/auth/list-accounts'),
+  listAccounts: async (): Promise<AuthAccount[]> => {
+    try {
+      return await request<AuthAccount[]>('/api/auth/list-accounts');
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return [];
+      throw err;
+    }
+  },
 
   /** Sign out — clears better-auth session cookie and stored token. */
   signOut: async () => {
     await request('/api/auth/sign-out', { method: 'POST' }).catch(() => {});
     sessionToken.clear();
+    clearAccessToken();
   },
-
-  /**
-   * Request a password-reset email.
-   * @param redirectTo - URL to include in the email link as the callbackURL.
-   *                     better-auth will append ?token=TOKEN before redirecting.
-   */
-  requestPasswordReset: (email: string, redirectTo: string) =>
-    request('/api/auth/request-password-reset', {
-      method: 'POST',
-      body: JSON.stringify({ email, redirectTo }),
-    }),
-
-  /**
-   * Reset password using the token from the reset-password email.
-   * @param token - from the ?token= query param on the reset-password landing page.
-   */
-  resetPassword: (token: string, newPassword: string) =>
-    request('/api/auth/reset-password', {
-      method: 'POST',
-      body: JSON.stringify({ token, newPassword }),
-    }),
 
   /**
    * Fetch the currently authenticated user.
@@ -326,107 +362,79 @@ export const authApi = {
 // ─── User API ─────────────────────────────────────────────────────────────────
 
 export const userApi = {
-  /** Upload a new avatar image for the current user (multipart/form-data). Returns { avatarUrl }. */
   uploadAvatar: async (blob: Blob): Promise<{ avatarUrl: string }> => {
     const formData = new FormData();
     formData.append('avatar', blob, 'avatar.png');
-    const token = sessionToken.get();
-    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/avatar`, {
+    const token = await getAccessToken();
+    const res = await fetch(`${METEOR_BASE_URL}/api/me/avatar`, {
       method: 'POST',
-      credentials: 'include',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new ApiError(
-        (body.message as string | undefined) ??
-          (body.error as string | undefined) ??
-          `HTTP ${res.status}`,
-        res.status,
-      );
+      throw new ApiError((body.error as string) ?? `HTTP ${res.status}`, res.status);
     }
     const data = (await res.json()) as { avatarUrl: string };
     return { avatarUrl: toAbsoluteUrl(data.avatarUrl) as string };
   },
-  /** Delete the current user's avatar. */
 
   deleteAvatar: async (): Promise<void> => {
-    const token = sessionToken.get();
-    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/avatar`, {
+    const token = await getAccessToken();
+    const res = await fetch(`${METEOR_BASE_URL}/api/me/avatar`, {
       method: 'DELETE',
-      credentials: 'include',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
     if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
   },
-  /** Upload a new background image for the current user (multipart/form-data). Returns { backgroundUrl }. */
+
   uploadBackground: async (blob: Blob): Promise<{ backgroundUrl: string }> => {
     const formData = new FormData();
     formData.append('background', blob, 'background.jpg');
-    const token = sessionToken.get();
-    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/background`, {
+    const token = await getAccessToken();
+    const res = await fetch(`${METEOR_BASE_URL}/api/me/background`, {
       method: 'POST',
-      credentials: 'include',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new ApiError(
-        (body.message as string | undefined) ??
-          (body.error as string | undefined) ??
-          `HTTP ${res.status}`,
-        res.status,
-      );
+      throw new ApiError((body.error as string) ?? `HTTP ${res.status}`, res.status);
     }
-    const result = (await res.json()) as { backgroundUrl: string };
-    return {
-      backgroundUrl: `${TIMECORE_BASE_URL}${result.backgroundUrl.startsWith('/') ? '' : '/'}${result.backgroundUrl}`,
-    };
+    const data = (await res.json()) as { backgroundUrl: string };
+    return { backgroundUrl: toAbsoluteUrl(data.backgroundUrl) as string };
   },
-  /** Delete the current user's background image. */
+
   deleteBackground: async (): Promise<void> => {
-    const token = sessionToken.get();
-    const res = await fetch(`${TIMECORE_BASE_URL}/v1/me/background`, {
+    const token = await getAccessToken();
+    const res = await fetch(`${METEOR_BASE_URL}/api/me/background`, {
       method: 'DELETE',
-      credentials: 'include',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
     if (!res.ok) throw new ApiError(`HTTP ${res.status}`, res.status);
   },
-  /** Get a single user's public profile by ID. */
   getUser: (id: string) =>
-    request<{ user: PublicUser }>(`/v1/users/${encodeURIComponent(id)}`).then((r) =>
+    wormholeCall<{ user: PublicUser }>('users.get', { userId: id }).then((r) =>
       withAbsoluteImage(r.user),
     ),
 
-  /** Get a single user's public profile by username (requires auth). */
   getUserByUsername: (username: string) =>
-    request<{ user: PublicUser }>(`/v1/users/by/username/${encodeURIComponent(username)}`).then(
-      (r) => withAbsoluteImage(r.user),
+    wormholeCall<{ user: PublicUser }>('users.getByUsername', { username }).then((r) =>
+      withAbsoluteImage(r.user),
     ),
 
-  /** Batch-fetch public profiles by ID list (server caps at 200). */
   getUsers: (ids: string[]) =>
-    request<{ users: PublicUser[] }>(`/v1/users?ids=${ids.map(encodeURIComponent).join(',')}`).then(
-      (r) => r.users.map(withAbsoluteImage),
+    wormholeCall<{ users: PublicUser[] }>('users.batchGet', { ids }).then((r) =>
+      r.users.map(withAbsoluteImage),
     ),
 
-  /** Update the current user's profile fields. */
   updateProfile: (data: {
     name?: string;
     image?: string | null;
     bio?: string;
     website?: string;
     reportsToUserId?: string | null;
-  }) =>
-    request<{ user: PublicUser }>('/v1/me/profile', {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }).then((r) => r.user),
+  }) => wormholeCall<{ user: PublicUser }>('users.updateProfile', data).then((r) => r.user),
 };
 
 export type DefaultOrganizationRole = 'owner' | 'admin' | 'member';
@@ -451,53 +459,44 @@ export interface AdminOrganization {
 
 export const orgAdminApi = {
   getOrganization: () =>
-    request<{ organization: AdminOrganization }>('/v1/admin/organization').then(
+    wormholeCall<{ organization: AdminOrganization }>('orgs.adminGet', {}).then(
       (r) => r.organization,
     ),
 
   updateOrganizationName: (name: string) =>
-    request<{ organization: AdminOrganization }>('/v1/admin/organization', {
-      method: 'PUT',
-      body: JSON.stringify({ name }),
-    }).then((r) => r.organization),
+    wormholeCall<{ organization: AdminOrganization }>('orgs.adminUpdate', { name }).then(
+      (r) => r.organization,
+    ),
 
   listUsers: () =>
-    request<{ users: OrganizationAdminUser[] }>('/v1/admin/organization/users').then(
+    wormholeCall<{ users: OrganizationAdminUser[] }>('orgs.adminListUsers', {}).then(
       (r) => r.users,
     ),
 
   setUserRole: (userId: string, role: DefaultOrganizationRole) =>
-    request<{ user: { id: string; role: DefaultOrganizationRole } }>(
-      `/v1/admin/organization/users/${encodeURIComponent(userId)}/role`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ role }),
-      },
-    ).then((r) => r.user),
+    wormholeCall<{ user: { id: string; role: DefaultOrganizationRole } }>('orgs.adminSetUserRole', {
+      userId,
+      role,
+    }).then((r) => r.user),
 
   updateReportsTo: (userId: string, reportsTo: string | null) =>
-    request<{ user: { id: string; reportsToUserId: string | null } }>(
-      `/v1/org/users/${encodeURIComponent(userId)}`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ reportsToUserId: reportsTo }),
-      },
-    ).then((r) => r.user),
+    wormholeCall<{ user: { id: string; reportsToUserId: string | null } }>('orgs.updateReportsTo', {
+      userId,
+      reportsToUserId: reportsTo,
+    }).then((r) => r.user),
 };
 
 // ─── Public Organization API (for all authenticated users) ──────────────────
 
 export const orgApi = {
-  checkSlugAvailability: (slug: string, excludeId?: string) => {
-    const params = new URLSearchParams({ slug });
-    if (excludeId) params.set('excludeId', excludeId);
-    return request<{ available: boolean }>(
-      `/v1/organizations/check-slug?${params.toString()}`,
-    ).then((r) => r.available);
-  },
+  checkSlugAvailability: (slug: string, excludeId?: string) =>
+    wormholeCall<{ available: boolean }>('orgs.checkSlug', {
+      slug,
+      ...(excludeId ? { excludeId } : {}),
+    }).then((r) => r.available),
 
   listOrganizations: () =>
-    request<{
+    wormholeCall<{
       organizations: Array<{
         id: string;
         enterpriseId: string | null;
@@ -506,7 +505,7 @@ export const orgApi = {
         allowAutoJoin: boolean;
         role: 'owner' | 'admin' | 'member' | null;
       }>;
-    }>('/v1/organizations').then((r) => r.organizations),
+    }>('orgs.list', {}).then((r) => r.organizations),
 
   createOrganization: (data: {
     enterpriseId: string;
@@ -514,7 +513,7 @@ export const orgApi = {
     slug?: string;
     allowAutoJoin?: boolean;
   }) =>
-    request<{
+    wormholeCall<{
       organization: {
         id: string;
         enterpriseId: string | null;
@@ -523,16 +522,13 @@ export const orgApi = {
         allowAutoJoin: boolean;
         role: 'owner' | 'admin' | 'member' | null;
       };
-    }>('/v1/organizations', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.organization),
+    }>('orgs.create', data).then((r) => r.organization),
 
   updateOrganization: (
     id: string,
     data: { name?: string; slug?: string; allowAutoJoin?: boolean },
   ) =>
-    request<{
+    wormholeCall<{
       organization: {
         id: string;
         enterpriseId: string | null;
@@ -541,13 +537,10 @@ export const orgApi = {
         allowAutoJoin: boolean;
         role: 'owner' | 'admin' | 'member' | null;
       };
-    }>(`/v1/organizations/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }).then((r) => r.organization),
+    }>('orgs.update', { orgId: id, ...data }).then((r) => r.organization),
 
   getOrganizationById: (id: string) =>
-    request<{
+    wormholeCall<{
       organization: {
         id: string;
         enterpriseId: string | null;
@@ -557,88 +550,78 @@ export const orgApi = {
         role: 'owner' | 'admin' | 'member' | null;
         canManage: boolean;
       };
-    }>(`/v1/organizations/${encodeURIComponent(id)}`).then((r) => r.organization),
+    }>('orgs.get', { orgId: id }).then((r) => r.organization),
 
   updateSettings: (id: string, allowAutoJoin: boolean) =>
-    request<{ organization: { orgId: string; allowAutoJoin: boolean } }>(
-      `/v1/organizations/${encodeURIComponent(id)}/settings`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ allowAutoJoin }),
-      },
+    wormholeCall<{ organization: { orgId: string; allowAutoJoin: boolean } }>(
+      'orgs.updateSettings',
+      { orgId: id, allowAutoJoin },
     ).then((r) => r.organization),
 
   joinOrganization: (id: string) =>
-    request<{ membership: { orgId: string; role: 'owner' | 'admin' | 'member' } }>(
-      `/v1/organizations/${encodeURIComponent(id)}/join`,
-      { method: 'POST' },
+    wormholeCall<{ membership: { orgId: string; role: 'owner' | 'admin' | 'member' } }>(
+      'orgs.join',
+      { orgId: id },
     ).then((r) => r.membership),
 
   listMembers: (id: string) =>
-    request<{ users: OrganizationAdminUser[] }>(
-      `/v1/organizations/${encodeURIComponent(id)}/members`,
-    ).then((r) => r.users),
+    wormholeCall<{ users: OrganizationAdminUser[] }>('orgs.listMembers', { orgId: id }).then(
+      (r) => r.users,
+    ),
 
   listOrganizationUsers: (id: string) =>
-    request<{ users: OrganizationAdminUser[] }>(
-      `/v1/organizations/${encodeURIComponent(id)}/users`,
-    ).then((r) => r.users),
+    wormholeCall<{ users: OrganizationAdminUser[] }>('orgs.listUsers', { orgId: id }).then(
+      (r) => r.users,
+    ),
 
   searchUsers: (id: string, q: string) =>
-    request<{ users: Array<{ id: string; name: string; username: string | null }> }>(
-      `/v1/organizations/${encodeURIComponent(id)}/users/search?q=${encodeURIComponent(q)}`,
+    wormholeCall<{ users: Array<{ id: string; name: string; username: string | null }> }>(
+      'orgs.searchUsers',
+      { orgId: id, q },
     ).then((r) => r.users),
 
   setMemberRole: (id: string, userId: string, role: DefaultOrganizationRole) =>
-    request<{ user: { userId: string; role: DefaultOrganizationRole } }>(
-      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ role }),
-      },
+    wormholeCall<{ user: { userId: string; role: DefaultOrganizationRole } }>(
+      'orgs.setMemberRole',
+      { orgId: id, userId, role },
     ).then((r) => r.user),
 
   removeMember: (id: string, userId: string) =>
-    request<{ user: { userId: string } }>(
-      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
-      {
-        method: 'DELETE',
-      },
-    ).then((r) => r.user),
+    wormholeCall<{ user: { userId: string } }>('orgs.removeMember', { orgId: id, userId }).then(
+      (r) => r.user,
+    ),
 
   updateMemberReportsTo: (id: string, userId: string, reportsTo: string | null) =>
-    request<{ user: { id: string; reportsToUserId: string | null } }>(
-      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/reports-to`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ reportsToUserId: reportsTo }),
-      },
+    wormholeCall<{ user: { id: string; reportsToUserId: string | null } }>(
+      'orgs.updateMemberReportsTo',
+      { orgId: id, userId, reportsToUserId: reportsTo },
     ).then((r) => r.user),
 
   updateReportsTo: (userId: string, reportsTo: string | null) =>
-    request<{ user: { id: string; reportsToUserId: string | null } }>(
-      `/v1/org/users/${encodeURIComponent(userId)}`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ reportsToUserId: reportsTo }),
-      },
-    ).then((r) => r.user),
+    wormholeCall<{ user: { id: string; reportsToUserId: string | null } }>('orgs.updateReportsTo', {
+      userId,
+      reportsToUserId: reportsTo,
+    }).then((r) => r.user),
 
   getOrganization: () =>
-    request<{ organization: AdminOrganization }>('/v1/organization').then((r) => r.organization),
+    wormholeCall<{ organization: AdminOrganization }>('orgs.publicGet', {}).then(
+      (r) => r.organization,
+    ),
 
   listUsers: () =>
-    request<{ users: OrganizationAdminUser[] }>('/v1/organization/users').then((r) => r.users),
+    wormholeCall<{ users: OrganizationAdminUser[] }>('orgs.publicListUsers', {}).then(
+      (r) => r.users,
+    ),
 };
 
 export const enterpriseApi = {
   list: () =>
-    request<{
+    wormholeCall<{
       enterprises: Array<{ id: string; name: string; slug: string; role: 'owner' | 'admin' }>;
-    }>('/v1/enterprises').then((r) => r.enterprises),
+    }>('enterprises.list', {}).then((r) => r.enterprises),
 
   create: (data: { name: string; slug?: string }) =>
-    request<{
+    wormholeCall<{
       enterprise: {
         id: string;
         name: string;
@@ -647,13 +630,10 @@ export const enterpriseApi = {
         owners: string[];
         admins: string[];
       };
-    }>('/v1/enterprises', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.enterprise),
+    }>('enterprises.create', data).then((r) => r.enterprise),
 
   get: (id: string) =>
-    request<{
+    wormholeCall<{
       enterprise: {
         id: string;
         name: string;
@@ -668,10 +648,10 @@ export const enterpriseApi = {
           role: 'owner' | 'admin';
         }>;
       };
-    }>(`/v1/enterprises/${encodeURIComponent(id)}`).then((r) => r.enterprise),
+    }>('enterprises.get', { enterpriseId: id }).then((r) => r.enterprise),
 
   updateName: (id: string, name: string) =>
-    request<{
+    wormholeCall<{
       enterprise: {
         id: string;
         name: string;
@@ -686,38 +666,30 @@ export const enterpriseApi = {
           role: 'owner' | 'admin';
         }>;
       };
-    }>(`/v1/enterprises/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ name }),
-    }).then((r) => r.enterprise),
+    }>('enterprises.updateName', { enterpriseId: id, name }).then((r) => r.enterprise),
 
   searchUsers: (id: string, q: string) =>
-    request<{ users: Array<{ id: string; name: string; username: string | null }> }>(
-      `/v1/enterprises/${encodeURIComponent(id)}/users/search?q=${encodeURIComponent(q)}`,
+    wormholeCall<{ users: Array<{ id: string; name: string; username: string | null }> }>(
+      'enterprises.searchUsers',
+      { enterpriseId: id, q },
     ).then((r) => r.users),
 
   removeMember: (id: string, userId: string) =>
-    request<{ userId: string }>(
-      `/v1/enterprises/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
-      { method: 'DELETE' },
-    ),
+    wormholeCall<{ userId: string }>('enterprises.removeMember', { enterpriseId: id, userId }),
 
   setMemberRole: (id: string, userId: string, role: 'owner' | 'admin') =>
-    request<{ user: { userId: string; role: 'owner' | 'admin' } }>(
-      `/v1/enterprises/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({ role }),
-      },
+    wormholeCall<{ user: { userId: string; role: 'owner' | 'admin' } }>(
+      'enterprises.setMemberRole',
+      { enterpriseId: id, userId, role },
     ).then((r) => r.user),
 
   getOwnershipStatus: () =>
-    request<{ hasOwner: boolean; installCompleted: boolean }>('/v1/install-status'),
+    wormholeCall<{ hasOwner: boolean; installCompleted: boolean }>(
+      'enterprise.installStatus',
+      {},
+    ),
 
-  takeOwnership: () =>
-    request<{ role: 'owner' }>('/v1/install', {
-      method: 'POST',
-    }),
+  takeOwnership: () => wormholeCall<{ role: 'owner' }>('enterprises.takeOwnership', {}),
 };
 
 export type SeedImportPreview = {
@@ -762,25 +734,56 @@ export const seedImportApi = {
 // ─── Username API ─────────────────────────────────────────────────────────────
 
 export const usernameApi = {
-  /**
-   * Check whether a username is available.
-   * Returns { available: true } or { available: false, reason: string }.
-   */
   check: (username: string) =>
-    request<{ available: boolean; reason: string | null }>(
-      `/v1/me/username-available?username=${encodeURIComponent(username)}`,
-    ),
-
-  /**
-   * Claim a canonical username for the current user.
-   * Throws if the username is taken, invalid, or already claimed.
-   */
-  claim: (username: string) =>
-    request<{ username: string }>('/v1/me/username', {
-      method: 'POST',
-      body: JSON.stringify({ username }),
+    wormholeCall<{ available: boolean; reason?: string | null }>('users.checkUsername', {
+      username,
     }),
+
+  claim: (username: string) =>
+    wormholeCall<{ username: string }>('users.claimUsername', { username }),
 };
+
+// ─── Wormhole (Meteor REST) request ──────────────────────────────────────────
+
+/**
+ * Call a Meteor method via the wormhole REST bridge (POST /api/<name with
+ * dots→underscores>). Auth is a short-lived better-auth JWT in the
+ * Authorization header — the Meteor auth bridge verifies it against the
+ * IdP's JWKS (no shared-session coupling).
+ */
+async function wormholeCall<T = unknown>(
+  method: string,
+  params: Record<string, unknown>,
+): Promise<T> {
+  const route = method.replace(/\./g, '_');
+  
+  // Ensure DDP auth is complete before reading token
+  // This guarantees tryResumeLogin has run and updated localStorage
+  try {
+    await getDdpClient().ensureAuthed();
+  } catch {
+    // If auth fails, proceed anyway — getAccessToken will handle it
+  }
+  
+  const token = await getAccessToken();
+  const res = await fetch(`${METEOR_BASE_URL}/api/${route}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(params),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    result?: T;
+    reason?: string;
+    message?: string;
+  };
+  if (!res.ok) {
+    throw new ApiError(data.reason || data.message || `Request failed (${res.status})`, res.status);
+  }
+  return data.result as T;
+}
 
 // ─── Ticket API ───────────────────────────────────────────────────────────────
 
@@ -801,66 +804,72 @@ export interface Ticket {
   sharedWithTimeharbor?: boolean;
 }
 
+/** Normalize a wormhole ticket payload (raw Mongo doc shape) to the Ticket interface. */
+function toTicket(raw: Record<string, unknown>): Ticket {
+  const assignedTo = raw.assignedTo;
+  return {
+    id: String(raw.id ?? raw._id),
+    teamId: String(raw.teamId),
+    title: String(raw.title),
+    description: (raw.description as string | undefined) ?? null,
+    github: (raw.github as string | undefined) ?? '',
+    status: (raw.status as string | undefined) ?? 'open',
+    priority: (raw.priority as string | undefined) ?? null,
+    createdBy: String(raw.createdBy),
+    assignedTo: Array.isArray(assignedTo)
+      ? assignedTo.map(String)
+      : typeof assignedTo === 'string'
+        ? [assignedTo]
+        : [],
+    reviewedBy: (raw.reviewedBy as string | undefined) ?? null,
+    reviewedAt: (raw.reviewedAt as string | undefined) ?? null,
+    createdAt: String(raw.createdAt),
+    updatedAt: (raw.updatedAt as string | undefined) ?? null,
+    sharedWithTimeharbor: raw.sharedWithTimeharbor as boolean | undefined,
+  };
+}
+
 export const ticketApi = {
-  getTickets: (teamId: string) => {
-    console.log('[ticketApi.getTickets] Called with teamId:', teamId, 'type:', typeof teamId);
-    const url = `/v1/tickets?teamId=${encodeURIComponent(teamId)}`;
-    console.log('[ticketApi.getTickets] Request URL:', url);
-    return request<{ tickets: Ticket[] }>(url).then((r) => {
-      console.log('[ticketApi.getTickets] Response:', r);
-      return r.tickets;
-    });
-  },
+  getTickets: (teamId: string) =>
+    wormholeCall<Array<Record<string, unknown>>>('tickets.list', { teamId }).then((tickets) =>
+      tickets.map(toTicket),
+    ),
 
   getTicket: (id: string) =>
-    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`).then((r) => r.ticket),
+    wormholeCall<Record<string, unknown>>('tickets.get', { ticketId: id }).then(toTicket),
 
   createTicket: (data: { teamId: string; title: string; github?: string }) =>
-    request<{ ticket: Ticket }>('/v1/tickets', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.ticket),
+    wormholeCall<Record<string, unknown>>('tickets.create', data).then(toTicket),
 
   updateTicket: (id: string, updates: { title?: string; github?: string; description?: string }) =>
-    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    }).then((r) => r.ticket),
+    wormholeCall<Record<string, unknown>>('tickets.update', { ticketId: id, ...updates }).then(
+      toTicket,
+    ),
 
   updateStatusPriority: (id: string, updates: { status?: string; priority?: string }) =>
-    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/status-priority`, {
-      method: 'PATCH',
-      body: JSON.stringify(updates),
-    }).then((r) => r.ticket),
+    wormholeCall<Record<string, unknown>>('tickets.updateStatus', {
+      ticketId: id,
+      ...updates,
+    }).then(toTicket),
 
-  deleteTicket: (id: string) =>
-    request<{ ok: boolean }>(`/v1/tickets/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteTicket: (id: string) => wormholeCall<{ ok: boolean }>('tickets.delete', { ticketId: id }),
 
   batchUpdateStatus: (data: { ticketIds: string[]; status: string; teamId: string }) =>
-    request<{ modified: number }>('/v1/tickets/batch-status', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+    wormholeCall<{ modified: number }>('tickets.batchStatus', data),
 
+  /**
+   * Assignment runs on Meteor: it fans out in-app + push notifications to
+   * newly added assignees and emits the activity-log entry.
+   */
   assignTicket: (id: string, assignedToUserIds: string[]) =>
-    request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}/assign`, {
-      method: 'PUT',
-      body: JSON.stringify({ assignedToUserIds }),
-    }).then((r) => r.ticket),
+    wormholeCall<Record<string, unknown>>('tickets.assign', {
+      ticketId: id,
+      assignedToUserIds,
+    }).then(toTicket),
 
   /** Get total accumulated seconds for a ticket from Timers. */
   getTotal: (ticketId: string) =>
-    request<{ totalSeconds: number }>(
-      `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
-    ).then((r) => r.totalSeconds),
-
-  /** Open a WebSocket connection for live ticket updates. Auto-reconnects on drop. */
-  openLiveStream: (teamIds: string[]): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const token = sessionToken.get();
-      const base = `${WS_BASE_URL}/v1/tickets/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`;
-      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
-    }),
+    wormholeCall<{ totalSeconds: number }>('timers.getTicketTotal', { ticketId }).then((r) => r.totalSeconds),
 };
 
 // ─── Huddle API ───────────────────────────────────────────────────────────────
@@ -904,82 +913,35 @@ export interface HuddleComment {
 }
 
 export const huddleApi = {
-  /** Fetch all huddle posts for a team. */
-  getPosts: (teamId: string) =>
-    request<{ posts: HuddlePost[] }>(`/v1/huddle/posts?teamId=${encodeURIComponent(teamId)}`).then(
-      (r) => r.posts,
-    ),
-
   /** Fetch all huddle posts for a specific ticket. */
   getPostsByTicket: (ticketId: string) =>
-    request<{ posts: HuddlePost[] }>(
-      `/v1/huddle/tickets/${encodeURIComponent(ticketId)}/posts`,
-    ).then((r) => r.posts),
-
-  /** Create a new huddle post. */
-  createPost: (data: {
-    teamId: string;
-    content: {
-      text: string;
-      mentions: string[];
-    };
-    ticketId?: string;
-    attachments?: Array<{
-      mediaId: string;
-      type: 'image' | 'video' | 'file';
-      url: string;
-      thumbnailUrl?: string;
-      filename?: string;
-    }>;
-  }) =>
-    request<{ id: string }>('/v1/huddle/posts', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.id),
+    wormholeCall<{ posts: HuddlePost[] }>('huddle.getPostsByTicket', { ticketId }).then((r) => r.posts),
 
   /** Update a huddle post. */
-  updatePost: (id: string, data: { content: { text: string; mentions: string[] } }) =>
-    request<{ post: HuddlePost }>(`/v1/huddle/posts/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }).then((r) => r.post),
+  updatePost: (postId: string, content: { text: string; mentions: string[] }) =>
+    getDdpClient().call('huddle.updatePost', { postId, content }),
 
   /** Delete a huddle post. */
-  deletePost: (id: string) =>
-    request<{ ok: boolean }>(`/v1/huddle/posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-
-  /** Open a WebSocket connection for live huddle post updates. Auto-reconnects on drop. */
-  openLiveStream: (teamId: string): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const token = sessionToken.get();
-      const base = `${WS_BASE_URL}/v1/huddle/ws?teamId=${encodeURIComponent(teamId)}`;
-      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
-    }),
+  deletePost: (postId: string) =>
+    getDdpClient().call('huddle.deletePost', { postId }),
 
   /** Toggle like on a post */
   toggleLike: (postId: string) =>
-    request<{ count: number }>(`/v1/huddle/posts/${encodeURIComponent(postId)}/like`, {
-      method: 'POST',
-    }).then((r) => r.count),
+    getDdpClient().call('huddle.toggleLike', { postId }),
 
   /** Get comments for a post */
-  getComments: (postId: string) =>
-    request<{ comments: HuddleComment[] }>(
-      `/v1/huddle/posts/${encodeURIComponent(postId)}/comments`,
-    ).then((r) => r.comments),
+  getComments: async (postId: string) => {
+    const result = await getDdpClient().call('huddle.getComments', { postId });
+    return Array.isArray(result) ? result : (result?.comments ?? []);
+  },
 
   /** Add a comment to a post */
   addComment: (postId: string, data: { content: string; mentions: string[] }) =>
-    request<{ id: string }>(`/v1/huddle/posts/${encodeURIComponent(postId)}/comments`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.id),
+    getDdpClient().call('huddle.addComment', { postId, ...data }),
 
   /** Delete a comment */
   deleteComment: (commentId: string) =>
-    request<{ ok: boolean }>(`/v1/huddle/comments/${encodeURIComponent(commentId)}`, {
-      method: 'DELETE',
-    }),
+    getDdpClient().call('huddle.deleteComment', { commentId }),
 };
 
 // ─── Team API ─────────────────────────────────────────────────────────────────
@@ -1036,51 +998,36 @@ export interface TeamJoinRequestPreview {
 }
 
 export const teamApi = {
-  getTeams: () => request<{ teams: Team[]; pendingRequests: TeamJoinRequest[] }>('/v1/teams'),
+  getTeams: () =>
+    wormholeCall<{ teams: Team[]; pendingRequests: TeamJoinRequest[] }>('teams.list', {}),
 
-  getTeamsOnly: () => request<{ teams: Team[] }>('/v1/teams').then((r) => r.teams),
+  getTeamsOnly: () => wormholeCall<{ teams: Team[] }>('teams.list', {}).then((r) => r.teams),
 
   ensurePersonal: () =>
-    request<{ team: Team }>('/v1/teams/ensure-personal', { method: 'POST' }).then((r) => r.team),
+    wormholeCall<{ team: Team }>('teams.ensurePersonal', {}).then((r) => r.team),
 
   createTeam: (data: {
     name: string;
     description?: string;
     orgId?: string;
     parentTeamId?: string | null;
-  }) =>
-    request<{ team: Team }>('/v1/teams', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.team),
+  }) => wormholeCall<{ team: Team }>('teams.create', data).then((r) => r.team),
 
   getSubTeams: (id: string) =>
-    request<{ teams: Team[] }>(`/v1/teams/${encodeURIComponent(id)}/subteams`).then((r) => r.teams),
+    wormholeCall<{ teams: Team[] }>('teams.subteams', { teamId: id }).then((r) => r.teams),
 
   joinTeam: (teamCode: string) =>
-    request<
-      { status: 'pending'; request: TeamJoinRequest } | { status: 'joined'; team: Team } | Team
-    >('/v1/teams/join', {
-      method: 'POST',
-      body: JSON.stringify({ teamCode }),
-    }).then((r) => {
-      // Handle different response formats for backward compatibility
-      if ('status' in r) return r;
-      if ('team' in r) return r.team;
-      return r as Team;
-    }),
+    wormholeCall<
+      { status: 'pending'; request: TeamJoinRequest } | { status: 'joined'; team: Team }
+    >('teams.join', { teamCode }),
 
   renameTeam: (id: string, newName: string) =>
-    request<{ team: Team }>(`/v1/teams/${encodeURIComponent(id)}/name`, {
-      method: 'PUT',
-      body: JSON.stringify({ newName }),
-    }).then((r) => r.team),
+    wormholeCall<{ team: Team }>('teams.rename', { teamId: id, newName }).then((r) => r.team),
 
-  deleteTeam: (id: string) =>
-    request<{ ok: boolean }>(`/v1/teams/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  deleteTeam: (id: string) => wormholeCall<{ ok: boolean }>('teams.delete', { teamId: id }),
 
   getMembers: (id: string) =>
-    request<{ members: TeamMember[] }>(`/v1/teams/${encodeURIComponent(id)}/members`).then((r) =>
+    wormholeCall<{ members: TeamMember[] }>('teams.getMembers', { teamId: id }).then((r) =>
       r.members.map((m) =>
         m.image && !/^https?:\/\//i.test(m.image)
           ? { ...m, image: `${TIMECORE_BASE_URL}${m.image.startsWith('/') ? '' : '/'}${m.image}` }
@@ -1089,54 +1036,27 @@ export const teamApi = {
     ),
 
   inviteMember: (id: string, email: string) =>
-    request<{ ok: boolean }>(`/v1/teams/${encodeURIComponent(id)}/invite`, {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    }),
+    wormholeCall<{ ok: boolean }>('teams.invite', { teamId: id, email }),
 
   removeMember: (id: string, userId: string) =>
-    request<{ ok: boolean }>(
-      `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
-      { method: 'DELETE' },
-    ),
+    wormholeCall<{ ok: boolean }>('teams.removeMember', { teamId: id, userId }),
 
   setMemberRole: (id: string, userId: string, role: 'admin' | 'member') =>
-    request<{ ok: boolean }>(
-      `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
-      { method: 'PUT', body: JSON.stringify({ role }) },
-    ),
+    wormholeCall<{ ok: boolean }>('teams.setRole', { teamId: id, userId, role }),
 
   setMemberPassword: (id: string, userId: string, newPassword: string) =>
-    request<{ ok: boolean }>(
-      `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/password`,
-      { method: 'PUT', body: JSON.stringify({ newPassword }) },
-    ),
+    wormholeCall<{ ok: boolean }>('teams.setMemberPassword', { teamId: id, userId, newPassword }),
 
-  // Join request management
   getPendingJoinRequests: (teamId: string) =>
-    request<{ requests: TeamJoinRequestWithUser[] }>(
-      `/v1/teams/${encodeURIComponent(teamId)}/join-requests`,
-    ).then((r) => r.requests),
+    wormholeCall<{ requests: TeamJoinRequestWithUser[] }>('teams.getPendingJoinRequests', {
+      teamId,
+    }).then((r) => r.requests),
 
   approveJoinRequest: (requestId: string) =>
-    request<{ status: string }>(
-      `/v1/teams/join-requests/${encodeURIComponent(requestId)}/approve`,
-      { method: 'POST' },
-    ),
+    wormholeCall<{ status: string }>('teams.approveJoinRequest', { requestId }),
 
   declineJoinRequest: (requestId: string) =>
-    request<{ status: string }>(
-      `/v1/teams/join-requests/${encodeURIComponent(requestId)}/decline`,
-      { method: 'POST' },
-    ),
-
-  /** Open a WebSocket connection for live team updates. Auto-reconnects on drop. */
-  openLiveStream: (): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const token = sessionToken.get();
-      const base = `${WS_BASE_URL}/v1/teams/ws`;
-      return token ? `${base}?token=${encodeURIComponent(token)}` : base;
-    }),
+    wormholeCall<{ status: string }>('teams.declineJoinRequest', { requestId }),
 };
 
 // ─── Clock API ────────────────────────────────────────────────────────────────
@@ -1167,53 +1087,34 @@ export interface ClockEvent {
 
 export const clockApi = {
   /** Clock in to a team. Returns the new clock event. */
-  start: (teamId: string) =>
-    request<{ event: ClockEvent }>('/v1/clock/start', {
-      method: 'POST',
-      body: JSON.stringify({ teamId }),
-    }).then((r) => r.event),
+  start: (teamId: string) => wormholeCall<ClockEvent>('clock.start', { teamId }),
 
   /** Clock out of a team. */
-  stop: (teamId: string) =>
-    request<{ event: ClockEvent }>('/v1/clock/stop', {
-      method: 'POST',
-      body: JSON.stringify({ teamId }),
-    }).then((r) => r.event),
+  stop: (teamId: string) => wormholeCall<ClockEvent>('clock.stop', { teamId }),
 
   /** Pause an active clock session (break start). */
-  pause: (teamId: string) =>
-    request<{ event: ClockEvent }>('/v1/clock/pause', {
-      method: 'POST',
-      body: JSON.stringify({ teamId }),
-    }).then((r) => r.event),
+  pause: (teamId: string) => wormholeCall<ClockEvent>('clock.pause', { teamId }),
 
   /** Resume a paused clock session (break end). */
-  resume: (teamId: string) =>
-    request<{ event: ClockEvent }>('/v1/clock/resume', {
-      method: 'POST',
-      body: JSON.stringify({ teamId }),
-    }).then((r) => r.event),
+  resume: (teamId: string) => wormholeCall<ClockEvent>('clock.resume', { teamId }),
 
   /** Get active clock status for a team. */
   getStatus: (teamId: string) =>
-    request<{
+    wormholeCall<{
       event: ClockEvent;
       workSeconds: number;
       isPaused: boolean;
-    }>(`/v1/clock/status?teamId=${encodeURIComponent(teamId)}`),
+    } | null>('clock.status', { teamId }),
 
-  /** Get the current user's active clock event (any team), or null. Admin can pass userId. */
-  getActive: (userId?: string) => {
-    const params = userId ? `?userId=${encodeURIComponent(userId)}` : '';
-    return request<{ event: ClockEvent | null }>(`/v1/clock/active${params}`).then((r) => r.event);
-  },
+  /** Get the current user's active clock event (any team), or null. */
+  getActive: (_userId?: string) => wormholeCall<ClockEvent | null>('clock.activeForUser', {}),
 
   /** Get all clock events for the current user. */
-  getEvents: () => request<{ events: ClockEvent[] }>('/v1/clock/events').then((r) => r.events),
+  getEvents: () => wormholeCall<ClockEvent[]>('clock.events', {}),
 
   /** Get timesheet data for a user over a date range (epoch ms boundaries). */
   getTimesheet: (userId: string, startMs: number, endMs: number) =>
-    request<{
+    wormholeCall<{
       sessions: ClockEvent[];
       summary: {
         totalSeconds: number;
@@ -1223,9 +1124,7 @@ export const clockApi = {
         averageSessionSeconds: number;
         workingDays: number;
       };
-    }>(
-      `/v1/clock/timesheet?userId=${encodeURIComponent(userId)}&startMs=${startMs}&endMs=${endMs}`,
-    ),
+    }>('clock.timesheet', { userId, startMs, endMs }),
 
   /** Update a clock event's timestamps and optional break intervals. */
   updateTimes: (
@@ -1235,32 +1134,15 @@ export const clockApi = {
       endTime?: number | null;
       breaks?: Array<{ startTime: number; endTime: number | null }>;
     },
-  ) =>
-    request<{ event: ClockEvent }>(`/v1/clock/${encodeURIComponent(clockEventId)}/times`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }).then((r) => r.event),
+  ) => wormholeCall<ClockEvent>('clock.updateTimes', { clockEventId, ...data }),
 
   /** Delete a clock event. */
   deleteEvent: (clockEventId: string) =>
-    request<{ ok: boolean }>(`/v1/clock/${encodeURIComponent(clockEventId)}`, {
-      method: 'DELETE',
-    }).then((r) => r.ok),
+    wormholeCall<{ ok: boolean }>('clock.deleteEvent', { clockEventId }).then((r) => r.ok),
 
   /** Create a completed manual clock entry for a past time range. */
   createManualEntry: (data: { teamId: string; startTime: number; endTime: number }) =>
-    request<{ event: ClockEvent }>('/v1/clock/manual', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.event),
-
-  /** Open a WebSocket connection for live team clock state. Auto-reconnects on drop. */
-  openLiveStream: (teamIds: string[]): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const token = sessionToken.get();
-      const base = `${WS_BASE_URL}/v1/clock/ws?teamIds=${teamIds.map(encodeURIComponent).join(',')}`;
-      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
-    }),
+    wormholeCall<ClockEvent>('clock.createManual', data),
 };
 
 // ─── Team Dashboard API ───────────────────────────────────────────────────────
@@ -1288,9 +1170,7 @@ export interface TeamRunningTimer {
 
 export const teamDashboardApi = {
   getTeamClockStatus: (teamId: string) =>
-    request<{ members: TeamMemberClockStatus[] }>(
-      `/v1/clock/team-status?teamId=${encodeURIComponent(teamId)}`,
-    ).then((r) =>
+    wormholeCall<{ members: TeamMemberClockStatus[] }>('clock.teamStatus', { teamId }).then((r) =>
       r.members.map((m) =>
         m.image && !/^https?:\/\//i.test(m.image)
           ? { ...m, image: `${TIMECORE_BASE_URL}${m.image.startsWith('/') ? '' : '/'}${m.image}` }
@@ -1299,9 +1179,7 @@ export const teamDashboardApi = {
     ),
 
   getTeamRunningTimers: (teamId: string) =>
-    request<{ timers: TeamRunningTimer[] }>(
-      `/v1/timers/team-running?teamId=${encodeURIComponent(teamId)}`,
-    ).then((r) =>
+    wormholeCall<{ timers: TeamRunningTimer[] }>('timers.getTeamRunning', { teamId }).then((r) =>
       r.timers.map((t) =>
         t.userImage && !/^https?:\/\//i.test(t.userImage)
           ? {
@@ -1340,39 +1218,21 @@ export interface Message {
 }
 
 export const messageApi = {
-  /** Fetch a thread's message history. Pass `before` ISO string for cursor-based pagination. */
-  getThread: (teamId: string, adminId: string, memberId: string, before?: string) => {
-    const qs = new URLSearchParams({
+  getThread: (teamId: string, adminId: string, memberId: string, before?: string) =>
+    wormholeCall<{ messages: Message[]; hasMore: boolean }>('messages.getThread', {
       teamId,
       adminId,
       memberId,
-    });
-    if (before) qs.set('before', before);
-    return request<{ messages: Message[]; hasMore: boolean }>(`/v1/messages?${qs.toString()}`);
-  },
+      ...(before ? { before } : {}),
+    }),
 
-  /** Send a message. */
   send: (data: {
     teamId: string;
     toUserId: string;
     text: string;
     adminId: string;
     ticketId?: string;
-  }) =>
-    request<{ message: Message }>('/v1/messages', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.message),
-
-  /** Open a WebSocket stream for a thread. Auto-reconnects on drop. */
-  openStream: (threadId: string): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const token = sessionToken.get();
-      const url = new URL(`${WS_BASE_URL}/v1/messages/ws`);
-      url.searchParams.set('threadId', threadId);
-      if (token) url.searchParams.set('token', token);
-      return url.toString();
-    }),
+  }) => wormholeCall<{ message: Message }>('messages.send', data).then((r) => r.message),
 };
 
 export type TeamInvitePreview = {
@@ -1389,69 +1249,43 @@ export type TeamInvitePreview = {
 export const notificationApi = {
   /** Fetch the user's notification inbox. */
   getInbox: () =>
-    request<{ notifications: Notification[] }>('/v1/notifications').then((r) => r.notifications),
+    wormholeCall<{ notifications: Notification[] }>('notifications.getInbox', {}).then(
+      (r) => r.notifications
+    ),
 
   /** Mark a single notification as read. */
   markOneRead: (id: string) =>
-    request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/read`, {
-      method: 'PATCH',
-    }),
+    wormholeCall<{ ok: boolean }>('notifications.markOneRead', { notificationId: id }),
 
   /** Mark all notifications as read. */
-  markAllRead: () => request<{ ok: boolean }>('/v1/notifications/read', { method: 'POST' }),
+  markAllRead: () => wormholeCall<{ ok: boolean }>('notifications.markAllRead', {}),
 
   /** Bulk-delete notifications by ID. */
   deleteMany: (ids: string[]) =>
-    request<{ deletedCount: number }>('/v1/notifications', {
-      method: 'DELETE',
-      body: JSON.stringify({ ids }),
-    }),
+    wormholeCall<{ deletedCount: number }>('notifications.deleteMany', { ids }),
 
   /** Fetch team-invite preview for a notification. */
   getInvitePreview: (id: string) =>
-    request<TeamInvitePreview>(`/v1/notifications/${encodeURIComponent(id)}/invite-preview`),
+    wormholeCall<TeamInvitePreview>('notifications.getInvitePreview', { notificationId: id }),
 
   /** Accept or ignore a team invite. */
   respondToInvite: (id: string, action: 'join' | 'ignore') =>
-    request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/invite-respond`, {
-      method: 'POST',
-      body: JSON.stringify({ action }),
-    }),
+    wormholeCall<{ ok: boolean }>('notifications.respondToInvite', { notificationId: id, action }),
 
   /** Fetch team join request preview for a notification. */
   getJoinRequestPreview: (id: string) =>
-    request<TeamJoinRequestPreview>(
-      `/v1/notifications/${encodeURIComponent(id)}/join-request-preview`,
-    ),
+    wormholeCall<TeamJoinRequestPreview>('teams.getJoinRequestPreview', { notificationId: id }),
 
   /** Approve or decline a team join request. */
   respondToJoinRequest: (id: string, action: 'approve' | 'decline') =>
-    request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/join-request-respond`, {
-      method: 'POST',
-      body: JSON.stringify({ action }),
-    }),
+    wormholeCall<{ ok: boolean }>('teams.respondToJoinRequest', { notificationId: id, action }),
 
   /** Consent to auto-clockout at 8h — called when user clicks "Agree to Clock Out" on the shift reminder. */
   agreeClockout: (clockEventId: string) =>
-    request<{ ok: boolean }>(
-      `/v1/clock/events/${encodeURIComponent(clockEventId)}/agree-clockout`,
-      {
-        method: 'POST',
-      },
-    ),
+    wormholeCall<{ ok: boolean }>('clock.agreeAutoClockout', { clockEventId }),
 
   /** Send a test push notification to the requesting user's devices. */
-  testPush: () => request<{ ok: boolean }>('/v1/notifications/test-push', { method: 'POST' }),
-
-  /** Open a WebSocket stream for new notifications. Auto-reconnects on drop. */
-  openStream: (): AutoReconnectWs => {
-    const token = sessionToken.get();
-    return autoReconnectWs(() => {
-      const url = new URL(`${WS_BASE_URL}/v1/notifications/ws`);
-      if (token) url.searchParams.set('token', token);
-      return url.toString();
-    });
-  },
+  testPush: () => wormholeCall<{ ok: boolean }>('notifications.testPush', {}),
 };
 
 // ─── Attachments ──────────────────────────────────────────────────────────────
@@ -1470,29 +1304,19 @@ export interface Attachment {
 }
 
 export const attachmentApi = {
-  /** Fetch all attachments for a clock entry or ticket. */
   list: (kind: AttachmentKind, id: string) =>
-    request<{ attachments: Attachment[] }>(
-      `/v1/attachments?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
-    ).then((r) => r.attachments),
+    wormholeCall<{ attachments: Attachment[] }>('attachments.list', { kind, id }).then(
+      (r) => r.attachments,
+    ),
 
-  /** Add a new attachment to a clock entry or ticket. */
   add: (data: {
     url: string;
     type: AttachmentType;
     title?: string;
     attachedTo: { kind: AttachmentKind; id: string };
-  }) =>
-    request<{ attachment: Attachment }>('/v1/attachments', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }).then((r) => r.attachment),
+  }) => wormholeCall<{ attachment: Attachment }>('attachments.add', data).then((r) => r.attachment),
 
-  /** Delete an attachment by ID. */
-  remove: (id: string) =>
-    request<{ ok: boolean }>(`/v1/attachments/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    }),
+  remove: (id: string) => wormholeCall<{ ok: boolean }>('attachments.remove', { attachmentId: id }),
 };
 
 // ─── Timer API ────────────────────────────────────────────────────────────────
@@ -1554,125 +1378,81 @@ export const timerApi = {
     notifyAdmins?: boolean;
     startNow?: boolean;
   }) =>
-    request<{ entry: WorkItem; session: Timer | null }>('/v1/timers/entries', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+    wormholeCall<{ entry: WorkItem; session: Timer | null }>('timers.createEntry', data),
 
   /** Start a timer for a WorkItem. Closes any open timer first. */
   startSession: (entryId: string, now?: number) =>
-    request<{ session: Timer; closedSessionId?: string }>(
-      `/v1/timers/entries/${encodeURIComponent(entryId)}/start`,
-      { method: 'POST', body: JSON.stringify({ now: now ?? Date.now(), tz: clientTz() }) },
-    ),
+    wormholeCall<{ session: Timer; closedSessionId?: string }>('timers.startSession', { entryId, now: now ?? Date.now(), tz: clientTz() }),
 
   /** Stop a running timer. */
   stopSession: (sessionId: string, now?: number) =>
-    request<{ session: Timer }>(`/v1/timers/sessions/${encodeURIComponent(sessionId)}/stop`, {
-      method: 'POST',
-      body: JSON.stringify({ now: now ?? Date.now() }),
-    }).then((r) => r.session),
+    wormholeCall<{ session: Timer }>('timers.stopSession', { sessionId, now: now ?? Date.now() }).then((r) => r.session),
 
   /** Update a WorkItem's note, duration, and/or ticket (duration ignored while running). */
   updateEntry: (
     entryId: string,
     data: { note?: string | null; durationSeconds?: number; ticketId?: string },
   ) =>
-    request<{ entry: WorkItem }>(`/v1/timers/entries/${encodeURIComponent(entryId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }).then((r) => r.entry),
+    wormholeCall<{ entry: WorkItem }>('timers.updateEntry', { entryId, ...data }).then((r) => r.entry),
 
   /** Delete a WorkItem and all of its timers. */
   deleteEntry: (entryId: string, options?: { notifyAdmins?: boolean }) =>
-    request<{ deletedEntry: boolean; deletedSessions: number }>(
-      `/v1/timers/entries/${encodeURIComponent(entryId)}${options?.notifyAdmins === false ? '?notifyAdmins=false' : ''}`,
-      {
-        method: 'DELETE',
-      },
-    ),
+    wormholeCall<{ deletedEntry: boolean; deletedSessions: number }>('timers.deleteEntry', { entryId, notifyAdmins: options?.notifyAdmins ?? true }),
 
   /** Get the currently running timer for the authenticated user, or null. */
-  getRunning: () => request<{ session: Timer | null }>('/v1/timers/running').then((r) => r.session),
+  getRunning: () => wormholeCall<{ session: Timer | null }>('timers.getRunning', {}).then((r) => r.session),
 
   /** Get all entries + sessions for today in local time. Admin can pass userId. */
   getToday: (userId?: string) => {
     const tz = clientTz();
-    const userParam = userId ? `&userId=${encodeURIComponent(userId)}` : '';
-    return request<{ entries: DayEntry[] }>(
-      `/v1/timers/today?tz=${encodeURIComponent(tz)}${userParam}`,
-    ).then((r) => r.entries);
+    return wormholeCall<{ entries: DayEntry[] }>('timers.getToday', { tz, ...(userId ? { userId } : {}) }).then((r) => r.entries);
   },
 
   /** Get all entries + sessions for a local day (YYYY-MM-DD). */
   getDay: (date: string) => {
     const tz = clientTz();
-    return request<{ entries: DayEntry[] }>(
-      `/v1/timers/day?date=${encodeURIComponent(date)}&tz=${encodeURIComponent(tz)}`,
-    ).then((r) => r.entries);
+    return wormholeCall<{ entries: DayEntry[] }>('timers.getDay', { date, tz }).then((r) => r.entries);
   },
 
   /** Get 7-day totals for the week starting at the given date (YYYY-MM-DD). */
   getWeek: (date: string) => {
     const tz = clientTz();
-    return request<{ days: WeekDay[] }>(
-      `/v1/timers/week?date=${encodeURIComponent(date)}&tz=${encodeURIComponent(tz)}`,
-    ).then((r) => r.days);
+    return wormholeCall<{ days: WeekDay[] }>('timers.getWeek', { date, tz }).then((r) => r.days);
   },
 
   /** Get total seconds for a ticket from all closed Timers. */
   getTicketTotal: (ticketId: string) =>
-    request<{ totalSeconds: number }>(
-      `/v1/timers/tickets/${encodeURIComponent(ticketId)}/total`,
-    ).then((r) => r.totalSeconds),
+    wormholeCall<{ totalSeconds: number }>('timers.getTicketTotal', { ticketId }).then((r) => r.totalSeconds),
 
   /**
    * Copy entries from the most recent previous day into toDate.
    * Skips rows that already exist with the same ticket + note + sortOrder signature.
    */
   copyPrevious: (toDate: string) =>
-    request<{ created: number }>('/v1/timers/copy-previous', {
-      method: 'POST',
-      body: JSON.stringify({ toDate }),
-    }).then((r) => r.created),
-
-  /**
-   * Open a WebSocket connection for real-time timer updates.
-   */
-  openLiveStream: (): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const token = sessionToken.get();
-      const base = `${WS_BASE_URL}/v1/timers/ws`;
-      return token ? `${base}?token=${encodeURIComponent(token)}` : base;
-    }),
+    wormholeCall<{ created: number }>('timers.copyPrevious', { toDate }).then((r) => r.created),
 };
 
 // ─── PulseVault video uploads ──────────────────────────────────────────────────────────────────────────────
 
 export const videoApi = {
   /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
-  uploadEndpoint: () => `${TIMECORE_BASE_URL.replace(/\/$/, '')}/v1/video/upload`,
+  uploadEndpoint: () => `${METEOR_BASE_URL.replace(/\/$/, '')}/uploads/tus`,
 
   /** Reserve a videoid for a ticket upload before starting TUS.
    *  Pass `existingVideoid` when resuming a recording session so the backend
    *  re-registers the same id instead of creating a new one.
    */
   reserve: (ticketId: string, existingVideoid?: string) =>
-    request<{ videoid: string; uploadToken: string; uploadLink?: string }>('/v1/video/reserve', {
-      method: 'POST',
-      body: JSON.stringify(
-        existingVideoid
-          ? { target: 'ticket', ticketId, videoid: existingVideoid }
-          : { target: 'ticket', ticketId },
-      ),
-    }),
+    wormholeCall<{ videoid: string; uploadToken: string; uploadLink?: string }>(
+      'pulsevault.reserve',
+      existingVideoid
+        ? { target: 'ticket', ticketId, existingVideoid }
+        : { target: 'ticket', ticketId },
+    ),
 
   /** Reserve a videoid for a media library upload (no ticket context). */
   reserveForLibrary: () =>
-    request<{ videoid: string; uploadToken: string }>('/v1/video/reserve', {
-      method: 'POST',
-      body: JSON.stringify({ target: 'library' }),
-    }),
+    wormholeCall<{ videoid: string; uploadToken: string }>('pulsevault.reserveForLibrary', {}),
 };
 
 // ─── Media Library ────────────────────────────────────────────────────────────
@@ -1701,50 +1481,55 @@ function withAbsoluteMediaItem(item: MediaItem): MediaItem {
 }
 
 export const mediaApi = {
-  /** POST /v1/media — upload image file to media library */
   uploadImage: async (file: File): Promise<MediaItem> => {
     const form = new FormData();
     form.append('file', file, file.name || 'image');
-    const response = await request<{ item: MediaItem }>('/v1/media', {
+    const token = await getAccessToken();
+    const res = await fetch(`${METEOR_BASE_URL}/api/media/upload`, {
       method: 'POST',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: form,
     });
-    return withAbsoluteMediaItem(response.item);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError((body.error as string) ?? `HTTP ${res.status}`, res.status);
+    }
+    const data = (await res.json()) as { item: MediaItem };
+    return withAbsoluteMediaItem(data.item);
   },
 
-  /** GET /v1/media — list media library items for the current user */
   list: () =>
-    request<{ items: MediaItem[] }>(`/v1/media`).then((r) => r.items.map(withAbsoluteMediaItem)),
-
-  /** GET /v1/media/user/:userId — list media items for a specific profile user */
-  listForUser: (userId: string) =>
-    request<{ items: MediaItem[] }>(`/v1/media/user/${encodeURIComponent(userId)}`).then((r) =>
+    wormholeCall<{ items: MediaItem[] }>('media.list', {}).then((r) =>
       r.items.map(withAbsoluteMediaItem),
     ),
 
-  /** PATCH /v1/media/:id — update title, caption, altText */
+  listForUser: (userId: string) =>
+    wormholeCall<{ items: MediaItem[] }>('media.listForUser', { userId }).then((r) =>
+      r.items.map(withAbsoluteMediaItem),
+    ),
+
   update: (id: string, data: { title?: string; caption?: string; altText?: string }) =>
-    request<{ item: MediaItem }>(`/v1/media/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    }).then((r) => withAbsoluteMediaItem(r.item)),
+    wormholeCall<{ item: MediaItem }>('media.update', { mediaId: id, ...data }).then((r) =>
+      withAbsoluteMediaItem(r.item),
+    ),
 
-  /** DELETE /v1/media/:id */
-  remove: (id: string) =>
-    request<{ ok: boolean }>(`/v1/media/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  remove: (id: string) => wormholeCall<{ ok: boolean }>('media.remove', { mediaId: id }),
 
-  /** POST /v1/media/:id/thumbnail — upload a JPEG thumbnail blob */
   uploadThumbnail: async (id: string, blob: Blob): Promise<MediaItem> => {
     const form = new FormData();
     form.append('file', blob, 'thumbnail.jpg');
-    const response = await request<{ item: MediaItem }>(
-      `/v1/media/${encodeURIComponent(id)}/thumbnail`,
-      {
-        method: 'POST',
-        body: form,
-      },
-    );
-    return withAbsoluteMediaItem(response.item);
+    const token = await getAccessToken();
+    const res = await fetch(`${METEOR_BASE_URL}/api/media-thumbnail/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError((body.error as string) ?? `HTTP ${res.status}`, res.status);
+    }
+    const data = (await res.json()) as { item: MediaItem };
+    return withAbsoluteMediaItem(data.item);
   },
 };
 
@@ -1762,70 +1547,23 @@ export interface ActivityLogItem {
 }
 
 export const activityApi = {
-  /**
-   * Fetch a page of activity log events for the current user, newest first.
-   *
-   * @param limit  - Max items per page (1–100, default 50).
-   * @param before - Cursor: ISO timestamp; fetch events older than this.
-   */
-  getLog: (params: { limit?: number; before?: string } = {}) => {
-    const qs = new URLSearchParams();
-    if (params.limit != null) qs.set('limit', String(params.limit));
-    if (params.before) qs.set('before', params.before);
-    const query = qs.toString();
-    return request<{ events: ActivityLogItem[]; nextCursor: string | null }>(
-      `/v1/activity/log${query ? `?${query}` : ''}`,
-    );
-  },
+  getLog: (params: { limit?: number; before?: string } = {}) =>
+    wormholeCall<{ events: ActivityLogItem[]; nextCursor: string | null }>('activity.log', params),
 
-  /**
-   * Fetch a page of activity log events for a specific user (teammates only).
-   *
-   * @param userId - The target user's ID.
-   * @param limit  - Max items per page (1–50, default 20).
-   * @param before - Cursor: ISO timestamp; fetch events older than this.
-   */
-  getUserActivity: (userId: string, params: { limit?: number; before?: string } = {}) => {
-    const qs = new URLSearchParams();
-    if (params.limit != null) qs.set('limit', String(params.limit));
-    if (params.before) qs.set('before', params.before);
-    const query = qs.toString();
-    return request<{ events: ActivityLogItem[]; nextCursor: string | null }>(
-      `/v1/users/${encodeURIComponent(userId)}/activity${query ? `?${query}` : ''}`,
-    );
-  },
+  getUserActivity: (userId: string, params: { limit?: number; before?: string } = {}) =>
+    wormholeCall<{ events: ActivityLogItem[]; nextCursor: string | null }>('activity.userLog', {
+      userId,
+      ...params,
+    }),
 
-  /** Ticket IDs + titles from the user's last 48 h of timer work. */
+  /** Ticket IDs + titles from the user's last 48 h of timer work (still Fastify). */
   getUserWorkSummary: (userId: string) =>
     request<{ items: { id: string; title: string }[] }>(
       `/v1/work/summary/user/${encodeURIComponent(userId)}`,
     ),
 
-  /** Activity events for a specific ticket (team members only). */
   getTicketActivity: (ticketId: string, limit = 50) =>
-    request<{ events: ActivityLogItem[] }>(
-      `/v1/tickets/${encodeURIComponent(ticketId)}/activity?limit=${limit}`,
-    ),
-};
-
-// ─── Presence ─────────────────────────────────────────────────────────────────
-
-export const presenceApi = {
-  /**
-   * Open a WebSocket presence stream.
-   * Sends periodic { type: "ping" } heartbeats to stay marked online.
-   * Receives { type: "snapshot", online: string[] } on connect,
-   * then { type: "presence", userId: string, online: boolean } on changes.
-   */
-  openStream: (watchIds: string[]): AutoReconnectWs => {
-    const token = sessionToken.get();
-    return autoReconnectWs(() => {
-      const url = new URL(`${WS_BASE_URL}/v1/presence/ws`);
-      if (token) url.searchParams.set('token', token);
-      if (watchIds.length > 0) url.searchParams.set('watch', watchIds.join(','));
-      return url.toString();
-    });
-  },
+    wormholeCall<{ events: ActivityLogItem[] }>('activity.ticketActivity', { ticketId, limit }),
 };
 
 // ─── Channel types ────────────────────────────────────────────────────────────
@@ -1856,9 +1594,7 @@ export interface ChannelMessage {
 
 export const channelApi = {
   getChannels: (teamId: string): Promise<Channel[]> =>
-    request<{ channels: Channel[] }>(`/v1/channels?teamId=${encodeURIComponent(teamId)}`).then(
-      (r) => r.channels,
-    ),
+    wormholeCall<{ channels: Channel[] }>('channels.list', { teamId }).then((r) => r.channels),
 
   createChannel: (data: {
     teamId: string;
@@ -1866,45 +1602,27 @@ export const channelApi = {
     description?: string;
     members?: string[];
   }): Promise<Channel> =>
-    request<{ channel: Channel }>('/v1/channels', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    }).then((r) => r.channel),
+    wormholeCall<{ channel: Channel }>('channels.create', data).then((r) => r.channel),
 
   getMessages: (
     channelId: string,
     teamId: string,
     before?: string,
-  ): Promise<{ messages: ChannelMessage[]; hasMore: boolean }> => {
-    const url = new URL(
-      `/v1/channels/${encodeURIComponent(channelId)}/messages`,
-      TIMECORE_BASE_URL,
-    );
-    url.searchParams.set('teamId', teamId);
-    if (before) url.searchParams.set('before', before);
-    return request<{ messages: ChannelMessage[]; hasMore: boolean }>(url.pathname + url.search);
-  },
+  ): Promise<{ messages: ChannelMessage[]; hasMore: boolean }> =>
+    wormholeCall<{ messages: ChannelMessage[]; hasMore: boolean }>('channels.getMessages', {
+      channelId,
+      teamId,
+      ...(before ? { before } : {}),
+    }),
 
   sendMessage: (
     channelId: string,
     data: { teamId: string; text: string },
   ): Promise<ChannelMessage> =>
-    request<{ message: ChannelMessage }>(`/v1/channels/${encodeURIComponent(channelId)}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+    wormholeCall<{ message: ChannelMessage }>('channels.sendMessage', {
+      channelId,
+      ...data,
     }).then((r) => r.message),
-
-  openStream: (channelId: string, teamId: string): AutoReconnectWs =>
-    autoReconnectWs(() => {
-      const url = new URL(`${WS_BASE_URL}/v1/channels/ws`);
-      url.searchParams.set('channelId', channelId);
-      url.searchParams.set('teamId', teamId);
-      const token = sessionToken.get();
-      if (token) url.searchParams.set('token', token);
-      return url.toString();
-    }),
 };
 
 // ─── Personal Access Tokens ───────────────────────────────────────────────────
@@ -1918,19 +1636,13 @@ export interface PersonalAccessToken {
 
 export const tokenApi = {
   list: (): Promise<PersonalAccessToken[]> =>
-    request<{ tokens: PersonalAccessToken[] }>('/v1/me/tokens').then((r) => r.tokens),
+    wormholeCall<{ tokens: PersonalAccessToken[] }>('tokens.list', {}).then((r) => r.tokens),
 
   create: (name: string): Promise<{ token: string; name: string }> =>
-    request<{ token: string; name: string }>('/v1/me/tokens', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
-    }),
+    wormholeCall<{ token: string; name: string }>('tokens.create', { name }),
 
   revoke: (id: string): Promise<void> =>
-    request<{ success: boolean }>(`/v1/me/tokens/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    }).then(() => undefined),
+    wormholeCall<{ success: boolean }>('tokens.revoke', { tokenId: id }).then(() => undefined),
 };
 
 // ─── TimeHarbor Share ─────────────────────────────────────────────────────────
@@ -1940,11 +1652,7 @@ export const tokenApi = {
  * One-way: this only sets the flag on the TimeHuddle record; TimeHarbor pulls it.
  */
 export const shareTicketWithTimeharbor = (id: string, shared: boolean): Promise<void> =>
-  request<{ success: boolean }>(`/v1/tickets/${encodeURIComponent(id)}/timeharbor-share`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ shared }),
-  }).then(() => undefined);
+  wormholeCall<{ ok: boolean }>('tickets.shareWithTimeharbor', { ticketId: id, shared }).then(() => undefined);
 
 /**
  * Flag multiple tickets as shared with (or unshared from) TimeHarbor in one request.
@@ -1953,8 +1661,4 @@ export const bulkShareTicketsWithTimeharbor = (
   ticketIds: string[],
   shared: boolean,
 ): Promise<void> =>
-  request<{ modifiedCount: number }>('/v1/tickets/bulk-timeharbor-share', {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ticketIds, shared }),
-  }).then(() => undefined);
+  wormholeCall<{ modifiedCount: number }>('tickets.bulkShareWithTimeharbor', { ticketIds, shared }).then(() => undefined);

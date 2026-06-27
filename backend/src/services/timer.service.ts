@@ -7,6 +7,7 @@ import {
   profilesCollection,
   usersCollection,
 } from "../models/index.js";
+import { toId } from "../lib/toId.js";
 import { notificationService } from "./notification.service.js";
 import type { WorkItem } from "../models/work-item.model.js";
 import type { Timer } from "../models/timer.model.js";
@@ -97,7 +98,7 @@ export class TimerService {
     const actorName =
       profile?.displayName ||
       (isValidId(actorUserId)
-        ? (await usersCollection().findOne({ _id: new ObjectId(actorUserId) }))?.name
+        ? (await usersCollection().findOne({ _id: toId(actorUserId) as any }))?.name
         : undefined) ||
       "A team member";
 

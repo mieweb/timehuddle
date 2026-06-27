@@ -1,5 +1,6 @@
 import { ObjectId } from "mongodb";
 import { teamJoinRequestsCollection, teamsCollection, usersCollection } from "../models/index.js";
+import { toId } from "../lib/toId.js";
 import type { TeamJoinRequest, PublicTeamJoinRequest } from "../models/team-join-request.model.js";
 import { toPublicTeamJoinRequest } from "../models/team-join-request.model.js";
 import { notificationService } from "./notification.service.js";
@@ -161,9 +162,9 @@ class TeamJoinRequestService {
       .toArray();
 
     // Resolve user details
-    const userIds = requests.map((r) => new ObjectId(r.userId));
+    const userIds = requests.map((r) => toId(r.userId));
     const users = await usersCollection()
-      .find({ _id: { $in: userIds } })
+      .find({ _id: { $in: userIds as any } })
       .toArray();
     const userMap = new Map(users.map((u) => [u._id.toHexString(), u]));
 

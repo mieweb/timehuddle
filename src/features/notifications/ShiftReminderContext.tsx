@@ -31,6 +31,7 @@ import {
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { ApiError, notificationApi, type Notification } from '../../lib/api';
+import { subscribeNewNotifications } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 
@@ -111,22 +112,15 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     if (!user) return;
 
-    const ws = notificationApi.openStream();
-    ws.onmessage = (e) => {
-      try {
-        const n = JSON.parse(e.data) as Notification;
-        if (n.data?.type !== 'shift-end-reminder') return;
-        const clockEventId = n.data?.clockEventId as string | undefined;
-        const dedupeKey = clockEventId ?? n.id;
-        if (shownIds.current.has(dedupeKey)) return;
-        shownIds.current.add(dedupeKey);
-        setPendingNotif(n);
-        setRespondError(null);
-      } catch {
-        /* ignore malformed frames */
-      }
-    };
-    return () => ws.close();
+    return subscribeNewNotifications((n) => {
+      if (n.data?.type !== 'shift-end-reminder') return;
+      const clockEventId = n.data?.clockEventId as string | undefined;
+      const dedupeKey = clockEventId ?? n.id;
+      if (shownIds.current.has(dedupeKey)) return;
+      shownIds.current.add(dedupeKey);
+      setPendingNotif(n);
+      setRespondError(null);
+    });
   }, [user]);
 
   const openModal = useCallback((notif: Notification) => {
@@ -199,9 +193,14 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
         markRead();
         closeModal();
       } catch (err: unknown) {
-        // 404 means the clock event is already ended (e.g. cleaned up by a test
-        // or the user clocked out another way). Nothing to agree to — dismiss silently.
-        if (err instanceof ApiError && err.status === 404) {
+        // The clock event may already be ended (e.g. cleaned up by a test or the
+        // user clocked out another way). Nothing to agree to — dismiss silently.
+        // Fastify returned 404; the Meteor wormhole surfaces this as a
+        // "not-found" / "already clocked out" reason on a 500.
+        if (
+          err instanceof ApiError &&
+          (err.status === 404 || /not[-\s]?found|already clocked out/i.test(err.message))
+        ) {
           closeModal();
           return;
         }

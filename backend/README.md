@@ -37,7 +37,31 @@ DEFAULT_ORG_NAME=Default Organization
 # e.g. http://localhost:8080/api/auth/callback/github (when using the dev proxy)
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
+
+# Google OAuth — callback URL: {BETTER_AUTH_URL}/api/auth/callback/google
+# Create credentials at https://console.cloud.google.com/apis/credentials
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+# Apple Sign-In — callback URL: {BETTER_AUTH_URL}/api/auth/callback/apple
+# clientId = Services ID; clientSecret = the generated client-secret JWT.
+# APPLE_APP_BUNDLE_IDENTIFIER is only needed for native (Capacitor) sign-in.
+APPLE_CLIENT_ID=
+APPLE_CLIENT_SECRET=
+APPLE_APP_BUNDLE_IDENTIFIER=
+
+# Authentik (or any OIDC IdP) via the genericOAuth plugin. Registered as
+# providerId "authentik"; callback URL: {BETTER_AUTH_URL}/api/auth/oauth2/callback/authentik
+# AUTHENTIK_DISCOVERY_URL points at the provider's .well-known/openid-configuration.
+AUTHENTIK_CLIENT_ID=
+AUTHENTIK_CLIENT_SECRET=
+AUTHENTIK_DISCOVERY_URL=
 ```
+
+A social provider only registers when its `*_CLIENT_ID` is set, and the matching
+button only appears in the frontend when its id is listed in the frontend's
+`VITE_SOCIAL_PROVIDERS` env var (comma-separated, e.g.
+`github,google,apple,authentik`; defaults to `github`).
 
 `DEFAULT_ORG_KEY` and `DEFAULT_ORG_NAME` are optional and let you change which organization is treated as the default admin scope without code changes.
 

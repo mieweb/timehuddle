@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
-import { bearer } from "better-auth/plugins";
+import { bearer, jwt } from "better-auth/plugins";
 import { oidcProvider } from "better-auth/plugins/oidc-provider";
 import { client } from "./db.js";
 import { sendEmail } from "./email.js";
@@ -20,6 +20,20 @@ export const auth = betterAuth({
     // `Authorization: Bearer <token>` on all authenticated requests.
     // Required for Capacitor (custom-scheme WebViews where cookies are unreliable).
     bearer(),
+
+    // Short-lived JWT access tokens + JWKS for stateless verification by other
+    // services (the Meteor backend verifies these without touching the session
+    // collection). Token endpoint: GET /api/auth/token; keys: GET /api/auth/jwks.
+    jwt({
+      jwt: {
+        expirationTime: "15m",
+        definePayload: ({ user }) => ({
+          email: user.email,
+          name: user.name,
+          image: user.image ?? null,
+        }),
+      },
+    }),
 
     // OIDC provider — TimeHarbor connects via OAuth 2.0 Authorization Code flow.
     // Endpoints exposed under /api/auth/oauth2/* and /api/auth/.well-known/...
@@ -65,15 +79,6 @@ export const auth = betterAuth({
         subject: "Reset your password",
         html: `<p>You requested a password reset.</p><p><a href="${resetUrl}">Click here to reset your password</a></p><p>If you did not request this, please ignore this email.</p>`,
       });
-    },
-  },
-
-  // GitHub OAuth social provider
-  // Credentials are read from GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET env vars.
-  socialProviders: {
-    github: {
-      clientId: process.env.GITHUB_CLIENT_ID ?? "",
-      clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
     },
   },
 

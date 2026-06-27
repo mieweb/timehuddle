@@ -43,6 +43,7 @@ import {
   type ChannelMessage,
   type Message,
 } from '../../lib/api';
+import { getDdpClient } from '../../lib/ddp';
 import { UserAvatar } from '../../ui/UserAvatar';
 
 const GROUP_GAP_MS = 5 * 60 * 1000;
@@ -287,14 +288,28 @@ export const MessagesPage: React.FC = () => {
     });
   }, [selectedChannelId]);
 
-  // ── All-channels WS — real-time messages + unread tracking ───────────────────
+  // ── All-channels DDP — real-time messages + unread tracking ──────────────────
   useEffect(() => {
     if (!selectedTeamId || channels.length === 0) return;
-    const wsList = channels.map((ch) => {
-      const ws = channelApi.openStream(ch.id, selectedTeamId);
-      ws.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data) as ChannelMessage;
+    const ddp = getDdpClient();
+    const seenIds = new Set<string>();
+    const cleanups: (() => void)[] = [];
+
+    for (const ch of channels) {
+      const collName = `channelmessages`;
+      const offChange = ddp.onCollectionChange(collName, () => {
+        for (const doc of ddp.docs(collName)) {
+          if (doc.channelId !== ch.id || seenIds.has(doc._id)) continue;
+          seenIds.add(doc._id);
+          const msg: ChannelMessage = {
+            id: doc._id,
+            channelId: String(doc.channelId ?? ''),
+            teamId: String(doc.teamId ?? ''),
+            fromUserId: String(doc.fromUserId ?? ''),
+            senderName: String(doc.senderName ?? ''),
+            text: String(doc.text ?? ''),
+            createdAt: String(doc.createdAt ?? ''),
+          };
           const isActive =
             activeViewRef.current === 'channel' && selectedChannelIdRef.current === ch.id;
           if (isActive) {
@@ -304,15 +319,13 @@ export const MessagesPage: React.FC = () => {
           } else {
             setChannelUnread((prev) => ({ ...prev, [ch.id]: (prev[ch.id] ?? 0) + 1 }));
           }
-        } catch {
-          /* ignore */
         }
-      };
-      return ws;
-    });
-    return () => {
-      wsList.forEach((ws) => ws.close());
-    };
+      });
+      const unsub = ddp.subscribe('channelmessages.byChannel', [ch.id, selectedTeamId]);
+      cleanups.push(offChange, unsub);
+    }
+
+    return () => cleanups.forEach((fn) => fn());
   }, [channels, selectedTeamId]);
 
   // ── Channel lazy-load older messages ─────────────────────────────────────────
@@ -530,17 +543,34 @@ export const MessagesPage: React.FC = () => {
     });
   }, [isAdmin, selectedMemberId, selectedAdminId]);
 
-  // ── All-DM-threads SSE — real-time messages + unread tracking ────────────────
+  // ── All-DM-threads DDP — real-time messages + unread tracking ────────────────
   useEffect(() => {
     if (!selectedTeamId || threadMembers.length === 0) return;
-    const esList = threadMembers.map((m) => {
+    const ddp = getDdpClient();
+    const seenIds = new Set<string>();
+    const cleanups: (() => void)[] = [];
+
+    for (const m of threadMembers) {
       const threadId = isAdmin
         ? `${selectedTeamId}:${userId}:${m.id}`
         : `${selectedTeamId}:${m.id}:${userId}`;
-      const es = messageApi.openStream(threadId);
-      es.onmessage = (e) => {
-        try {
-          const msg = JSON.parse(e.data) as Message;
+      const collName = 'messages';
+      const offChange = ddp.onCollectionChange(collName, () => {
+        for (const doc of ddp.docs(collName)) {
+          if (doc.threadId !== threadId || seenIds.has(doc._id)) continue;
+          seenIds.add(doc._id);
+          const msg: Message = {
+            id: doc._id,
+            threadId: String(doc.threadId ?? ''),
+            teamId: String(doc.teamId ?? ''),
+            adminId: String(doc.adminId ?? ''),
+            memberId: String(doc.memberId ?? ''),
+            fromUserId: String(doc.fromUserId ?? ''),
+            toUserId: String(doc.toUserId ?? ''),
+            text: String(doc.text ?? ''),
+            senderName: String(doc.senderName ?? ''),
+            createdAt: String(doc.createdAt ?? ''),
+          };
           const isActive = activeViewRef.current === 'dm' && selectedPeerIdRef.current === m.id;
           if (isActive) {
             setMessages((prev) =>
@@ -549,15 +579,13 @@ export const MessagesPage: React.FC = () => {
           } else {
             setDmUnread((prev) => ({ ...prev, [m.id]: (prev[m.id] ?? 0) + 1 }));
           }
-        } catch {
-          /* ignore */
         }
-      };
-      return es;
-    });
-    return () => {
-      esList.forEach((es) => es.close());
-    };
+      });
+      const unsub = ddp.subscribe('messages.byThread', [threadId]);
+      cleanups.push(offChange, unsub);
+    }
+
+    return () => cleanups.forEach((fn) => fn());
   }, [threadMembers, selectedTeamId, userId, isAdmin]);
 
   const hasThread = isAdmin ? !!selectedMemberId : !!selectedAdminId;

@@ -1,5 +1,6 @@
 import { ObjectId } from "mongodb";
 import { teamsCollection, usersCollection } from "../models/index.js";
+import { toId } from "../lib/toId.js";
 
 // ─── Username policy ──────────────────────────────────────────────────────────
 
@@ -61,7 +62,7 @@ export function validateUsernameFormat(username: string): UsernameValidationErro
 
 export class UserService {
   async findById(id: string) {
-    return usersCollection().findOne({ _id: new ObjectId(id) });
+    return usersCollection().findOne({ _id: toId(id) as any });
   }
 
   async findByEmail(email: string) {
@@ -73,13 +74,10 @@ export class UserService {
   }
 
   async findManyByIds(ids: string[]) {
-    const objectIds = ids
-      .slice(0, 200)
-      .filter((id) => /^[0-9a-f]{24}$/i.test(id))
-      .map((id) => new ObjectId(id));
+    const objectIds = ids.slice(0, 200).map((id) => toId(id));
     if (objectIds.length === 0) return [];
     return usersCollection()
-      .find({ _id: { $in: objectIds } })
+      .find({ _id: { $in: objectIds as any } })
       .toArray();
   }
 
@@ -114,7 +112,7 @@ export class UserService {
     if (data.bio !== undefined) $set.bio = data.bio;
     if (data.website !== undefined) $set.website = data.website;
     if (data.reportsToUserId !== undefined) $set.reportsToUserId = data.reportsToUserId;
-    await usersCollection().updateOne({ _id: new ObjectId(id) }, { $set });
+    await usersCollection().updateOne({ _id: toId(id) as any }, { $set });
     return this.findById(id);
   }
 
@@ -160,7 +158,7 @@ export class UserService {
     // Catch a MongoDB duplicate-key error (E11000) and surface it as "taken".
     try {
       await usersCollection().updateOne(
-        { _id: new ObjectId(userId), username: { $eq: null } },
+        { _id: toId(userId) as any, username: { $eq: null } },
         { $set: { username: normalized, updatedAt: new Date() } }
       );
     } catch (err: unknown) {

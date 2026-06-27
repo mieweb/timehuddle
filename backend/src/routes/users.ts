@@ -1,6 +1,7 @@
 import { ObjectId } from "mongodb";
 import { FastifyInstance } from "fastify";
 import { requireAuth } from "../middleware/require-auth.js";
+import { toId } from "../lib/toId.js";
 import {
   enterprisesCollection,
   installationsCollection,
@@ -589,7 +590,7 @@ export async function userRoutes(app: FastifyInstance) {
       const { role } = req.body as { role: DefaultOrganizationRole };
 
       const [targetUser, defaultOrg] = await Promise.all([
-        usersCollection().findOne({ _id: new ObjectId(userId) }),
+        usersCollection().findOne({ _id: toId(userId) as any }),
         organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY }),
       ]);
 
@@ -642,7 +643,7 @@ export async function userRoutes(app: FastifyInstance) {
       // Augment the session user with the username from the users collection.
       const sessionUser = req.user!;
       const [dbUser, profile, organizationMembership] = await Promise.all([
-        usersCollection().findOne({ _id: new ObjectId(sessionUser.id) }),
+        usersCollection().findOne({ _id: toId(sessionUser.id) as any }),
         profilesCollection().findOne({ userId: sessionUser.id, app: "timeharbor" as const }),
         resolveDefaultOrganizationMembership(sessionUser.id),
       ]);
@@ -681,7 +682,7 @@ export async function userRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const user = await usersCollection().findOne({
-        _id: new ObjectId(req.user!.id),
+        _id: toId(req.user!.id) as any,
       });
       if (!user) return reply.status(404).send({ error: "User not found" });
       return reply.send({ user });

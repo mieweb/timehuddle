@@ -15,29 +15,13 @@ import { ensureIndexes } from "./lib/ensure-indexes.js";
 import { auth } from "./lib/auth.js";
 import { appContext } from "./middleware/app-context.js";
 import { healthRoutes } from "./routes/health.js";
-import { userRoutes } from "./routes/users.js";
-import { orgRoutes } from "./routes/org.js";
-import { organizationsRoutes } from "./routes/organizations.js";
-import { enterpriseRoutes } from "./routes/enterprises.js";
 import { seedImportRoutes } from "./routes/seeder.js";
-import { ticketRoutes } from "./routes/tickets.js";
-import { ticketsWsRoutes } from "./routes/tickets-ws.js";
-import { huddleRoutes } from "./routes/huddle.js";
-import { huddleWsRoutes } from "./routes/huddle-ws.js";
-import { teamRoutes } from "./routes/teams.js";
-import { teamsWsRoutes } from "./routes/teams-ws.js";
 import { clockRoutes } from "./routes/clock.js";
 import { timerRoutes } from "./routes/timers.js";
-import { notificationRoutes } from "./routes/notifications.js";
 import { attachmentRoutes } from "./routes/attachments.js";
-import { messageRoutes } from "./routes/messages.js";
-import { activityRoutes } from "./routes/activity.js";
 import { workRoutes } from "./routes/work.js";
 import { pulseVaultRoutes, pulseVaultCompatRoutes } from "./routes/pulsevault.js";
 import { mediaRoutes } from "./routes/media.js";
-import { presenceRoutes } from "./routes/presence.js";
-import { channelRoutes } from "./routes/channels.js";
-import { tokenRoutes } from "./routes/tokens.js";
 import { initAgenda, stopAgenda } from "./services/agenda.service.js";
 import { orgService } from "./services/org.service.js";
 import {
@@ -92,10 +76,6 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
         {
           name: "Clock",
           description: "Clock in/out, ticket timers, timesheet, and SSE live stream",
-        },
-        {
-          name: "Notifications",
-          description: "User notification inbox, mark-read, delete, and SSE stream",
         },
         {
           name: "Attachments",
@@ -419,7 +399,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
           type: "object",
           required: ["provider"],
           properties: {
-            provider: { type: "string", enum: ["google", "github"] },
+            provider: { type: "string", enum: ["google", "github", "apple"] },
             callbackURL: {
               type: "string",
               description: "URL to redirect to after successful auth",
@@ -633,7 +613,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
         params: {
           type: "object",
           properties: {
-            provider: { type: "string", enum: ["google", "github"] },
+            provider: { type: "string", enum: ["google", "github", "apple"] },
           },
         },
         response: {
@@ -663,6 +643,17 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     betterAuthHandler
   );
 
+  // Apple domain verification for Sign In with Apple
+  // To obtain the association file:
+  // 1. Go to https://developer.apple.com/account/resources/identifiers/list/serviceId
+  // 2. Select your Service ID (com.mieweb.timehuddle.web)
+  // 3. Configure Web Authentication and add domain: timehuddledev.os.mieweb.org
+  // 4. Download the association file and set APPLE_DOMAIN_ASSOCIATION env var
+  app.get("/.well-known/apple-developer-domain-association.txt", async (req, reply) => {
+    const content = process.env.APPLE_DOMAIN_ASSOCIATION || "";
+    return reply.type("text/plain").code(200).send(content);
+  });
+
   // Health check
   await app.register(healthRoutes);
 
@@ -689,29 +680,13 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   });
 
   // App routes
-  await app.register(userRoutes, { prefix: "/v1" });
-  await app.register(orgRoutes, { prefix: "/v1" });
-  await app.register(organizationsRoutes, { prefix: "/v1" });
-  await app.register(enterpriseRoutes, { prefix: "/v1" });
   await app.register(seedImportRoutes, { prefix: "/v1" });
-  await app.register(teamsWsRoutes, { prefix: "/v1" });
-  await app.register(teamRoutes, { prefix: "/v1" });
-  await app.register(ticketRoutes, { prefix: "/v1" });
-  await app.register(ticketsWsRoutes, { prefix: "/v1" });
-  await app.register(huddleRoutes, { prefix: "/v1" });
-  await app.register(huddleWsRoutes, { prefix: "/v1" });
   await app.register(clockRoutes, { prefix: "/v1" });
   await app.register(timerRoutes, { prefix: "/v1" });
-  await app.register(notificationRoutes, { prefix: "/v1" });
   await app.register(attachmentRoutes, { prefix: "/v1" });
   await app.register(mediaRoutes, { prefix: "/v1" });
   await app.register(pulseVaultRoutes, { prefix: "/v1" });
-  await app.register(messageRoutes, { prefix: "/v1" });
-  await app.register(activityRoutes, { prefix: "/v1" });
   await app.register(workRoutes, { prefix: "/v1" });
-  await app.register(presenceRoutes, { prefix: "/v1" });
-  await app.register(channelRoutes, { prefix: "/v1" });
-  await app.register(tokenRoutes, { prefix: "/v1" });
 
   // Root health/info — must be registered before pulseVaultCompatRoutes so that GET /
   // does not fall through to the compat /:videoid param route (which would fail UUID validation).

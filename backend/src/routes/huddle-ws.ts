@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { ObjectId } from "mongodb";
-import { auth } from "../lib/auth.js";
+import { verifyWsToken } from "../lib/ws-auth.js";
+import { toId } from "../lib/toId.js";
 import {
   teamsCollection,
   huddlePostsCollection,
@@ -22,7 +23,7 @@ function getUserInitials(name: string): string {
 
 async function toPublicHuddlePost(post: HuddlePost): Promise<PublicHuddlePost> {
   // Fetch user data
-  const user = await usersCollection().findOne({ _id: new ObjectId(post.userId) });
+  const user = await usersCollection().findOne({ _id: toId(post.userId) as any });
   const userName = user?.name || "Unknown User";
   const userInitials = getUserInitials(userName);
 
@@ -58,10 +59,9 @@ export async function huddleWsRoutes(app: FastifyInstance) {
     };
 
     // Auth: accept Bearer token from query param (Capacitor) or cookie
-    const headers: Record<string, string> = { ...(req.headers as any) };
-    if (queryToken) headers["authorization"] = `Bearer ${queryToken}`;
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user) {
+    const rawToken = queryToken ?? req.headers["authorization"]?.replace(/^bearer /i, "");
+    const wsUser = await verifyWsToken(rawToken);
+    if (!wsUser) {
       socket.close(4001, "Unauthorized");
       return;
     }
@@ -85,7 +85,7 @@ export async function huddleWsRoutes(app: FastifyInstance) {
       return;
     }
 
-    const userId = session.user.id;
+    const userId = wsUser.id;
     const isMember = team.members?.includes(userId) || team.admins?.includes(userId);
 
     if (!isMember) {

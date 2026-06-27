@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { auth } from "../lib/auth.js";
+import { verifyWsToken } from "../lib/ws-auth.js";
 import { presenceService } from "../services/presence.service.js";
 
 export async function presenceRoutes(app: FastifyInstance) {
@@ -17,15 +17,14 @@ export async function presenceRoutes(app: FastifyInstance) {
       token?: string;
       watch?: string;
     };
-    const headers: Record<string, string> = { ...(req.headers as any) };
-    if (queryToken) headers["authorization"] = `Bearer ${queryToken}`;
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user) {
+    const rawToken = queryToken ?? req.headers["authorization"]?.replace(/^bearer /i, "");
+    const wsUser = await verifyWsToken(rawToken);
+    if (!wsUser) {
       socket.close(4001, "Unauthorized");
       return;
     }
 
-    const userId = session.user.id;
+    const userId = wsUser.id;
     const watchIds = watchParam ? watchParam.split(",").filter(Boolean) : [];
 
     // Mark this user as online

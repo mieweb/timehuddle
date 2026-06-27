@@ -220,25 +220,12 @@ export const TeamsPage: React.FC = () => {
     try {
       const result = await teamApi.joinTeam(formValue.trim());
 
-      // Check if result is a pending request or immediate team join
-      if (
-        typeof result === 'object' &&
-        result !== null &&
-        'status' in result &&
-        result.status === 'pending'
-      ) {
-        // Request is pending approval
+      if (result.status === 'pending') {
         closeModal();
         setModal({ type: 'pending-request', teamCode: formValue.trim() });
         refetchTeams();
-      } else if (
-        typeof result === 'object' &&
-        result !== null &&
-        'id' in result &&
-        typeof result.id === 'string'
-      ) {
-        // Immediate team join (no approval required)
-        setSelectedTeamId(result.id);
+      } else if (result.status === 'joined') {
+        setSelectedTeamId(result.team.id);
         closeModal();
         refetchTeams();
       }

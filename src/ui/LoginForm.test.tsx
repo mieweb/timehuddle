@@ -13,11 +13,8 @@ vi.mock('../lib/useSession', () => ({
 }));
 
 vi.mock('../lib/api', () => ({
+  METEOR_BASE_URL: 'http://localhost:3100',
   authApi: {
-    signIn: vi.fn(),
-    signUp: vi.fn(),
-    requestPasswordReset: vi.fn(),
-    resetPassword: vi.fn(),
     signInWithSocial: vi.fn(),
     devMemberSignIn: vi.fn(),
   },

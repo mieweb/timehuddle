@@ -42,7 +42,8 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { InboxPage } from './features/inbox/InboxPage';
-import { enterpriseApi, notificationApi } from './lib/api';
+import { enterpriseApi } from './lib/api';
+import { subscribeNewNotifications } from './lib/ddp';
 import { MESSAGES_PENDING_THREAD_KEY } from './lib/constants';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
@@ -118,6 +119,22 @@ if (Capacitor.isNativePlatform()) {
   });
 }
 
+// ─── OAuth callback handler (synchronous, before session check) ───────────────
+// Handle OAuth callback tokens synchronously before session check runs.
+// Stores meteor_resume token in localStorage so tryResumeLogin() picks it up.
+(function handleOAuthCallback() {
+  const params = new URLSearchParams(window.location.search);
+  const meteorResume = params.get('meteor_resume');
+  if (meteorResume) {
+    localStorage.setItem('meteor_resume_token', meteorResume);
+    // Clean URL
+    const url = new URL(window.location.href);
+    url.searchParams.delete('meteor_token');
+    url.searchParams.delete('meteor_resume');
+    window.history.replaceState({}, '', url.toString());
+  }
+})();
+
 // ─── App (client-side rendered, /app and all non-root routes) ─────────────────
 _log('App component defined — modules loaded');
 
@@ -140,70 +157,60 @@ const App: React.FC = () => {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
 
     let cancelled = false;
-    let es: { onmessage: ((e: MessageEvent) => void) | null; close(): void } | null = null;
+    let unsubscribe: (() => void) | null = null;
 
     void checkPushNotificationStatus().then((status) => {
       if (cancelled || !status.subscribed) return;
-      es = notificationApi.openStream();
-      es.onmessage = (e) => {
-        try {
-          const n = JSON.parse(e.data) as {
-            title: string;
-            body: string;
-            data?: Record<string, unknown>;
-          };
-          const notif = new Notification(n.title, {
-            body: n.body,
-            icon: '/timehuddle-icon.svg',
-            tag: (n.data?.type as string | undefined) ?? 'timehuddle',
-            silent: false,
-          });
-          const nData = n.data;
-          if (nData) {
-            notif.onclick = () => {
-              window.focus();
-              if (nData.type === 'message' && nData.teamId && nData.adminId && nData.memberId) {
-                try {
-                  sessionStorage.setItem(
-                    MESSAGES_PENDING_THREAD_KEY,
-                    JSON.stringify({
-                      teamId: String(nData.teamId),
-                      adminId: String(nData.adminId),
-                      memberId: String(nData.memberId),
-                    }),
-                  );
-                } catch {
-                  /* ignore */
-                }
-                window.dispatchEvent(
-                  new CustomEvent('timehuddle:openThread', {
-                    detail: {
-                      teamId: String(nData.teamId),
-                      adminId: String(nData.adminId),
-                      memberId: String(nData.memberId),
-                    },
+      unsubscribe = subscribeNewNotifications((n) => {
+        const nData = n.data;
+        const notif = new Notification(n.title, {
+          body: n.body,
+          icon: '/timehuddle-icon.svg',
+          tag: (nData?.type as string | undefined) ?? 'timehuddle',
+          silent: false,
+        });
+        if (nData) {
+          notif.onclick = () => {
+            window.focus();
+            if (nData.type === 'message' && nData.teamId && nData.adminId && nData.memberId) {
+              try {
+                sessionStorage.setItem(
+                  MESSAGES_PENDING_THREAD_KEY,
+                  JSON.stringify({
+                    teamId: String(nData.teamId),
+                    adminId: String(nData.adminId),
+                    memberId: String(nData.memberId),
                   }),
                 );
+              } catch {
+                /* ignore */
               }
-              const url = nData.url as string | undefined;
-              if (url) {
-                const path = url.split('?')[0];
-                if (path.startsWith('/app/')) {
-                  window.history.pushState(null, '', path);
-                  window.dispatchEvent(new PopStateEvent('popstate'));
-                }
+              window.dispatchEvent(
+                new CustomEvent('timehuddle:openThread', {
+                  detail: {
+                    teamId: String(nData.teamId),
+                    adminId: String(nData.adminId),
+                    memberId: String(nData.memberId),
+                  },
+                }),
+              );
+            }
+            const url = nData.url as string | undefined;
+            if (url) {
+              const path = url.split('?')[0];
+              if (path.startsWith('/app/')) {
+                window.history.pushState(null, '', path);
+                window.dispatchEvent(new PopStateEvent('popstate'));
               }
-            };
-          }
-        } catch {
-          /* ignore parse errors */
+            }
+          };
         }
-      };
+      });
     });
 
     return () => {
       cancelled = true;
-      es?.close();
+      unsubscribe?.();
     };
   }, [user]);
 

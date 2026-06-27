@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { fromNodeHeaders } from "better-auth/node";
-import { auth } from "../lib/auth.js";
+import { requireAuth } from "../middleware/require-auth.js";
+import { verifyWsToken } from "../lib/ws-auth.js";
 import { channelService, subscribeChannel } from "../services/channel.service.js";
 
 const createChannelSchema = z.object({
@@ -18,23 +18,17 @@ const sendMessageSchema = z.object({
 
 export async function channelRoutes(app: FastifyInstance) {
   // GET /v1/channels?teamId= — list channels for a team
-  app.get("/channels", async (req, reply) => {
-    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
-    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
-
+  app.get("/channels", { preHandler: requireAuth }, async (req, reply) => {
     const { teamId } = req.query as Record<string, string>;
     if (!teamId) return reply.status(400).send({ error: "teamId required" });
 
-    const result = await channelService.getChannels(teamId, session.user.id);
+    const result = await channelService.getChannels(teamId, req.user!.id);
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
     return reply.send({ channels: result });
   });
 
   // POST /v1/channels — create a channel (any team member)
-  app.post("/channels", async (req, reply) => {
-    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
-    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
-
+  app.post("/channels", { preHandler: requireAuth }, async (req, reply) => {
     const parsed = createChannelSchema.safeParse(req.body);
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid" });
@@ -43,7 +37,7 @@ export async function channelRoutes(app: FastifyInstance) {
     const { teamId, name, description, members } = parsed.data;
     const result = await channelService.createChannel(
       teamId,
-      session.user.id,
+      req.user!.id,
       name,
       description,
       members
@@ -56,10 +50,7 @@ export async function channelRoutes(app: FastifyInstance) {
   });
 
   // GET /v1/channels/:id/messages?teamId=&before=&limit=
-  app.get("/channels/:id/messages", async (req, reply) => {
-    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
-    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
-
+  app.get("/channels/:id/messages", { preHandler: requireAuth }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const { teamId, before, limit } = req.query as Record<string, string>;
     if (!teamId) return reply.status(400).send({ error: "teamId required" });
@@ -70,7 +61,7 @@ export async function channelRoutes(app: FastifyInstance) {
     }
     const parsedLimit = limit ? Math.min(parseInt(limit, 10) || 50, 100) : 50;
 
-    const result = await channelService.getMessages(id, teamId, session.user.id, {
+    const result = await channelService.getMessages(id, teamId, req.user!.id, {
       before: beforeDate,
       limit: parsedLimit,
     });
@@ -79,10 +70,7 @@ export async function channelRoutes(app: FastifyInstance) {
   });
 
   // POST /v1/channels/:id/messages — send a message
-  app.post("/channels/:id/messages", async (req, reply) => {
-    const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
-    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
-
+  app.post("/channels/:id/messages", { preHandler: requireAuth }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const parsed = sendMessageSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -90,7 +78,7 @@ export async function channelRoutes(app: FastifyInstance) {
     }
 
     const { teamId, text } = parsed.data;
-    const result = await channelService.sendMessage(id, teamId, session.user.id, text);
+    const result = await channelService.sendMessage(id, teamId, req.user!.id, text);
     if (result === "not-found") return reply.status(404).send({ error: "Not found" });
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
     return reply.status(201).send({ message: result });
@@ -108,10 +96,9 @@ export async function channelRoutes(app: FastifyInstance) {
       teamId?: string;
     };
 
-    const headers: Record<string, string> = { ...(req.headers as any) };
-    if (queryToken) headers["authorization"] = `Bearer ${queryToken}`;
-    const session = await auth.api.getSession({ headers });
-    if (!session?.user) {
+    const rawToken = queryToken ?? req.headers["authorization"]?.replace(/^bearer /i, "");
+    const wsUser = await verifyWsToken(rawToken);
+    if (!wsUser) {
       socket.close(4001, "Unauthorized");
       return;
     }
@@ -122,7 +109,7 @@ export async function channelRoutes(app: FastifyInstance) {
     }
 
     // Validate membership via service
-    const channels = await channelService.getChannels(teamId, session.user.id);
+    const channels = await channelService.getChannels(teamId, wsUser.id);
     if (channels === "forbidden") {
       socket.close(4003, "Forbidden");
       return;

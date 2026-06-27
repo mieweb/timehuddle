@@ -7,6 +7,7 @@ import {
   teamsCollection,
   usersCollection,
 } from "../models/index.js";
+import { toId } from "../lib/toId.js";
 import {
   DEFAULT_ENTERPRISE_NAME,
   DEFAULT_ENTERPRISE_SLUG,
@@ -175,10 +176,10 @@ export class OrgService {
 
     const validUserIds = allMembers
       .filter((member) => isValidId(member.userId))
-      .map((member) => new ObjectId(member.userId));
+      .map((member) => toId(member.userId));
     const users = await usersCollection()
       .find(
-        { _id: { $in: validUserIds } },
+        { _id: { $in: validUserIds as any } },
         { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } }
       )
       .toArray();
@@ -531,7 +532,7 @@ export class OrgService {
 
     const [org, targetUser, membershipDocs] = await Promise.all([
       organizationsCollection().findOne({ _id: new ObjectId(orgId) }),
-      usersCollection().findOne({ _id: new ObjectId(targetUserId) }),
+      usersCollection().findOne({ _id: toId(targetUserId) as any }),
       orgMembersCollection().find({ orgId }).toArray(),
     ]);
     if (!org) return "not-found";
@@ -574,7 +575,7 @@ export class OrgService {
 
     const [org, targetUser, membershipDocs] = await Promise.all([
       organizationsCollection().findOne({ _id: new ObjectId(orgId) }),
-      usersCollection().findOne({ _id: new ObjectId(targetUserId) }),
+      usersCollection().findOne({ _id: toId(targetUserId) as any }),
       orgMembersCollection().find({ orgId }).toArray(),
     ]);
 
@@ -720,7 +721,7 @@ export class OrgService {
     }
 
     const [user, defaultOrg] = await Promise.all([
-      usersCollection().findOne({ _id: new ObjectId(userId) }),
+      usersCollection().findOne({ _id: toId(userId) as any }),
       organizationsCollection().findOne({ slug: DEFAULT_ORG_KEY }),
     ]);
 
@@ -728,12 +729,12 @@ export class OrgService {
     if (!user) return "user-not-found";
 
     if (reportsToUserId !== undefined && reportsToUserId !== null) {
-      const reportsToUser = await usersCollection().findOne({ _id: new ObjectId(reportsToUserId) });
+      const reportsToUser = await usersCollection().findOne({ _id: toId(reportsToUserId) as any });
       if (!reportsToUser) return "reports-to-user-not-found";
     }
 
     await usersCollection().updateOne(
-      { _id: new ObjectId(userId) },
+      { _id: toId(userId) as any },
       { $set: { reportsToUserId, updatedAt: new Date() } }
     );
 
@@ -767,7 +768,7 @@ export class OrgService {
     }
 
     await usersCollection().updateOne(
-      { _id: new ObjectId(userId) },
+      { _id: toId(userId) as any },
       { $set: { reportsToUserId: reportsToUserId ?? null, updatedAt: new Date() } }
     );
 

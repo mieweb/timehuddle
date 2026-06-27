@@ -1,0 +1,5 @@
+# The image COPYs nothing (source is bind-mounted at runtime), so keep the
+# build context tiny and free of platform-specific build artifacts.
+node_modules
+.meteor/local
+.env.local
