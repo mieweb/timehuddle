@@ -329,6 +329,42 @@ Meteor.methods({
 
     return toPublicTicket(ticket);
   },
+  async 'tickets.shareWithTimeharbor'({ ticketId, shared } = {}) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    const ticket = await requireTicketPermission(userId, ticketId, 'update');
+    if (ticket === 'not-found') throw new Meteor.Error('not-found', 'Ticket not found');
+    if (ticket === 'forbidden') throw new Meteor.Error('forbidden', 'Not authorized');
+    const { MongoInternals } = require('meteor/mongo');
+    const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
+    await rawDb().collection('tickets').updateOne(
+      { _id: new ObjectId(ticketId) },
+      { $set: { sharedWithTimeharbor: shared, updatedAt: new Date() } }
+    );
+    return { ok: true };
+  },
+
+  async 'tickets.bulkShareWithTimeharbor'({ ticketIds, shared } = {}) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!Array.isArray(ticketIds) || ticketIds.length === 0) {
+      throw new Meteor.Error('bad-request', 'ticketIds is required');
+    }
+    const { MongoInternals } = require('meteor/mongo');
+    const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
+    // Verify user can update every ticket
+    for (const ticketId of ticketIds) {
+      const ticket = await requireTicketPermission(userId, ticketId, 'update');
+      if (ticket === 'not-found') throw new Meteor.Error('not-found', `Ticket ${ticketId} not found`);
+      if (ticket === 'forbidden') throw new Meteor.Error('forbidden', 'Not authorized for all tickets');
+    }
+    const validIds = ticketIds.filter(id => /^[0-9a-f]{24}$/i.test(id));
+    const result = await rawDb().collection('tickets').updateMany(
+      { _id: { $in: validIds.map(id => new ObjectId(id)) } },
+      { $set: { sharedWithTimeharbor: shared, updatedAt: new Date() } }
+    );
+    return { modifiedCount: result.modifiedCount };
+  },
 });
 
 /**
@@ -352,3 +388,4 @@ Meteor.publish('tickets.byTeam', async function (teamIds) {
 
   return Tickets.find({ teamId: { $in: allowedIds }, status: { $ne: 'deleted' } });
 });
+

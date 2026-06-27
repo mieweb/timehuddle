@@ -887,6 +887,26 @@ Meteor.startup(async() => {
   });
 
 
+  Wormhole.expose('tickets.shareWithTimeharbor', {
+    description: 'Flag or unflag a ticket for TimeHarbor import',
+    inputSchema: {
+      type: 'object',
+      properties: { ticketId: { type: 'string' }, shared: { type: 'boolean' } },
+      required: ['ticketId', 'shared'],
+    },
+  });
+  Wormhole.expose('tickets.bulkShareWithTimeharbor', {
+    description: 'Flag or unflag multiple tickets for TimeHarbor import',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketIds: { type: 'array', items: { type: 'string' } },
+        shared: { type: 'boolean' },
+      },
+      required: ['ticketIds', 'shared'],
+    },
+  });
+
   Wormhole.expose('huddle.getPostsByTicket', {
     description: 'Fetch all huddle posts for a specific ticket',
     inputSchema: {
