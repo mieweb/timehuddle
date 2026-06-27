@@ -1285,7 +1285,7 @@ export const notificationApi = {
     wormholeCall<{ ok: boolean }>('clock.agreeAutoClockout', { clockEventId }),
 
   /** Send a test push notification to the requesting user's devices. */
-  testPush: () => request<{ ok: boolean }>('/v1/notifications/test-push', { method: 'POST' }),
+  testPush: () => wormholeCall<{ ok: boolean }>('notifications.testPush', {}),
 };
 
 // ─── Attachments ──────────────────────────────────────────────────────────────
