@@ -689,8 +689,7 @@ export const enterpriseApi = {
       {},
     ),
 
-  /** Still on Fastify (M4) */
-  takeOwnership: () => request<{ role: 'owner' }>('/v1/install', { method: 'POST' }),
+  takeOwnership: () => wormholeCall<{ role: 'owner' }>('enterprises.takeOwnership', {}),
 };
 
 export type SeedImportPreview = {
