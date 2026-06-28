@@ -440,26 +440,27 @@ export class OrgService {
   }
 
   async listOrganizationsForUser(userId: string): Promise<OrgSummary[]> {
-    const [memberships, ownedOrAdminOrgs, teamOrgs, enterpriseManagedOrgs, user] = await Promise.all([
-      orgMembersCollection().find({ userId }).toArray(),
-      organizationsCollection()
-        .find({ $or: [{ owners: userId }, { admins: userId }] }, { projection: { _id: 1 } })
-        .toArray(),
-      teamsCollection()
-        .find({ $or: [{ members: userId }, { admins: userId }] }, { projection: { orgId: 1 } })
-        .toArray(),
-      (async () => {
-        const enterpriseDocs = await enterprisesCollection()
+    const [memberships, ownedOrAdminOrgs, teamOrgs, enterpriseManagedOrgs, user] =
+      await Promise.all([
+        orgMembersCollection().find({ userId }).toArray(),
+        organizationsCollection()
           .find({ $or: [{ owners: userId }, { admins: userId }] }, { projection: { _id: 1 } })
-          .toArray();
-        const enterpriseIds = enterpriseDocs.map((enterprise) => enterprise._id.toHexString());
-        if (enterpriseIds.length === 0) return [] as Array<{ _id: ObjectId }>;
-        return organizationsCollection()
-          .find({ enterpriseId: { $in: enterpriseIds } }, { projection: { _id: 1 } })
-          .toArray();
-      })(),
-      usersCollection().findOne({ _id: new ObjectId(userId) }, { projection: { blocked: 1 } }),
-    ]);
+          .toArray(),
+        teamsCollection()
+          .find({ $or: [{ members: userId }, { admins: userId }] }, { projection: { orgId: 1 } })
+          .toArray(),
+        (async () => {
+          const enterpriseDocs = await enterprisesCollection()
+            .find({ $or: [{ owners: userId }, { admins: userId }] }, { projection: { _id: 1 } })
+            .toArray();
+          const enterpriseIds = enterpriseDocs.map((enterprise) => enterprise._id.toHexString());
+          if (enterpriseIds.length === 0) return [] as Array<{ _id: ObjectId }>;
+          return organizationsCollection()
+            .find({ enterpriseId: { $in: enterpriseIds } }, { projection: { _id: 1 } })
+            .toArray();
+        })(),
+        usersCollection().findOne({ _id: new ObjectId(userId) }, { projection: { blocked: 1 } }),
+      ]);
 
     const blockedOrgIds = new Set(user?.blocked?.map((b) => b.orgId) ?? []);
 
@@ -742,7 +743,10 @@ export class OrgService {
     );
 
     // Automatically re-add user as member when unblocking (if not already a member)
-    const existingMembership = await orgMembersCollection().findOne({ orgId, userId: targetUserId });
+    const existingMembership = await orgMembersCollection().findOne({
+      orgId,
+      userId: targetUserId,
+    });
     if (!existingMembership) {
       await orgMembersCollection().insertOne({
         _id: new ObjectId(),

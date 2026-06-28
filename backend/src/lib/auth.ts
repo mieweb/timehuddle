@@ -25,10 +25,7 @@ async function checkUserBlocking(userId: string): Promise<{ blocked: boolean; me
   }
 
   // Get all org memberships for this user
-  const memberships = await orgMembersCollection()
-    .find({ userId })
-    .project({ orgId: 1 })
-    .toArray();
+  const memberships = await orgMembersCollection().find({ userId }).project({ orgId: 1 }).toArray();
 
   // User has no org memberships = can't sign in
   if (memberships.length === 0) {

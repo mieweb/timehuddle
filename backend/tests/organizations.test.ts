@@ -640,12 +640,11 @@ describe("organizations routes", () => {
     const defaultOrg = await db.collection("organizations").findOne({ slug: "default" });
     if (defaultOrg) {
       const defaultOrgId = defaultOrg._id.toHexString();
-      
+
       // Disable auto-join
-      await db.collection("organizations").updateOne(
-        { _id: defaultOrg._id },
-        { $set: { allowAutoJoin: false } }
-      );
+      await db
+        .collection("organizations")
+        .updateOne({ _id: defaultOrg._id }, { $set: { allowAutoJoin: false } });
 
       // Remove from org members
       await db.collection("org_members").deleteMany({
@@ -656,7 +655,16 @@ describe("organizations routes", () => {
       // Block from default org
       await db.collection("user").updateOne(
         { _id: new ObjectId(memberId) },
-        { $push: { blocked: { orgId: defaultOrgId, blockedBy: ownerId, blockedAt: new Date(), reason: "Test setup" } } }
+        {
+          $push: {
+            blocked: {
+              orgId: defaultOrgId,
+              blockedBy: ownerId,
+              blockedAt: new Date(),
+              reason: "Test setup",
+            },
+          },
+        }
       );
     }
 
@@ -720,18 +728,19 @@ describe("organizations routes", () => {
     // Also unblock from default org and re-enable allowAutoJoin
     if (defaultOrg) {
       const defaultOrgId = defaultOrg._id.toHexString();
-      
+
       // Re-enable auto-join
-      await db.collection("organizations").updateOne(
-        { _id: defaultOrg._id },
-        { $set: { allowAutoJoin: true } }
-      );
+      await db
+        .collection("organizations")
+        .updateOne({ _id: defaultOrg._id }, { $set: { allowAutoJoin: true } });
 
       // Unblock from default org
-      await db.collection("user").updateOne(
-        { _id: new ObjectId(memberId) },
-        { $pull: { blocked: { orgId: defaultOrgId } } }
-      );
+      await db
+        .collection("user")
+        .updateOne(
+          { _id: new ObjectId(memberId) },
+          { $pull: { blocked: { orgId: defaultOrgId } } }
+        );
     }
 
     // Verify they can now access /me again

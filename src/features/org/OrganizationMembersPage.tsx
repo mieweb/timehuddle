@@ -489,7 +489,7 @@ export const OrganizationMembersPage: React.FC = () => {
                           ) : (
                             <>
                               <Button
-                                variant="warning"
+                                variant="danger"
                                 size="sm"
                                 onClick={() => void handleBlockMember(orgUser.id)}
                                 disabled={isSaving || !canManage || isCurrent}
@@ -554,7 +554,7 @@ export const OrganizationMembersPage: React.FC = () => {
             Cancel
           </Button>
           <Button
-            variant="warning"
+            variant="danger"
             onClick={() => void handleConfirmBlock()}
             disabled={blockingSaving}
           >
