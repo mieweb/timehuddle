@@ -170,13 +170,10 @@ export const OrganizationMembersPage: React.FC = () => {
     [loadUsers, selectedOrgId],
   );
 
-  const handleBlockMember = useCallback(
-    async (targetUserId: string) => {
-      setBlockUserId(targetUserId);
-      setBlockReason('');
-    },
-    [],
-  );
+  const handleBlockMember = useCallback(async (targetUserId: string) => {
+    setBlockUserId(targetUserId);
+    setBlockReason('');
+  }, []);
 
   const handleConfirmBlock = useCallback(async () => {
     if (!selectedOrgId || !blockUserId) return;
@@ -472,7 +469,9 @@ export const OrganizationMembersPage: React.FC = () => {
                                 onClick={() => void handleUnblockMember(orgUser.id)}
                                 disabled={isSaving || !canManage}
                                 aria-label={`Unblock ${orgUser.name}`}
-                                title={blockInfo?.reason ? `Reason: ${blockInfo.reason}` : undefined}
+                                title={
+                                  blockInfo?.reason ? `Reason: ${blockInfo.reason}` : undefined
+                                }
                               >
                                 Unblock
                               </Button>
@@ -546,11 +545,7 @@ export const OrganizationMembersPage: React.FC = () => {
           />
         </ModalBody>
         <ModalFooter>
-          <Button
-            variant="outline"
-            onClick={() => setBlockUserId(null)}
-            disabled={blockingSaving}
-          >
+          <Button variant="outline" onClick={() => setBlockUserId(null)} disabled={blockingSaving}>
             Cancel
           </Button>
           <Button

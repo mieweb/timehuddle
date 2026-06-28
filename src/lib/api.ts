@@ -623,13 +623,10 @@ export const orgApi = {
           reason?: string;
         };
       };
-    }>(
-      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/block`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ reason }),
-      },
-    ).then((r) => r.user),
+    }>(`/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/block`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }).then((r) => r.user),
 
   unblockMember: (id: string, userId: string) =>
     request<{ user: { id: string } }>(

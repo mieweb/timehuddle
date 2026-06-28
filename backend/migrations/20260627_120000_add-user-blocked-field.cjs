@@ -11,9 +11,7 @@ module.exports = {
     // This allows us to quickly check if a user is blocked from a specific org
     try {
       const existingIndexes = await db.collection("user").indexes();
-      const hasIndex = existingIndexes.some(
-        (idx) => idx.key && idx.key["blocked.orgId"] === 1
-      );
+      const hasIndex = existingIndexes.some((idx) => idx.key && idx.key["blocked.orgId"] === 1);
 
       if (!hasIndex) {
         await db
@@ -42,7 +40,9 @@ module.exports = {
     }
 
     // Optionally remove blocked field from all users
-    await db.collection("user").updateMany({ blocked: { $exists: true } }, { $unset: { blocked: "" } });
+    await db
+      .collection("user")
+      .updateMany({ blocked: { $exists: true } }, { $unset: { blocked: "" } });
     console.log("✅ Removed blocked field from all users");
   },
 };
