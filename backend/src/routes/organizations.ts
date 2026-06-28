@@ -195,6 +195,82 @@ export async function organizationsRoutes(app: FastifyInstance) {
     orgController.removeMember
   );
 
+  app.post(
+    "/organizations/:id/members/:userId/block",
+    {
+      schema: {
+        tags: ["Organization"],
+        summary: "Block member from organization (removes from all teams, prevents access)",
+        params: {
+          type: "object",
+          properties: { id: { type: "string" }, userId: { type: "string" } },
+        },
+        body: {
+          type: "object",
+          properties: {
+            reason: { type: "string", maxLength: 500 },
+          },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              user: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  blocked: {
+                    type: "object",
+                    properties: {
+                      orgId: { type: "string" },
+                      blockedBy: { type: "string" },
+                      blockedAt: { type: "string", format: "date-time" },
+                      reason: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          403: { type: "object", properties: { error: { type: "string" } } },
+          404: { type: "object", properties: { error: { type: "string" } } },
+          409: { type: "object", properties: { error: { type: "string" } } },
+        },
+      },
+    },
+    orgController.blockMember
+  );
+
+  app.delete(
+    "/organizations/:id/members/:userId/block",
+    {
+      schema: {
+        tags: ["Organization"],
+        summary: "Unblock member from organization (does not restore team memberships)",
+        params: {
+          type: "object",
+          properties: { id: { type: "string" }, userId: { type: "string" } },
+        },
+        response: {
+          200: {
+            type: "object",
+            properties: {
+              user: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                },
+              },
+            },
+          },
+          403: { type: "object", properties: { error: { type: "string" } } },
+          404: { type: "object", properties: { error: { type: "string" } } },
+        },
+      },
+    },
+    orgController.unblockMember
+  );
+
   app.put(
     "/organizations/:id/members/:userId/reports-to",
     {

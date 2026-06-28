@@ -149,6 +149,46 @@ export const orgController = {
     return reply.send({ user: result });
   },
 
+  async blockMember(
+    req: FastifyRequest<{
+      Params: { id: string; userId: string };
+      Body: { reason?: string };
+    }>,
+    reply: FastifyReply
+  ) {
+    const result = await orgService.blockOrgMember(
+      req.user!.id,
+      req.params.id,
+      req.params.userId,
+      req.body.reason
+    );
+    if (result === "not-found") return reply.status(404).send({ error: "Organization not found" });
+    if (result === "user-not-found") return reply.status(404).send({ error: "User not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    if (result === "already-blocked") {
+      return reply.status(409).send({ error: "User is already blocked from this organization" });
+    }
+    return reply.send({ user: { id: result.userId, blocked: result.block } });
+  },
+
+  async unblockMember(
+    req: FastifyRequest<{ Params: { id: string; userId: string } }>,
+    reply: FastifyReply
+  ) {
+    const result = await orgService.unblockOrgMember(
+      req.user!.id,
+      req.params.id,
+      req.params.userId
+    );
+    if (result === "not-found") return reply.status(404).send({ error: "Organization not found" });
+    if (result === "user-not-found") return reply.status(404).send({ error: "User not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    if (result === "not-blocked") {
+      return reply.status(404).send({ error: "User is not blocked from this organization" });
+    }
+    return reply.send({ user: { id: result.userId } });
+  },
+
   async updateMemberReportsTo(
     req: FastifyRequest<{
       Params: { id: string; userId: string };

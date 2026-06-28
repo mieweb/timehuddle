@@ -16,6 +16,8 @@ interface SessionState {
   loading: boolean;
   /** True when the user is authenticated but has not yet claimed a username. */
   needsUsernameClaim: boolean;
+  /** Error message if user is blocked from signing in. */
+  blockMessage?: string | null;
   /** Re-fetch session from timecore — call after sign-in / sign-up. */
   refetch: () => Promise<void>;
   /** Sign out from timecore and clear local session state. */
@@ -28,6 +30,7 @@ const SessionContext = createContext<SessionState>({
   user: null,
   loading: true,
   needsUsernameClaim: false,
+  blockMessage: null,
   refetch: async () => {},
   signOut: async () => {},
 });
@@ -37,9 +40,11 @@ const SessionContext = createContext<SessionState>({
 export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<TimecoreUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [blockMessage, setBlockMessage] = useState<string | null>(null);
 
   const fetchSession = useCallback(async () => {
     setLoading(true);
+    setBlockMessage(null);
     const t = performance.now();
     console.log('[TimeHuddle] fetchSession: calling getMe...');
     try {
@@ -52,6 +57,14 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.log(
         `[TimeHuddle] fetchSession: getMe failed in ${(performance.now() - t).toFixed(0)}ms — ${String(err)}`,
       );
+
+      // Check if it's a blocking error
+      if (err instanceof Error) {
+        if (err.message.includes('suspended') || err.message.includes('blocked')) {
+          setBlockMessage(err.message);
+        }
+      }
+
       setUser(null);
     } finally {
       setLoading(false);
@@ -71,7 +84,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   return (
     <SessionContext.Provider
-      value={{ user, loading, needsUsernameClaim, refetch: fetchSession, signOut }}
+      value={{ user, loading, needsUsernameClaim, blockMessage, refetch: fetchSession, signOut }}
     >
       {children}
     </SessionContext.Provider>

@@ -439,6 +439,12 @@ export interface OrganizationAdminUser {
   image: string | null;
   role: DefaultOrganizationRole;
   reportsToUserId?: string | null;
+  blocked?: Array<{
+    orgId: string;
+    blockedBy: string;
+    blockedAt: string;
+    reason?: string;
+  }>;
 }
 
 export interface AdminOrganization {
@@ -601,6 +607,30 @@ export const orgApi = {
   removeMember: (id: string, userId: string) =>
     request<{ user: { userId: string } }>(
       `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
+      {
+        method: 'DELETE',
+      },
+    ).then((r) => r.user),
+
+  blockMember: (id: string, userId: string, reason?: string) =>
+    request<{
+      user: {
+        id: string;
+        blocked: {
+          orgId: string;
+          blockedBy: string;
+          blockedAt: string;
+          reason?: string;
+        };
+      };
+    }>(`/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/block`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }).then((r) => r.user),
+
+  unblockMember: (id: string, userId: string) =>
+    request<{ user: { id: string } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/block`,
       {
         method: 'DELETE',
       },

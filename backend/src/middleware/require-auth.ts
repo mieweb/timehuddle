@@ -69,6 +69,52 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply) {
   return reply.status(401).send({ error: "Unauthorized" });
 }
 
+/**
+ * Helper to check if a user is blocked from a specific organization.
+ * Returns the block entry if user is blocked, null otherwise.
+ */
+export async function checkOrgBlocking(userId: string, orgId: string) {
+  const user = await usersCollection().findOne(
+    { _id: new ObjectId(userId), "blocked.orgId": orgId },
+    { projection: { blocked: 1 } }
+  );
+
+  if (!user?.blocked) return null;
+
+  const block = user.blocked.find((b) => b.orgId === orgId);
+  return block ?? null;
+}
+
+/**
+ * Middleware to check if the authenticated user is blocked from accessing an organization.
+ * Must be used after requireAuth. Expects orgId in route params as 'id' or 'orgId'.
+ * Returns 403 if user is blocked.
+ */
+export async function requireOrgAccess(req: FastifyRequest, reply: FastifyReply) {
+  if (!req.user) {
+    return reply.status(401).send({ error: "Unauthorized" });
+  }
+
+  const params = req.params as Record<string, string>;
+  const orgId = params.id || params.orgId;
+
+  if (!orgId) {
+    // If no orgId in params, skip blocking check (route doesn't require org context)
+    return;
+  }
+
+  const block = await checkOrgBlocking(req.user.id, orgId);
+
+  if (block) {
+    return reply.status(403).send({
+      error: "Your account has been suspended from this organization",
+      blockedBy: block.blockedBy,
+      blockedAt: block.blockedAt.toISOString(),
+      reason: block.reason,
+    });
+  }
+}
+
 // Extend Fastify types globally
 declare module "fastify" {
   interface FastifyRequest {

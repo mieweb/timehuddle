@@ -503,4 +503,252 @@ describe("organizations routes", () => {
     });
     expect(orgMember?.role).toBe("member");
   });
+
+  it("allows organization owner to block a member", async () => {
+    const db = client.db();
+    const reason = "Policy violation";
+
+    const blockRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/block`,
+      headers: { cookie: ownerCookie },
+      payload: { reason },
+    });
+
+    expect(blockRes.statusCode).toBe(200);
+    const body = blockRes.json();
+    expect(body.user.id).toBe(memberId);
+    expect(body.user.blocked.orgId).toBe(organizationId);
+    expect(body.user.blocked.blockedBy).toBe(ownerId);
+    expect(body.user.blocked.reason).toBe(reason);
+
+    // Verify user is blocked in database
+    const user = await db.collection("user").findOne({ _id: new ObjectId(memberId) });
+    expect(user?.blocked).toBeDefined();
+    const block = user?.blocked?.find((b: { orgId: string }) => b.orgId === organizationId);
+    expect(block).toBeDefined();
+    expect(block?.reason).toBe(reason);
+
+    // Verify user is removed from org membership
+    const orgMember = await db.collection("org_members").findOne({
+      orgId: organizationId,
+      userId: memberId,
+    });
+    expect(orgMember).toBeNull();
+  });
+
+  it("prevents blocked user from accessing organization routes", async () => {
+    const membersRes = await app.inject({
+      method: "GET",
+      url: `/v1/organizations/${organizationId}/members`,
+      headers: { cookie: memberCookie },
+    });
+
+    // Blocked users are removed from org membership, so they can't access org routes
+    expect(membersRes.statusCode).toBe(403);
+    const body = membersRes.json();
+    expect(body.error).toBe("Forbidden");
+  });
+
+  it("allows organization owner to unblock a member", async () => {
+    const db = client.db();
+
+    const unblockRes = await app.inject({
+      method: "DELETE",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/block`,
+      headers: { cookie: ownerCookie },
+    });
+
+    expect(unblockRes.statusCode).toBe(200);
+    expect(unblockRes.json().user.id).toBe(memberId);
+
+    // Verify user is no longer blocked
+    const user = await db.collection("user").findOne({ _id: new ObjectId(memberId) });
+    const block = user?.blocked?.find((b: { orgId: string }) => b.orgId === organizationId);
+    expect(block).toBeUndefined();
+
+    // Verify user was automatically re-added as member
+    const orgMember = await db.collection("org_members").findOne({
+      orgId: organizationId,
+      userId: memberId,
+    });
+    expect(orgMember).toBeDefined();
+    expect(orgMember?.role).toBe("member");
+  });
+
+  it("rejects blocking attempt by non-admin", async () => {
+    // First, re-add the member to the organization
+    await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/role`,
+      headers: { cookie: ownerCookie },
+      payload: { role: "member" },
+    });
+
+    // Now, member tries to block another user (should fail)
+    const blockRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${organizationId}/members/${ownerId}/block`,
+      headers: { cookie: memberCookie },
+      payload: { reason: "Test" },
+    });
+
+    expect(blockRes.statusCode).toBe(403);
+  });
+
+  it("rejects blocking attempt on already blocked user", async () => {
+    // First block
+    await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/block`,
+      headers: { cookie: ownerCookie },
+      payload: { reason: "First block" },
+    });
+
+    // Second block attempt
+    const blockRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/block`,
+      headers: { cookie: ownerCookie },
+      payload: { reason: "Second block" },
+    });
+
+    expect(blockRes.statusCode).toBe(409);
+
+    // Clean up: unblock
+    await app.inject({
+      method: "DELETE",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/block`,
+      headers: { cookie: ownerCookie },
+    });
+  });
+
+  it("rejects unblocking attempt on non-blocked user", async () => {
+    const unblockRes = await app.inject({
+      method: "DELETE",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/block`,
+      headers: { cookie: ownerCookie },
+    });
+
+    expect(unblockRes.statusCode).toBe(404);
+  });
+
+  it("blocks global login when user is blocked from their only organization", async () => {
+    const db = client.db();
+
+    // First, disable allowAutoJoin on default org and block member from it
+    const defaultOrg = await db.collection("organizations").findOne({ slug: "default" });
+    if (defaultOrg) {
+      const defaultOrgId = defaultOrg._id.toHexString();
+
+      // Disable auto-join
+      await db
+        .collection("organizations")
+        .updateOne({ _id: defaultOrg._id }, { $set: { allowAutoJoin: false } });
+
+      // Remove from org members
+      await db.collection("org_members").deleteMany({
+        orgId: defaultOrgId,
+        userId: memberId,
+      });
+
+      // Block from default org
+      await db.collection("user").updateOne(
+        { _id: new ObjectId(memberId) },
+        {
+          $push: {
+            blocked: {
+              orgId: defaultOrgId,
+              blockedBy: ownerId,
+              blockedAt: new Date(),
+              reason: "Test setup",
+            },
+          },
+        }
+      );
+    }
+
+    // Ensure member is in the test organization
+    await app.inject({
+      method: "PUT",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/role`,
+      headers: { cookie: ownerCookie },
+      payload: { role: "member" },
+    });
+
+    // Now block the member from their only accessible org
+    const blockRes = await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/block`,
+      headers: { cookie: ownerCookie },
+      payload: { reason: "Global block test" },
+    });
+    expect(blockRes.statusCode).toBe(200);
+
+    // Verify user is blocked in database
+    const userAfterBlock = await db.collection("user").findOne({ _id: new ObjectId(memberId) });
+    expect(userAfterBlock?.blocked).toBeDefined();
+    expect(userAfterBlock?.blocked?.length).toBeGreaterThan(0);
+
+    // Verify user is removed from org membership
+    const orgMemberAfterBlock = await db.collection("org_members").findOne({
+      orgId: organizationId,
+      userId: memberId,
+    });
+    expect(orgMemberAfterBlock).toBeNull();
+
+    // Now try to access /me endpoint (which checks for accessible orgs)
+    const meRes = await app.inject({
+      method: "GET",
+      url: "/v1/me",
+      headers: { cookie: memberCookie },
+    });
+
+    // Should return 403 because user has no accessible organizations
+    expect(meRes.statusCode).toBe(403);
+    const body = meRes.json();
+    expect(body.error).toBe("Your account has been suspended from all organizations");
+    expect(body.blocked).toBe(true);
+
+    // Clean up: unblock the member from test org
+    await app.inject({
+      method: "DELETE",
+      url: `/v1/organizations/${organizationId}/members/${memberId}/block`,
+      headers: { cookie: ownerCookie },
+    });
+
+    // Re-add member to test org so they can access it again
+    await app.inject({
+      method: "POST",
+      url: `/v1/organizations/${organizationId}/members`,
+      headers: { cookie: ownerCookie },
+      payload: { userId: memberId, role: "member" },
+    });
+
+    // Also unblock from default org and re-enable allowAutoJoin
+    if (defaultOrg) {
+      const defaultOrgId = defaultOrg._id.toHexString();
+
+      // Re-enable auto-join
+      await db
+        .collection("organizations")
+        .updateOne({ _id: defaultOrg._id }, { $set: { allowAutoJoin: true } });
+
+      // Unblock from default org
+      await db
+        .collection("user")
+        .updateOne(
+          { _id: new ObjectId(memberId) },
+          { $pull: { blocked: { orgId: defaultOrgId } } }
+        );
+    }
+
+    // Verify they can now access /me again
+    const meResAfter = await app.inject({
+      method: "GET",
+      url: "/v1/me",
+      headers: { cookie: memberCookie },
+    });
+    expect(meResAfter.statusCode).toBe(200);
+  });
 });

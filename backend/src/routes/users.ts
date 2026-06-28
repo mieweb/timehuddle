@@ -641,11 +641,21 @@ export async function userRoutes(app: FastifyInstance) {
     async (req, reply) => {
       // Augment the session user with the username from the users collection.
       const sessionUser = req.user!;
-      const [dbUser, profile, organizationMembership] = await Promise.all([
+      const [dbUser, profile, organizationMembership, hasAccessibleOrgs] = await Promise.all([
         usersCollection().findOne({ _id: new ObjectId(sessionUser.id) }),
         profilesCollection().findOne({ userId: sessionUser.id, app: "timeharbor" as const }),
         resolveDefaultOrganizationMembership(sessionUser.id),
+        orgService.hasAccessibleOrganizations(sessionUser.id),
       ]);
+
+      // Check if user is blocked from all organizations
+      if (!hasAccessibleOrgs && dbUser?.blocked && dbUser.blocked.length > 0) {
+        return reply.status(403).send({
+          error: "Your account has been suspended from all organizations",
+          blocked: true,
+        });
+      }
+
       // Prefer uploaded avatar over OAuth session image
       const image = profile?.avatarUrl ?? dbUser?.image ?? sessionUser.image ?? null;
       const backgroundUrl = profile?.backgroundUrl ?? null;
