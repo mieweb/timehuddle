@@ -1,0 +1,520 @@
+organizations:
+  - name: Demo Enterprise Co
+    slug: demo-enterprise
+    allowAutoJoin: true
+    owners:
+      - alice@example.com
+    admins:
+      - tanya@example.com
+      - kira@example.com
+    teams:
+      - name: Developers
+        code: DEVX0001
+        description: Frontend and backend engineers
+        members:
+          - alice@example.com
+          - bob@example.com
+          - carol@example.com
+          - dan@example.com
+          - eve@example.com
+        admins:
+          - alice@example.com
+          - carol@example.com
+        tickets:
+          - title: Set up CI/CD pipeline
+            status: closed
+            priority: high
+            createdBy: alice@example.com
+            assignedTo:
+              - bob@example.com
+          - title: Refactor timer state models
+            status: in-progress
+            priority: high
+            createdBy: alice@example.com
+            assignedTo:
+              - carol@example.com
+          - title: Add dark mode support
+            status: open
+            priority: medium
+            createdBy: carol@example.com
+            assignedTo:
+              - dan@example.com
+      - name: Product
+        code: PROD0002
+        description: Product planning and roadmap
+        members:
+          - kira@example.com
+          - alice@example.com
+          - liam@example.com
+          - tanya@example.com
+        admins:
+          - kira@example.com
+          - tanya@example.com
+        tickets:
+          - title: Define MVP feature set
+            status: closed
+            priority: critical
+            createdBy: kira@example.com
+            assignedTo:
+              - kira@example.com
+          - title: Roadmap Q3 2026
+            status: in-progress
+            priority: medium
+            createdBy: kira@example.com
+            assignedTo:
+              - liam@example.com
+          - title: Accessibility audit
+            status: open
+            priority: medium
+            createdBy: liam@example.com
+      - name: Design
+        code: DSGN0003
+        description: UX research and visual design
+        members:
+          - liam@example.com
+          - maya@example.com
+          - parker@example.com
+        admins:
+          - liam@example.com
+        tickets:
+          - title: Design system token alignment
+            status: in-progress
+            priority: high
+            createdBy: liam@example.com
+            assignedTo:
+              - liam@example.com
+          - title: Timer page mobile mockups
+            status: reviewed
+            priority: medium
+            createdBy: liam@example.com
+            assignedTo:
+              - maya@example.com
+      - name: Support
+        code: SUPP0004
+        description: Customer support and escalations
+        members:
+          - jules@example.com
+          - hannah@example.com
+          - noah@example.com
+          - quinn@example.com
+        admins:
+          - jules@example.com
+        tickets:
+          - title: Document clock-in / clock-out flow
+            status: closed
+            priority: medium
+            createdBy: jules@example.com
+            assignedTo:
+              - hannah@example.com
+          - title: Build FAQ knowledge base
+            status: in-progress
+            priority: medium
+            createdBy: jules@example.com
+            assignedTo:
+              - noah@example.com
+      - name: Operations
+        code: OPS00005
+        description: IT, onboarding, and environment ops
+        members:
+          - noah@example.com
+          - ian@example.com
+          - hannah@example.com
+          - riley@example.com
+        admins:
+          - noah@example.com
+          - ian@example.com
+        tickets:
+          - title: Docker Compose local dev stack
+            status: closed
+            priority: high
+            createdBy: noah@example.com
+            assignedTo:
+              - ian@example.com
+          - title: Environment rotation script
+            status: open
+            priority: low
+            createdBy: ian@example.com
+
+  - name: Launchpad Labs
+    slug: launchpad-labs
+    allowAutoJoin: false
+    owners:
+      - zoe-founder@example.com
+    admins:
+      - marco-cto@example.com
+    teams:
+      - name: Engineering
+        code: LPENG001
+        description: Full-stack product engineers
+        members:
+          - zoe-founder@example.com
+          - marco-cto@example.com
+          - priya-eng@example.com
+          - felix-eng@example.com
+        admins:
+          - marco-cto@example.com
+        tickets:
+          - title: Ship MVP auth flow
+            status: in-progress
+            priority: critical
+            createdBy: marco-cto@example.com
+            assignedTo:
+              - priya-eng@example.com
+          - title: Integrate Stripe billing
+            status: open
+            priority: high
+            createdBy: zoe-founder@example.com
+            assignedTo:
+              - felix-eng@example.com
+          - title: Set up error monitoring
+            status: open
+            priority: medium
+            createdBy: marco-cto@example.com
+      - name: Growth
+        code: LPGRW002
+        description: Marketing, onboarding, and early customer success
+        members:
+          - zoe-founder@example.com
+          - nadia-growth@example.com
+          - omar-cs@example.com
+        admins:
+          - nadia-growth@example.com
+        tickets:
+          - title: Launch Product Hunt campaign
+            status: open
+            priority: high
+            createdBy: zoe-founder@example.com
+            assignedTo:
+              - nadia-growth@example.com
+          - title: Write onboarding email sequence
+            status: in-progress
+            priority: medium
+            createdBy: nadia-growth@example.com
+            assignedTo:
+              - omar-cs@example.com
+
+  - name: Pixel & Co
+    slug: pixel-and-co
+    allowAutoJoin: false
+    owners:
+      - derek-partner@example.com
+    admins:
+      - sasha-delivery@example.com
+    teams:
+      - name: Dev Team
+        code: PXDEV001
+        description: Client project delivery — web and mobile
+        members:
+          - derek-partner@example.com
+          - sasha-delivery@example.com
+          - victor-dev@example.com
+          - ines-dev@example.com
+          - tom-dev@example.com
+        admins:
+          - sasha-delivery@example.com
+          - victor-dev@example.com
+        tickets:
+          - title: Kick off client portal v2
+            status: open
+            priority: high
+            createdBy: derek-partner@example.com
+            assignedTo:
+              - sasha-delivery@example.com
+          - title: API integration with client ERP
+            status: in-progress
+            priority: high
+            createdBy: sasha-delivery@example.com
+            assignedTo:
+              - victor-dev@example.com
+          - title: Mobile app QA pass
+            status: open
+            priority: medium
+            createdBy: sasha-delivery@example.com
+            assignedTo:
+              - ines-dev@example.com
+      - name: Creative
+        code: PXCRE002
+        description: Design and brand work for client engagements
+        members:
+          - derek-partner@example.com
+          - luna-design@example.com
+          - rafi-design@example.com
+        admins:
+          - luna-design@example.com
+        tickets:
+          - title: Deliver brand refresh for RetailCo
+            status: in-progress
+            priority: high
+            createdBy: derek-partner@example.com
+            assignedTo:
+              - luna-design@example.com
+          - title: Component library handoff
+            status: open
+            priority: medium
+            createdBy: luna-design@example.com
+            assignedTo:
+              - rafi-design@example.com
+
+  - name: ACME Corp
+    slug: acme-corp
+    allowAutoJoin: false
+    owners:
+      - wile-director@example.com
+    admins:
+      - betty-ops@example.com
+      - chuck-it@example.com
+    teams:
+      - name: Field Operations
+        code: ACMEFO01
+        description: On-site installations and maintenance
+        members:
+          - wile-director@example.com
+          - betty-ops@example.com
+          - roadrunner-field@example.com
+          - speedy-field@example.com
+          - gus-field@example.com
+        admins:
+          - betty-ops@example.com
+        tickets:
+          - title: Site inspection — Phoenix location
+            status: closed
+            priority: high
+            createdBy: betty-ops@example.com
+            assignedTo:
+              - roadrunner-field@example.com
+          - title: Equipment maintenance log Q2
+            status: in-progress
+            priority: medium
+            createdBy: betty-ops@example.com
+            assignedTo:
+              - speedy-field@example.com
+          - title: Safety compliance audit
+            status: open
+            priority: critical
+            createdBy: wile-director@example.com
+            assignedTo:
+              - gus-field@example.com
+      - name: IT & Systems
+        code: ACMEIT02
+        description: Infrastructure, helpdesk, and internal tools
+        members:
+          - chuck-it@example.com
+          - pat-sysadmin@example.com
+          - vera-helpdesk@example.com
+        admins:
+          - chuck-it@example.com
+        tickets:
+          - title: Migrate file server to cloud storage
+            status: in-progress
+            priority: high
+            createdBy: chuck-it@example.com
+            assignedTo:
+              - pat-sysadmin@example.com
+          - title: Roll out SSO to all departments
+            status: open
+            priority: high
+            createdBy: chuck-it@example.com
+            assignedTo:
+              - pat-sysadmin@example.com
+          - title: Helpdesk ticket backlog review
+            status: open
+            priority: low
+            createdBy: vera-helpdesk@example.com
+      - name: Sales
+        code: ACMESL03
+        description: Regional sales and account management
+        members:
+          - wile-director@example.com
+          - buck-sales@example.com
+          - diane-sales@example.com
+          - raj-sales@example.com
+        admins:
+          - buck-sales@example.com
+        tickets:
+          - title: Q3 pipeline review
+            status: in-progress
+            priority: high
+            createdBy: buck-sales@example.com
+            assignedTo:
+              - diane-sales@example.com
+          - title: Update CRM with new accounts
+            status: open
+            priority: medium
+            createdBy: diane-sales@example.com
+            assignedTo:
+              - raj-sales@example.com
+          - title: Prepare renewal deck for Globex
+            status: open
+            priority: high
+            createdBy: buck-sales@example.com
+            assignedTo:
+              - buck-sales@example.com
+
+users:
+  # ── Demo Enterprise Co ────────────────────────────────────────────────────────
+  # CEO → VPs → Managers → ICs
+  - email: alice@example.com
+    name: Alice Admin
+    username: alice
+  - email: tanya@example.com
+    name: Tanya Tech Lead
+    username: tanya
+    reportsTo: alice@example.com
+  - email: kira@example.com
+    name: Kira Product
+    username: kira
+    reportsTo: alice@example.com
+  - email: carol@example.com
+    name: Carol Dev
+    username: carol
+    reportsTo: tanya@example.com
+  - email: liam@example.com
+    name: Liam Designer
+    username: liam
+    reportsTo: kira@example.com
+  - email: jules@example.com
+    name: Jules Support
+    username: jules
+    reportsTo: alice@example.com
+  - email: noah@example.com
+    name: Noah Ops
+    username: noah
+    reportsTo: tanya@example.com
+  - email: bob@example.com
+    name: Bob Builder
+    username: bob
+    reportsTo: carol@example.com
+  - email: dan@example.com
+    name: Dan Developer
+    username: dan
+    reportsTo: carol@example.com
+  - email: eve@example.com
+    name: Eve Engineer
+    username: eve
+    reportsTo: carol@example.com
+  - email: maya@example.com
+    name: Maya Marketing
+    username: maya
+    reportsTo: liam@example.com
+  - email: parker@example.com
+    name: Parker Frontend
+    username: parker
+    reportsTo: liam@example.com
+  - email: hannah@example.com
+    name: Hannah HR
+    username: hannah
+    reportsTo: jules@example.com
+  - email: quinn@example.com
+    name: Quinn QA
+    username: quinn
+    reportsTo: jules@example.com
+  - email: ian@example.com
+    name: Ian IT
+    username: ian
+    reportsTo: noah@example.com
+  - email: riley@example.com
+    name: Riley Backend
+    username: riley
+    reportsTo: carol@example.com
+
+  # ── Launchpad Labs ────────────────────────────────────────────────────────────
+  # Founder → CTO → ICs; Founder → Growth Lead → CS
+  - email: zoe-founder@example.com
+    name: Zoe Founder
+    username: zoe-founder
+  - email: marco-cto@example.com
+    name: Marco CTO
+    username: marco-cto
+    reportsTo: zoe-founder@example.com
+  - email: nadia-growth@example.com
+    name: Nadia Growth
+    username: nadia-growth
+    reportsTo: zoe-founder@example.com
+  - email: priya-eng@example.com
+    name: Priya Eng
+    username: priya-eng
+    reportsTo: marco-cto@example.com
+  - email: felix-eng@example.com
+    name: Felix Eng
+    username: felix-eng
+    reportsTo: marco-cto@example.com
+  - email: omar-cs@example.com
+    name: Omar CS
+    username: omar-cs
+    reportsTo: nadia-growth@example.com
+
+  # ── Pixel & Co ────────────────────────────────────────────────────────────────
+  # Partner → Delivery Lead → Devs; Partner → Design Lead → Designer
+  - email: derek-partner@example.com
+    name: Derek Partner
+    username: derek-partner
+  - email: sasha-delivery@example.com
+    name: Sasha Delivery
+    username: sasha-delivery
+    reportsTo: derek-partner@example.com
+  - email: luna-design@example.com
+    name: Luna Design
+    username: luna-design
+    reportsTo: derek-partner@example.com
+  - email: victor-dev@example.com
+    name: Victor Dev
+    username: victor-dev
+    reportsTo: sasha-delivery@example.com
+  - email: ines-dev@example.com
+    name: Ines Dev
+    username: ines-dev
+    reportsTo: sasha-delivery@example.com
+  - email: tom-dev@example.com
+    name: Tom Dev
+    username: tom-dev
+    reportsTo: victor-dev@example.com
+  - email: rafi-design@example.com
+    name: Rafi Design
+    username: rafi-design
+    reportsTo: luna-design@example.com
+
+  # ── ACME Corp ─────────────────────────────────────────────────────────────────
+  # Director → Ops Manager + IT Manager + Sales Manager → ICs
+  - email: wile-director@example.com
+    name: Wile Director
+    username: wile-director
+  - email: betty-ops@example.com
+    name: Betty Ops
+    username: betty-ops
+    reportsTo: wile-director@example.com
+  - email: chuck-it@example.com
+    name: Chuck IT
+    username: chuck-it
+    reportsTo: wile-director@example.com
+  - email: buck-sales@example.com
+    name: Buck Sales
+    username: buck-sales
+    reportsTo: wile-director@example.com
+  - email: roadrunner-field@example.com
+    name: Roadrunner Field
+    username: roadrunner-field
+    reportsTo: betty-ops@example.com
+  - email: speedy-field@example.com
+    name: Speedy Field
+    username: speedy-field
+    reportsTo: betty-ops@example.com
+  - email: gus-field@example.com
+    name: Gus Field
+    username: gus-field
+    reportsTo: betty-ops@example.com
+  - email: pat-sysadmin@example.com
+    name: Pat Sysadmin
+    username: pat-sysadmin
+    reportsTo: chuck-it@example.com
+  - email: vera-helpdesk@example.com
+    name: Vera Helpdesk
+    username: vera-helpdesk
+    reportsTo: chuck-it@example.com
+  - email: diane-sales@example.com
+    name: Diane Sales
+    username: diane-sales
+    reportsTo: buck-sales@example.com
+  - email: raj-sales@example.com
+    name: Raj Sales
+    username: raj-sales
+    reportsTo: buck-sales@example.com

@@ -12,9 +12,21 @@ import type { Ticket, TicketPriority, TicketStatus } from "../models/ticket.mode
 async function resolveUserNames(ids: string[]): Promise<Record<string, string>> {
   const unique = [...new Set(ids.filter(Boolean))];
   if (unique.length === 0) return {};
+
+  // Filter out any invalid ObjectId strings before creating ObjectIds
+  const validIds = unique.filter((id) => {
+    try {
+      return ObjectId.isValid(id) && id.length === 24;
+    } catch {
+      return false;
+    }
+  });
+
+  if (validIds.length === 0) return {};
+
   const users = await usersCollection()
     .find(
-      { _id: { $in: unique.map((id) => new ObjectId(id)) } },
+      { _id: { $in: validIds.map((id) => new ObjectId(id)) } },
       { projection: { _id: 1, name: 1 } }
     )
     .toArray();
@@ -228,7 +240,7 @@ export async function ticketRoutes(app: FastifyInstance) {
           required: ["teamId", "title"],
           additionalProperties: false,
           properties: {
-            teamId: { type: "string" },
+            teamId: { type: "string", minLength: 1, pattern: "^[0-9a-f]{24}$" },
             title: { type: "string", minLength: 1, maxLength: 500 },
             github: { type: "string", maxLength: 1000, default: "" },
           },
@@ -236,6 +248,7 @@ export async function ticketRoutes(app: FastifyInstance) {
         response: {
           201: { type: "object", properties: { ticket: ticketShape } },
           ...unauth,
+          400: err("teamId is required"),
           403: err("Not a team member"),
         },
       },
@@ -252,6 +265,9 @@ export async function ticketRoutes(app: FastifyInstance) {
         github: body.github ?? "",
         createdBy: req.user!.id,
       });
+      if (result === "bad-request") {
+        return reply.status(400).send({ error: "teamId is required" });
+      }
       if (result === "forbidden") return reply.status(403).send({ error: "Not a team member" });
       const ticket = await ticketService.findById(result.id);
       return reply.status(201).send({ ticket: toPublicTicket(ticket!) });

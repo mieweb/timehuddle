@@ -207,6 +207,31 @@ export const authApi = {
     return res.json();
   },
 
+  /** Dev-only sign-in used by the login probe. */
+  devMemberSignIn: async (
+    domain: 'enterprise' | 'organization' = 'organization',
+    role: 'member' | 'admin' | 'owner' = 'member',
+    joinTeam = false,
+  ): Promise<{ token?: string; user?: TimecoreUser }> => {
+    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/dev/member-sign-in`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain, role, joinTeam }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new Error(
+        (body.message as string | undefined) ??
+          (body.error as string | undefined) ??
+          `HTTP ${res.status}`,
+      );
+    }
+    const token = res.headers.get('set-auth-token');
+    if (token) sessionToken.set(token);
+    return res.json();
+  },
+
   /**
    * Initiate a social OAuth sign-in (e.g. GitHub).
    * Returns the provider redirect URL; caller should set window.location.href to it.
@@ -414,6 +439,12 @@ export interface OrganizationAdminUser {
   image: string | null;
   role: DefaultOrganizationRole;
   reportsToUserId?: string | null;
+  blocked?: Array<{
+    orgId: string;
+    blockedBy: string;
+    blockedAt: string;
+    reason?: string;
+  }>;
 }
 
 export interface AdminOrganization {
@@ -554,6 +585,16 @@ export const orgApi = {
       `/v1/organizations/${encodeURIComponent(id)}/members`,
     ).then((r) => r.users),
 
+  listOrganizationUsers: (id: string) =>
+    request<{ users: OrganizationAdminUser[] }>(
+      `/v1/organizations/${encodeURIComponent(id)}/users`,
+    ).then((r) => r.users),
+
+  searchUsers: (id: string, q: string) =>
+    request<{ users: Array<{ id: string; name: string; username: string | null }> }>(
+      `/v1/organizations/${encodeURIComponent(id)}/users/search?q=${encodeURIComponent(q)}`,
+    ).then((r) => r.users),
+
   setMemberRole: (id: string, userId: string, role: DefaultOrganizationRole) =>
     request<{ user: { userId: string; role: DefaultOrganizationRole } }>(
       `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/role`,
@@ -568,6 +609,39 @@ export const orgApi = {
       `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`,
       {
         method: 'DELETE',
+      },
+    ).then((r) => r.user),
+
+  blockMember: (id: string, userId: string, reason?: string) =>
+    request<{
+      user: {
+        id: string;
+        blocked: {
+          orgId: string;
+          blockedBy: string;
+          blockedAt: string;
+          reason?: string;
+        };
+      };
+    }>(`/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/block`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }).then((r) => r.user),
+
+  unblockMember: (id: string, userId: string) =>
+    request<{ user: { id: string } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/block`,
+      {
+        method: 'DELETE',
+      },
+    ).then((r) => r.user),
+
+  updateMemberReportsTo: (id: string, userId: string, reportsTo: string | null) =>
+    request<{ user: { id: string; reportsToUserId: string | null } }>(
+      `/v1/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/reports-to`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ reportsToUserId: reportsTo }),
       },
     ).then((r) => r.user),
 
@@ -676,6 +750,45 @@ export const enterpriseApi = {
     }),
 };
 
+export type SeedImportPreview = {
+  ok: true;
+  value: unknown;
+};
+
+export type SeedImportError = {
+  ok: false;
+  error: { type: string; message: string };
+};
+
+export const seedImportApi = {
+  parse: (yaml: string) =>
+    request<SeedImportPreview | SeedImportError>('/v1/seed/import/parse', {
+      method: 'POST',
+      body: JSON.stringify({ yaml }),
+    }),
+
+  import: (yaml: string, orgId?: string) =>
+    request<{
+      created: {
+        enterprises: number;
+        organizations: number;
+        teams: number;
+        users: number;
+        tickets: number;
+      };
+      updated: {
+        enterprises: number;
+        organizations: number;
+        teams: number;
+        users: number;
+      };
+      summary?: string;
+    }>('/v1/seed/import', {
+      method: 'POST',
+      body: JSON.stringify({ yaml, orgId }),
+    }),
+};
+
 // ─── Username API ─────────────────────────────────────────────────────────────
 
 export const usernameApi = {
@@ -719,10 +832,15 @@ export interface Ticket {
 }
 
 export const ticketApi = {
-  getTickets: (teamId: string) =>
-    request<{ tickets: Ticket[] }>(`/v1/tickets?teamId=${encodeURIComponent(teamId)}`).then(
-      (r) => r.tickets,
-    ),
+  getTickets: (teamId: string) => {
+    console.log('[ticketApi.getTickets] Called with teamId:', teamId, 'type:', typeof teamId);
+    const url = `/v1/tickets?teamId=${encodeURIComponent(teamId)}`;
+    console.log('[ticketApi.getTickets] Request URL:', url);
+    return request<{ tickets: Ticket[] }>(url).then((r) => {
+      console.log('[ticketApi.getTickets] Response:', r);
+      return r.tickets;
+    });
+  },
 
   getTicket: (id: string) =>
     request<{ ticket: Ticket }>(`/v1/tickets/${encodeURIComponent(id)}`).then((r) => r.ticket),
@@ -775,6 +893,125 @@ export const ticketApi = {
     }),
 };
 
+// ─── Huddle API ───────────────────────────────────────────────────────────────
+
+export interface HuddlePost {
+  id: string;
+  teamId: string;
+  userId: string;
+  userName: string;
+  userInitials: string;
+  content: {
+    text: string;
+    mentions: string[];
+  };
+  ticketId?: string;
+  ticketTitle?: string;
+  attachments: Array<{
+    mediaId: string;
+    type: 'image' | 'video' | 'file';
+    url: string;
+    thumbnailUrl?: string;
+    filename?: string;
+  }>;
+  likes: string[];
+  commentCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HuddleComment {
+  id: string;
+  postId: string;
+  userId: string;
+  userName: string;
+  userInitials: string;
+  userAvatarUrl?: string;
+  content: string;
+  mentions: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const huddleApi = {
+  /** Fetch all huddle posts for a team. */
+  getPosts: (teamId: string) =>
+    request<{ posts: HuddlePost[] }>(`/v1/huddle/posts?teamId=${encodeURIComponent(teamId)}`).then(
+      (r) => r.posts,
+    ),
+
+  /** Fetch all huddle posts for a specific ticket. */
+  getPostsByTicket: (ticketId: string) =>
+    request<{ posts: HuddlePost[] }>(
+      `/v1/huddle/tickets/${encodeURIComponent(ticketId)}/posts`,
+    ).then((r) => r.posts),
+
+  /** Create a new huddle post. */
+  createPost: (data: {
+    teamId: string;
+    content: {
+      text: string;
+      mentions: string[];
+    };
+    ticketId?: string;
+    attachments?: Array<{
+      mediaId: string;
+      type: 'image' | 'video' | 'file';
+      url: string;
+      thumbnailUrl?: string;
+      filename?: string;
+    }>;
+  }) =>
+    request<{ id: string }>('/v1/huddle/posts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.id),
+
+  /** Update a huddle post. */
+  updatePost: (id: string, data: { content: { text: string; mentions: string[] } }) =>
+    request<{ post: HuddlePost }>(`/v1/huddle/posts/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }).then((r) => r.post),
+
+  /** Delete a huddle post. */
+  deletePost: (id: string) =>
+    request<{ ok: boolean }>(`/v1/huddle/posts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  /** Open a WebSocket connection for live huddle post updates. Auto-reconnects on drop. */
+  openLiveStream: (teamId: string): AutoReconnectWs =>
+    autoReconnectWs(() => {
+      const token = sessionToken.get();
+      const base = `${WS_BASE_URL}/v1/huddle/ws?teamId=${encodeURIComponent(teamId)}`;
+      return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+    }),
+
+  /** Toggle like on a post */
+  toggleLike: (postId: string) =>
+    request<{ count: number }>(`/v1/huddle/posts/${encodeURIComponent(postId)}/like`, {
+      method: 'POST',
+    }).then((r) => r.count),
+
+  /** Get comments for a post */
+  getComments: (postId: string) =>
+    request<{ comments: HuddleComment[] }>(
+      `/v1/huddle/posts/${encodeURIComponent(postId)}/comments`,
+    ).then((r) => r.comments),
+
+  /** Add a comment to a post */
+  addComment: (postId: string, data: { content: string; mentions: string[] }) =>
+    request<{ id: string }>(`/v1/huddle/posts/${encodeURIComponent(postId)}/comments`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }).then((r) => r.id),
+
+  /** Delete a comment */
+  deleteComment: (commentId: string) =>
+    request<{ ok: boolean }>(`/v1/huddle/comments/${encodeURIComponent(commentId)}`, {
+      method: 'DELETE',
+    }),
+};
+
 // ─── Team API ─────────────────────────────────────────────────────────────────
 
 export interface Team {
@@ -799,8 +1036,39 @@ export interface TeamMember {
   image: string | null;
 }
 
+export interface TeamJoinRequest {
+  id: string;
+  teamId: string;
+  userId: string;
+  teamCode: string;
+  status: 'pending' | 'approved' | 'declined' | 'expired';
+  requestedAt: string;
+  respondedAt?: string;
+  respondedBy?: string;
+}
+
+export interface TeamJoinRequestWithUser extends TeamJoinRequest {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
+export interface TeamJoinRequestPreview {
+  notificationId: string;
+  requestId: string;
+  teamId: string;
+  teamName: string;
+  teamDescription: string;
+  requester: { id: string; name: string; email: string } | null;
+  alreadyProcessed: boolean;
+}
+
 export const teamApi = {
-  getTeams: () => request<{ teams: Team[] }>('/v1/teams').then((r) => r.teams),
+  getTeams: () => request<{ teams: Team[]; pendingRequests: TeamJoinRequest[] }>('/v1/teams'),
+
+  getTeamsOnly: () => request<{ teams: Team[] }>('/v1/teams').then((r) => r.teams),
 
   ensurePersonal: () =>
     request<{ team: Team }>('/v1/teams/ensure-personal', { method: 'POST' }).then((r) => r.team),
@@ -820,10 +1088,17 @@ export const teamApi = {
     request<{ teams: Team[] }>(`/v1/teams/${encodeURIComponent(id)}/subteams`).then((r) => r.teams),
 
   joinTeam: (teamCode: string) =>
-    request<{ team: Team }>('/v1/teams/join', {
+    request<
+      { status: 'pending'; request: TeamJoinRequest } | { status: 'joined'; team: Team } | Team
+    >('/v1/teams/join', {
       method: 'POST',
       body: JSON.stringify({ teamCode }),
-    }).then((r) => r.team),
+    }).then((r) => {
+      // Handle different response formats for backward compatibility
+      if ('status' in r) return r;
+      if ('team' in r) return r.team;
+      return r as Team;
+    }),
 
   renameTeam: (id: string, newName: string) =>
     request<{ team: Team }>(`/v1/teams/${encodeURIComponent(id)}/name`, {
@@ -865,6 +1140,24 @@ export const teamApi = {
     request<{ ok: boolean }>(
       `/v1/teams/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/password`,
       { method: 'PUT', body: JSON.stringify({ newPassword }) },
+    ),
+
+  // Join request management
+  getPendingJoinRequests: (teamId: string) =>
+    request<{ requests: TeamJoinRequestWithUser[] }>(
+      `/v1/teams/${encodeURIComponent(teamId)}/join-requests`,
+    ).then((r) => r.requests),
+
+  approveJoinRequest: (requestId: string) =>
+    request<{ status: string }>(
+      `/v1/teams/join-requests/${encodeURIComponent(requestId)}/approve`,
+      { method: 'POST' },
+    ),
+
+  declineJoinRequest: (requestId: string) =>
+    request<{ status: string }>(
+      `/v1/teams/join-requests/${encodeURIComponent(requestId)}/decline`,
+      { method: 'POST' },
     ),
 
   /** Open a WebSocket connection for live team updates. Auto-reconnects on drop. */
@@ -1155,6 +1448,19 @@ export const notificationApi = {
       body: JSON.stringify({ action }),
     }),
 
+  /** Fetch team join request preview for a notification. */
+  getJoinRequestPreview: (id: string) =>
+    request<TeamJoinRequestPreview>(
+      `/v1/notifications/${encodeURIComponent(id)}/join-request-preview`,
+    ),
+
+  /** Approve or decline a team join request. */
+  respondToJoinRequest: (id: string, action: 'approve' | 'decline') =>
+    request<{ ok: boolean }>(`/v1/notifications/${encodeURIComponent(id)}/join-request-respond`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+
   /** Consent to auto-clockout at 8h — called when user clicks "Agree to Clock Out" on the shift reminder. */
   agreeClockout: (clockEventId: string) =>
     request<{ ok: boolean }>(
@@ -1404,7 +1710,7 @@ export const videoApi = {
 export interface MediaItem {
   id: string;
   userId: string;
-  type: 'video' | 'image';
+  type: 'video' | 'image' | 'document';
   mimeType: string;
   url: string;
   videoid: string | null;

@@ -92,6 +92,26 @@ export const orgController = {
     return reply.send({ users: result });
   },
 
+  async listOrganizationUsers(
+    req: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply
+  ) {
+    const result = await orgService.listOrganizationUsers(req.user!.id, req.params.id);
+    if (result === "not-found") return reply.status(404).send({ error: "Organization not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    return reply.send({ users: result });
+  },
+
+  async searchUsers(
+    req: FastifyRequest<{ Params: { id: string }; Querystring: { q?: string } }>,
+    reply: FastifyReply
+  ) {
+    const result = await orgService.searchUsers(req.user!.id, req.params.id, req.query.q ?? "");
+    if (result === "not-found") return reply.status(404).send({ error: "Organization not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    return reply.send({ users: result });
+  },
+
   async setMemberRole(
     req: FastifyRequest<{
       Params: { id: string; userId: string };
@@ -129,6 +149,85 @@ export const orgController = {
     return reply.send({ user: result });
   },
 
+  async blockMember(
+    req: FastifyRequest<{
+      Params: { id: string; userId: string };
+      Body: { reason?: string };
+    }>,
+    reply: FastifyReply
+  ) {
+    const result = await orgService.blockOrgMember(
+      req.user!.id,
+      req.params.id,
+      req.params.userId,
+      req.body.reason
+    );
+    if (result === "not-found") return reply.status(404).send({ error: "Organization not found" });
+    if (result === "user-not-found") return reply.status(404).send({ error: "User not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    if (result === "already-blocked") {
+      return reply.status(409).send({ error: "User is already blocked from this organization" });
+    }
+    return reply.send({ user: { id: result.userId, blocked: result.block } });
+  },
+
+  async unblockMember(
+    req: FastifyRequest<{ Params: { id: string; userId: string } }>,
+    reply: FastifyReply
+  ) {
+    const result = await orgService.unblockOrgMember(
+      req.user!.id,
+      req.params.id,
+      req.params.userId
+    );
+    if (result === "not-found") return reply.status(404).send({ error: "Organization not found" });
+    if (result === "user-not-found") return reply.status(404).send({ error: "User not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    if (result === "not-blocked") {
+      return reply.status(404).send({ error: "User is not blocked from this organization" });
+    }
+    return reply.send({ user: { id: result.userId } });
+  },
+
+  async updateMemberReportsTo(
+    req: FastifyRequest<{
+      Params: { id: string; userId: string };
+      Body: { reportsToUserId?: string | null };
+    }>,
+    reply: FastifyReply
+  ) {
+    const { id: orgId, userId } = req.params;
+    const { reportsToUserId } = req.body;
+
+    const result = await orgService.updateOrganizationMemberReportsTo(
+      req.user!.id,
+      orgId,
+      userId,
+      reportsToUserId
+    );
+
+    if (result === "not-found") return reply.status(404).send({ error: "Organization not found" });
+    if (result === "not-member") return reply.status(404).send({ error: "Member not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    if (result === "user-not-found") return reply.status(404).send({ error: "User not found" });
+    if (result === "reports-to-user-not-found") {
+      return reply.status(404).send({ error: "Reports-to user not found" });
+    }
+    if (result === "reports-to-self") {
+      return reply.status(400).send({ error: "reports-to-self" });
+    }
+    if (result === "default-organization-not-found") {
+      return reply.status(404).send({ error: "Default organization not found" });
+    }
+
+    return reply.send({
+      user: {
+        id: result.userId,
+        reportsToUserId: result.reportsToUserId,
+      },
+    });
+  },
+
   async updateOrgUserReportsTo(
     req: FastifyRequest<{
       Params: { userId: string };
@@ -152,6 +251,9 @@ export const orgController = {
     }
     if (result === "default-organization-not-found") {
       return reply.status(404).send({ error: "Default organization not found" });
+    }
+    if (result === "reports-to-self") {
+      return reply.status(400).send({ error: "reports-to-self" });
     }
 
     return reply.send({

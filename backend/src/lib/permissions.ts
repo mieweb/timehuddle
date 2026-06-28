@@ -15,13 +15,21 @@ export type AppAction =
   | "assign"
   | "review";
 
-export type AppSubject = "Ticket" | "Team" | "User" | "Organization" | "Enterprise" | "all";
+export type AppSubject =
+  | "Ticket"
+  | "Team"
+  | "User"
+  | "Organization"
+  | "OrganizationMembership"
+  | "Enterprise"
+  | "all";
 
 export type PermissionContext = {
   userId: string;
   role: AppRole | "member";
   teamIds: string[];
   orgIds?: string[];
+  managedOrgIds?: string[];
   enterpriseIds?: string[];
   isEnterpriseElevated?: boolean;
   teamAdminIds?: string[];
@@ -45,11 +53,17 @@ export function buildAbilityFor(context: PermissionContext): AppAbility {
     }
   }
 
-  if ((context.orgIds ?? []).length > 0) {
-    can("read", "Organization", { id: { $in: context.orgIds } });
-    if (context.role === "owner" || context.role === "admin") {
-      can("manage", "Organization", { id: { $in: context.orgIds } });
-    }
+  const orgIds = context.orgIds ?? [];
+  const managedOrgIds =
+    context.managedOrgIds ?? (context.role === "owner" || context.role === "admin" ? orgIds : []);
+
+  if (orgIds.length > 0) {
+    can("read", "Organization", { id: { $in: orgIds } });
+  }
+
+  if (managedOrgIds.length > 0) {
+    can("manage", "Organization", { id: { $in: managedOrgIds } });
+    can("manage", "OrganizationMembership", { orgId: { $in: managedOrgIds } });
   }
 
   if ((context.enterpriseIds ?? []).length > 0 || context.isEnterpriseElevated) {

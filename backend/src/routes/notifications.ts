@@ -17,6 +17,10 @@ const inviteRespondSchema = z.object({
   action: z.enum(["join", "ignore"]),
 });
 
+const joinRequestRespondSchema = z.object({
+  action: z.enum(["approve", "decline"]),
+});
+
 export async function notificationRoutes(app: FastifyInstance) {
   // GET /v1/notifications — inbox
   app.get("/notifications", async (req, reply) => {
@@ -94,6 +98,45 @@ export async function notificationRoutes(app: FastifyInstance) {
     if (result === "not-found") return reply.status(404).send({ error: "Not found" });
     if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
     if (result === "bad-request") return reply.status(400).send({ error: "Not a team invite" });
+    return reply.send({ ok: true });
+  });
+
+  // GET /v1/notifications/:id/join-request-preview — team join request preview
+  app.get("/notifications/:id/join-request-preview", async (req, reply) => {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
+
+    const { id } = req.params as { id: string };
+    const result = await notificationService.getJoinRequestPreview(session.user.id, id);
+    if (result === "not-found") return reply.status(404).send({ error: "Not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    if (result === "bad-request")
+      return reply.status(400).send({ error: "Not a team join request" });
+    return reply.send(result);
+  });
+
+  // POST /v1/notifications/:id/join-request-respond — approve or decline join request
+  app.post("/notifications/:id/join-request-respond", async (req, reply) => {
+    const session = await auth.api.getSession({ headers: req.headers as any });
+    if (!session?.user) return reply.status(401).send({ error: "Unauthorized" });
+
+    const { id } = req.params as { id: string };
+    const parsed = joinRequestRespondSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.issues[0]?.message ?? "Invalid" });
+    }
+
+    const result = await notificationService.respondToJoinRequest(
+      session.user.id,
+      id,
+      parsed.data.action
+    );
+    if (result === "not-found") return reply.status(404).send({ error: "Not found" });
+    if (result === "forbidden") return reply.status(403).send({ error: "Forbidden" });
+    if (result === "bad-request")
+      return reply.status(400).send({ error: "Not a team join request" });
+    if (result === "already-processed")
+      return reply.status(409).send({ error: "Request already processed" });
     return reply.send({ ok: true });
   });
 

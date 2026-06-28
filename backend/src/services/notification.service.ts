@@ -2,6 +2,7 @@ import { ObjectId } from "mongodb";
 import { notificationsCollection, teamsCollection, usersCollection } from "../models/index.js";
 import type { Notification, PublicNotification } from "../models/notification.model.js";
 import { pushService } from "./push.service.js";
+import { teamJoinRequestService } from "./team-join-request.service.js";
 
 // ─── SSE pub/sub ──────────────────────────────────────────────────────────────
 
@@ -67,6 +68,7 @@ class NotificationService {
     await notificationsCollection().insertOne(doc);
     const pub = toPublic(doc);
     broadcastToUser(data.userId, pub);
+    console.log(`[notification] Created notification for userId=${data.userId}: "${data.title}"`);
     pushService
       .sendToUser(data.userId, {
         title: data.title,
@@ -207,6 +209,97 @@ class NotificationService {
       userId,
     });
     return "ok";
+  }
+
+  /** Get preview details for a team join request notification. */
+  async getJoinRequestPreview(
+    userId: string,
+    notificationId: string
+  ): Promise<
+    | {
+        notificationId: string;
+        requestId: string;
+        teamId: string;
+        teamName: string;
+        teamDescription: string;
+        requester: { id: string; name: string; email: string } | null;
+        alreadyProcessed: boolean;
+      }
+    | "not-found"
+    | "forbidden"
+    | "bad-request"
+  > {
+    if (!ObjectId.isValid(notificationId)) return "not-found";
+    const n = await notificationsCollection().findOne({
+      _id: new ObjectId(notificationId),
+    });
+    if (!n) return "not-found";
+    if (n.userId !== userId) return "forbidden";
+
+    const data = (n.data ?? {}) as Record<string, unknown>;
+    if (data.type !== "team-join-request") return "bad-request";
+
+    const requestId = typeof data.requestId === "string" ? data.requestId : "";
+    if (!requestId || !ObjectId.isValid(requestId)) return "bad-request";
+
+    const request = await teamJoinRequestService.getById(requestId);
+    if (!request) return "not-found";
+
+    const team = await teamsCollection().findOne({ _id: new ObjectId(request.teamId) });
+    if (!team) return "not-found";
+
+    const requester = await usersCollection().findOne({ _id: new ObjectId(request.userId) });
+
+    return {
+      notificationId,
+      requestId,
+      teamId: request.teamId,
+      teamName: team.name,
+      teamDescription: team.description ?? "",
+      requester: requester
+        ? {
+            id: requester._id.toHexString(),
+            name: requester.name ?? requester.email?.split("@")[0] ?? "Unknown",
+            email: requester.email ?? "",
+          }
+        : null,
+      alreadyProcessed: request.status !== "pending",
+    };
+  }
+
+  /** Approve or decline a team join request from notification. */
+  async respondToJoinRequest(
+    userId: string,
+    notificationId: string,
+    action: "approve" | "decline"
+  ): Promise<"ok" | "not-found" | "forbidden" | "bad-request" | "already-processed"> {
+    if (!ObjectId.isValid(notificationId)) return "not-found";
+    const n = await notificationsCollection().findOne({
+      _id: new ObjectId(notificationId),
+    });
+    if (!n) return "not-found";
+    if (n.userId !== userId) return "forbidden";
+
+    const data = (n.data ?? {}) as Record<string, unknown>;
+    if (data.type !== "team-join-request") return "bad-request";
+
+    const requestId = typeof data.requestId === "string" ? data.requestId : "";
+    if (!requestId || !ObjectId.isValid(requestId)) return "bad-request";
+
+    const result =
+      action === "approve"
+        ? await teamJoinRequestService.approve(requestId, userId)
+        : await teamJoinRequestService.decline(requestId, userId);
+
+    if (result === "ok") {
+      // Delete notification after response
+      await notificationsCollection().deleteOne({
+        _id: new ObjectId(notificationId),
+        userId,
+      });
+    }
+
+    return result;
   }
 }
 

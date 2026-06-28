@@ -1,6 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { auth } from "../lib/auth.js";
-import { teamService, subscribeToUser } from "../services/team.service.js";
+import {
+  teamService,
+  subscribeToUser,
+  subscribeToPendingRequests,
+} from "../services/team.service.js";
+import { teamJoinRequestService } from "../services/team-join-request.service.js";
 
 export async function teamsWsRoutes(app: FastifyInstance) {
   app.get("/teams/ws", { websocket: true }, async (socket, req) => {
@@ -21,8 +26,9 @@ export async function teamsWsRoutes(app: FastifyInstance) {
 
     // Send initial snapshot
     const teams = await teamService.getTeamsForUser(userId);
+    const pendingRequests = await teamJoinRequestService.getPendingForUser(userId);
     if (socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify({ type: "snapshot", teams }));
+      socket.send(JSON.stringify({ type: "snapshot", teams, pendingRequests }));
     }
 
     // Subscribe to future broadcasts for this user
@@ -37,8 +43,20 @@ export async function teamsWsRoutes(app: FastifyInstance) {
       }
     });
 
+    // Subscribe to pending requests updates
+    const unsubscribePendingRequests = subscribeToPendingRequests(
+      userId,
+      (broadcastUserId, pendingRequests) => {
+        if (broadcastUserId !== userId) return;
+        if (socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify({ type: "pending-requests", pendingRequests }));
+        }
+      }
+    );
+
     socket.on("close", () => {
       unsubscribe();
+      unsubscribePendingRequests();
     });
   });
 }

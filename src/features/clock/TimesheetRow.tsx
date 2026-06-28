@@ -13,6 +13,7 @@ import React from 'react';
 
 import { formatDate, formatDuration, formatTime } from '../../lib/timeUtils';
 import { type ClockEvent } from '../../lib/api';
+import { roundDurationSecondsForDisplay } from './timesheetUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -216,7 +217,9 @@ export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
               )}
             </TableCell>
             <TableCell className="font-mono">
-              {row.durationSeconds !== null ? formatDuration(row.durationSeconds) : '—'}
+              {row.durationSeconds !== null
+                ? formatDuration(roundDurationSecondsForDisplay(row.durationSeconds))
+                : '—'}
             </TableCell>
             <TableCell>{showTeam ? teamName : ''}</TableCell>
             <TableCell>

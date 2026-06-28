@@ -69,6 +69,8 @@ interface Props {
   members: TeamMember[];
   selectedTeamId: string | null;
   teams: SimpleTeam[];
+  /** Pre-select this member when navigating from a notification deep-link. */
+  initialMemberId?: string;
 }
 
 function getSessionWorkSeconds(session: ClockEvent, now: number): number {
@@ -86,8 +88,14 @@ function getSessionWorkSeconds(session: ClockEvent, now: number): number {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, teams }) => {
-  const [selectedMemberId, setSelectedMemberId] = useState<string>('');
+export const AdminTimesheetPanel: React.FC<Props> = ({
+  members,
+  selectedTeamId,
+  teams,
+  initialMemberId,
+}) => {
+  // Seed state with initialMemberId if provided, otherwise empty (auto-selects first member below)
+  const [selectedMemberId, setSelectedMemberId] = useState<string>(initialMemberId ?? '');
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
   const [preset, setPreset] = useState<Preset>('week');
   const [customStart, setCustomStart] = useState('');
@@ -105,18 +113,20 @@ export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, 
   const [sessionDeleteLoading, setSessionDeleteLoading] = useState(false);
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null);
 
-  // When the team changes, reset member selection
+  // When the team changes, reset member selection (but keep initialMemberId if still valid)
   useEffect(() => {
     setSelectedMemberId('');
     setData(null);
   }, [selectedTeamId]);
 
-  // Auto-select first member when member list loads
+  // Auto-select: use initialMemberId if it's a valid member of this team, else fall back to first member
   useEffect(() => {
-    if (members.length > 0 && !selectedMemberId) {
-      setSelectedMemberId(members[0].id);
-    }
-  }, [members, selectedMemberId]);
+    if (members.length === 0) return;
+    if (selectedMemberId) return; // already set (either by user or previous effect)
+
+    const validInitial = initialMemberId && members.some((m) => m.id === initialMemberId);
+    setSelectedMemberId(validInitial ? initialMemberId : members[0].id);
+  }, [members, selectedMemberId, initialMemberId]);
 
   const fetchData = useCallback(async () => {
     if (!selectedMemberId) return;
@@ -174,7 +184,6 @@ export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, 
         map.set(dayKey, [session]);
       }
     }
-    // Sort entries descending by date
     return new Map([...map.entries()].sort((a, b) => b[0].localeCompare(a[0])));
   }, [filteredSessions]);
 
@@ -191,11 +200,8 @@ export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, 
   const toggleDay = useCallback((dayKey: string) => {
     setExpandedDays((prev) => {
       const next = new Set(prev);
-      if (next.has(dayKey)) {
-        next.delete(dayKey);
-      } else {
-        next.add(dayKey);
-      }
+      if (next.has(dayKey)) next.delete(dayKey);
+      else next.add(dayKey);
       return next;
     });
   }, []);
@@ -262,11 +268,8 @@ export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, 
       setActiveSession(null);
       await fetchData();
     } catch (e) {
-      if (e instanceof ApiError) {
-        setSessionSaveError(e.message);
-      } else {
-        setSessionSaveError('Unable to update session times.');
-      }
+      if (e instanceof ApiError) setSessionSaveError(e.message);
+      else setSessionSaveError('Unable to update session times.');
     } finally {
       setSessionSaveLoading(false);
     }
@@ -283,11 +286,8 @@ export const AdminTimesheetPanel: React.FC<Props> = ({ members, selectedTeamId, 
       setActiveSession(null);
       await fetchData();
     } catch (e) {
-      if (e instanceof ApiError) {
-        setSessionSaveError(e.message);
-      } else {
-        setSessionSaveError('Unable to delete session.');
-      }
+      if (e instanceof ApiError) setSessionSaveError(e.message);
+      else setSessionSaveError('Unable to delete session.');
     } finally {
       setSessionDeleteLoading(false);
     }

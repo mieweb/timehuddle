@@ -535,26 +535,42 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                   Assignee
                 </label>
                 <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-neutral-200 p-3 dark:border-neutral-700">
-                  {assigneeOptions.map((option) => (
-                    <label
-                      key={option.value}
-                      className="flex items-center gap-2 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 p-1 rounded"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={ticket.assignedTo?.includes(option.value) ?? false}
-                        onChange={(e) => {
-                          const currentAssignees = ticket.assignedTo ?? [];
-                          const newAssignees = e.target.checked
-                            ? [...currentAssignees, option.value]
-                            : currentAssignees.filter((id) => id !== option.value);
-                          void handleAssigneesChange(newAssignees);
-                        }}
-                        className="h-4 w-4 rounded border-neutral-300 text-primary focus:ring-primary"
-                      />
-                      <span className="text-sm">{option.label}</span>
-                    </label>
-                  ))}
+                  {assigneeOptions.map((option) => {
+                    const isUnassigned = option.value === '';
+                    const currentAssignees = ticket.assignedTo ?? [];
+                    const isChecked = isUnassigned
+                      ? currentAssignees.length === 0
+                      : currentAssignees.includes(option.value);
+
+                    return (
+                      <label
+                        key={option.value}
+                        className="flex items-center gap-2 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 p-1 rounded"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (isUnassigned) {
+                              // When "Unassigned" is checked, clear all assignees
+                              if (e.target.checked) {
+                                void handleAssigneesChange([]);
+                              }
+                              // When "Unassigned" is unchecked, do nothing (can't uncheck it manually)
+                            } else {
+                              // For regular users, add or remove from assignees
+                              const newAssignees = e.target.checked
+                                ? [...currentAssignees, option.value]
+                                : currentAssignees.filter((id) => id !== option.value);
+                              void handleAssigneesChange(newAssignees);
+                            }
+                          }}
+                          className="h-4 w-4 rounded border-neutral-300 text-primary focus:ring-primary"
+                        />
+                        <span className="text-sm">{option.label}</span>
+                      </label>
+                    );
+                  })}
                 </div>
                 {actionError && <p className="mt-1 text-xs text-red-500">{actionError}</p>}
               </div>

@@ -41,7 +41,7 @@ export const TeamMembersView: React.FC = () => {
     setError(null);
     try {
       // Fetch all teams first
-      const allTeams = await teamApi.getTeams();
+      const { teams: allTeams } = await teamApi.getTeams();
 
       if (allTeams.length === 0) {
         setTeamsWithMembers([]);

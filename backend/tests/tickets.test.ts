@@ -207,6 +207,16 @@ describe("auth gate", () => {
 // ─── Create ───────────────────────────────────────────────────────────────────
 
 describe("POST /v1/tickets", () => {
+  it("rejects missing teamId — 400", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/tickets",
+      headers: { cookie: ownerCookie },
+      payload: { title: "Missing team" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("creates a ticket as a team member — 201", async () => {
     const res = await app.inject({
       method: "POST",
