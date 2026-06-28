@@ -2,6 +2,13 @@ import { ObjectId } from "mongodb";
 
 // ── User record ──
 
+export interface OrgBlock {
+  orgId: string;
+  blockedBy: string;
+  blockedAt: Date;
+  reason?: string;
+}
+
 export interface User {
   _id: ObjectId;
   name: string;
@@ -13,6 +20,8 @@ export interface User {
   bio?: string;
   website?: string;
   reportsToUserId?: string | null;
+  /** Array of org-level blocks. User is blocked from accessing orgs in this list. */
+  blocked?: OrgBlock[];
   createdAt: Date;
   updatedAt: Date;
 }

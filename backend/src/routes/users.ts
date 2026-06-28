@@ -395,24 +395,31 @@ export async function userRoutes(app: FastifyInstance) {
           .send({ error: "Owner already exists or install is already complete" });
       }
 
-      const enterpriseUpdateResult = await enterprisesCollection().updateOne(
-        {
-          _id: new ObjectId(defaultEnterpriseId),
-          "owners.0": { $exists: false },
-        },
-        {
-          $set: {
-            owners: [userId],
-            admins: [],
-            updatedAt: now,
-          },
-        }
-      );
+      const enterprise = await enterprisesCollection().findOne({
+        _id: new ObjectId(defaultEnterpriseId),
+      });
 
-      if (enterpriseUpdateResult.matchedCount === 0) {
-        return reply
-          .status(409)
-          .send({ error: "Owner already exists or install is already complete" });
+      // Only try to add the user as owner if no owners exist yet
+      if (!enterprise?.owners || enterprise.owners.length === 0) {
+        const enterpriseUpdateResult = await enterprisesCollection().updateOne(
+          {
+            _id: new ObjectId(defaultEnterpriseId),
+            "owners.0": { $exists: false },
+          },
+          {
+            $set: {
+              owners: [userId],
+              admins: [],
+              updatedAt: now,
+            },
+          }
+        );
+
+        if (enterpriseUpdateResult.matchedCount === 0) {
+          return reply
+            .status(409)
+            .send({ error: "Owner already exists or install is already complete" });
+        }
       }
 
       // Migration compatibility: ensure all existing orgs are attached to an enterprise.
@@ -423,16 +430,19 @@ export async function userRoutes(app: FastifyInstance) {
         $set: { enterpriseId: defaultEnterpriseId, updatedAt: now },
       });
 
-      await organizationsCollection().updateOne(
-        { _id: defaultOrg._id },
-        {
-          $set: {
-            owners: [userId],
-            admins: [],
-            updatedAt: now,
-          },
-        }
-      );
+      // Only try to add the user as organization owner if no owners exist yet
+      if (!defaultOrg.owners || defaultOrg.owners.length === 0) {
+        await organizationsCollection().updateOne(
+          { _id: defaultOrg._id },
+          {
+            $set: {
+              owners: [userId],
+              admins: [],
+              updatedAt: now,
+            },
+          }
+        );
+      }
 
       await orgMembersCollection().updateOne(
         { orgId: defaultOrg._id.toHexString(), userId },
@@ -631,11 +641,21 @@ export async function userRoutes(app: FastifyInstance) {
     async (req, reply) => {
       // Augment the session user with the username from the users collection.
       const sessionUser = req.user!;
-      const [dbUser, profile, organizationMembership] = await Promise.all([
+      const [dbUser, profile, organizationMembership, hasAccessibleOrgs] = await Promise.all([
         usersCollection().findOne({ _id: new ObjectId(sessionUser.id) }),
         profilesCollection().findOne({ userId: sessionUser.id, app: "timeharbor" as const }),
         resolveDefaultOrganizationMembership(sessionUser.id),
+        orgService.hasAccessibleOrganizations(sessionUser.id),
       ]);
+
+      // Check if user is blocked from all organizations
+      if (!hasAccessibleOrgs && dbUser?.blocked && dbUser.blocked.length > 0) {
+        return reply.status(403).send({
+          error: "Your account has been suspended from all organizations",
+          blocked: true,
+        });
+      }
+
       // Prefer uploaded avatar over OAuth session image
       const image = profile?.avatarUrl ?? dbUser?.image ?? sessionUser.image ?? null;
       const backgroundUrl = profile?.backgroundUrl ?? null;
@@ -884,7 +904,7 @@ export async function userRoutes(app: FastifyInstance) {
       const sharedTeams = sharedTeamDocs.map((t) => ({
         id: t._id.toString(),
         name: t.name,
-        isAdmin: t.admins.includes(targetId),
+        isAdmin: t.admins.includes(req.user!.id),
       }));
 
       return reply.send({ user: { ...(await toPublicUser(user)), sharedTeams } });
@@ -934,7 +954,7 @@ export async function userRoutes(app: FastifyInstance) {
       const sharedTeams = sharedTeamDocs.map((t) => ({
         id: t._id.toString(),
         name: t.name,
-        isAdmin: t.admins.includes(targetId),
+        isAdmin: t.admins.includes(req.user!.id),
       }));
 
       return reply.send({ user: { ...(await toPublicUser(user)), sharedTeams } });

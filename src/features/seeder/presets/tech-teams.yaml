@@ -1,0 +1,99 @@
+teams:
+  - name: Developers
+    code: DEVT1234
+    description: Software and tooling team
+    members:
+      - sam-dev@example.com
+      - dana-dev@example.com
+      - pat-pm@example.com
+    admins:
+      - sam-dev@example.com
+    tickets:
+      - title: Set up project management tool
+        status: open
+        priority: high
+        createdBy: sam-dev@example.com
+        assignedTo:
+          - dana-dev@example.com
+      - title: Migrate legacy API to REST
+        status: in-progress
+        priority: medium
+        createdBy: dana-dev@example.com
+        assignedTo:
+          - sam-dev@example.com
+  - name: Builders
+    code: BLDS5678
+    description: On-site construction and installation crew
+    members:
+      - mike-builder@example.com
+      - jose-builder@example.com
+      - kat-builder@example.com
+    admins:
+      - mike-builder@example.com
+    tickets:
+      - title: Framing inspection sign-off
+        status: in-progress
+        priority: high
+        createdBy: mike-builder@example.com
+        assignedTo:
+          - jose-builder@example.com
+      - title: Order concrete for pad B
+        status: open
+        priority: medium
+        createdBy: jose-builder@example.com
+  - name: CAD
+    code: CADX9012
+    description: Drafting, plans, and design drawings
+    members:
+      - lee-cad@example.com
+      - morgan-cad@example.com
+      - pat-pm@example.com
+    admins:
+      - lee-cad@example.com
+    tickets:
+      - title: Update site plan rev C
+        status: in-progress
+        priority: medium
+        createdBy: lee-cad@example.com
+        assignedTo:
+          - morgan-cad@example.com
+      - title: Export PDFs for permit submission
+        status: open
+        priority: high
+        createdBy: pat-pm@example.com
+        assignedTo:
+          - lee-cad@example.com
+
+users:
+  # pat-pm sits above all three teams — everyone reports up through him
+  - email: pat-pm@example.com
+    name: Pat PM
+    username: pat-pm
+  - email: sam-dev@example.com
+    name: Sam Dev
+    username: sam-dev
+    reportsTo: pat-pm@example.com
+  - email: dana-dev@example.com
+    name: Dana Dev
+    username: dana-dev
+    reportsTo: sam-dev@example.com
+  - email: mike-builder@example.com
+    name: Mike Builder
+    username: mike-builder
+    reportsTo: pat-pm@example.com
+  - email: jose-builder@example.com
+    name: Jose Builder
+    username: jose-builder
+    reportsTo: mike-builder@example.com
+  - email: kat-builder@example.com
+    name: Kat Builder
+    username: kat-builder
+    reportsTo: mike-builder@example.com
+  - email: lee-cad@example.com
+    name: Lee CAD
+    username: lee-cad
+    reportsTo: pat-pm@example.com
+  - email: morgan-cad@example.com
+    name: Morgan CAD
+    username: morgan-cad
+    reportsTo: lee-cad@example.com

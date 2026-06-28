@@ -468,8 +468,9 @@ const TicketListSkeleton: React.FC = () => (
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const { teams, selectedTeamId, teamsReady } = useTeam();
+  const { teams, selectedTeam, selectedTeamId, teamsReady } = useTeam();
   const { isClockedIn, clockIn } = useClockToggle();
+  const { navigate } = useRouter();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(true);
@@ -654,6 +655,7 @@ export const TicketsPage: React.FC = () => {
 
   // Create state
   const [showCreate, setShowCreate] = useState(false);
+  const [showNoTeamDialog, setShowNoTeamDialog] = useState(false);
   const [createTitle, setCreateTitle] = useState('');
   const [createGithub, setCreateGithub] = useState('');
   const [createTitleFetching, setCreateTitleFetching] = useState(false);
@@ -917,11 +919,16 @@ export const TicketsPage: React.FC = () => {
   }, [pendingStartTicketId, selectedTeamId, clockIn, startTimerForTicket]);
 
   const handleCreate = useCallback(async () => {
-    if (!createTitle.trim() || !selectedTeamId) return;
+    if (!createTitle.trim()) return;
+    if (!selectedTeam) {
+      setShowCreate(false);
+      setShowNoTeamDialog(true);
+      return;
+    }
     setCreateLoading(true);
     try {
       await ticketApi.createTicket({
-        teamId: selectedTeamId,
+        teamId: selectedTeam.id,
         title: createTitle.trim(),
         github: createGithub.trim() || undefined,
       });
@@ -932,7 +939,7 @@ export const TicketsPage: React.FC = () => {
     } finally {
       setCreateLoading(false);
     }
-  }, [createTitle, createGithub, selectedTeamId, refetch]);
+  }, [createTitle, createGithub, refetch, selectedTeam]);
 
   const openEditModal = (ticket: Ticket) => {
     setEditTicket(ticket);
@@ -1008,7 +1015,13 @@ export const TicketsPage: React.FC = () => {
               variant="primary"
               size="sm"
               leftIcon={<FontAwesomeIcon icon={faPlus} />}
-              onClick={() => setShowCreate(true)}
+              onClick={() => {
+                if (!selectedTeam) {
+                  setShowNoTeamDialog(true);
+                  return;
+                }
+                setShowCreate(true);
+              }}
               className="shrink-0 rounded-lg"
             >
               New Ticket
@@ -1121,7 +1134,7 @@ export const TicketsPage: React.FC = () => {
                   type="submit"
                   isLoading={createLoading}
                   loadingText="Creating…"
-                  disabled={!createTitle.trim()}
+                  disabled={!createTitle.trim() || !selectedTeam}
                 >
                   Create Ticket
                 </Button>
@@ -1695,6 +1708,36 @@ export const TicketsPage: React.FC = () => {
             </Button>
             <Button variant="primary" onClick={handleClockInAndStart}>
               Clock In Now
+            </Button>
+          </ModalFooter>
+        </Modal>
+
+        <Modal open={showNoTeamDialog} onOpenChange={setShowNoTeamDialog} size="sm">
+          <ModalHeader>
+            <ModalTitle>No team available</ModalTitle>
+            <ModalClose />
+          </ModalHeader>
+          <ModalBody className="space-y-3">
+            <Text size="sm" className="text-neutral-600 dark:text-neutral-300">
+              This organization does not have a team yet. A team must exist before tickets can be
+              created.
+            </Text>
+            <Text size="sm" className="text-neutral-600 dark:text-neutral-300">
+              Create or join a team in this organization, then come back to add tickets.
+            </Text>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="outline" onClick={() => setShowNoTeamDialog(false)}>
+              Close
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setShowNoTeamDialog(false);
+                navigate('/app/teams');
+              }}
+            >
+              Go to Teams
             </Button>
           </ModalFooter>
         </Modal>

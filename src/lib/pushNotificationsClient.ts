@@ -40,30 +40,50 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 }
 
 export async function subscribeToWebPush(): Promise<void> {
-  if (!isPushNotificationSupported()) throw new Error('Push notifications are not supported');
+  console.log('🔔 [pushClient] Starting subscribeToWebPush...');
+
+  if (!isPushNotificationSupported()) {
+    throw new Error('Push notifications are not supported');
+  }
 
   const vapidPublicKey =
     (typeof import.meta !== 'undefined' &&
       (import.meta as { env?: Record<string, string> }).env?.VITE_VAPID_PUBLIC_KEY) ||
     '';
-  if (!vapidPublicKey) throw new Error('VITE_VAPID_PUBLIC_KEY is not configured');
+  if (!vapidPublicKey) {
+    throw new Error('VITE_VAPID_PUBLIC_KEY is not configured');
+  }
 
+  console.log('🔔 [pushClient] Requesting notification permission...');
   const permissionGranted = await requestNotificationPermission();
-  if (!permissionGranted) throw new Error('Notification permission denied');
+  if (!permissionGranted) {
+    throw new Error('Notification permission denied');
+  }
 
+  console.log('🔔 [pushClient] Registering service worker...');
   const registration = await registerServiceWorker();
+  console.log('✅ [pushClient] Service worker registered');
+
   await new Promise<void>((resolve) => setTimeout(resolve, 500));
 
+  console.log('🔔 [pushClient] Getting existing subscription...');
   let subscription = await registration.pushManager.getSubscription();
-  if (subscription) await subscription.unsubscribe();
+  if (subscription) {
+    console.log('🔔 [pushClient] Unsubscribing from old subscription...');
+    await subscription.unsubscribe();
+  }
 
+  console.log('🔔 [pushClient] Subscribing to push manager...');
   subscription = await registration.pushManager.subscribe({
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
   });
+  console.log('✅ [pushClient] Push manager subscription created');
 
   const json = subscription.toJSON();
   const token = sessionToken.get();
+
+  console.log('🔔 [pushClient] Sending subscription to server...');
   const res = await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-subscribe`, {
     method: 'POST',
     credentials: 'include',
@@ -78,7 +98,14 @@ export async function subscribeToWebPush(): Promise<void> {
       expirationTime: json.expirationTime,
     }),
   });
-  if (!res.ok) throw new Error(`Server push-subscribe failed: HTTP ${res.status}`);
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error('❌ [pushClient] Server push-subscribe failed:', res.status, text);
+    throw new Error(`Server push-subscribe failed: HTTP ${res.status}`);
+  }
+
+  console.log('✅ [pushClient] Server subscription saved successfully');
 }
 
 export async function unsubscribeFromWebPush(): Promise<void> {

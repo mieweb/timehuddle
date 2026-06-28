@@ -268,14 +268,14 @@ export const CommandPalette: React.FC = () => {
   );
 
   const handleCreateTicket = useCallback(async () => {
-    if (preview.status !== 'ready' || !selectedTeamId) return;
+    if (preview.status !== 'ready' || !selectedTeam) return;
 
     const { url, issue } = preview;
     setPreview({ status: 'creating', url, issue });
 
     try {
       await createTicketFromGithub({
-        teamId: selectedTeamId,
+        teamId: selectedTeam.id,
         url,
         title: issue.title,
         description: issue.body,
@@ -286,17 +286,17 @@ export const CommandPalette: React.FC = () => {
     } catch {
       setPreview({ status: 'error', url, message: 'Failed to create ticket' });
     }
-  }, [preview, selectedTeamId, navigate]);
+  }, [preview, selectedTeam, navigate]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && preview.status === 'ready' && selectedTeamId) {
+      if (e.key === 'Enter' && preview.status === 'ready' && selectedTeam) {
         e.preventDefault();
         void handleCreateTicket();
         return;
       }
     },
-    [preview.status, selectedTeamId, handleCreateTicket],
+    [preview.status, selectedTeam, handleCreateTicket],
   );
 
   const openMessageToMember = useCallback(
@@ -352,7 +352,7 @@ export const CommandPalette: React.FC = () => {
   }, [open, highlightedMemberId, openMessageToMember]);
 
   const isGithubMode = preview.status !== 'idle';
-  const canCreate = preview.status === 'ready' && selectedTeamId;
+  const canCreate = preview.status === 'ready' && !!selectedTeam;
 
   return (
     <Command.Dialog
@@ -416,7 +416,7 @@ export const CommandPalette: React.FC = () => {
                       {stripMarkdown(preview.issue.body)}
                     </p>
                   )}
-                  {!selectedTeamId && teamsReady && (
+                  {!selectedTeam && teamsReady && (
                     <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
                       Select a team first to create a ticket
                     </p>

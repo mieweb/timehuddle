@@ -47,6 +47,21 @@ export interface TicketUpdatedPayload {
   assigneeName?: string;
 }
 
+export interface OrgMemberBlockedPayload {
+  orgId: string;
+  orgName: string;
+  targetUserId: string;
+  targetUserName: string;
+  reason?: string;
+}
+
+export interface OrgMemberUnblockedPayload {
+  orgId: string;
+  orgName: string;
+  targetUserId: string;
+  targetUserName: string;
+}
+
 // ─── Activity type constants ──────────────────────────────────────────────────
 
 export const ActivityType = {
@@ -56,6 +71,8 @@ export const ActivityType = {
   TicketUpdated: "ticket.updated",
   PATCreated: "pat.created",
   PATRevoked: "pat.revoked",
+  OrgMemberBlocked: "org.member-blocked",
+  OrgMemberUnblocked: "org.member-unblocked",
 } as const;
 
 // ─── Discriminated union ──────────────────────────────────────────────────────
@@ -99,6 +116,16 @@ export interface PATRevokedActivity extends ActivityBase {
   payload: PATRevokedPayload;
 }
 
+export interface OrgMemberBlockedActivity extends ActivityBase {
+  type: "org.member-blocked";
+  payload: OrgMemberBlockedPayload;
+}
+
+export interface OrgMemberUnblockedActivity extends ActivityBase {
+  type: "org.member-unblocked";
+  payload: OrgMemberUnblockedPayload;
+}
+
 /** Extensible discriminated union — add new variants here as features grow. */
 export type ActivityEvent =
   | ClockInActivity
@@ -106,7 +133,9 @@ export type ActivityEvent =
   | TicketCreatedActivity
   | TicketUpdatedActivity
   | PATCreatedActivity
-  | PATRevokedActivity;
+  | PATRevokedActivity
+  | OrgMemberBlockedActivity
+  | OrgMemberUnblockedActivity;
 
 // ─── Emit input type ──────────────────────────────────────────────────────────
 
@@ -118,7 +147,9 @@ export type EmitActivityInput =
   | (Omit<TicketCreatedActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
   | (Omit<TicketUpdatedActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
   | (Omit<PATCreatedActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
-  | (Omit<PATRevokedActivity, "_id" | "occurredAt" | "source"> & WithDefaults);
+  | (Omit<PATRevokedActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
+  | (Omit<OrgMemberBlockedActivity, "_id" | "occurredAt" | "source"> & WithDefaults)
+  | (Omit<OrgMemberUnblockedActivity, "_id" | "occurredAt" | "source"> & WithDefaults);
 
 // ─── Public (API-facing) shape ────────────────────────────────────────────────
 

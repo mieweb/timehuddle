@@ -265,6 +265,9 @@ export class ClockService {
             type: "clock-session-changed",
             teamId,
             date,
+            userId: actorUserId,
+            // Deep-link: lands admin on Teams > Timesheet tab with member pre-selected
+            url: `/app/teams?tab=timesheet&memberId=${actorUserId}&teamId=${teamId}`,
           },
         })
       )
@@ -711,7 +714,7 @@ export class ClockService {
     teamId: string,
     startTime: number,
     endTime: number
-  ): Promise<PublicClockEvent | "forbidden" | "invalid-range"> {
+  ): Promise<PublicClockEvent | "forbidden" | "invalid-range" | "overlap"> {
     if (!isValidId(teamId)) return "forbidden";
     const team = await teamsCollection().findOne({
       _id: new ObjectId(teamId),
@@ -723,8 +726,19 @@ export class ClockService {
     if (startTime > now || endTime > now) return "invalid-range";
     if (endTime <= startTime) return "invalid-range";
 
-    const accumulatedTime = Math.floor((endTime - startTime) / 1000);
     const coll = clockEventsCollection();
+
+    // Reject entries that overlap an existing session for this user (any team).
+    // Two ranges overlap when each starts before the other ends; open sessions
+    // (endTime: null) are treated as ongoing up to now.
+    const overlapping = await coll.findOne({
+      userId,
+      startTime: { $lt: endTime },
+      $or: [{ endTime: null }, { endTime: { $gt: startTime } }],
+    });
+    if (overlapping) return "overlap";
+
+    const accumulatedTime = Math.floor((endTime - startTime) / 1000);
     const result = await coll.insertOne({
       _id: new ObjectId(),
       userId,
