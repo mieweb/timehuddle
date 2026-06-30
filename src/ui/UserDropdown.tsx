@@ -76,7 +76,7 @@ export const UserDropdown: React.FC = () => {
 
   const handleOrganizationMembers = useCallback(() => {
     setOpen(false);
-    navigate('/org/members');
+    navigate('/app/org/members');
   }, [navigate]);
 
   const handleEnterprisePage = useCallback(() => {

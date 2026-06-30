@@ -277,7 +277,7 @@ export const EnterprisePage: React.FC = () => {
         setSelectedEnterpriseId(org.enterpriseId);
       }
       setEditOrg(null);
-      navigate('/org/members');
+      navigate('/app/org/members');
     },
     [navigate, setSelectedEnterpriseId, setSelectedOrgId],
   );

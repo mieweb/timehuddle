@@ -15,7 +15,7 @@ export const InstallerModal: React.FC<Props> = ({ onTaken }) => {
   const [error, setError] = useState<string | null>(null);
 
   function navigateToMembers() {
-    const targetPath = '/org/members';
+    const targetPath = '/app/org/members';
     if (window.location.pathname !== targetPath) {
       window.history.pushState(null, '', targetPath);
       window.dispatchEvent(new PopStateEvent('popstate'));

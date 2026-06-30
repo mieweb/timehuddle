@@ -83,7 +83,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
   '/app/work': { title: 'Work', component: WorkPage },
 
-  '/org/members': { title: 'Members', component: OrganizationMembersPage },
+  '/app/org/members': { title: 'Members', component: OrganizationMembersPage },
 };
 
 function match(pathname: string): RouteConfig | null {

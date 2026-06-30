@@ -44,47 +44,44 @@ function toId(id) {
  */
 async function checkUserBlocking(userId) {
   const db = rawDb();
-  // Load user blocked field from user collection
+  // Load user blocked field from BOTH collections
   const hexUserId = /^[0-9a-f]{24}$/i.test(userId) ? new ObjectId(userId) : userId;
-  let userDoc = await db.collection('user').findOne({ _id: hexUserId }, { projection: { blocked: 1 } });
-  // Fallback to Meteor users collection if not found
-  if (!userDoc) {
-    userDoc = await db.collection('users').findOne({ _id: String(userId) }, { projection: { blocked: 1 } });
-  }
+  const [userDoc, usersDoc] = await Promise.all([
+    db.collection('user').findOne({ _id: hexUserId }, { projection: { blocked: 1 } }),
+    db.collection('users').findOne({ _id: String(userId) }, { projection: { blocked: 1 } }),
+  ]);
   
-  const blockedArray = userDoc?.blocked ?? [];
+  // Merge blocked arrays from both collections (users may exist in both)
+  const blockedFromUser = userDoc?.blocked ?? [];
+  const blockedFromUsers = usersDoc?.blocked ?? [];
+  const allBlocks = [...blockedFromUser, ...blockedFromUsers];
+  
+  // Deduplicate by orgId
+  const blockedMap = new Map();
+  for (const block of allBlocks) {
+    if (!blockedMap.has(block.orgId)) {
+      blockedMap.set(block.orgId, block);
+    }
+  }
+  const blockedArray = Array.from(blockedMap.values());
+  
   if (blockedArray.length === 0) return { blocked: false };
 
-  // Load org_members to detect stale blocks
+  // Load org_members to check which orgs user belongs to
   const memberships = await db.collection('org_members').find({ userId: String(userId) }).toArray();
   const memberOrgIds = new Set(memberships.map((m) => m.orgId));
-
-  // Filter out stale blocks where user is currently a member
-  const staleBlocks = blockedArray.filter((b) => memberOrgIds.has(b.orgId));
-  if (staleBlocks.length > 0) {
-    // Clean up stale blocks in background
-    void db.collection('user').updateOne(
-      { _id: hexUserId },
-      { $pull: { blocked: { orgId: { $in: staleBlocks.map((b) => b.orgId) } } } }
-    );
-  }
-
-  const activeBlocks = blockedArray.filter((b) => !memberOrgIds.has(b.orgId));
-  if (activeBlocks.length === 0) return { blocked: false };
-
-  // Check if user has at least one accessible org
-  const { getAccessibleOrgIds } = await import('./org-helpers');
-  const accessibleOrgIds = await getAccessibleOrgIds(String(userId));
-  const blockedOrgIds = new Set(activeBlocks.map((b) => b.orgId));
-  const hasAccessibleOrg = accessibleOrgIds.some((orgId) => !blockedOrgIds.has(orgId));
+  
+  // Check if user has at least one org they're a member of AND NOT blocked from
+  const blockedOrgIds = new Set(blockedArray.map((b) => b.orgId));
+  const hasAccessibleOrg = Array.from(memberOrgIds).some((orgId) => !blockedOrgIds.has(orgId));
   
   if (hasAccessibleOrg) return { blocked: false };
 
-  // Blocked from all orgs
-  const reason = activeBlocks[0]?.reason;
+  // Blocked from all orgs they're a member of
+  const reason = blockedArray[0]?.reason;
   const message = reason
     ? `Your account has been suspended: ${reason}`
-    : 'Your account has been suspended from all organizations';
+    : 'Your account has been suspended. Please contact your administrator.';
   return { blocked: true, message };
 }
 
@@ -315,6 +312,32 @@ Accounts.registerLoginHandler('proxy', async (options) => {
 
   const userId = await findOrCreateUser(claims.email, claims.name);
   return { userId };
+});
+
+// ============================================================================
+// Login Validation - Block users who are blocked from all their organizations
+// ============================================================================
+
+Accounts.validateLoginAttempt(async (attempt) => {
+  // Only validate successful login attempts
+  if (!attempt.allowed) return false;
+  
+  const userId = attempt.user?._id;
+  if (!userId) return true; // No user ID, let it through (shouldn't happen)
+  
+  try {
+    const blockCheck = await checkUserBlocking(String(userId));
+    if (blockCheck.blocked) {
+      throw new Meteor.Error('account-blocked', blockCheck.message);
+    }
+    return true;
+  } catch (err) {
+    if (err.error === 'account-blocked') {
+      throw err; // Re-throw blocking errors
+    }
+    console.error('[auth-bridge] Blocking check failed:', err);
+    return true; // Allow login on check failure to avoid locking out users
+  }
 });
 
 // ============================================================================

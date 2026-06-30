@@ -475,17 +475,28 @@ Meteor.methods({
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     if (!isValidId(targetUserId)) throw new Meteor.Error('not-found', 'Invalid targetUserId');
     const db = rawDb();
-    const [org, targetUser] = await Promise.all([
-      db.collection('organizations').findOne({ _id: new ObjectId(orgId) }),
-      db.collection('user').findOne({ _id: new ObjectId(targetUserId) }),
-    ]);
+    const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
     const access = await buildOrgAccess(userId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
-    if (!targetUser) throw new Meteor.Error('not-found', 'Target user not found');
+    
+    // Check both user collections (Better Auth and Meteor)
+    const hexUserId = /^[0-9a-f]{24}$/i.test(targetUserId) ? new ObjectId(targetUserId) : targetUserId;
+    const [targetFastifyUser, targetMeteorUser] = await Promise.all([
+      db.collection('user').findOne({ _id: hexUserId }),
+      db.collection('users').findOne({ _id: String(targetUserId) }),
+    ]);
+    
+    if (!targetFastifyUser && !targetMeteorUser) {
+      throw new Meteor.Error('not-found', 'Target user not found');
+    }
 
-    const alreadyBlocked = (targetUser.blocked ?? []).some((b) => b.orgId === orgId);
-    if (alreadyBlocked) throw new Meteor.Error('already-blocked', 'User is already blocked from this organization');
+    // Check if already blocked in either collection
+    const alreadyBlocked = (targetFastifyUser?.blocked ?? []).some((b) => b.orgId === orgId) ||
+                          (targetMeteorUser?.blocked ?? []).some((b) => b.orgId === orgId);
+    if (alreadyBlocked) {
+      throw new Meteor.Error('already-blocked', 'User is already blocked from this organization');
+    }
 
     const block = {
       orgId,
@@ -493,10 +504,22 @@ Meteor.methods({
       blockedAt: new Date(),
       reason: reason ?? null,
     };
-    await db.collection('user').updateOne(
-      { _id: new ObjectId(targetUserId) },
-      { $push: { blocked: block } }
-    );
+    
+    // Update BOTH collections if user exists in both (handles dual-collection scenario)
+    const updates = [];
+    if (targetFastifyUser) {
+      updates.push(db.collection('user').updateOne(
+        { _id: hexUserId },
+        { $push: { blocked: block } }
+      ));
+    }
+    if (targetMeteorUser) {
+      updates.push(db.collection('users').updateOne(
+        { _id: String(targetUserId) },
+        { $push: { blocked: block } }
+      ));
+    }
+    await Promise.all(updates);
 
     // Remove from all teams in this org
     await db.collection('teams').updateMany(
@@ -504,8 +527,8 @@ Meteor.methods({
       { $pull: { members: targetUserId, admins: targetUserId } }
     );
 
-    // Remove from org_members
-    await db.collection('org_members').deleteMany({ orgId, userId: targetUserId });
+    // Keep user in org_members so they remain visible (can be unblocked later)
+    // They're blocked from access via the user.blocked field
 
     // Remove from legacy org arrays
     await db.collection('organizations').updateOne(
@@ -514,6 +537,7 @@ Meteor.methods({
     );
 
     // Fire-and-forget activity
+    const targetUser = targetFastifyUser ?? targetMeteorUser;
     void emitActivity({
       type: ActivityType.OrgMemberBlocked,
       userId: targetUserId,
@@ -522,7 +546,7 @@ Meteor.methods({
         orgId,
         orgName: org.name,
         targetUserId,
-        targetUserName: targetUser.name ?? targetUser.email ?? 'Unknown',
+        targetUserName: targetUser.name ?? targetUser.profile?.name ?? targetUser.email ?? targetUser.emails?.[0]?.address ?? 'Unknown',
         reason: reason ?? null,
       },
     });
@@ -546,38 +570,50 @@ Meteor.methods({
     if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
     if (!isValidId(targetUserId)) throw new Meteor.Error('not-found', 'Invalid targetUserId');
     const db = rawDb();
-    const [org, targetUser] = await Promise.all([
-      db.collection('organizations').findOne({ _id: new ObjectId(orgId) }),
-      db.collection('user').findOne({ _id: new ObjectId(targetUserId) }),
-    ]);
+    const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
     const access = await buildOrgAccess(userId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
-    if (!targetUser) throw new Meteor.Error('not-found', 'Target user not found');
-
-    const isBlocked = (targetUser.blocked ?? []).some((b) => b.orgId === orgId);
-    if (!isBlocked) throw new Meteor.Error('not-blocked', 'User is not blocked from this organization');
-
-    await db.collection('user').updateOne(
-      { _id: new ObjectId(targetUserId) },
-      { $pull: { blocked: { orgId } } }
-    );
-
-    // Auto-restore member role if no existing org_members doc
-    const existing = await db.collection('org_members').findOne({ orgId, userId: targetUserId });
-    if (!existing) {
-      const now = new Date();
-      await db.collection('org_members').insertOne({
-        orgId,
-        userId: targetUserId,
-        role: 'member',
-        auto: false,
-        createdAt: now,
-        updatedAt: now,
-      });
+    
+    // Check both user collections (Better Auth and Meteor)
+    const hexUserId = /^[0-9a-f]{24}$/i.test(targetUserId) ? new ObjectId(targetUserId) : targetUserId;
+    const [targetFastifyUser, targetMeteorUser] = await Promise.all([
+      db.collection('user').findOne({ _id: hexUserId }),
+      db.collection('users').findOne({ _id: String(targetUserId) }),
+    ]);
+    
+    if (!targetFastifyUser && !targetMeteorUser) {
+      throw new Meteor.Error('not-found', 'Target user not found');
     }
 
+    // Check if blocked in either collection
+    const isBlocked = (targetFastifyUser?.blocked ?? []).some((b) => b.orgId === orgId) ||
+                     (targetMeteorUser?.blocked ?? []).some((b) => b.orgId === orgId);
+    if (!isBlocked) {
+      throw new Meteor.Error('not-blocked', 'User is not blocked from this organization');
+    }
+
+    // Update BOTH collections if user exists in both (handles dual-collection scenario)
+    const updates = [];
+    if (targetFastifyUser) {
+      updates.push(db.collection('user').updateOne(
+        { _id: hexUserId },
+        { $pull: { blocked: { orgId } } }
+      ));
+    }
+    if (targetMeteorUser) {
+      updates.push(db.collection('users').updateOne(
+        { _id: String(targetUserId) },
+        { $pull: { blocked: { orgId } } }
+      ));
+    }
+    await Promise.all(updates);
+
+    // User should already be in org_members (we don't delete it on block anymore)
+    // No need to re-add them
+
     // Fire-and-forget activity
+    const targetUser = targetFastifyUser ?? targetMeteorUser;
     void emitActivity({
       type: ActivityType.OrgMemberUnblocked,
       userId: targetUserId,
@@ -586,7 +622,7 @@ Meteor.methods({
         orgId,
         orgName: org.name,
         targetUserId,
-        targetUserName: targetUser.name ?? targetUser.email ?? 'Unknown',
+        targetUserName: targetUser.name ?? targetUser.profile?.name ?? targetUser.email ?? targetUser.emails?.[0]?.address ?? 'Unknown',
       },
     });
 
@@ -639,6 +675,65 @@ Meteor.methods({
       { $set: { reportsToUserId: reportsToUserId ?? null, updatedAt: new Date() } },
     );
     return { user: { userId, reportsToUserId: reportsToUserId ?? null } };
+  },
+
+  async 'orgs.listBlockedUsers'({ orgId }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
+    const db = rawDb();
+    const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
+    if (!org) throw new Meteor.Error('not-found', 'Organization not found');
+    const access = await buildOrgAccess(userId, org);
+    if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
+
+    // Find all users who have this orgId in their blocked array
+    const [fastifyUsers, meteorUsers] = await Promise.all([
+      db.collection('user')
+        .find(
+          { blocked: { $elemMatch: { orgId } } },
+          { projection: { name: 1, email: 1, username: 1, image: 1, blocked: 1 } }
+        )
+        .toArray(),
+      db.collection('users')
+        .find(
+          { blocked: { $elemMatch: { orgId } } },
+          { projection: { profile: 1, emails: 1, username: 1, image: 1, blocked: 1 } }
+        )
+        .toArray(),
+    ]);
+
+    // Normalize Meteor users
+    const normalizedMeteorUsers = meteorUsers.map((u) => ({
+      _id: u._id,
+      name: u.profile?.name ?? u.username ?? 'Unknown',
+      email: u.emails?.[0]?.address ?? '',
+      username: u.username ?? null,
+      image: u.image ?? null,
+      blocked: u.blocked ?? [],
+    }));
+
+    // Combine and format
+    const allBlockedUsers = [
+      ...fastifyUsers.map((u) => ({
+        id: u._id.toHexString(),
+        name: u.name,
+        email: u.email,
+        username: u.username ?? null,
+        image: u.image ?? null,
+        blocked: u.blocked ?? [],
+      })),
+      ...normalizedMeteorUsers.map((u) => ({
+        id: String(u._id),
+        name: u.name,
+        email: u.email,
+        username: u.username,
+        image: u.image,
+        blocked: u.blocked,
+      })),
+    ];
+
+    return { users: allBlockedUsers };
   },
 
   // ── Default org admin endpoints (from users.ts) ───────────────────────────
