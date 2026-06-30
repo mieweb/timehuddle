@@ -966,6 +966,11 @@ Meteor.startup(async() => {
     inputSchema: { type: 'object', properties: { toDate: { type: 'string' } }, required: ['toDate'] },
   });
 
+  Wormhole.expose('timers.getUserWorkSummary', {
+    description: 'Get tickets worked on by user in last 48 hours',
+    inputSchema: { type: 'object', properties: { userId: { type: 'string' } }, required: ['userId'] },
+  });
+
   Wormhole.expose('activity.log', {
     description: 'Get the current user\'s activity log (cursor-paginated)',
     inputSchema: {

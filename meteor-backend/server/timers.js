@@ -483,6 +483,61 @@ Meteor.methods({
     }
     return { created };
   },
+
+  /** Get tickets worked on by user in last 48 hours (for work summary tags). */
+  async 'timers.getUserWorkSummary'({ userId } = {}) {
+    const identity = await requireIdentity(this);
+    const requesterId = identity.userId;
+
+    // Permission check: can view own summary, or teammate can view
+    if (userId !== requesterId) {
+      // Check if they share a non-personal team
+      const sharedTeam = await Teams.findOneAsync({
+        isPersonal: { $ne: true },
+        $or: [
+          { members: requesterId, $or: [{ members: userId }, { admins: userId }] },
+          { admins: requesterId, $or: [{ members: userId }, { admins: userId }] },
+        ],
+      });
+      if (!sharedTeam) throw new Meteor.Error('forbidden', 'Forbidden');
+    }
+
+    // Query timers from last 48 hours
+    const fortyEightHoursAgo = Date.now() - (48 * 60 * 60 * 1000);
+    const recentTimers = await Timers.find({
+      userId,
+      $or: [
+        { startTime: { $gte: fortyEightHoursAgo } },
+        { endTime: { $gte: fortyEightHoursAgo } },
+      ],
+    }).fetchAsync();
+
+    if (!recentTimers.length) return { items: [] };
+
+    // Get unique WorkItem IDs
+    const workItemIds = [...new Set(recentTimers.map((t) => t.workItemId))];
+    
+    // Fetch WorkItems to get ticket IDs
+    const workItems = await WorkItems.find({
+      _id: { $in: workItemIds.filter(isValidId).map((id) => new Mongo.ObjectID(id)) },
+    }).fetchAsync();
+
+    const ticketIds = [...new Set(workItems.map((wi) => wi.ticketId).filter(isValidId))];
+    if (!ticketIds.length) return { items: [] };
+
+    // Fetch tickets (excluding deleted)
+    const tickets = await Tickets.find({
+      _id: { $in: ticketIds.map((id) => new Mongo.ObjectID(id)) },
+      deleted: { $ne: true },
+    }, { fields: { title: 1 } }).fetchAsync();
+
+    return {
+      items: tickets.map((t) => ({
+        id: t._id.toHexString(),
+        title: t.title,
+      })),
+    };
+  },
 });
 
 /** Live timer pub for the current user — replaces /v1/timers/ws */

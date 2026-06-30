@@ -1568,11 +1568,9 @@ export const activityApi = {
       ...params,
     }),
 
-  /** Ticket IDs + titles from the user's last 48 h of timer work (still Fastify). */
+  /** Ticket IDs + titles from the user's last 48 h of timer work. */
   getUserWorkSummary: (userId: string) =>
-    request<{ items: { id: string; title: string }[] }>(
-      `/v1/work/summary/user/${encodeURIComponent(userId)}`,
-    ),
+    wormholeCall<{ items: { id: string; title: string }[] }>('timers.getUserWorkSummary', { userId }),
 
   getTicketActivity: (ticketId: string, limit = 50) =>
     wormholeCall<{ events: ActivityLogItem[] }>('activity.ticketActivity', { ticketId, limit }),
