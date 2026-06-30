@@ -499,10 +499,9 @@ Meteor.methods({
     );
 
     // Remove from all teams in this org
-    await Teams.updateAsync(
+    await db.collection('teams').updateMany(
       { orgId, $or: [{ members: targetUserId }, { admins: targetUserId }] },
-      { $pull: { members: targetUserId, admins: targetUserId } },
-      { multi: true }
+      { $pull: { members: targetUserId, admins: targetUserId } }
     );
 
     // Remove from org_members
