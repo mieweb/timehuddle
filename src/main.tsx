@@ -259,7 +259,14 @@ const App: React.FC = () => {
     return null;
   }
 
-  if (!user) return <LoginForm />;
+  if (!user) {
+    // Ensure we're on root path when showing login — fixes issue where
+    // logout from /app/teams would show login form but keep /app/teams URL
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/app/')) {
+      window.history.replaceState(null, '', '/');
+    }
+    return <LoginForm />;
+  }
 
   // If the user is already authenticated and there are OAuth 2.0 authorization
   // params in the URL (e.g. redirected here from TimeHarbor), forward them

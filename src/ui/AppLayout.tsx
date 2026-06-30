@@ -140,13 +140,17 @@ const AppLayoutContent: React.FC = () => {
 
   useBrand();
 
-  const normalizePath = (p: string) => (p === '/app' ? '/app/dashboard' : p);
+  const normalizePath = (p: string) => {
+    if (p === '/app' || p === '/') return '/app/dashboard';
+    return p;
+  };
 
   const [pathname, setPathname] = useState(() => {
     if (typeof window === 'undefined') return '/app/dashboard';
     const p = window.location.pathname;
-    if (p === '/app') window.history.replaceState(null, '', '/app/dashboard');
-    return normalizePath(p);
+    const normalized = normalizePath(p);
+    if (p !== normalized) window.history.replaceState(null, '', normalized);
+    return normalized;
   });
 
   const navigate = useCallback((path: string) => {

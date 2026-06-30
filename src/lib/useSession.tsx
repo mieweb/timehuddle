@@ -97,6 +97,11 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     localStorage.removeItem('meteor_resume_token');
     // Clear user state immediately to stop any reactive refetches
     setUser(null);
+    // Navigate to root to show landing/login page
+    if (window.location.pathname !== '/') {
+      window.history.pushState(null, '', '/');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
     // Then invalidate server-side session
     const ddp = getDdpClient();
     await ddp.logout().catch(() => {});
