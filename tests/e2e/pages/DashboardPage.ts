@@ -69,6 +69,7 @@ export class DashboardPage extends BasePage {
    */
   async logout() {
     await this.openAccountMenu();
-    await this.page.getByRole('menuitem', { name: /Log out/i }).click();
+    await this.page.waitForTimeout(500); // Wait for menu to open
+    await this.page.getByRole('menuitem', { name: /Sign out/i }).click();
   }
 }
