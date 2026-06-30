@@ -1375,6 +1375,8 @@ Meteor.startup(async() => {
   Wormhole.expose('orgs.adminSetUserRole', { description: 'Set default org role for user (admin)', inputSchema: { type: 'object', properties: { userId: { type: 'string' }, role: { type: 'string', enum: ['owner', 'admin', 'member'] } }, required: ['userId', 'role'] } });
   Wormhole.expose('orgs.publicGet', { description: 'Get default org metadata (all users)', inputSchema: { type: 'object', properties: {} } });
   Wormhole.expose('orgs.publicListUsers', { description: 'List users with default org roles (all users)', inputSchema: { type: 'object', properties: {} } });
+  Wormhole.expose('orgs.blockMember', { description: 'Block org member (manage permission)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, targetUserId: { type: 'string' }, reason: { type: 'string' } }, required: ['orgId', 'targetUserId'] } });
+  Wormhole.expose('orgs.unblockMember', { description: 'Unblock org member (manage permission)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, targetUserId: { type: 'string' } }, required: ['orgId', 'targetUserId'] } });
 
   // ── Enterprises ───────────────────────────────────────────────────────────
 
