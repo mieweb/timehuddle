@@ -447,6 +447,7 @@ export interface OrganizationAdminUser {
   image: string | null;
   role: DefaultOrganizationRole;
   reportsToUserId?: string | null;
+  blocked?: Array<{ orgId: string; blockedBy: string; blockedAt: string; reason?: string }>;
 }
 
 export interface AdminOrganization {
@@ -588,6 +589,17 @@ export const orgApi = {
 
   removeMember: (id: string, userId: string) =>
     wormholeCall<{ user: { userId: string } }>('orgs.removeMember', { orgId: id, userId }).then(
+      (r) => r.user,
+    ),
+
+  blockMember: (id: string, targetUserId: string, reason?: string) =>
+    wormholeCall<{ user: { id: string; blocked: { orgId: string; blockedBy: string; blockedAt: string; reason?: string } } }>(
+      'orgs.blockMember',
+      { orgId: id, targetUserId, reason },
+    ).then((r) => r.user),
+
+  unblockMember: (id: string, targetUserId: string) =>
+    wormholeCall<{ user: { id: string } }>('orgs.unblockMember', { orgId: id, targetUserId }).then(
       (r) => r.user,
     ),
 

@@ -13,12 +13,10 @@
  * (wormhole), or even mongosh appears here without polling.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { METEOR_BASE_URL } from './api';
 
 const meteorBase =
   (typeof import.meta !== 'undefined' &&
     (import.meta as { env?: Record<string, string> }).env?.VITE_METEOR_URL) ||
-  METEOR_BASE_URL ||
   'http://localhost:3100';
 const METEOR_WS_URL = meteorBase.replace(/^http/, 'ws') + '/websocket';
 

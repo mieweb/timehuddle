@@ -14,7 +14,7 @@
 import { Meteor } from 'meteor/meteor';
 import { Mongo, MongoInternals } from 'meteor/mongo';
 import { ClockEvents, ClockBreaks, Teams, isValidId, rawDb } from './collections';
-import { requireIdentity } from './auth-bridge';
+import { requireIdentity, findUserById } from './auth-bridge';
 import { requireTeamMembership } from './permissions';
 import {
   toPublicClockEvent,
@@ -221,7 +221,7 @@ Meteor.methods({
     const updated = await ClockEvents.findOneAsync(event._id);
     const pub = toPublicClockEvent(updated, closedBreaks);
 
-    const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+    const team = await findUserTeam(userId, teamId);
     if (team) {
       const userName = await userDisplayName(userId);
       const totalSecs = pub.accumulatedTime ?? 0;

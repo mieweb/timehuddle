@@ -37,7 +37,58 @@ function toId(id) {
   return /^[a-f0-9]{24}$/i.test(id) ? new ObjectId(id) : id;
 }
 
-async function findUserById(id) {
+/**
+ * Check if a user is blocked from ALL their organizations.
+ * Returns { blocked: false } if user can access at least one org.
+ * Returns { blocked: true, message } if blocked from all orgs.
+ */
+async function checkUserBlocking(userId) {
+  const db = rawDb();
+  // Load user blocked field from user collection
+  const hexUserId = /^[0-9a-f]{24}$/i.test(userId) ? new ObjectId(userId) : userId;
+  let userDoc = await db.collection('user').findOne({ _id: hexUserId }, { projection: { blocked: 1 } });
+  // Fallback to Meteor users collection if not found
+  if (!userDoc) {
+    userDoc = await db.collection('users').findOne({ _id: String(userId) }, { projection: { blocked: 1 } });
+  }
+  
+  const blockedArray = userDoc?.blocked ?? [];
+  if (blockedArray.length === 0) return { blocked: false };
+
+  // Load org_members to detect stale blocks
+  const memberships = await db.collection('org_members').find({ userId: String(userId) }).toArray();
+  const memberOrgIds = new Set(memberships.map((m) => m.orgId));
+
+  // Filter out stale blocks where user is currently a member
+  const staleBlocks = blockedArray.filter((b) => memberOrgIds.has(b.orgId));
+  if (staleBlocks.length > 0) {
+    // Clean up stale blocks in background
+    void db.collection('user').updateOne(
+      { _id: hexUserId },
+      { $pull: { blocked: { orgId: { $in: staleBlocks.map((b) => b.orgId) } } } }
+    );
+  }
+
+  const activeBlocks = blockedArray.filter((b) => !memberOrgIds.has(b.orgId));
+  if (activeBlocks.length === 0) return { blocked: false };
+
+  // Check if user has at least one accessible org
+  const { getAccessibleOrgIds } = await import('./org-helpers');
+  const accessibleOrgIds = await getAccessibleOrgIds(String(userId));
+  const blockedOrgIds = new Set(activeBlocks.map((b) => b.orgId));
+  const hasAccessibleOrg = accessibleOrgIds.some((orgId) => !blockedOrgIds.has(orgId));
+  
+  if (hasAccessibleOrg) return { blocked: false };
+
+  // Blocked from all orgs
+  const reason = activeBlocks[0]?.reason;
+  const message = reason
+    ? `Your account has been suspended: ${reason}`
+    : 'Your account has been suspended from all organizations';
+  return { blocked: true, message };
+}
+
+export async function findUserById(id) {
   // Try Meteor collection first (new users created via accounts.createUser)
   const meteorUser = await rawDb().collection('users').findOne({ _id: String(id) });
   if (meteorUser) return {
@@ -364,6 +415,10 @@ Meteor.methods({
     if (existingFastify) {
       throw new Meteor.Error('email-exists', 'An account with this email already exists');
     }
+    // Check if email is blocked
+    if (existingFastify?.blocked?.length > 0) {
+      throw new Meteor.Error('blocked-email', 'This email address cannot be used to create an account');
+    }
     
     // Create in Meteor Accounts (accounts-password handles password hashing)
     let userId;
@@ -458,6 +513,8 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
       match = await bcrypt.compare(password.digest, storedBcrypt);
     }
     if (!match) throw new Meteor.Error(403, 'Invalid email or password');
+    const blockCheck = await checkUserBlocking(String(user._id));
+    if (blockCheck.blocked) throw new Meteor.Error(403, blockCheck.message || 'Account suspended');
     return { userId: user._id };
   }
 
@@ -494,6 +551,8 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
       console.error('[emailPassword] hash migration failed:', err.message);
     }
 
+    const blockCheck = await checkUserBlocking(String(user._id));
+    if (blockCheck.blocked) throw new Meteor.Error(403, blockCheck.message || 'Account suspended');
     return { userId: user._id };
   } catch (err) {
     if (err instanceof Meteor.Error) throw err;

@@ -10,6 +10,7 @@
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { sendToUser } from './push';
+import { findUserById } from './auth-bridge';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -47,11 +48,10 @@ export async function notifyClockAdmins(actorUserId, teamId, startTime, action) 
   const profile = await rawDb()
     .collection('profiles')
     .findOne({ userId: actorUserId, app: 'timeharbor' });
+  const actor = await findUserById(actorUserId);
   const actorName =
     profile?.displayName ||
-    (isValidId(actorUserId)
-      ? (await rawDb().collection('user').findOne({ _id: new ObjectId(actorUserId) }))?.name
-      : undefined) ||
+    actor?.name ||
     'A team member';
   const date = new Date(startTime).toISOString().slice(0, 10);
 
@@ -75,8 +75,6 @@ export async function notifyClockAdmins(actorUserId, teamId, startTime, action) 
 
 /** Resolve a user's display name (better-auth `user` collection). */
 export async function userDisplayName(userId) {
-  const user = isValidId(userId)
-    ? await rawDb().collection('user').findOne({ _id: new ObjectId(userId) })
-    : null;
+  const user = await findUserById(userId);
   return user?.name ?? user?.email?.split('@')[0] ?? 'Someone';
 }

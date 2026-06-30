@@ -9,6 +9,7 @@ import {
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
 import { subject } from '@casl/ability';
+import { emitActivity, ActivityType } from './activity-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -78,19 +79,44 @@ async function loadOrgMembers(orgId) {
   const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
   if (!org) return [];
 
+  // Get members from org_members collection
   const membershipDocs = await db.collection('org_members').find({ orgId }).toArray();
+  
+  // Get all team members from teams in this org
+  const teamDocs = await db.collection('teams')
+    .find({ orgId }, { projection: { members: 1, admins: 1 } })
+    .toArray();
+  const teamMemberIds = new Set();
+  for (const team of teamDocs) {
+    for (const memberId of team.members || []) teamMemberIds.add(memberId);
+    for (const adminId of team.admins || []) teamMemberIds.add(adminId);
+  }
+
+  // Combine org legacy owners/admins
   const legacyIds = uniqueIds([...(org.owners ?? []), ...(org.admins ?? [])]);
-  const missingLegacyIds = legacyIds.filter(
-    (uid) => !membershipDocs.some((m) => m.userId === uid),
-  );
-  const allMembers = [
-    ...membershipDocs.map((m) => ({ userId: m.userId, role: m.role, auto: m.auto })),
-    ...missingLegacyIds.map((uid) => ({
-      userId: uid,
-      role: (org.owners ?? []).includes(uid) ? 'owner' : 'admin',
-      auto: false,
-    })),
-  ];
+  
+  // Build complete member list
+  const allMemberIds = new Set([
+    ...membershipDocs.map((m) => m.userId),
+    ...legacyIds,
+    ...teamMemberIds,
+  ]);
+  
+  const allMembers = Array.from(allMemberIds).map((userId) => {
+    const membership = membershipDocs.find((m) => m.userId === userId);
+    if (membership) {
+      return { userId, role: membership.role, auto: membership.auto };
+    }
+    // Check legacy arrays
+    if ((org.owners ?? []).includes(userId)) {
+      return { userId, role: 'owner', auto: false };
+    }
+    if ((org.admins ?? []).includes(userId)) {
+      return { userId, role: 'admin', auto: false };
+    }
+    // Team member without explicit org membership
+    return { userId, role: 'member', auto: true };
+  });
 
   // Split IDs by type
   const hexIds = allMembers
@@ -104,12 +130,12 @@ async function loadOrgMembers(orgId) {
   const [fastifyUsers, meteorUsers] = await Promise.all([
     hexIds.length > 0
       ? db.collection('user')
-          .find({ _id: { $in: hexIds } }, { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } })
+          .find({ _id: { $in: hexIds } }, { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1, blocked: 1 } })
           .toArray()
       : [],
     stringIds.length > 0
       ? db.collection('users')
-          .find({ _id: { $in: stringIds } }, { projection: { profile: 1, emails: 1, username: 1, image: 1, reportsToUserId: 1 } })
+          .find({ _id: { $in: stringIds } }, { projection: { profile: 1, emails: 1, username: 1, image: 1, reportsToUserId: 1, blocked: 1 } })
           .toArray()
       : [],
   ]);
@@ -122,6 +148,7 @@ async function loadOrgMembers(orgId) {
     username: u.username ?? null,
     image: u.image ?? null,
     reportsToUserId: u.reportsToUserId ?? null,
+    blocked: u.blocked ?? [],
   }));
 
   // Build lookup map by id string
@@ -143,6 +170,7 @@ async function loadOrgMembers(orgId) {
         reportsToUserId: u.reportsToUserId ?? null,
         role: m.role,
         auto: m.auto,
+        blocked: u.blocked ?? [],
       };
     })
     .filter(Boolean)
@@ -173,7 +201,17 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const db = rawDb();
-    const orgIds = await getAccessibleOrgIds(userId);
+    let orgIds = await getAccessibleOrgIds(userId);
+    if (orgIds.length === 0) return { organizations: [] };
+
+    // Filter out blocked orgs — defense in depth matching Fastify
+    const hexUserId = /^[0-9a-f]{24}$/i.test(userId) ? new ObjectId(userId) : userId;
+    const userDoc = await db.collection('user').findOne(
+      { _id: hexUserId },
+      { projection: { blocked: 1 } }
+    );
+    const blockedOrgIds = new Set((userDoc?.blocked ?? []).map((b) => b.orgId));
+    orgIds = orgIds.filter((id) => !blockedOrgIds.has(id));
     if (orgIds.length === 0) return { organizations: [] };
 
     const validIds = orgIds.filter(isValidId).map((id) => new ObjectId(id));
@@ -429,6 +467,131 @@ Meteor.methods({
       { $pull: { owners: userId, admins: userId }, $set: { updatedAt: new Date() } },
     );
     return { user: { userId } };
+  },
+
+  async 'orgs.blockMember'({ orgId, targetUserId, reason }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
+    if (!isValidId(targetUserId)) throw new Meteor.Error('not-found', 'Invalid targetUserId');
+    const db = rawDb();
+    const [org, targetUser] = await Promise.all([
+      db.collection('organizations').findOne({ _id: new ObjectId(orgId) }),
+      db.collection('user').findOne({ _id: new ObjectId(targetUserId) }),
+    ]);
+    if (!org) throw new Meteor.Error('not-found', 'Organization not found');
+    const access = await buildOrgAccess(userId, org);
+    if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
+    if (!targetUser) throw new Meteor.Error('not-found', 'Target user not found');
+
+    const alreadyBlocked = (targetUser.blocked ?? []).some((b) => b.orgId === orgId);
+    if (alreadyBlocked) throw new Meteor.Error('already-blocked', 'User is already blocked from this organization');
+
+    const block = {
+      orgId,
+      blockedBy: userId,
+      blockedAt: new Date(),
+      reason: reason ?? null,
+    };
+    await db.collection('user').updateOne(
+      { _id: new ObjectId(targetUserId) },
+      { $push: { blocked: block } }
+    );
+
+    // Remove from all teams in this org
+    await Teams.updateAsync(
+      { orgId, $or: [{ members: targetUserId }, { admins: targetUserId }] },
+      { $pull: { members: targetUserId, admins: targetUserId } },
+      { multi: true }
+    );
+
+    // Remove from org_members
+    await db.collection('org_members').deleteMany({ orgId, userId: targetUserId });
+
+    // Remove from legacy org arrays
+    await db.collection('organizations').updateOne(
+      { _id: new ObjectId(orgId) },
+      { $pull: { owners: targetUserId, admins: targetUserId }, $set: { updatedAt: new Date() } }
+    );
+
+    // Fire-and-forget activity
+    void emitActivity({
+      type: ActivityType.OrgMemberBlocked,
+      userId: targetUserId,
+      actor: userId,
+      payload: {
+        orgId,
+        orgName: org.name,
+        targetUserId,
+        targetUserName: targetUser.name ?? targetUser.email ?? 'Unknown',
+        reason: reason ?? null,
+      },
+    });
+
+    return {
+      user: {
+        id: targetUserId,
+        blocked: {
+          orgId,
+          blockedBy: userId,
+          blockedAt: block.blockedAt.toISOString(),
+          reason: reason ?? null,
+        },
+      },
+    };
+  },
+
+  async 'orgs.unblockMember'({ orgId, targetUserId }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
+    if (!isValidId(targetUserId)) throw new Meteor.Error('not-found', 'Invalid targetUserId');
+    const db = rawDb();
+    const [org, targetUser] = await Promise.all([
+      db.collection('organizations').findOne({ _id: new ObjectId(orgId) }),
+      db.collection('user').findOne({ _id: new ObjectId(targetUserId) }),
+    ]);
+    if (!org) throw new Meteor.Error('not-found', 'Organization not found');
+    const access = await buildOrgAccess(userId, org);
+    if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
+    if (!targetUser) throw new Meteor.Error('not-found', 'Target user not found');
+
+    const isBlocked = (targetUser.blocked ?? []).some((b) => b.orgId === orgId);
+    if (!isBlocked) throw new Meteor.Error('not-blocked', 'User is not blocked from this organization');
+
+    await db.collection('user').updateOne(
+      { _id: new ObjectId(targetUserId) },
+      { $pull: { blocked: { orgId } } }
+    );
+
+    // Auto-restore member role if no existing org_members doc
+    const existing = await db.collection('org_members').findOne({ orgId, userId: targetUserId });
+    if (!existing) {
+      const now = new Date();
+      await db.collection('org_members').insertOne({
+        orgId,
+        userId: targetUserId,
+        role: 'member',
+        auto: false,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    // Fire-and-forget activity
+    void emitActivity({
+      type: ActivityType.OrgMemberUnblocked,
+      userId: targetUserId,
+      actor: userId,
+      payload: {
+        orgId,
+        orgName: org.name,
+        targetUserId,
+        targetUserName: targetUser.name ?? targetUser.email ?? 'Unknown',
+      },
+    });
+
+    return { user: { id: targetUserId } };
   },
 
   async 'orgs.updateMemberReportsTo'({ orgId, userId, reportsToUserId }) {

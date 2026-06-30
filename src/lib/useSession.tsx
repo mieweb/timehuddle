@@ -17,6 +17,8 @@ interface SessionState {
   loading: boolean;
   /** True when the user is authenticated but has not yet claimed a username. */
   needsUsernameClaim: boolean;
+  /** Block message if user is blocked from all orgs. */
+  blockMessage?: string | null;
   /** Re-fetch session from timecore — call after sign-in / sign-up. */
   refetch: () => Promise<void>;
   /** Sign out from timecore and clear local session state. */
@@ -29,6 +31,7 @@ const SessionContext = createContext<SessionState>({
   user: null,
   loading: true,
   needsUsernameClaim: false,
+  blockMessage: null,
   refetch: async () => {},
   signOut: async () => {},
 });
@@ -38,9 +41,11 @@ const SessionContext = createContext<SessionState>({
 export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<TimecoreUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [blockMessage, setBlockMessage] = useState<string | null>(null);
 
   const fetchSession = useCallback(async () => {
     setLoading(true);
+    setBlockMessage(null);
     console.log('[TimeHuddle] fetchSession: calling getMe...');
     const t = performance.now();
     try {
@@ -73,6 +78,10 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.log(
         `[TimeHuddle] fetchSession: getMe failed in ${(performance.now() - t).toFixed(0)}ms — ${String(err)}`,
       );
+      const errMessage = String(err);
+      if (errMessage.includes('suspended') || errMessage.includes('blocked')) {
+        setBlockMessage(errMessage);
+      }
       setUser(null);
     } finally {
       setLoading(false);
@@ -98,7 +107,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   return (
     <SessionContext.Provider
-      value={{ user, loading, needsUsernameClaim, refetch: fetchSession, signOut }}
+      value={{ user, loading, needsUsernameClaim, blockMessage, refetch: fetchSession, signOut }}
     >
       {children}
     </SessionContext.Provider>

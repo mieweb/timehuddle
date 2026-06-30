@@ -75,13 +75,13 @@ class TeamJoinRequestService {
       { $addToSet: { members: request.userId }, $set: { updatedAt: new Date() } }
     );
 
-    // Update request status
-    await teamJoinRequestsCollection().updateOne(
-      { _id: request._id },
-      {
-        $set: {
-          status: "approved",
-          respondedAt: new Date(),
+    // Auto-add to org if allowAutoJoin is enabled (consistent with invite flow)
+    const org =
+      team.orgId && /^[0-9a-f]{24}$/i.test(team.orgId)
+        ? await organizationsCollection().findOne({ _id: new ObjectId(team.orgId) })
+        : null;
+    if (org?.allowAutoJoin !== false) {
+      a   respondedAt: new Date(),
           respondedBy: adminId,
           updatedAt: new Date(),
         },

@@ -12,6 +12,8 @@ const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 export const ActivityType = {
   ClockIn: 'clock.in',
   ClockOut: 'clock.out',
+  OrgMemberBlocked: 'org.member-blocked',
+  OrgMemberUnblocked: 'org.member-unblocked',
 };
 
 /** Insert an activity event. Mirror of activityService.emitActivity. */

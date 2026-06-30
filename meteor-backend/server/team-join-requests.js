@@ -1,7 +1,7 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, TeamJoinRequests, rawDb, isValidId } from './collections';
-import { requireIdentity, identityForConnection } from './auth-bridge';
+import { requireIdentity, identityForConnection, findUserById } from './auth-bridge';
 import { createNotification } from './notify-core';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -21,17 +21,22 @@ function toPublicJoinRequest(doc) {
 }
 
 async function resolveUserMap(userIds) {
-  const objectIds = userIds.filter(isValidId).map((id) => new ObjectId(id));
-  if (objectIds.length === 0) return new Map();
-  const users = await rawDb().collection('user').find({ _id: { $in: objectIds } }).toArray();
-  return new Map(users.map((u) => [u._id.toHexString(), u]));
+  if (userIds.length === 0) return new Map();
+  const userMap = new Map();
+  await Promise.all(
+    userIds.map(async (id) => {
+      const user = await findUserById(id);
+      if (user) userMap.set(id, user);
+    })
+  );
+  return userMap;
 }
 
 async function notifyTeamAdmins(teamId, requesterId, requestId) {
   const team = await Teams.rawCollection().findOne({ _id: new ObjectId(teamId) });
   if (!team?.admins?.length) return;
 
-  const requester = await rawDb().collection('user').findOne({ _id: new ObjectId(requesterId) });
+  const requester = await findUserById(requesterId);
   const requesterName = requester?.name ?? 'Someone';
 
   for (const adminId of team.admins) {
@@ -121,6 +126,16 @@ Meteor.methods({
       { $addToSet: { members: request.userId }, $set: { updatedAt: new Date() } },
     );
 
+    // Auto-add to org if allowAutoJoin is enabled (consistent with invite flow)
+    const db = rawDb();
+    const { addOrgMember } = await import('./org-helpers.js');
+    const org = team.orgId && isValidId(team.orgId)
+      ? await db.collection('organizations').findOne({ _id: new ObjectId(team.orgId) })
+      : null;
+    if (org?.allowAutoJoin !== false) {
+      await addOrgMember(team.orgId, request.userId, 'member', true);
+    }
+
     await TeamJoinRequests.rawCollection().updateOne(
       { _id: request._id },
       {
@@ -133,7 +148,7 @@ Meteor.methods({
       },
     );
 
-    const admin = await rawDb().collection('user').findOne({ _id: new ObjectId(identity.userId) });
+    const admin = await findUserById(identity.userId);
     const adminName = admin?.name ?? 'An admin';
 
     await createNotification({
@@ -181,7 +196,7 @@ Meteor.methods({
       },
     );
 
-    const admin = await rawDb().collection('user').findOne({ _id: new ObjectId(identity.userId) });
+    const admin = await findUserById(identity.userId);
     const adminName = admin?.name ?? 'An admin';
 
     await createNotification({
@@ -223,7 +238,7 @@ Meteor.methods({
     const team = await Teams.rawCollection().findOne({ _id: new ObjectId(request.teamId) });
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
 
-    const requester = await rawDb().collection('user').findOne({ _id: new ObjectId(request.userId) });
+    const requester = await findUserById(request.userId);
 
     return {
       notificationId,

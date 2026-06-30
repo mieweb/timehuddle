@@ -266,6 +266,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
+    // Validate that selectedEnterpriseId is in the current enterprise list
     const hasSelectedEnterprise = selectedEnterpriseId
       ? enterprises.some((enterprise) => enterprise.id === selectedEnterpriseId)
       : false;

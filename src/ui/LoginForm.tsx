@@ -111,8 +111,19 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       const ddp = getDdpClient();
       await ddp.loginWithPassword(email.trim().toLowerCase(), password);
       await session.refetch();
+      // Check for blocking after refetch
+      if (session.blockMessage) {
+        setError('Your account has been suspended. Please contact your administrator.');
+        setLoading(false);
+        return;
+      }
     } catch (err: unknown) {
-      setError((err as Error).message || 'Invalid email or password');
+      const message = (err as Error).message || 'Invalid email or password';
+      if (message.includes('suspended') || message.includes('blocked')) {
+        setError('Your account has been suspended. Please contact your administrator.');
+      } else {
+        setError(message);
+      }
       setLoading(false);
     }
   };
@@ -154,7 +165,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       await session.refetch();
     } catch (err: unknown) {
       setLoading(false);
-      setError((err as Error).message || 'Signup failed');
+      const message = (err as Error).message || 'Signup failed';
+      if (message.includes('cannot be used to create an account')) {
+        setError('This email address is not allowed to create a new account.');
+      } else {
+        setError(message);
+      }
     }
   };
 
@@ -254,7 +270,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
             );
       window.location.href = url;
     } catch (err: unknown) {
-      setSocialError((err as Error).message || `${provider.label} sign-in failed`);
+      const message = (err as Error).message || `${provider.label} sign-in failed`;
+      if (message.includes('suspended') || message.includes('blocked')) {
+        setSocialError('Your account has been suspended. Please contact your administrator.');
+      } else {
+        setSocialError(message);
+      }
       setSocialLoadingId(null);
     }
   };
