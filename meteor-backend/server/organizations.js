@@ -852,3 +852,21 @@ Meteor.methods({
     };
   },
 });
+// ─── Publications ─────────────────────────────────────────────────────────────
+
+import { OrgMembers } from './collections.js';
+
+/** Live org members for accessible orgs. */
+Meteor.publish('orgMembers.byOrg', async function (orgId) {
+  if (!this.userId) return this.ready();
+  if (!isValidId(orgId)) return this.ready();
+  
+  const db = rawDb();
+  const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
+  if (!org) return this.ready();
+  
+  const access = await buildOrgAccess(this.userId, org);
+  if (!access.canManage && !access.role) return this.ready();
+  
+  return OrgMembers.find({ orgId });
+});

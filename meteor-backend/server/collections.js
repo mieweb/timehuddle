@@ -20,6 +20,9 @@ export const Channels = new Mongo.Collection('channels', { idGeneration: 'MONGO'
 export const ChannelMessages = new Mongo.Collection('channelmessages', { idGeneration: 'MONGO' });
 export const TeamJoinRequests = new Mongo.Collection('teamjoinrequests', { idGeneration: 'MONGO' });
 export const WorkItems = new Mongo.Collection('workitems', { idGeneration: 'MONGO' });
+export const MediaItems = new Mongo.Collection('mediaitems', { idGeneration: 'MONGO' });
+export const OrgMembers = new Mongo.Collection('org_members', { idGeneration: 'MONGO' });
+export const HuddlePosts = new Mongo.Collection('huddlePosts', { idGeneration: 'MONGO' });
 
 /** Raw native-driver handle for collections we only read ad hoc (sessions, users). */
 export function rawDb() {

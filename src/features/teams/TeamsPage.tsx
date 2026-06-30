@@ -57,6 +57,7 @@ import { AppPage } from '../../ui/AppPage';
 import { AdminTimesheetPanel } from './AdminTimesheetPanel';
 import { PendingJoinRequests } from './PendingJoinRequests';
 import { UserAvatar } from '../../ui/UserAvatar';
+import { getDdpClient } from '../../lib/ddp';
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
 
@@ -130,6 +131,23 @@ export const TeamsPage: React.FC = () => {
 
   useEffect(() => {
     void fetchMembers(selectedTeamId);
+  }, [selectedTeamId, fetchMembers]);
+
+  // ── Real-time team updates (Meteor DDP, oplog-backed) ──
+  // Teams are already reactive via TeamContext, but we need to refetch members
+  // when the team document changes (members/admins arrays updated)
+  useEffect(() => {
+    if (!selectedTeamId) return;
+
+    const ddp = getDdpClient();
+
+    const offChange = ddp.onCollectionChange('teams', () => {
+      void fetchMembers(selectedTeamId);
+    });
+
+    return () => {
+      offChange();
+    };
   }, [selectedTeamId, fetchMembers]);
 
   // Pull-to-refresh: refetch members + teams

@@ -38,6 +38,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiError, clockApi, type ClockEvent } from '../../lib/api';
 import { formatDuration } from '../../lib/timeUtils';
 import { type TeamMember } from '../../lib/api';
+import { getDdpClient } from '../../lib/ddp';
 import { AdminDayGroup } from './AdminDayGroup';
 import {
   fromLocalDateTimeInputValue,
@@ -127,6 +128,20 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     const validInitial = initialMemberId && members.some((m) => m.id === initialMemberId);
     setSelectedMemberId(validInitial ? initialMemberId : members[0].id);
   }, [members, selectedMemberId, initialMemberId]);
+
+  // ── Real-time timesheet updates (Meteor DDP, oplog-backed) ──
+  useEffect(() => {
+    if (!selectedMemberId) return;
+    const ddp = getDdpClient();
+    const offChange = ddp.onCollectionChange('clockevents', () => {
+      void fetchData();
+    });
+    const unsubscribe = ddp.subscribe('clock.liveForUser', [selectedMemberId]);
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [selectedMemberId, fetchData]);
 
   const fetchData = useCallback(async () => {
     if (!selectedMemberId) return;

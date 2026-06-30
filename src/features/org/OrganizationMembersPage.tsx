@@ -6,10 +6,6 @@ import {
   CardHeader,
   CardTitle,
   Input,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
   Select,
   Spinner,
   Switch,
@@ -20,7 +16,6 @@ import {
   TableHeader,
   TableRow,
   Text,
-  Textarea,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -34,6 +29,7 @@ import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
+import { getDdpClient } from '../../lib/ddp';
 
 export const OrganizationMembersPage: React.FC = () => {
   const { user } = useSession();
@@ -104,6 +100,24 @@ export const OrganizationMembersPage: React.FC = () => {
 
   // Pull-to-refresh
   useRefresh(loadUsers);
+
+  // ── Real-time org member updates (Meteor DDP, oplog-backed) ──
+  useEffect(() => {
+    if (!selectedOrgId) return;
+
+    const ddp = getDdpClient();
+
+    // On any org_members change (role updates, add/remove members), refetch the list.
+    const offChange = ddp.onCollectionChange('org_members', () => {
+      void loadUsers();
+    });
+    const unsubscribe = ddp.subscribe('orgMembers.byOrg', [selectedOrgId]);
+
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [selectedOrgId, loadUsers]);
 
   const handleRoleChange = useCallback(
     async (targetUserId: string, role: DefaultOrganizationRole) => {

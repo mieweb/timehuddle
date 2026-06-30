@@ -723,3 +723,34 @@ Meteor.publish('clock.liveForTeams', async function (teamIds) {
 
   return ClockEvents.find({ teamId: { $in: allowedIds }, endTime: null });
 });
+
+/**
+ * Real-time clock events for a specific user's timesheet.
+ * Publishes ALL clock events (completed and active) for the target user.
+ * Used by personal TimesheetPage and AdminTimesheetPanel.
+ */
+Meteor.publish('clock.liveForUser', async function (targetUserId) {
+  if (!this.userId) return this.ready();
+  if (!isValidId(targetUserId)) return this.ready();
+
+  // Allow viewing own timesheet, or if user is admin of any team the target is in
+  if (this.userId === targetUserId) {
+    return ClockEvents.find({ userId: targetUserId });
+  }
+
+  // Check if current user is admin of any team that targetUser is in
+  const targetUserTeams = await Teams.find({
+    $or: [{ members: targetUserId }, { admins: targetUserId }],
+  }).fetchAsync();
+  const targetTeamIds = targetUserTeams.map((t) => t._id.toHexString());
+
+  const adminTeams = await Teams.find({
+    _id: { $in: targetUserTeams.map((t) => t._id) },
+    admins: this.userId,
+  }).fetchAsync();
+
+  if (adminTeams.length === 0) return this.ready();
+
+  // User is admin of at least one team that target user is in
+  return ClockEvents.find({ userId: targetUserId });
+});

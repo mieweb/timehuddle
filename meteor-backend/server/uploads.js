@@ -493,3 +493,12 @@ Meteor.methods({
     return { ok: true };
   },
 });
+
+// ─── Publications ─────────────────────────────────────────────────────────────
+
+import { MediaItems } from './collections.js';
+
+Meteor.publish('media.liveForUser', async function () {
+  if (!this.userId) return this.ready();
+  return MediaItems.find({ userId: this.userId });
+});

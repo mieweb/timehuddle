@@ -587,6 +587,22 @@ export const TicketsPage: React.FC = () => {
     };
   }, [teamIdsKey, userId]);
 
+  // ── Real-time timer updates (Meteor DDP, oplog-backed) ──
+  useEffect(() => {
+    const ddp = getDdpClient();
+
+    // When any timer starts/stops, refetch to update which ticket has the running timer
+    const offChange = ddp.onCollectionChange('timers', () => {
+      void fetchRunningTimer();
+    });
+    const unsubscribe = ddp.subscribe('timers.liveForUser', []);
+
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [fetchRunningTimer]);
+
   // Listen for external refetch requests (e.g., from CommandPalette or clock operations)
   useEffect(() => {
     const onRefetch = () => {

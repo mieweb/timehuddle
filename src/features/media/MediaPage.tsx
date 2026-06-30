@@ -30,6 +30,7 @@ import {
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { ViewportOverlay } from '../../ui/ViewportOverlay';
+import { getDdpClient } from '../../lib/ddp';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -430,6 +431,24 @@ export const MediaPage: React.FC = () => {
   useEffect(() => {
     fetchItems();
   }, [fetchItems]);
+
+  // ── Real-time media updates (Meteor DDP, oplog-backed) ──
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const ddp = getDdpClient();
+
+    // On any media item change (upload, update, delete from any writer), refetch the list.
+    const offChange = ddp.onCollectionChange('mediaitems', () => {
+      void fetchItems();
+    });
+    const unsubscribe = ddp.subscribe('media.liveForUser', []);
+
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [user?.id, fetchItems]);
 
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
   const filteredItems = filter === 'all' ? items : items.filter((i) => i.type === filter);
