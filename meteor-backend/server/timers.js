@@ -275,7 +275,7 @@ Meteor.methods({
     return { totalSeconds: agg[0]?.total ?? 0 };
   },
 
-  /** Create a WorkItem for a ticket on a given date. Optionally start a timer. */
+  /** Get or create a WorkItem for a ticket on a given date. Optionally start a timer. */
   async 'timers.createEntry'({ ticketId, date, note, startNow = false, notifyAdmins = true } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
@@ -290,14 +290,26 @@ Meteor.methods({
       if (!team) throw new Meteor.Error('forbidden', 'Forbidden');
     }
 
-    const entryId = await WorkItems.insertAsync({
-      userId,
-      ticketId,
-      date,
-      ...(note ? { note } : {}),
-      createdAt: new Date(),
-    });
-    const entry = await WorkItems.findOneAsync(entryId);
+    // Check if a work item already exists for this user+ticket+date
+    let entry = await WorkItems.findOneAsync({ userId, ticketId, date });
+    let isNewEntry = false;
+    
+    if (!entry) {
+      // Create new work item only if one doesn't exist
+      const entryId = await WorkItems.insertAsync({
+        userId,
+        ticketId,
+        date,
+        ...(note ? { note } : {}),
+        createdAt: new Date(),
+      });
+      entry = await WorkItems.findOneAsync(entryId);
+      isNewEntry = true;
+    } else if (note && !entry.note) {
+      // Update note if provided and entry doesn't have one yet
+      await WorkItems.updateAsync(entry._id, { $set: { note, updatedAt: new Date() } });
+      entry = await WorkItems.findOneAsync(entry._id);
+    }
 
     let session = null;
     if (startNow) {
@@ -314,7 +326,8 @@ Meteor.methods({
       session = toPublicSession(await Timers.findOneAsync(sessionId));
     }
 
-    if (notifyAdmins) {
+    // Only notify admins if we actually created a new entry (not when reusing existing)
+    if (notifyAdmins && isNewEntry) {
       notifyTimesheetAdmins(userId, ticketId, date, 'added').catch(() => {});
     }
 

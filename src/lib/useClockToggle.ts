@@ -37,6 +37,9 @@ export function useClockToggle() {
     try {
       await clockApi.stop(teamId);
       await refetchClock();
+      // Notify all timer-displaying pages to refetch immediately
+      window.dispatchEvent(new CustomEvent('work:refetch'));
+      window.dispatchEvent(new CustomEvent('tickets:refetch'));
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Failed to clock out. Please try again.');
     } finally {
@@ -51,6 +54,9 @@ export function useClockToggle() {
     try {
       await clockApi.pause(teamId);
       await refetchClock();
+      // Notify all timer-displaying pages to refetch immediately
+      window.dispatchEvent(new CustomEvent('work:refetch'));
+      window.dispatchEvent(new CustomEvent('tickets:refetch'));
     } catch (err) {
       window.alert(err instanceof Error ? err.message : 'Failed to pause clock. Please try again.');
     } finally {
@@ -65,6 +71,9 @@ export function useClockToggle() {
     try {
       await clockApi.resume(teamId);
       await refetchClock();
+      // Notify all timer-displaying pages to refetch immediately
+      window.dispatchEvent(new CustomEvent('work:refetch'));
+      window.dispatchEvent(new CustomEvent('tickets:refetch'));
     } catch (err) {
       window.alert(
         err instanceof Error ? err.message : 'Failed to resume clock. Please try again.',

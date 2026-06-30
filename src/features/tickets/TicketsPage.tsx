@@ -587,12 +587,15 @@ export const TicketsPage: React.FC = () => {
     };
   }, [teamIdsKey, userId]);
 
-  // Listen for external refetch requests (e.g., from CommandPalette)
+  // Listen for external refetch requests (e.g., from CommandPalette or clock operations)
   useEffect(() => {
-    const onRefetch = () => void refetch();
+    const onRefetch = () => {
+      void refetch();
+      void fetchRunningTimer();
+    };
     window.addEventListener('tickets:refetch', onRefetch);
     return () => window.removeEventListener('tickets:refetch', onRefetch);
-  }, [refetch]);
+  }, [refetch, fetchRunningTimer]);
 
   // Fetch members for all teams
   useEffect(() => {
