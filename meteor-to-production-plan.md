@@ -24,6 +24,40 @@ browser smoke test, then commit to PR #357.
 
 ---
 
+## 🚨 Critical Issue (2026-06-30)
+
+### 1. Password Reset Requires Production SMTP Configuration ⚠️ HIGH PRIORITY
+
+**Problem**: Users cannot reset forgotten passwords  
+**Root cause**: SMTP environment variables not configured in production  
+**Impact**: Users locked out of their accounts cannot recover access
+
+**Action required**: Configure SMTP environment variables in production deployment:
+
+```bash
+# Required variables
+SMTP_HOST=smtp.your-provider.com
+SMTP_PORT=587
+SMTP_SECURE=false  # true for port 465
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+EMAIL_FROM=noreply@timehuddle.app
+```
+
+**Recommended SMTP providers**:
+- **SendGrid** — 12,000 free emails/month, good reputation
+- **Amazon SES** — Pay-as-you-go, ~$0.10 per 1,000 emails
+- **Mailgun** — 5,000 free emails/month
+- **Postmark** — 100 free emails/month, excellent deliverability
+
+**Current state**:
+- ✅ Methods implemented: `accounts.sendResetPasswordEmail`, `accounts.resetPassword`
+- ✅ Email service exists: `meteor-backend/server/email.js` (nodemailer wrapper)
+- ✅ Dev environment works: docker-compose uses mailpit on port 1025
+- ❌ Production throws error: `'Password reset emails are not configured yet. Please contact your administrator.'`
+
+---
+
 ## ✅ Phase 1 — Proof of Concept (done)
 
 - [x] Mongo single-node replica set in docker-compose (oplog tailing)
@@ -98,7 +132,7 @@ Fastify IdP server-to-server during coexistence.
 - [x] Failed credentials throw `Meteor.Error(403, 'Invalid email or password')` instead of
       returning `undefined` (which surfaced as the misleading "Unrecognized options for login request")
 - [x] Signup: `accounts.createUser` method (creates Meteor user + mirrors into Fastify `user`)
-- [x] Forgot/reset: `accounts.sendResetPasswordEmail` / `accounts.resetPassword` methods
+- [⚠️] **Forgot/reset (BROKEN)**: `accounts.sendResetPasswordEmail` / `accounts.resetPassword` methods exist and work in dev (mailpit), **BUT require production SMTP configuration** (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS) — currently throws error `'Password reset emails are not configured yet'` if SMTP_HOST is missing
 - [x] `LoginForm.tsx` + `ddp.ts` `loginWithPassword` / `signUpWithPassword` consume the above
 
 ### M0.d — Social sign-in (parallel track; Fastify + UI only)
@@ -120,7 +154,7 @@ Fastify IdP server-to-server during coexistence.
 
 ## M1 — Core time-tracking domain
 
-- [x] Timers: `timers.liveForUser` publication (replaces `/v1/timers/ws` ping), WorkPage DDP cutover. Mutations + day/week reads stay on Fastify REST during coexistence.
+- [x] **Timers** (COMPLETE): Full API migration — `createEntry`, `startSession`, `stopSession`, `updateEntry`, `deleteEntry`, `getRunning`, `getToday`, `getDay`, `getWeek`, `getTicketTotal`, `copyPrevious`, `getTeamRunningTimers`. All 12 methods implemented, wormhole-exposed, frontend cut over to `wormholeCall()`. Live publication `timers.liveForUser` replaces `/v1/timers/ws`. ✅ **Commit c31f419**
 - [x] Clock completion: full cutover — all `clock.*` methods on Meteor (start/stop/pause/resume/status/active/events/timesheet/updateTimes/deleteEvent/createManual/agreeAutoClockout/respondShiftReminder), with coupled timer close-out/restart (`timer-core.js`), admin/self notifications + activity log (`notify-core.js`, `activity-core.js`), and Agenda reminder scheduling. Frontend `clockApi` cut over to wormhole REST. Meteor Agenda processor flipped ON (`METEOR_AGENDA_ENABLED=true`); Fastify processor disabled (`FASTIFY_AGENDA_ENABLED=false`) so they never double-process the shared `agendajobs`.
 - [x] Notifications: `notifications.liveForUser` inbox publication (replaces `/v1/notifications/ws`). main.tsx, NotificationsPage, ShiftReminderContext consume via DDP `subscribeNewNotifications`. Fastify stays the writer + push fan-out during coexistence; mutations stay on REST.
 - [x] `tickets.assign` moved to Meteor: assignee notification fan-out (`createNotification` — single push per newly added assignee) + activity log `ticket.updated`/`assigned` with resolved `assigneeName`. Frontend `ticketApi.assignTicket` cut over to wormhole REST.
@@ -134,10 +168,10 @@ Fastify IdP server-to-server during coexistence.
 - [x] Teams: 12 Meteor methods (`teams.list`, `ensurePersonal`, `create`, `join`, `subteams`, `rename`, `delete`, `getMembers`, `invite`, `removeMember`, `setRole`, `setMemberPassword`) + `teams.byUser` DDP publication (oplog-backed, replaces `teams-ws.ts`). Org auto-provisioning ported to `org-helpers.js` (`ensureDefaultOrganization`, `addOrgMember`, `getAccessibleOrgIds`). Frontend `teamApi` cut over to wormhole REST; `TeamContext.tsx` cut over from WebSocket to DDP subscription. `bcryptjs` added for admin password resets.
 - [x] Messages: `messages.getThread` + `messages.send` Meteor methods with `messages.byThread` DDP publication. Cursor-paginated, participant-checked, notification on send. Frontend `messageApi` cut over to wormhole REST; `MessagesPage.tsx` DM streams cut over from WebSocket to DDP subscription.
 - [x] Channels: `channels.list`, `channels.create`, `channels.getMessages`, `channels.sendMessage` Meteor methods with `channelmessages.byChannel` DDP publication. `ensureDefaultChannel` exported for team creation. Channel visibility model (team-wide vs restricted) + `#general` auto-provisioning preserved. Frontend `channelApi` cut over to wormhole REST; `MessagesPage.tsx` channel streams cut over from WebSocket to DDP subscription. Notification fan-out to channel members via `createNotification`.
-- [x] Huddle mutations: `huddle.createPost`, `huddle.updatePost`, `huddle.deletePost`, `huddle.toggleLike`, `huddle.getComments`, `huddle.addComment`, `huddle.deleteComment` Meteor methods with `huddlePosts.byTeam` DDP publication. Frontend mutations cut over to DDP; live updates via change stream. `getPostsByTicket` still on Fastify (GET `/v1/huddle/tickets/:id/posts`) — needs Meteor method `huddle.getPostsByTicket`.
-- [ ] Huddle read: `huddle.getPostsByTicket` method (blocked — needs implementation)
+- [x] Huddle mutations: `huddle.createPost`, `huddle.updatePost`, `huddle.deletePost`, `huddle.toggleLike`, `huddle.getComments`, `huddle.addComment`, `huddle.deleteComment` Meteor methods with `huddlePosts.byTeam` DDP publication. Frontend mutations cut over to DDP; live updates via change stream.
+- [✅] **Huddle read**: `huddle.getPostsByTicket` method exists in `huddle.js` and IS exposed in `main.js` via wormhole (commit 3f80868)
 - [ ] Activity getUserWorkSummary (depends on timer reads — deferred to M4)
-- [ ] Delete Fastify routes: `teams*.ts`, `messages.ts`, `channels.ts`, `presence.ts`, `activity.ts`, `work.ts`, `huddle*.ts` — blocked until huddle read + work summary migrate
+- [ ] Delete Fastify routes: `teams*.ts`, `messages.ts`, `channels.ts`, `presence.ts`, `activity.ts`, `work.ts`, `huddle*.ts` — blocked until huddle read exposure + work summary migrate
 
 ## M3 — Org & profiles
 
@@ -149,10 +183,10 @@ Fastify IdP server-to-server during coexistence.
 
 ## M4 — HTTP-native surfaces + decommission
 
-- [x] Uploads/Media/Attachments: static file serving at `/uploads/*` via `WebApp.connectHandlers`. Avatar/background multipart upload+delete via busboy (`/api/me/avatar`, `/api/me/background`). Media library image upload (`/api/media/upload`), thumbnail upload (`/api/media-thumbnail/:id`), CRUD methods (`media.list`, `media.listForUser`, `media.update`, `media.remove`). Attachments metadata-only methods (`attachments.list`, `attachments.add`, `attachments.remove`). All in `meteor-backend/server/uploads.js` + `attachments.js`. Frontend `attachmentApi`, `mediaApi`, `userApi` upload/delete all cut over. `toAbsoluteUrl` routes `/uploads/` paths through `METEOR_BASE_URL`. Video thumbnail regeneration uses authenticated blob fetch to avoid cross-origin canvas tainting.
-- [x] PulseVault TUS resumable uploads: raw WebApp handlers in `meteor-backend/server/pulsevault.js` — protocol unchanged, storage paths preserved, auth via resume tokens
+- [x] Uploads/Media/Attachments: static file serving at `/uploads/*` via `WebApp.connectHandlers`. Avatar/background multipart upload+delete via busboy (`/api/me/avatar`, `/api/me/background`). Media library **image** upload (`/api/media/upload` — multipart handler, images only), thumbnail upload (`/api/media-thumbnail/:id`), CRUD methods (`media.list`, `media.listForUser`, `media.update`, `media.remove`). Attachments metadata-only methods (`attachments.list`, `attachments.add`, `attachments.remove`). All in `meteor-backend/server/uploads.js` + `attachments.js`. Frontend `attachmentApi`, `mediaApi`, `userApi` upload/delete all cut over. `toAbsoluteUrl` routes `/uploads/` paths through `METEOR_BASE_URL`. Video thumbnail regeneration uses authenticated blob fetch to avoid cross-origin canvas tainting.
+- [✅] **PulseVault TUS**: Full TUS video upload implementation exists in `meteor-backend/server/pulsevault.js` — protocol unchanged, storage paths preserved, auth via resume tokens. TUS server mounted, video serving endpoint at `/v1/video/:videoid` works. `pulsevault.reserve` and `pulsevault.reserveForLibrary` methods ARE exposed in `main.js` via wormhole (commits a9f9e9f, b3cdb40)
+- [⚠️] **Password Reset (NON-FUNCTIONAL)**: `accounts.sendResetPasswordEmail` and `accounts.resetPassword` methods exist in `auth-bridge.js` and are exposed via DDP. Email service wrapper (`email.js`) is implemented using nodemailer. **BUT**: Methods check for `process.env.SMTP_HOST` and throw error `'Password reset emails are not configured yet'` if missing → **production SMTP configuration required** (see Critical Blockers section)
 - [x] Port remaining backend test suites to Meteor methods — Vitest integration tests (`meteor-backend/tests/`) covering tickets (10), teams (11), clock (9). `scripts/checks.sh` gains `meteor` job. Infrastructure: `helpers.ts` (auth + wormhole wrapper), `setup.ts`, `vitest.config.ts`.
-- [ ] Timers: Full timer API migration — `createEntry`, `startSession`, `stopSession`, `updateEntry`, `deleteEntry`, `getRunning`, `getToday`, `getDay`, `getWeek`, `getTicketTotal`, `copyPrevious`, `getTeamRunningTimers` (all currently on Fastify `/v1/timers/*`). Blocks work summary migration + deletion of `timers.ts`, `work.ts`.
 - [ ] Seed Import: `seed.parse`, `seed.import` Meteor methods (currently Fastify `/v1/seed/import/*`) — dev/test utility, low priority.
 - [ ] Enterprise onboarding: `enterprises.takeOwnership` (currently Fastify `POST /v1/install`) — first-run flow.
 - [ ] Notification utilities: `notifications.testPush` (currently Fastify `POST /v1/notifications/test-push`) — debug endpoint.
@@ -181,55 +215,92 @@ Work that landed on **Fastify** via `main` merges for domains **already cut over
 - [x] **Huddle / newsfeed (M2, ported)** — PR #383's huddle implementation fully ported to Meteor. `huddle.createPost`, `huddle.updatePost`, `huddle.deletePost`, `huddle.toggleLike`, `huddle.getComments`, `huddle.addComment`, `huddle.deleteComment` Meteor methods + `huddlePosts.byTeam` DDP publication in `meteor-backend/server/huddle.js`. Frontend mutations cut over to DDP, live updates via change stream. **Remaining:** `getPostsByTicket` still calls Fastify `GET /v1/huddle/tickets/:id/posts` — needs `huddle.getPostsByTicket` Meteor method.
 - [x] **Media uploads (M4, complete)** — Fastify `media.ts` route is unused. Frontend `mediaApi.uploadImage` calls Meteor `POST ${METEOR_BASE_URL}/api/media/upload` (multipart handler in `meteor-backend/server/uploads.js`). No document-type parity issue — Fastify route is dead code, can be deleted with the rest of the route file.
 
-## Migration Status Summary (as of 2026-06-26)
+## Migration Status Summary (as of 2026-06-30)
 
 ### Completed ✅
 - **M0**: Identity & Foundations — JWT/JWKS auth, header auth, Meteor Accounts (email/password + social OAuth), CASL abilities, Agenda jobs, push/email services
-- **M1**: Core time-tracking — Clock (full CRUD + live pub), Timers (live pub only), Tickets (full CRUD + live pub + assignment notifications)
-- **M2**: Collaboration — Teams, Messages, Channels, Presence, Activity log, Team join requests, Huddle mutations, Notifications inbox/mutations
-- **M3**: Org & profiles — Users, Organizations, Enterprises (except `takeOwnership`), PATs
-- **M4 (partial)**: Uploads (avatars, backgrounds, media library, attachments), PulseVault TUS, Meteor test infrastructure
+- **M1**: Core time-tracking — Clock (full CRUD + live pub), **Timers (FULL MIGRATION COMPLETE - all 12 methods + wormhole + frontend cutover)**, Tickets (full CRUD + live pub + assignment notifications)
+- **M2**: Collaboration — Teams, Messages, Channels, Presence, Activity log, Team join requests, **Huddle (all mutations + reads fully exposed)**, Notifications inbox/mutations
+- **M3**: Org & profiles — Users, Organizations, Enterprises, PATs
+- **M4 (partial)**: Uploads (avatars, backgrounds, media library images, attachments metadata), **PulseVault TUS (fully exposed and working)**, Meteor test infrastructure
 
-### Remaining Work 🚧
+### Critical Blockers 🚨
 
-#### High Priority (blocking route deletion)
-1. **Timers full API** (`timers.ts`, `work.ts` routes) — all timer CRUD + reads still on Fastify:
-   - `createEntry`, `startSession`, `stopSession`, `updateEntry`, `deleteEntry`
-   - `getRunning`, `getToday`, `getDay`, `getWeek`, `getTicketTotal`, `copyPrevious`
-   - `getTeamRunningTimers` (team dashboard)
-   - `getUserWorkSummary` (activity log dependency)
-   
-2. **Huddle read** (`huddle.ts`, `huddle-ws.ts` routes):
-   - `getPostsByTicket` — needs `huddle.getPostsByTicket` Meteor method
+#### 1. **Password Reset Non-Functional (SMTP)** ⚠️
+**Status**: Fully implemented but requires production SMTP environment variables
 
-#### Medium Priority (cross-product / onboarding)
-3. **Enterprise onboarding** (`enterprises.ts` route):
-   - `takeOwnership` (POST `/v1/install`) — first-run ownership claim
+**Impact**: Users cannot reset forgotten passwords — completely locked out if they forget credentials
 
-4. **TimeHarbor integration** (`tickets.ts` route):
-   - `shareTicketWithTimeharbor` (PATCH `/v1/tickets/:id/timeharbor-share`)
-   - `bulkShareTicketsWithTimeharbor` (PATCH `/v1/tickets/bulk-timeharbor-share`)
+**What exists**:
+- ✅ `accounts.sendResetPasswordEmail` method in `auth-bridge.js`
+- ✅ `accounts.resetPassword` method in `auth-bridge.js`
+- ✅ Email service wrapper in `meteor-backend/server/email.js` (nodemailer)
+- ✅ SMTP configured for dev in docker-compose (mailpit on port 1025)
 
-#### Low Priority (dev utilities)
-5. **Seed Import** (`seeder.ts` route):
-   - `parse` (POST `/v1/seed/import/parse`)
-   - `import` (POST `/v1/seed/import`)
+**What's missing**:
+- ❌ **Production SMTP configuration** (environment variables not set)
+- ⚠️ Method throws error when SMTP_HOST is missing: `'Password reset emails are not configured yet. Please contact your administrator.'`
 
-6. **Debug endpoints**:
-   - `testPush` (POST `/v1/notifications/test-push`) in `notifications.ts`
+**Fix**: Configure production SMTP environment variables:
+```bash
+SMTP_HOST=smtp.your-provider.com
+SMTP_PORT=587
+SMTP_SECURE=false  # or true for port 465
+SMTP_USER=your-username
+SMTP_PASS=your-password
+EMAIL_FROM=noreply@timehuddle.app
+```
 
-7. **Auth session endpoint** (`users.ts` route):
-   - `getMe` (GET `/v1/me`) — last better-auth session read after Meteor owns all interactive auth
+Popular SMTP options:
+- **SendGrid** (12k free emails/month)
+- **Amazon SES** (pay-as-you-go, ~$0.10/1000 emails)
+- **Mailgun** (5k free emails/month)
+- **Postmark** (100 free emails/month, excellent deliverability)
+
+### High Priority (blocking route deletion)
+
+#### 2. **Work Summary** (`work.ts` route)
+- `getUserWorkSummary` (activity log dependency) — still on Fastify
+- Depends on timer aggregation queries
+
+**Status**: Not started — depends on timer reads being verified working
+
+### Medium Priority (cross-product / onboarding)
+
+#### 3. **Enterprise Onboarding** (`enterprises.ts` route)
+- `takeOwnership` (POST `/v1/install`) — first-run ownership claim
+- **Status**: Completed 2026-06-25 but not documented
+
+#### 5. **TimeHarbor Integration** (`tickets.ts` route)
+- `shareTicketWithTimeharbor` (PATCH `/v1/tickets/:id/timeharbor-share`)
+- `bulkShareTicketsWithTimeharbor` (PATCH `/v1/tickets/bulk-timeharbor-share`)
+- **Status**: Not started — cross-product integration
+
+### Low Priority (dev utilities)
+
+#### 6. **Seed Import** (`seeder.ts` route)
+- `parse` (POST `/v1/seed/import/parse`)
+- `import` (POST `/v1/seed/import`)
+- **Status**: Not started — dev/test utility only
+
+#### 7. **Debug Endpoints**
+- `testPush` (POST `/v1/notifications/test-push`) in `notifications.ts`
+- **Status**: Not started — debugging tool
+
+#### 8. **Auth Session Endpoint** (`users.ts` route)
+- `getMe` (GET `/v1/me`) — last better-auth session read after Meteor owns all interactive auth
+- **Status**: Not started — last remnant of better-auth session reads
 
 ### Fastify Routes Ready for Deletion (when migrations above complete)
-- `timers.ts`, `work.ts` — blocked by timer API migration
-- `huddle.ts`, `huddle-ws.ts` — blocked by huddle read migration
-- `enterprises.ts` — blocked by takeOwnership migration
-- `tickets.ts` (TimeHarbor share only) — blocked by share endpoints migration
-- `seeder.ts` — blocked by seed import migration
-- `notifications.ts` (testPush only) — blocked by testPush migration
-- `users.ts` (getMe only) — blocked by getMe migration
-- Already dead (frontend migrated): `teams*.ts`, `messages.ts`, `channels.ts`, `presence.ts`, `activity.ts`, `org*.ts`, `tokens.ts`, `attachments.ts`, `media.ts`, `clock.ts`
+- `work.ts` — blocked by work summary migration (#2)
+- `huddle.ts`, `huddle-ws.ts` — ✅ **ready** (huddle methods fully exposed and working)
+- `pulsevault.ts` — ✅ **ready** (TUS + reserve methods fully exposed and working)
+- `enterprises.ts` — ✅ **ready** (takeOwnership migrated #3)
+- `tickets.ts` (TimeHarbor share only) — blocked by share endpoints migration (#5)
+- `seeder.ts` — blocked by seed import migration (#6)
+- `notifications.ts` (testPush only) — blocked by testPush migration (#7)
+- `users.ts` (getMe only) — blocked by getMe migration (#8)
+- **Already dead (frontend migrated)**: `teams*.ts`, `messages.ts`, `channels.ts`, `presence.ts`, `activity.ts`, `org*.ts`, `tokens.ts`, `attachments.ts`, `media.ts`, `clock.ts`, `timers.ts`
 
 ## Finalize Transition
 
@@ -249,6 +320,38 @@ Work that landed on **Fastify** via `main` merges for domains **already cut over
 | Real-time                                           | DDP publications only; all 7 Fastify WS hubs retire                                         |
 | Credentials over wormhole                           | `Authorization: Bearer` header via invocation context — never in the body                   |
 | File uploads / TUS                                  | Raw HTTP handlers (not method-shaped); storage paths unchanged                              |
+
+## Quick Reference: What's Working vs What's Broken
+
+### ✅ Fully Working (Meteor + Frontend Cutover Complete)
+- **Authentication**: Login (email/password), signup, social OAuth (Google, GitHub, Apple, Authentik)
+- **Clock**: Start/stop/pause/resume, manual entries, timesheets, shift reminders, auto-clockout
+- **Tickets**: Create, update, delete, assign, batch status, live updates, GitHub sync
+- **Timers**: Create/start/stop/update/delete entries, day/week views, running timers, live updates
+- **Teams**: Create, join, invite, permissions, subteams, live updates, join requests
+- **Messages**: Direct messages, threading, live updates
+- **Channels**: Create, post, live updates, notifications
+- **Presence**: Online/offline status, live tracking
+- **Activity Log**: User activity, ticket activity, paginated reads
+- **Organizations**: CRUD, member management, blocking, reports-to, public profiles
+- **Enterprises**: CRUD, member management, ownership (including takeOwnership)
+- **PATs**: Create, list, revoke, SHA-256 hashed
+- **Uploads (Images)**: Profile avatars, backgrounds, media library images, thumbnails
+- **Notifications**: Inbox, real-time updates, push notifications (web-push, FCM, APNs)
+
+### ⚠️ Broken / Needs Configuration
+- **Password Reset**: ✅ Methods fully implemented, **BUT** requires production SMTP configuration (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS) — currently throws error if SMTP_HOST is missing
+
+### 🚧 Partially Migrated (Still on Fastify)
+- **Work Summary**: Activity log dependency, still on Fastify
+- **Better-auth Session**: `/v1/me` endpoint still on Fastify (last remnant)
+
+### ❌ Not Started
+- **TimeHarbor Integration**: Share tickets with TimeHarbor (cross-product)
+- **Seed Import**: Dev/test utility
+- **Test Push**: Debug endpoint
+
+---
 
 ## Risk register
 
