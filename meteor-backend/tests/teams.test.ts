@@ -170,16 +170,29 @@ describe('teams.join', () => {
   });
 
   it('joins an existing team by code', async () => {
-    const res = await wormhole<{ team: { id: string; members: string[] } }>(
+    const res = await wormhole<{ status: string; team?: { id: string; members: string[] }; request?: any }>(
       'teams.join',
       { teamCode: joinTeamCode },
       outsiderJwt,
     );
     expect(res.ok).toBe(true);
-    expect(res.result.team.members).toContain(outsiderId);
+    expect(res.result.status).toBe('pending');
+    expect(res.result.request).toBeDefined();
+
+    // Approve the request as owner
+    const approveRes = await wormhole<{ ok: boolean }>(
+      'teams.approveJoinRequest',
+      { requestId: res.result.request.id },
+      ownerJwt,
+    );
+    expect(approveRes.ok).toBe(true);
+
+    // Verify user was added to team
+    const db = await getDb();
+    const team = await db.collection('teams').findOne({ _id: new ObjectId(joinTeamId) });
+    expect(team?.members).toContain(outsiderId);
 
     // cleanup: remove outsider so other tests can re-join
-    const db = await getDb();
     await db.collection('teams').updateOne(
       { _id: new ObjectId(joinTeamId) },
       { $pull: { members: outsiderId } } as any,
@@ -270,6 +283,7 @@ describe('teams.invite', () => {
       { teamId: fixtureTeamId, email: OUTSIDER.email },
       ownerJwt,
     );
+    if (!res.ok) console.error('Invite failed:', res.error);
     expect(res.ok).toBe(true);
     expect(res.result.ok).toBe(true);
     // cleanup

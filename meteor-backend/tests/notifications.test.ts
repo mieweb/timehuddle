@@ -99,6 +99,7 @@ describe('notifications.testPush', () => {
 
     // Verify it's for the correct user
     const notification = await db.collection('notifications').findOne({
+      userId,
       title: 'Test Push',
     });
     expect(notification!.userId).toBe(userId);

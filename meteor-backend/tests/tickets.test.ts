@@ -109,8 +109,7 @@ describe('tickets (wormhole)', () => {
       'tickets.updateStatus',
       { ticketId, status: 'in-progress' },
       ownerJwt,
-    );
-    expect(res.ok).toBe(true);
+    );    if (!res.ok) console.error('Update failed:', res.error);    expect(res.ok).toBe(true);
     expect(res.result.status).toBe('in-progress');
   });
 

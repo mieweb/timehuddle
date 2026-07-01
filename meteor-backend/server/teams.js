@@ -177,6 +177,24 @@ Meteor.methods({
       throw new Meteor.Error('already-member', 'Already a member');
     }
 
+    // Check if user is an organization owner - owners can join any team directly
+    if (team.orgId && isValidId(team.orgId)) {
+      const membership = await rawDb().collection('org_members').findOne({
+        orgId: team.orgId,
+        userId: identity.userId,
+      });
+      if (membership && membership.role === 'owner') {
+        // Add owner directly to team without approval
+        await Teams.updateAsync(new Mongo.ObjectID(team._id), {
+          $addToSet: { members: identity.userId },
+          $set: { updatedAt: new Date() },
+        });
+
+        const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(team._id));
+        return { status: 'joined', team: toPublicTeam(updatedTeam) };
+      }
+    }
+
     const existing = await TeamJoinRequests.rawCollection().findOne({
       teamId,
       userId: identity.userId,
@@ -349,9 +367,23 @@ Meteor.methods({
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
 
-    const invitedUser = await rawDb().collection('user').findOne({ email: email.trim() });
-    if (!invitedUser) throw new Meteor.Error('user-not-found', 'User not found');
-    const invitedId = invitedUser._id.toHexString();
+    // Check both Better Auth and Meteor user collections
+    const normalizedEmail = email.trim();
+    const [baUser, meteorUser] = await Promise.all([
+      rawDb().collection('user').findOne({ email: normalizedEmail }),
+      rawDb().collection('users').findOne({ 'emails.address': normalizedEmail })
+    ]);
+
+    let invitedId;
+    if (baUser) {
+      // Better Auth 'user' collection can have ObjectId (native BA) or string (Meteor-synced)
+      invitedId = typeof baUser._id === 'string' ? baUser._id : baUser._id.toHexString();
+    } else if (meteorUser) {
+      invitedId = meteorUser._id; // Meteor uses string IDs
+    } else {
+      throw new Meteor.Error('user-not-found', 'User not found');
+    }
+
     if (team.members.includes(invitedId)) {
       throw new Meteor.Error('already-member', 'Already a member');
     }
@@ -391,10 +423,11 @@ Meteor.methods({
       throw new Meteor.Error('last-admin', 'Cannot remove the last admin');
     }
 
-    await Teams.rawCollection().updateOne(
-      { _id: team._id },
-      { $pull: { members: targetUserId, admins: targetUserId }, $set: { updatedAt: new Date() } },
-    );
+    // Use Meteor's updateAsync instead of rawCollection to ensure proper reactivity
+    await Teams.updateAsync(team._id, {
+      $pull: { members: targetUserId, admins: targetUserId },
+      $set: { updatedAt: new Date() },
+    });
     return { ok: true };
   },
 

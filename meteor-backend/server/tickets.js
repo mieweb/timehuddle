@@ -226,11 +226,11 @@ Meteor.methods({
     const assigneeNames =
       assignedToUserIds.length > 0
         ? await rawDb()
-            .collection('user')
-            .find({ _id: { $in: assignedToUserIds.map((uid) => new ObjectId(uid)) } })
+            .collection('users')
+            .find({ _id: { $in: assignedToUserIds } })
             .toArray()
             .then((users) =>
-              users.map((u) => u.name ?? u.email?.split('@')[0] ?? 'Unknown').join(', ')
+              users.map((u) => u.profile?.name ?? u.emails?.[0]?.address?.split('@')[0] ?? 'Unknown').join(', ')
             )
         : '';
 
