@@ -32,6 +32,7 @@ import './teams';
 import './team-join-requests';
 
 // PulseVault — TUS video upload + serving
+import './pulsevault.js';
 import './messages';
 import './huddle';
 // M3 — Org & profiles
@@ -1417,6 +1418,23 @@ Meteor.startup(async() => {
   Wormhole.expose('media.update', { description: 'Update media metadata (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' }, title: { type: 'string' }, caption: { type: 'string' }, altText: { type: 'string' } }, required: ['mediaId'] } });
   Wormhole.expose('media.remove', { description: 'Delete media item + files (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' } }, required: ['mediaId'] } });
 
+  // ── PulseVault ────────────────────────────────────────────────────────────
+
+  Wormhole.expose('pulsevault.reserve', {
+    description: 'Reserve a videoid for TUS video upload',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        existingVideoid: { type: 'string' },
+        target: { type: 'string', enum: ['ticket', 'library'] },
+      },
+    },
+  });
+  Wormhole.expose('pulsevault.reserveForLibrary', {
+    description: 'Reserve a videoid for media library TUS upload',
+    inputSchema: { type: 'object', properties: {} },
+  });
 
   // Agenda foundation: defines clock jobs against the shared `agendajobs`
   // collection. Processor stays OFF unless METEOR_AGENDA_ENABLED=true, so it

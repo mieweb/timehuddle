@@ -2,10 +2,9 @@
  * Shared test setup — environment config.
  *
  * Tests hit the running Meteor wormhole REST endpoints (localhost:3100/api/*)
- * and use Fastify's auth endpoints (localhost:4000) for user creation + JWT.
+ * and create users via DDP (accounts.createUser method).
  *
- * Prerequisite: docker-compose up (Meteor + Fastify + MongoDB all running).
+ * Prerequisite: Meteor backend running (pm2 start ecosystem.config.cjs or npm start)
  */
 
 export const METEOR_URL = process.env.METEOR_URL ?? 'http://localhost:3100';
-export const FASTIFY_URL = process.env.FASTIFY_URL ?? 'http://localhost:4000';
