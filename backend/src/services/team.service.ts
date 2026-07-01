@@ -223,7 +223,27 @@ export class TeamService {
     if (!team) return "not-found";
     if (team.members.includes(userId)) return "already-member";
 
-    // Create pending join request instead of directly adding to team
+    // Check if user is an organization owner - owners can join any team directly
+    if (team.orgId) {
+      const membership = await orgService.getOrgMembership(team.orgId, userId);
+      if (membership && membership.role === "owner") {
+        // Add owner directly to team without approval
+        await teamsCollection().updateOne(
+          { _id: team._id },
+          { $addToSet: { members: userId }, $set: { updatedAt: new Date() } }
+        );
+
+        // Broadcast team update to all members
+        const updatedTeam = await teamsCollection().findOne({ _id: team._id });
+        if (updatedTeam) {
+          broadcastToTeamMembers(updatedTeam, "update");
+        }
+
+        return toPublicTeam(updatedTeam!);
+      }
+    }
+
+    // Create pending join request for non-owners
     const request = await teamJoinRequestService.create(
       userId,
       team._id.toHexString(),
