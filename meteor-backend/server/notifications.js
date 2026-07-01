@@ -16,6 +16,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { Notifications } from './collections';
 import { rawDb } from './collections';
 import { requireIdentity } from './auth-bridge.js';
+import { sendToUser } from './push';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -166,6 +167,12 @@ Meteor.methods({
       read: false,
       data: { type: 'test' },
       createdAt: new Date(),
+    });
+    // Send actual push notification to all user's devices
+    await sendToUser(userId, {
+      title: 'Test Push',
+      body: 'This is a test push notification',
+      data: { type: 'test' },
     });
     return { ok: true };
   },
