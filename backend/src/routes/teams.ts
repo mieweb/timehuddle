@@ -131,7 +131,14 @@ export async function teamRoutes(app: FastifyInstance) {
       if (result === "already-member")
         return (reply as any).status(409).send({ error: "Already a member" });
 
-      // Result is a PublicTeamJoinRequest (pending approval)
+      // Check if result is a team (org owner joined directly) or a join request (pending approval)
+      // PublicTeamJoinRequest has a 'status' field, PublicTeam has 'members' array
+      if ("members" in result && Array.isArray(result.members)) {
+        // Org owner joined directly - return team
+        return reply.send({ status: "joined", team: result });
+      }
+
+      // Regular user - pending approval
       return reply.send({ status: "pending", request: result });
     }
   );

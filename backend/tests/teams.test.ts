@@ -251,6 +251,77 @@ describe("POST /v1/teams/join", () => {
     const res = await inject("POST", "/v1/teams/join", ownerCookie, { teamCode: "TEAMCODE1" });
     expect(res.statusCode).toBe(409);
   });
+
+  it("org owner joins team directly without pending request — 200", async () => {
+    const db = client.db();
+    
+    // Use a unique code to avoid conflicts
+    const uniqueCode = `ORGOWN${Date.now().toString().slice(-6)}`;
+    
+    // Cleanup any stale test data from previous runs
+    await db.collection("teams").deleteMany({ code: { $regex: /^ORGOWN/ } });
+    
+    // Create a test organization
+    const testOrg = {
+      _id: new ObjectId(),
+      name: "Test Org for Owner Join",
+      slug: "test-org-owner-join",
+      allowAutoJoin: false,
+      createdAt: new Date(),
+    };
+    await organizationsCollection().insertOne(testOrg);
+    const testOrgId = testOrg._id.toHexString();
+    
+    // Make outsider an owner of this org
+    await orgMembersCollection().insertOne({
+      _id: new ObjectId(),
+      orgId: testOrgId,
+      userId: outsiderId,
+      role: "owner",
+      auto: false,
+      createdAt: new Date(),
+    });
+    
+    // Create a team in this org (with owner as admin)
+    const orgTeam = {
+      _id: new ObjectId(),
+      name: "Org Team for Owner Test",
+      orgId: testOrgId,
+      members: [ownerId],
+      admins: [ownerId],
+      code: uniqueCode,
+      isPersonal: false,
+      createdAt: new Date(),
+    };
+    await db.collection("teams").insertOne(orgTeam);
+    const orgTeamId = orgTeam._id.toHexString();
+    
+    // Outsider (who is org owner) joins the team
+    const res = await inject("POST", "/v1/teams/join", outsiderCookie, { teamCode: uniqueCode });
+    expect(res.statusCode).toBe(200);
+    
+    // Should get a team back with status "joined", not "pending"
+    const body = res.json();
+    expect(body.status).toBe("joined");
+    expect(body.team).toBeDefined();
+    expect(body.team.id).toBeDefined();
+    
+    // Verify user was added to team members
+    const updatedTeam = await db.collection("teams").findOne({ _id: orgTeam._id });
+    expect(updatedTeam?.members).toContain(outsiderId);
+    
+    // Verify no pending request was created
+    const pendingRequest = await db.collection("teamJoinRequests").findOne({
+      teamId: orgTeamId,
+      userId: outsiderId,
+    });
+    expect(pendingRequest).toBeNull();
+    
+    // cleanup
+    await db.collection("teams").deleteOne({ _id: orgTeam._id });
+    await orgMembersCollection().deleteMany({ orgId: testOrgId });
+    await organizationsCollection().deleteOne({ _id: testOrg._id });
+  });
 });
 
 // ─── PUT /v1/teams/:id/name ───────────────────────────────────────────────────
