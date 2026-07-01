@@ -43,6 +43,7 @@ flowchart LR
   User --> OrgMembership
   Ticket --> Attachment
   ClockEvent --> Attachment
+  User --> MediaItem
 ```
 
 ## Collection Catalog
@@ -50,25 +51,27 @@ flowchart LR
 | Collection               | Owned By          | Schema Definition                                                               | Why This Collection Exists                                                                        | Notes                                                                        |
 | ------------------------ | ----------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `user`                   | Better Auth + app | `User` interface in `backend/src/models/user.model.ts`                          | Identity root for all user-scoped data and authentication linking.                                | Singular collection name is intentional.                                     |
-| `teams`                  | App               | `Team` interface in `backend/src/models/team.model.ts`                          | Defines collaboration boundaries (membership/admins) used for authz checks.                       | Team membership and admin authorization root.                                |
-| `organizations`          | App               | `Organization` interface in `backend/src/models/organization.model.ts`          | Groups teams under higher-level ownership/admin governance.                                       | Teams reference via `orgId` (string ObjectId).                               |
 | `enterprises`            | App               | `Enterprise` interface in `backend/src/models/enterprise.model.ts`              | Top-level tenant container for one or more organizations.                                         | Enterprise owners/admins manage child organizations.                         |
+| `organizations`          | App               | `Organization` interface in `backend/src/models/organization.model.ts`          | Groups teams under higher-level ownership/admin governance.                                       | Teams reference via `orgId` (string ObjectId).                               |
 | `org_members`            | App               | `OrgMembership` interface in `backend/src/models/org-membership.model.ts`       | Source of truth for organization membership and role assignment.                                  | Replaces role derivation from legacy `owners[]`/`admins[]` arrays.           |
+| `teams`                  | App               | `Team` interface in `backend/src/models/team.model.ts`                          | Defines collaboration boundaries (membership/admins) used for authz checks.                       | Team membership and admin authorization root.                                |
 | `tickets`                | App (Mongoose)    | `ticketSchema` in `backend/src/models/ticket.model.ts`                          | Stores work units that time entries and assignments are anchored to.                              | Only major collection currently backed by explicit Mongoose schema.          |
 | `clockevents`            | App               | `ClockEvent` interface in `backend/src/models/clock.model.ts`                   | Captures attendance-style clock in/out state.                                                     | Clock-in/out sessions; breaks live in the separate `clockbreaks` collection. |
 | `clockbreaks`            | App               | `ClockBreak` interface in `backend/src/models/clock.model.ts`                   | Stores FLSA-classified break intervals as first-class documents referencing a parent clock event. | Separate collection; each document owns a `clockEventId` foreign key.        |
+| `workitems`              | App               | `WorkItem` interface in `backend/src/models/work-item.model.ts`                 | Represents day-scoped user work rows that timers roll up under.                                   | User x ticket x date work entries.                                           |
+| `timers`                 | App               | `Timer` interface in `backend/src/models/timer.model.ts`                        | Canonical ledger of actual work segments used for totals and reporting.                           | Canonical work-segment ledger.                                               |
 | `messages`               | App               | `Message` interface in `backend/src/models/message.model.ts`                    | Persists admin-member direct thread communication history.                                        | Admin-member threaded DM messages.                                           |
+| `channels`               | App               | `Channel` interface in `backend/src/models/channel.model.ts`                    | Defines team chat spaces and channel-level access control.                                        | Team-scoped chat channels.                                                   |
+| `channelmessages`        | App               | `ChannelMessage` interface in `backend/src/models/channel-message.model.ts`     | Stores message history for each channel conversation.                                             | Messages per channel.                                                        |
 | `notifications`          | App               | `Notification` interface in `backend/src/models/notification.model.ts`          | Delivers in-app inbox notifications and read state per user.                                      | User notification inbox.                                                     |
 | `attachments`            | App               | `Attachment` interface in `backend/src/models/attachment.model.ts`              | Associates media/links with ticket or clock context for evidence and context.                     | Attached to tickets or clock entries.                                        |
 | `profiles`               | App               | `Profile` interface in `backend/src/models/profile.model.ts`                    | Stores user-facing profile and presence metadata beyond auth identity.                            | Presence/profile metadata.                                                   |
 | `pushsubscriptions`      | App               | `PushSubscription` interface in `backend/src/models/push-subscription.model.ts` | Tracks endpoints/tokens needed to send push notifications to devices.                             | Web push + native token subscription docs.                                   |
 | `devicetokens`           | App               | `UserDeviceTokens` interface in `backend/src/models/device-token.model.ts`      | Keeps a normalized per-user registry of mobile push tokens.                                       | One document per user, token array.                                          |
-| `workitems`              | App               | `WorkItem` interface in `backend/src/models/work-item.model.ts`                 | Represents day-scoped user work rows that timers roll up under.                                   | User x ticket x date work entries.                                           |
-| `timers`                 | App               | `Timer` interface in `backend/src/models/timer.model.ts`                        | Canonical ledger of actual work segments used for totals and reporting.                           | Canonical work-segment ledger.                                               |
 | `activities`             | App               | `ActivityEvent` union in `backend/src/models/activity.model.ts`                 | Provides a single auditable stream of cross-feature user/team events.                             | Unified activity stream events.                                              |
-| `channels`               | App               | `Channel` interface in `backend/src/models/channel.model.ts`                    | Defines team chat spaces and channel-level access control.                                        | Team-scoped chat channels.                                                   |
-| `channelmessages`        | App               | `ChannelMessage` interface in `backend/src/models/channel-message.model.ts`     | Stores message history for each channel conversation.                                             | Messages per channel.                                                        |
 | `personal_access_tokens` | App               | `PersonalAccessToken` in `backend/src/models/personal-access-token.model.ts`    | Enables API access via revocable, hashed user-issued tokens.                                      | Hashed PAT records.                                                          |
+| `mediaitems`             | App               | `MediaItem` interface in `backend/src/models/media-item.model.ts`               | Stores uploaded images and videos with metadata for the media library.                            | User-owned media assets; videos use TUS-upload UUIDs.                        |
+| `app_settings`           | App               | `Installation` interface in `backend/src/models/installation.model.ts`          | Tracks installation lifecycle state (completed/unclaimed).                                        | Singleton document with `_id: "Installation"`.                               |
 | `account`                | Better Auth       | Accessed directly in `team.service`                                             | Persists credential-provider auth data (for example password hashes).                             | Contains credential provider password hash data.                             |
 
 ## Field-Level Schema Summary
@@ -90,26 +93,25 @@ Core fields used by app code:
 - `createdAt: Date`
 - `updatedAt: Date`
 
+### `enterprises`
+
+- `_id: ObjectId`
+- `name: string`
+- `slug: string` (unique)
+- `owners?: string[]`
+- `admins?: string[]`
+- `createdAt: Date`
+- `updatedAt?: Date`
+
 ### `organizations`
 
 - `_id: ObjectId`
 - `enterpriseId?: string` (ObjectId string of enterprise)
 - `name: string`
-- `key: string`
-- `slug?: string`
+- `slug: string` (unique — previously called `key`, renamed by migration `20260604_120000`)
 - `owners?: string[]`
 - `admins?: string[]`
 - `allowAutoJoin?: boolean` (default `true`)
-- `createdAt: Date`
-- `updatedAt?: Date`
-
-### `enterprises`
-
-- `_id: ObjectId`
-- `name: string`
-- `slug: string`
-- `owners?: string[]`
-- `admins?: string[]`
 - `createdAt: Date`
 - `updatedAt?: Date`
 
@@ -122,6 +124,8 @@ Core fields used by app code:
 - `auto: boolean` (`true` when membership came from auto-join behavior)
 - `createdAt: Date`
 - `updatedAt?: Date`
+
+**Unique index:** `{ orgId, userId }`
 
 ### `teams`
 
@@ -156,37 +160,19 @@ Core fields used by app code:
 - `sharedWithTimeharbor?: boolean`
 - `externalTrackedMs?: number`
 
-### `workitems`
-
-- `_id: ObjectId`
-- `userId: string`
-- `ticketId: string`
-- `date: string` (UTC `YYYY-MM-DD`)
-- `note?: string`
-- `sortOrder?: number`
-- `createdAt: Date`
-- `updatedAt?: Date`
-
-### `timers` (Canonical Time Ledger)
-
-- `_id: ObjectId`
-- `workItemId: string`
-- `userId: string`
-- `date: string` (denormalized from work item)
-- `startTime: number` (epoch ms)
-- `endTime: number | null` (`null` means running)
-- `durationSeconds?: number` (written on close)
-- `createdAt: Date`
-
 ### `clockevents`
 
 - `_id: ObjectId`
 - `userId: string`
 - `teamId: string`
-- `startTime: number` (epoch ms — immutable shift start, never mutated after clock-in)
+- `startTime: number` (epoch ms — shift start, mutable via admin `updateTimes`)
 - `accumulatedTime: number` (seconds — net paid time: full shift span minus deducted meal breaks; written at clock-out)
-- `autoClockoutAgreed?: boolean | null` (`true` = user consented to auto-clockout at 8h via the shift-end modal)
 - `endTime: number | null` (`null` = session still active)
+- `autoClockoutAgreed?: boolean | null` (`true` = user consented to auto-clockout at 8h via the shift-end modal)
+- `notifiedAt7h45m?: number | null` (epoch ms when the 7h45m shift-end reminder was first sent)
+- `shiftAutoClockoutWorkSecs?: number | null` (work-second threshold at which auto-clockout fires)
+- `shiftNextReminderWorkSecs?: number | null` (work-second threshold for the next 2h repeat reminder)
+- `shiftReminderResponse?: "agreed" | "disagreed" | null` (last user response to a shift-end reminder)
 
 > Break intervals are **no longer embedded** in `clockevents`. They are stored as separate documents in the `clockbreaks` collection (see below).
 
@@ -219,18 +205,27 @@ accumulatedTime = (endTime − startTime) − sum(meal break durations)
 
 The `workSeconds` field returned by the API is computed live from the same formula (useful for active sessions where `accumulatedTime` is 0 until clock-out).
 
-### `activities`
-
-Common fields:
+### `workitems`
 
 - `_id: ObjectId`
 - `userId: string`
-- `teamId?: string`
-- `type: "clock.in" | "clock.out" | "ticket.created" | "ticket.updated" | "pat.created" | "pat.revoked"`
-- `actor: { id: string; name: string; avatar?: string }`
-- `payload: object` (depends on `type`)
-- `occurredAt: Date`
-- `source: "timehuddle" | "activitywatch" | "external"`
+- `ticketId: string`
+- `date: string` (UTC `YYYY-MM-DD`)
+- `note?: string`
+- `sortOrder?: number`
+- `createdAt: Date`
+- `updatedAt?: Date`
+
+### `timers` (Canonical Time Ledger)
+
+- `_id: ObjectId`
+- `workItemId: string`
+- `userId: string`
+- `date: string` (denormalized from work item)
+- `startTime: number` (epoch ms)
+- `endTime: number | null` (`null` means running)
+- `durationSeconds?: number` (written on close)
+- `createdAt: Date`
 
 ### `messages`
 
@@ -295,6 +290,7 @@ Common fields:
 - `app: "timeharbor"`
 - `displayName: string`
 - `avatarUrl?: string`
+- `backgroundUrl?: string`
 - `status: "online" | "offline"`
 - `lastSeenAt?: Date`
 - `githubUrl?: string`
@@ -334,6 +330,46 @@ Common fields:
 - `lastUsedAt?: Date`
 - `createdAt: Date`
 
+### `mediaitems`
+
+- `_id: ObjectId`
+- `userId: string`
+- `type: "video" | "image"`
+- `mimeType: string`
+- `url: string`
+- `videoid?: string` (TUS-upload UUID — only set for video uploads)
+- `filename: string`
+- `size: number`
+- `title?: string`
+- `caption?: string`
+- `altText?: string`
+- `thumbnail?: string`
+- `metadata?: { kind: "image"; width: number; height: number } | { kind: "video"; width: number; height: number; duration: number }`
+- `uploadedAt: Date`
+
+### `app_settings`
+
+Singleton document. Collection used for installation lifecycle state.
+
+- `_id: "Installation"` (literal string — not an ObjectId)
+- `completedAt?: Date`
+- `completedByUserId?: string`
+- `createdAt: Date`
+- `updatedAt?: Date`
+
+### `activities`
+
+Common fields:
+
+- `_id: ObjectId`
+- `userId: string`
+- `teamId?: string`
+- `type: "clock.in" | "clock.out" | "ticket.created" | "ticket.updated" | "pat.created" | "pat.revoked"`
+- `actor: { id: string; name: string; avatar?: string }`
+- `payload: object` (depends on `type`)
+- `occurredAt: Date`
+- `source: "timehuddle" | "activitywatch" | "external"`
+
 ### `account` (Better Auth)
 
 Observed app dependency:
@@ -356,12 +392,16 @@ Indexes created by `backend/src/lib/ensure-indexes.ts`:
 - `clockevents`: `{ userId: 1, teamId: 1, endTime: 1 }`
 - `clockbreaks`: `{ clockEventId: 1, endTime: 1 }` (open-break lookup)
 - `clockbreaks`: `{ clockEventId: 1, startTime: 1 }` (ordered retrieval)
+- `clockbreaks`: unique partial `{ clockEventId: 1 }` where `endTime: null` (`one_open_break_per_event`)
+- `enterprises`: unique `{ slug: 1 }`
+- `organizations`: unique `{ slug: 1 }`
 - `personal_access_tokens`: unique `{ tokenHash: 1 }`
 - `personal_access_tokens`: `{ userId: 1 }`
 
 Additional index from migration:
 
 - `activities`: `{ userId: 1, occurredAt: -1 }`
+- `org_members`: unique `{ orgId: 1, userId: 1 }` (created by migration `20260602_090100`)
 
 Mongoose-managed indexes on `tickets` schema:
 
@@ -392,6 +432,19 @@ Mongoose-managed indexes on `tickets` schema:
   - Extracted embedded `breaks[]` arrays from `clockevents` into the new `clockbreaks` collection
   - Each break becomes a separate document with a `clockEventId` foreign key
   - `$unset breaks` run against all `clockevents` documents
+- `20260601_000000_add-shift-reminder-fields.cjs`
+  - Added four nullable fields to `clockevents`: `notifiedAt7h45m`, `shiftAutoClockoutWorkSecs`, `shiftNextReminderWorkSecs`, `shiftReminderResponse`
+- `20260602_090000_add-enterprise-and-org-fields.cjs`
+  - Seeded the `enterprises` collection with a default enterprise document
+  - Backfilled `organizations.enterpriseId`, `organizations.slug` (from `key`), and `organizations.allowAutoJoin`
+- `20260602_090100_backfill-org-memberships.cjs`
+  - Created the `org_members` collection with a unique index on `{ orgId, userId }`
+  - Seeded membership documents from org `owners`/`admins` arrays and team membership
+- `20260602_090200_default-team-parent-id.cjs`
+  - Backfilled `teams.parentTeamId = null` for all existing top-level teams
+- `20260604_120000_rename-org-key-to-slug.cjs`
+  - Copied `organizations.key` → `organizations.slug` where `slug` was absent
+  - Removed the legacy `key` field from all `organizations` documents
 
 ## Startup Guarantees
 
