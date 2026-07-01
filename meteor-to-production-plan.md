@@ -301,14 +301,18 @@ Popular SMTP options:
 - ✅ Frontend `enterpriseApi` already using `wormholeCall`
 - ✅ `enterprises.ts` route was deleted with entire Fastify backend (commit 401bad5, June 30)
 
-#### ~~4. TimeHarbor Integration~~ ⚠️ NOT MIGRATED (Backend Removed)
-- ❌ `shareTicketWithTimeharbor` — not migrated before backend deletion
-- ❌ `bulkShareTicketsWithTimeharbor` — not migrated before backend deletion
-- Frontend still has API stubs but they call non-existent endpoints
+#### 4. TimeHarbor Integration ✅ MIGRATED (2026-07-01)
+- ✅ `tickets.shareWithTimeharbor` — single ticket sharing flag
+- ✅ `tickets.bulkShareWithTimeharbor` — batch ticket sharing flag
+- ✅ Wormhole-exposed with input schemas
+- ✅ Tests added: 8 integration tests covering all scenarios
+  - Creates/shares/unshares tickets (single and bulk)
+  - Authorization checks (member, owner, outsider)
+  - Database verification
 
-**Status**: Feature removed with backend — needs re-implementation if TimeHarbor integration is still required
+**Status**: Fully functional. Frontend already wired to call via Wormhole.
 
-**Action**: Verify if TimeHarbor integration is still needed. If yes, implement fresh on Meteor.
+**Tests**: All 8 TimeHarbor integration tests pass
 
 ### ~~Low Priority~~ ⚠️ NOT MIGRATED (Backend Removed)
 

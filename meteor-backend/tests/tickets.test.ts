@@ -148,4 +148,120 @@ describe('tickets (wormhole)', () => {
     const res = await wormhole<{ ok: boolean }>('tickets.delete', { ticketId }, ownerJwt);
     expect(res.ok).toBe(true);
   });
+
+  describe('TimeHarbor integration', () => {
+    let harborTicketId1: string;
+    let harborTicketId2: string;
+
+    it('creates test tickets for TimeHarbor', async () => {
+      const res1 = await wormhole<{ id: string }>(
+        'tickets.create',
+        { teamId, title: 'TimeHarbor Test 1' },
+        ownerJwt,
+      );
+      expect(res1.ok).toBe(true);
+      harborTicketId1 = res1.result.id;
+
+      const res2 = await wormhole<{ id: string }>(
+        'tickets.create',
+        { teamId, title: 'TimeHarbor Test 2' },
+        ownerJwt,
+      );
+      expect(res2.ok).toBe(true);
+      harborTicketId2 = res2.result.id;
+    });
+
+    it('shares a single ticket with TimeHarbor', async () => {
+      const res = await wormhole<{ ok: boolean }>(
+        'tickets.shareWithTimeharbor',
+        { ticketId: harborTicketId1, shared: true },
+        ownerJwt,
+      );
+      expect(res.ok).toBe(true);
+
+      // Verify database was updated
+      const db = await getDb();
+      const ticket = await db.collection('tickets').findOne({ _id: new ObjectId(harborTicketId1) });
+      expect(ticket?.sharedWithTimeharbor).toBe(true);
+    });
+
+    it('unshares a single ticket from TimeHarbor', async () => {
+      const res = await wormhole<{ ok: boolean }>(
+        'tickets.shareWithTimeharbor',
+        { ticketId: harborTicketId1, shared: false },
+        ownerJwt,
+      );
+      expect(res.ok).toBe(true);
+
+      // Verify database was updated
+      const db = await getDb();
+      const ticket = await db.collection('tickets').findOne({ _id: new ObjectId(harborTicketId1) });
+      expect(ticket?.sharedWithTimeharbor).toBe(false);
+    });
+
+    it('bulk shares multiple tickets with TimeHarbor', async () => {
+      const res = await wormhole<{ modifiedCount: number }>(
+        'tickets.bulkShareWithTimeharbor',
+        { ticketIds: [harborTicketId1, harborTicketId2], shared: true },
+        ownerJwt,
+      );
+      expect(res.ok).toBe(true);
+      expect(res.result.modifiedCount).toBe(2);
+
+      // Verify both tickets were updated
+      const db = await getDb();
+      const tickets = await db
+        .collection('tickets')
+        .find({ _id: { $in: [new ObjectId(harborTicketId1), new ObjectId(harborTicketId2)] } })
+        .toArray();
+      expect(tickets).toHaveLength(2);
+      expect(tickets.every((t) => t.sharedWithTimeharbor === true)).toBe(true);
+    });
+
+    it('bulk unshares multiple tickets from TimeHarbor', async () => {
+      const res = await wormhole<{ modifiedCount: number }>(
+        'tickets.bulkShareWithTimeharbor',
+        { ticketIds: [harborTicketId1, harborTicketId2], shared: false },
+        ownerJwt,
+      );
+      expect(res.ok).toBe(true);
+      expect(res.result.modifiedCount).toBe(2);
+
+      // Verify both tickets were updated
+      const db = await getDb();
+      const tickets = await db
+        .collection('tickets')
+        .find({ _id: { $in: [new ObjectId(harborTicketId1), new ObjectId(harborTicketId2)] } })
+        .toArray();
+      expect(tickets).toHaveLength(2);
+      expect(tickets.every((t) => t.sharedWithTimeharbor === false)).toBe(true);
+    });
+
+    it('rejects outsider sharing ticket with TimeHarbor', async () => {
+      const res = await wormhole(
+        'tickets.shareWithTimeharbor',
+        { ticketId: harborTicketId1, shared: true },
+        outsiderJwt,
+      );
+      expect(res.ok).toBe(false);
+    });
+
+    it('rejects outsider bulk sharing tickets with TimeHarbor', async () => {
+      const res = await wormhole(
+        'tickets.bulkShareWithTimeharbor',
+        { ticketIds: [harborTicketId1, harborTicketId2], shared: true },
+        outsiderJwt,
+      );
+      expect(res.ok).toBe(false);
+    });
+
+    it('member can share tickets with TimeHarbor', async () => {
+      const res = await wormhole<{ ok: boolean }>(
+        'tickets.shareWithTimeharbor',
+        { ticketId: harborTicketId1, shared: true },
+        memberJwt,
+      );
+      expect(res.ok).toBe(true);
+    });
+  });
 });
