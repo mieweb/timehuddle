@@ -191,7 +191,11 @@ export const EnterprisePage: React.FC = () => {
   }, [loadEnterprise, memberRole, memberUserId, selectedEnterpriseId]);
 
   const handleCreateOrg = useCallback(async () => {
-    if (!selectedEnterpriseId || !orgName.trim()) return;
+    if (!selectedEnterpriseId) {
+      setOrgError('No enterprise selected. Please refresh or complete ownership first.');
+      return;
+    }
+    if (!orgName.trim()) return;
     setOrgSaving(true);
     setOrgError(null);
     try {

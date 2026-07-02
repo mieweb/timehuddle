@@ -187,10 +187,16 @@ class DdpClient {
 
   async loginWithPassword(email: string, password: string): Promise<void> {
     await this.ensureConnected();
-    const msgBuffer = new TextEncoder().encode(password);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const digest = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    // crypto.subtle is only available in secure contexts (HTTPS or localhost).
+    // The server accepts `raw` password so we compute the digest opportunistically.
+    let digest = '';
+    if (typeof crypto !== 'undefined' && crypto.subtle?.digest) {
+      const msgBuffer = new TextEncoder().encode(password);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      digest = Array.from(new Uint8Array(hashBuffer))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    }
 
     const result = await this.call('login', {
       emailPassword: {

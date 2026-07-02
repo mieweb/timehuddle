@@ -140,9 +140,9 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refetchEnterprises = useCallback(() => {
     if (!userId) {
       setEnterprises([]);
-      return;
+      return Promise.resolve();
     }
-    enterpriseApi
+    return enterpriseApi
       .list()
       .then(setEnterprises)
       .catch(() => {});
@@ -151,9 +151,9 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refetchOrganizations = useCallback(() => {
     if (!userId) {
       setOrganizations([]);
-      return;
+      return Promise.resolve();
     }
-    orgApi
+    return orgApi
       .listOrganizations()
       .then(setOrganizations)
       .catch(() => {});
