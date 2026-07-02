@@ -38,9 +38,9 @@ beforeAll(async () => {
   outsiderJwt = outsider.jwt;
 
   const db = await getDb();
-  ownerId = String((await db.collection('user').findOne({ email: OWNER.email }))!._id);
-  memberId = String((await db.collection('user').findOne({ email: MEMBER.email }))!._id);
-  outsiderId = String((await db.collection('user').findOne({ email: OUTSIDER.email }))!._id);
+  ownerId = String((await db.collection('users').findOne({ 'emails.address': OWNER.email }))!._id);
+  memberId = String((await db.collection('users').findOne({ 'emails.address': MEMBER.email }))!._id);
+  outsiderId = String((await db.collection('users').findOne({ 'emails.address': OUTSIDER.email }))!._id);
 
   // Create a shared fixture team via wormhole, then add the member
   const createRes = await wormhole<{ team: { id: string } }>(

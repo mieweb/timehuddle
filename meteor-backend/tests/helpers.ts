@@ -213,19 +213,15 @@ export async function closeDb() {
 
 export async function purgeUser(email: string) {
   const db = await getDb();
-  const user = await db.collection('user').findOne({ email });
-  if (!user) {
-    // Still need to check Meteor users collection
-    await db.collection('users').deleteMany({ 'emails.address': email });
-    return;
-  }
+  // Find user in Meteor users collection (email is in emails.address)
+  const user = await db.collection('users').findOne({ 'emails.address': email });
+  if (!user) return;
+  
   const userId = String(user._id);
   await Promise.all([
-    db.collection('account').deleteMany({ userId }),
-    db.collection('session').deleteMany({ userId }),
-    db.collection('user').deleteOne({ _id: user._id }),
-    // Clean up Meteor users collection (uses email in emails array)
-    db.collection('users').deleteMany({ 'emails.address': email }),
+    db.collection('users').deleteOne({ _id: user._id }),
+    db.collection('org_members').deleteMany({ userId }),
+    db.collection('clockevents').deleteMany({ userId }),
   ]);
 }
 

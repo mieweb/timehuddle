@@ -38,8 +38,8 @@ beforeAll(async () => {
   memberJwt = member.jwt;
   outsiderJwt = outsider.jwt;
 
-  ownerId = String((await db.collection('user').findOne({ email: OWNER.email }))!._id);
-  memberId = String((await db.collection('user').findOne({ email: MEMBER.email }))!._id);
+  ownerId = String((await db.collection('users').findOne({ 'emails.address': OWNER.email }))!._id);
+  memberId = String((await db.collection('users').findOne({ 'emails.address': MEMBER.email }))!._id);
 
   const teamDoc = {
     _id: new ObjectId(),

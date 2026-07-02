@@ -26,7 +26,7 @@ beforeAll(async () => {
   jwt = auth.jwt;
 
   const db = await getDb();
-  userId = String((await db.collection('user').findOne({ email: USER.email }))!._id);
+  userId = String((await db.collection('users').findOne({ 'emails.address': USER.email }))!._id);
 
   // Create team
   const teamDoc = {

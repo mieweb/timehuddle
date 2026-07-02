@@ -32,8 +32,8 @@ beforeAll(async () => {
   userTwoJwt = userTwo.jwt;
 
   const db = await getDb();
-  userOneId = String((await db.collection('user').findOne({ email: USER_ONE.email }))!._id);
-  userTwoId = String((await db.collection('user').findOne({ email: USER_TWO.email }))!._id);
+  userOneId = String((await db.collection('users').findOne({ 'emails.address': USER_ONE.email }))!._id);
+  userTwoId = String((await db.collection('users').findOne({ 'emails.address': USER_TWO.email }))!._id);
 }, 30000);
 
 afterAll(async () => {
