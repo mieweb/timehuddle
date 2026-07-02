@@ -21,26 +21,23 @@ test.describe('Real-time Organization Members', () => {
     const loginPage2 = new LoginPage(session2);
 
     await loginPage1.goto();
-    await loginPage1.loginWithEmail('admin@test.com', 'password123');
+    await loginPage1.login('admin1@test.local', 'TestPass1!');
     await expect(session1).toHaveURL(/\/app\//);
 
     await loginPage2.goto();
-    await loginPage2.loginWithEmail('admin@test.com', 'password123');
+    await loginPage2.login('admin2@test.local', 'TestPass1!');
     await expect(session2).toHaveURL(/\/app\//);
 
-    // Navigate to Organization page
-    await session1.goto('/app/organization');
-    await session2.goto('/app/organization');
+    // Navigate directly to the members page
+    await session1.goto('http://localhost:3000/app/org/members');
+    await session2.goto('http://localhost:3000/app/org/members');
 
     await session1.waitForLoadState('networkidle');
     await session2.waitForLoadState('networkidle');
 
-    // Click Members tab
-    await session1.locator('button:has-text("Members")').click();
-    await session2.locator('button:has-text("Members")').click();
-    
-    await session1.waitForTimeout(500);
-    await session2.waitForTimeout(500);
+    // Wait for the members table to load
+    await session1.locator('table').waitFor({ state: 'visible', timeout: 10000 });
+    await session2.locator('table').waitFor({ state: 'visible', timeout: 10000 });
   });
 
   test.afterEach(async () => {
@@ -58,18 +55,18 @@ test.describe('Real-time Organization Members', () => {
   });
 
   test('should sync member role changes across sessions', async () => {
-    // Get the first member's current role in session 1
+    // Get the first member's role text in session 1
     const firstRow1 = session1.locator('tbody tr').first();
-    const roleSelect1 = firstRow1.locator('select, [role="combobox"]').first();
+    const roleCell1 = firstRow1.locator('[role="combobox"]').first();
     
-    if ((await roleSelect1.count()) > 0) {
-      const currentRole = await roleSelect1.inputValue();
+    if ((await roleCell1.count()) > 0) {
+      const currentRole = await roleCell1.textContent();
       
-      // Verify session 2 shows the same role
+      // Verify session 2 shows the same role for the first member
       const firstRow2 = session2.locator('tbody tr').first();
-      const roleSelect2 = firstRow2.locator('select, [role="combobox"]').first();
+      const roleCell2 = firstRow2.locator('[role="combobox"]').first();
       
-      await expect(roleSelect2).toHaveValue(currentRole, { timeout: 3000 });
+      await expect(roleCell2).toHaveText(currentRole!, { timeout: 3000 });
     }
   });
 

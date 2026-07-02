@@ -21,16 +21,16 @@ test.describe('Real-time Media Library', () => {
     const loginPage2 = new LoginPage(session2);
 
     await loginPage1.goto();
-    await loginPage1.loginWithEmail('admin@test.com', 'password123');
+    await loginPage1.login('admin1@test.local', 'TestPass1!');
     await expect(session1).toHaveURL(/\/app\//);
 
     await loginPage2.goto();
-    await loginPage2.loginWithEmail('admin@test.com', 'password123');
+    await loginPage2.login('admin2@test.local', 'TestPass1!');
     await expect(session2).toHaveURL(/\/app\//);
 
     // Navigate to Media Library
-    await session1.goto('/app/media');
-    await session2.goto('/app/media');
+    await session1.goto('http://localhost:3000/app/media');
+    await session2.goto('http://localhost:3000/app/media');
 
     await session1.waitForLoadState('networkidle');
     await session2.waitForLoadState('networkidle');
