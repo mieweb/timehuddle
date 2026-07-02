@@ -26,7 +26,7 @@ test.describe('Team Invitation with Org Membership', () => {
   let mongoClient: MongoClient;
   let db: any;
 
-  const MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:27017/timeharbor';
+  const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017/timehuddle?directConnection=true';
   
   // Test users
   const admin = TEST_USERS.admin1;
@@ -58,17 +58,8 @@ test.describe('Team Invitation with Org Membership', () => {
     const newUserEmail = `testuser${timestamp}@test.local`;
     const newUserName = `Test User ${timestamp}`;
     
-    // Insert user directly into DB (simulating signup)
+    // Insert user into Meteor users collection
     const newUserId = new ObjectId().toHexString();
-    await db.collection('user').insertOne({
-      _id: new ObjectId(newUserId),
-      email: newUserEmail,
-      name: newUserName,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-
-    // Also create in Meteor users collection
     await db.collection('users').insertOne({
       _id: newUserId,
       emails: [{ address: newUserEmail, verified: false }],
@@ -77,17 +68,31 @@ test.describe('Team Invitation with Org Membership', () => {
     });
 
     try {
-      // Step 2: Get any existing team with org (not personal)
-      const existingTeam = await db.collection('teams').findOne({ 
+      // Step 2: Get or create a team linked to an org
+      const defaultOrg = await db.collection('organizations').findOne({ slug: 'default' });
+      expect(defaultOrg).toBeTruthy();
+      const orgId = defaultOrg._id.toHexString();
+
+      let existingTeam = await db.collection('teams').findOne({ 
         orgId: { $exists: true, $ne: null },
         isPersonal: { $ne: true }
       });
       
-      expect(existingTeam).toBeTruthy();
-      expect(existingTeam.orgId).toBeTruthy();
-      
-
-      const orgId = existingTeam.orgId;
+      if (!existingTeam) {
+        // Create a test team linked to the default org
+        const testTeamId = new ObjectId();
+        await db.collection('teams').insertOne({
+          _id: testTeamId,
+          name: `Test Team ${timestamp}`,
+          orgId,
+          members: [],
+          admins: [],
+          isPersonal: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+        existingTeam = await db.collection('teams').findOne({ _id: testTeamId });
+      }
       const org = await db.collection('organizations').findOne({ 
         _id: new ObjectId(orgId) 
       });
@@ -142,7 +147,6 @@ test.describe('Team Invitation with Org Membership', () => {
 
     } finally {
       // Cleanup: Remove test user
-      await db.collection('user').deleteOne({ email: newUserEmail });
       await db.collection('users').deleteOne({ _id: newUserId });
       await db.collection('org_members').deleteMany({ userId: newUserId });
       await db.collection('teams').updateMany(
@@ -171,8 +175,9 @@ test.describe('Team Invitation with Org Membership', () => {
     });
 
     // Step 2: Get any existing user to be the team admin
-    const existingUser = await db.collection('user').findOne({});
+    const existingUser = await db.collection('users').findOne({ 'emails.address': 'admin1@test.local' });
     expect(existingUser).toBeTruthy();
+    const existingUserId = String(existingUser._id);
     
     // Step 3: Create a team in this org
     const testTeamId = new ObjectId();
@@ -181,8 +186,8 @@ test.describe('Team Invitation with Org Membership', () => {
       _id: testTeamId,
       name: `Test Team ${Date.now()}`,
       orgId: testOrgId.toHexString(),
-      members: [existingUser._id.toHexString()],
-      admins: [existingUser._id.toHexString()],
+      members: [existingUserId],
+      admins: [existingUserId],
       isPersonal: false,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -192,7 +197,7 @@ test.describe('Team Invitation with Org Membership', () => {
     await db.collection('org_members').insertOne({
       _id: new ObjectId(),
       orgId: testOrgId.toHexString(),
-      userId: existingUser._id.toHexString(),
+      userId: existingUserId,
       role: 'owner',
       auto: false,
       createdAt: new Date(),
@@ -204,12 +209,11 @@ test.describe('Team Invitation with Org Membership', () => {
     const newUserEmail = `testuser${timestamp}@test.local`;
     const newUserId = new ObjectId().toHexString();
     
-    await db.collection('user').insertOne({
-      _id: new ObjectId(newUserId),
-      email: newUserEmail,
-      name: `Test User ${timestamp}`,
+    await db.collection('users').insertOne({
+      _id: newUserId,
+      emails: [{ address: newUserEmail, verified: false }],
+      profile: { name: `Test User ${timestamp}` },
       createdAt: new Date(),
-      updatedAt: new Date(),
     });
 
     try {
@@ -251,7 +255,6 @@ test.describe('Team Invitation with Org Membership', () => {
 
     } finally {
       // Cleanup
-      await db.collection('user').deleteOne({ email: newUserEmail });
       await db.collection('users').deleteOne({ _id: newUserId });
       await db.collection('teams').deleteOne({ _id: testTeamId });
       await db.collection('organizations').deleteOne({ _id: testOrgId });
@@ -306,12 +309,11 @@ test.describe('Team Invitation with Org Membership', () => {
     const buggyUserId = new ObjectId().toHexString();
     const buggyUserEmail = `buggyuser${timestamp}@test.local`;
     
-    await db.collection('user').insertOne({
-      _id: new ObjectId(buggyUserId),
-      email: buggyUserEmail,
-      name: `Buggy User ${timestamp}`,
+    await db.collection('users').insertOne({
+      _id: buggyUserId,
+      emails: [{ address: buggyUserEmail, verified: false }],
+      profile: { name: `Buggy User ${timestamp}` },
       createdAt: new Date(),
-      updatedAt: new Date(),
     });
 
     // Get an existing team
@@ -395,7 +397,7 @@ test.describe('Team Invitation with Org Membership', () => {
 
     } finally {
       // Cleanup
-      await db.collection('user').deleteOne({ email: buggyUserEmail });
+      await db.collection('users').deleteOne({ _id: buggyUserId });
       await db.collection('teams').updateOne(
         { _id: existingTeam._id },
         { $pull: { members: buggyUserId } }
