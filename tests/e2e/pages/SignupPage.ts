@@ -5,13 +5,17 @@ import { BasePage } from './BasePage';
  * SignupPage - Page object for the signup/registration page
  */
 export class SignupPage extends BasePage {
+  private readonly firstNameInput = this.page.getByRole('textbox', { name: 'First name' });
+  private readonly lastNameInput = this.page.getByRole('textbox', { name: 'Last name' });
   private readonly emailInput = this.page.getByRole('textbox', { name: 'Email address' });
-  private readonly passwordInput = this.page.getByRole('textbox', { name: 'Password' });
+  private readonly passwordInput = this.page.getByRole('textbox', { name: 'Password', exact: true });
   private readonly confirmPasswordInput = this.page.getByRole('textbox', {
     name: 'Confirm password',
   });
-  private readonly nameInput = this.page.getByRole('textbox', { name: 'Full name' });
-  private readonly signUpButton = this.page.getByRole('button', { name: 'Sign up', exact: true });
+  private readonly createAccountButton = this.page.getByRole('button', {
+    name: 'Create account',
+    exact: true,
+  });
   private readonly signInButton = this.page.getByRole('button', { name: 'Sign in', exact: true });
   private readonly heading = this.page.getByRole('heading', { name: /Create.*account/i });
 
@@ -23,12 +27,8 @@ export class SignupPage extends BasePage {
    * Navigate to the signup page
    */
   async goto() {
-    await this.page.goto('/app?mode=signup');
-    // Wait for either heading to appear
-    await Promise.race([
-      this.heading.waitFor({ state: 'visible' }),
-      this.page.waitForTimeout(3000),
-    ]);
+    await this.page.goto('http://localhost:3000/app?mode=signup');
+    await this.heading.waitFor({ state: 'visible', timeout: 10000 });
   }
 
   /**
@@ -43,10 +43,17 @@ export class SignupPage extends BasePage {
   }
 
   /**
-   * Fill in name field
+   * Fill in first name field
    */
-  async fillName(name: string) {
-    await this.nameInput.fill(name);
+  async fillFirstName(firstName: string) {
+    await this.firstNameInput.fill(firstName);
+  }
+
+  /**
+   * Fill in last name field
+   */
+  async fillLastName(lastName: string) {
+    await this.lastNameInput.fill(lastName);
   }
 
   /**
@@ -71,10 +78,10 @@ export class SignupPage extends BasePage {
   }
 
   /**
-   * Click sign up button
+   * Click create account button
    */
-  async clickSignUp() {
-    await this.signUpButton.click();
+  async clickCreateAccount() {
+    await this.createAccountButton.click();
   }
 
   /**
@@ -87,12 +94,34 @@ export class SignupPage extends BasePage {
   /**
    * Complete signup flow
    */
-  async signup(name: string, email: string, password: string) {
-    await this.fillName(name);
+  async signup(firstName: string, lastName: string, email: string, password: string) {
+    await this.fillFirstName(firstName);
+    await this.fillLastName(lastName);
     await this.fillEmail(email);
     await this.fillPassword(password);
     await this.fillConfirmPassword(password);
-    await this.clickSignUp();
+    await this.clickCreateAccount();
+  }
+
+  /**
+   * Handle the Username Required dialog that appears after signup.
+   * Claims the suggested username or a custom one.
+   */
+  async claimUsername(username?: string) {
+    const dialog = this.page.getByRole('dialog', { name: 'Username Required' });
+    await dialog.waitFor({ state: 'visible', timeout: 15000 });
+
+    if (username) {
+      const usernameInput = dialog.getByRole('textbox', { name: 'Username' });
+      await usernameInput.clear();
+      await usernameInput.fill(username);
+      // Wait for availability check
+      await this.page.waitForTimeout(1000);
+    }
+
+    await dialog.getByRole('button', { name: 'Claim username' }).click();
+    // Wait for dialog to close
+    await dialog.waitFor({ state: 'hidden', timeout: 10000 });
   }
 
   /**
@@ -111,7 +140,7 @@ export class SignupPage extends BasePage {
   async getErrorMessage(): Promise<string | null> {
     const alert = this.page.getByRole('alert');
     try {
-      await alert.waitFor({ state: 'visible', timeout: 2000 });
+      await alert.waitFor({ state: 'visible', timeout: 3000 });
       return await alert.textContent();
     } catch {
       return null;
@@ -119,7 +148,7 @@ export class SignupPage extends BasePage {
   }
 
   /**
-   * Check if sign up button is disabled (loading state)
+   * Check if create account button is disabled (loading state)
    */
   async isLoading(): Promise<boolean> {
     const pleaseWaitButton = this.page.getByRole('button', { name: 'Please wait…' });
