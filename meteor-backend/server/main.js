@@ -593,6 +593,22 @@ WebApp.connectHandlers.use('/auth/apple/callback',
   }
 )
 
+// Build MAIL_URL from SMTP_* env vars so Meteor's `email` package (used by
+// Accounts.sendResetPasswordEmail) can send. Runs at module load.
+if (!process.env.MAIL_URL && process.env.SMTP_HOST) {
+  const smtpHost = process.env.SMTP_HOST;
+  const smtpPort = process.env.SMTP_PORT || '587';
+  const smtpUser = process.env.SMTP_USER;
+  const smtpPass = process.env.SMTP_PASS;
+  const scheme = process.env.SMTP_SECURE === 'true' ? 'smtps' : 'smtp';
+  const auth = smtpUser ? encodeURIComponent(smtpUser) + ':' + encodeURIComponent(smtpPass || '') + '@' : '';
+  process.env.MAIL_URL = scheme + '://' + auth + smtpHost + ':' + smtpPort;
+  console.log('[email] MAIL_URL configured: ' + scheme + '://' + smtpHost + ':' + smtpPort);
+}
+if (!process.env.ROOT_URL) {
+  process.env.ROOT_URL = process.env.APP_URL || 'http://localhost:3000';
+}
+
 Meteor.startup(async() => {
   // Configure GitHub OAuth service
   await ServiceConfiguration.configurations.upsertAsync(

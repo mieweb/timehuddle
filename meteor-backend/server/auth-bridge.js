@@ -30,6 +30,69 @@ Meteor.startup(() => {
   Accounts.config({
     loginExpirationInDays: 30,
   });
+
+  // Password reset URL — points to the frontend React app (APP_URL) rather
+  // than Meteor's default `/#/reset-password/:token`. Uses query param format
+  // so React Router can pick it up: /reset-password?token=<token>
+  const appUrl = process.env.APP_URL || 'http://localhost:3000';
+  Accounts.urls.resetPassword = (token) => `${appUrl}/reset-password?token=${token}`;
+
+  // Branded email templates for account lifecycle emails.
+  Accounts.emailTemplates.siteName = 'TimeHuddle';
+  Accounts.emailTemplates.from = process.env.EMAIL_FROM || 'TimeHuddle <noreply@timehuddle.local>';
+
+  Accounts.emailTemplates.resetPassword = {
+    subject() {
+      return 'Reset your TimeHuddle password';
+    },
+    text(user, url) {
+      const name = user.profile?.name || user.emails?.[0]?.address || 'there';
+      return `Hi ${name},\n\nA password reset was requested for your TimeHuddle account. Click the link below to choose a new password:\n\n${url}\n\nThis link will expire in a few days. If you didn't request this, you can safely ignore this email.\n\n— The TimeHuddle team`;
+    },
+    html(user, url) {
+      const name = user.profile?.name || user.emails?.[0]?.address || 'there';
+      return `<!DOCTYPE html>
+<html>
+  <body style="margin:0;padding:0;background:#f5f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f5f5f7;padding:40px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="560" cellspacing="0" cellpadding="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.04);">
+            <tr>
+              <td style="padding:32px 40px;background:#111827;color:#ffffff;">
+                <h1 style="margin:0;font-size:22px;font-weight:600;">TimeHuddle</h1>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:40px;">
+                <h2 style="margin:0 0 16px;font-size:20px;color:#111827;">Reset your password</h2>
+                <p style="margin:0 0 16px;color:#374151;line-height:1.6;">Hi ${name},</p>
+                <p style="margin:0 0 24px;color:#374151;line-height:1.6;">A password reset was requested for your TimeHuddle account. Click the button below to choose a new password.</p>
+                <table role="presentation" cellspacing="0" cellpadding="0">
+                  <tr>
+                    <td style="border-radius:8px;background:#2563eb;">
+                      <a href="${url}" style="display:inline-block;padding:12px 24px;font-size:15px;color:#ffffff;text-decoration:none;font-weight:600;">Reset password</a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:24px 0 8px;color:#6b7280;font-size:13px;line-height:1.6;">Or paste this link into your browser:</p>
+                <p style="margin:0 0 24px;color:#2563eb;font-size:13px;word-break:break-all;"><a href="${url}" style="color:#2563eb;text-decoration:underline;">${url}</a></p>
+                <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.6;">This link will expire in a few days. If you didn't request this, you can safely ignore this email.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 40px;background:#f9fafb;color:#9ca3af;font-size:12px;text-align:center;">
+                &copy; TimeHuddle
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+    },
+  };
 });
 
 // Safe ObjectId conversion — only converts 24-char hex strings
@@ -44,26 +107,13 @@ function toId(id) {
  */
 async function checkUserBlocking(userId) {
   const db = rawDb();
-  // Load user blocked field from BOTH collections
-  const hexUserId = /^[0-9a-f]{24}$/i.test(userId) ? new ObjectId(userId) : userId;
-  const [userDoc, usersDoc] = await Promise.all([
-    db.collection('user').findOne({ _id: hexUserId }, { projection: { blocked: 1 } }),
-    db.collection('users').findOne({ _id: String(userId) }, { projection: { blocked: 1 } }),
-  ]);
+  // Load user blocked field from Meteor users collection
+  const usersDoc = await db.collection('users').findOne(
+    { _id: String(userId) }, 
+    { projection: { blocked: 1 } }
+  );
   
-  // Merge blocked arrays from both collections (users may exist in both)
-  const blockedFromUser = userDoc?.blocked ?? [];
-  const blockedFromUsers = usersDoc?.blocked ?? [];
-  const allBlocks = [...blockedFromUser, ...blockedFromUsers];
-  
-  // Deduplicate by orgId
-  const blockedMap = new Map();
-  for (const block of allBlocks) {
-    if (!blockedMap.has(block.orgId)) {
-      blockedMap.set(block.orgId, block);
-    }
-  }
-  const blockedArray = Array.from(blockedMap.values());
+  const blockedArray = usersDoc?.blocked ?? [];
   
   if (blockedArray.length === 0) return { blocked: false };
 
@@ -86,9 +136,11 @@ async function checkUserBlocking(userId) {
 }
 
 export async function findUserById(id) {
-  // Try Meteor collection first (new users created via accounts.createUser)
+  // Query Meteor users collection
   const meteorUser = await rawDb().collection('users').findOne({ _id: String(id) });
-  if (meteorUser) return {
+  if (!meteorUser) return null;
+  
+  return {
     _id: meteorUser._id,
     name: meteorUser.profile?.name ?? null,
     email: meteorUser.emails?.[0]?.address ?? null,
@@ -98,8 +150,6 @@ export async function findUserById(id) {
     website: meteorUser.website ?? '',
     reportsToUserId: meteorUser.reportsToUserId ?? null,
   };
-  // Fall back to Fastify collection (old migrated users)
-  return await rawDb().collection('user').findOne({ _id: toId(String(id)) }) ?? null;
 }
 
 async function resolvePat(token) {
@@ -145,71 +195,23 @@ export async function resolveToken(raw) {
  * Used by login handlers to ensure a user exists before returning userId.
  */
 export async function findOrCreateUser(email, name) {
-  const db = rawDb()
   const normalizedEmail = email.toLowerCase().trim()
 
-  // Step 1: Check if Meteor user already exists
+  // Check if Meteor user already exists
   const existingMeteorUser = await Meteor.users.findOneAsync({ 'emails.address': normalizedEmail })
   if (existingMeteorUser?._id) {
-    console.log('[auth-bridge] found existing Meteor user:', 
-      existingMeteorUser._id)
+    console.log('[auth-bridge] found existing Meteor user:', existingMeteorUser._id)
     return existingMeteorUser._id
   }
 
-  // Step 2: Check if Fastify user exists in 'user' collection
-  const fastifyUser = await db.collection('user')
-    .findOne({ email: normalizedEmail })
-  
-  if (fastifyUser) {
-    console.log('[auth-bridge] found Fastify user:', 
-      fastifyUser._id.toHexString())
-    
-    // Create Meteor user with SAME _id as Fastify user
-    try {
-      await Meteor.users.insertAsync({
-        _id: fastifyUser._id.toHexString(),
-        emails: [{ 
-          address: normalizedEmail, 
-          verified: true 
-        }],
-        profile: { 
-          name: name || fastifyUser.name || normalizedEmail 
-        },
-        createdAt: fastifyUser.createdAt || new Date()
-      })
-      console.log('[auth-bridge] created Meteor user with Fastify _id:', 
-        fastifyUser._id.toHexString())
-      return fastifyUser._id.toHexString()
-    } catch (err) {
-      console.error('[auth-bridge] Meteor.users.insert error:', err.message)
-      // Maybe created by concurrent request - retry lookup
-      const retryUser = await Meteor.users.findOneAsync({ 'emails.address': normalizedEmail })
-      if (retryUser?._id) return retryUser._id
-      // Last resort - return the fastify user id directly
-      return fastifyUser._id.toHexString()
-    }
-  }
-
-  // Step 3: Brand new user - create in Meteor Accounts
-  console.log('[auth-bridge] creating brand new Meteor user:', normalizedEmail)
+  // Create new user in Meteor Accounts
+  console.log('[auth-bridge] creating new Meteor user:', normalizedEmail)
   try {
     const userId = Accounts.createUser({
       email: normalizedEmail,
       profile: { name: name || normalizedEmail }
     })
     console.log('[auth-bridge] created new user:', userId)
-    
-    // Also create in Fastify user collection
-    await db.collection('user').insertOne({
-      _id: userId,  // same _id!
-      email: normalizedEmail,
-      name: name || normalizedEmail,
-      emailVerified: false,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    })
-    console.log('[auth-bridge] synced user to Fastify collection:', userId)
-    
     return userId
   } catch (err) {
     console.error('[auth-bridge] Accounts.createUser error:', err.message)
@@ -344,80 +346,55 @@ Accounts.validateLoginAttempt(async (attempt) => {
 // GitHub OAuth User Sync
 // ============================================================================
 
-// Sync GitHub OAuth users to Fastify user collection
+// OAuth users are stored directly in Meteor Accounts - no sync needed
 Accounts.onLogin(async (info) => {
   const user = info.user;
-  const db = rawDb();
-
-  // GitHub sync
-  try {
-    if (user?.services?.github) {
-      const email =
-        user.services.github.email || user.emails?.[0]?.address;
-      if (email) {
-        const name =
-          user.services.github.name ||
-          user.services.github.login ||
-          email;
-        
-        await db.collection('user').updateOne(
-          { email: email.toLowerCase() },
-          {
-            $set: {
-              updatedAt: new Date(),
-              name: name,
-            },
-            $setOnInsert: {
-              email: email.toLowerCase(),
-              emailVerified: true,
-              createdAt: new Date(),
-            },
-          },
-          { upsert: true }
-        );
-        console.log(
-          '[auth-bridge] synced GitHub user to Fastify collection:',
-          email
-        );
-      }
-    }
-  } catch (err) {
-    console.error(
-      '[auth-bridge] GitHub sync error:',
-      err.message
-    );
+  if (user?.services?.github || user?.services?.google) {
+    const email = user.services?.github?.email || user.services?.google?.email || user.emails?.[0]?.address;
+    console.log('[auth-bridge] OAuth user logged in:', email);
   }
-  
-  // Google sync
+
+  // Auto-join default organization if user has no org memberships
   try {
-    if (user?.services?.google) {
-      const email = user.services.google.email ||
-                    user.emails?.[0]?.address;
-      if (email) {
-        const name = user.services.google.name || email;
-        await db.collection('user').updateOne(
-          { email: email.toLowerCase() },
-          {
-            $set: { updatedAt: new Date(), name },
-            $setOnInsert: {
-              email: email.toLowerCase(),
-              emailVerified: true,
-              createdAt: new Date()
-            }
-          },
-          { upsert: true }
-        );
-        console.log(
-          '[auth-bridge] synced Google user to Fastify collection:',
-          email
-        );
-      }
+    const userId = user._id;
+    const { rawDb } = await import('./collections');
+    const db = rawDb();
+    
+    // Check if user already has any org memberships
+    const existingMembership = await db.collection('org_members').findOne({ userId });
+    if (existingMembership) {
+      console.log('[auth-bridge] user already has org membership, skipping auto-join');
+      return;
     }
+
+    // Find default org with allowAutoJoin enabled
+    const defaultOrg = await db.collection('organizations').findOne({ 
+      slug: process.env.DEFAULT_ORG_KEY || 'default',
+      allowAutoJoin: true
+    });
+    
+    if (!defaultOrg) {
+      console.log('[auth-bridge] no default org with auto-join enabled');
+      return;
+    }
+
+    // Add user to default org as member
+    const { ObjectId } = await import('mongodb');
+    const now = new Date();
+    await db.collection('org_members').insertOne({
+      _id: new ObjectId(),
+      orgId: defaultOrg._id.toHexString(),
+      userId,
+      role: 'member',
+      auto: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+    
+    console.log(`[auth-bridge] auto-joined user ${userId} to org ${defaultOrg.name}`);
   } catch (err) {
-    console.error(
-      '[auth-bridge] Google sync error:',
-      err.message
-    );
+    console.error('[auth-bridge] auto-join error:', err.message);
+    // Don't fail login if auto-join fails
   }
 });
 
@@ -431,17 +408,6 @@ Meteor.methods({
     if (this.userId) throw new Meteor.Error('already-logged-in', 'Already logged in');
     
     const normalizedEmail = email.toLowerCase().trim();
-    
-    // Check if user already exists in Fastify collection
-    const db = rawDb();
-    const existingFastify = await db.collection('user').findOne({ email: normalizedEmail });
-    if (existingFastify) {
-      throw new Meteor.Error('email-exists', 'An account with this email already exists');
-    }
-    // Check if email is blocked
-    if (existingFastify?.blocked?.length > 0) {
-      throw new Meteor.Error('blocked-email', 'This email address cannot be used to create an account');
-    }
     
     // Create in Meteor Accounts (accounts-password handles password hashing)
     let userId;
@@ -458,32 +424,29 @@ Meteor.methods({
       throw err;
     }
     
-    // Sync to Fastify user collection with same _id
-    await db.collection('user').insertOne({
-      _id: userId,  // keep as string to match Meteor's _id
-      email: normalizedEmail,
-      name: name || normalizedEmail,
-      emailVerified: false,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    });
-    
     console.log('[auth-bridge] created new user via accounts.createUser:', userId);
     return { userId };
   },
 
   'accounts.sendResetPasswordEmail': async function({ email }) {
+    if (!email || typeof email !== 'string') {
+      throw new Meteor.Error('invalid-params', 'Email is required');
+    }
     const normalizedEmail = email.toLowerCase().trim();
     const user = await Meteor.users.findOneAsync({ 'emails.address': normalizedEmail });
-    if (!user) {
-      // Don't reveal if email exists
-      return { ok: true };
-    }
-    if (!process.env.SMTP_HOST) {
-      throw new Meteor.Error('smtp-not-configured', 
+    // Don't reveal if email exists — always return ok
+    if (!user) return { ok: true };
+
+    if (!process.env.MAIL_URL) {
+      throw new Meteor.Error('smtp-not-configured',
         'Password reset emails are not configured yet. Please contact your administrator.');
     }
-    await Accounts.sendResetPasswordEmail(user._id);
+    try {
+      await Accounts.sendResetPasswordEmail(user._id);
+    } catch (err) {
+      console.error('[auth-bridge] sendResetPasswordEmail failed:', err);
+      throw new Meteor.Error('send-failed', 'Failed to send reset email. Please try again later.');
+    }
     return { ok: true };
   },
 
@@ -491,7 +454,26 @@ Meteor.methods({
     if (!token || !newPassword) {
       throw new Meteor.Error('invalid-params', 'Token and new password are required');
     }
-    await Accounts.resetPassword(token, newPassword);
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      throw new Meteor.Error('weak-password', 'Password must be at least 8 characters');
+    }
+    // Server-side reset: Accounts.resetPassword is client-only. We look up the
+    // user by the reset token stored in services.password.reset, verify it
+    // hasn't expired, set the new password, and remove the reset token.
+    const user = await Meteor.users.findOneAsync({ 'services.password.reset.token': token });
+    if (!user) {
+      throw new Meteor.Error('invalid-token', 'Invalid or expired reset token');
+    }
+    const resetInfo = user.services?.password?.reset;
+    const expirationMs = (Accounts._options.passwordResetTokenExpirationInDays ?? 3) * 24 * 60 * 60 * 1000;
+    if (resetInfo?.when && Date.now() - new Date(resetInfo.when).getTime() > expirationMs) {
+      throw new Meteor.Error('expired-token', 'Reset token has expired');
+    }
+    await Accounts.setPasswordAsync(user._id, newPassword, { logout: true });
+    // Clear the reset token so it can't be reused
+    await Meteor.users.updateAsync(user._id, {
+      $unset: { 'services.password.reset': '' },
+    });
     return { ok: true };
   },
 
@@ -500,16 +482,13 @@ Meteor.methods({
     const user = await Meteor.users.findOneAsync(this.userId);
     if (!user) return null;
     const email = user.emails?.[0]?.address || '';
-    // Also fetch username and extra fields from Fastify user collection
-    const db = rawDb();
-    const fastifyUser = await db.collection('user').findOne({ email: email.toLowerCase() });
     return {
       id: this.userId,
       email,
-      name: user.profile?.name || fastifyUser?.name || email || 'Unknown',
-      username: user.username || fastifyUser?.username || null,
-      image: fastifyUser?.image || null,
-      emailVerified: fastifyUser?.emailVerified ?? true
+      name: user.profile?.name || email || 'Unknown',
+      username: user.username || null,
+      image: user.image || null,
+      emailVerified: user.emails?.[0]?.verified ?? false
     };
   }
 });
@@ -527,13 +506,21 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
   // Find user directly via MongoDB
   let user = await Meteor.users.findOneAsync({ 'emails.address': normalizedEmail });
 
-  // Path 1: Meteor user exists with bcrypt hash — verify natively
+  // Path 1: Meteor user exists with bcrypt hash — verify natively.
+  // Meteor's Accounts.setPasswordAsync stores bcrypt(sha256hex(password)), so
+  // we must try both the raw password AND its sha256 digest (computed here if
+  // the client couldn't send one, e.g. non-secure browser context where
+  // crypto.subtle is undefined).
   const storedBcrypt = user?.services?.password?.bcrypt;
   if (storedBcrypt) {
     const bcrypt = Npm.require('bcrypt');
-    let match = await bcrypt.compare(password.raw, storedBcrypt);
+    const clientDigest = password.digest && password.digest.length > 0
+      ? password.digest
+      : createHash('sha256').update(password.raw).digest('hex');
+    let match = await bcrypt.compare(clientDigest, storedBcrypt);
     if (!match) {
-      match = await bcrypt.compare(password.digest, storedBcrypt);
+      // Legacy: some users may have bcrypt of the raw password (from Fastify migration path).
+      match = await bcrypt.compare(password.raw, storedBcrypt);
     }
     if (!match) throw new Meteor.Error(403, 'Invalid email or password');
     const blockCheck = await checkUserBlocking(String(user._id));

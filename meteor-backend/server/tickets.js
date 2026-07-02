@@ -23,9 +23,9 @@ const ALL_PRIORITIES = ['low', 'medium', 'high', 'critical'];
 /** Mirror of backend activity.service.ts getActor(). */
 async function getActor(userId) {
   const user = isValidId(userId)
-    ? await rawDb().collection('user').findOne({ _id: new ObjectId(userId) })
+    ? await rawDb().collection('users').findOne({ _id: String(userId) })
     : null;
-  return { id: userId, name: user?.name ?? user?.email?.split('@')[0] ?? 'Someone' };
+  return { id: userId, name: user?.profile?.name ?? user?.emails?.[0]?.address?.split('@')[0] ?? 'Someone' };
 }
 
 /**

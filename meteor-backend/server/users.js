@@ -10,9 +10,11 @@ function toId(id) {
 }
 
 async function findUserById(id) {
-  // Try Meteor collection first (new users created via accounts.createUser)
+  // Query Meteor users collection
   const meteorUser = await rawDb().collection('users').findOne({ _id: String(id) });
-  if (meteorUser) return {
+  if (!meteorUser) return null;
+  
+  return {
     _id: meteorUser._id,
     name: meteorUser.profile?.name ?? null,
     email: meteorUser.emails?.[0]?.address ?? null,
@@ -22,8 +24,6 @@ async function findUserById(id) {
     website: meteorUser.website ?? '',
     reportsToUserId: meteorUser.reportsToUserId ?? null,
   };
-  // Fall back to Fastify collection (old migrated users)
-  return await rawDb().collection('user').findOne({ _id: toId(String(id)) }) ?? null;
 }
 
 const BLOCKED_USERNAMES = new Set([
@@ -112,11 +112,10 @@ Meteor.methods({
     if (typeof username !== 'string' || !username.trim()) {
       throw new Meteor.Error('bad-request', 'username is required');
     }
-    const user = await rawDb().collection('user').findOne({ username: username.toLowerCase() })
-                 ?? await rawDb().collection('users').findOne({ username: username.toLowerCase() });
+    const user = await rawDb().collection('users').findOne({ username: username.toLowerCase() });
     if (!user) throw new Meteor.Error('not-found', 'User not found');
 
-    const targetId = user._id.toHexString();
+    const targetId = String(user._id);
     const sharedTeamDocs = userId !== targetId
       ? await Teams.rawCollection().find({
           members: { $all: [userId, targetId] },
@@ -139,9 +138,8 @@ Meteor.methods({
     const validIds = ids.slice(0, 200).filter(isValidId);
     if (validIds.length === 0) return { users: [] };
 
-    const fastifyUsers = await rawDb().collection('user').find({ _id: { $in: validIds.map(toId) } }).toArray();
     const meteorUsers = await rawDb().collection('users').find({ _id: { $in: validIds.map(String) } }).toArray();
-    const normalizedMeteor = meteorUsers.map(u => ({
+    const users = meteorUsers.map(u => ({
       _id: u._id,
       name: u.profile?.name ?? null,
       email: u.emails?.[0]?.address ?? null,
@@ -151,9 +149,7 @@ Meteor.methods({
       website: u.website ?? '',
       reportsToUserId: u.reportsToUserId ?? null,
     }));
-    const fastifyIds = new Set(fastifyUsers.map(u => String(u._id)));
-    const users = [...fastifyUsers, ...normalizedMeteor.filter(u => !fastifyIds.has(String(u._id)))];
-    const userIds = users.map((u) => u._id.toHexString ? u._id.toHexString() : String(u._id));
+    const userIds = users.map((u) => String(u._id));
     const profiles = await rawDb()
       .collection('profiles')
       .find({ userId: { $in: userIds }, app: 'timeharbor' })
@@ -189,10 +185,7 @@ Meteor.methods({
     if (website !== undefined) $set.website = website;
     if (reportsToUserId !== undefined) $set.reportsToUserId = reportsToUserId;
 
-    const meteorResult = await rawDb().collection('users').updateOne({ _id: String(userId) }, { $set });
-    if (meteorResult.matchedCount === 0) {
-      await rawDb().collection('user').updateOne({ _id: toId(userId) }, { $set });
-    }
+    await rawDb().collection('users').updateOne({ _id: String(userId) }, { $set });
     const updated = await findUserById(userId);
     return { user: await toPublicUser(updated) };
   },
@@ -204,9 +197,8 @@ Meteor.methods({
     const normalized = username.trim().toLowerCase();
     const formatError = validateUsernameFormat(normalized);
     if (formatError) return { available: false, reason: formatError };
-    const existingFastify = await rawDb().collection('user').findOne({ username: normalized });
-    const existingMeteor = await rawDb().collection('users').findOne({ username: normalized });
-    if (existingFastify || existingMeteor) return { available: false, reason: 'taken' };
+    const existing = await rawDb().collection('users').findOne({ username: normalized });
+    if (existing) return { available: false, reason: 'taken' };
     return { available: true };
   },
 

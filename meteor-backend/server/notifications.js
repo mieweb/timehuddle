@@ -110,15 +110,13 @@ Meteor.methods({
     const inviterId = notification.data?.inviterId ?? notification.notificationData?.inviterId;
     let inviter = null;
     if (inviterId) {
-      const u = await rawDb().collection('users').findOne({ _id: String(inviterId) })
-        ?? await rawDb().collection('user').findOne({ _id: toId(inviterId) });
-      if (u) inviter = { id: inviterId, name: u.profile?.name ?? u.name, email: u.emails?.[0]?.address ?? u.email };
+      const u = await rawDb().collection('users').findOne({ _id: String(inviterId) });
+      if (u) inviter = { id: inviterId, name: u.profile?.name, email: u.emails?.[0]?.address };
     }
     const memberIds = [...(team.members ?? []), ...(team.admins ?? [])];
     const members = await Promise.all(memberIds.slice(0, 5).map(async (uid) => {
-      const u = await rawDb().collection('users').findOne({ _id: String(uid) })
-        ?? await rawDb().collection('user').findOne({ _id: toId(uid) });
-      return u ? { id: uid, name: u.profile?.name ?? u.name, email: u.emails?.[0]?.address ?? u.email } : null;
+      const u = await rawDb().collection('users').findOne({ _id: String(uid) });
+      return u ? { id: uid, name: u.profile?.name, email: u.emails?.[0]?.address } : null;
     }));
     const alreadyMember = memberIds.includes(userId);
     return {

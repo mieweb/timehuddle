@@ -195,8 +195,8 @@ Meteor.methods({
       throw new Meteor.Error('forbidden', 'No access to this channel');
     }
 
-    const sender = await rawDb().collection('user').findOne({ _id: new ObjectId(userId) });
-    const senderName = sender?.name ?? sender?.email?.split('@')[0] ?? 'Unknown';
+    const sender = await rawDb().collection('users').findOne({ _id: String(userId) });
+    const senderName = sender?.profile?.name ?? sender?.emails?.[0]?.address?.split('@')[0] ?? 'Unknown';
 
     const doc = {
       _id: new ObjectId(),

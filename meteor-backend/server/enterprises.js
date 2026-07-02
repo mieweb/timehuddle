@@ -13,16 +13,15 @@ function slugify(value) {
 async function resolveMembers(owners, admins) {
   const allIds = [...new Set([...owners, ...admins])];
   if (allIds.length === 0) return [];
-  const validIds = allIds.filter(isValidId).map((id) => new ObjectId(id));
-  const users = await rawDb().collection('user')
-    .find({ _id: { $in: validIds } }, { projection: { _id: 1, name: 1, username: 1 } })
+  const users = await rawDb().collection('users')
+    .find({ _id: { $in: allIds.map(String) } }, { projection: { _id: 1, profile: 1, username: 1 } })
     .toArray();
-  const byId = new Map(users.map((u) => [u._id.toHexString(), u]));
+  const byId = new Map(users.map((u) => [String(u._id), u]));
   return allIds.map((id) => {
-    const u = byId.get(id);
+    const u = byId.get(String(id));
     return {
       id,
-      name: u?.name ?? id,
+      name: u?.profile?.name ?? id,
       username: u?.username ?? null,
       role: owners.includes(id) ? 'owner' : 'admin',
     };
@@ -153,17 +152,17 @@ Meteor.methods({
     const query = (q ?? '').trim();
     const filter = query
       ? { $or: [
-          { name: { $regex: query, $options: 'i' } },
+          { 'profile.name': { $regex: query, $options: 'i' } },
           { username: { $regex: query, $options: 'i' } },
-          { email: { $regex: query, $options: 'i' } },
+          { 'emails.address': { $regex: query, $options: 'i' } },
         ] }
       : {};
-    const users = await rawDb().collection('user')
-      .find(filter, { projection: { _id: 1, name: 1, username: 1 } })
-      .sort({ name: 1 })
+    const users = await rawDb().collection('users')
+      .find(filter, { projection: { _id: 1, profile: 1, username: 1 } })
+      .sort({ 'profile.name': 1 })
       .limit(20)
       .toArray();
-    return { users: users.map((u) => ({ id: u._id.toHexString(), name: u.name, username: u.username ?? null })) };
+    return { users: users.map((u) => ({ id: String(u._id), name: u.profile?.name, username: u.username ?? null })) };
   },
 
   async 'enterprises.setMemberRole'({ enterpriseId, userId: targetUserId, role }) {

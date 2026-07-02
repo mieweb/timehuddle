@@ -38,15 +38,10 @@ async function canModifyPost(userId, post, team) {
 
 // Enrichment helpers
 async function getUserInfo(userId) {
-  // Try Meteor users collection first (string ID)
-  let user = await rawDb().collection('users').findOne({ _id: String(userId) });
+  // Query Meteor users collection
+  const user = await rawDb().collection('users').findOne({ _id: String(userId) });
   
-  // Fallback to Fastify user collection (ObjectId)
-  if (!user) {
-    user = await rawDb().collection('user').findOne({ _id: toId(userId) });
-  }
-  
-  const userName = user?.profile?.name ?? user?.name ?? 'Unknown User';
+  const userName = user?.profile?.name ?? 'Unknown User';
   const words = userName.trim().split(/\s+/);
   const userInitials = words.length >= 2
     ? (words[0][0] + words[words.length - 1][0]).toUpperCase()
@@ -261,9 +256,8 @@ Meteor.methods({
     // Validate mentions if provided
     if (content.mentions && Array.isArray(content.mentions)) {
       for (const mentionedUserId of content.mentions) {
-        const meteorUser = await rawDb().collection('users').findOne({ _id: String(mentionedUserId) });
-        const fastifyUser = meteorUser ? null : await rawDb().collection('user').findOne({ _id: toId(mentionedUserId) });
-        if (!meteorUser && !fastifyUser) {
+        const user = await rawDb().collection('users').findOne({ _id: String(mentionedUserId) });
+        if (!user) {
           throw new Meteor.Error('not-found', `User ${mentionedUserId} not found`);
         }
       }
@@ -319,9 +313,8 @@ Meteor.methods({
     // Validate mentions if provided
     if (content.mentions && Array.isArray(content.mentions)) {
       for (const mentionedUserId of content.mentions) {
-        const meteorUser = await rawDb().collection('users').findOne({ _id: String(mentionedUserId) });
-        const fastifyUser = meteorUser ? null : await rawDb().collection('user').findOne({ _id: toId(mentionedUserId) });
-        if (!meteorUser && !fastifyUser) {
+        const user = await rawDb().collection('users').findOne({ _id: String(mentionedUserId) });
+        if (!user) {
           throw new Meteor.Error('not-found', `User ${mentionedUserId} not found`);
         }
       }

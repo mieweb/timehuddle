@@ -227,10 +227,9 @@ Meteor.methods({
 
     const requestId = doc._id.toHexString();
 
-    // Notify admins — use toId() to support both Meteor and Fastify user IDs
-    const requester = await rawDb().collection('user').findOne({ _id: toId(identity.userId) })
-      ?? await rawDb().collection('users').findOne({ _id: identity.userId });
-    const requesterName = requester?.name ?? requester?.profile?.name ?? 'Someone';
+    // Notify admins
+    const requester = await rawDb().collection('users').findOne({ _id: String(identity.userId) });
+    const requesterName = requester?.profile?.name ?? 'Someone';
 
     for (const adminId of (team.admins || [])) {
       createNotification({
@@ -318,20 +317,12 @@ Meteor.methods({
 
     const allIds = Array.from(new Set([...team.members, ...team.admins]));
     
-    // Fetch from both collections
-    const fastifyIds = allIds.filter(id => /^[0-9a-f]{24}$/i.test(id)).map(id => new ObjectId(id));
-    const fastifyUsers = fastifyIds.length
-      ? await rawDb().collection('user').find({ _id: { $in: fastifyIds } }).toArray()
-      : [];
-    const meteorUsers = await rawDb().collection('users').find({ _id: { $in: allIds } }).toArray();
+    // Fetch from Meteor users collection
+    const users = await rawDb().collection('users').find({ _id: { $in: allIds.map(String) } }).toArray();
 
     const byId = new Map();
-    for (const u of fastifyUsers) byId.set(u._id.toHexString(), { 
-      name: u.name, email: u.email, username: u.username, image: u.image 
-    });
-    for (const u of meteorUsers) {
-      const id = String(u._id);
-      if (!byId.has(id)) byId.set(id, {
+    for (const u of users) {
+      byId.set(String(u._id), {
         name: u.profile?.name ?? null,
         email: u.emails?.[0]?.address ?? '',
         username: u.username ?? null,
@@ -367,19 +358,13 @@ Meteor.methods({
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
 
-    // Check both Better Auth and Meteor user collections
+    // Check Meteor users collection
     const normalizedEmail = email.trim();
-    const [baUser, meteorUser] = await Promise.all([
-      rawDb().collection('user').findOne({ email: normalizedEmail }),
-      rawDb().collection('users').findOne({ 'emails.address': normalizedEmail })
-    ]);
+    const meteorUser = await rawDb().collection('users').findOne({ 'emails.address': normalizedEmail });
 
     let invitedId;
-    if (baUser) {
-      // Better Auth 'user' collection can have ObjectId (native BA) or string (Meteor-synced)
-      invitedId = typeof baUser._id === 'string' ? baUser._id : baUser._id.toHexString();
-    } else if (meteorUser) {
-      invitedId = meteorUser._id; // Meteor uses string IDs
+    if (meteorUser) {
+      invitedId = String(meteorUser._id);
     } else {
       throw new Meteor.Error('user-not-found', 'User not found');
     }

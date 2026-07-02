@@ -651,16 +651,13 @@ Meteor.methods({
     const meteorIds = allMemberIds.filter((id) => !/^[0-9a-f]{24}$/i.test(id));
     const legacyIds = allMemberIds.filter((id) => /^[0-9a-f]{24}$/i.test(id));
 
-    const [meteorUsers, legacyUsers] = await Promise.all([
-      meteorIds.length > 0
-        ? rawDb().collection('users').find({ _id: { $in: meteorIds } }).project({ image: 1 }).toArray()
-        : Promise.resolve([]),
-      legacyIds.length > 0
-        ? rawDb().collection('user').find({ _id: { $in: legacyIds.map((id) => new ObjectId(id)) } }).project({ image: 1 }).toArray()
-        : Promise.resolve([]),
-    ]);
+    // Query all users from Meteor users collection
+    const allUserIds = [...meteorIds, ...legacyIds].filter(id => id);
+    const users = allUserIds.length > 0
+      ? await rawDb().collection('users').find({ _id: { $in: allUserIds.map(String) } }).project({ image: 1 }).toArray()
+      : [];
 
-    const meteorImageMap = new Map(meteorUsers.map((u) => [String(u._id), u.image ?? null]));
+    const meteorImageMap = new Map(users.map((u) => [String(u._id), u.image ?? null]));
     const legacyImageMap = new Map(legacyUsers.map((u) => [u._id.toHexString(), u.image ?? null]));
 
     // Group clock events by userId

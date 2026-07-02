@@ -225,16 +225,12 @@ Meteor.methods({
 
     const userIds = [...new Set(runningTimers.map((t) => t.userId))];
     const db = rawDb();
-    const [meterorUsers, legacyUsers, profiles] = await Promise.all([
-      db.collection('users').find({ _id: { $in: userIds.filter(id => !/^[0-9a-f]{24}$/i.test(id)) } }, { projection: { image: 1 } }).toArray(),
-      db.collection('user').find({ _id: { $in: userIds.filter(id => /^[0-9a-f]{24}$/i.test(id)).map(id => new ObjectId(id)) } }, { projection: { image: 1 } }).toArray(),
+    const [users, profiles] = await Promise.all([
+      db.collection('users').find({ _id: { $in: userIds.map(String) } }, { projection: { image: 1 } }).toArray(),
       db.collection('profiles').find({ userId: { $in: userIds }, app: 'timeharbor' }, { projection: { userId: 1, displayName: 1, avatar: 1 } }).toArray(),
     ]);
 
-    const imageMap = new Map([
-      ...meterorUsers.map(u => [String(u._id), u.image ?? null]),
-      ...legacyUsers.map(u => [u._id.toHexString(), u.image ?? null]),
-    ]);
+    const imageMap = new Map(users.map(u => [String(u._id), u.image ?? null]));
     const profileMap = new Map(profiles.map((p) => [p.userId, p]));
     const workItemMap = new Map(runningWorkItems.map((wi) => [wi._id.toHexString(), wi]));
 

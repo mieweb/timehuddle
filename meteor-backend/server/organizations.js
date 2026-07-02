@@ -118,30 +118,14 @@ async function loadOrgMembers(orgId) {
     return { userId, role: 'member', auto: true };
   });
 
-  // Split IDs by type
-  const hexIds = allMembers
-    .filter((m) => /^[0-9a-f]{24}$/i.test(m.userId))
-    .map((m) => new ObjectId(m.userId));
-  const stringIds = allMembers
-    .filter((m) => !/^[0-9a-f]{24}$/i.test(m.userId) && m.userId)
-    .map((m) => m.userId);
+  const memberIds = allMembers.map((m) => String(m.userId)).filter(Boolean);
+  const meteorUsers = memberIds.length > 0
+    ? await db.collection('users')
+        .find({ _id: { $in: memberIds } }, { projection: { profile: 1, emails: 1, username: 1, image: 1, reportsToUserId: 1, blocked: 1 } })
+        .toArray()
+    : [];
 
-  // Query both collections
-  const [fastifyUsers, meteorUsers] = await Promise.all([
-    hexIds.length > 0
-      ? db.collection('user')
-          .find({ _id: { $in: hexIds } }, { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1, blocked: 1 } })
-          .toArray()
-      : [],
-    stringIds.length > 0
-      ? db.collection('users')
-          .find({ _id: { $in: stringIds } }, { projection: { profile: 1, emails: 1, username: 1, image: 1, reportsToUserId: 1, blocked: 1 } })
-          .toArray()
-      : [],
-  ]);
-
-  // Normalize Meteor users to same shape as Fastify users
-  const normalizedMeteorUsers = meteorUsers.map((u) => ({
+  const byId = new Map(meteorUsers.map((u) => [String(u._id), {
     _id: u._id,
     name: u.profile?.name ?? u.username ?? 'Unknown',
     email: u.emails?.[0]?.address ?? '',
@@ -149,13 +133,7 @@ async function loadOrgMembers(orgId) {
     image: u.image ?? null,
     reportsToUserId: u.reportsToUserId ?? null,
     blocked: u.blocked ?? [],
-  }));
-
-  // Build lookup map by id string
-  const byId = new Map([
-    ...fastifyUsers.map((u) => [u._id.toHexString(), u]),
-    ...normalizedMeteorUsers.map((u) => [String(u._id), u]),
-  ]);
+  }]));
 
   return allMembers
     .map((m) => {
@@ -204,10 +182,9 @@ Meteor.methods({
     let orgIds = await getAccessibleOrgIds(userId);
     if (orgIds.length === 0) return { organizations: [] };
 
-    // Filter out blocked orgs — defense in depth matching Fastify
-    const hexUserId = /^[0-9a-f]{24}$/i.test(userId) ? new ObjectId(userId) : userId;
-    const userDoc = await db.collection('user').findOne(
-      { _id: hexUserId },
+    // Filter out blocked orgs
+    const userDoc = await db.collection('users').findOne(
+      { _id: String(userId) },
       { projection: { blocked: 1 } }
     );
     const blockedOrgIds = new Set((userDoc?.blocked ?? []).map((b) => b.orgId));
@@ -388,17 +365,17 @@ Meteor.methods({
     const query = (q ?? '').trim();
     const filter = query
       ? { $or: [
-          { name: { $regex: query, $options: 'i' } },
+          { 'profile.name': { $regex: query, $options: 'i' } },
           { username: { $regex: query, $options: 'i' } },
-          { email: { $regex: query, $options: 'i' } },
+          { 'emails.address': { $regex: query, $options: 'i' } },
         ] }
       : {};
-    const users = await rawDb().collection('user')
-      .find(filter, { projection: { _id: 1, name: 1, username: 1 } })
-      .sort({ name: 1 })
+    const users = await rawDb().collection('users')
+      .find(filter, { projection: { _id: 1, profile: 1, username: 1 } })
+      .sort({ 'profile.name': 1 })
       .limit(20)
       .toArray();
-    return { users: users.map((u) => ({ id: u._id.toHexString(), name: u.name, username: u.username ?? null })) };
+    return { users: users.map((u) => ({ id: String(u._id), name: u.profile?.name ?? 'Unknown', username: u.username ?? null })) };
   },
 
   async 'orgs.setMemberRole'({ orgId, userId, role }) {
@@ -410,7 +387,7 @@ Meteor.methods({
     const db = rawDb();
     const [org, targetUser, membershipDocs] = await Promise.all([
       db.collection('organizations').findOne({ _id: new ObjectId(orgId) }),
-      db.collection('user').findOne({ _id: new ObjectId(userId) }),
+      db.collection('users').findOne({ _id: String(userId) }),
       db.collection('org_members').find({ orgId }).toArray(),
     ]);
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
@@ -440,7 +417,7 @@ Meteor.methods({
     const db = rawDb();
     const [org, targetUser, membershipDocs] = await Promise.all([
       db.collection('organizations').findOne({ _id: new ObjectId(orgId) }),
-      db.collection('user').findOne({ _id: new ObjectId(userId) }),
+      db.collection('users').findOne({ _id: String(userId) }),
       db.collection('org_members').find({ orgId }).toArray(),
     ]);
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
@@ -479,21 +456,13 @@ Meteor.methods({
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
     const access = await buildOrgAccess(userId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
-    
-    // Check both user collections (Better Auth and Meteor)
-    const hexUserId = /^[0-9a-f]{24}$/i.test(targetUserId) ? new ObjectId(targetUserId) : targetUserId;
-    const [targetFastifyUser, targetMeteorUser] = await Promise.all([
-      db.collection('user').findOne({ _id: hexUserId }),
-      db.collection('users').findOne({ _id: String(targetUserId) }),
-    ]);
-    
-    if (!targetFastifyUser && !targetMeteorUser) {
+
+    const targetUser = await db.collection('users').findOne({ _id: String(targetUserId) });
+    if (!targetUser) {
       throw new Meteor.Error('not-found', 'Target user not found');
     }
 
-    // Check if already blocked in either collection
-    const alreadyBlocked = (targetFastifyUser?.blocked ?? []).some((b) => b.orgId === orgId) ||
-                          (targetMeteorUser?.blocked ?? []).some((b) => b.orgId === orgId);
+    const alreadyBlocked = (targetUser.blocked ?? []).some((b) => b.orgId === orgId);
     if (alreadyBlocked) {
       throw new Meteor.Error('already-blocked', 'User is already blocked from this organization');
     }
@@ -504,22 +473,11 @@ Meteor.methods({
       blockedAt: new Date(),
       reason: reason ?? null,
     };
-    
-    // Update BOTH collections if user exists in both (handles dual-collection scenario)
-    const updates = [];
-    if (targetFastifyUser) {
-      updates.push(db.collection('user').updateOne(
-        { _id: hexUserId },
-        { $push: { blocked: block } }
-      ));
-    }
-    if (targetMeteorUser) {
-      updates.push(db.collection('users').updateOne(
-        { _id: String(targetUserId) },
-        { $push: { blocked: block } }
-      ));
-    }
-    await Promise.all(updates);
+
+    await db.collection('users').updateOne(
+      { _id: String(targetUserId) },
+      { $push: { blocked: block } }
+    );
 
     // Remove from all teams in this org
     await db.collection('teams').updateMany(
@@ -537,7 +495,6 @@ Meteor.methods({
     );
 
     // Fire-and-forget activity
-    const targetUser = targetFastifyUser ?? targetMeteorUser;
     void emitActivity({
       type: ActivityType.OrgMemberBlocked,
       userId: targetUserId,
@@ -546,7 +503,7 @@ Meteor.methods({
         orgId,
         orgName: org.name,
         targetUserId,
-        targetUserName: targetUser.name ?? targetUser.profile?.name ?? targetUser.email ?? targetUser.emails?.[0]?.address ?? 'Unknown',
+        targetUserName: targetUser.profile?.name ?? targetUser.emails?.[0]?.address ?? 'Unknown',
         reason: reason ?? null,
       },
     });
@@ -574,46 +531,23 @@ Meteor.methods({
     if (!org) throw new Meteor.Error('not-found', 'Organization not found');
     const access = await buildOrgAccess(userId, org);
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
-    
-    // Check both user collections (Better Auth and Meteor)
-    const hexUserId = /^[0-9a-f]{24}$/i.test(targetUserId) ? new ObjectId(targetUserId) : targetUserId;
-    const [targetFastifyUser, targetMeteorUser] = await Promise.all([
-      db.collection('user').findOne({ _id: hexUserId }),
-      db.collection('users').findOne({ _id: String(targetUserId) }),
-    ]);
-    
-    if (!targetFastifyUser && !targetMeteorUser) {
+
+    const targetUser = await db.collection('users').findOne({ _id: String(targetUserId) });
+    if (!targetUser) {
       throw new Meteor.Error('not-found', 'Target user not found');
     }
 
-    // Check if blocked in either collection
-    const isBlocked = (targetFastifyUser?.blocked ?? []).some((b) => b.orgId === orgId) ||
-                     (targetMeteorUser?.blocked ?? []).some((b) => b.orgId === orgId);
+    const isBlocked = (targetUser.blocked ?? []).some((b) => b.orgId === orgId);
     if (!isBlocked) {
       throw new Meteor.Error('not-blocked', 'User is not blocked from this organization');
     }
 
-    // Update BOTH collections if user exists in both (handles dual-collection scenario)
-    const updates = [];
-    if (targetFastifyUser) {
-      updates.push(db.collection('user').updateOne(
-        { _id: hexUserId },
-        { $pull: { blocked: { orgId } } }
-      ));
-    }
-    if (targetMeteorUser) {
-      updates.push(db.collection('users').updateOne(
-        { _id: String(targetUserId) },
-        { $pull: { blocked: { orgId } } }
-      ));
-    }
-    await Promise.all(updates);
-
-    // User should already be in org_members (we don't delete it on block anymore)
-    // No need to re-add them
+    await db.collection('users').updateOne(
+      { _id: String(targetUserId) },
+      { $pull: { blocked: { orgId } } }
+    );
 
     // Fire-and-forget activity
-    const targetUser = targetFastifyUser ?? targetMeteorUser;
     void emitActivity({
       type: ActivityType.OrgMemberUnblocked,
       userId: targetUserId,
@@ -622,7 +556,7 @@ Meteor.methods({
         orgId,
         orgName: org.name,
         targetUserId,
-        targetUserName: targetUser.name ?? targetUser.profile?.name ?? targetUser.email ?? targetUser.emails?.[0]?.address ?? 'Unknown',
+        targetUserName: targetUser.profile?.name ?? targetUser.emails?.[0]?.address ?? 'Unknown',
       },
     });
 
@@ -649,8 +583,8 @@ Meteor.methods({
       if (!rtMembership) throw new Meteor.Error('not-found', 'Reports-to user not in org');
     }
 
-    await rawDb().collection('user').updateOne(
-      { _id: new ObjectId(userId) },
+    await rawDb().collection('users').updateOne(
+      { _id: String(userId) },
       { $set: { reportsToUserId: reportsToUserId ?? null, updatedAt: new Date() } },
     );
     return { user: { id: userId, reportsToUserId: reportsToUserId ?? null } };
@@ -661,17 +595,17 @@ Meteor.methods({
     const currentUserId = identity.userId;
     if (!isValidId(userId)) throw new Meteor.Error('not-found', 'Invalid userId');
     const defaultOrg = await requireDefaultOrgAdmin(currentUserId);
-    const user = await rawDb().collection('user').findOne({ _id: new ObjectId(userId) });
+    const user = await rawDb().collection('users').findOne({ _id: String(userId) });
     if (!user) throw new Meteor.Error('not-found', 'User not found');
 
     if (reportsToUserId !== undefined && reportsToUserId !== null) {
       if (!isValidId(reportsToUserId)) throw new Meteor.Error('not-found', 'Reports-to user not found');
-      const rtUser = await rawDb().collection('user').findOne({ _id: new ObjectId(reportsToUserId) });
+      const rtUser = await rawDb().collection('users').findOne({ _id: String(reportsToUserId) });
       if (!rtUser) throw new Meteor.Error('not-found', 'Reports-to user not found');
     }
 
-    await rawDb().collection('user').updateOne(
-      { _id: new ObjectId(userId) },
+    await rawDb().collection('users').updateOne(
+      { _id: String(userId) },
       { $set: { reportsToUserId: reportsToUserId ?? null, updatedAt: new Date() } },
     );
     return { user: { userId, reportsToUserId: reportsToUserId ?? null } };
@@ -688,50 +622,21 @@ Meteor.methods({
     if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
 
     // Find all users who have this orgId in their blocked array
-    const [fastifyUsers, meteorUsers] = await Promise.all([
-      db.collection('user')
-        .find(
-          { blocked: { $elemMatch: { orgId } } },
-          { projection: { name: 1, email: 1, username: 1, image: 1, blocked: 1 } }
-        )
-        .toArray(),
-      db.collection('users')
-        .find(
-          { blocked: { $elemMatch: { orgId } } },
-          { projection: { profile: 1, emails: 1, username: 1, image: 1, blocked: 1 } }
-        )
-        .toArray(),
-    ]);
+    const blockedUsers = await db.collection('users')
+      .find(
+        { blocked: { $elemMatch: { orgId } } },
+        { projection: { profile: 1, emails: 1, username: 1, image: 1, blocked: 1 } }
+      )
+      .toArray();
 
-    // Normalize Meteor users
-    const normalizedMeteorUsers = meteorUsers.map((u) => ({
-      _id: u._id,
+    const allBlockedUsers = blockedUsers.map((u) => ({
+      id: String(u._id),
       name: u.profile?.name ?? u.username ?? 'Unknown',
       email: u.emails?.[0]?.address ?? '',
       username: u.username ?? null,
       image: u.image ?? null,
       blocked: u.blocked ?? [],
     }));
-
-    // Combine and format
-    const allBlockedUsers = [
-      ...fastifyUsers.map((u) => ({
-        id: u._id.toHexString(),
-        name: u.name,
-        email: u.email,
-        username: u.username ?? null,
-        image: u.image ?? null,
-        blocked: u.blocked ?? [],
-      })),
-      ...normalizedMeteorUsers.map((u) => ({
-        id: String(u._id),
-        name: u.name,
-        email: u.email,
-        username: u.username,
-        image: u.image,
-        blocked: u.blocked,
-      })),
-    ];
 
     return { users: allBlockedUsers };
   },
@@ -772,20 +677,20 @@ Meteor.methods({
     const defaultOrg = await requireDefaultOrgAdmin(userId);
     const owners = defaultOrg.owners ?? [];
     const admins = defaultOrg.admins ?? [];
-    const users = await rawDb().collection('user')
-      .find({}, { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } })
-      .sort({ name: 1, email: 1 })
+    const users = await rawDb().collection('users')
+      .find({}, { projection: { profile: 1, emails: 1, username: 1, image: 1, reportsToUserId: 1 } })
+      .sort({ 'profile.name': 1 })
       .limit(500)
       .toArray();
     return {
       users: users.map((u) => ({
-        id: u._id.toHexString(),
-        name: u.name,
-        email: u.email,
+        id: String(u._id),
+        name: u.profile?.name ?? 'Unknown',
+        email: u.emails?.[0]?.address ?? '',
         username: u.username ?? null,
         image: u.image ?? null,
         reportsToUserId: u.reportsToUserId ?? null,
-        role: resolveDefaultOrgRole(owners, admins, u._id.toHexString()),
+        role: resolveDefaultOrgRole(owners, admins, String(u._id)),
       })),
     };
   },
@@ -797,7 +702,7 @@ Meteor.methods({
     if (!['owner', 'admin', 'member'].includes(role)) throw new Meteor.Error('bad-request', 'Invalid role');
     const defaultOrg = await requireDefaultOrgAdmin(currentUserId);
     const db = rawDb();
-    const targetUser = await db.collection('user').findOne({ _id: new ObjectId(userId) });
+    const targetUser = await db.collection('users').findOne({ _id: String(userId) });
     if (!targetUser) throw new Meteor.Error('not-found', 'User not found');
 
     const owners = new Set(defaultOrg.owners ?? []);
@@ -834,20 +739,20 @@ Meteor.methods({
     if (!defaultOrg) throw new Meteor.Error('not-found', 'Organization not found');
     const owners = defaultOrg.owners ?? [];
     const admins = defaultOrg.admins ?? [];
-    const users = await rawDb().collection('user')
-      .find({}, { projection: { name: 1, email: 1, username: 1, image: 1, reportsToUserId: 1 } })
-      .sort({ name: 1, email: 1 })
+    const users = await rawDb().collection('users')
+      .find({}, { projection: { profile: 1, emails: 1, username: 1, image: 1, reportsToUserId: 1 } })
+      .sort({ 'profile.name': 1 })
       .limit(500)
       .toArray();
     return {
       users: users.map((u) => ({
-        id: u._id.toHexString(),
-        name: u.name,
-        email: u.email,
+        id: String(u._id),
+        name: u.profile?.name ?? 'Unknown',
+        email: u.emails?.[0]?.address ?? '',
         username: u.username ?? null,
         image: u.image ?? null,
         reportsToUserId: u.reportsToUserId ?? null,
-        role: resolveDefaultOrgRole(owners, admins, u._id.toHexString()),
+        role: resolveDefaultOrgRole(owners, admins, String(u._id)),
       })),
     };
   },
