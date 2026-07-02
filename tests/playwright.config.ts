@@ -3,15 +3,23 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './e2e',
   testIgnore: [],
-  
-  // Run tests in parallel for speed
-  fullyParallel: true,
+
+  // Runs once before all workers — provisions the @test.local seed users so
+  // the suite is hermetic and safe to re-run against a fresh dev DB.
+  globalSetup: require.resolve('./e2e/global-setup.ts'),
+
+  // Runs once after all workers finish — removes test users and data.
+  // Set SKIP_CLEANUP=1 to keep test data (e.g. in production or for debugging).
+  globalTeardown: require.resolve('./e2e/global-teardown.ts'),
+
+  // Run tests serially — one test after another to avoid DB contention
+  fullyParallel: false,
   
   // Retry failed tests once
   retries: 1,
   
-  // Limit workers to avoid DB contention
-  workers: 2,
+  // Single worker — sequential execution
+  workers: 1,
   
   // Reporter
   reporter: [['list'], ['html', { outputFolder: '../playwright-report' }]],
