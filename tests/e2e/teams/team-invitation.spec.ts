@@ -393,8 +393,6 @@ test.describe('Team Invitation with Org Membership', () => {
       expect(fixedMembership.role).toBe('member');
       expect(fixedMembership.auto).toBe(true);
 
-      console.log('✅ Test passed: Migration script logic correctly identifies and fixes missing org_members records');
-
     } finally {
       // Cleanup
       await db.collection('users').deleteOne({ _id: buggyUserId });
