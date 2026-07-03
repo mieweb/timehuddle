@@ -129,20 +129,6 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     setSelectedMemberId(validInitial ? initialMemberId : members[0].id);
   }, [members, selectedMemberId, initialMemberId]);
 
-  // ── Real-time timesheet updates (Meteor DDP, oplog-backed) ──
-  useEffect(() => {
-    if (!selectedMemberId) return;
-    const ddp = getDdpClient();
-    const offChange = ddp.onCollectionChange('clockevents', () => {
-      void fetchData();
-    });
-    const unsubscribe = ddp.subscribe('clock.liveForUser', [selectedMemberId]);
-    return () => {
-      offChange();
-      unsubscribe();
-    };
-  }, [selectedMemberId, fetchData]);
-
   const fetchData = useCallback(async () => {
     if (!selectedMemberId) return;
     let startMs: number;
@@ -169,6 +155,20 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
       setLoading(false);
     }
   }, [selectedMemberId, preset, customStart, customEnd]);
+
+  // ── Real-time timesheet updates (Meteor DDP, oplog-backed) ──
+  useEffect(() => {
+    if (!selectedMemberId) return;
+    const ddp = getDdpClient();
+    const offChange = ddp.onCollectionChange('clockevents', () => {
+      void fetchData();
+    });
+    const unsubscribe = ddp.subscribe('clock.liveForUser', [selectedMemberId]);
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [selectedMemberId, fetchData]);
 
   // Refetch when member or non-custom preset changes
   useEffect(() => {

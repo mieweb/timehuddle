@@ -124,6 +124,36 @@ export default async function globalSetup(): Promise<void> {
   }
   if (bulk.length > 0) await bulk.execute();
 
+  // Ensure a default non-personal team exists with all seed users as members.
+  const allMemberIds = [...usersByEmail.values()];
+  const adminMemberIds = SEED_USERS.filter((u) => u.role === 'owner' || u.role === 'admin')
+    .map((u) => usersByEmail.get(u.email)!)
+    .filter(Boolean);
+
+  let defaultTeam = await db.collection('teams').findOne({ code: 'TEST01' });
+  if (!defaultTeam) {
+    const teamDoc = {
+      _id: new ObjectId(),
+      name: 'Test Team Alpha',
+      code: 'TEST01',
+      orgId,
+      createdBy: usersByEmail.get('owner1@test.local')!,
+      members: allMemberIds,
+      admins: adminMemberIds,
+      isPersonal: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    await db.collection('teams').insertOne(teamDoc);
+    // eslint-disable-next-line no-console
+    console.log(`[global-setup] ✔ Created team "${teamDoc.name}" code=${teamDoc.code}`);
+  } else {
+    await db.collection('teams').updateOne(
+      { _id: defaultTeam._id },
+      { $set: { members: allMemberIds, admins: adminMemberIds, isPersonal: false } },
+    );
+  }
+
   await client.close();
   // eslint-disable-next-line no-console
   console.log(`[global-setup] ✔ Provisioned ${SEED_USERS.length} @test.local users in org ${orgId}`);

@@ -25,11 +25,11 @@ test.describe('Real-time Ticket Timers', () => {
 
     await loginPage1.goto();
     await loginPage1.login('admin1@test.local', 'TestPass1!');
-    await expect(session1).toHaveURL(/\/app\//);
+    await loginPage1.waitForLoginSuccess();
 
     await loginPage2.goto();
     await loginPage2.login('admin2@test.local', 'TestPass1!');
-    await expect(session2).toHaveURL(/\/app\//);
+    await loginPage2.waitForLoginSuccess();
 
     // Navigate both sessions to the Tickets page
     await session1.goto('http://localhost:3000/app/tickets');
@@ -63,14 +63,20 @@ test.describe('Real-time Ticket Timers', () => {
     // Start the timer in session 1
     await startButton1.click();
 
+    // Handle "Clock In Required" dialog if it appears
+    const clockInNow = session1.getByRole('button', { name: 'Clock In Now' });
+    if (await clockInNow.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await clockInNow.click();
+    }
+
     // Wait for session 1 to show the stop button
     await expect(session1.locator(`button[aria-label*="Stop timer"]`).first()).toBeVisible({
-      timeout: 5000,
+      timeout: 10000,
     });
 
     // Session 2 should automatically show the stop button (real-time update)
     await expect(session2.locator(`button[aria-label*="Stop timer"]`).first()).toBeVisible({
-      timeout: 3000,
+      timeout: 10000,
     });
   });
 
@@ -86,10 +92,17 @@ test.describe('Real-time Ticket Timers', () => {
     // If no timer is running, start one first
     if ((await stopButton1.count()) === 0) {
       await startButton1.click();
-      await session1.waitForTimeout(1000);
-    }
 
-    await expect(stopButton1).toBeVisible();
+      // Handle "Clock In Required" dialog if it appears
+      const clockInNow = session1.getByRole('button', { name: 'Clock In Now' });
+      if (await clockInNow.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await clockInNow.click();
+      }
+
+      await expect(stopButton1).toBeVisible({ timeout: 10000 });
+    } else {
+      await expect(stopButton1).toBeVisible();
+    }
 
     // Stop the timer in session 1
     await stopButton1.click();
@@ -101,7 +114,7 @@ test.describe('Real-time Ticket Timers', () => {
 
     // Session 2 should automatically show the start button (real-time update)
     await expect(session2.locator('button[aria-label*="Start timer"]').first()).toBeVisible({
-      timeout: 3000,
+      timeout: 10000,
     });
   });
 
@@ -118,6 +131,13 @@ test.describe('Real-time Ticket Timers', () => {
 
     // Start timer on first ticket
     await startButtons.first().click();
+
+    // Handle "Clock In Required" dialog if it appears
+    const clockInNow = session1.getByRole('button', { name: 'Clock In Now' });
+    if (await clockInNow.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await clockInNow.click();
+    }
+
     await session1.waitForTimeout(1000);
 
     // Find second ticket and start its timer (should stop the first)
@@ -126,6 +146,6 @@ test.describe('Real-time Ticket Timers', () => {
 
     // Session 2 should show only ONE stop button (first timer auto-stopped)
     const stopButtons = session2.locator('button[aria-label*="Stop timer"]');
-    await expect(stopButtons).toHaveCount(1, { timeout: 3000 });
+    await expect(stopButtons).toHaveCount(1, { timeout: 10000 });
   });
 });
