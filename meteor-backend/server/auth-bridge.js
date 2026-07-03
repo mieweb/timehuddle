@@ -528,45 +528,6 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
     return { userId: user._id };
   }
 
-  // Path 2: No bcrypt hash (or no Meteor user yet) — verify via Fastify
-  const fastifyUrl = process.env.AUTH_FASTIFY_URL || 'http://localhost:4000';
-  try {
-    const authRes = await fetch(`${fastifyUrl}/api/auth/sign-in/email`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Origin': process.env.AUTH_FASTIFY_ORIGIN || 'http://localhost:4000',
-      },
-      body: JSON.stringify({ email: normalizedEmail, password: password.raw })
-    });
-    if (!authRes.ok) throw new Meteor.Error(403, 'Invalid email or password');
-
-    // Ensure Meteor user exists (creates from Fastify user if needed)
-    if (!user) {
-      const userId = await findOrCreateUser(normalizedEmail);
-      user = await Meteor.users.findOneAsync(userId);
-      if (!user) return undefined;
-    }
-
-    // Migration: store bcrypt hash so next login bypasses Fastify
-    try {
-      const bcrypt = Npm.require('bcrypt');
-      const hash = await bcrypt.hash(password.raw, 10);
-      await Meteor.users.updateAsync(
-        { _id: user._id },
-        { $set: { 'services.password.bcrypt': hash } }
-      );
-      console.log('[emailPassword] migrated password hash for:', normalizedEmail);
-    } catch (err) {
-      console.error('[emailPassword] hash migration failed:', err.message);
-    }
-
-    const blockCheck = await checkUserBlocking(String(user._id));
-    if (blockCheck.blocked) throw new Meteor.Error(403, blockCheck.message || 'Account suspended');
-    return { userId: user._id };
-  } catch (err) {
-    if (err instanceof Meteor.Error) throw err;
-    console.error('[emailPassword] Fastify fetch error:', err.message);
-    throw new Meteor.Error(500, 'Login service unavailable');
-  }
+  // No bcrypt hash — user doesn't exist or password not set
+  throw new Meteor.Error(403, 'Invalid email or password');
 });

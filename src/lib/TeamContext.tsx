@@ -13,7 +13,7 @@
  *   • refetchClock     — callable after clock mutations to refresh
  *   • currentTime      — ticks every second for live timers
  */
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   teamApi,
@@ -108,6 +108,7 @@ export const useTeam = () => useContext(TeamCtx);
 export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useSession();
   const userId = user?.id ?? null;
+  const username = user?.username ?? null;
 
   // ── Teams via REST ──────────────────────────────────────────────────────────
 
@@ -174,7 +175,21 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     refetchOrganizations();
-  }, [refetchOrganizations, teamsReady]);
+  }, [refetchOrganizations, teamsReady, username]);
+
+  // Retry org fetch once if empty — handles race condition where
+  // Accounts.onLogin auto-join hasn't completed when the first fetch fires.
+  const orgRetryDone = useRef(false);
+  useEffect(() => {
+    if (!userId) {
+      orgRetryDone.current = false;
+      return;
+    }
+    if (organizations.length > 0 || orgRetryDone.current) return;
+    orgRetryDone.current = true;
+    const timer = setTimeout(refetchOrganizations, 1500);
+    return () => clearTimeout(timer);
+  }, [userId, organizations.length, refetchOrganizations]);
 
   // Real-time DDP subscription for team updates (replaces WebSocket)
   useEffect(() => {
