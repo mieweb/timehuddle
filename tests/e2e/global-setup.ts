@@ -145,7 +145,7 @@ export default async function globalSetup(): Promise<void> {
       updatedAt: new Date(),
     };
     await db.collection('teams').insertOne(teamDoc);
-    // eslint-disable-next-line no-console
+     
     console.log(`[global-setup] ✔ Created team "${teamDoc.name}" code=${teamDoc.code}`);
   } else {
     await db.collection('teams').updateOne(
@@ -180,6 +180,6 @@ export default async function globalSetup(): Promise<void> {
   }
 
   await client.close();
-  // eslint-disable-next-line no-console
+   
   console.log(`[global-setup] ✔ Provisioned ${SEED_USERS.length} @test.local users in org ${orgId}`);
 }

@@ -185,7 +185,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
   return (
     <li
       data-ticket-id={ticket.id}
-      className="group relative flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40"
+      className="group relative flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40 max-md:overflow-visible"
     >
       <TimerToggleButton
         isRunning={isTimerRunning}
@@ -291,7 +291,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
           </div>
         )}
         <Dropdown
-          className="z-1000 bg-white dark:bg-neutral-800"
+          className="z-[99999]"
           open={menuOpen}
           onOpenChange={setMenuOpen}
           trigger={
@@ -306,7 +306,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
           }
           placement="bottom-end"
         >
-          <DropdownContent>
+          <DropdownContent className="max-md:max-w-[calc(100vw-2rem)] md:max-w-xs bg-white dark:bg-neutral-800 shadow-lg border border-neutral-200 dark:border-neutral-700">
             <DropdownItem
               icon={<FontAwesomeIcon icon={faEye} />}
               onClick={() => {
@@ -432,11 +432,11 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
         </button>
       }
       placement={effectivePlacement}
-      className="z-1000 max-w-[calc(100vw-1rem)] bg-white dark:bg-neutral-800"
+      className="z-[9999] max-w-[calc(100vw-1rem)] bg-white dark:bg-neutral-800"
     >
       {/* Clicking any item bubbles up to this div and closes the dropdown */}
       <div onClick={() => handleOpenChange(false)}>
-        <DropdownContent className="max-h-[60vh] overflow-y-auto">{children}</DropdownContent>
+        <DropdownContent className="max-h-[60vh] overflow-y-auto bg-white dark:bg-neutral-800 shadow-lg">{children}</DropdownContent>
       </div>
     </Dropdown>
   );
@@ -813,10 +813,7 @@ export const TicketsPage: React.FC = () => {
   const memberOptions = useMemo(() => {
     const teamId = selectedTeamId ?? teams[0]?.id;
     const members = teamId ? (membersByTeam.get(teamId) ?? []) : [];
-    return [
-      { value: '', label: 'Unassigned' },
-      ...members.map((m) => ({ value: m.id, label: m.name || m.email })),
-    ];
+    return members.map((m) => ({ value: m.id, label: m.name || m.email }));
   }, [membersByTeam, selectedTeamId, teams]);
 
   // Active filter label helpers
@@ -1306,12 +1303,12 @@ export const TicketsPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="scrollbar-mieweb scrollbar-mieweb-visible min-h-0 flex-1 overflow-y-scroll">
+          <div className="scrollbar-mieweb scrollbar-mieweb-visible min-h-0 flex-1 overflow-y-scroll max-md:overflow-x-visible max-md:pb-64">
             {/* Ticket rows */}
             {filteredTickets.length > 0 ? (
               <ul
                 ref={ticketListRef}
-                className="divide-y divide-neutral-100 dark:divide-neutral-800"
+                className="divide-y divide-neutral-100 dark:divide-neutral-800 max-md:overflow-visible"
                 aria-label={statusFilter === 'open' ? 'Open tickets' : 'Closed tickets'}
               >
                 {filteredTickets.map((t) => (

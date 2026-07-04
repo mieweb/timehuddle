@@ -133,6 +133,88 @@ describe('tickets (wormhole)', () => {
     expect(res.result.assignedTo).toContain(memberId);
   });
 
+  it('assigns ticket to multiple users', async () => {
+    const res = await wormhole<{ id: string; assignedTo: string[] }>(
+      'tickets.assign',
+      { ticketId, assignedToUserIds: [ownerId, memberId] },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.assignedTo).toHaveLength(2);
+    expect(res.result.assignedTo).toContain(ownerId);
+    expect(res.result.assignedTo).toContain(memberId);
+  });
+
+  it('unassigns all users from ticket (empty array)', async () => {
+    const res = await wormhole<{ id: string; assignedTo: string[] }>(
+      'tickets.assign',
+      { ticketId, assignedToUserIds: [] },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.assignedTo).toEqual([]);
+  });
+
+  it('reassigns ticket to different user', async () => {
+    // First assign to owner
+    await wormhole('tickets.assign', { ticketId, assignedToUserIds: [ownerId] }, ownerJwt);
+    
+    // Then reassign to member
+    const res = await wormhole<{ id: string; assignedTo: string[] }>(
+      'tickets.assign',
+      { ticketId, assignedToUserIds: [memberId] },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.assignedTo).toHaveLength(1);
+    expect(res.result.assignedTo).toContain(memberId);
+    expect(res.result.assignedTo).not.toContain(ownerId);
+  });
+
+  it('rejects assignment with invalid user ID (empty string)', async () => {
+    const res = await wormhole(
+      'tickets.assign',
+      { ticketId, assignedToUserIds: [''] },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('assignedToUserIds must be an array of user ids');
+  });
+
+  it('rejects assignment with non-array value', async () => {
+    const res = await wormhole(
+      'tickets.assign',
+      { ticketId, assignedToUserIds: 'not-an-array' as any },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('assignedToUserIds must be an array of user ids');
+  });
+
+  it('rejects assignment with invalid user ID format', async () => {
+    const res = await wormhole(
+      'tickets.assign',
+      { ticketId, assignedToUserIds: ['invalid!@#'] },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('assignedToUserIds must be an array of user ids');
+  });
+
+  it('rejects assignment of user not in team', async () => {
+    const db = await getDb();
+    const outsiderDoc = await db.collection('users').findOne({ 'emails.address': OUTSIDER.email });
+    const outsiderId = String(outsiderDoc!._id);
+    
+    const res = await wormhole(
+      'tickets.assign',
+      { ticketId, assignedToUserIds: [outsiderId] },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toContain('All assignees must be team members');
+  });
+
   it('batch updates status', async () => {
     const res = await wormhole<{ modified: number }>(
       'tickets.batchStatus',

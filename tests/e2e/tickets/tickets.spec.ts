@@ -276,4 +276,109 @@ test.describe('Tickets', () => {
     await page.getByRole('button', { name: 'Save' }).click();
     await page.waitForTimeout(2000);
   });
-});
+
+  test('should show dropdown menu within viewport on mobile', async ({ page }) => {
+    // Set mobile viewport (iPhone 12)
+    await page.setViewportSize({ width: 390, height: 844 });
+    
+    await page.goto('/app/tickets');
+    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+
+    // Create a ticket to test the dropdown
+    const mobileTitle = `E2E Mobile Dropdown ${Date.now()}`;
+    await page.getByRole('button', { name: 'New Ticket' }).click();
+    await page.getByPlaceholder('Ticket title').fill(mobileTitle);
+    await page.getByRole('button', { name: 'Create Ticket' }).click();
+    await page.waitForTimeout(2000);
+    await expect(page.getByText(mobileTitle)).toBeVisible({ timeout: 10000 });
+
+    // Find the ticket and click the options menu
+    const ticketRow = page.locator('li').filter({ hasText: mobileTitle }).first();
+    const menuBtn = ticketRow.getByRole('button', { name: 'Ticket options' });
+    
+    // Verify the button is visible on mobile
+    await expect(menuBtn).toBeVisible();
+    
+    // Click to open dropdown
+    await menuBtn.click();
+    await page.waitForTimeout(500);
+
+    // Verify all dropdown items are visible and text is not cut off
+    const dropdownItems = [
+      'Ticket Details',
+      'Edit Ticket',
+      'Change Status',
+      'Send to TimeHarbor',
+      'Delete Ticket'
+    ];
+
+    // Get the dropdown content container
+    const dropdownContent = page.locator('[role="menu"]').or(page.locator('.dropdown-content')).first();
+    const contentBox = await dropdownContent.boundingBox().catch(() => null);
+    
+    if (contentBox) {
+      // Verify dropdown content stays within viewport with some margin
+      expect(contentBox.x).toBeGreaterThanOrEqual(0);
+      expect(contentBox.x + contentBox.width).toBeLessThanOrEqual(390 + 5); // 5px tolerance
+    }
+
+    // Verify all items are visible
+    for (const itemText of dropdownItems) {
+      const item = page.getByText(itemText, { exact: true });
+      await expect(item).toBeVisible({ timeout: 2000 });
+    }
+
+    // Click Ticket Details to verify interaction works
+    await page.getByText('Ticket Details', { exact: true }).click();
+    await page.waitForTimeout(1000);
+
+    // Should navigate to detail page or show modal
+    const isDetailPage = page.url().includes('/app/tickets/');
+    const isModal = await page.getByRole('heading', { name: 'Ticket Details' }).isVisible({ timeout: 2000 }).catch(() => false);
+    
+    expect(isDetailPage || isModal).toBeTruthy();
+
+    // Reset viewport for other tests
+    await page.setViewportSize({ width: 1280, height: 720 });
+  });
+
+  test('should show dropdown menu within viewport on tablet', async ({ page }) => {
+    // Set tablet viewport (iPad)
+    await page.setViewportSize({ width: 768, height: 1024 });
+    
+    await page.goto('/app/tickets');
+    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
+
+    // Create a ticket to test the dropdown
+    const tabletTitle = `E2E Tablet Dropdown ${Date.now()}`;
+    await page.getByRole('button', { name: 'New Ticket' }).click();
+    await page.getByPlaceholder('Ticket title').fill(tabletTitle);
+    await page.getByRole('button', { name: 'Create Ticket' }).click();
+    await page.waitForTimeout(2000);
+    await expect(page.getByText(tabletTitle)).toBeVisible({ timeout: 10000 });
+
+    // Find the ticket and click the options menu
+    const ticketRow = page.locator('li').filter({ hasText: tabletTitle }).first();
+    const menuBtn = ticketRow.getByRole('button', { name: 'Ticket options' });
+    
+    // Click to open dropdown
+    await menuBtn.click();
+    await page.waitForTimeout(500);
+
+    // Verify all dropdown items are visible
+    await expect(page.getByText('Ticket Details', { exact: true })).toBeVisible();
+    await expect(page.getByText('Edit Ticket', { exact: true })).toBeVisible();
+    await expect(page.getByText('Change Status', { exact: true })).toBeVisible();
+    
+    // Get the dropdown content container and verify it stays within viewport
+    const dropdownContent = page.locator('[role="menu"]').or(page.locator('.dropdown-content')).first();
+    const contentBox = await dropdownContent.boundingBox().catch(() => null);
+    
+    if (contentBox) {
+      expect(contentBox.x).toBeGreaterThanOrEqual(0);
+      expect(contentBox.x + contentBox.width).toBeLessThanOrEqual(768 + 5); // 5px tolerance
+    }
+
+    // Reset viewport for other tests
+    await page.setViewportSize({ width: 1280, height: 720 });
+  });});

@@ -21,7 +21,7 @@ const MONGO_URL =
 
 export default async function globalTeardown(): Promise<void> {
   if (process.env.SKIP_CLEANUP === '1' || process.env.SKIP_CLEANUP === 'true') {
-    // eslint-disable-next-line no-console
+     
     console.log('[global-teardown] ⏭  SKIP_CLEANUP is set — skipping test data cleanup');
     return;
   }
@@ -44,7 +44,7 @@ export default async function globalTeardown(): Promise<void> {
     const testUserIds = testUsers.map((u) => String(u._id));
 
     if (testUserIds.length === 0) {
-      // eslint-disable-next-line no-console
+       
       console.log('[global-teardown] ✔ No test users found — nothing to clean up');
       await client.close();
       return;
@@ -155,7 +155,7 @@ export default async function globalTeardown(): Promise<void> {
       }
     }
 
-    // eslint-disable-next-line no-console
+     
     console.log(
       `[global-teardown] ✔ Cleaned up: ` +
         `${usersResult.deletedCount} users, ` +
