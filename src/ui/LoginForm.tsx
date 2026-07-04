@@ -73,6 +73,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [migrationInfo, setMigrationInfo] = useState<string | null>(null);
   const [selectedDomain, setSelectedDomain] = useState<'enterprise' | 'organization'>(
     'organization',
   );
@@ -100,6 +101,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setModeParam(next);
     setError(null);
     setSuccessMessage(null);
+    setMigrationInfo(null);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -119,6 +121,30 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       }
     } catch (err: unknown) {
       const message = (err as Error).message || 'Invalid email or password';
+      
+      // Detect Better Auth users that need password reset
+      // The error message is a JSON string with token
+      try {
+        const data = JSON.parse(message);
+        if (data.token && data.message) {
+          // This is a Better Auth migration response
+          const url = new URL(window.location.href);
+          url.searchParams.set('token', data.token);
+          url.searchParams.delete('mode');
+          window.history.replaceState(null, '', url.toString());
+          setMode('reset-confirm');
+          setPassword('');
+          setConfirmPassword('');
+          // Show migration info but keep form visible
+          setMigrationInfo('Your account needs migration. Please set a new password below.');
+          setError(null);
+          setLoading(false);
+          return;
+        }
+      } catch {
+        // Not JSON, continue with normal error handling
+      }
+      
       if (message.includes('suspended') || message.includes('blocked')) {
         setError('Your account has been suspended. Please contact your administrator.');
       } else {
@@ -371,6 +397,15 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
 
           {/* Form */}
           <form onSubmit={onSubmit} noValidate className="space-y-4" aria-live="polite">
+            {/* Migration info message (shows above form, doesn't hide fields) */}
+            {migrationInfo && (
+              <div className="rounded-md border border-blue-200 bg-blue-50/60 p-3 text-sm dark:border-blue-700 dark:bg-blue-900/30" role="status">
+                <p className="leading-relaxed text-blue-800 dark:text-blue-200">
+                  {migrationInfo}
+                </p>
+              </div>
+            )}
+            
             {successMessage ? (
               <div className="space-y-4" role="status">
                 <div className="rounded-md border border-green-200 bg-green-50/60 p-3 text-sm dark:border-green-700 dark:bg-green-900/30">

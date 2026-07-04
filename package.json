@@ -13,6 +13,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "prune:legacy": "bash ./scripts/prune-legacy.sh --yes",
+    "migrate": "node scripts/migrate-complete.mjs",
+    "migrate:dry-run": "node scripts/migrate-complete.mjs --dry-run",
     "lint:fix": "eslint . --fix",
     "lint": "eslint .",
     "format": "prettier --check .",

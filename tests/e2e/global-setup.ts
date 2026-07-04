@@ -154,6 +154,31 @@ export default async function globalSetup(): Promise<void> {
     );
   }
 
+  // Mark enterprise as installed to prevent the InstallerModal from showing.
+  // The backend's enterprise.installStatus method checks `owners` or `admins`
+  // arrays (not `ownerId`) to determine hasOwner/installCompleted.
+  const owner1Id = usersByEmail.get('owner1@test.local');
+  if (owner1Id) {
+    await db.collection('enterprises').updateOne(
+      { slug: 'default-enterprise' },
+      {
+        $set: {
+          ownerId: owner1Id,
+          owners: [owner1Id],
+          installCompleted: true,
+          updatedAt: new Date(),
+        },
+        $setOnInsert: {
+          _id: new ObjectId(),
+          slug: 'default-enterprise',
+          name: 'Default Enterprise',
+          createdAt: new Date(),
+        },
+      },
+      { upsert: true },
+    );
+  }
+
   await client.close();
   // eslint-disable-next-line no-console
   console.log(`[global-setup] ✔ Provisioned ${SEED_USERS.length} @test.local users in org ${orgId}`);

@@ -141,6 +141,22 @@ After running `sh scripts/seed-docker.sh`, the following demo teams are created.
 
 Demo user accounts all use the password `Password1!`. Emails follow the pattern `firstname@example.com` (e.g. `alice@example.com`).
 
+### User Migration
+
+If you need to migrate users from Better Auth to Meteor Accounts, run the automated migration script:
+
+```bash
+./run-migration.sh
+```
+
+This interactive script will guide you through:
+1. Selecting your local Meteor database
+2. Running a dry-run preview
+3. Performing the actual migration
+4. Verifying the results
+
+See [meteor-backend/scripts/README.md](meteor-backend/scripts/README.md) for detailed documentation.
+
 ## Commands
 
 ```bash

@@ -46,4 +46,7 @@ pollenate-test-*.png
 # Local development scripts and configs (machine-specific, never commit)
 backend/nginx-apple-proxy.conf
 meteor-backend/start-rosetta.sh
+
+# Database backups (migration and production backups)
+backups/
 prod-backups/

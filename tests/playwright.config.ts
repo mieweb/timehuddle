@@ -2,7 +2,11 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  testIgnore: [],
+  // Migration tests are one-time processes — excluded from the regular suite.
+  // Run them on-demand: npx playwright test -c tests/playwright.config.ts --ignore-snapshots tests/e2e/auth-migration.spec.ts tests/e2e/better-auth-migration.spec.ts
+  testIgnore: process.env.RUN_MIGRATION_TESTS
+    ? []
+    : ['**/auth-migration.spec.ts', '**/better-auth-migration.spec.ts'],
 
   // Runs once before all workers — provisions the @test.local seed users so
   // the suite is hermetic and safe to re-run against a fresh dev DB.

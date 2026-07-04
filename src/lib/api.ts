@@ -791,6 +791,18 @@ async function wormholeCall<T = unknown>(
     reason?: string;
     message?: string;
   };
+  
+  // Temporary debug logging for clock.teamStatus
+  if (method === 'clock.teamStatus') {
+    console.log('[wormholeCall] clock.teamStatus response:', { 
+      ok: res.ok, 
+      status: res.status, 
+      data,
+      hasResult: 'result' in data,
+      resultKeys: data.result ? Object.keys(data.result) : null
+    });
+  }
+  
   if (!res.ok) {
     throw new ApiError(data.reason || data.message || `Request failed (${res.status})`, res.status);
   }

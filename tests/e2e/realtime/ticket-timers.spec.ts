@@ -12,24 +12,18 @@ test.describe('Real-time Ticket Timers', () => {
   let session2: Page;
 
   test.beforeEach(async ({ browser }) => {
-    // Create two separate browser contexts (like two browser tabs or windows)
-    const context1 = await browser.newContext();
-    const context2 = await browser.newContext();
+    // Log in once, then open two pages in the same context (same user, two tabs)
+    const context = await browser.newContext();
 
-    session1 = await context1.newPage();
-    session2 = await context2.newPage();
+    // Log in via the first page
+    session1 = await context.newPage();
+    const loginPage = new LoginPage(session1);
+    await loginPage.goto();
+    await loginPage.login('admin1@test.local', 'TestPass1!');
+    await loginPage.waitForLoginSuccess();
 
-    // Log in as the same user in both sessions
-    const loginPage1 = new LoginPage(session1);
-    const loginPage2 = new LoginPage(session2);
-
-    await loginPage1.goto();
-    await loginPage1.login('admin1@test.local', 'TestPass1!');
-    await loginPage1.waitForLoginSuccess();
-
-    await loginPage2.goto();
-    await loginPage2.login('admin2@test.local', 'TestPass1!');
-    await loginPage2.waitForLoginSuccess();
+    // Second page shares the same session (cookies/localStorage)
+    session2 = await context.newPage();
 
     // Navigate both sessions to the Tickets page
     await session1.goto('http://localhost:3000/app/tickets');
