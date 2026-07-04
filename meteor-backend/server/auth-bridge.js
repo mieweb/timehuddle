@@ -16,7 +16,7 @@ import { Meteor } from 'meteor/meteor';
 import { Accounts } from 'meteor/accounts-base';
 import { MongoInternals } from 'meteor/mongo';
 import { createHash } from 'crypto';
-import { jwtVerify, SignJWT } from 'jose';
+import { jwtVerify, SignJWT, createRemoteJWKSet } from 'jose';
 import { currentBearerToken } from 'meteor/wreiske:meteor-wormhole';
 import { rawDb } from './collections';
 
@@ -24,6 +24,14 @@ import { rawDb } from './collections';
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 const PAT_PREFIX = 'th_pat_';
+
+// JWKS published by the better-auth backend. jose caches keys and handles
+// `kid` rotation with a cooldown — verification itself is local.
+const JWKS_URL = process.env.AUTH_JWKS_URL || 'http://localhost:4000/api/auth/jwks';
+let jwks = null;
+
+/** connectionId -> { userId, name } for DDP sessions. */
+const connectionIdentity = new Map();
 
 // Configure Accounts to expire login tokens after 30 days
 Meteor.startup(() => {
@@ -152,6 +160,27 @@ export async function findUserById(id) {
   };
 }
 
+/** A JWT has exactly three dot-separated segments. */
+function looksLikeJwt(token) {
+  return token.split('.').length === 3;
+}
+
+async function resolveJwt(token) {
+  try {
+    jwks ??= createRemoteJWKSet(new URL(JWKS_URL));
+    const { payload } = await jwtVerify(token, jwks);
+    if (!payload.sub) {
+      console.log('[auth-bridge] JWT missing sub claim');
+      return null;
+    }
+    console.log('[auth-bridge] JWT verified for user:', payload.sub);
+    return { userId: payload.sub, name: payload.name || payload.email || 'Unknown' };
+  } catch (err) {
+    console.log('[auth-bridge] JWT verification failed:', err.message);
+    return null;
+  }
+}
+
 async function resolvePat(token) {
   const tokenHash = createHash('sha256').update(token).digest('hex');
   const db = rawDb();
@@ -167,24 +196,38 @@ async function resolveMeteorToken(token) {
   const { createHash } = Npm.require('crypto');
   const hashedToken = createHash('sha256').update(token).digest('base64');
   
+  console.log('[auth-bridge] Looking for Meteor token hash:', hashedToken.substring(0, 20) + '...');
+  
   const user = await Meteor.users.findOneAsync({
     'services.resume.loginTokens.hashedToken': hashedToken
   });
   
-  if (!user) return null;
+  if (!user) {
+    console.log('[auth-bridge] No user found with that token hash');
+    return null;
+  }
   
+  console.log('[auth-bridge] Meteor token resolved for user:', user._id);
   return {
     userId: user._id,
     name: user.profile?.name || user.emails?.[0]?.address || 'Unknown'
   };
 }
 
-/** Resolve a bearer token (PAT or Meteor resume token) to { userId, name } or null. */
+/** Resolve a bearer token (JWT, PAT, or Meteor resume token) to { userId, name } or null. */
 export async function resolveToken(raw) {
   if (typeof raw !== 'string' || !raw.trim()) return null;
   const token = raw.trim();
-  if (token.startsWith(PAT_PREFIX)) return resolvePat(token);
+  if (token.startsWith(PAT_PREFIX)) {
+    console.log('[auth-bridge] Trying PAT resolution');
+    return resolvePat(token);
+  }
+  if (looksLikeJwt(token)) {
+    console.log('[auth-bridge] Trying JWT resolution');
+    return resolveJwt(token);
+  }
   // Try as Meteor resume token
+  console.log('[auth-bridge] Trying Meteor resume token resolution');
   const meteorIdentity = await resolveMeteorToken(token);
   if (meteorIdentity) return meteorIdentity;
   return null;
@@ -349,14 +392,19 @@ Accounts.validateLoginAttempt(async (attempt) => {
 // OAuth users are stored directly in Meteor Accounts - no sync needed
 Accounts.onLogin(async (info) => {
   const user = info.user;
-  if (user?.services?.github || user?.services?.google) {
+  if (!user) {
+    console.log('[auth-bridge] onLogin called but no user found');
+    return;
+  }
+  
+  if (user.services?.github || user.services?.google) {
     const email = user.services?.github?.email || user.services?.google?.email || user.emails?.[0]?.address;
     console.log('[auth-bridge] OAuth user logged in:', email);
   }
 
   // Auto-join default organization if user has no org memberships
   try {
-    const userId = user._id;
+    const userId = String(user._id);
     const { rawDb } = await import('./collections');
     const db = rawDb();
     
@@ -373,17 +421,18 @@ Accounts.onLogin(async (info) => {
       allowAutoJoin: true
     });
     
-    if (!defaultOrg) {
-      console.log('[auth-bridge] no default org with auto-join enabled');
+    if (!defaultOrg || !defaultOrg._id) {
+      console.log('[auth-bridge] no default org with auto-join enabled or org has no _id');
       return;
     }
 
     // Add user to default org as member
     const { ObjectId } = await import('mongodb');
     const now = new Date();
+    const orgIdString = typeof defaultOrg._id === 'string' ? defaultOrg._id : String(defaultOrg._id);
     await db.collection('org_members').insertOne({
       _id: new ObjectId(),
-      orgId: defaultOrg._id.toHexString(),
+      orgId: orgIdString,
       userId,
       role: 'member',
       auto: true,
@@ -525,7 +574,38 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
     if (!match) throw new Meteor.Error(403, 'Invalid email or password');
     const blockCheck = await checkUserBlocking(String(user._id));
     if (blockCheck.blocked) throw new Meteor.Error(403, blockCheck.message || 'Account suspended');
-    return { userId: user._id };
+    return { userId: String(user._id) };
+  }
+
+  // Check if this is a Better Auth user that needs to reset their password
+  if (user?.services?.betterAuth?.scryptHash) {
+    // Generate a password reset token automatically
+    const token = await Accounts._generateStampedLoginToken();
+    
+    // Ensure services.password exists, then set reset as an array
+    await Meteor.users.updateAsync(user._id, {
+      $set: {
+        'services.password': user.services?.password || {},
+      },
+    });
+    
+    await Meteor.users.updateAsync(user._id, {
+      $set: {
+        'services.password.reset': [{
+          token: token.token,
+          email: normalizedEmail,
+          when: new Date(),
+        }],
+      },
+    });
+    
+    throw new Meteor.Error(
+      'BETTER_AUTH_MIGRATION_REQUIRED',
+      JSON.stringify({
+        message: 'Your account needs to be migrated. Redirecting to password reset...',
+        token: token.token,
+      }),
+    );
   }
 
   // No bcrypt hash — user doesn't exist or password not set

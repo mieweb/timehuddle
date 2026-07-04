@@ -603,10 +603,13 @@ Meteor.methods({
 
   /** Team-wide clock status: all member clock states + today's hours. */
   async 'clock.teamStatus'({ teamId } = {}) {
-    const identity = await requireIdentity(this);
-    const userId = identity.userId;
+    try {
+      console.log('[clock.teamStatus] called with teamId:', teamId);
+      const identity = await requireIdentity(this);
+      const userId = identity.userId;
+      console.log('[clock.teamStatus] identity resolved:', userId);
 
-    if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Team not found');
+      if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Team not found');
 
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
@@ -651,13 +654,16 @@ Meteor.methods({
     const meteorIds = allMemberIds.filter((id) => !/^[0-9a-f]{24}$/i.test(id));
     const legacyIds = allMemberIds.filter((id) => /^[0-9a-f]{24}$/i.test(id));
 
-    // Query all users from Meteor users collection
-    const allUserIds = [...meteorIds, ...legacyIds].filter(id => id);
-    const users = allUserIds.length > 0
-      ? await rawDb().collection('users').find({ _id: { $in: allUserIds.map(String) } }).project({ image: 1 }).toArray()
-      : [];
+    const [meteorUsers, legacyUsers] = await Promise.all([
+      meteorIds.length > 0
+        ? rawDb().collection('users').find({ _id: { $in: meteorIds } }).project({ image: 1 }).toArray()
+        : Promise.resolve([]),
+      legacyIds.length > 0
+        ? rawDb().collection('user').find({ _id: { $in: legacyIds.map((id) => new ObjectId(id)) } }).project({ image: 1 }).toArray()
+        : Promise.resolve([]),
+    ]);
 
-    const meteorImageMap = new Map(users.map((u) => [String(u._id), u.image ?? null]));
+    const meteorImageMap = new Map(meteorUsers.map((u) => [String(u._id), u.image ?? null]));
     const legacyImageMap = new Map(legacyUsers.map((u) => [u._id.toHexString(), u.image ?? null]));
 
     // Group clock events by userId
@@ -697,7 +703,12 @@ Meteor.methods({
       };
     });
 
+    console.log('[clock.teamStatus] returning', members.length, 'members');
     return { members };
+    } catch (err) {
+      console.error('[clock.teamStatus] ERROR:', err.message, err.stack);
+      throw err;
+    }
   },
 });
 

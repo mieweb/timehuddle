@@ -16,6 +16,7 @@ import { Random } from 'meteor/random';
 import { Accounts } from 'meteor/accounts-base';
 
 import './collections';
+import './migration-login-handler';
 import { rawDb } from './collections';
 import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
