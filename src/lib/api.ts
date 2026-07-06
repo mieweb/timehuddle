@@ -16,11 +16,18 @@ export const TIMECORE_BASE_URL: string =
 
 const WS_BASE_URL = TIMECORE_BASE_URL.replace(/^http/, 'ws');
 
-/** Meteor backend (wormhole REST + DDP) base URL. */
+/** Meteor backend (wormhole REST + DDP) base URL — direct URL for assets, OAuth, etc. */
 export const METEOR_BASE_URL: string =
   (typeof import.meta !== 'undefined' &&
-    (import.meta as { env?: Record<string, string> }).env?.VITE_METEOR_URL) ||
+    (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
   'http://localhost:3100';
+
+/**
+ * Base URL for REST API fetch calls (wormhole, avatar, media, etc.).
+ * Empty string = same-origin, so requests go through the Vite proxy.
+ * This avoids cross-origin failures in Capacitor WebView.
+ */
+const METEOR_API_BASE: string = '';
 
 const FORCED_TIMEZONE: string | undefined =
   (typeof import.meta !== 'undefined' &&
@@ -366,7 +373,7 @@ export const userApi = {
     const formData = new FormData();
     formData.append('avatar', blob, 'avatar.png');
     const token = await getAccessToken();
-    const res = await fetch(`${METEOR_BASE_URL}/api/me/avatar`, {
+    const res = await fetch(`${METEOR_API_BASE}/api/me/avatar`, {
       method: 'POST',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
@@ -381,7 +388,7 @@ export const userApi = {
 
   deleteAvatar: async (): Promise<void> => {
     const token = await getAccessToken();
-    const res = await fetch(`${METEOR_BASE_URL}/api/me/avatar`, {
+    const res = await fetch(`${METEOR_API_BASE}/api/me/avatar`, {
       method: 'DELETE',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
@@ -392,7 +399,7 @@ export const userApi = {
     const formData = new FormData();
     formData.append('background', blob, 'background.jpg');
     const token = await getAccessToken();
-    const res = await fetch(`${METEOR_BASE_URL}/api/me/background`, {
+    const res = await fetch(`${METEOR_API_BASE}/api/me/background`, {
       method: 'POST',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: formData,
@@ -407,7 +414,7 @@ export const userApi = {
 
   deleteBackground: async (): Promise<void> => {
     const token = await getAccessToken();
-    const res = await fetch(`${METEOR_BASE_URL}/api/me/background`, {
+    const res = await fetch(`${METEOR_API_BASE}/api/me/background`, {
       method: 'DELETE',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
@@ -778,23 +785,36 @@ async function wormholeCall<T = unknown>(
   }
   
   const token = await getAccessToken();
-  const res = await fetch(`${METEOR_BASE_URL}/api/${route}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(params),
-  });
+  const url = `${METEOR_API_BASE}/api/${route}`;
+  
+  console.log(`[wormholeCall] ${method}: fetching ${url}`, { hasToken: !!token });
+  
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(params),
+    });
+  } catch (fetchError) {
+    console.error(`[wormholeCall] ${method}: fetch failed:`, fetchError);
+    throw fetchError;
+  }
+  
+  console.log(`[wormholeCall] ${method}: got response, status=${res.status}`);
+  
   const data = (await res.json().catch(() => ({}))) as {
     result?: T;
     reason?: string;
     message?: string;
   };
   
-  // Temporary debug logging for clock.teamStatus
-  if (method === 'clock.teamStatus') {
-    console.log('[wormholeCall] clock.teamStatus response:', { 
+  // Temporary debug logging for clock.teamStatus and orgs.list
+  if (method === 'clock.teamStatus' || method === 'orgs.list') {
+    console.log(`[wormholeCall] ${method} response:`, { 
       ok: res.ok, 
       status: res.status, 
       data,
@@ -1460,7 +1480,7 @@ export const timerApi = {
 
 export const videoApi = {
   /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
-  uploadEndpoint: () => `${METEOR_BASE_URL.replace(/\/$/, '')}/uploads/tus`,
+  uploadEndpoint: () => `${METEOR_API_BASE}/uploads/tus`,
 
   /** Reserve a videoid for a ticket upload before starting TUS.
    *  Pass `existingVideoid` when resuming a recording session so the backend
@@ -1509,7 +1529,7 @@ export const mediaApi = {
     const form = new FormData();
     form.append('file', file, file.name || 'image');
     const token = await getAccessToken();
-    const res = await fetch(`${METEOR_BASE_URL}/api/media/upload`, {
+    const res = await fetch(`${METEOR_API_BASE}/api/media/upload`, {
       method: 'POST',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: form,
@@ -1543,7 +1563,7 @@ export const mediaApi = {
     const form = new FormData();
     form.append('file', blob, 'thumbnail.jpg');
     const token = await getAccessToken();
-    const res = await fetch(`${METEOR_BASE_URL}/api/media-thumbnail/${encodeURIComponent(id)}`, {
+    const res = await fetch(`${METEOR_API_BASE}/api/media-thumbnail/${encodeURIComponent(id)}`, {
       method: 'POST',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: form,

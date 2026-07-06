@@ -23,7 +23,15 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api': {
-        target: process.env.API_TARGET ?? 'http://localhost:4000',
+        target: process.env.API_TARGET ?? 'http://localhost:3100',
+        changeOrigin: true,
+      },
+      '/uploads': {
+        target: process.env.API_TARGET ?? 'http://localhost:3100',
+        changeOrigin: true,
+      },
+      '/v1': {
+        target: process.env.API_TARGET ?? 'http://localhost:3100',
         changeOrigin: true,
       },
     },

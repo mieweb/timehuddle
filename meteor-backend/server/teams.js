@@ -316,15 +316,34 @@ Meteor.methods({
     }
 
     const allIds = Array.from(new Set([...team.members, ...team.admins]));
-    
-    // Fetch from Meteor users collection
-    const users = await rawDb().collection('users').find({ _id: { $in: allIds.map(String) } }).toArray();
+
+    // Query both user collections — Meteor 'users' stores _id as string,
+    // Better Auth 'user' stores _id as ObjectId. We try both.
+    const [meteorUsers, betterAuthUsers] = await Promise.all([
+      rawDb().collection('users').find({ _id: { $in: allIds } }).toArray(),
+      rawDb().collection('user').find({
+        _id: { $in: allIds.filter((id) => /^[0-9a-f]{24}$/i.test(id)).map((id) => new ObjectId(id)) },
+      }).toArray(),
+    ]);
 
     const byId = new Map();
-    for (const u of users) {
+
+    // Map Meteor users (profile.name, emails[].address)
+    for (const u of meteorUsers) {
       byId.set(String(u._id), {
         name: u.profile?.name ?? null,
         email: u.emails?.[0]?.address ?? '',
+        username: u.username ?? null,
+        image: u.image ?? null,
+      });
+    }
+
+    // Map Better Auth users (name, email) — overwrites if same id exists
+    for (const u of betterAuthUsers) {
+      const id = u._id.toHexString ? u._id.toHexString() : String(u._id);
+      byId.set(id, {
+        name: u.name ?? null,
+        email: u.email ?? '',
         username: u.username ?? null,
         image: u.image ?? null,
       });

@@ -16,7 +16,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 const meteorBase =
   (typeof import.meta !== 'undefined' &&
-    (import.meta as { env?: Record<string, string> }).env?.VITE_METEOR_URL) ||
+    (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
   'http://localhost:3100';
 const METEOR_WS_URL = meteorBase.replace(/^http/, 'ws') + '/websocket';
 
@@ -220,7 +220,7 @@ class DdpClient {
 
   async loginWithProxy(): Promise<boolean> {
     try {
-      const res = await fetch(`${METEOR_BASE_URL}/api/whoami`, {
+      const res = await fetch(`/api/whoami`, {
         credentials: 'include',
       });
       if (!res.ok) return false;
