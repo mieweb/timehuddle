@@ -4,6 +4,7 @@ node_modules
 coverage
 ios
 android
+meteor-backend
 
 backend/data/videos
 backend/data/videos/**

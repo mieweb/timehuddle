@@ -121,13 +121,13 @@ export const PendingJoinRequests: React.FC<PendingJoinRequestsProps> = ({ teamId
                   Requested {timeAgo}
                 </Text>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => handleDecline(request.id)}
                   disabled={isProcessing}
-                  className="text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                  className="w-full sm:w-auto text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                 >
                   <FontAwesomeIcon icon={faTimes} className="mr-1" />
                   Decline
@@ -137,6 +137,7 @@ export const PendingJoinRequests: React.FC<PendingJoinRequestsProps> = ({ teamId
                   size="sm"
                   onClick={() => handleApprove(request.id)}
                   disabled={isProcessing}
+                  className="w-full sm:w-auto"
                 >
                   <FontAwesomeIcon icon={faCheck} className="mr-1" />
                   Approve

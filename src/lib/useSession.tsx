@@ -96,7 +96,8 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.log(
         `[TimeHuddle] fetchSession: getMe failed in ${(performance.now() - t).toFixed(0)}ms — ${String(err)}`,
       );
-      const errMessage = String(err);
+      // Check if it's a blocking error
+      const errMessage = err instanceof Error ? err.message : String(err);
       if (errMessage.includes('suspended') || errMessage.includes('blocked')) {
         setBlockMessage(errMessage);
       }
