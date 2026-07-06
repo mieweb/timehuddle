@@ -2,6 +2,7 @@ import React, { useId, useState } from 'react';
 
 import { enterpriseApi } from '../lib/api';
 import { useSession } from '../lib/useSession';
+import { useTeam } from '../lib/TeamContext';
 import { Button, Text } from '@mieweb/ui';
 
 type Props = {
@@ -9,18 +10,12 @@ type Props = {
 };
 
 export const InstallerModal: React.FC<Props> = ({ onTaken }) => {
-  const { refetch } = useSession();
+  const { refetch: _refetch } = useSession();
+  const { refetchEnterprises: _refetchEnterprises, refetchOrganizations: _refetchOrganizations } =
+    useTeam();
   const labelId = useId();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  function navigateToMembers() {
-    const targetPath = '/org/members';
-    if (window.location.pathname !== targetPath) {
-      window.history.pushState(null, '', targetPath);
-      window.dispatchEvent(new PopStateEvent('popstate'));
-    }
-  }
 
   const handleTakeOwnership = async () => {
     if (loading) return;
@@ -29,9 +24,9 @@ export const InstallerModal: React.FC<Props> = ({ onTaken }) => {
 
     try {
       await enterpriseApi.takeOwnership();
-      await refetch();
       onTaken();
-      navigateToMembers();
+      // Use full page reload to ensure all context providers fetch fresh data
+      window.location.href = '/app/enterprise';
     } catch (err) {
       setError((err as Error).message || 'Unable to complete initial setup');
       setLoading(false);

@@ -99,6 +99,13 @@ export const EnterprisePage: React.FC = () => {
       return;
     }
 
+    // Validate that selectedEnterpriseId is a valid 24-character hex string (ObjectId format)
+    if (!/^[0-9a-f]{24}$/i.test(selectedEnterpriseId)) {
+      setError(null);
+      setEnterprise(null);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -184,7 +191,11 @@ export const EnterprisePage: React.FC = () => {
   }, [loadEnterprise, memberRole, memberUserId, selectedEnterpriseId]);
 
   const handleCreateOrg = useCallback(async () => {
-    if (!selectedEnterpriseId || !orgName.trim()) return;
+    if (!selectedEnterpriseId) {
+      setOrgError('No enterprise selected. Please refresh or complete ownership first.');
+      return;
+    }
+    if (!orgName.trim()) return;
     setOrgSaving(true);
     setOrgError(null);
     try {
@@ -270,7 +281,7 @@ export const EnterprisePage: React.FC = () => {
         setSelectedEnterpriseId(org.enterpriseId);
       }
       setEditOrg(null);
-      navigate('/org/members');
+      navigate('/app/org/members');
     },
     [navigate, setSelectedEnterpriseId, setSelectedOrgId],
   );

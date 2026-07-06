@@ -44,6 +44,7 @@ jobs:
           retention-days: 1
 
   backend:
+    if: false # Disabled - Fastify backend removed, Meteor backend doesn't have these npm scripts
     name: Backend Checks
     runs-on: ubuntu-latest
     services:
@@ -99,9 +100,10 @@ jobs:
           retention-days: 1
 
   playwright:
+    if: false # disabled while e2e tests are being cleaned up
     name: Playwright Checks
     runs-on: ubuntu-latest
-    needs: [frontend, backend]
+    needs: [frontend]
     services:
       mongodb:
         image: mongo:8

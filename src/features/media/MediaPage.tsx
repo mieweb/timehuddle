@@ -22,10 +22,15 @@ import * as tus from 'tus-js-client';
 
 import { mediaApi, videoApi, type MediaItem } from '../../lib/api';
 import { MEDIA_UPLOAD_ACCEPT, useFileUploadLauncher } from '../../lib/useFileUploadLauncher';
-import { extractVideoThumbnail, extractThumbnailFromVideoUrl } from '../../lib/videoThumbnail';
+import {
+  extractVideoThumbnail,
+  extractThumbnailFromVideoUrl,
+  captureFromVideoElement,
+} from '../../lib/videoThumbnail';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { ViewportOverlay } from '../../ui/ViewportOverlay';
+import { getDdpClient } from '../../lib/ddp';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -189,11 +194,16 @@ const DetailsModal: React.FC<DetailsModalProps> = ({
   const handleGenerateThumbnail = async () => {
     setGeneratingThumb(true);
     try {
-      const previewTime =
-        previewVideoRef.current && previewVideoRef.current.readyState > 0
-          ? previewVideoRef.current.currentTime
-          : undefined;
-      const blob = await extractThumbnailFromVideoUrl(item.url, previewTime);
+      let blob: Blob;
+      if (previewVideoRef.current && previewVideoRef.current.readyState >= 2) {
+        blob = await captureFromVideoElement(previewVideoRef.current);
+      } else {
+        const previewTime =
+          previewVideoRef.current && previewVideoRef.current.readyState > 0
+            ? previewVideoRef.current.currentTime
+            : undefined;
+        blob = await extractThumbnailFromVideoUrl(item.url, previewTime);
+      }
       const updated = await mediaApi.uploadThumbnail(item.id, blob);
       onUpdated(updated);
     } finally {
@@ -421,6 +431,24 @@ export const MediaPage: React.FC = () => {
   useEffect(() => {
     fetchItems();
   }, [fetchItems]);
+
+  // ── Real-time media updates (Meteor DDP, oplog-backed) ──
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const ddp = getDdpClient();
+
+    // On any media item change (upload, update, delete from any writer), refetch the list.
+    const offChange = ddp.onCollectionChange('mediaitems', () => {
+      void fetchItems();
+    });
+    const unsubscribe = ddp.subscribe('media.liveForUser', []);
+
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [user?.id, fetchItems]);
 
   const selectedItem = items.find((i) => i.id === selectedId) ?? null;
   const filteredItems = filter === 'all' ? items : items.filter((i) => i.type === filter);

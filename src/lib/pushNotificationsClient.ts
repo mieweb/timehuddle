@@ -3,10 +3,10 @@
  *
  * VAPID public key is read from the VITE_VAPID_PUBLIC_KEY env var.
  * Server-side subscription management will route through timecore
- * (/v1/notifications/push-subscribe and /v1/notifications/push-unsubscribe)
- * once those endpoints are implemented.
+ * (/api/notifications.pushSubscribe and /api/notifications.pushUnsubscribe)
+ * via Meteor Wormhole REST.
  */
-import { TIMECORE_BASE_URL, sessionToken } from './api';
+import { METEOR_API_BASE, sessionToken } from './api';
 
 export function isPushNotificationSupported(): boolean {
   return typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window;
@@ -81,10 +81,10 @@ export async function subscribeToWebPush(): Promise<void> {
   console.log('✅ [pushClient] Push manager subscription created');
 
   const json = subscription.toJSON();
-  const token = sessionToken.get();
+  const token = localStorage.getItem('meteor_resume_token') || sessionToken.get();
 
   console.log('🔔 [pushClient] Sending subscription to server...');
-  const res = await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-subscribe`, {
+  const res = await fetch(`${METEOR_API_BASE}/api/notifications_pushSubscribe`, {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -117,11 +117,15 @@ export async function unsubscribeFromWebPush(): Promise<void> {
     /* ignore browser errors */
   }
 
-  const token = sessionToken.get();
-  await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-unsubscribe`, {
+  const token = localStorage.getItem('meteor_resume_token') || sessionToken.get();
+  await fetch(`${METEOR_API_BASE}/api/notifications_pushUnsubscribe`, {
     method: 'POST',
     credentials: 'include',
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({}),
   });
 }
 

@@ -43,14 +43,8 @@ import {
   unsubscribeFromPush,
 } from '../lib/nativePush';
 import { useRefresh } from '../lib/RefreshContext';
-import {
-  authApi,
-  userApi,
-  notificationApi,
-  teamApi,
-  tokenApi,
-  type PersonalAccessToken,
-} from '../lib/api';
+import { userApi, notificationApi, teamApi, tokenApi, type PersonalAccessToken } from '../lib/api';
+import { getDdpClient } from '../lib/ddp';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
@@ -146,7 +140,8 @@ const BrandSelector: React.FC = () => {
 
 const PushNotificationsSettings: React.FC = () => {
   const isNative = Capacitor.isNativePlatform();
-  const [supported, setSupported] = useState(false);
+  // On native, push is always supported (via Capacitor plugin); on web, check browser APIs.
+  const [supported, setSupported] = useState(isNative);
   const [enabled, setEnabled] = useState(false);
   const [enableLoading, setEnableLoading] = useState(false);
   const [disableLoading, setDisableLoading] = useState(false);
@@ -173,8 +168,9 @@ const PushNotificationsSettings: React.FC = () => {
   }, [isNative]);
 
   useEffect(() => {
-    setSupported(isPushSupported());
     if (!isNative) {
+      // On web, check if browser supports push APIs
+      setSupported(isPushSupported());
       // VAPID key is configured if the env var is present
       const vapidKey =
         (typeof import.meta !== 'undefined' &&
@@ -182,6 +178,7 @@ const PushNotificationsSettings: React.FC = () => {
         '';
       setServerHasVapid(vapidKey.length > 0);
     }
+    // On native, supported is already true from useState(isNative)
     void refreshStatus();
   }, [isNative, refreshStatus]);
 
@@ -257,6 +254,8 @@ const PushNotificationsSettings: React.FC = () => {
       setTestLoading(false);
     }
   };
+
+  console.log('[PushSettings]', { isNative, supported, enabled, serverHasVapid });
 
   return (
     <div className="space-y-3 px-5 py-4">
@@ -710,7 +709,10 @@ export const SettingsPage: React.FC = () => {
     setResetBusy(true);
     setResetMessage(null);
     try {
-      await authApi.requestPasswordReset(user.email, `${window.location.origin}/app`);
+      const ddp = getDdpClient();
+      await ddp.call('accounts.sendResetPasswordEmail', {
+        email: user.email.toLowerCase(),
+      });
       setResetMessage('Check your email for a password reset link.');
     } catch (error: unknown) {
       setResetMessage(error instanceof Error ? error.message : 'Failed to send reset email.');

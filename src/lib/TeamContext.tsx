@@ -13,7 +13,15 @@
  *   • refetchClock     — callable after clock mutations to refresh
  *   • currentTime      — ticks every second for live timers
  */
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   teamApi,
@@ -24,6 +32,7 @@ import {
   type ClockEvent,
   type TeamJoinRequest,
 } from './api';
+import { getDdpClient, ddpDocToClockEvent, ddpDocToTeam } from './ddp';
 import { useSession } from './useSession';
 
 const TEAM_KEY = 'app:selectedTeamId';
@@ -107,6 +116,7 @@ export const useTeam = () => useContext(TeamCtx);
 export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useSession();
   const userId = user?.id ?? null;
+  const username = user?.username ?? null;
 
   // ── Teams via REST ──────────────────────────────────────────────────────────
 
@@ -130,7 +140,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .getTeams()
       .then((result) => {
         setTeams(result.teams);
-        setPendingRequests(result.pendingRequests);
+        setPendingRequests(result.pendingRequests ?? []);
       })
       .catch(() => {})
       .finally(() => setTeamsReady(true));
@@ -139,9 +149,9 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refetchEnterprises = useCallback(() => {
     if (!userId) {
       setEnterprises([]);
-      return;
+      return Promise.resolve();
     }
-    enterpriseApi
+    return enterpriseApi
       .list()
       .then(setEnterprises)
       .catch(() => {});
@@ -150,9 +160,9 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refetchOrganizations = useCallback(() => {
     if (!userId) {
       setOrganizations([]);
-      return;
+      return Promise.resolve();
     }
-    orgApi
+    return orgApi
       .listOrganizations()
       .then(setOrganizations)
       .catch(() => {});
@@ -173,53 +183,46 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     refetchOrganizations();
-  }, [refetchOrganizations, teamsReady]);
+  }, [refetchOrganizations, teamsReady, username]);
 
-  // Real-time WebSocket connection for team updates
+  // Retry org fetch once if empty — handles race condition where
+  // Accounts.onLogin auto-join hasn't completed when the first fetch fires.
+  const orgRetryDone = useRef(false);
+  useEffect(() => {
+    if (!userId) {
+      orgRetryDone.current = false;
+      return;
+    }
+    if (organizations.length > 0 || orgRetryDone.current) return;
+    orgRetryDone.current = true;
+    const timer = setTimeout(refetchOrganizations, 1500);
+    return () => clearTimeout(timer);
+  }, [userId, organizations.length, refetchOrganizations]);
+
+  // Real-time DDP subscription for team updates (replaces WebSocket)
   useEffect(() => {
     if (!userId) return;
+    const ddp = getDdpClient();
 
-    const ws = teamApi.openLiveStream();
-
-    ws.onmessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'snapshot') {
-          // Initial snapshot: replace teams and pending requests state
-          const newTeams = data.teams as Team[];
-          const newPendingRequests = (data.pendingRequests ?? []) as TeamJoinRequest[];
-          setTeams(newTeams);
-          setPendingRequests(newPendingRequests);
-          setTeamsReady(true);
-        } else if (data.type === 'update') {
-          // Real-time team update — upsert by id
-          const updatedTeam = data.team as Team;
-          setTeams((prev) => {
-            const idx = prev.findIndex((t) => t.id === updatedTeam.id);
-            if (idx >= 0) {
-              const copy = [...prev];
-              copy[idx] = updatedTeam;
-              return copy;
-            }
-            return [...prev, updatedTeam];
-          });
-        } else if (data.type === 'delete') {
-          // Team deleted — remove from state
-          setTeams((prev) => prev.filter((t) => t.id !== data.teamId));
-        } else if (data.type === 'pending-requests') {
-          // Real-time pending requests update
-          const newPendingRequests = data.pendingRequests as TeamJoinRequest[];
-          setPendingRequests(newPendingRequests);
-        }
-      } catch (err) {
-        console.warn('Failed to parse teams WebSocket message:', err);
-      }
+    const applyLiveDocs = () => {
+      const liveTeams = ddp.docs('teams').map(ddpDocToTeam);
+      setTeams(
+        liveTeams.sort((a, b) => {
+          if (a.isPersonal !== b.isPersonal) return a.isPersonal ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        }),
+      );
     };
 
-    // Cleanup: close WebSocket when userId changes or component unmounts
+    const offChange = ddp.onCollectionChange('teams', applyLiveDocs);
+    const unsubscribe = ddp.subscribe('teams.byUser', [], () => {
+      applyLiveDocs();
+      setTeamsReady(true);
+    });
+
     return () => {
-      ws.close();
+      offChange();
+      unsubscribe();
     };
   }, [userId]);
 
@@ -286,6 +289,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
+    // Validate that selectedEnterpriseId is in the current enterprise list
     const hasSelectedEnterprise = selectedEnterpriseId
       ? enterprises.some((enterprise) => enterprise.id === selectedEnterpriseId)
       : false;
@@ -333,7 +337,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [userId, selectedTeam],
   );
 
-  // ── Clock events via WebSocket (real-time) + REST fallback ─────────────────
+  // ── Clock events via Meteor DDP (real-time) + REST fallback ─────────────
 
   const [activeClockEvent, setActiveClockEvent] = useState<ClockEvent | null>(null);
   const [clockReady, setClockReady] = useState(false);
@@ -354,65 +358,54 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [userId]);
 
-  // Initial fetch (fallback if WebSocket connection fails)
+  // Initial fetch (fallback if the DDP connection fails)
   useEffect(() => {
-    void refetchClock();
+    // Wait for token to be available before fetching
+    if (localStorage.getItem('meteor_resume_token')) {
+      void refetchClock();
+    }
   }, [refetchClock]);
 
-  // Real-time WebSocket connection for clock updates
+  // Real-time clock updates via the oplog-backed `clock.liveForTeams`
+  // publication: any writer (Fastify REST, Meteor methods, Agenda auto
+  // clock-out) pushes changes here — no server-side broadcast code.
   useEffect(() => {
     if (!userId || !selectedTeamId) {
       return;
     }
 
-    const ws = clockApi.openLiveStream([selectedTeamId]);
+    const ddp = getDdpClient();
 
-    ws.onmessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'snapshot') {
-          // Initial snapshot: find the current user's active event from the array
-          const userEvent =
-            data.events?.find(
-              (e: ClockEvent) => e.userId === userId && e.teamId === selectedTeamId && !e.endTime,
-            ) ?? null;
-          if (userEvent) {
-            setActiveClockEvent(userEvent);
-            setClockReady(true);
-          } else {
-            // No active event for the selected team — check globally via REST,
-            // since the user may be clocked in to a different team.
-            void refetchClock();
-          }
-        } else if (data.type === 'update') {
-          // Real-time update: apply if it's for the current user
-          const updatedEvent = data.event as ClockEvent | null;
-          if (
-            updatedEvent &&
-            updatedEvent.userId === userId &&
-            updatedEvent.teamId === selectedTeamId
-          ) {
-            setActiveClockEvent(updatedEvent);
-          } else if (!updatedEvent) {
-            // Clock out (event is null) — clear active event if it was for this user/team
-            setActiveClockEvent((prev) => {
-              if (prev && prev.teamId === data.teamId) {
-                return null;
-              }
-              return prev;
-            });
-          }
-        }
-      } catch (err) {
-        // Ignore malformed messages
-        console.warn('Failed to parse clock WebSocket message:', err);
+    const applyLiveDocs = () => {
+      const userEvent =
+        ddp
+          .docs('clockevents')
+          .map(ddpDocToClockEvent)
+          .find((e) => e.userId === userId && e.teamId === selectedTeamId && !e.endTime) ?? null;
+      if (userEvent) {
+        setActiveClockEvent(userEvent);
+        setClockReady(true);
+      } else {
+        // No active event for the selected team — clear only if the previous
+        // event was for this team; a cross-team active event (from the REST
+        // fallback) must survive.
+        setActiveClockEvent((prev) => (prev && prev.teamId === selectedTeamId ? null : prev));
       }
     };
 
-    // Cleanup: close WebSocket connection when team changes or component unmounts
+    const offChange = ddp.onCollectionChange('clockevents', applyLiveDocs);
+    const unsubscribe = ddp.subscribe('clock.liveForTeams', [[selectedTeamId]], () => {
+      applyLiveDocs();
+      // Only refetch if we have a valid token — avoids 500 errors when
+      // the subscription ready fires before auth is fully established
+      if (localStorage.getItem('meteor_resume_token')) {
+        void refetchClock();
+      }
+    });
+
     return () => {
-      ws.close();
+      offChange();
+      unsubscribe();
     };
   }, [userId, selectedTeamId, refetchClock]);
 

@@ -34,6 +34,7 @@ import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
+import { getDdpClient } from '../../lib/ddp';
 
 export const OrganizationMembersPage: React.FC = () => {
   const { user } = useSession();
@@ -105,6 +106,24 @@ export const OrganizationMembersPage: React.FC = () => {
   // Pull-to-refresh
   useRefresh(loadUsers);
 
+  // ── Real-time org member updates (Meteor DDP, oplog-backed) ──
+  useEffect(() => {
+    if (!selectedOrgId) return;
+
+    const ddp = getDdpClient();
+
+    // On any org_members change (role updates, add/remove members), refetch the list.
+    const offChange = ddp.onCollectionChange('org_members', () => {
+      void loadUsers();
+    });
+    const unsubscribe = ddp.subscribe('orgMembers.byOrg', [selectedOrgId]);
+
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [selectedOrgId, loadUsers]);
+
   const handleRoleChange = useCallback(
     async (targetUserId: string, role: DefaultOrganizationRole) => {
       if (!selectedOrgId) return;
@@ -149,27 +168,6 @@ export const OrganizationMembersPage: React.FC = () => {
     }
   }, [loadUsers, memberRole, memberUserId, selectedOrgId]);
 
-  const handleRemoveMember = useCallback(
-    async (targetUserId: string) => {
-      if (!selectedOrgId) return;
-      setSavingUserId(targetUserId);
-      setError(null);
-      try {
-        await orgApi.removeMember(selectedOrgId, targetUserId);
-        await loadUsers();
-      } catch (err) {
-        if (err instanceof ApiError) {
-          setError(err.message);
-        } else {
-          setError('Failed to remove member');
-        }
-      } finally {
-        setSavingUserId(null);
-      }
-    },
-    [loadUsers, selectedOrgId],
-  );
-
   const handleBlockMember = useCallback(async (targetUserId: string) => {
     setBlockUserId(targetUserId);
     setBlockReason('');
@@ -208,6 +206,27 @@ export const OrganizationMembersPage: React.FC = () => {
           setError(err.message);
         } else {
           setError('Failed to unblock member');
+        }
+      } finally {
+        setSavingUserId(null);
+      }
+    },
+    [loadUsers, selectedOrgId],
+  );
+
+  const handleRemoveMember = useCallback(
+    async (targetUserId: string) => {
+      if (!selectedOrgId) return;
+      setSavingUserId(targetUserId);
+      setError(null);
+      try {
+        await orgApi.removeMember(selectedOrgId, targetUserId);
+        await loadUsers();
+      } catch (err) {
+        if (err instanceof ApiError) {
+          setError(err.message);
+        } else {
+          setError('Failed to remove member');
         }
       } finally {
         setSavingUserId(null);

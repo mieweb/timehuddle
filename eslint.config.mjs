@@ -26,6 +26,10 @@ export default [
       // Capacitor native project directories — generated, not linted
       'ios',
       'android',
+      // Vendored git submodules — upstream code, not linted here
+      'vendor',
+      // Meteor PoC backend — built/linted by Meteor tooling
+      'meteor-backend',
     ],
   },
   {

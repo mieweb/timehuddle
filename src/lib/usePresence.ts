@@ -1,61 +1,41 @@
-import { useEffect, useRef, useState } from 'react';
-import { presenceApi } from './api.js';
-
-const HEARTBEAT_INTERVAL_MS = 30_000;
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { getDdpClient } from './ddp';
 
 /**
  * Subscribe to real-time online/offline presence for a list of user IDs.
  * Returns a `Set<string>` of user IDs currently online.
- * Sends periodic ping heartbeats to keep the current user marked online.
+ *
+ * Uses the Meteor `presence.watch` DDP publication which pushes a virtual
+ * `presence` collection with `{ _id: userId, online: boolean }` docs.
+ * The DDP connection heartbeat keeps the current user marked online
+ * server-side — no client-side ping loop needed.
  */
 export function usePresence(watchIds: string[]): Set<string> {
-  const [onlineSet, setOnlineSet] = useState<Set<string>>(new Set());
-  // Stable key so the effect only re-runs when the actual IDs change
+  const [version, setVersion] = useState(0);
   const idsKey = watchIds.slice().sort().join(',');
-  const pingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const idsRef = useRef(watchIds);
+  idsRef.current = watchIds;
 
   useEffect(() => {
-    if (watchIds.length === 0) {
-      setOnlineSet(new Set());
-      return;
-    }
-
-    const ws = presenceApi.openStream(watchIds);
-
-    ws.onmessage = (event: MessageEvent) => {
-      try {
-        const msg = JSON.parse(event.data as string) as
-          | { type: 'snapshot'; online: string[] }
-          | { type: 'presence'; userId: string; online: boolean };
-
-        if (msg.type === 'snapshot') {
-          setOnlineSet(new Set(msg.online));
-        } else if (msg.type === 'presence') {
-          setOnlineSet((prev) => {
-            const next = new Set(prev);
-            if (msg.online) next.add(msg.userId);
-            else next.delete(msg.userId);
-            return next;
-          });
-        }
-      } catch {
-        /* ignore malformed frames */
-      }
-    };
-
-    // Keep the current user marked online with heartbeats
-    pingRef.current = setInterval(() => {
-      ws.send(JSON.stringify({ type: 'ping' }));
-    }, HEARTBEAT_INTERVAL_MS);
-
+    if (idsRef.current.length === 0) return;
+    const ddp = getDdpClient();
+    const offChange = ddp.onCollectionChange('presence', () => setVersion((v) => v + 1));
+    const unsubscribe = ddp.subscribe('presence.watch', [idsRef.current]);
     return () => {
-      if (pingRef.current) {
-        clearInterval(pingRef.current);
-        pingRef.current = null;
-      }
-      ws.close();
+      offChange();
+      unsubscribe();
     };
   }, [idsKey]);
+
+  const onlineSet = useMemo(() => {
+    if (watchIds.length === 0) return new Set<string>();
+    const ddp = getDdpClient();
+    const set = new Set<string>();
+    for (const doc of ddp.docs('presence')) {
+      if (doc.online) set.add(doc._id);
+    }
+    return set;
+  }, [idsKey, version]);
 
   return onlineSet;
 }

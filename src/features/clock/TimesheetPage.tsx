@@ -38,6 +38,7 @@ import { ApiError, clockApi, type ClockEvent } from '../../lib/api';
 import { AppPage } from '../../ui/AppPage';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
+import { getDdpClient } from '../../lib/ddp';
 import { AttachmentsPanel } from './AttachmentsPanel';
 import { TimesheetRow } from './TimesheetRow';
 import {
@@ -147,6 +148,20 @@ export const TimesheetPage: React.FC = () => {
   useEffect(() => {
     void fetchData();
   }, [preset]);
+
+  // ── Real-time timesheet updates (Meteor DDP, oplog-backed) ──
+  useEffect(() => {
+    if (!user?.id) return;
+    const ddp = getDdpClient();
+    const offChange = ddp.onCollectionChange('clockevents', () => {
+      void fetchData();
+    });
+    const unsubscribe = ddp.subscribe('clock.liveForUser', [user.id]);
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [user?.id, fetchData]);
 
   // Pull-to-refresh
   useRefresh(fetchData);

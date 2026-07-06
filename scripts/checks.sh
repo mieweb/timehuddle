@@ -5,6 +5,7 @@
 #   ./scripts/checks.sh              # run all jobs
 #   ./scripts/checks.sh frontend     # run frontend job only
 #   ./scripts/checks.sh backend      # run backend job only
+#   ./scripts/checks.sh meteor       # run meteor integration tests only
 #   ./scripts/checks.sh --fix        # auto-fix lint + format, then run all jobs
 #   ./scripts/checks.sh backend --fix  # auto-fix then run backend job only
 #
@@ -95,6 +96,21 @@ run_backend() {
   echo "==> Backend: PASSED"
 }
 
+run_meteor() {
+  echo ""
+  echo "==> Meteor backend — integration tests (wormhole REST)"
+  echo "    (requires Meteor + Fastify + MongoDB running)"
+  (
+    cd meteor-backend
+    npm install --include=dev
+    MONGODB_URI="${MONGODB_URI:-mongodb://localhost:27017/timehuddle}" \
+    METEOR_URL="${METEOR_URL:-http://localhost:3100}" \
+    FASTIFY_URL="${FASTIFY_URL:-http://localhost:4000}" \
+    CI=1 npm run test:integration
+  )
+  echo "==> Meteor backend: PASSED"
+}
+
 run_playwright() {
   echo ""
   echo "==> Playwright — E2E tests"
@@ -108,16 +124,18 @@ JOB="${1:-all}"
 case "$JOB" in
   frontend)   run_frontend ;;
   backend)    run_backend ;;
+  meteor)     run_meteor ;;
   playwright) run_playwright ;;
   all)
     run_frontend
     run_backend
+    run_meteor
     run_playwright
     echo ""
     echo "All checks passed."
     ;;
   *)
-    echo "Unknown job: $JOB. Use: frontend | backend | playwright | all" >&2
+    echo "Unknown job: $JOB. Use: frontend | backend | meteor | playwright | all" >&2
     exit 1
     ;;
 esac

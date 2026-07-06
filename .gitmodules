@@ -1,1 +1,4 @@
 
+[submodule "vendor/meteor-wormhole"]
+	path = vendor/meteor-wormhole
+	url = https://github.com/mieweb/meteor-wormhole

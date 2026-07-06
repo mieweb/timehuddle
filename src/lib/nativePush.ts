@@ -10,7 +10,7 @@
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
-import { TIMECORE_BASE_URL, sessionToken } from './api';
+import { METEOR_API_BASE, sessionToken } from './api';
 import {
   checkPushNotificationStatus,
   isPushNotificationSupported,
@@ -106,8 +106,8 @@ export async function subscribeToPush(): Promise<void> {
   });
 
   const platform = Capacitor.getPlatform() as 'ios' | 'android';
-  const token2 = sessionToken.get();
-  const res = await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-subscribe`, {
+  const token2 = localStorage.getItem('meteor_resume_token') || sessionToken.get();
+  const res = await fetch(`${METEOR_API_BASE}/api/notifications_pushSubscribe`, {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -304,8 +304,8 @@ async function _registerAndSaveToken(): Promise<void> {
   });
 
   const platform = Capacitor.getPlatform() as 'ios' | 'android';
-  const authToken = sessionToken.get();
-  const res = await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-subscribe`, {
+  const authToken = localStorage.getItem('meteor_resume_token') || sessionToken.get();
+  const res = await fetch(`${METEOR_API_BASE}/api/notifications_pushSubscribe`, {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -330,11 +330,15 @@ export async function unsubscribeFromPush(): Promise<void> {
     return unsubscribeFromWebPush();
   }
 
-  const token3 = sessionToken.get();
-  await fetch(`${TIMECORE_BASE_URL}/v1/notifications/push-unsubscribe`, {
+  const token3 = localStorage.getItem('meteor_resume_token') || sessionToken.get();
+  await fetch(`${METEOR_API_BASE}/api/notifications_pushUnsubscribe`, {
     method: 'POST',
     credentials: 'include',
-    headers: { ...(token3 ? { Authorization: `Bearer ${token3}` } : {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token3 ? { Authorization: `Bearer ${token3}` } : {}),
+    },
+    body: JSON.stringify({}),
   });
   setNativePushRegistered(false);
 }

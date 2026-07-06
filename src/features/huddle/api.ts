@@ -1,5 +1,6 @@
 // Huddle feature API helpers
-import { teamApi, ticketApi, mediaApi } from '@lib/api';
+import { teamApi, ticketApi, mediaApi, videoApi, METEOR_BASE_URL } from '@lib/api';
+import * as tus from 'tus-js-client';
 import type { TeamMember, MediaItem } from './types';
 
 /**
@@ -36,6 +37,51 @@ export async function fetchTeamTickets(teamId: string) {
  * Upload a media file (photo, video, doc)
  */
 export async function uploadMedia(file: File): Promise<MediaItem> {
-  const item = await mediaApi.uploadImage(file);
-  return item;
+  let media: MediaItem;
+
+  if (file.type.startsWith('video/')) {
+    // Videos go through PulseVault TUS
+    const { videoid, uploadToken } = await videoApi.reserveForLibrary();
+
+    await new Promise<void>((resolve, reject) => {
+      const upload = new tus.Upload(file, {
+        endpoint: videoApi.uploadEndpoint(),
+        retryDelays: [0, 3000, 5000, 10000],
+        metadata: {
+          filename: file.name,
+          filetype: file.type,
+          videoid,
+        },
+        headers: { Authorization: `Bearer ${uploadToken}` },
+        onProgress(bytesUploaded, bytesTotal) {
+          console.log(
+            `[uploadMedia] Video upload: ${Math.round((bytesUploaded / bytesTotal) * 100)}%`,
+          );
+        },
+        onSuccess() {
+          resolve();
+        },
+        onError(err) {
+          reject(err);
+        },
+      });
+      upload.start();
+    });
+
+    // Build MediaItem shape from the uploaded video
+    const videoUrl = `${METEOR_BASE_URL.replace(/\/$/, '')}/v1/video/${videoid}`;
+    media = {
+      id: videoid,
+      type: 'video',
+      size: file.size,
+      mimeType: file.type,
+      url: videoUrl,
+      filename: file.name,
+    };
+  } else {
+    // Images and documents go through Meteor media upload
+    media = await mediaApi.uploadImage(file);
+  }
+
+  return media;
 }

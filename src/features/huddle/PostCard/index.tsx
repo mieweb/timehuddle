@@ -1,10 +1,18 @@
 import { useState, useRef, useEffect } from 'react';
 import type { HuddlePost } from '@lib/api';
-import { huddleApi } from '@lib/api';
+import { huddleApi, METEOR_BASE_URL } from '@lib/api';
 import { MarkdownContent } from '../MarkdownContent';
 import { HuddleComments } from '../HuddleComments';
 import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
+
+// ── URL Resolution ────────────────────────────────────────────────────────────
+function resolveAttachmentUrl(url: string | undefined): string {
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${METEOR_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
 // ── Avatar ────────────────────────────────────────────────────────────────────
 type AvatarColor = 'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green';
 
@@ -104,9 +112,7 @@ export function PostCard({
 
   const handleSaveEdit = async () => {
     try {
-      await huddleApi.updatePost(post.id, {
-        content: { text: editContent, mentions: post.content.mentions },
-      });
+      await huddleApi.updatePost(post.id, { text: editContent, mentions: post.content.mentions });
       setIsEditing(false);
       onPostUpdated?.();
     } catch (error) {
@@ -322,31 +328,31 @@ export function PostCard({
               {attachment.type === 'image' && (
                 <div className="relative w-full bg-gray-100 dark:bg-neutral-800 rounded-xl max-h-[500px] flex items-center justify-center">
                   <img
-                    src={attachment.url}
+                    src={resolveAttachmentUrl(attachment.url)}
                     alt={attachment.filename || 'Image'}
                     className="max-w-full max-h-[500px] object-contain rounded-xl"
                   />
                 </div>
               )}
               {attachment.type === 'video' && (
-                <div className="relative w-full aspect-video bg-black rounded-xl max-h-96">
-                  {attachment.thumbnailUrl ? (
-                    <img
-                      src={attachment.thumbnailUrl}
-                      alt={attachment.filename || 'Video thumbnail'}
-                      className="w-full h-full object-cover rounded-xl"
-                    />
-                  ) : (
-                    <video controls className="w-full h-full rounded-xl">
-                      <source src={attachment.url} type="video/mp4" />
-                      Your browser does not support the video tag.
-                    </video>
-                  )}
+                <div className="relative w-full rounded-xl overflow-hidden bg-black">
+                  <video
+                    controls
+                    className="w-full rounded-xl max-h-96"
+                    src={resolveAttachmentUrl(attachment.url)}
+                    poster={
+                      attachment.thumbnailUrl
+                        ? resolveAttachmentUrl(attachment.thumbnailUrl)
+                        : undefined
+                    }
+                  >
+                    Your browser does not support the video tag.
+                  </video>
                 </div>
               )}
               {attachment.type === 'file' && (
                 <a
-                  href={attachment.url}
+                  href={resolveAttachmentUrl(attachment.url)}
                   download={attachment.filename}
                   className="block bg-neutral-100 dark:bg-neutral-700 p-4 rounded-lg hover:bg-neutral-200 dark:hover:bg-neutral-600 transition-colors"
                 >

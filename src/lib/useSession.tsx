@@ -7,7 +7,8 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
-import { authApi, type TimecoreUser } from './api';
+import { authApi, orgApi, type TimecoreUser } from './api';
+import { getDdpClient } from './ddp';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -16,7 +17,7 @@ interface SessionState {
   loading: boolean;
   /** True when the user is authenticated but has not yet claimed a username. */
   needsUsernameClaim: boolean;
-  /** Error message if user is blocked from signing in. */
+  /** Block message if user is blocked from all orgs. */
   blockMessage?: string | null;
   /** Re-fetch session from timecore — call after sign-in / sign-up. */
   refetch: () => Promise<void>;
@@ -45,26 +46,72 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const fetchSession = useCallback(async () => {
     setLoading(true);
     setBlockMessage(null);
-    const t = performance.now();
     console.log('[TimeHuddle] fetchSession: calling getMe...');
+    const t = performance.now();
     try {
-      const data = await authApi.getMe();
-      console.log(
-        `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${data?.user?.email ?? 'null'}`,
-      );
-      setUser(data?.user ?? null);
+      const ddp = getDdpClient();
+      const meteorUser = await ddp.getCurrentUser();
+
+      if (meteorUser) {
+        console.log(
+          `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${meteorUser.email}`,
+        );
+
+        // Fetch organizations for the user
+        let organizations: Array<{
+          id: string;
+          name: string;
+          slug: string;
+          enterpriseId: string | null;
+          role: 'owner' | 'admin' | 'member';
+          allowAutoJoin: boolean;
+        }> = [];
+        try {
+          console.log('[TimeHuddle] fetchSession: calling orgApi.listOrganizations()...');
+          const orgs = await orgApi.listOrganizations();
+          // Filter out orgs where role is null
+          organizations = orgs.filter(
+            (o): o is typeof o & { role: 'owner' | 'admin' | 'member' } => o.role !== null,
+          );
+          console.log(
+            `[TimeHuddle] fetchSession: loaded ${organizations.length} organizations`,
+            organizations,
+          );
+        } catch (err) {
+          console.error(
+            '[TimeHuddle] fetchSession: failed to load organizations:',
+            err instanceof Error ? err.message : String(err),
+            err,
+          );
+        }
+
+        setUser({
+          id: meteorUser.id,
+          email: meteorUser.email,
+          name: meteorUser.name,
+          createdAt: new Date().toISOString(),
+          emailVerified: meteorUser.emailVerified ?? true,
+          image: meteorUser.image ?? null,
+          backgroundUrl: null,
+          username: meteorUser.username ?? null,
+          organizationMembership: null,
+          organizations,
+        });
+      } else {
+        console.log(
+          `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — no user found`,
+        );
+        setUser(null);
+      }
     } catch (err) {
       console.log(
         `[TimeHuddle] fetchSession: getMe failed in ${(performance.now() - t).toFixed(0)}ms — ${String(err)}`,
       );
-
       // Check if it's a blocking error
-      if (err instanceof Error) {
-        if (err.message.includes('suspended') || err.message.includes('blocked')) {
-          setBlockMessage(err.message);
-        }
+      const errMessage = err instanceof Error ? err.message : String(err);
+      if (errMessage.includes('suspended') || errMessage.includes('blocked')) {
+        setBlockMessage(errMessage);
       }
-
       setUser(null);
     } finally {
       setLoading(false);
@@ -76,8 +123,19 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [fetchSession]);
 
   const signOut = useCallback(async () => {
-    await authApi.signOut().catch(() => {});
+    // Clear token FIRST so no wormhole calls fire with invalidated token
+    localStorage.removeItem('meteor_resume_token');
+    // Clear user state immediately to stop any reactive refetches
     setUser(null);
+    // Navigate to root to show landing/login page
+    if (window.location.pathname !== '/') {
+      window.history.pushState(null, '', '/');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
+    // Then invalidate server-side session
+    const ddp = getDdpClient();
+    await ddp.logout().catch(() => {});
+    await authApi.signOut().catch(() => {});
   }, []);
 
   const needsUsernameClaim = !!user && user.username === null;

@@ -1,0 +1,27 @@
+# Dev image for the Meteor backend.
+#
+# node:24-bookworm-slim (Debian + glibc) — Alpine/musl can't run Meteor's
+# bundled toolchain. The Debian `node` base gives us npm for `npm install`
+# while Meteor brings its own Node for `meteor run`.
+#
+# Source is bind-mounted at runtime (see docker-compose.yml), so this image
+# only needs the Meteor toolchain + native-build deps; it COPYs nothing.
+FROM node:24-bookworm-slim
+
+# curl: fetch the Meteor installer. python3/g++/make: native npm addons
+# (firebase-admin, web-push). procps/git: Meteor tooling expectations.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates curl python3 g++ make git procps \
+    && rm -rf /var/lib/apt/lists/*
+
+# Meteor refuses to run as root unless this is set; dev containers run as root.
+ENV METEOR_ALLOW_SUPERUSER=true
+
+# Install the release pinned in .meteor/release (METEOR@3.4.1). Bundles its
+# own Node, so `meteor run` is self-contained regardless of the base node.
+RUN curl -fsSL "https://install.meteor.com/?release=3.4.1" | sh
+
+WORKDIR /app/meteor-backend
+
+EXPOSE 3100

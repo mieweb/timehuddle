@@ -60,6 +60,7 @@ import {
   type Ticket,
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
+import { getDdpClient, ddpDocToTicket } from '../../lib/ddp';
 import { useSession } from '../../lib/useSession';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -184,7 +185,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
   return (
     <li
       data-ticket-id={ticket.id}
-      className="group relative flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40"
+      className="group relative flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40 max-md:overflow-visible"
     >
       <TimerToggleButton
         isRunning={isTimerRunning}
@@ -290,7 +291,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
           </div>
         )}
         <Dropdown
-          className="z-1000 bg-white dark:bg-neutral-800"
+          className="z-[99999]"
           open={menuOpen}
           onOpenChange={setMenuOpen}
           trigger={
@@ -305,7 +306,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
           }
           placement="bottom-end"
         >
-          <DropdownContent>
+          <DropdownContent className="max-md:max-w-[calc(100vw-2rem)] md:max-w-xs bg-white dark:bg-neutral-800 shadow-lg border border-neutral-200 dark:border-neutral-700">
             <DropdownItem
               icon={<FontAwesomeIcon icon={faEye} />}
               onClick={() => {
@@ -431,11 +432,13 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
         </button>
       }
       placement={effectivePlacement}
-      className="z-1000 max-w-[calc(100vw-1rem)] bg-white dark:bg-neutral-800"
+      className="z-[9999] max-w-[calc(100vw-1rem)] bg-white dark:bg-neutral-800"
     >
       {/* Clicking any item bubbles up to this div and closes the dropdown */}
       <div onClick={() => handleOpenChange(false)}>
-        <DropdownContent className="max-h-[60vh] overflow-y-auto">{children}</DropdownContent>
+        <DropdownContent className="max-h-[60vh] overflow-y-auto bg-white dark:bg-neutral-800 shadow-lg">
+          {children}
+        </DropdownContent>
       </div>
     </Dropdown>
   );
@@ -518,6 +521,8 @@ export const TicketsPage: React.FC = () => {
 
   // Fetch today's timer to determine if any ticket has a running timer
   const fetchRunningTimer = useCallback(async () => {
+    // Wait for token to be available before fetching
+    if (!localStorage.getItem('meteor_resume_token')) return;
     try {
       const dayEntries = await timerApi.getToday();
       const running = dayEntries.flatMap((de) => de.sessions).find((t) => !t.endTime);
@@ -555,58 +560,60 @@ export const TicketsPage: React.FC = () => {
     [teams],
   );
 
-  // Real-time WebSocket connection for ticket updates
+  // Real-time updates via Meteor DDP (oplog-backed publication `tickets.byTeam`).
+  // Replaces the hand-rolled /v1/tickets/ws WebSocket: any write to the shared
+  // Mongo (Fastify REST, Meteor methods, wormhole REST, MCP agents) is pushed
+  // here automatically — no broadcast code on any server.
   useEffect(() => {
     if (!teamIdsKey || !userId) return;
 
     const teamIds = teamIdsKey.split(',');
-    const ws = ticketApi.openLiveStream(teamIds);
+    const ddp = getDdpClient();
 
-    ws.onmessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
+    const offChange = ddp.onCollectionChange('tickets', () => {
+      const liveDocs = ddp.docs('tickets').map(ddpDocToTicket);
+      const liveIds = new Set(liveDocs.map((t) => t.id));
+      const subscribedTeams = new Set(teamIds);
+      setTickets((prev) => [
+        // Keep tickets outside the subscription (other teams) untouched;
+        // drop subscribed-team tickets that the live set no longer contains.
+        ...prev.filter((t) => !subscribedTeams.has(t.teamId) && !liveIds.has(t.id)),
+        ...liveDocs,
+      ]);
+    });
+    const unsubscribe = ddp.subscribe('tickets.byTeam', [teamIds]);
 
-        if (data.type === 'snapshot') {
-          // Initial snapshot for a single team — merge with existing tickets
-          const newTickets = data.tickets as Ticket[];
-          setTickets((prev) => {
-            // Remove tickets from this team, then add the snapshot
-            const filtered = prev.filter((t) => t.teamId !== data.teamId);
-            return [...filtered, ...newTickets];
-          });
-        } else if (data.type === 'update') {
-          // Real-time ticket update — upsert by id
-          const updatedTicket = data.ticket as Ticket;
-          setTickets((prev) => {
-            const idx = prev.findIndex((t) => t.id === updatedTicket.id);
-            if (idx >= 0) {
-              const copy = [...prev];
-              copy[idx] = updatedTicket;
-              return copy;
-            }
-            return [...prev, updatedTicket];
-          });
-        } else if (data.type === 'delete') {
-          // Ticket deleted — remove from state
-          setTickets((prev) => prev.filter((t) => t.id !== data.ticketId));
-        }
-      } catch (err) {
-        console.warn('Failed to parse tickets WebSocket message:', err);
-      }
-    };
-
-    // Cleanup: close WebSocket when teams change or component unmounts
     return () => {
-      ws.close();
+      offChange();
+      unsubscribe();
     };
   }, [teamIdsKey, userId]);
 
-  // Listen for external refetch requests (e.g., from CommandPalette)
+  // ── Real-time timer updates (Meteor DDP, oplog-backed) ──
   useEffect(() => {
-    const onRefetch = () => void refetch();
+    const ddp = getDdpClient();
+
+    // When any timer starts/stops, refetch to update which ticket has the running timer
+    const offChange = ddp.onCollectionChange('timers', () => {
+      void fetchRunningTimer();
+    });
+    const unsubscribe = ddp.subscribe('timers.liveForUser', []);
+
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [fetchRunningTimer]);
+
+  // Listen for external refetch requests (e.g., from CommandPalette or clock operations)
+  useEffect(() => {
+    const onRefetch = () => {
+      void refetch();
+      void fetchRunningTimer();
+    };
     window.addEventListener('tickets:refetch', onRefetch);
     return () => window.removeEventListener('tickets:refetch', onRefetch);
-  }, [refetch]);
+  }, [refetch, fetchRunningTimer]);
 
   // Fetch members for all teams
   useEffect(() => {
@@ -808,10 +815,7 @@ export const TicketsPage: React.FC = () => {
   const memberOptions = useMemo(() => {
     const teamId = selectedTeamId ?? teams[0]?.id;
     const members = teamId ? (membersByTeam.get(teamId) ?? []) : [];
-    return [
-      { value: '', label: 'Unassigned' },
-      ...members.map((m) => ({ value: m.id, label: m.name || m.email })),
-    ];
+    return members.map((m) => ({ value: m.id, label: m.name || m.email }));
   }, [membersByTeam, selectedTeamId, teams]);
 
   // Active filter label helpers
@@ -1301,12 +1305,12 @@ export const TicketsPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="scrollbar-mieweb scrollbar-mieweb-visible min-h-0 flex-1 overflow-y-scroll">
+          <div className="scrollbar-mieweb scrollbar-mieweb-visible min-h-0 flex-1 overflow-y-scroll max-md:overflow-x-visible max-md:pb-64">
             {/* Ticket rows */}
             {filteredTickets.length > 0 ? (
               <ul
                 ref={ticketListRef}
-                className="divide-y divide-neutral-100 dark:divide-neutral-800"
+                className="divide-y divide-neutral-100 dark:divide-neutral-800 max-md:overflow-visible"
                 aria-label={statusFilter === 'open' ? 'Open tickets' : 'Closed tickets'}
               >
                 {filteredTickets.map((t) => (

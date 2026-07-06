@@ -22,6 +22,70 @@ export function extractVideoThumbnail(file: File): Promise<Blob> {
  * If `targetSeconds` is provided, extraction seeks to that timestamp;
  * otherwise it falls back to the midpoint.
  */
+/**
+ * Capture a thumbnail from an existing <video> element at its current frame.
+ * Avoids cross-origin issues since the video is already loaded.
+ */
+/**
+ * Capture a thumbnail from an existing <video> element at its current frame.
+ * Fetches the video as a blob first to avoid cross-origin canvas tainting.
+ */
+export async function captureFromVideoElement(videoEl: HTMLVideoElement): Promise<Blob> {
+  const currentTime = videoEl.currentTime;
+
+  const { sessionToken } = await import('./api');
+  const token = sessionToken.get();
+  const res = await fetch(videoEl.src, {
+    credentials: 'include',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  if (!res.ok) throw new Error('Failed to fetch video for thumbnail');
+  const videoBlob = await res.blob();
+  const blobUrl = URL.createObjectURL(videoBlob);
+
+  try {
+    return await extractThumbnailFromBlobUrl(blobUrl, currentTime);
+  } finally {
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
+function extractThumbnailFromBlobUrl(url: string, targetSeconds: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+
+    video.addEventListener('error', () =>
+      reject(new Error('Failed to load video blob for thumbnail')),
+    );
+
+    video.addEventListener('loadedmetadata', () => {
+      const seekTo = Math.max(0, Math.min(targetSeconds, video.duration || 0));
+      video.currentTime = isFinite(seekTo) && seekTo > 0 ? seekTo : 0;
+    });
+
+    video.addEventListener('seeked', () => {
+      const canvas = document.createElement('canvas');
+      const maxWidth = 640;
+      const scale = Math.min(1, maxWidth / video.videoWidth);
+      canvas.width = Math.round(video.videoWidth * scale);
+      canvas.height = Math.round(video.videoHeight * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('Canvas 2D context not available'));
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error('Canvas toBlob returned null'))),
+        'image/jpeg',
+        0.85,
+      );
+    });
+
+    video.src = url;
+  });
+}
+
 export function extractThumbnailFromVideoUrl(url: string, targetSeconds?: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video');

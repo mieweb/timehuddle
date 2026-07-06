@@ -62,7 +62,7 @@ export const OrganizationOverviewPage: React.FC = () => {
           </Text>
 
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => navigate('/org/members')}>
+            <Button variant="secondary" onClick={() => navigate('/app/org/members')}>
               Members
             </Button>
             <Button variant="secondary" onClick={() => navigate('/app/settings')}>

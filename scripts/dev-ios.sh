@@ -17,7 +17,7 @@
 set -euo pipefail
 
 VITE_PORT=3000
-BACKEND_PORT=4000
+BACKEND_PORT=3100
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ── 1. Detect LAN IP ──────────────────────────────────────────────────────────
@@ -53,40 +53,42 @@ pm2_status() {
 }
 
 # ── 2. Backend ────────────────────────────────────────────────────────────────
-BACKEND_STATUS=$(pm2_status "timehuddle-backend")
+# NOTE: Fastify backend disabled — using Meteor backend (timehuddle-meteor) instead.
+# The Meteor backend should be started separately via PM2:
+#   cd meteor-backend && pm2 start ecosystem.config.cjs --only timehuddle-meteor
+# Or it will be started automatically if it's in the PM2 process list.
 
-if [[ "$BACKEND_STATUS" == "online" ]]; then
-  echo "✅  timehuddle-backend is already online — restarting with LAN IP origins..."
-  pm2 stop timehuddle-backend >/dev/null 2>&1 || true
-fi
-
-# Always delete and re-register backend with the dynamic LAN IP env vars.
-# Passing env via a temp process config is the only reliable way to override
-# dotenv's .env file without touching it.
-pm2 delete timehuddle-backend >/dev/null 2>&1 || true
-
-TEMP_EC=$(mktemp /tmp/timehuddle-backend-XXXXXX.json)
-cat > "$TEMP_EC" << ECOSYSTEM
-[{
-  "name": "timehuddle-backend",
-  "script": "npm",
-  "args": "run dev",
-  "cwd": "$ROOT_DIR/backend",
-  "watch": false,
-  "autorestart": true,
-  "max_restarts": 5,
-  "env": {
-    "NODE_ENV": "development",
-    "FORCE_COLOR": "1",
-    "TRUSTED_ORIGINS": "http://localhost:3000,http://$IP:$VITE_PORT",
-    "BETTER_AUTH_URL": "http://$IP:$VITE_PORT"
-  }
-}]
-ECOSYSTEM
-
-pm2 start "$TEMP_EC" >/dev/null 2>&1
-rm "$TEMP_EC"
-echo "✅  timehuddle-backend running (TRUSTED_ORIGINS includes http://$IP:$VITE_PORT)."
+# BACKEND_STATUS=$(pm2_status "timehuddle-backend")
+# 
+# if [[ "$BACKEND_STATUS" == "online" ]]; then
+#   echo "✅  timehuddle-backend is already online — restarting with LAN IP origins..."
+#   pm2 stop timehuddle-backend >/dev/null 2>&1 || true
+# fi
+# 
+# pm2 delete timehuddle-backend >/dev/null 2>&1 || true
+# 
+# TEMP_EC=$(mktemp /tmp/timehuddle-backend-XXXXXX.json)
+# cat > "$TEMP_EC" << ECOSYSTEM
+# [{
+#   "name": "timehuddle-backend",
+#   "script": "npm",
+#   "args": "run start",
+#   "cwd": "$ROOT_DIR/meteor-backend",
+#   "watch": false,
+#   "autorestart": true,
+#   "max_restarts": 5,
+#   "env": {
+#     "NODE_ENV": "development",
+#     "FORCE_COLOR": "1",
+#     "TRUSTED_ORIGINS": "http://localhost:3000,http://$IP:$VITE_PORT",
+#     "BETTER_AUTH_URL": "http://$IP:$VITE_PORT"
+#   }
+# }]
+# ECOSYSTEM
+# 
+# pm2 start "$TEMP_EC" >/dev/null 2>&1
+# rm "$TEMP_EC"
+# echo "✅  timehuddle-backend running (TRUSTED_ORIGINS includes http://$IP:$VITE_PORT)."
 echo ""
 
 # ── 3. Frontend ───────────────────────────────────────────────────────────────
@@ -109,6 +111,7 @@ cat > "$TEMP_FE" << ECOSYSTEM
   "env": {
     "NODE_ENV": "development",
     "FORCE_COLOR": "1",
+    "CAPACITOR": "1",
     "VITE_TIMECORE_URL": "http://$IP:$BACKEND_PORT"
   }
 }]
@@ -142,9 +145,10 @@ npx cap open ios
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Vite  → http://$IP:$VITE_PORT   (pm2: timehuddle-frontend)"
-echo "  API   → http://$IP:$BACKEND_PORT (pm2: timehuddle-backend)"
+echo "  Vite   → http://$IP:$VITE_PORT   (pm2: timehuddle-frontend)"
+echo "  Meteor → http://localhost:3100     (pm2: timehuddle-meteor)"
 echo ""
 echo "  pm2 logs timehuddle-frontend   tail Vite output"
-echo "  pm2 stop all                   stop both processes"
+echo "  pm2 logs timehuddle-meteor     tail Meteor output"
+echo "  pm2 stop all                   stop all processes"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -6,11 +6,12 @@ import {
   faUsers,
   faListCheck,
 } from '@fortawesome/free-solid-svg-icons';
-import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useState } from 'react';
 
-import { authApi } from '../lib/api';
+import { authApi, METEOR_BASE_URL } from '../lib/api';
+import { getDdpClient } from '../lib/ddp';
+import { getEnabledSocialProviders, type SocialProvider } from '../lib/socialProviders';
 import { useSession } from '../lib/useSession';
 import { Button, Input, Select, Text } from '@mieweb/ui';
 
@@ -72,6 +73,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [migrationInfo, setMigrationInfo] = useState<string | null>(null);
   const [selectedDomain, setSelectedDomain] = useState<'enterprise' | 'organization'>(
     'organization',
   );
@@ -99,6 +101,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setModeParam(next);
     setError(null);
     setSuccessMessage(null);
+    setMigrationInfo(null);
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -107,29 +110,41 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setLoading(true);
     setError(null);
     try {
-      await authApi.signIn(email.trim().toLowerCase(), password);
-      // If this sign-in was initiated as part of an OAuth 2.0 authorization request
-      // (e.g. from TimeHarbor), redirect back to the authorization endpoint so
-      // Better Auth can issue the authorization code now that the user is authenticated.
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('response_type') && params.get('client_id') && params.get('state')) {
-        // Copy the fresh Bearer token into a cookie so Better Auth reads the session.
-        const token = localStorage.getItem('timecore_session_token');
-        if (token) {
-          document.cookie = `better-auth.session_token=${token}; path=/; SameSite=Lax`;
-        }
-        // Use same-origin URL (/api proxy) so the session cookie is sent along.
-        window.location.href = `/api/auth/oauth2/authorize?${params.toString()}`;
+      const ddp = getDdpClient();
+      await ddp.loginWithPassword(email.trim().toLowerCase(), password);
+      await session.refetch();
+      // Check for blocking after refetch
+      if (session.blockMessage) {
+        setError('Your account has been suspended. Please contact your administrator.');
+        setLoading(false);
         return;
       }
-      await session.refetch();
-      // Check if the session refetch resulted in a blocking message
-      if (session.blockMessage) {
-        setError(session.blockMessage);
-        setLoading(false);
-      }
     } catch (err: unknown) {
-      const message = (err as Error).message || 'Login failed';
+      const message = (err as Error).message || 'Invalid email or password';
+
+      // Detect Better Auth users that need password reset
+      // The error message is a JSON string with token
+      try {
+        const data = JSON.parse(message);
+        if (data.token && data.message) {
+          // This is a Better Auth migration response
+          const url = new URL(window.location.href);
+          url.searchParams.set('token', data.token);
+          url.searchParams.delete('mode');
+          window.history.replaceState(null, '', url.toString());
+          setMode('reset-confirm');
+          setPassword('');
+          setConfirmPassword('');
+          // Show migration info but keep form visible
+          setMigrationInfo('Your account needs migration. Please set a new password below.');
+          setError(null);
+          setLoading(false);
+          return;
+        }
+      } catch {
+        // Not JSON, continue with normal error handling
+      }
+
       if (message.includes('suspended') || message.includes('blocked')) {
         setError('Your account has been suspended. Please contact your administrator.');
       } else {
@@ -171,9 +186,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setLoading(true);
     try {
       const name = `${firstName.trim()} ${lastName.trim()}`.trim();
-      await authApi.signUp(email.trim().toLowerCase(), password, name);
-      // Sign in immediately after signup to establish the session cookie
-      await authApi.signIn(email.trim().toLowerCase(), password);
+      const ddp = getDdpClient();
+      await ddp.signUpWithPassword(email.trim().toLowerCase(), password, name);
       await session.refetch();
     } catch (err: unknown) {
       setLoading(false);
@@ -192,8 +206,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setLoading(true);
     setError(null);
     try {
-      const redirectTo = `${window.location.origin}/app`;
-      await authApi.requestPasswordReset(email.trim().toLowerCase(), redirectTo);
+      const ddp = getDdpClient();
+      await ddp.ensureConnected();
+      await ddp.call('accounts.sendResetPasswordEmail', {
+        email: email.trim().toLowerCase(),
+      });
       setSuccessMessage('Check your email for a reset link.');
     } catch (err: unknown) {
       setError((err as Error).message || 'Request failed');
@@ -216,7 +233,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     }
     setLoading(true);
     try {
-      await authApi.resetPassword(resetToken, password);
+      const ddp = getDdpClient();
+      await ddp.ensureConnected();
+      await ddp.call('accounts.resetPassword', {
+        token: resetToken,
+        newPassword: password,
+      });
       const url = new URL(window.location.href);
       url.searchParams.delete('token');
 
@@ -248,25 +270,39 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
         ? handleSignup
         : handleLogin;
 
-  const [githubLoading, setGithubLoading] = useState(false);
-  const [githubError, setGithubError] = useState<string | null>(null);
+  const socialProviders = getEnabledSocialProviders();
+  const [socialLoadingId, setSocialLoadingId] = useState<string | null>(null);
+  const [socialError, setSocialError] = useState<string | null>(null);
 
-  const handleGitHubSignIn = async () => {
-    if (githubLoading) return;
-    setGithubLoading(true);
-    setGithubError(null);
+  const handleSocialSignIn = async (provider: SocialProvider) => {
+    if (socialLoadingId) return;
+    setSocialLoadingId(provider.id);
+    setSocialError(null);
     try {
+      if (provider.kind === 'meteor-oauth') {
+        // Redirect to Meteor OAuth endpoint
+        window.location.href = `${METEOR_BASE_URL}${provider.meteorPath}`;
+        return;
+      }
+
+      // Existing oauth2 and social handling
       const callbackURL = `${window.location.origin}/app/dashboard`;
-      const url = await authApi.signInWithSocial('github', callbackURL);
+      const url =
+        provider.kind === 'oauth2'
+          ? await authApi.signInWithOAuth2(provider.id, callbackURL)
+          : await authApi.signInWithSocial(
+              provider.id as 'github' | 'google' | 'apple',
+              callbackURL,
+            );
       window.location.href = url;
     } catch (err: unknown) {
-      const message = (err as Error).message || 'GitHub sign-in failed';
+      const message = (err as Error).message || `${provider.label} sign-in failed`;
       if (message.includes('suspended') || message.includes('blocked')) {
-        setGithubError('Your account has been suspended. Please contact your administrator.');
+        setSocialError('Your account has been suspended. Please contact your administrator.');
       } else {
-        setGithubError(message);
+        setSocialError(message);
       }
-      setGithubLoading(false);
+      setSocialLoadingId(null);
     }
   };
 
@@ -361,6 +397,16 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
 
           {/* Form */}
           <form onSubmit={onSubmit} noValidate className="space-y-4" aria-live="polite">
+            {/* Migration info message (shows above form, doesn't hide fields) */}
+            {migrationInfo && (
+              <div
+                className="rounded-md border border-blue-200 bg-blue-50/60 p-3 text-sm dark:border-blue-700 dark:bg-blue-900/30"
+                role="status"
+              >
+                <p className="leading-relaxed text-blue-800 dark:text-blue-200">{migrationInfo}</p>
+              </div>
+            )}
+
             {successMessage ? (
               <div className="space-y-4" role="status">
                 <div className="rounded-md border border-green-200 bg-green-50/60 p-3 text-sm dark:border-green-700 dark:bg-green-900/30">
@@ -490,38 +536,48 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
           {(mode === 'login' || mode === 'signup') && (
             <>
               {/* Divider */}
-              <div className="my-6 flex items-center gap-3">
-                <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
-                <span className="text-xs text-neutral-400 dark:text-neutral-500">or</span>
-                <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
-              </div>
+              {socialProviders.length > 0 && (
+                <div className="my-6 flex items-center gap-3">
+                  <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
+                  <span className="text-xs text-neutral-400 dark:text-neutral-500">or</span>
+                  <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
+                </div>
+              )}
 
-              {/* GitHub social sign-in */}
-              <div className="space-y-3">
-                <Button
-                  variant="outline"
-                  fullWidth
-                  type="button"
-                  onClick={handleGitHubSignIn}
-                  disabled={githubLoading}
-                  isLoading={githubLoading}
-                  loadingText="Redirecting…"
-                  aria-label="Continue with GitHub"
-                >
-                  {!githubLoading && (
-                    <span className="flex items-center justify-center gap-2">
-                      <FontAwesomeIcon icon={faGithub} className="text-base" />
-                      Continue with GitHub
-                    </span>
+              {/* Social sign-in providers */}
+              {socialProviders.length > 0 && (
+                <div className="space-y-3">
+                  {socialProviders.map((provider) => {
+                    const loading = socialLoadingId === provider.id;
+                    return (
+                      <Button
+                        key={provider.id}
+                        variant="outline"
+                        fullWidth
+                        type="button"
+                        onClick={() => handleSocialSignIn(provider)}
+                        disabled={socialLoadingId !== null}
+                        isLoading={loading}
+                        loadingText="Redirecting…"
+                        aria-label={`Continue with ${provider.label}`}
+                      >
+                        {!loading && (
+                          <span className="flex items-center justify-center gap-2">
+                            <FontAwesomeIcon icon={provider.icon} className="text-base" />
+                            Continue with {provider.label}
+                          </span>
+                        )}
+                      </Button>
+                    );
+                  })}
+
+                  {socialError && (
+                    <Text variant="destructive" size="xs" weight="medium" as="div" role="alert">
+                      {socialError}
+                    </Text>
                   )}
-                </Button>
-
-                {githubError && (
-                  <Text variant="destructive" size="xs" weight="medium" as="div" role="alert">
-                    {githubError}
-                  </Text>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Divider between social and mode toggle text */}
               <div className="my-4" />
