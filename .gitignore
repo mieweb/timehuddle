@@ -50,3 +50,4 @@ meteor-backend/start-rosetta.sh
 # Database backups (migration and production backups)
 backups/
 prod-backups/
+backend/
