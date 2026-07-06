@@ -85,7 +85,7 @@ test.describe('Work Summary API', () => {
 
   test.beforeAll(async () => {
     mongoClient = await MongoClient.connect(MONGO_URL);
-    db = mongoClient.db();
+    _db = mongoClient.db();
 
     // Login via DDP to get resume tokens for API calls
     [ownerAuth, memberAuth] = await Promise.all([

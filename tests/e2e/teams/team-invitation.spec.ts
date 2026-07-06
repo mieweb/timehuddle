@@ -45,10 +45,10 @@ test.describe('Team Invitation with Org Membership', () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    loginPage = new LoginPage(page);
-    dashboardPage = new DashboardPage(page);
-    teamsPage = new TeamsPage(page);
-    orgPage = new OrganizationPage(page);
+    _loginPage = new LoginPage(page);
+    _dashboardPage = new DashboardPage(page);
+    _teamsPage = new TeamsPage(page);
+    _orgPage = new OrganizationPage(page);
   });
 
   test('user invited to team should automatically join organization', async () => {

@@ -11,18 +11,18 @@ import { TEST_USERS } from '../fixtures/users';
  * no dependency on a developer-created account.
  */
 test.describe('Organization Member Blocking Feature', () => {
-  let loginPage: LoginPage;
+  let _loginPage: LoginPage;
   let _dashboardPage: DashboardPage;
 
   const owner = TEST_USERS.owner1;
 
   test.beforeEach(async ({ page }) => {
-    loginPage = new LoginPage(page);
-    dashboardPage = new DashboardPage(page);
+    _loginPage = new LoginPage(page);
+    _dashboardPage = new DashboardPage(page);
 
     // Login as owner
-    await loginPage.goto();
-    await loginPage.loginAs(owner);
+    await _loginPage.goto();
+    await _loginPage.loginAs(owner);
     await page.waitForURL('**/dashboard', { timeout: 15000 });
   });
 
