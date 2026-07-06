@@ -143,7 +143,7 @@ test.describe('Timesheet', () => {
     // The "No clock events" message should NOT be visible
     // (there should be at least 1 session from the clock in/out above)
     const noEvents = page.getByText('No clock events in this date range.');
-    const sessions = page.getByText('Sessions', { exact: true }).locator('..').getByText(/[1-9]/);
+    const _sessions = page.getByText('Sessions', { exact: true }).locator('..').getByText(/[1-9]/);
 
     // Either we see sessions > 0 or we don't see the "no events" message
     const hasNoEvents = await noEvents.isVisible({ timeout: 3000 }).catch(() => false);

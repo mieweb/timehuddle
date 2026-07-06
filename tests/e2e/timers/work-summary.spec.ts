@@ -74,7 +74,7 @@ async function ddpLogin(
 
 test.describe('Work Summary API', () => {
   let mongoClient: MongoClient;
-  let db: ReturnType<MongoClient['db']>;
+  let _db: ReturnType<MongoClient['db']>;
 
   const MONGO_URL = process.env.MONGO_URL || 'mongodb://localhost:27017/timehuddle';
   const METEOR_BASE_URL = process.env.METEOR_BASE_URL || 'http://localhost:3100';

@@ -123,7 +123,7 @@ test.describe('Better Auth Migration Flow', () => {
     await expect(page.getByPlaceholder('••••••••').first()).toBeVisible();
   });
 
-  test('regular Meteor users can login normally', async ({ page }) => {
+  test('regular Meteor users can login normally', async ({ page: _page }) => {
     // If there are any native Meteor users (not migrated from Better Auth),
     // they should be able to login normally without triggering migration flow.
     // This test assumes a Meteor user exists - skip if none available.
@@ -135,13 +135,13 @@ test.describe('Better Auth Migration Flow', () => {
 });
 
 test.describe('Migration Database State', () => {
-  test('preserves user data and relationships', async ({ page, context }) => {
+  test('preserves user data and relationships', async ({ page: _page, context: _context }) => {
     // This would require database access in the test environment
     // For now it's a manual verification documented in the migration script
     test.skip();
   });
 
-  test('converts scryptHash to bcrypt after password reset', async ({ page }) => {
+  test('converts scryptHash to bcrypt after password reset', async ({ page: _page }) => {
     // This would require database access to verify
     // Manual verification: user should have both services.betterAuth.scryptHash
     // and services.password.bcrypt after migration

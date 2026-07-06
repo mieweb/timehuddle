@@ -10,8 +10,8 @@ type Props = {
 };
 
 export const InstallerModal: React.FC<Props> = ({ onTaken }) => {
-  const { refetch } = useSession();
-  const { refetchEnterprises, refetchOrganizations } = useTeam();
+  const { refetch: _refetch } = useSession();
+  const { refetchEnterprises: _refetchEnterprises, refetchOrganizations: _refetchOrganizations } = useTeam();
   const labelId = useId();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

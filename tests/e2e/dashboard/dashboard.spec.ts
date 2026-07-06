@@ -5,9 +5,6 @@
  * 2. Active session button navigates to clock page
  */
 import { test, expect } from '@playwright/test';
-import { LoginPage } from '../pages/LoginPage';
-import { DashboardPage } from '../pages/DashboardPage';
-import { ClockPage } from '../pages/ClockPage';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 
 test.describe('Dashboard', () => {

@@ -57,7 +57,7 @@ test.describe('Notifications', () => {
 
     // If there are notifications, we should see Select all and Delete buttons
     const selectAllBtn = page.getByRole('button', { name: /Select all/i });
-    const deleteBtn = page.getByRole('button', { name: /Delete/i });
+    const _deleteBtn = page.getByRole('button', { name: /Delete/i });
     const exitBtn = page.getByRole('button', { name: 'Exit selection mode' });
 
     // Exit button should always be visible in select mode

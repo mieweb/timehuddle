@@ -12,7 +12,7 @@ import { TEST_USERS } from '../fixtures/users';
  */
 test.describe('Organization Member Blocking Feature', () => {
   let loginPage: LoginPage;
-  let dashboardPage: DashboardPage;
+  let _dashboardPage: DashboardPage;
 
   const owner = TEST_USERS.owner1;
 

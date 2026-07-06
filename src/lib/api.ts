@@ -14,7 +14,7 @@ export const TIMECORE_BASE_URL: string =
     (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL) ||
   'http://localhost:4000';
 
-const WS_BASE_URL = TIMECORE_BASE_URL.replace(/^http/, 'ws');
+const _WS_BASE_URL = TIMECORE_BASE_URL.replace(/^http/, 'ws');
 
 /** Meteor backend (wormhole REST + DDP) base URL — direct URL for assets, OAuth, etc. */
 export const METEOR_BASE_URL: string =

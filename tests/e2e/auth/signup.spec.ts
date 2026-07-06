@@ -21,7 +21,7 @@ test.describe('Signup', () => {
     expect(isOnSignup).toBe(true);
   });
 
-  test('should create account with valid data', async ({ page }) => {
+  test('should create account with valid data', async ({ page: _page }) => {
     const timestamp = Date.now();
     const testEmail = `signup_create_${timestamp}@test.local`;
     const username = `signup_create_${timestamp}`.slice(0, 28);

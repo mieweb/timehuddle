@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { LoginPage } from '../pages/LoginPage';
 import { DashboardPage } from '../pages/DashboardPage';
-import { TEST_USERS, getUserByRole } from '../fixtures/users';
+import { TEST_USERS } from '../fixtures/users';
 
 test.describe('Login', () => {
   let loginPage: LoginPage;
@@ -99,7 +99,7 @@ test.describe('Login', () => {
     const loginPromise = loginPage.clickSignIn();
     
     // Check for loading state (may be very brief)
-    const isLoading = await loginPage.isLoading();
+    const _isLoading = await loginPage.isLoading();
     
     // Complete login
     await loginPromise;

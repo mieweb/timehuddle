@@ -1,5 +1,5 @@
 import { MongoClient } from 'mongodb';
-import crypto from 'crypto';
+import _crypto from 'crypto';
 
 const SOURCE_MONGO_URL = process.env.SOURCE_MONGO_URL || 'mongodb://127.0.0.1:27017/staging_prod';
 const TARGET_MONGO_URL = process.env.TARGET_MONGO_URL || process.env.MONGO_URL || 'mongodb://127.0.0.1:27017/timehuddle';

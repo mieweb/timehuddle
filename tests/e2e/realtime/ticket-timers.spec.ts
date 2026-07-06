@@ -52,7 +52,7 @@ test.describe('Real-time Ticket Timers', () => {
 
     // Get the ticket title to identify it in session 2
     const ticketRow1 = startButton1.locator('..').locator('..');
-    const ticketTitle = await ticketRow1.locator('button').first().textContent();
+    const _ticketTitle = await ticketRow1.locator('button').first().textContent();
 
     // Start the timer in session 1
     await startButton1.click();

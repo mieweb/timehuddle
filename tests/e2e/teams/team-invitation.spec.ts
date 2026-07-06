@@ -19,18 +19,18 @@ import { TEST_USERS } from '../fixtures/users';
  */
 
 test.describe('Team Invitation with Org Membership', () => {
-  let loginPage: LoginPage;
-  let dashboardPage: DashboardPage;
-  let teamsPage: TeamsPage;
-  let orgPage: OrganizationPage;
+  let _loginPage: LoginPage;
+  let _dashboardPage: DashboardPage;
+  let _teamsPage: TeamsPage;
+  let _orgPage: OrganizationPage;
   let mongoClient: MongoClient;
   let db: any;
 
   const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017/timehuddle?directConnection=true';
   
   // Test users
-  const admin = TEST_USERS.admin1;
-  const member = TEST_USERS.member1;
+  const _admin = TEST_USERS.admin1;
+  const _member = TEST_USERS.member1;
 
   test.beforeAll(async () => {
     // Connect to MongoDB for verification
