@@ -317,14 +317,8 @@ Meteor.methods({
 
     const allIds = Array.from(new Set([...team.members, ...team.admins]));
 
-    // Query both user collections — Meteor 'users' stores _id as string,
-    // Better Auth 'user' stores _id as ObjectId. We try both.
-    const [meteorUsers, betterAuthUsers] = await Promise.all([
-      rawDb().collection('users').find({ _id: { $in: allIds } }).toArray(),
-      rawDb().collection('user').find({
-        _id: { $in: allIds.filter((id) => /^[0-9a-f]{24}$/i.test(id)).map((id) => new ObjectId(id)) },
-      }).toArray(),
-    ]);
+    // All users are now in Meteor users collection
+    const meteorUsers = await rawDb().collection('users').find({ _id: { $in: allIds } }).toArray();
 
     const byId = new Map();
 
@@ -335,15 +329,6 @@ Meteor.methods({
         email: u.emails?.[0]?.address ?? '',
         username: u.username ?? null,
         image: u.image ?? null,
-      });
-    }
-
-    // Map Better Auth users (name, email) — overwrites if same id exists
-    for (const u of betterAuthUsers) {
-      const id = u._id.toHexString ? u._id.toHexString() : String(u._id);
-      byId.set(id, {
-        name: u.name ?? null,
-        email: u.email ?? '',
         username: u.username ?? null,
         image: u.image ?? null,
       });
@@ -482,13 +467,8 @@ Meteor.methods({
       throw new Meteor.Error('not-member', 'Not a team member');
     }
 
-    const bcrypt = await import('bcryptjs');
-    const hashed = await bcrypt.hash(newPassword, 10);
-    const result = await rawDb().collection('account').updateOne(
-      { userId: targetUserId, providerId: 'credential' },
-      { $set: { password: hashed } },
-    );
-    if (result.matchedCount === 0) throw new Meteor.Error('not-found', 'No credential account found');
+    // Use Meteor Accounts to set password (replaces Better Auth account collection)
+    await Accounts.setPasswordAsync(targetUserId, newPassword, { logout: false });
     return { ok: true };
   },
 });

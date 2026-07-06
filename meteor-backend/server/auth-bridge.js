@@ -564,8 +564,8 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
     return { userId: String(user._id) };
   }
 
-  // Check if this is a Better Auth user that needs to reset their password
-  if (user?.services?.betterAuth?.scryptHash) {
+  // Check if user exists but has no password set (migration needed or OAuth-only user)
+  if (user && !storedBcrypt) {
     // Generate a password reset token automatically
     const token = await Accounts._generateStampedLoginToken();
     
@@ -587,14 +587,14 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
     });
     
     throw new Meteor.Error(
-      'BETTER_AUTH_MIGRATION_REQUIRED',
+      'PASSWORD_RESET_REQUIRED',
       JSON.stringify({
-        message: 'Your account needs to be migrated. Redirecting to password reset...',
+        message: 'Your account needs a password. Redirecting to password reset...',
         token: token.token,
       }),
     );
   }
 
-  // No bcrypt hash — user doesn't exist or password not set
+  // User not found
   throw new Meteor.Error(403, 'Invalid email or password');
 });

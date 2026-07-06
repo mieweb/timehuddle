@@ -132,32 +132,16 @@ const proxyWhoamiHandler = async (req, res) => {
 
     if (bearerToken) {
       const db = rawDb();
-      const ObjectId = MongoInternals.NpmModules.mongodb.module.ObjectId;
-
-      // Try better-auth session collection first
-      const session = await db.collection('session').findOne({ token: bearerToken });
-      if (session?.userId) {
-        const uid = String(session.userId);
-        const isMeteorId = !/^[0-9a-f]{24}$/i.test(uid);
-        const userDoc = isMeteorId
-          ? await db.collection('users').findOne({ _id: uid }, { projection: { emails: 1, profile: 1 } })
-          : await db.collection('user').findOne({ _id: new ObjectId(uid) }, { projection: { email: 1, name: 1 } });
-        email = userDoc?.emails?.[0]?.address ?? userDoc?.email ?? uid;
-        name = userDoc?.profile?.name ?? userDoc?.name ?? email;
-      }
-
-      // Fall back to PAT/Meteor resume token
-      if (!email) {
-        const identity = await resolveToken(bearerToken);
-        if (identity) {
-          const uid = String(identity.userId);
-          const isMeteorId = !/^[0-9a-f]{24}$/i.test(uid);
-          const userDoc = isMeteorId
-            ? await db.collection('users').findOne({ _id: uid }, { projection: { emails: 1, profile: 1 } })
-            : await db.collection('user').findOne({ _id: new ObjectId(uid) }, { projection: { email: 1, name: 1 } });
-          email = userDoc?.emails?.[0]?.address ?? userDoc?.email ?? identity.userId;
-          name = userDoc?.profile?.name ?? userDoc?.name ?? identity.name ?? email;
-        }
+      // Only check PAT/Meteor resume tokens (all users now in Meteor users collection)
+      const identity = await resolveToken(bearerToken);
+      if (identity) {
+        const uid = String(identity.userId);
+        const userDoc = await db.collection('users').findOne(
+          { _id: uid },
+          { projection: { emails: 1, profile: 1 } }
+        );
+        email = userDoc?.emails?.[0]?.address ?? identity.userId;
+        name = userDoc?.profile?.name ?? identity.name ?? email;
       }
     }
   }
@@ -274,22 +258,6 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
       githubUser.name || githubUser.login
     );
     
-    // Also sync to Fastify user collection
-    const db = rawDb();
-    await db.collection('user').updateOne(
-      { email: primaryEmail.toLowerCase() },
-      {
-        $set: { updatedAt: new Date() },
-        $setOnInsert: {
-          email: primaryEmail.toLowerCase(),
-          name: githubUser.name || githubUser.login,
-          emailVerified: true,
-          createdAt: new Date(),
-        },
-      },
-      { upsert: true }
-    );
-    
     // Create Meteor login token for this user
     const stampedToken = Accounts._generateStampedLoginToken();
     await Accounts._insertLoginToken(userId, stampedToken);
@@ -297,11 +265,9 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
     // Sign a short-lived JWT for the frontend
     const { SignJWT } = await import('jose');
     
-    // Use PROXY_JWT_SECRET as a simple token
+    // Use PROXY_JWT_SECRET for OAuth JWT signing
     const secret = new TextEncoder().encode(
-      process.env.PROXY_JWT_SECRET ||
-        process.env.BETTER_AUTH_SECRET ||
-        'fallback-secret'
+      process.env.PROXY_JWT_SECRET || 'fallback-secret'
     );
     
     const token = await new SignJWT({
@@ -421,22 +387,6 @@ WebApp.connectHandlers.use('/auth/google/callback',
       // Find or create user in Meteor
       const userId = await findOrCreateUser(email, name)
       
-      // Sync to Fastify user collection
-      const db = rawDb()
-      await db.collection('user').updateOne(
-        { email: email.toLowerCase() },
-        {
-          $set: { updatedAt: new Date() },
-          $setOnInsert: {
-            email: email.toLowerCase(),
-            name: name,
-            emailVerified: true,
-            createdAt: new Date()
-          }
-        },
-        { upsert: true }
-      )
-      
       // Create Meteor login token
       const stampedToken = 
         Accounts._generateStampedLoginToken()
@@ -447,11 +397,9 @@ WebApp.connectHandlers.use('/auth/google/callback',
       // Sign a short-lived JWT for the frontend
       const { SignJWT } = await import('jose');
       
-      // Use PROXY_JWT_SECRET as a simple token
+      // Use PROXY_JWT_SECRET for OAuth JWT signing
       const secret = new TextEncoder().encode(
-        process.env.PROXY_JWT_SECRET ||
-          process.env.BETTER_AUTH_SECRET ||
-          'fallback-secret'
+        process.env.PROXY_JWT_SECRET || 'fallback-secret'
       );
       
       const token = await new SignJWT({
@@ -568,22 +516,6 @@ WebApp.connectHandlers.use('/auth/apple/callback',
       // Find or create user in Meteor
       const userId = await findOrCreateUser(email, name)
       
-      // Sync to Fastify user collection
-      const db = rawDb()
-      await db.collection('user').updateOne(
-        { email: email.toLowerCase() },
-        {
-          $set: { updatedAt: new Date() },
-          $setOnInsert: {
-            email: email.toLowerCase(),
-            name: name,
-            emailVerified: true,
-            createdAt: new Date()
-          }
-        },
-        { upsert: true }
-      )
-      
       // Create Meteor login token
       const stampedToken = 
         Accounts._generateStampedLoginToken()
@@ -594,11 +526,9 @@ WebApp.connectHandlers.use('/auth/apple/callback',
       // Sign a short-lived JWT for the frontend
       const { SignJWT } = await import('jose');
       
-      // Use PROXY_JWT_SECRET as a simple token
+      // Use PROXY_JWT_SECRET for OAuth JWT signing
       const secret = new TextEncoder().encode(
-        process.env.PROXY_JWT_SECRET ||
-          process.env.BETTER_AUTH_SECRET ||
-          'fallback-secret'
+        process.env.PROXY_JWT_SECRET || 'fallback-secret'
       );
       
       const token = await new SignJWT({

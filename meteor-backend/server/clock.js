@@ -650,21 +650,12 @@ Meteor.methods({
       nameMap.set(memberId, names[i]);
     });
 
-    // Resolve images: Meteor users (string _id) vs legacy ObjectId users
-    const meteorIds = allMemberIds.filter((id) => !/^[0-9a-f]{24}$/i.test(id));
-    const legacyIds = allMemberIds.filter((id) => /^[0-9a-f]{24}$/i.test(id));
-
-    const [meteorUsers, legacyUsers] = await Promise.all([
-      meteorIds.length > 0
-        ? rawDb().collection('users').find({ _id: { $in: meteorIds } }).project({ image: 1 }).toArray()
-        : Promise.resolve([]),
-      legacyIds.length > 0
-        ? rawDb().collection('user').find({ _id: { $in: legacyIds.map((id) => new ObjectId(id)) } }).project({ image: 1 }).toArray()
-        : Promise.resolve([]),
-    ]);
+    // All users are now in Meteor users collection
+    const meteorUsers = allMemberIds.length > 0
+      ? await rawDb().collection('users').find({ _id: { $in: allMemberIds } }).project({ image: 1 }).toArray()
+      : [];
 
     const meteorImageMap = new Map(meteorUsers.map((u) => [String(u._id), u.image ?? null]));
-    const legacyImageMap = new Map(legacyUsers.map((u) => [u._id.toHexString(), u.image ?? null]));
 
     // Group clock events by userId
     const eventsByUser = new Map();
@@ -675,7 +666,7 @@ Meteor.methods({
 
     const members = allMemberIds.map((memberId) => {
       const name = nameMap.get(memberId) ?? 'Unknown';
-      const image = meteorImageMap.get(memberId) ?? legacyImageMap.get(memberId) ?? null;
+      const image = meteorImageMap.get(memberId) ?? null;
 
       const userEvents = eventsByUser.get(memberId) ?? [];
       const activeEvent = userEvents.find((e) => e.endTime === null) ?? null;
