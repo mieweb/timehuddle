@@ -6,6 +6,14 @@ method definition), with **DDP pub/sub** replacing all hand-rolled WebSocket fan
 
 **Branch / PR**: `meteor-is-back` → [PR #357](https://github.com/mieweb/timehuddle/pull/357)
 
+**Production URL**: https://huddle.os.mieweb.org/
+
+> ## ✅ PRODUCTION DEPLOYMENT COMPLETE (July 5, 2026)
+>
+> The `meteor-is-back` branch has been merged and deployed to production.
+> The database migration is complete. The Meteor backend is now serving all
+> production traffic at https://huddle.os.mieweb.org/.
+
 ## Migration principle
 
 Each feature moves as one unit, and Fastify keeps serving everything not yet moved (shared Mongo,
@@ -242,7 +250,7 @@ Work that landed on **Fastify** via `main` merges for domains **already cut over
 - [x] **Database name correction (M0, infrastructure)** — Fixed incorrect database name `timeharbor` → `timehuddle` in `meteor-backend/package.json` start script. The project is TimeHuddle; TimeHarbor is a separate external product that integrates with TimeHuddle for SSO and ticket sharing. Connection string updated: `mongodb://127.0.0.1:27017/timehuddle` (removed `replicaSet=rs0` from MONGO_URL, kept in OPLOG_URL only). ✅ **Commit 73ebf6e (2026-07-01)**
 - [x] **Test infrastructure migration (M4, infrastructure)** — Refactored `meteor-backend/tests/` from Fastify-based auth to DDP (Meteor native protocol). Implemented minimal WebSocket DDP client in `helpers.ts` for test authentication. Tests now create users via `accounts.createUser` DDP method and authenticate with resume tokens (no Fastify dependency). Added `ws` (WebSocket) and `srvx` (TUS protocol) dependencies. Removed `pulsevault.js` TUS server (331 lines, no longer needed). All 64 tests passing across 5 suites (tickets: 10, teams: 29, clock: 9, enterprises: 4, timers: 12). ✅ **Commit 73ebf6e (2026-07-01)**
 
-## Migration Status Summary (as of 2026-07-01)
+## Migration Status Summary (as of 2026-07-05 — PRODUCTION LIVE)
 
 ### Completed ✅
 - **M0**: Identity & Foundations — JWT/JWKS auth, header auth, Meteor Accounts (email/password + social OAuth), CASL abilities, Agenda jobs, push/email services, database name corrected (`timeharbor` → `timehuddle`)
@@ -365,12 +373,12 @@ Frontend (port 3000) → Meteor Backend (port 3100) → MongoDB
 - [x] **Architecture simplified** — Frontend → Meteor → MongoDB (no Fastify)
 - [x] **Database corrected** — `timeharbor` → `timehuddle` (commit 73ebf6e, July 1)
 - [x] **Test infrastructure** — Meteor integration tests migrated to DDP WebSocket client (commit 73ebf6e, July 1)
+- [x] **Production deployment** — `meteor-is-back` branch merged, database migrated, production live at https://huddle.os.mieweb.org/ (July 5, 2026)
 
 ### Remaining Cleanup
 - [ ] Remove `WS_BASE_URL`, legacy WebSocket helpers from `src/lib/api.ts` (if any remain)
 - [ ] Remove TimeHarbor API stubs from `src/lib/api.ts` (broken, backend gone)
 - [ ] Update docker-compose to remove any Fastify container references
-- [ ] Production deployment: Meteor-only stack (no Better Auth separate service)
 
 ### Post-Migration Decisions
 - [ ] **TimeHarbor Integration**: Re-implement if still needed (2 endpoints not migrated)
@@ -427,6 +435,7 @@ Frontend (port 3000) → Meteor Backend (port 3100) → MongoDB
 **Migration Timeline**: ~6 months  
 **Routes Migrated**: 100% of production endpoints (all critical features)  
 **Backend Removal**: June 30, 2026 (commit 401bad5)  
+**Production Deployment**: July 5, 2026 — `meteor-is-back` merged, DB migrated, live at https://huddle.os.mieweb.org/  
 **Tests Passing**: 64 Meteor integration tests + E2E test suite  
 **Database Collections**: All 38 collections on `timehuddle` database  
 **Live Subscriptions**: All 7 Fastify WebSocket hubs replaced with DDP publications  
