@@ -65,12 +65,13 @@ export async function initAgenda() {
   _agenda.define('shift-4h-reminder', async (job) => {
     const { clockEventId, userId, teamId } = job.attrs.data;
     const event = await findOpenEvent(clockEventId);
-    if (!event) return; // already clocked out — nothing to do
+    if (!event) { await job.remove(); return; } // already clocked out — nothing to do
     await notifyUser(userId, {
       title: 'Huddle',
       body: 'Take a break. You have worked for 4 hours.',
       data: { type: 'break-reminder-4h', teamId, clockEventId, url: '/app/clock' },
     });
+    await job.remove(); // one-shot: remove so it doesn't re-fire
   });
 
   // ── Job: 7h45m shift-end reminder ────────────────────────────────────────
@@ -103,6 +104,7 @@ export async function initAgenda() {
     );
 
     await scheduleMissedClockout(clockEventId, userId, teamId, event.startTime);
+    await job.remove(); // one-shot: remove so it doesn't re-fire
   });
 
   // ── Job: 8h auto-clockout (agreed) ───────────────────────────────────────
@@ -123,6 +125,7 @@ export async function initAgenda() {
     }
 
     await stopActiveClock(userId, teamId, now);
+    await job.remove(); // one-shot: remove so it doesn't re-fire
   });
 
   // ── Job: 8h missed auto-clockout ─────────────────────────────────────────
@@ -160,6 +163,7 @@ export async function initAgenda() {
           },
         }
       );
+    await job.remove(); // one-shot: remove so it doesn't re-fire
   });
 
   // Processor loop is opt-in during coexistence (see file header).

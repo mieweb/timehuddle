@@ -194,12 +194,18 @@ WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
   const credentialToken = Random.secret();
   const callbackUrl = `${process.env.ROOT_URL}/auth/github/callback`;
   
+  console.log('[github-oauth] Initiating OAuth flow');
+  console.log('[github-oauth] Client ID:', process.env.GITHUB_CLIENT_ID);
+  console.log('[github-oauth] Callback URL:', callbackUrl);
+  
   const githubAuthUrl =
     'https://github.com/login/oauth/authorize' +
     `?client_id=${process.env.GITHUB_CLIENT_ID}` +
     `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
     `&scope=user:email` +
     `&state=${credentialToken}`;
+  
+  console.log('[github-oauth] Full auth URL:', githubAuthUrl);
   
   res.writeHead(302, { Location: githubAuthUrl });
   res.end();
@@ -338,6 +344,10 @@ WebApp.connectHandlers.use('/auth/google', (req, res, next) => {
   const callbackUrl = 
     `${process.env.ROOT_URL}/auth/google/callback`
   
+  console.log('[google-oauth] Initiating OAuth flow');
+  console.log('[google-oauth] Client ID:', process.env.GOOGLE_CLIENT_ID);
+  console.log('[google-oauth] Callback URL:', callbackUrl);
+  
   const googleAuthUrl = 
     'https://accounts.google.com/o/oauth2/v2/auth' +
     `?client_id=${process.env.GOOGLE_CLIENT_ID}` +
@@ -345,6 +355,8 @@ WebApp.connectHandlers.use('/auth/google', (req, res, next) => {
     `&response_type=code` +
     `&scope=openid%20email%20profile` +
     `&state=${Random.secret()}`
+  
+  console.log('[google-oauth] Redirecting to:', googleAuthUrl);
   
   res.writeHead(302, { Location: googleAuthUrl })
   res.end()
@@ -432,6 +444,28 @@ WebApp.connectHandlers.use('/auth/google/callback',
         userId, stampedToken
       )
       
+      // Sign a short-lived JWT for the frontend
+      const { SignJWT } = await import('jose');
+      
+      // Use PROXY_JWT_SECRET as a simple token
+      const secret = new TextEncoder().encode(
+        process.env.PROXY_JWT_SECRET ||
+          process.env.BETTER_AUTH_SECRET ||
+          'fallback-secret'
+      );
+      
+      const token = await new SignJWT({
+        sub: userId,
+        email: email,
+        name: name,
+        provider: 'google',
+        meteorToken: stampedToken.token,
+      })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('5m')
+        .sign(secret);
+      
       // Redirect to frontend with token
       const frontendUrl =
         process.env.CORS_ORIGINS?.split(',')[0] || 
@@ -440,7 +474,7 @@ WebApp.connectHandlers.use('/auth/google/callback',
       res.writeHead(302, {
         Location:
           `${frontendUrl}/app/dashboard` +
-          `?meteor_token=google_${userId}&` +
+          `?meteor_token=${token}&` +
           `meteor_resume=${stampedToken.token}`
       })
       res.end()
@@ -557,6 +591,28 @@ WebApp.connectHandlers.use('/auth/apple/callback',
         userId, stampedToken
       )
       
+      // Sign a short-lived JWT for the frontend
+      const { SignJWT } = await import('jose');
+      
+      // Use PROXY_JWT_SECRET as a simple token
+      const secret = new TextEncoder().encode(
+        process.env.PROXY_JWT_SECRET ||
+          process.env.BETTER_AUTH_SECRET ||
+          'fallback-secret'
+      );
+      
+      const token = await new SignJWT({
+        sub: userId,
+        email: email,
+        name: name,
+        provider: 'apple',
+        meteorToken: stampedToken.token,
+      })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime('5m')
+        .sign(secret);
+      
       // Apple sends POST so we need to redirect
       // using HTML meta refresh or JS redirect
       const frontendUrl =
@@ -565,7 +621,7 @@ WebApp.connectHandlers.use('/auth/apple/callback',
       
       const redirectUrl = 
         `${frontendUrl}/app/dashboard` +
-        `?meteor_token=apple_${userId}&` +
+        `?meteor_token=${token}&` +
         `meteor_resume=${stampedToken.token}`
       
       // Use HTML redirect since Apple uses POST

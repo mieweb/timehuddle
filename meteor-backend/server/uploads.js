@@ -11,11 +11,11 @@ import Busboy from 'busboy';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
-const UPLOADS_DIR = process.env.UPLOADS_DIR || path.resolve(process.cwd(), '../backend/uploads');
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.resolve(process.cwd(), 'uploads');
 const PROFILE_DIR = path.join(UPLOADS_DIR, 'profile');
 const MEDIA_DIR = path.join(UPLOADS_DIR, 'media');
 const THUMBNAILS_DIR = path.join(UPLOADS_DIR, 'thumbnails');
-const VIDEOS_DIR = process.env.VIDEOS_DIR || path.resolve(process.cwd(), '../backend/data/videos');
+const VIDEOS_DIR = process.env.VIDEOS_DIR || path.resolve(process.cwd(), 'data/videos');
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 

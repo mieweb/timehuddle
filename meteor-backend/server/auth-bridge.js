@@ -196,18 +196,12 @@ async function resolveMeteorToken(token) {
   const { createHash } = Npm.require('crypto');
   const hashedToken = createHash('sha256').update(token).digest('base64');
   
-  console.log('[auth-bridge] Looking for Meteor token hash:', hashedToken.substring(0, 20) + '...');
-  
   const user = await Meteor.users.findOneAsync({
     'services.resume.loginTokens.hashedToken': hashedToken
   });
   
-  if (!user) {
-    console.log('[auth-bridge] No user found with that token hash');
-    return null;
-  }
+  if (!user) return null;
   
-  console.log('[auth-bridge] Meteor token resolved for user:', user._id);
   return {
     userId: user._id,
     name: user.profile?.name || user.emails?.[0]?.address || 'Unknown'
@@ -218,16 +212,9 @@ async function resolveMeteorToken(token) {
 export async function resolveToken(raw) {
   if (typeof raw !== 'string' || !raw.trim()) return null;
   const token = raw.trim();
-  if (token.startsWith(PAT_PREFIX)) {
-    console.log('[auth-bridge] Trying PAT resolution');
-    return resolvePat(token);
-  }
-  if (looksLikeJwt(token)) {
-    console.log('[auth-bridge] Trying JWT resolution');
-    return resolveJwt(token);
-  }
+  if (token.startsWith(PAT_PREFIX)) return resolvePat(token);
+  if (looksLikeJwt(token)) return resolveJwt(token);
   // Try as Meteor resume token
-  console.log('[auth-bridge] Trying Meteor resume token resolution');
   const meteorIdentity = await resolveMeteorToken(token);
   if (meteorIdentity) return meteorIdentity;
   return null;
