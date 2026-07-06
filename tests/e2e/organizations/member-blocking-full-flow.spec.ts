@@ -31,9 +31,7 @@ test.describe('Member Blocking - Full Flow', () => {
     // ── Step 2: Navigate to org members ────────────────────────────────────
     await page.goto('http://localhost:3000/app/org/members');
     // Wait for org to be selected and table to render
-    await expect(
-      page.getByText(/No organization is selected/i),
-    ).toBeHidden({ timeout: 30000 });
+    await expect(page.getByText(/No organization is selected/i)).toBeHidden({ timeout: 30000 });
     await expect(page.getByRole('table')).toBeVisible({ timeout: 20000 });
 
     // Find member row

@@ -62,13 +62,13 @@ test.describe('Teams', () => {
 
     // Verify team code badge exists (it's a short code like ABC123)
     // The team code is shown as a Badge below the team name with a "Copy" button
-    await expect(page.getByRole('button', { name: 'Copy', exact: true })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Copy', exact: true })).toBeVisible({
+      timeout: 5000,
+    });
   });
 
   test('admin should see Members and Timesheet tabs with working filters', async ({ page }) => {
     test.setTimeout(60000);
-
-
 
     // Ensure Test Team Alpha is selected
     const teamId = await getTestTeamId();
@@ -153,13 +153,11 @@ test.describe('Teams', () => {
     await page.waitForTimeout(1000);
 
     // Verify at least the current user is shown (use the profile button to be specific)
-    await expect(
-      page.getByRole('button', { name: /View Test Owner One/ }),
-    ).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: /View Test Owner One/ })).toBeVisible({
+      timeout: 5000,
+    });
 
     // Verify members count is shown
     await expect(page.getByText(/Members \(\d+\)/)).toBeVisible();
   });
-
-
 });

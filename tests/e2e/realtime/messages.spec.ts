@@ -46,26 +46,37 @@ test.describe('Real-time Messages', () => {
     await session2.waitForTimeout(1000);
 
     // Check if both sessions show the same thread list
-    const threads1 = await session1.locator('[role="list"] [role="listitem"], .thread-item, [class*="thread"]').count();
-    const threads2 = await session2.locator('[role="list"] [role="listitem"], .thread-item, [class*="thread"]').count();
+    const threads1 = await session1
+      .locator('[role="list"] [role="listitem"], .thread-item, [class*="thread"]')
+      .count();
+    const threads2 = await session2
+      .locator('[role="list"] [role="listitem"], .thread-item, [class*="thread"]')
+      .count();
 
     expect(threads1).toBe(threads2);
   });
 
   test('should sync new messages in a thread', async () => {
     // Select a thread in session 1
-    const firstThread = session1.locator('[role="list"] [role="listitem"], .thread-item, [class*="thread"]').first();
-    
+    const firstThread = session1
+      .locator('[role="list"] [role="listitem"], .thread-item, [class*="thread"]')
+      .first();
+
     if ((await firstThread.count()) > 0) {
       await firstThread.click();
       await session1.waitForTimeout(500);
 
       // Session 2 should select the same thread
-      await session2.locator('[role="list"] [role="listitem"], .thread-item, [class*="thread"]').first().click();
+      await session2
+        .locator('[role="list"] [role="listitem"], .thread-item, [class*="thread"]')
+        .first()
+        .click();
       await session2.waitForTimeout(500);
 
       // Get message count before sending
-      const initialMessageCount = await session1.locator('[role="article"], .message, [class*="message"]').count();
+      const initialMessageCount = await session1
+        .locator('[role="article"], .message, [class*="message"]')
+        .count();
 
       // Send a message in session 1
       const messageInput = session1.locator('textarea, input[placeholder*="message" i]').first();
@@ -75,10 +86,9 @@ test.describe('Real-time Messages', () => {
         await session1.waitForTimeout(1000);
 
         // Session 2 should automatically show the new message
-        await expect(session2.locator('[role="article"], .message, [class*="message"]')).toHaveCount(
-          initialMessageCount + 1,
-          { timeout: 3000 }
-        );
+        await expect(
+          session2.locator('[role="article"], .message, [class*="message"]'),
+        ).toHaveCount(initialMessageCount + 1, { timeout: 3000 });
       }
     }
   });

@@ -15,11 +15,13 @@
 ## Migration Notes
 
 The new test infrastructure lives in `tests/e2e/` with:
+
 - Page Object Models in `tests/e2e/pages/`
 - Test user factory with role-based fixtures in `tests/e2e/fixtures/`
 - Feature-based test organization in `tests/e2e/{feature}/`
 
 Tests were not migrated 1:1. Instead, we rebuilt from scratch using:
+
 1. Manual exploration with Playwright MCP to understand real selectors
 2. POM pattern for reusability
 3. Role-based test users (owner, admin, member) from seed data

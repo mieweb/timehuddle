@@ -47,18 +47,30 @@ if (!defaultOrg) {
 
   await db.collection('organizations').updateOne(
     { _id: defaultOrg._id },
-    { $addToSet: { owners: { $each: ownerIds }, admins: { $each: adminIds } }, $set: { updatedAt: new Date() } },
+    {
+      $addToSet: { owners: { $each: ownerIds }, admins: { $each: adminIds } },
+      $set: { updatedAt: new Date() },
+    },
   );
 
   const bulk = db.collection('org_members').initializeUnorderedBulkOp();
   for (const userId of ownerIds) {
-    bulk.find({ orgId, userId }).upsert().updateOne({ $set: { orgId, userId, role: 'owner', auto: false } });
+    bulk
+      .find({ orgId, userId })
+      .upsert()
+      .updateOne({ $set: { orgId, userId, role: 'owner', auto: false } });
   }
   for (const userId of adminIds) {
-    bulk.find({ orgId, userId }).upsert().updateOne({ $set: { orgId, userId, role: 'admin', auto: false } });
+    bulk
+      .find({ orgId, userId })
+      .upsert()
+      .updateOne({ $set: { orgId, userId, role: 'admin', auto: false } });
   }
   for (const userId of memberIds) {
-    bulk.find({ orgId, userId }).upsert().updateOne({ $set: { orgId, userId, role: 'member', auto: false } });
+    bulk
+      .find({ orgId, userId })
+      .upsert()
+      .updateOne({ $set: { orgId, userId, role: 'member', auto: false } });
   }
   if (bulk.length > 0) await bulk.execute();
 

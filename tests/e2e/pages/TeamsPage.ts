@@ -74,18 +74,18 @@ export class TeamsPage extends BasePage {
   async inviteUser(teamName: string, email: string) {
     // Open team details or menu
     await this.clickTeam(teamName);
-    
+
     // Click invite button
     const inviteButton = this.page.getByRole('button', { name: /invite|add member/i });
     await inviteButton.click();
-    
+
     // Fill email and submit
     const emailInput = this.page.getByLabel(/email/i);
     await emailInput.fill(email);
-    
+
     const submitButton = this.page.getByRole('button', { name: /invite|send|add/i }).last();
     await submitButton.click();
-    
+
     // Wait for success message or modal close
     await this.page.waitForTimeout(1000);
   }
@@ -95,11 +95,13 @@ export class TeamsPage extends BasePage {
    */
   async isUserInTeam(teamName: string, userName: string): Promise<boolean> {
     await this.clickTeam(teamName);
-    
+
     // Look for the user in the members list
-    const membersList = this.page.getByRole('list').filter({ has: this.page.getByText(/members/i) });
+    const membersList = this.page
+      .getByRole('list')
+      .filter({ has: this.page.getByText(/members/i) });
     const member = membersList.getByText(userName);
-    
+
     return await member.isVisible().catch(() => false);
   }
 
@@ -108,13 +110,15 @@ export class TeamsPage extends BasePage {
    */
   async getTeamNames(): Promise<string[]> {
     const teams = await this.teamsList.getByRole('heading').allTextContents();
-    return teams.filter(t => t.trim().length > 0);
+    return teams.filter((t) => t.trim().length > 0);
   }
 
   /**
    * Check if a specific team is visible
    */
   async hasTeam(teamName: string): Promise<boolean> {
-    return await this.getTeamCard(teamName).isVisible().catch(() => false);
+    return await this.getTeamCard(teamName)
+      .isVisible()
+      .catch(() => false);
   }
 }

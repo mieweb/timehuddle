@@ -37,9 +37,7 @@ test.describe('Timesheet', () => {
     // Verify all preset buttons exist
     const presets = ['Today', 'Yesterday', 'Last Week', 'This Week', '14 Days', 'Custom'];
     for (const preset of presets) {
-      await expect(
-        page.getByRole('button', { name: preset, exact: true }),
-      ).toBeVisible();
+      await expect(page.getByRole('button', { name: preset, exact: true })).toBeVisible();
     }
 
     // Click each preset and verify it activates (becomes primary variant)
@@ -129,7 +127,9 @@ test.describe('Timesheet', () => {
     // Wait a moment then clock out
     await page.waitForTimeout(1000);
     await page.getByRole('button', { name: 'Clock out' }).click();
-    await page.getByRole('button', { name: 'Clock in' }).waitFor({ state: 'visible', timeout: 10000 });
+    await page
+      .getByRole('button', { name: 'Clock in' })
+      .waitFor({ state: 'visible', timeout: 10000 });
 
     // Navigate to timesheet
     await page.goto('/app/timesheet');

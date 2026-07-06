@@ -46,9 +46,7 @@ async function ddpCall<T = unknown>(method: string, params: unknown[]): Promise<
       reject(new Error(`DDP ${method} timeout`));
     }, 10_000);
     let msgId = 0;
-    ws.on('open', () =>
-      ws.send(JSON.stringify({ msg: 'connect', version: '1', support: ['1'] })),
-    );
+    ws.on('open', () => ws.send(JSON.stringify({ msg: 'connect', version: '1', support: ['1'] })));
     ws.on('message', (data) => {
       const msg = JSON.parse(data.toString());
       if (msg.msg === 'connected') {
@@ -116,13 +114,11 @@ test.describe('Password Reset', () => {
 
     // ── 1. Request reset via the forgot-password form ───────────────────────
     await page.goto('/login?mode=forgot');
-    await page
-      .getByRole('textbox', { name: 'Email address' })
-      .fill(email);
+    await page.getByRole('textbox', { name: 'Email address' }).fill(email);
     await page.getByRole('button', { name: /send reset link/i }).click();
-    await expect(
-      page.getByText(/check your email for a reset link/i),
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/check your email for a reset link/i)).toBeVisible({
+      timeout: 10_000,
+    });
 
     // ── 2. Grab the reset link from Mailpit ─────────────────────────────────
     const resetUrl = await waitForResetEmail(email);
@@ -130,21 +126,13 @@ test.describe('Password Reset', () => {
 
     // ── 3. Follow the link and submit a new password ────────────────────────
     await page.goto(resetUrl);
-    await expect(
-      page.getByRole('heading', { name: /set a new password/i }),
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: /set a new password/i })).toBeVisible();
 
-    await page
-      .getByRole('textbox', { name: 'New password' })
-      .fill(newPassword);
-    await page
-      .getByRole('textbox', { name: 'Confirm password' })
-      .fill(newPassword);
+    await page.getByRole('textbox', { name: 'New password' }).fill(newPassword);
+    await page.getByRole('textbox', { name: 'Confirm password' }).fill(newPassword);
     await page.getByRole('button', { name: /set new password/i }).click();
 
-    await expect(
-      page.getByText(/password reset successfully/i),
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/password reset successfully/i)).toBeVisible({ timeout: 10_000 });
 
     // ── 4. Sign in with the new password ────────────────────────────────────
     await page.goto('/login?mode=login');

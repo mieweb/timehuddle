@@ -121,7 +121,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       }
     } catch (err: unknown) {
       const message = (err as Error).message || 'Invalid email or password';
-      
+
       // Detect Better Auth users that need password reset
       // The error message is a JSON string with token
       try {
@@ -144,7 +144,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       } catch {
         // Not JSON, continue with normal error handling
       }
-      
+
       if (message.includes('suspended') || message.includes('blocked')) {
         setError('Your account has been suspended. Please contact your administrator.');
       } else {
@@ -399,13 +399,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
           <form onSubmit={onSubmit} noValidate className="space-y-4" aria-live="polite">
             {/* Migration info message (shows above form, doesn't hide fields) */}
             {migrationInfo && (
-              <div className="rounded-md border border-blue-200 bg-blue-50/60 p-3 text-sm dark:border-blue-700 dark:bg-blue-900/30" role="status">
-                <p className="leading-relaxed text-blue-800 dark:text-blue-200">
-                  {migrationInfo}
-                </p>
+              <div
+                className="rounded-md border border-blue-200 bg-blue-50/60 p-3 text-sm dark:border-blue-700 dark:bg-blue-900/30"
+                role="status"
+              >
+                <p className="leading-relaxed text-blue-800 dark:text-blue-200">{migrationInfo}</p>
               </div>
             )}
-            
+
             {successMessage ? (
               <div className="space-y-4" role="status">
                 <div className="rounded-md border border-green-200 bg-green-50/60 p-3 text-sm dark:border-green-700 dark:bg-green-900/30">

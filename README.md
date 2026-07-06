@@ -150,6 +150,7 @@ If you need to migrate users from Better Auth to Meteor Accounts, run the automa
 ```
 
 This interactive script will guide you through:
+
 1. Selecting your local Meteor database
 2. Running a dry-run preview
 3. Performing the actual migration

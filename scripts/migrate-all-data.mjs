@@ -41,33 +41,33 @@ const COLLECTIONS_TO_MIGRATE = [
 
 async function main() {
   console.log('🚀 Starting full data migration: staging_prod → timehuddle\n');
-  
+
   const sourceClient = new MongoClient(SOURCE_URI);
   const targetClient = new MongoClient(TARGET_URI);
-  
+
   try {
     await sourceClient.connect();
     await targetClient.connect();
-    
+
     const sourceDb = sourceClient.db();
     const targetDb = targetClient.db();
-    
+
     let totalMigrated = 0;
-    
+
     for (const collectionName of COLLECTIONS_TO_MIGRATE) {
       const sourceCollection = sourceDb.collection(collectionName);
       const targetCollection = targetDb.collection(collectionName);
-      
+
       const count = await sourceCollection.countDocuments();
-      
+
       if (count === 0) {
         console.log(`⏭️  ${collectionName}: 0 documents, skipping`);
         continue;
       }
-      
+
       // Drop target collection if it exists (clean migration)
       await targetCollection.drop().catch(() => {});
-      
+
       // Copy all documents
       const docs = await sourceCollection.find({}).toArray();
       if (docs.length > 0) {
@@ -76,13 +76,12 @@ async function main() {
         console.log(`✅ ${collectionName}: ${docs.length} documents migrated`);
       }
     }
-    
+
     console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     console.log(`📋 MIGRATION SUMMARY:`);
     console.log(`   ✅ Total documents migrated: ${totalMigrated}`);
     console.log(`   📦 Collections migrated: ${COLLECTIONS_TO_MIGRATE.length}`);
     console.log(`\n✅ Migration complete!`);
-    
   } finally {
     await sourceClient.close();
     await targetClient.close();

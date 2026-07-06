@@ -24,7 +24,8 @@ export function AttachmentBar({ onAttachmentAdd }: AttachmentBarProps) {
     } catch (error) {
       console.error('[AttachmentBar] Upload failed:', error);
       // Show specific error message if available, otherwise generic message
-      const errorMessage = error instanceof Error ? error.message : 'Upload failed. Please try again.';
+      const errorMessage =
+        error instanceof Error ? error.message : 'Upload failed. Please try again.';
       alert(errorMessage);
     } finally {
       setUploading(false);

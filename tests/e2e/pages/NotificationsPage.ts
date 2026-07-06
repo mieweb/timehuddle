@@ -30,7 +30,10 @@ export class NotificationsPage extends BasePage {
 
   /** Check if notifications list is empty */
   async isEmpty(): Promise<boolean> {
-    return await this.page.getByText('No notifications yet').isVisible().catch(() => false);
+    return await this.page
+      .getByText('No notifications yet')
+      .isVisible()
+      .catch(() => false);
   }
 
   /** Get notification items */

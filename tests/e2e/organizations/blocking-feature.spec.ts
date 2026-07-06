@@ -19,7 +19,7 @@ test.describe('Organization Member Blocking Feature', () => {
   test.beforeEach(async ({ page }) => {
     loginPage = new LoginPage(page);
     dashboardPage = new DashboardPage(page);
-    
+
     // Login as owner
     await loginPage.goto();
     await loginPage.loginAs(owner);
@@ -30,9 +30,7 @@ test.describe('Organization Member Blocking Feature', () => {
     // Navigate to members page. Wait for orgs/teams sub to hydrate first —
     // "No organization is selected" is the pre-selection empty state.
     await page.goto('/app/org/members');
-    await expect(
-      page.getByText(/No organization is selected/i),
-    ).toBeHidden({ timeout: 30000 });
+    await expect(page.getByText(/No organization is selected/i)).toBeHidden({ timeout: 30000 });
     await expect(page.getByRole('table')).toBeVisible({ timeout: 20000 });
 
     // Verify there's at least one member row (the owner)
@@ -41,12 +39,13 @@ test.describe('Organization Member Blocking Feature', () => {
     expect(rowCount).toBeGreaterThan(1); // Header + at least 1 member
 
     // Check if owner row has appropriate buttons
-    const ownerRow = page.getByRole('row').filter({ hasText: owner.name }).or(
-      page.getByRole('row').filter({ hasText: owner.email })
-    );
+    const ownerRow = page
+      .getByRole('row')
+      .filter({ hasText: owner.name })
+      .or(page.getByRole('row').filter({ hasText: owner.email }));
 
     // Owner might have Block, Remove, or other action buttons
-    const hasActionButtons = await ownerRow.getByRole('button').count() > 0;
+    const hasActionButtons = (await ownerRow.getByRole('button').count()) > 0;
     expect(hasActionButtons).toBe(true);
   });
 
@@ -103,24 +102,24 @@ test.describe('Organization Member Blocking Feature', () => {
     // Check if any members are currently blocked
     const blockedBadges = page.getByText(/blocked/i);
     const blockedCount = await blockedBadges.count();
-    
+
     // This test just verifies the UI elements exist
     // If there are blocked members, they should have:
     // 1. A "Blocked" badge
     // 2. An "Unblock" button
-    
+
     if (blockedCount > 0) {
       const firstBlockedBadge = blockedBadges.first();
       await expect(firstBlockedBadge).toBeVisible();
-      
+
       // Find the row containing this badge
       const blockedRow = page.getByRole('row').filter({ has: firstBlockedBadge });
-      
+
       // Should have an Unblock button
       const unblockButton = blockedRow.getByRole('button', { name: /unblock/i });
       await expect(unblockButton).toBeVisible();
     }
-    
+
     // Test passes regardless of whether there are blocked members
     // This confirms the page loads and UI elements are accessible
     expect(true).toBe(true);

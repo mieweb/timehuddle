@@ -44,8 +44,12 @@ test.describe('Real-time Team Members', () => {
   test('should sync team member list updates', async () => {
     // Both sessions should see the same content on the teams page
     // Check for "Personal Workspace" heading which is always present
-    await expect(session1.getByRole('heading', { name: /Personal Workspace|Teams/i }).first()).toBeVisible({ timeout: 5000 });
-    await expect(session2.getByRole('heading', { name: /Personal Workspace|Teams/i }).first()).toBeVisible({ timeout: 5000 });
+    await expect(
+      session1.getByRole('heading', { name: /Personal Workspace|Teams/i }).first(),
+    ).toBeVisible({ timeout: 5000 });
+    await expect(
+      session2.getByRole('heading', { name: /Personal Workspace|Teams/i }).first(),
+    ).toBeVisible({ timeout: 5000 });
 
     // Both sessions should show the same member list in Personal Workspace
     const memberCount1 = await session1.locator('[role="listitem"]').count();

@@ -21,7 +21,6 @@ const MONGO_URL =
 
 export default async function globalTeardown(): Promise<void> {
   if (process.env.SKIP_CLEANUP === '1' || process.env.SKIP_CLEANUP === 'true') {
-     
     console.log('[global-teardown] ⏭  SKIP_CLEANUP is set — skipping test data cleanup');
     return;
   }
@@ -44,7 +43,6 @@ export default async function globalTeardown(): Promise<void> {
     const testUserIds = testUsers.map((u) => String(u._id));
 
     if (testUserIds.length === 0) {
-       
       console.log('[global-teardown] ✔ No test users found — nothing to clean up');
       await client.close();
       return;
@@ -80,9 +78,7 @@ export default async function globalTeardown(): Promise<void> {
     // Meteor stores login tokens in the user doc (services.resume.loginTokens)
     // which are already deleted above. Also clean up any separate sessions
     // collection if it exists.
-    const sessionsCollection = await db
-      .listCollections({ name: 'sessions' })
-      .toArray();
+    const sessionsCollection = await db.listCollections({ name: 'sessions' }).toArray();
     if (sessionsCollection.length > 0) {
       await db.collection('sessions').deleteMany({ userId: { $in: testUserIds } });
     }
@@ -91,35 +87,27 @@ export default async function globalTeardown(): Promise<void> {
     // Remove organizations created by tests (slug starting with 'test-' or
     // the 'default' org created by global-setup, and 'no-auto-join-*' orgs
     // from team-invitation tests).
-    const orgsResult = await db
-      .collection('organizations')
-      .deleteMany({
-        $or: [
-          { slug: 'default' },
-          { slug: { $regex: /^test-/i } },
-          { slug: { $regex: /^no-auto-join/i } },
-          { name: { $regex: /^No Auto Join/i } },
-        ],
-      });
+    const orgsResult = await db.collection('organizations').deleteMany({
+      $or: [
+        { slug: 'default' },
+        { slug: { $regex: /^test-/i } },
+        { slug: { $regex: /^no-auto-join/i } },
+        { name: { $regex: /^No Auto Join/i } },
+      ],
+    });
 
     // ── 8. Remove orphaned teams (no members, no admins after cleanup) ──────
     // Only remove teams that were explicitly created for tests.
-    await db
-      .collection('teams')
-      .deleteMany({
-        members: { $size: 0 },
-        admins: { $size: 0 },
-        name: { $regex: /^Test Team/i },
-      });
+    await db.collection('teams').deleteMany({
+      members: { $size: 0 },
+      admins: { $size: 0 },
+      name: { $regex: /^Test Team/i },
+    });
 
     // ── 9. Clean up personal_access_tokens for test users ───────────────────
-    const patCollection = await db
-      .listCollections({ name: 'personal_access_tokens' })
-      .toArray();
+    const patCollection = await db.listCollections({ name: 'personal_access_tokens' }).toArray();
     if (patCollection.length > 0) {
-      await db
-        .collection('personal_access_tokens')
-        .deleteMany({ userId: { $in: testUserIds } });
+      await db.collection('personal_access_tokens').deleteMany({ userId: { $in: testUserIds } });
     }
 
     // ── 10. Clean up test-related data in auxiliary collections ──────────────
@@ -139,9 +127,7 @@ export default async function globalTeardown(): Promise<void> {
     for (const collName of auxiliaryCollections) {
       const exists = await db.listCollections({ name: collName }).toArray();
       if (exists.length > 0) {
-        const result = await db
-          .collection(collName)
-          .deleteMany({ userId: { $in: testUserIds } });
+        const result = await db.collection(collName).deleteMany({ userId: { $in: testUserIds } });
         auxiliaryDeleted += result.deletedCount;
       }
     }
@@ -155,7 +141,6 @@ export default async function globalTeardown(): Promise<void> {
       }
     }
 
-     
     console.log(
       `[global-teardown] ✔ Cleaned up: ` +
         `${usersResult.deletedCount} users, ` +

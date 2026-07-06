@@ -102,11 +102,7 @@ async function main() {
 
         while (await cursor.hasNext()) {
           const doc = await cursor.next();
-          await targetColl.replaceOne(
-            { _id: doc._id },
-            doc,
-            { upsert: true }
-          );
+          await targetColl.replaceOne({ _id: doc._id }, doc, { upsert: true });
           copied++;
 
           // Progress indicator for large collections
@@ -144,18 +140,15 @@ async function main() {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
     // Calculate column widths
-    const maxNameWidth = Math.max(
-      'Collection'.length,
-      ...results.map((r) => r.collection.length)
-    );
+    const maxNameWidth = Math.max('Collection'.length, ...results.map((r) => r.collection.length));
 
     // Table header
     console.log(
       'Collection'.padEnd(maxNameWidth + 2) +
-      'Source'.padEnd(10) +
-      'Pre-Existing'.padEnd(15) +
-      'Target'.padEnd(10) +
-      'Status'
+        'Source'.padEnd(10) +
+        'Pre-Existing'.padEnd(15) +
+        'Target'.padEnd(10) +
+        'Status',
     );
     console.log('─'.repeat(maxNameWidth + 2 + 10 + 15 + 10 + 20));
 
@@ -164,10 +157,10 @@ async function main() {
       const preExistingFlag = result.preExistingCount > 0 ? '⚠️ ' : '';
       console.log(
         result.collection.padEnd(maxNameWidth + 2) +
-        result.sourceCount.toString().padEnd(10) +
-        `${preExistingFlag}${result.preExistingCount}`.padEnd(15) +
-        result.targetCount.toString().padEnd(10) +
-        result.status
+          result.sourceCount.toString().padEnd(10) +
+          `${preExistingFlag}${result.preExistingCount}`.padEnd(15) +
+          result.targetCount.toString().padEnd(10) +
+          result.status,
       );
     }
 
@@ -176,7 +169,9 @@ async function main() {
     if (collisions.length > 0) {
       console.log('\n⚠️  Pre-existing documents detected in:');
       for (const collision of collisions) {
-        console.log(`   • ${collision.collection}: ${collision.preExistingCount} existing document(s)`);
+        console.log(
+          `   • ${collision.collection}: ${collision.preExistingCount} existing document(s)`,
+        );
       }
       console.log('   (These may have been overwritten or merged with source data)');
     }

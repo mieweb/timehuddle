@@ -436,7 +436,9 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
     >
       {/* Clicking any item bubbles up to this div and closes the dropdown */}
       <div onClick={() => handleOpenChange(false)}>
-        <DropdownContent className="max-h-[60vh] overflow-y-auto bg-white dark:bg-neutral-800 shadow-lg">{children}</DropdownContent>
+        <DropdownContent className="max-h-[60vh] overflow-y-auto bg-white dark:bg-neutral-800 shadow-lg">
+          {children}
+        </DropdownContent>
       </div>
     </Dropdown>
   );

@@ -45,16 +45,28 @@ test.describe('Real-time Notifications', () => {
     await session1.waitForTimeout(1000);
     await session2.waitForTimeout(1000);
 
-    const notifCount1 = await session1.locator('[role="article"], .notification, [class*="notification"]').count();
-    const notifCount2 = await session2.locator('[role="article"], .notification, [class*="notification"]').count();
+    const notifCount1 = await session1
+      .locator('[role="article"], .notification, [class*="notification"]')
+      .count();
+    const notifCount2 = await session2
+      .locator('[role="article"], .notification, [class*="notification"]')
+      .count();
 
     expect(notifCount1).toBe(notifCount2);
   });
 
   test('should sync notification badge count', async () => {
     // Check notification badge in the sidebar
-    const badge1 = session1.locator('[aria-label*="Notifications"] [class*="badge"], [aria-label*="Notifications"] [class*="count"]').first();
-    const badge2 = session2.locator('[aria-label*="Notifications"] [class*="badge"], [aria-label*="Notifications"] [class*="count"]').first();
+    const badge1 = session1
+      .locator(
+        '[aria-label*="Notifications"] [class*="badge"], [aria-label*="Notifications"] [class*="count"]',
+      )
+      .first();
+    const badge2 = session2
+      .locator(
+        '[aria-label*="Notifications"] [class*="badge"], [aria-label*="Notifications"] [class*="count"]',
+      )
+      .first();
 
     if ((await badge1.count()) > 0 && (await badge2.count()) > 0) {
       const count1 = await badge1.textContent();

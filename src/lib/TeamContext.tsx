@@ -13,7 +13,15 @@
  *   • refetchClock     — callable after clock mutations to refresh
  *   • currentTime      — ticks every second for live timers
  */
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   teamApi,

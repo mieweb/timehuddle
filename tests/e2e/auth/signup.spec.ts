@@ -48,7 +48,9 @@ test.describe('Signup', () => {
     // Should show error (Meteor returns a generic error for duplicate emails)
     const error = await signupPage.getErrorMessage();
     expect(error).toBeTruthy();
-    expect(error).toMatch(/already exists|already registered|email.*taken|already.*used|something went wrong|credentials/i);
+    expect(error).toMatch(
+      /already exists|already registered|email.*taken|already.*used|something went wrong|credentials/i,
+    );
   });
 
   test('should not allow signup with weak password', async () => {

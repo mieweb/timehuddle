@@ -280,7 +280,7 @@ test.describe('Tickets', () => {
   test('should show dropdown menu within viewport on mobile', async ({ page }) => {
     // Set mobile viewport (iPhone 12)
     await page.setViewportSize({ width: 390, height: 844 });
-    
+
     await page.goto('/app/tickets');
     await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
 
@@ -295,10 +295,10 @@ test.describe('Tickets', () => {
     // Find the ticket and click the options menu
     const ticketRow = page.locator('li').filter({ hasText: mobileTitle }).first();
     const menuBtn = ticketRow.getByRole('button', { name: 'Ticket options' });
-    
+
     // Verify the button is visible on mobile
     await expect(menuBtn).toBeVisible();
-    
+
     // Click to open dropdown
     await menuBtn.click();
     await page.waitForTimeout(500);
@@ -309,13 +309,16 @@ test.describe('Tickets', () => {
       'Edit Ticket',
       'Change Status',
       'Send to TimeHarbor',
-      'Delete Ticket'
+      'Delete Ticket',
     ];
 
     // Get the dropdown content container
-    const dropdownContent = page.locator('[role="menu"]').or(page.locator('.dropdown-content')).first();
+    const dropdownContent = page
+      .locator('[role="menu"]')
+      .or(page.locator('.dropdown-content'))
+      .first();
     const contentBox = await dropdownContent.boundingBox().catch(() => null);
-    
+
     if (contentBox) {
       // Verify dropdown content stays within viewport with some margin
       expect(contentBox.x).toBeGreaterThanOrEqual(0);
@@ -334,8 +337,11 @@ test.describe('Tickets', () => {
 
     // Should navigate to detail page or show modal
     const isDetailPage = page.url().includes('/app/tickets/');
-    const isModal = await page.getByRole('heading', { name: 'Ticket Details' }).isVisible({ timeout: 2000 }).catch(() => false);
-    
+    const isModal = await page
+      .getByRole('heading', { name: 'Ticket Details' })
+      .isVisible({ timeout: 2000 })
+      .catch(() => false);
+
     expect(isDetailPage || isModal).toBeTruthy();
 
     // Reset viewport for other tests
@@ -345,7 +351,7 @@ test.describe('Tickets', () => {
   test('should show dropdown menu within viewport on tablet', async ({ page }) => {
     // Set tablet viewport (iPad)
     await page.setViewportSize({ width: 768, height: 1024 });
-    
+
     await page.goto('/app/tickets');
     await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
 
@@ -360,7 +366,7 @@ test.describe('Tickets', () => {
     // Find the ticket and click the options menu
     const ticketRow = page.locator('li').filter({ hasText: tabletTitle }).first();
     const menuBtn = ticketRow.getByRole('button', { name: 'Ticket options' });
-    
+
     // Click to open dropdown
     await menuBtn.click();
     await page.waitForTimeout(500);
@@ -369,11 +375,14 @@ test.describe('Tickets', () => {
     await expect(page.getByText('Ticket Details', { exact: true })).toBeVisible();
     await expect(page.getByText('Edit Ticket', { exact: true })).toBeVisible();
     await expect(page.getByText('Change Status', { exact: true })).toBeVisible();
-    
+
     // Get the dropdown content container and verify it stays within viewport
-    const dropdownContent = page.locator('[role="menu"]').or(page.locator('.dropdown-content')).first();
+    const dropdownContent = page
+      .locator('[role="menu"]')
+      .or(page.locator('.dropdown-content'))
+      .first();
     const contentBox = await dropdownContent.boundingBox().catch(() => null);
-    
+
     if (contentBox) {
       expect(contentBox.x).toBeGreaterThanOrEqual(0);
       expect(contentBox.x + contentBox.width).toBeLessThanOrEqual(768 + 5); // 5px tolerance
@@ -381,4 +390,5 @@ test.describe('Tickets', () => {
 
     // Reset viewport for other tests
     await page.setViewportSize({ width: 1280, height: 720 });
-  });});
+  });
+});

@@ -30,12 +30,17 @@ export class ActivityLogPage extends BasePage {
 
   /** Check if activity log is empty */
   async isEmpty(): Promise<boolean> {
-    return await this.page.getByText('No activity yet').isVisible().catch(() => false);
+    return await this.page
+      .getByText('No activity yet')
+      .isVisible()
+      .catch(() => false);
   }
 
   /** Get activity log items */
   getActivityItems(): Locator {
-    return this.page.locator('[role="article"], [data-activity-id], .activity-item, [class*="activity"]');
+    return this.page.locator(
+      '[role="article"], [data-activity-id], .activity-item, [class*="activity"]',
+    );
   }
 
   /** Get activity count */
@@ -46,6 +51,9 @@ export class ActivityLogPage extends BasePage {
 
   /** Check if a specific activity message is visible */
   async hasActivity(text: string): Promise<boolean> {
-    return await this.page.getByText(text, { exact: false }).isVisible().catch(() => false);
+    return await this.page
+      .getByText(text, { exact: false })
+      .isVisible()
+      .catch(() => false);
   }
 }

@@ -102,8 +102,12 @@ export default async function globalSetup(): Promise<void> {
     if (doc) usersByEmail.set(u.email, String(doc._id));
   }
 
-  const owners = SEED_USERS.filter((u) => u.role === 'owner').map((u) => usersByEmail.get(u.email)!);
-  const admins = SEED_USERS.filter((u) => u.role === 'admin').map((u) => usersByEmail.get(u.email)!);
+  const owners = SEED_USERS.filter((u) => u.role === 'owner').map(
+    (u) => usersByEmail.get(u.email)!,
+  );
+  const admins = SEED_USERS.filter((u) => u.role === 'admin').map(
+    (u) => usersByEmail.get(u.email)!,
+  );
 
   await db.collection('organizations').updateOne(
     { _id: defaultOrg._id },
@@ -145,13 +149,15 @@ export default async function globalSetup(): Promise<void> {
       updatedAt: new Date(),
     };
     await db.collection('teams').insertOne(teamDoc);
-     
+
     console.log(`[global-setup] ✔ Created team "${teamDoc.name}" code=${teamDoc.code}`);
   } else {
-    await db.collection('teams').updateOne(
-      { _id: defaultTeam._id },
-      { $set: { members: allMemberIds, admins: adminMemberIds, isPersonal: false } },
-    );
+    await db
+      .collection('teams')
+      .updateOne(
+        { _id: defaultTeam._id },
+        { $set: { members: allMemberIds, admins: adminMemberIds, isPersonal: false } },
+      );
   }
 
   // Mark enterprise as installed to prevent the InstallerModal from showing.
@@ -180,6 +186,8 @@ export default async function globalSetup(): Promise<void> {
   }
 
   await client.close();
-   
-  console.log(`[global-setup] ✔ Provisioned ${SEED_USERS.length} @test.local users in org ${orgId}`);
+
+  console.log(
+    `[global-setup] ✔ Provisioned ${SEED_USERS.length} @test.local users in org ${orgId}`,
+  );
 }

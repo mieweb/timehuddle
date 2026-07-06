@@ -2,15 +2,15 @@
 
 /**
  * Migration Script: Fix Missing Org Members
- * 
+ *
  * Problem: Some users are members of teams but missing from the org_members collection.
  * This happens when team invitations fail to auto-add users to the organization.
- * 
+ *
  * Solution: Find all users in teams and ensure they have corresponding org_members records.
- * 
+ *
  * Usage:
  *   node scripts/fix-org-members.js [--dry-run] [--verbose]
- * 
+ *
  * Options:
  *   --dry-run   Show what would be fixed without making changes
  *   --verbose   Show detailed progress information
@@ -24,7 +24,7 @@ const VERBOSE = process.argv.includes('--verbose');
 
 async function main() {
   console.log('🔍 Checking for users in teams without org_members records...\n');
-  
+
   if (DRY_RUN) {
     console.log('🧪 DRY RUN MODE - No changes will be made\n');
   }
@@ -34,7 +34,8 @@ async function main() {
 
   try {
     // Get all teams with their orgId and members
-    const teams = await db.collection('teams')
+    const teams = await db
+      .collection('teams')
       .find({ orgId: { $exists: true, $ne: null } })
       .project({ _id: 1, name: 1, orgId: 1, members: 1 })
       .toArray();
@@ -45,10 +46,10 @@ async function main() {
 
     // Build a map of userId -> Set of orgIds they should be in
     const userOrgMap = new Map();
-    
+
     for (const team of teams) {
       if (!team.members || !Array.isArray(team.members)) continue;
-      
+
       for (const userId of team.members) {
         if (!userOrgMap.has(userId)) {
           userOrgMap.set(userId, new Set());
@@ -68,27 +69,29 @@ async function main() {
 
     for (const [userId, expectedOrgIds] of userOrgMap.entries()) {
       // Get existing org_members records for this user
-      const existingRecords = await db.collection('org_members')
+      const existingRecords = await db
+        .collection('org_members')
         .find({ userId })
         .project({ orgId: 1 })
         .toArray();
 
-      const existingOrgIds = new Set(existingRecords.map(r => r.orgId));
+      const existingOrgIds = new Set(existingRecords.map((r) => r.orgId));
 
       // Find missing org memberships
       for (const orgId of expectedOrgIds) {
         if (!existingOrgIds.has(orgId)) {
           // User is in a team but not in org_members
-          const org = await db.collection('organizations').findOne(
-            { _id: new ObjectId(orgId) },
-            { projection: { name: 1, allowAutoJoin: 1 } }
-          );
+          const org = await db
+            .collection('organizations')
+            .findOne({ _id: new ObjectId(orgId) }, { projection: { name: 1, allowAutoJoin: 1 } });
 
           // Get user info for better logging
-          const user = await db.collection('user').findOne(
-            { _id: typeof userId === 'string' ? userId : new ObjectId(userId) },
-            { projection: { name: 1, email: 1 } }
-          );
+          const user = await db
+            .collection('user')
+            .findOne(
+              { _id: typeof userId === 'string' ? userId : new ObjectId(userId) },
+              { projection: { name: 1, email: 1 } },
+            );
 
           const userDisplay = user ? `${user.name} (${user.email})` : userId;
           const orgDisplay = org ? `${org.name}` : orgId;
@@ -132,8 +135,10 @@ async function main() {
     console.log('📊 SUMMARY');
     console.log('='.repeat(60));
     console.log(`✅ Already correct: ${alreadyGoodCount} user-org relationships`);
-    console.log(`${DRY_RUN ? '🧪' : '✅'} ${DRY_RUN ? 'Would fix' : 'Fixed'}: ${fixedCount} missing org_members records`);
-    
+    console.log(
+      `${DRY_RUN ? '🧪' : '✅'} ${DRY_RUN ? 'Would fix' : 'Fixed'}: ${fixedCount} missing org_members records`,
+    );
+
     if (fixes.length > 0) {
       console.log('\n📋 Details of fixes:');
       fixes.forEach((fix, i) => {
@@ -149,13 +154,12 @@ async function main() {
     }
 
     console.log('');
-
   } finally {
     await client.close();
   }
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('❌ Error:', err);
   process.exit(1);
 });

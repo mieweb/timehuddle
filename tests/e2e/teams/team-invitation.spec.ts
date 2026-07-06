@@ -8,9 +8,9 @@ import { TEST_USERS } from '../fixtures/users';
 
 /**
  * Team Invitation E2E Tests
- * 
+ *
  * Tests the complete flow of team invitations and automatic org membership.
- * 
+ *
  * Key scenarios:
  * 1. When a user is invited to a team, they should be automatically added to the organization
  * 2. The user should see the organization in their sidebar
@@ -26,8 +26,9 @@ test.describe('Team Invitation with Org Membership', () => {
   let mongoClient: MongoClient;
   let db: any;
 
-  const MONGO_URL = process.env.MONGO_URL || 'mongodb://127.0.0.1:27017/timehuddle?directConnection=true';
-  
+  const MONGO_URL =
+    process.env.MONGO_URL || 'mongodb://127.0.0.1:27017/timehuddle?directConnection=true';
+
   // Test users
   const _admin = TEST_USERS.admin1;
   const _member = TEST_USERS.member1;
@@ -52,12 +53,12 @@ test.describe('Team Invitation with Org Membership', () => {
 
   test('user invited to team should automatically join organization', async () => {
     // This test verifies the auto-add logic by simulating a team invitation via database
-    
+
     // Step 1: Create a new test user who is NOT yet in any org
     const timestamp = Date.now();
     const newUserEmail = `testuser${timestamp}@test.local`;
     const newUserName = `Test User ${timestamp}`;
-    
+
     // Insert user into Meteor users collection
     const newUserId = new ObjectId().toHexString();
     await db.collection('users').insertOne({
@@ -73,11 +74,11 @@ test.describe('Team Invitation with Org Membership', () => {
       expect(defaultOrg).toBeTruthy();
       const orgId = defaultOrg._id.toHexString();
 
-      let existingTeam = await db.collection('teams').findOne({ 
+      let existingTeam = await db.collection('teams').findOne({
         orgId: { $exists: true, $ne: null },
-        isPersonal: { $ne: true }
+        isPersonal: { $ne: true },
       });
-      
+
       if (!existingTeam) {
         // Create a test team linked to the default org
         const testTeamId = new ObjectId();
@@ -93,20 +94,20 @@ test.describe('Team Invitation with Org Membership', () => {
         });
         existingTeam = await db.collection('teams').findOne({ _id: testTeamId });
       }
-      const org = await db.collection('organizations').findOne({ 
-        _id: new ObjectId(orgId) 
+      const org = await db.collection('organizations').findOne({
+        _id: new ObjectId(orgId),
       });
-      
+
       expect(org).toBeTruthy();
       expect(org.allowAutoJoin).not.toBe(false); // Should be true or undefined (defaults to true)
 
       // Step 3: Simulate team invitation by adding user to team
       await db.collection('teams').updateOne(
         { _id: existingTeam._id },
-        { 
+        {
           $addToSet: { members: newUserId },
-          $set: { updatedAt: new Date() }
-        }
+          $set: { updatedAt: new Date() },
+        },
       );
 
       // Step 4: Simulate the auto-add logic from teams.invite (lines 367-369)
@@ -136,33 +137,32 @@ test.describe('Team Invitation with Org Membership', () => {
       expect(orgMembership).toBeTruthy();
       expect(orgMembership.role).toBe('member');
       expect(orgMembership.auto).toBe(true);
-      
+
       // Step 7: Verify user can see the organization
-      const accessibleOrgs = await db.collection('org_members')
+      const accessibleOrgs = await db
+        .collection('org_members')
         .find({ userId: newUserId })
         .toArray();
-      
+
       expect(accessibleOrgs.length).toBeGreaterThan(0);
       expect(accessibleOrgs[0].orgId).toBe(orgId);
-
     } finally {
       // Cleanup: Remove test user
       await db.collection('users').deleteOne({ _id: newUserId });
       await db.collection('org_members').deleteMany({ userId: newUserId });
-      await db.collection('teams').updateMany(
-        { members: newUserId },
-        { $pull: { members: newUserId } }
-      );
+      await db
+        .collection('teams')
+        .updateMany({ members: newUserId }, { $pull: { members: newUserId } });
     }
   });
 
   test('should not auto-add to org when allowAutoJoin is false', async () => {
     // This test verifies that auto-add is skipped when allowAutoJoin is false
-    
+
     // Step 1: Create a test org with allowAutoJoin: false
     const testOrgId = new ObjectId();
     const testOrgName = `Test Org No Auto Join ${Date.now()}`;
-    
+
     await db.collection('organizations').insertOne({
       _id: testOrgId,
       name: testOrgName,
@@ -175,13 +175,15 @@ test.describe('Team Invitation with Org Membership', () => {
     });
 
     // Step 2: Get any existing user to be the team admin
-    const existingUser = await db.collection('users').findOne({ 'emails.address': 'admin1@test.local' });
+    const existingUser = await db
+      .collection('users')
+      .findOne({ 'emails.address': 'admin1@test.local' });
     expect(existingUser).toBeTruthy();
     const existingUserId = String(existingUser._id);
-    
+
     // Step 3: Create a team in this org
     const testTeamId = new ObjectId();
-    
+
     await db.collection('teams').insertOne({
       _id: testTeamId,
       name: `Test Team ${Date.now()}`,
@@ -208,7 +210,7 @@ test.describe('Team Invitation with Org Membership', () => {
     const timestamp = Date.now();
     const newUserEmail = `testuser${timestamp}@test.local`;
     const newUserId = new ObjectId().toHexString();
-    
+
     await db.collection('users').insertOne({
       _id: newUserId,
       emails: [{ address: newUserEmail, verified: false }],
@@ -220,10 +222,10 @@ test.describe('Team Invitation with Org Membership', () => {
       // Step 6: Simulate team invitation by adding user to team
       await db.collection('teams').updateOne(
         { _id: testTeamId },
-        { 
+        {
           $addToSet: { members: newUserId },
-          $set: { updatedAt: new Date() }
-        }
+          $set: { updatedAt: new Date() },
+        },
       );
 
       // Step 7: Simulate the auto-add logic check (should NOT add because allowAutoJoin is false)
@@ -252,14 +254,13 @@ test.describe('Team Invitation with Org Membership', () => {
 
       // ⚠️ This SHOULD be null because allowAutoJoin is false
       expect(orgMembership).toBeNull();
-
     } finally {
       // Cleanup
       await db.collection('users').deleteOne({ _id: newUserId });
       await db.collection('teams').deleteOne({ _id: testTeamId });
       await db.collection('organizations').deleteOne({ _id: testOrgId });
-      await db.collection('org_members').deleteMany({ 
-        orgId: testOrgId.toHexString() 
+      await db.collection('org_members').deleteMany({
+        orgId: testOrgId.toHexString(),
       });
     }
   });
@@ -269,11 +270,12 @@ test.describe('Team Invitation with Org Membership', () => {
     // This is a comprehensive check that the auto-add logic works correctly
 
     // Step 1: Find teams with orgId
-    const teams = await db.collection('teams')
+    const teams = await db
+      .collection('teams')
       .find({ orgId: { $exists: true, $ne: null } })
       .limit(5)
       .toArray();
-    
+
     expect(teams.length).toBeGreaterThan(0);
 
     // Step 2: For each team, verify all members have org_members records
@@ -281,9 +283,9 @@ test.describe('Team Invitation with Org Membership', () => {
       if (!team.members || team.members.length === 0) continue;
 
       const org = await db.collection('organizations').findOne({
-        _id: new ObjectId(team.orgId)
+        _id: new ObjectId(team.orgId),
       });
-      
+
       // If org doesn't exist or allowAutoJoin is false, skip this team
       if (!org || org.allowAutoJoin === false) continue;
 
@@ -291,7 +293,7 @@ test.describe('Team Invitation with Org Membership', () => {
       for (const userId of team.members) {
         const orgMembership = await db.collection('org_members').findOne({
           userId: userId,
-          orgId: team.orgId
+          orgId: team.orgId,
         });
 
         // This is the key assertion - users in teams should have org_members records
@@ -308,7 +310,7 @@ test.describe('Team Invitation with Org Membership', () => {
     const timestamp = Date.now();
     const buggyUserId = new ObjectId().toHexString();
     const buggyUserEmail = `buggyuser${timestamp}@test.local`;
-    
+
     await db.collection('users').insertOne({
       _id: buggyUserId,
       emails: [{ address: buggyUserEmail, verified: false }],
@@ -318,16 +320,15 @@ test.describe('Team Invitation with Org Membership', () => {
 
     // Get an existing team
     const existingTeam = await db.collection('teams').findOne({
-      orgId: { $exists: true, $ne: null }
+      orgId: { $exists: true, $ne: null },
     });
 
     expect(existingTeam).toBeTruthy();
 
     // Add user to team WITHOUT adding to org_members (simulating the bug)
-    await db.collection('teams').updateOne(
-      { _id: existingTeam._id },
-      { $addToSet: { members: buggyUserId } }
-    );
+    await db
+      .collection('teams')
+      .updateOne({ _id: existingTeam._id }, { $addToSet: { members: buggyUserId } });
 
     try {
       // Step 2: Verify the problem exists
@@ -340,7 +341,8 @@ test.describe('Team Invitation with Org Membership', () => {
 
       // Step 3: Simulate what the migration script does
       // Find all users in teams
-      const teams = await db.collection('teams')
+      const teams = await db
+        .collection('teams')
         .find({ orgId: { $exists: true, $ne: null } })
         .toArray();
 
@@ -361,11 +363,9 @@ test.describe('Team Invitation with Org Membership', () => {
 
       // Step 4: Apply the fix (what the migration script would do)
       for (const [userId, orgIds] of userOrgMap.entries()) {
-        const existingRecords = await db.collection('org_members')
-          .find({ userId })
-          .toArray();
+        const existingRecords = await db.collection('org_members').find({ userId }).toArray();
 
-        const existingOrgIds = new Set(existingRecords.map(r => r.orgId));
+        const existingOrgIds = new Set(existingRecords.map((r) => r.orgId));
 
         for (const orgId of orgIds) {
           if (!existingOrgIds.has(orgId)) {
@@ -392,14 +392,12 @@ test.describe('Team Invitation with Org Membership', () => {
       expect(fixedMembership).toBeTruthy();
       expect(fixedMembership.role).toBe('member');
       expect(fixedMembership.auto).toBe(true);
-
     } finally {
       // Cleanup
       await db.collection('users').deleteOne({ _id: buggyUserId });
-      await db.collection('teams').updateOne(
-        { _id: existingTeam._id },
-        { $pull: { members: buggyUserId } }
-      );
+      await db
+        .collection('teams')
+        .updateOne({ _id: existingTeam._id }, { $pull: { members: buggyUserId } });
       await db.collection('org_members').deleteMany({ userId: buggyUserId });
     }
   });

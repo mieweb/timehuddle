@@ -29,7 +29,7 @@ console.log('Provisioning test users...');
 for (const u of SEED_USERS) {
   const existing = await db.collection('users').findOne({ 'emails.address': u.email });
   const userId = existing?._id ?? new ObjectId().toHexString();
-  
+
   await db.collection('users').updateOne(
     { 'emails.address': u.email },
     {
@@ -48,11 +48,10 @@ for (const u of SEED_USERS) {
     },
     { upsert: true },
   );
-  
-  await db.collection('users').updateOne(
-    { 'emails.address': u.email },
-    { $unset: { 'services.password.reset': '' } }
-  );
+
+  await db
+    .collection('users')
+    .updateOne({ 'emails.address': u.email }, { $unset: { 'services.password.reset': '' } });
   console.log(`  ✔ ${u.email} → username: ${u.username || 'NULL'}`);
 }
 
@@ -84,8 +83,8 @@ for (const u of SEED_USERS) {
 }
 
 // Update org owners and admins
-const owners = SEED_USERS.filter(u => u.role === 'owner').map(u => usersByEmail.get(u.email));
-const admins = SEED_USERS.filter(u => u.role === 'admin').map(u => usersByEmail.get(u.email));
+const owners = SEED_USERS.filter((u) => u.role === 'owner').map((u) => usersByEmail.get(u.email));
+const admins = SEED_USERS.filter((u) => u.role === 'admin').map((u) => usersByEmail.get(u.email));
 
 await db.collection('organizations').updateOne(
   { _id: defaultOrg._id },
@@ -101,9 +100,12 @@ const bulk = db.collection('org_members').initializeUnorderedBulkOp();
 for (const u of SEED_USERS) {
   const userId = usersByEmail.get(u.email);
   if (!userId) continue;
-  bulk.find({ orgId, userId }).upsert().updateOne({
-    $set: { orgId, userId, role: u.role, auto: false, createdAt: new Date() }
-  });
+  bulk
+    .find({ orgId, userId })
+    .upsert()
+    .updateOne({
+      $set: { orgId, userId, role: u.role, auto: false, createdAt: new Date() },
+    });
 }
 if (bulk.length > 0) {
   await bulk.execute();
@@ -112,8 +114,8 @@ if (bulk.length > 0) {
 
 // Create default team
 const allMemberIds = [...usersByEmail.values()];
-const adminMemberIds = SEED_USERS.filter(u => u.role === 'owner' || u.role === 'admin')
-  .map(u => usersByEmail.get(u.email))
+const adminMemberIds = SEED_USERS.filter((u) => u.role === 'owner' || u.role === 'admin')
+  .map((u) => usersByEmail.get(u.email))
   .filter(Boolean);
 
 let defaultTeam = await db.collection('teams').findOne({ code: 'TEST01' });
@@ -133,10 +135,12 @@ if (!defaultTeam) {
   await db.collection('teams').insertOne(teamDoc);
   console.log(`  ✔ Created team "${teamDoc.name}" (code: ${teamDoc.code})`);
 } else {
-  await db.collection('teams').updateOne(
-    { _id: defaultTeam._id },
-    { $set: { members: allMemberIds, admins: adminMemberIds, isPersonal: false } }
-  );
+  await db
+    .collection('teams')
+    .updateOne(
+      { _id: defaultTeam._id },
+      { $set: { members: allMemberIds, admins: adminMemberIds, isPersonal: false } },
+    );
   console.log('  ✔ Updated existing test team');
 }
 

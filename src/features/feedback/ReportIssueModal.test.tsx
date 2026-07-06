@@ -29,9 +29,15 @@ vi.mock('@mieweb/ui', () => ({
     open: boolean;
     onOpenChange: (isOpen: boolean) => void;
   }) => (open ? <div data-testid="modal">{children}</div> : null),
-  ModalHeader: ({ children }: { children: ReactNode }) => <div data-testid="modal-header">{children}</div>,
-  ModalBody: ({ children }: { children: ReactNode }) => <div data-testid="modal-body">{children}</div>,
-  ModalFooter: ({ children }: { children: ReactNode }) => <div data-testid="modal-footer">{children}</div>,
+  ModalHeader: ({ children }: { children: ReactNode }) => (
+    <div data-testid="modal-header">{children}</div>
+  ),
+  ModalBody: ({ children }: { children: ReactNode }) => (
+    <div data-testid="modal-body">{children}</div>
+  ),
+  ModalFooter: ({ children }: { children: ReactNode }) => (
+    <div data-testid="modal-footer">{children}</div>
+  ),
   Button: ({ children, onClick, ...rest }: { children: ReactNode; onClick?: () => void }) => (
     <button onClick={onClick} {...rest}>
       {children}
@@ -60,7 +66,9 @@ describe('ReportIssueModal', () => {
     render(<ReportIssueModal open={true} onClose={onClose} />);
 
     expect(screen.getByText('GitHub Issues')).toBeTruthy();
-    expect(screen.getByText('Report bugs, request features, or track development publicly')).toBeTruthy();
+    expect(
+      screen.getByText('Report bugs, request features, or track development publicly'),
+    ).toBeTruthy();
   });
 
   it('displays Pollenate Feedback option with description', () => {
@@ -68,7 +76,9 @@ describe('ReportIssueModal', () => {
     render(<ReportIssueModal open={true} onClose={onClose} />);
 
     expect(screen.getByText('Pollenate Feedback')).toBeTruthy();
-    expect(screen.getByText('Submit feedback or suggestions through our feedback portal')).toBeTruthy();
+    expect(
+      screen.getByText('Submit feedback or suggestions through our feedback portal'),
+    ).toBeTruthy();
   });
 
   it('opens GitHub in new window and closes modal when GitHub option is clicked', () => {

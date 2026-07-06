@@ -600,10 +600,12 @@ export const orgApi = {
     ),
 
   blockMember: (id: string, targetUserId: string, reason?: string) =>
-    wormholeCall<{ user: { id: string; blocked: { orgId: string; blockedBy: string; blockedAt: string; reason?: string } } }>(
-      'orgs.blockMember',
-      { orgId: id, targetUserId, reason },
-    ).then((r) => r.user),
+    wormholeCall<{
+      user: {
+        id: string;
+        blocked: { orgId: string; blockedBy: string; blockedAt: string; reason?: string };
+      };
+    }>('orgs.blockMember', { orgId: id, targetUserId, reason }).then((r) => r.user),
 
   unblockMember: (id: string, targetUserId: string) =>
     wormholeCall<{ user: { id: string } }>('orgs.unblockMember', { orgId: id, targetUserId }).then(
@@ -703,10 +705,7 @@ export const enterpriseApi = {
     ).then((r) => r.user),
 
   getOwnershipStatus: () =>
-    wormholeCall<{ hasOwner: boolean; installCompleted: boolean }>(
-      'enterprise.installStatus',
-      {},
-    ),
+    wormholeCall<{ hasOwner: boolean; installCompleted: boolean }>('enterprise.installStatus', {}),
 
   takeOwnership: () => wormholeCall<{ role: 'owner' }>('enterprises.takeOwnership', {}),
 };
@@ -775,7 +774,7 @@ async function wormholeCall<T = unknown>(
   params: Record<string, unknown>,
 ): Promise<T> {
   const route = method.replace(/\./g, '_');
-  
+
   // Ensure DDP auth is complete before reading token
   // This guarantees tryResumeLogin has run and updated localStorage
   try {
@@ -783,12 +782,12 @@ async function wormholeCall<T = unknown>(
   } catch {
     // If auth fails, proceed anyway — getAccessToken will handle it
   }
-  
+
   const token = await getAccessToken();
   const url = `${METEOR_API_BASE}/api/${route}`;
-  
+
   console.log(`[wormholeCall] ${method}: fetching ${url}`, { hasToken: !!token });
-  
+
   let res: Response;
   try {
     res = await fetch(url, {
@@ -803,26 +802,26 @@ async function wormholeCall<T = unknown>(
     console.error(`[wormholeCall] ${method}: fetch failed:`, fetchError);
     throw fetchError;
   }
-  
+
   console.log(`[wormholeCall] ${method}: got response, status=${res.status}`);
-  
+
   const data = (await res.json().catch(() => ({}))) as {
     result?: T;
     reason?: string;
     message?: string;
   };
-  
+
   // Temporary debug logging for clock.teamStatus and orgs.list
   if (method === 'clock.teamStatus' || method === 'orgs.list') {
-    console.log(`[wormholeCall] ${method} response:`, { 
-      ok: res.ok, 
-      status: res.status, 
+    console.log(`[wormholeCall] ${method} response:`, {
+      ok: res.ok,
+      status: res.status,
       data,
       hasResult: 'result' in data,
-      resultKeys: data.result ? Object.keys(data.result) : null
+      resultKeys: data.result ? Object.keys(data.result) : null,
     });
   }
-  
+
   if (!res.ok) {
     throw new ApiError(data.reason || data.message || `Request failed (${res.status})`, res.status);
   }
@@ -913,7 +912,9 @@ export const ticketApi = {
 
   /** Get total accumulated seconds for a ticket from Timers. */
   getTotal: (ticketId: string) =>
-    wormholeCall<{ totalSeconds: number }>('timers.getTicketTotal', { ticketId }).then((r) => r.totalSeconds),
+    wormholeCall<{ totalSeconds: number }>('timers.getTicketTotal', { ticketId }).then(
+      (r) => r.totalSeconds,
+    ),
 };
 
 // ─── Huddle API ───────────────────────────────────────────────────────────────
@@ -959,24 +960,24 @@ export interface HuddleComment {
 export const huddleApi = {
   /** Fetch all huddle posts for a specific ticket. */
   getPostsByTicket: (ticketId: string) =>
-    wormholeCall<{ posts: HuddlePost[] }>('huddle.getPostsByTicket', { ticketId }).then((r) => r.posts),
+    wormholeCall<{ posts: HuddlePost[] }>('huddle.getPostsByTicket', { ticketId }).then(
+      (r) => r.posts,
+    ),
 
   /** Update a huddle post. */
   updatePost: (postId: string, content: { text: string; mentions: string[] }) =>
     getDdpClient().call('huddle.updatePost', { postId, content }),
 
   /** Delete a huddle post. */
-  deletePost: (postId: string) =>
-    getDdpClient().call('huddle.deletePost', { postId }),
+  deletePost: (postId: string) => getDdpClient().call('huddle.deletePost', { postId }),
 
   /** Toggle like on a post */
-  toggleLike: (postId: string) =>
-    getDdpClient().call('huddle.toggleLike', { postId }),
+  toggleLike: (postId: string) => getDdpClient().call('huddle.toggleLike', { postId }),
 
   /** Get comments for a post */
   getComments: async (postId: string) => {
     const result = await getDdpClient().call('huddle.getComments', { postId });
-    return Array.isArray(result) ? result : (result?.comments ?? []);
+    return Array.isArray(result) ? result : ((result as { comments?: unknown[] })?.comments ?? []);
   },
 
   /** Add a comment to a post */
@@ -984,8 +985,7 @@ export const huddleApi = {
     getDdpClient().call('huddle.addComment', { postId, ...data }),
 
   /** Delete a comment */
-  deleteComment: (commentId: string) =>
-    getDdpClient().call('huddle.deleteComment', { commentId }),
+  deleteComment: (commentId: string) => getDdpClient().call('huddle.deleteComment', { commentId }),
 };
 
 // ─── Team API ─────────────────────────────────────────────────────────────────
@@ -1294,7 +1294,7 @@ export const notificationApi = {
   /** Fetch the user's notification inbox. */
   getInbox: () =>
     wormholeCall<{ notifications: Notification[] }>('notifications.getInbox', {}).then(
-      (r) => r.notifications
+      (r) => r.notifications,
     ),
 
   /** Mark a single notification as read. */
@@ -1421,41 +1421,58 @@ export const timerApi = {
     note?: string;
     notifyAdmins?: boolean;
     startNow?: boolean;
-  }) =>
-    wormholeCall<{ entry: WorkItem; session: Timer | null }>('timers.createEntry', data),
+  }) => wormholeCall<{ entry: WorkItem; session: Timer | null }>('timers.createEntry', data),
 
   /** Start a timer for a WorkItem. Closes any open timer first. */
   startSession: (entryId: string, now?: number) =>
-    wormholeCall<{ session: Timer; closedSessionId?: string }>('timers.startSession', { entryId, now: now ?? Date.now(), tz: clientTz() }),
+    wormholeCall<{ session: Timer; closedSessionId?: string }>('timers.startSession', {
+      entryId,
+      now: now ?? Date.now(),
+      tz: clientTz(),
+    }),
 
   /** Stop a running timer. */
   stopSession: (sessionId: string, now?: number) =>
-    wormholeCall<{ session: Timer }>('timers.stopSession', { sessionId, now: now ?? Date.now() }).then((r) => r.session),
+    wormholeCall<{ session: Timer }>('timers.stopSession', {
+      sessionId,
+      now: now ?? Date.now(),
+    }).then((r) => r.session),
 
   /** Update a WorkItem's note, duration, and/or ticket (duration ignored while running). */
   updateEntry: (
     entryId: string,
     data: { note?: string | null; durationSeconds?: number; ticketId?: string },
   ) =>
-    wormholeCall<{ entry: WorkItem }>('timers.updateEntry', { entryId, ...data }).then((r) => r.entry),
+    wormholeCall<{ entry: WorkItem }>('timers.updateEntry', { entryId, ...data }).then(
+      (r) => r.entry,
+    ),
 
   /** Delete a WorkItem and all of its timers. */
   deleteEntry: (entryId: string, options?: { notifyAdmins?: boolean }) =>
-    wormholeCall<{ deletedEntry: boolean; deletedSessions: number }>('timers.deleteEntry', { entryId, notifyAdmins: options?.notifyAdmins ?? true }),
+    wormholeCall<{ deletedEntry: boolean; deletedSessions: number }>('timers.deleteEntry', {
+      entryId,
+      notifyAdmins: options?.notifyAdmins ?? true,
+    }),
 
   /** Get the currently running timer for the authenticated user, or null. */
-  getRunning: () => wormholeCall<{ session: Timer | null }>('timers.getRunning', {}).then((r) => r.session),
+  getRunning: () =>
+    wormholeCall<{ session: Timer | null }>('timers.getRunning', {}).then((r) => r.session),
 
   /** Get all entries + sessions for today in local time. Admin can pass userId. */
   getToday: (userId?: string) => {
     const tz = clientTz();
-    return wormholeCall<{ entries: DayEntry[] }>('timers.getToday', { tz, ...(userId ? { userId } : {}) }).then((r) => r.entries);
+    return wormholeCall<{ entries: DayEntry[] }>('timers.getToday', {
+      tz,
+      ...(userId ? { userId } : {}),
+    }).then((r) => r.entries);
   },
 
   /** Get all entries + sessions for a local day (YYYY-MM-DD). */
   getDay: (date: string) => {
     const tz = clientTz();
-    return wormholeCall<{ entries: DayEntry[] }>('timers.getDay', { date, tz }).then((r) => r.entries);
+    return wormholeCall<{ entries: DayEntry[] }>('timers.getDay', { date, tz }).then(
+      (r) => r.entries,
+    );
   },
 
   /** Get 7-day totals for the week starting at the given date (YYYY-MM-DD). */
@@ -1466,7 +1483,9 @@ export const timerApi = {
 
   /** Get total seconds for a ticket from all closed Timers. */
   getTicketTotal: (ticketId: string) =>
-    wormholeCall<{ totalSeconds: number }>('timers.getTicketTotal', { ticketId }).then((r) => r.totalSeconds),
+    wormholeCall<{ totalSeconds: number }>('timers.getTicketTotal', { ticketId }).then(
+      (r) => r.totalSeconds,
+    ),
 
   /**
    * Copy entries from the most recent previous day into toDate.
@@ -1602,7 +1621,9 @@ export const activityApi = {
 
   /** Ticket IDs + titles from the user's last 48 h of timer work. */
   getUserWorkSummary: (userId: string) =>
-    wormholeCall<{ items: { id: string; title: string }[] }>('timers.getUserWorkSummary', { userId }),
+    wormholeCall<{ items: { id: string; title: string }[] }>('timers.getUserWorkSummary', {
+      userId,
+    }),
 
   getTicketActivity: (ticketId: string, limit = 50) =>
     wormholeCall<{ events: ActivityLogItem[] }>('activity.ticketActivity', { ticketId, limit }),
@@ -1694,7 +1715,9 @@ export const tokenApi = {
  * One-way: this only sets the flag on the TimeHuddle record; TimeHarbor pulls it.
  */
 export const shareTicketWithTimeharbor = (id: string, shared: boolean): Promise<void> =>
-  wormholeCall<{ ok: boolean }>('tickets.shareWithTimeharbor', { ticketId: id, shared }).then(() => undefined);
+  wormholeCall<{ ok: boolean }>('tickets.shareWithTimeharbor', { ticketId: id, shared }).then(
+    () => undefined,
+  );
 
 /**
  * Flag multiple tickets as shared with (or unshared from) TimeHarbor in one request.
@@ -1703,4 +1726,7 @@ export const bulkShareTicketsWithTimeharbor = (
   ticketIds: string[],
   shared: boolean,
 ): Promise<void> =>
-  wormholeCall<{ modifiedCount: number }>('tickets.bulkShareWithTimeharbor', { ticketIds, shared }).then(() => undefined);
+  wormholeCall<{ modifiedCount: number }>('tickets.bulkShareWithTimeharbor', {
+    ticketIds,
+    shared,
+  }).then(() => undefined);

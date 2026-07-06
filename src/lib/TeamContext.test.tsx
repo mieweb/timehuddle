@@ -59,9 +59,7 @@ function OrgDisplay() {
   const { organizations } = useTeam();
   return (
     <div data-testid="orgs">
-      {organizations.length === 0
-        ? 'no-orgs'
-        : organizations.map((o) => o.name).join(',')}
+      {organizations.length === 0 ? 'no-orgs' : organizations.map((o) => o.name).join(',')}
     </div>
   );
 }

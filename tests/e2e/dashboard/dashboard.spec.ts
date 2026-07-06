@@ -51,7 +51,9 @@ test.describe('Dashboard', () => {
     await page.getByRole('heading', { level: 1, name: /Clock/i }).waitFor({ state: 'visible' });
     await page.getByRole('button', { name: 'Clock in' }).click();
     // Wait for clock out button to confirm we're clocked in
-    await page.getByRole('button', { name: 'Clock out' }).waitFor({ state: 'visible', timeout: 5000 });
+    await page
+      .getByRole('button', { name: 'Clock out' })
+      .waitFor({ state: 'visible', timeout: 5000 });
 
     // Navigate back to dashboard
     await page.goto('/app/dashboard');
@@ -73,6 +75,8 @@ test.describe('Dashboard', () => {
 
     // Clock out to clean up
     await page.getByRole('button', { name: 'Clock out' }).click();
-    await page.getByRole('button', { name: 'Clock in' }).waitFor({ state: 'visible', timeout: 5000 });
+    await page
+      .getByRole('button', { name: 'Clock in' })
+      .waitFor({ state: 'visible', timeout: 5000 });
   });
 });

@@ -1,9 +1,11 @@
 # First-Time User Onboarding Navigation Fix
 
 ## Problem
+
 When a new user completed the initial setup (clicked "Complete Setup" in InstallerModal), they would stay on the dashboard page instead of automatically navigating to `/app/enterprise` where they could create their first organization.
 
 ## Root Cause
+
 The `InstallerModal` component was rendered **outside** the `RouterContext.Provider` in the component tree:
 
 ```tsx
@@ -21,18 +23,22 @@ return (
 Since `RouterContext` is defined inside `AppLayout`, the `InstallerModal` couldn't access the `navigate()` function from `useRouter()`.
 
 ## Solution
+
 Modified `InstallerModal.tsx` to use direct DOM navigation that triggers the same mechanism as `AppLayout`'s `navigate()` function:
 
 ```typescript
 // After takeOwnership completes and contexts refresh:
 window.history.pushState(null, '', '/app/enterprise');
-window.dispatchEvent(new PopStateEvent('popstate'));  // Triggers AppLayout's listener
-window.dispatchEvent(new CustomEvent('timehuddle:navigate', { 
-  detail: { path: '/app/enterprise' } 
-}));
+window.dispatchEvent(new PopStateEvent('popstate')); // Triggers AppLayout's listener
+window.dispatchEvent(
+  new CustomEvent('timehuddle:navigate', {
+    detail: { path: '/app/enterprise' },
+  }),
+);
 ```
 
 This approach:
+
 1. Updates the browser URL
 2. Triggers `AppLayout`'s `popstate` listener to update its internal `pathname` state
 3. Dispatches the custom navigation event for any other listeners
@@ -40,24 +46,29 @@ This approach:
 ## Changes Made
 
 ### 1. InstallerModal.tsx
+
 - Removed `import { useRouter } from './router'`
 - Removed `const { navigate } = useRouter()` (wasn't working anyway)
 - Added direct DOM navigation using `pushState` + `PopStateEvent`
 - Added 200ms delay after refetch to allow context propagation
 
 ### 2. main.tsx
+
 - Removed `shouldNavigateToEnterprise` state
 - Removed navigation `useEffect` that was in the wrong component
 - Simplified `InstallerModal` props: `onTaken()` instead of `onTaken(shouldNavigate: boolean)`
 
 ### 3. TeamContext.tsx
+
 - Made `refetchEnterprises()` and `refetchOrganizations()` return promises
 - Allows `InstallerModal` to properly await data refresh before navigating
 
 ## Testing
+
 Created E2E test in `tests/e2e/onboarding/first-user-setup.spec.ts`:
 
 ✅ Test verifies:
+
 - User can sign up
 - Username claim modal appears and works
 - Installer modal appears
@@ -81,12 +92,14 @@ npm run test:e2e tests/e2e/onboarding/first-user-setup.spec.ts
 
 **Workaround**: Page refresh loads the enterprise correctly.
 
-**Next Steps**: 
+**Next Steps**:
+
 1. Debug why `enterprises.list` isn't returning the enterprise immediately after `takeOwnership`
 2. Check if there's a session/user ID synchronization issue between Better Auth and Meteor accounts
 3. Consider adding automatic retry or refetch mechanism on the enterprise page
 
 ## Related Files
+
 - `src/ui/InstallerModal.tsx` - Modal with navigation fix
 - `src/main.tsx` - App root with modal rendering
 - `src/ui/router.ts` - Router context definition

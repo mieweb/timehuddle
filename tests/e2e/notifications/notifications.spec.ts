@@ -11,7 +11,9 @@ test.describe('Notifications', () => {
   test('should display notifications page with correct URL and components', async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     await page.goto('/app/notifications');
-    await page.getByRole('heading', { level: 1, name: 'Notifications' }).waitFor({ state: 'visible' });
+    await page
+      .getByRole('heading', { level: 1, name: 'Notifications' })
+      .waitFor({ state: 'visible' });
 
     // Verify correct URL
     expect(page.url()).toContain('/app/notifications');
@@ -26,7 +28,9 @@ test.describe('Notifications', () => {
   test('should show notifications when they exist', async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     await page.goto('/app/notifications');
-    await page.getByRole('heading', { level: 1, name: 'Notifications' }).waitFor({ state: 'visible' });
+    await page
+      .getByRole('heading', { level: 1, name: 'Notifications' })
+      .waitFor({ state: 'visible' });
     await page.waitForTimeout(2000);
 
     const noNotifications = page.getByText('No notifications yet');
@@ -48,7 +52,9 @@ test.describe('Notifications', () => {
   test('select mode, select all, and delete should work', async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     await page.goto('/app/notifications');
-    await page.getByRole('heading', { level: 1, name: 'Notifications' }).waitFor({ state: 'visible' });
+    await page
+      .getByRole('heading', { level: 1, name: 'Notifications' })
+      .waitFor({ state: 'visible' });
     await page.waitForTimeout(2000);
 
     // Click Select to enter select mode
@@ -80,7 +86,9 @@ test.describe('Notifications', () => {
   test('mark all read should work when unread notifications exist', async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     await page.goto('/app/notifications');
-    await page.getByRole('heading', { level: 1, name: 'Notifications' }).waitFor({ state: 'visible' });
+    await page
+      .getByRole('heading', { level: 1, name: 'Notifications' })
+      .waitFor({ state: 'visible' });
     await page.waitForTimeout(2000);
 
     // Check if Mark all read button is visible (only shows when there are unread notifications)

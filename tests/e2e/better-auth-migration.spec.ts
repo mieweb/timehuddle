@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 /**
  * E2E Test: Better Auth → Meteor Accounts Migration Flow
- * 
+ *
  * Verifies that users with Better Auth credentials are automatically detected,
  * redirected to password reset, can set a new password, and then login successfully.
  */
@@ -22,7 +22,7 @@ test.describe('Better Auth Migration Flow', () => {
     // Fill login form
     await page.getByPlaceholder('you@example.com').fill(betterAuthEmail);
     await page.getByPlaceholder('••••••••').first().fill(anyPassword);
-    
+
     // Submit login
     await page.getByRole('button', { name: 'Sign in' }).click();
 
@@ -63,10 +63,10 @@ test.describe('Better Auth Migration Flow', () => {
 
     // Step 3: Return to login and sign in with new password
     await page.getByRole('button', { name: 'Go to Sign In' }).click();
-    
+
     // Email should be pre-filled
     await expect(page.getByPlaceholder('you@example.com')).toHaveValue(betterAuthEmail);
-    
+
     // Enter new password
     await page.getByPlaceholder('••••••••').fill(newPassword);
     await page.getByRole('button', { name: 'Sign in' }).click();
@@ -108,7 +108,7 @@ test.describe('Better Auth Migration Flow', () => {
     await expect(page).toHaveURL(/\/app\?token=.+/, { timeout: 10000 });
     const urlWithToken = page.url();
     const token = new URL(urlWithToken).searchParams.get('token');
-    
+
     expect(token).toBeTruthy();
     expect(token?.length).toBeGreaterThan(20); // Reset tokens are long
 
@@ -117,7 +117,7 @@ test.describe('Better Auth Migration Flow', () => {
 
     // Token should still be in URL
     await expect(page).toHaveURL(urlWithToken);
-    
+
     // Form should still be visible
     await expect(page.locator('h2')).toContainText('Set a new password');
     await expect(page.getByPlaceholder('••••••••').first()).toBeVisible();
@@ -127,7 +127,7 @@ test.describe('Better Auth Migration Flow', () => {
     // If there are any native Meteor users (not migrated from Better Auth),
     // they should be able to login normally without triggering migration flow.
     // This test assumes a Meteor user exists - skip if none available.
-    
+
     // For now, this is a placeholder - in production you'd check if any
     // users exist WITHOUT services.betterAuth.scryptHash and test those.
     test.skip();

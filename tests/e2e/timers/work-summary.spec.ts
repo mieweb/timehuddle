@@ -99,13 +99,10 @@ test.describe('Work Summary API', () => {
   });
 
   test('requires authentication', async ({ request }) => {
-    const summaryRes = await request.post(
-      `${METEOR_BASE_URL}/api/timers_getUserWorkSummary`,
-      {
-        headers: { 'Content-Type': 'application/json' },
-        data: { userId: 'some-user-id' },
-      },
-    );
+    const summaryRes = await request.post(`${METEOR_BASE_URL}/api/timers_getUserWorkSummary`, {
+      headers: { 'Content-Type': 'application/json' },
+      data: { userId: 'some-user-id' },
+    });
 
     expect(summaryRes.status()).toBe(500);
     const body = await summaryRes.json();
@@ -113,16 +110,13 @@ test.describe('Work Summary API', () => {
   });
 
   test('returns tickets worked on in last 48 hours', async ({ request }) => {
-    const res = await request.post(
-      `${METEOR_BASE_URL}/api/timers_getUserWorkSummary`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${ownerAuth.token}`,
-        },
-        data: { userId: ownerAuth.userId },
+    const res = await request.post(`${METEOR_BASE_URL}/api/timers_getUserWorkSummary`, {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ownerAuth.token}`,
       },
-    );
+      data: { userId: ownerAuth.userId },
+    });
 
     expect(res.ok()).toBe(true);
     const body = await res.json();
@@ -132,16 +126,13 @@ test.describe('Work Summary API', () => {
   });
 
   test('allows user to view their own summary', async ({ request }) => {
-    const res = await request.post(
-      `${METEOR_BASE_URL}/api/timers_getUserWorkSummary`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${memberAuth.token}`,
-        },
-        data: { userId: memberAuth.userId },
+    const res = await request.post(`${METEOR_BASE_URL}/api/timers_getUserWorkSummary`, {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${memberAuth.token}`,
       },
-    );
+      data: { userId: memberAuth.userId },
+    });
 
     expect(res.ok()).toBe(true);
     const body = await res.json();
@@ -151,16 +142,13 @@ test.describe('Work Summary API', () => {
 
   test('allows teammate to view work summary', async ({ request }) => {
     // owner1 and member1 share the same org, so owner can view member's summary
-    const res = await request.post(
-      `${METEOR_BASE_URL}/api/timers_getUserWorkSummary`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${ownerAuth.token}`,
-        },
-        data: { userId: memberAuth.userId },
+    const res = await request.post(`${METEOR_BASE_URL}/api/timers_getUserWorkSummary`, {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ownerAuth.token}`,
       },
-    );
+      data: { userId: memberAuth.userId },
+    });
 
     // If they share a team, this succeeds; if not, we expect a 'forbidden' error.
     // Either outcome validates the permission check works.
@@ -176,16 +164,13 @@ test.describe('Work Summary API', () => {
 
   test('returns empty array when user has no recent work', async ({ request }) => {
     // member1 likely has no recent timer activity in the test environment
-    const res = await request.post(
-      `${METEOR_BASE_URL}/api/timers_getUserWorkSummary`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${memberAuth.token}`,
-        },
-        data: { userId: memberAuth.userId },
+    const res = await request.post(`${METEOR_BASE_URL}/api/timers_getUserWorkSummary`, {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${memberAuth.token}`,
       },
-    );
+      data: { userId: memberAuth.userId },
+    });
 
     expect(res.ok()).toBe(true);
     const body = await res.json();

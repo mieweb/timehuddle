@@ -8,7 +8,10 @@ export class SignupPage extends BasePage {
   private readonly firstNameInput = this.page.getByRole('textbox', { name: 'First name' });
   private readonly lastNameInput = this.page.getByRole('textbox', { name: 'Last name' });
   private readonly emailInput = this.page.getByRole('textbox', { name: 'Email address' });
-  private readonly passwordInput = this.page.getByRole('textbox', { name: 'Password', exact: true });
+  private readonly passwordInput = this.page.getByRole('textbox', {
+    name: 'Password',
+    exact: true,
+  });
   private readonly confirmPasswordInput = this.page.getByRole('textbox', {
     name: 'Confirm password',
   });

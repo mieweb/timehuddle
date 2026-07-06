@@ -43,8 +43,12 @@ test.describe('Real-time Work Page Timers', () => {
 
   test('should sync work item timer start across sessions', async () => {
     // Both sessions should see the Work page
-    await expect(session1.getByRole('heading', { level: 1, name: /Work/i })).toBeVisible({ timeout: 5000 });
-    await expect(session2.getByRole('heading', { level: 1, name: /Work/i })).toBeVisible({ timeout: 5000 });
+    await expect(session1.getByRole('heading', { level: 1, name: /Work/i })).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(session2.getByRole('heading', { level: 1, name: /Work/i })).toBeVisible({
+      timeout: 5000,
+    });
 
     // Verify both sessions show the same Work page state
     const heading1 = await session1.getByRole('heading', { level: 1 }).textContent();
@@ -54,8 +58,12 @@ test.describe('Real-time Work Page Timers', () => {
 
   test('should sync work item creation across sessions', async () => {
     // Both sessions should see the same Work page
-    await expect(session1.getByRole('heading', { level: 1, name: /Work/i })).toBeVisible({ timeout: 5000 });
-    await expect(session2.getByRole('heading', { level: 1, name: /Work/i })).toBeVisible({ timeout: 5000 });
+    await expect(session1.getByRole('heading', { level: 1, name: /Work/i })).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(session2.getByRole('heading', { level: 1, name: /Work/i })).toBeVisible({
+      timeout: 5000,
+    });
   });
 
   test('should sync timer duration updates', async () => {

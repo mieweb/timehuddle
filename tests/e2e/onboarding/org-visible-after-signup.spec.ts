@@ -21,9 +21,9 @@ test.describe.serial('Organization Visible After Signup', () => {
     // ── Step 1: Sign up ───────────────────────────────────────────────────────
 
     await page.goto('http://localhost:3000/app?mode=signup');
-    await expect(
-      page.getByRole('heading', { name: /Create.*account/i }),
-    ).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: /Create.*account/i })).toBeVisible({
+      timeout: 10000,
+    });
 
     await page.getByRole('textbox', { name: 'First name' }).fill(uniqueName);
     await page.getByRole('textbox', { name: 'Last name' }).fill('OrgTest');
@@ -40,7 +40,13 @@ test.describe.serial('Organization Visible After Signup', () => {
     const dialog = page.getByRole('dialog', { name: 'Username Required' });
     const dialogVisible = await dialog.isVisible().catch(() => false);
 
-    if (dialogVisible || await dialog.waitFor({ state: 'visible', timeout: 5000 }).then(() => true).catch(() => false)) {
+    if (
+      dialogVisible ||
+      (await dialog
+        .waitFor({ state: 'visible', timeout: 5000 })
+        .then(() => true)
+        .catch(() => false))
+    ) {
       const usernameInput = dialog.getByRole('textbox', { name: 'Username' });
       await usernameInput.clear();
       await usernameInput.fill(username);

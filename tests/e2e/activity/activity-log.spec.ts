@@ -10,7 +10,9 @@ test.describe('Activity Log', () => {
   test('should display activity log page with correct URL', async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     await page.goto('/app/activity');
-    await page.getByRole('heading', { level: 1, name: 'Activity Log' }).waitFor({ state: 'visible' });
+    await page
+      .getByRole('heading', { level: 1, name: 'Activity Log' })
+      .waitFor({ state: 'visible' });
 
     // Verify correct URL
     expect(page.url()).toContain('/app/activity');
@@ -35,10 +37,14 @@ test.describe('Activity Log', () => {
     const clockInBtn = page.getByRole('button', { name: 'Clock in' });
     if (await clockInBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await clockInBtn.click();
-      await page.getByRole('button', { name: 'Clock out' }).waitFor({ state: 'visible', timeout: 5000 });
+      await page
+        .getByRole('button', { name: 'Clock out' })
+        .waitFor({ state: 'visible', timeout: 5000 });
       await page.waitForTimeout(1000);
       await page.getByRole('button', { name: 'Clock out' }).click();
-      await page.getByRole('button', { name: 'Clock in' }).waitFor({ state: 'visible', timeout: 5000 });
+      await page
+        .getByRole('button', { name: 'Clock in' })
+        .waitFor({ state: 'visible', timeout: 5000 });
     }
 
     // Create a ticket to generate more activity
@@ -52,7 +58,9 @@ test.describe('Activity Log', () => {
 
     // Navigate to Activity Log
     await page.goto('/app/activity');
-    await page.getByRole('heading', { level: 1, name: 'Activity Log' }).waitFor({ state: 'visible' });
+    await page
+      .getByRole('heading', { level: 1, name: 'Activity Log' })
+      .waitFor({ state: 'visible' });
     await page.waitForTimeout(3000);
 
     // Check if activity items are displayed
@@ -75,7 +83,9 @@ test.describe('Activity Log', () => {
   test('should show all types of events', async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     await page.goto('/app/activity');
-    await page.getByRole('heading', { level: 1, name: 'Activity Log' }).waitFor({ state: 'visible' });
+    await page
+      .getByRole('heading', { level: 1, name: 'Activity Log' })
+      .waitFor({ state: 'visible' });
     await page.waitForTimeout(3000);
 
     // Verify the activity log container is rendered

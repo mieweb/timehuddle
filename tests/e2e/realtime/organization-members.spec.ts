@@ -58,14 +58,14 @@ test.describe('Real-time Organization Members', () => {
     // Get the first member's role text in session 1
     const firstRow1 = session1.locator('tbody tr').first();
     const roleCell1 = firstRow1.locator('[role="combobox"]').first();
-    
+
     if ((await roleCell1.count()) > 0) {
       const currentRole = await roleCell1.textContent();
-      
+
       // Verify session 2 shows the same role for the first member
       const firstRow2 = session2.locator('tbody tr').first();
       const roleCell2 = firstRow2.locator('[role="combobox"]').first();
-      
+
       await expect(roleCell2).toHaveText(currentRole!, { timeout: 3000 });
     }
   });

@@ -24,7 +24,7 @@
 
 better-auth is still involved in only a few places:
 
-1. **TimeHarbor single sign-on (the real blocker).** TimeHarbor is a separate product that lets users log in *with their TimeHuddle account*. That "log in with TimeHuddle" capability is an industry-standard protocol (OIDC) that better-auth provides and Meteor's login system does not provide out of the box.
+1. **TimeHarbor single sign-on (the real blocker).** TimeHarbor is a separate product that lets users log in _with their TimeHuddle account_. That "log in with TimeHuddle" capability is an industry-standard protocol (OIDC) that better-auth provides and Meteor's login system does not provide out of the box.
 2. **A temporary fallback for older accounts.** Accounts created before the migration (and seed/test accounts) still have their password checked by better-auth on first login, after which they're moved onto Meteor automatically. This is migration scaffolding and goes away as accounts migrate.
 3. **Authentik login** (an optional enterprise sign-in option) still routes through better-auth, but can be moved to Meteor the same way Google/GitHub already were.
 
@@ -38,10 +38,10 @@ better-auth is still involved in only a few places:
 
 This determines whether we can delete better-auth entirely.
 
-| Option | What it means | Effort |
-| --- | --- | --- |
-| **A. TimeHarbor SSO must keep working** | We build the "log in with TimeHuddle" capability (OIDC provider) on the Meteor side, or keep a small dedicated login service for it. | Real work — needs scoping |
-| **B. TimeHarbor moves its login elsewhere / doesn't need us** | better-auth can be fully retired after migrating the password fallback and Authentik. | Cleanup only |
+| Option                                                        | What it means                                                                                                                        | Effort                    |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------- |
+| **A. TimeHarbor SSO must keep working**                       | We build the "log in with TimeHuddle" capability (OIDC provider) on the Meteor side, or keep a small dedicated login service for it. | Real work — needs scoping |
+| **B. TimeHarbor moves its login elsewhere / doesn't need us** | better-auth can be fully retired after migrating the password fallback and Authentik.                                                | Cleanup only              |
 
 **Status:** Open — needs a product owner to confirm whether TimeHarbor will continue to rely on TimeHuddle for login.
 
@@ -49,25 +49,25 @@ This determines whether we can delete better-auth entirely.
 
 ## Migration progress at a glance
 
-| Area | Status |
-| --- | --- |
-| Real-time infrastructure (replaces 7 custom WebSocket systems) | ✅ Done |
-| Time tracking — clock in/out, timers, shifts | ✅ Done |
-| Tickets | ✅ Done |
-| Notifications | ✅ Done |
-| Teams & team membership | ✅ Done |
-| Messaging & channels | ✅ Done |
-| Presence ("who's online") | ✅ Done |
-| Activity log | ✅ Done |
-| Organizations, enterprises, profiles | ✅ Done |
-| Access tokens (API keys) | ✅ Done |
-| File & image uploads | ✅ Done |
-| Login / signup / password reset / social sign-in | ✅ Done on Meteor |
-| **Authentik sign-in** | 🔁 Still via better-auth — portable to Meteor |
-| **Legacy/seed password fallback** | 🔁 Auto-migrates; remove once accounts move over |
-| **TimeHarbor single sign-on (OIDC)** | ⚠️ Decision needed (see above) |
-| **Remaining: retire old Fastify code paths** | 🔲 In progress |
-| **Remaining: news feed, resumable uploads, document uploads** | 🔲 Not yet moved |
+| Area                                                           | Status                                           |
+| -------------------------------------------------------------- | ------------------------------------------------ |
+| Real-time infrastructure (replaces 7 custom WebSocket systems) | ✅ Done                                          |
+| Time tracking — clock in/out, timers, shifts                   | ✅ Done                                          |
+| Tickets                                                        | ✅ Done                                          |
+| Notifications                                                  | ✅ Done                                          |
+| Teams & team membership                                        | ✅ Done                                          |
+| Messaging & channels                                           | ✅ Done                                          |
+| Presence ("who's online")                                      | ✅ Done                                          |
+| Activity log                                                   | ✅ Done                                          |
+| Organizations, enterprises, profiles                           | ✅ Done                                          |
+| Access tokens (API keys)                                       | ✅ Done                                          |
+| File & image uploads                                           | ✅ Done                                          |
+| Login / signup / password reset / social sign-in               | ✅ Done on Meteor                                |
+| **Authentik sign-in**                                          | 🔁 Still via better-auth — portable to Meteor    |
+| **Legacy/seed password fallback**                              | 🔁 Auto-migrates; remove once accounts move over |
+| **TimeHarbor single sign-on (OIDC)**                           | ⚠️ Decision needed (see above)                   |
+| **Remaining: retire old Fastify code paths**                   | 🔲 In progress                                   |
+| **Remaining: news feed, resumable uploads, document uploads**  | 🔲 Not yet moved                                 |
 
 ---
 

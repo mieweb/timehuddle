@@ -77,9 +77,12 @@ export default function Huddle() {
       const docs = ddp.docs('huddlePosts');
       const teamPosts = docs
         .filter((p) => p.teamId === selectedTeamId)
-        .sort((a, b) => new Date(b.createdAt as string).getTime() - new Date(a.createdAt as string).getTime())
-        .map((p) => ({ ...p, id: (p.id ?? p._id) as string }));
-      setPosts(teamPosts as HuddlePost[]);
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt as string).getTime() - new Date(a.createdAt as string).getTime(),
+        )
+        .map((p) => ({ ...p, id: (p.id ?? p._id) as string })) as unknown as HuddlePost[];
+      setPosts(teamPosts);
     }
 
     // Sync immediately in case data is already cached

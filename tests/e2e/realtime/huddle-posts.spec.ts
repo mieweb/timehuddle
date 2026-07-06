@@ -46,12 +46,16 @@ test.describe('Real-time Huddle Posts', () => {
     const initialCount1 = await session1.locator('[role="article"], article').count();
 
     // Create a new post in session 1
-    const postInput = session1.locator('textarea, input[placeholder*="post" i], input[placeholder*="share" i]').first();
-    
+    const postInput = session1
+      .locator('textarea, input[placeholder*="post" i], input[placeholder*="share" i]')
+      .first();
+
     if ((await postInput.count()) > 0) {
       await postInput.fill('Test real-time sync post');
-      
-      const postButton = session1.locator('button:has-text("Post"), button:has-text("Share")').first();
+
+      const postButton = session1
+        .locator('button:has-text("Post"), button:has-text("Share")')
+        .first();
       if ((await postButton.count()) > 0) {
         await postButton.click();
         await session1.waitForTimeout(1000);
@@ -61,7 +65,9 @@ test.describe('Real-time Huddle Posts', () => {
         expect(newCount1).toBeGreaterThan(initialCount1);
 
         // Session 2 should automatically show the new post
-        await expect(session2.locator('[role="article"], article')).toHaveCount(newCount1, { timeout: 3000 });
+        await expect(session2.locator('[role="article"], article')).toHaveCount(newCount1, {
+          timeout: 3000,
+        });
       }
     }
   });

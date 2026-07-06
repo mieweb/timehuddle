@@ -86,15 +86,21 @@ export class TicketsPage extends BasePage {
 
   /** Check if a ticket is visible */
   async isTicketVisible(title: string): Promise<boolean> {
-    return await this.page.getByText(title, { exact: false }).first().isVisible().catch(() => false);
+    return await this.page
+      .getByText(title, { exact: false })
+      .first()
+      .isVisible()
+      .catch(() => false);
   }
 
   /** Open the ticket action menu for a ticket */
   async openTicketMenu(title: string) {
     // Find the ticket row containing the title and click its menu button
     const ticketRow = this.page.locator(`text=${title}`).first().locator('..');
-    const menuBtn = ticketRow.locator('button').filter({ has: this.page.locator('[class*="ellipsis"]') });
-    if (await menuBtn.count() > 0) {
+    const menuBtn = ticketRow
+      .locator('button')
+      .filter({ has: this.page.locator('[class*="ellipsis"]') });
+    if ((await menuBtn.count()) > 0) {
       await menuBtn.first().click();
     }
   }

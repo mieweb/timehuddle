@@ -340,9 +340,11 @@ export function PostCard({
                     controls
                     className="w-full rounded-xl max-h-96"
                     src={resolveAttachmentUrl(attachment.url)}
-                    poster={attachment.thumbnailUrl
-                      ? resolveAttachmentUrl(attachment.thumbnailUrl)
-                      : undefined}
+                    poster={
+                      attachment.thumbnailUrl
+                        ? resolveAttachmentUrl(attachment.thumbnailUrl)
+                        : undefined
+                    }
                   >
                     Your browser does not support the video tag.
                   </video>

@@ -20,7 +20,9 @@ test.describe('New User Signup and Onboarding', () => {
     await page.getByRole('button', { name: 'Create account' }).click();
 
     // Wait for username claim modal
-    await expect(page.getByRole('heading', { name: 'Username Required' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Username Required' })).toBeVisible({
+      timeout: 10000,
+    });
 
     // Verify username input is pre-filled and availability check completes
     const usernameInput = page.getByPlaceholder('your-handle');
@@ -35,6 +37,8 @@ test.describe('New User Signup and Onboarding', () => {
     await expect(page).toHaveURL(/\/app\/(dashboard|enterprise)/, { timeout: 15000 });
 
     // Verify the user is logged in — sidebar should be visible
-    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible({
+      timeout: 5000,
+    });
   });
 });

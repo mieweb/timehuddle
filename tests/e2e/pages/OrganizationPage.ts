@@ -60,7 +60,7 @@ export class OrganizationPage extends BasePage {
   async isUserInOrganization(userName: string): Promise<boolean> {
     // Make sure we're on members tab
     await this.goToMembers();
-    
+
     // Look for the user in the members list
     const member = this.page.getByText(userName);
     return await member.isVisible().catch(() => false);
@@ -87,10 +87,10 @@ export class OrganizationPage extends BasePage {
    */
   async getUserRole(userName: string): Promise<string | null> {
     await this.goToMembers();
-    
+
     // Find the row containing the user
     const userRow = this.page.getByRole('row').filter({ hasText: userName });
-    
+
     // Get the role cell
     const roleCell = userRow.getByRole('cell').filter({ hasText: /owner|admin|member/i });
     return (await roleCell.textContent()) || null;

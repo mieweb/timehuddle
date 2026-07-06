@@ -56,7 +56,7 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
         console.log(
           `[TimeHuddle] fetchSession: getMe resolved in ${(performance.now() - t).toFixed(0)}ms — user=${meteorUser.email}`,
         );
-        
+
         // Fetch organizations for the user
         let organizations: Array<{
           id: string;
@@ -68,12 +68,23 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }> = [];
         try {
           console.log('[TimeHuddle] fetchSession: calling orgApi.listOrganizations()...');
-          organizations = await orgApi.listOrganizations();
-          console.log(`[TimeHuddle] fetchSession: loaded ${organizations.length} organizations`, organizations);
+          const orgs = await orgApi.listOrganizations();
+          // Filter out orgs where role is null
+          organizations = orgs.filter(
+            (o): o is typeof o & { role: 'owner' | 'admin' | 'member' } => o.role !== null,
+          );
+          console.log(
+            `[TimeHuddle] fetchSession: loaded ${organizations.length} organizations`,
+            organizations,
+          );
         } catch (err) {
-          console.error('[TimeHuddle] fetchSession: failed to load organizations:', err instanceof Error ? err.message : String(err), err);
+          console.error(
+            '[TimeHuddle] fetchSession: failed to load organizations:',
+            err instanceof Error ? err.message : String(err),
+            err,
+          );
         }
-        
+
         setUser({
           id: meteorUser.id,
           email: meteorUser.email,

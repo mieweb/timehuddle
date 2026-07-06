@@ -6,7 +6,7 @@ const execAsync = promisify(exec);
 
 /**
  * E2E tests for Better Auth → Meteor Accounts migration
- * 
+ *
  * This test suite verifies:
  * 1. Better Auth users are detected and redirected to password reset
  * 2. Password reset flow works and saves bcrypt hash
@@ -19,7 +19,7 @@ test.describe('Authentication Migration', () => {
   test.beforeAll(async () => {
     // Ensure backend is running
     console.log('⏳ Waiting for backend to be ready...');
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
   });
 
   test('Better Auth user gets auto-redirect to password reset', async ({ page }) => {
@@ -37,9 +37,7 @@ test.describe('Authentication Migration', () => {
     await expect(page.locator('h2')).toContainText('Set a new password');
 
     // Should show migration info message
-    await expect(page.locator('[role="status"]')).toContainText(
-      'Your account needs migration'
-    );
+    await expect(page.locator('[role="status"]')).toContainText('Your account needs migration');
 
     // Password fields should be visible
     await expect(page.getByPlaceholder('••••••••').first()).toBeVisible();
@@ -88,8 +86,10 @@ test.describe('Authentication Migration', () => {
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     // Should show error
-    await expect(page.locator('[role="alert"]')).toContainText(/Invalid|error/i, { timeout: 10000 });
-    
+    await expect(page.locator('[role="alert"]')).toContainText(/Invalid|error/i, {
+      timeout: 10000,
+    });
+
     // Should NOT redirect
     await expect(page).toHaveURL(/\/app$/);
   });
@@ -106,7 +106,7 @@ test.describe('Authentication Migration', () => {
 
     // Verify user profile data is accessible
     await page.getByRole('button', { name: /account menu/i }).click();
-    
+
     // User should have their data (this will vary based on actual user data)
     // Just verify the menu opens and has user info
     await expect(page.getByRole('menu')).toBeVisible();

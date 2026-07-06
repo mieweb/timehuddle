@@ -72,18 +72,11 @@ export async function uploadMedia(file: File): Promise<MediaItem> {
     const videoUrl = `${METEOR_BASE_URL.replace(/\/$/, '')}/v1/video/${videoid}`;
     media = {
       id: videoid,
-      userId: '',
-      type: 'video' as const,
+      type: 'video',
+      size: file.size,
       mimeType: file.type,
       url: videoUrl,
-      videoid,
       filename: file.name,
-      size: file.size,
-      title: null,
-      caption: null,
-      altText: null,
-      thumbnail: null,
-      uploadedAt: new Date().toISOString(),
     };
   } else {
     // Images and documents go through Meteor media upload

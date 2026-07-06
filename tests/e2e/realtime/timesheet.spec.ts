@@ -1,6 +1,6 @@
 /**
  * Real-time Timesheet Synchronization Tests
- * 
+ *
  * Verifies that both sessions see the same timesheet page state.
  */
 
@@ -62,5 +62,4 @@ test.describe('Timesheet Real-time Sync', () => {
     await expect(page1.getByRole('heading', { level: 1, name: /Clock/i })).toBeVisible();
     await expect(page2.getByRole('heading', { level: 1, name: /Clock/i })).toBeVisible();
   });
-
 });
