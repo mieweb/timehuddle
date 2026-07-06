@@ -174,4 +174,59 @@ Meteor.methods({
     });
     return { ok: true };
   },
-});
+
+  async 'notifications.pushSubscribe'({ type, token, platform, endpoint, keys, expirationTime }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!type) throw new Meteor.Error('bad-request', 'type required (native or webpush)');
+
+    if (type === 'native') {
+      if (!token || !platform) throw new Meteor.Error('bad-request', 'token and platform required');
+      // Upsert: add token to user's device token list (dedup by token value)
+      await rawDb().collection('devicetokens').updateOne(
+        { userId },
+        {
+          $set: { userId, updatedAt: new Date() },
+          $setOnInsert: { createdAt: new Date() },
+        },
+        { upsert: true }
+      );
+      // Remove any existing entry with same token, then add fresh
+      await rawDb().collection('devicetokens').updateOne(
+        { userId },
+        { $pull: { tokens: { token } } }
+      );
+      await rawDb().collection('devicetokens').updateOne(
+        { userId },
+        { $push: { tokens: { token, platform, addedAt: new Date() } } }
+      );
+      console.log(`[push] registered ${platform} token for user ${userId}`);
+    } else if (type === 'webpush') {
+      if (!endpoint || !keys) throw new Meteor.Error('bad-request', 'endpoint and keys required');
+      // Upsert by endpoint to avoid duplicates
+      await rawDb().collection('pushsubscriptions').updateOne(
+        { userId, endpoint },
+        {
+          $set: { userId, type: 'webpush', endpoint, keys, expirationTime: expirationTime ?? null, updatedAt: new Date() },
+          $setOnInsert: { createdAt: new Date() },
+        },
+        { upsert: true }
+      );
+      console.log(`[push] registered webpush for user ${userId}`);
+    } else {
+      throw new Meteor.Error('bad-request', 'type must be native or webpush');
+    }
+
+    return { ok: true };
+  },
+
+  async 'notifications.pushUnsubscribe'() {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    const [devResult, webResult] = await Promise.all([
+      rawDb().collection('devicetokens').deleteMany({ userId }),
+      rawDb().collection('pushsubscriptions').deleteMany({ userId }),
+    ]);
+    console.log(`[push] unsubscribed user ${userId}: ${devResult.deletedCount} device docs, ${webResult.deletedCount} web subs`);
+    return { ok: true };
+  },});

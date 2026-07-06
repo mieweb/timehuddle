@@ -27,7 +27,7 @@ export const METEOR_BASE_URL: string =
  * Empty string = same-origin, so requests go through the Vite proxy.
  * This avoids cross-origin failures in Capacitor WebView.
  */
-const METEOR_API_BASE: string = '';
+export const METEOR_API_BASE: string = '';
 
 const FORCED_TIMEZONE: string | undefined =
   (typeof import.meta !== 'undefined' &&

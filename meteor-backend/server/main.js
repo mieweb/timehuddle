@@ -1085,6 +1085,26 @@ Meteor.startup(async() => {
     inputSchema: { type: 'object', properties: {} },
   });
 
+  Wormhole.expose('notifications.pushSubscribe', {
+    description: 'Register a push subscription (native device token or web push VAPID)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: ['native', 'webpush'] },
+        token: { type: 'string' },
+        platform: { type: 'string', enum: ['ios', 'android'] },
+        endpoint: { type: 'string' },
+        keys: { type: 'object' },
+      },
+      required: ['type'],
+    },
+  });
+
+  Wormhole.expose('notifications.pushUnsubscribe', {
+    description: 'Remove all push subscriptions for the current user',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
   // ── Teams ───────────────────────────────────────────────────────────────────
 
   Wormhole.expose('teams.list', {

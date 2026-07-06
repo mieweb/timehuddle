@@ -17,7 +17,7 @@
 set -euo pipefail
 
 VITE_PORT=3000
-BACKEND_PORT=4000
+BACKEND_PORT=3100
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ── 1. Detect LAN IP ──────────────────────────────────────────────────────────
@@ -81,8 +81,8 @@ cat > "$TEMP_EC" << ECOSYSTEM
 [{
   "name": "timehuddle-backend",
   "script": "npm",
-  "args": "run dev",
-  "cwd": "$ROOT_DIR/backend",
+  "args": "run start",
+  "cwd": "$ROOT_DIR/meteor-backend",
   "watch": false,
   "autorestart": true,
   "max_restarts": 5,
@@ -117,6 +117,7 @@ cat > "$TEMP_FE" << ECOSYSTEM
   "env": {
     "NODE_ENV": "development",
     "FORCE_COLOR": "1",
+    "CAPACITOR": "1",
     "VITE_TIMECORE_URL": "http://$IP:$BACKEND_PORT"
   }
 }]

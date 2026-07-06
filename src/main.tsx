@@ -41,6 +41,11 @@ import { Capacitor } from '@capacitor/core';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 
+// Debug: check Capacitor bridge detection
+_log(`Capacitor.isNativePlatform()=${Capacitor.isNativePlatform()}, platform=${Capacitor.getPlatform()}`);
+_log(`window.webkit?.messageHandlers?.bridge=${!!(window as any).webkit?.messageHandlers?.bridge}`);
+_log(`window.Capacitor=${JSON.stringify(Object.keys((window as any).Capacitor || {}))}`);
+
 import { InboxPage } from './features/inbox/InboxPage';
 import { enterpriseApi } from './lib/api';
 import { subscribeNewNotifications } from './lib/ddp';
