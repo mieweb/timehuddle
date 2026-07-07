@@ -226,7 +226,7 @@ jobs:
             pwd
             cd ..
             git branch --show-current
-            sudo pm2 list
+            pm2 list
 
             echo "=== check for local changes ==="
             if [[ -n $(git status -s) ]]; then
@@ -274,31 +274,16 @@ jobs:
             cd meteor-backend
             sudo npm install --no-audit --no-fund
 
-            echo "=== run migrations ==="
-            # Try to get MONGODB_URI from pm2 env, fallback to .env
-            MONGODB_URI=$(sudo pm2 env 7 2>/dev/null | grep MONGODB_URI | head -1 | sed 's/.*: //' | tr -d ' ')
-            if [ -z "$MONGODB_URI" ]; then
-              echo "MONGODB_URI not found in pm2 env — will use .env file"
-            else
-              echo "Using MONGODB_URI from pm2 env"
-              export MONGODB_URI
-            fi
-            
-            # Run migrations from parent backend directory
-            cd ../backend
-            npm run migrate || echo "WARNING: Migration failed or no migrations to run"
+            echo "=== restart timehuddle-meteor ==="
+            pm2 restart timehuddle-meteor
+            pm2 save
 
-            echo "=== sudo pm2 list ==="
-            sudo pm2 list
-
-            echo "=== sudo pm2 restart timehuddle-meteor ==="
-            cd ~/timehuddle/meteor-backend
-            sudo pm2 restart timehuddle-meteor
-            sudo pm2 save
+            echo "=== pm2 list ==="
+            pm2 list
 
             echo "=== verify backend health ==="
             sleep 5
-            BACKEND_PORT=$(sudo pm2 env 7 2>/dev/null | grep -w PORT | head -1 | sed 's/.*: //' | tr -d ' ')
+            BACKEND_PORT=$(pm2 env 7 2>/dev/null | grep -w PORT | head -1 | sed 's/.*: //' | tr -d ' ')
             BACKEND_PORT=${BACKEND_PORT:-80}
             
             echo "Checking http://localhost:${BACKEND_PORT}/health (up to 30s)"
