@@ -154,10 +154,12 @@ class DdpClient {
     if (!this.authPromise) {
       // Only try resume token on reconnect. If it fails, user must login explicitly
       // via OAuth, password, or proxy SSO (no automatic fallback to /api/whoami).
-      this.authPromise = this.tryResumeLogin().catch(() => {
-        // Reset so next call can retry
-        this.authPromise = null;
-      });
+      this.authPromise = this.tryResumeLogin()
+        .then(() => {})
+        .catch(() => {
+          // Reset so next call can retry
+          this.authPromise = null;
+        });
     }
     return this.authPromise ?? Promise.resolve();
   }
