@@ -10,7 +10,7 @@ ddp@1.4.2                     # The protocol and client/server libraries that Me
 mongo                         # Mongo.Collection + oplog-backed reactive cursors
 standard-minifier-js@3.2.0    # JS minifier run for production mode
 
-wreiske:meteor-wormhole       # Meteor methods -> MCP tools + REST + OpenAPI
+wreiske:meteor-wormhole@0.2.1  # Meteor methods -> MCP tools + REST + OpenAPI (pinned)
 
 accounts-base
 accounts-github

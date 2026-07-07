@@ -17,7 +17,7 @@ import { Accounts } from 'meteor/accounts-base';
 import { MongoInternals } from 'meteor/mongo';
 import { createHash } from 'crypto';
 import { jwtVerify, SignJWT, createRemoteJWKSet } from 'jose';
-import { currentBearerToken } from 'meteor/wreiske:meteor-wormhole';
+import { currentBearerToken } from './bearer-context';
 import { rawDb } from './collections';
 
 // Use Meteor's bundled driver so BSON types match the rawDb() connection.
