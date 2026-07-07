@@ -25,28 +25,28 @@ jobs:
     if: github.event.inputs.skip_checks != 'true'
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
-      
+
       - name: Install dependencies
         run: npm ci
-      
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
-      
+
       - name: Lint
         run: npm run lint
-      
+
       - name: Typecheck
         run: npm run typecheck
-      
+
       - name: Test
         run: npm test
         continue-on-error: true
-      
+
       - name: Build
         run: npm run build
 
@@ -66,27 +66,27 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
-      
+
       - name: Install root dependencies
         run: npm ci
-      
+
       - name: Install Meteor backend dependencies
         working-directory: meteor-backend
         run: npm ci
-      
+
       - name: Lint Meteor backend
         working-directory: meteor-backend
         run: npm run lint || echo "Lint not configured"
-      
+
       - name: Typecheck Meteor backend
         working-directory: meteor-backend
         run: npm run typecheck || echo "Typecheck not configured"
-      
+
       - name: Test Meteor backend
         working-directory: meteor-backend
         env:
@@ -111,7 +111,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          
+
           # Add both frontend and backend hosts to known_hosts
           ssh-keyscan -p 2090 huddle.os.mieweb.org >> ~/.ssh/known_hosts
           ssh-keyscan -p 2090 timecore-prod.os.mieweb.org >> ~/.ssh/known_hosts
@@ -296,72 +296,72 @@ jobs:
         run: |
           echo "=== Verifying https://huddle.os.mieweb.org ==="
           sleep 5
-          
+
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://huddle.os.mieweb.org) || STATUS="000"
           echo "HTTP status: $STATUS"
-          
+
           if [ "$STATUS" != "200" ]; then
             echo "ERROR: Production frontend returned HTTP $STATUS"
             exit 1
           fi
-          
+
           BODY=$(curl -s https://huddle.os.mieweb.org) || BODY=""
           echo "$BODY" | grep -q "TimeHuddle" || {
             echo "ERROR: 'TimeHuddle' not found in response - app may not be serving correctly"
             exit 1
           }
-          
+
           echo "✓ Production frontend verified successfully"
-      
+
       - name: Verify backend is accessible
         run: |
           echo "=== Verifying https://timecore-prod.os.mieweb.org/health ==="
-          
+
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://timecore-prod.os.mieweb.org/health) || STATUS="000"
           echo "HTTP status: $STATUS"
-          
+
           if [ "$STATUS" != "200" ]; then
             echo "ERROR: Production backend returned HTTP $STATUS"
             exit 1
           fi
-          
+
           HEALTH=$(curl -s https://timecore-prod.os.mieweb.org/health) || HEALTH=""
           echo "Health response: $HEALTH"
-          
+
           echo "$HEALTH" | grep -q '"status":"ok"' || {
             echo "ERROR: Backend health check failed"
             exit 1
           }
-          
+
           echo "✓ Production backend verified successfully"
-      
+
       - name: Smoke test - verify deployment
         run: |
           echo "=== Running deployment smoke tests ==="
-          
+
           # Test backend /hi endpoint
           echo "Testing backend /hi endpoint..."
           BACKEND_HI=$(curl -s https://timecore-prod.os.mieweb.org/hi) || BACKEND_HI=""
           echo "Backend /hi response: $BACKEND_HI"
-          
+
           echo "$BACKEND_HI" | grep -q '"message":"hi from meteor backend"' || {
             echo "ERROR: Backend /hi endpoint did not return expected response"
             exit 1
           }
-          
+
           echo "✓ Backend smoke test passed"
-          
+
           # Test frontend /hi page
           echo "Testing frontend /app/hi page..."
           FRONTEND_HI=$(curl -s https://huddle.os.mieweb.org/app/hi) || FRONTEND_HI=""
-          
+
           echo "$FRONTEND_HI" | grep -q "Hi from Frontend" || {
             echo "WARNING: Frontend /app/hi page may not be rendering correctly"
             echo "This is expected if the page requires authentication"
           }
-          
+
           echo "✓ Smoke tests completed"
-      
+
       - name: Deployment Summary
         run: |
           echo "╔════════════════════════════════════════════════════════════╗"

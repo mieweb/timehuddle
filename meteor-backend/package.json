@@ -2,7 +2,7 @@
   "name": "meteor-backend",
   "private": true,
   "scripts": {
-    "start": "MONGO_URL=\"mongodb://127.0.0.1:27017/timehuddle?directConnection=true\" MONGO_OPLOG_URL=\"mongodb://127.0.0.1:27017/local?directConnection=true\" METEOR_AGENDA_ENABLED=\"${METEOR_AGENDA_ENABLED:-true}\" SMTP_HOST=\"${SMTP_HOST:-localhost}\" SMTP_PORT=\"${SMTP_PORT:-1025}\" SMTP_SECURE=\"${SMTP_SECURE:-false}\" EMAIL_FROM=\"${EMAIL_FROM:-TimeHuddle <noreply@timehuddle.local>}\" APP_URL=\"${APP_URL:-http://localhost:3000}\" METEOR_PACKAGE_DIRS=../vendor/meteor-wormhole/packages meteor run --port 3100",
+    "start": "MONGO_URL=\"mongodb://127.0.0.1:27017/staging_prod?directConnection=true\" MONGO_OPLOG_URL=\"mongodb://127.0.0.1:27017/local?directConnection=true\" METEOR_AGENDA_ENABLED=\"${METEOR_AGENDA_ENABLED:-true}\" SMTP_HOST=\"${SMTP_HOST:-localhost}\" SMTP_PORT=\"${SMTP_PORT:-1025}\" SMTP_SECURE=\"${SMTP_SECURE:-false}\" EMAIL_FROM=\"${EMAIL_FROM:-TimeHuddle <noreply@timehuddle.local>}\" APP_URL=\"${APP_URL:-http://localhost:3000}\" METEOR_PACKAGE_DIRS=../vendor/meteor-wormhole/packages meteor run --port 3100",
     "test": "meteor test --once --driver-package meteortesting:mocha",
     "test:integration": "vitest run --config vitest.config.ts"
   },
