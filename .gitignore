@@ -43,6 +43,10 @@ my-submodule/*
 current.md
 pollenate-test-*.png
 
+# Meteor build output and local packages
+meteor-backend/prod-build/
+meteor-backend/packages/
+
 # Local development scripts and configs (machine-specific, never commit)
 backend/nginx-apple-proxy.conf
 meteor-backend/start-rosetta.sh
