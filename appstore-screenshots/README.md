@@ -35,5 +35,6 @@ Upload these to **iPad 13" Display** section (or iPad 12.9" - 2064×2752px):
 ## Test Account
 
 Use these credentials for App Review:
+
 - **Email:** `reviewer@timehuddle.app`
 - **Password:** `AppReview2026!`

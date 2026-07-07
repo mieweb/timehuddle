@@ -5,6 +5,7 @@
 ### 1. Privacy Policy URL ⚠️ **REQUIRED**
 
 **Option A: GitHub Pages (Recommended - Free)**
+
 1. Enable GitHub Pages in your repo settings:
    - Go to: https://github.com/mieweb/timehuddle/settings/pages
    - Source: Deploy from a branch
@@ -17,10 +18,12 @@
    ```
 
 **Option B: Your Own Website**
+
 - Upload `docs/privacy.html` to your website
 - Use that URL in App Store Connect
 
 **Enter in App Store Connect:**
+
 - Privacy Policy URL: `https://mieweb.github.io/timehuddle/privacy.html` (or your URL)
 
 ---
@@ -28,9 +31,11 @@
 ### 2. Primary Category ⚠️ **REQUIRED**
 
 **Select:** **Business**
+
 - TimeHuddle is a workplace productivity/time tracking application
 
 **Secondary Category (Optional):**
+
 - Productivity
 
 ---
@@ -50,6 +55,7 @@ Click **"Get Started"** in the App Privacy section and answer:
 #### **Data Types Collected:**
 
 ##### **Contact Info**
+
 - ✅ **Email Address**
   - Used for: App Functionality, Account Creation
   - Linked to User: Yes
@@ -61,12 +67,14 @@ Click **"Get Started"** in the App Privacy section and answer:
   - Used for Tracking: No
 
 ##### **User Content**
+
 - ✅ **Other User Content** (work data, timesheets, messages)
   - Used for: App Functionality
   - Linked to User: Yes
   - Used for Tracking: No
 
 ##### **Identifiers**
+
 - ✅ **User ID**
   - Used for: App Functionality
   - Linked to User: Yes
@@ -78,6 +86,7 @@ Click **"Get Started"** in the App Privacy section and answer:
   - Used for Tracking: No
 
 ##### **Usage Data**
+
 - ✅ **Product Interaction**
   - Used for: Analytics, App Functionality
   - Linked to User: Yes
@@ -86,12 +95,15 @@ Click **"Get Started"** in the App Privacy section and answer:
 #### **Important Privacy Answers:**
 
 **Do you or your third-party partners collect data from this app?**
+
 - ✅ **Yes**
 
 **Is the data collected from this app used for tracking purposes?**
+
 - ❌ **No**
 
 **Is the data collected from this app linked to the user's identity?**
+
 - ✅ **Yes** (work data is tied to user accounts)
 
 ---
@@ -99,6 +111,7 @@ Click **"Get Started"** in the App Privacy section and answer:
 ### 5. App Review Information
 
 Already provided in earlier step:
+
 - **Sign-In Required:** Yes
 - **Demo Account:**
   - Email: `reviewer@timehuddle.app`
@@ -109,6 +122,7 @@ Already provided in earlier step:
 ## 📱 Screenshots
 
 ✅ **Already Complete!**
+
 - 5 iPhone screenshots in `appstore-screenshots/iphone-*.png`
 - 5 iPad screenshots in `appstore-screenshots/ipad-*.png`
 
@@ -117,34 +131,40 @@ Already provided in earlier step:
 ## 📋 Step-by-Step Submission
 
 ### Step 1: Set Up Privacy Policy URL
+
 1. Enable GitHub Pages (see Option A above)
 2. Enter the URL in App Store Connect → App Privacy
 3. Click **Save**
 
 ### Step 2: Complete App Privacy Questionnaire
+
 1. Click **"Get Started"** under App Privacy
 2. Follow the data type answers above
 3. Click **Save** and **Publish**
 
 ### Step 3: Set Primary Category
+
 1. Go to App Information
 2. Primary Category: **Business**
 3. Secondary Category: **Productivity** (optional)
 4. Click **Save**
 
 ### Step 4: Set Pricing
+
 1. Go to Pricing and Availability
 2. Select **Free**
 3. Set availability to **All Countries**
 4. Click **Save**
 
 ### Step 5: Upload Screenshots
+
 1. Go to **Previews and Screenshots**
 2. iPhone section → Upload `iphone-*.png` files
 3. iPad section → Upload `ipad-*.png` files
 4. Click **Save**
 
 ### Step 6: Submit for Review
+
 1. Click **"Add for Review"** button
 2. Review all information
 3. Click **"Submit for Review"**

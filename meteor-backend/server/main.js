@@ -47,7 +47,7 @@ import './uploads';
 import './email';
 import './push';
 import { initAgenda } from './agenda';
-import { bearerContextMiddleware } from 'meteor/wreiske:meteor-wormhole';
+import { bearerContextMiddleware } from './bearer-context';
 
 /**
  * CORS for ALL routes — the Vite frontend on another origin calls both DDP and

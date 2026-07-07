@@ -30,7 +30,7 @@ export default [
       'vendor',
       // Meteor PoC backend — built/linted by Meteor tooling
       'meteor-backend',
-      // Playwright test reports — generated output, not source code
+      // Playwright test reports — generated files
       'playwright-report',
       'test-results',
     ],

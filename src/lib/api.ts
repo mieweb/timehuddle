@@ -33,7 +33,9 @@ export const METEOR_BASE_URL: string =
 const _isNativeWebView =
   typeof window !== 'undefined' &&
   typeof (window as unknown as Record<string, unknown>).Capacitor !== 'undefined' &&
-  (window as unknown as { Capacitor: { isNativePlatform: () => boolean } }).Capacitor.isNativePlatform();
+  (
+    window as unknown as { Capacitor: { isNativePlatform: () => boolean } }
+  ).Capacitor.isNativePlatform();
 
 export const METEOR_API_BASE: string = _isNativeWebView ? METEOR_BASE_URL : '';
 
