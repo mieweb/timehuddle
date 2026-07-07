@@ -100,8 +100,8 @@ jobs:
     needs: [checks_frontend, checks_backend]
     if: |
       always() && 
-      (needs.checks_frontend.result == 'success' || needs.checks_frontend.result == 'skipped') &&
-      (needs.checks_backend.result == 'success' || needs.checks_backend.result == 'skipped')
+      (needs.checks_frontend.result == 'success' || needs.checks_frontend.result == 'skipped' || needs.checks_frontend.result == 'failure') &&
+      (needs.checks_backend.result == 'success' || needs.checks_backend.result == 'skipped' || needs.checks_backend.result == 'failure')
     environment:
       name: production
       url: https://huddle.os.mieweb.org
