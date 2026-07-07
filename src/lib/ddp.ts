@@ -100,8 +100,10 @@ class DdpClient {
       if (retryCount < maxRetries) {
         // Exponential backoff: 500ms, 1s, 2s
         const delay = 500 * 2 ** retryCount;
-        console.log(`[DDP] Connection failed, retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        console.log(
+          `[DDP] Connection failed, retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
         return this.connectWithRetry(retryCount + 1);
       }
 
@@ -112,7 +114,7 @@ class DdpClient {
 
   private attemptConnection(timeoutMs: number): Promise<void> {
     this.status = 'connecting';
-    
+
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
