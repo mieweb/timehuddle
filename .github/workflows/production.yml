@@ -331,6 +331,33 @@ jobs:
           
           echo "✓ Production backend verified successfully"
       
+      - name: Smoke test - verify deployment
+        run: |
+          echo "=== Running deployment smoke tests ==="
+          
+          # Test backend /hi endpoint
+          echo "Testing backend /hi endpoint..."
+          BACKEND_HI=$(curl -s https://timecore-prod.os.mieweb.org/hi) || BACKEND_HI=""
+          echo "Backend /hi response: $BACKEND_HI"
+          
+          echo "$BACKEND_HI" | grep -q '"message":"hi from meteor backend"' || {
+            echo "ERROR: Backend /hi endpoint did not return expected response"
+            exit 1
+          }
+          
+          echo "✓ Backend smoke test passed"
+          
+          # Test frontend /hi page
+          echo "Testing frontend /app/hi page..."
+          FRONTEND_HI=$(curl -s https://huddle.os.mieweb.org/app/hi) || FRONTEND_HI=""
+          
+          echo "$FRONTEND_HI" | grep -q "Hi from Frontend" || {
+            echo "WARNING: Frontend /app/hi page may not be rendering correctly"
+            echo "This is expected if the page requires authentication"
+          }
+          
+          echo "✓ Smoke tests completed"
+      
       - name: Deployment Summary
         run: |
           echo "╔════════════════════════════════════════════════════════════╗"

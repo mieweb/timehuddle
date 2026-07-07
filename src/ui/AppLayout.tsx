@@ -32,6 +32,7 @@ import { ActivityLogPage } from '../features/activity/ActivityLogPage';
 import { MediaPage } from '../features/media/MediaPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
 import Huddle from '../pages/Huddle';
+import { HiPage } from '../pages/HiPage';
 import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
 import { OrganizationPage } from '../features/org/OrganizationPage';
 import { EnterprisePage } from '../features/enterprise/EnterprisePage';
@@ -68,6 +69,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/activity': { title: 'Activity Log', component: ActivityLogPage },
   '/app/clock': { title: 'Clock In/Out', component: ClockPage },
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
+  '/app/hi': { title: 'Hi', component: HiPage },
   '/app/huddle': { title: 'Huddle', component: Huddle },
   '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
@@ -140,17 +142,13 @@ const AppLayoutContent: React.FC = () => {
 
   useBrand();
 
-  const normalizePath = (p: string) => {
-    if (p === '/app' || p === '/') return '/app/dashboard';
-    return p;
-  };
+  const normalizePath = (p: string) => (p === '/app' ? '/app/dashboard' : p);
 
   const [pathname, setPathname] = useState(() => {
     if (typeof window === 'undefined') return '/app/dashboard';
     const p = window.location.pathname;
-    const normalized = normalizePath(p);
-    if (p !== normalized) window.history.replaceState(null, '', normalized);
-    return normalized;
+    if (p === '/app') window.history.replaceState(null, '', '/app/dashboard');
+    return normalizePath(p);
   });
 
   const navigate = useCallback((path: string) => {

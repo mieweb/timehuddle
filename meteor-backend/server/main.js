@@ -96,6 +96,16 @@ WebApp.connectHandlers.use('/health', (req, res) => {
   res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }));
 });
 
+
+// Smoke test endpoint to verify deployments
+WebApp.connectHandlers.use('/hi', (req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ 
+    message: 'hi from meteor backend', 
+    deployed: new Date().toISOString(),
+    version: process.env.npm_package_version || '1.0.0'
+  }));
+});
 // Proxy JWT endpoints - both /api/whoami and /auth/whoami for compatibility
 const proxyWhoamiHandler = async (req, res) => {
   if (!process.env.PROXY_JWT_SECRET) {
