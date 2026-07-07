@@ -45,11 +45,12 @@ function ensureApns() {
     return null;
   }
   try {
+    const isProduction = process.env.APNS_PRODUCTION === 'true';
     apnsProvider = new apn.Provider({
       token: { key: Buffer.from(key, 'base64').toString('utf8'), keyId, teamId },
-      production: process.env.APNS_PRODUCTION === 'true',
+      production: isProduction,
     });
-    console.log('[push] APNs provider initialized ok');
+    console.log(`[push] APNs provider initialized ok (environment: ${isProduction ? 'PRODUCTION' : 'SANDBOX'}, APNS_PRODUCTION=${process.env.APNS_PRODUCTION})`);
     return apnsProvider;
   } catch (err) {
     console.warn('[push] APNs init failed:', err.message);

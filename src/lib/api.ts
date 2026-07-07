@@ -24,10 +24,18 @@ export const METEOR_BASE_URL: string =
 
 /**
  * Base URL for REST API fetch calls (wormhole, avatar, media, etc.).
- * Empty string = same-origin, so requests go through the Vite proxy.
- * This avoids cross-origin failures in Capacitor WebView.
+ *
+ * In a Capacitor native build the app loads from the device filesystem — there
+ * is no Vite proxy, so we must hit the backend directly via VITE_TIMECORE_URL.
+ * On the web (dev or production) we use '' (same-origin) so requests go
+ * through the Vite proxy and avoid cross-origin issues.
  */
-export const METEOR_API_BASE: string = '';
+const _isNativeWebView =
+  typeof window !== 'undefined' &&
+  typeof (window as unknown as Record<string, unknown>).Capacitor !== 'undefined' &&
+  (window as unknown as { Capacitor: { isNativePlatform: () => boolean } }).Capacitor.isNativePlatform();
+
+export const METEOR_API_BASE: string = _isNativeWebView ? METEOR_BASE_URL : '';
 
 const FORCED_TIMEZONE: string | undefined =
   (typeof import.meta !== 'undefined' &&

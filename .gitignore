@@ -51,3 +51,4 @@ meteor-backend/start-rosetta.sh
 backups/
 prod-backups/
 backend/
+backups/

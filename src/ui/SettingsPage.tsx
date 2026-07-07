@@ -180,7 +180,8 @@ const PushNotificationsSettings: React.FC = () => {
     }
     // On native, supported is already true from useState(isNative)
     void refreshStatus();
-  }, [isNative, refreshStatus]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNative]);
 
   const handleEnable = async () => {
     setEnableLoading(true);

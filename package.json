@@ -32,11 +32,11 @@
     "prepare": "node scripts/prepare-husky.cjs",
     "dev:mobile": "vite --host",
     "dev:ios": "bash scripts/dev-ios.sh",
-    "testflight:ios": "vite build --mode testflight && npx cap sync ios && npx cap open ios",
-    "prod:ios": "vite build --mode production && npx cap sync ios && npx cap open ios",
+    "testflight:ios": "CAPACITOR=1 vite build --mode testflight && npx cap sync ios && npx cap open ios",
+    "prod:ios": "CAPACITOR=1 vite build --mode production && npx cap sync ios && npx cap open ios",
     "dev:android": "bash scripts/dev-android.sh",
-    "testflight:android": "vite build --mode testflight && npx cap sync android && npx cap open android",
-    "prod:android": "vite build --mode production && npx cap sync android && npx cap open android"
+    "testflight:android": "CAPACITOR=1 vite build --mode testflight && npx cap sync android && npx cap open android",
+    "prod:android": "CAPACITOR=1 vite build --mode production && npx cap sync android && npx cap open android"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.4",
