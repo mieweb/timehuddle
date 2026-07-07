@@ -152,14 +152,9 @@ class DdpClient {
   public async ensureAuthed(): Promise<void> {
     await this.ensureConnected();
     if (!this.authPromise) {
-      this.authPromise = (async () => {
-        // Try resume token first (handles reconnects automatically)
-        const resumed = await this.tryResumeLogin();
-        if (!resumed) {
-          // Try proxy auth (Authentik via os.mieweb.org)
-          await this.loginWithProxy();
-        }
-      })().catch(() => {
+      // Only try resume token on reconnect. If it fails, user must login explicitly
+      // via OAuth, password, or proxy SSO (no automatic fallback to /api/whoami).
+      this.authPromise = this.tryResumeLogin().catch(() => {
         // Reset so next call can retry
         this.authPromise = null;
       });
@@ -216,28 +211,6 @@ class DdpClient {
     await this.call('accounts.createUser', { email, password, name });
     // After creating, log in immediately
     await this.loginWithPassword(email, password);
-  }
-
-  async loginWithProxy(): Promise<boolean> {
-    try {
-      const res = await fetch(`/api/whoami`, {
-        credentials: 'include',
-      });
-      if (!res.ok) return false;
-      const data = (await res.json()) as { token: string };
-
-      const result = await this.call('login', {
-        proxyJwt: data.token,
-      });
-      const loginResult = result as { token: string };
-
-      if (loginResult?.token) {
-        localStorage.setItem('meteor_resume_token', loginResult.token);
-      }
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   /**

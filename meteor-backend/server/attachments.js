@@ -27,7 +27,10 @@ function isYouTubeUrl(url) {
 
 async function fetchYouTubeTitle(url) {
   try {
-    const res = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(url)}`);
+    const res = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(url)}`, {
+      signal: AbortSignal.timeout(5000), // 5s timeout to prevent hanging
+    });
+    
     if (!res.ok) return null;
     const data = await res.json();
     return data.title ?? null;

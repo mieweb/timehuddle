@@ -1,12 +1,10 @@
 /**
- * Auth bridge: resolves caller credentials issued by the better-auth IdP
- * (Fastify backend) using Meteor's built-in Accounts system.
+ * Auth bridge: resolves caller credentials using Meteor's built-in Accounts system.
  *
  * Accepted token formats:
- *  - JWT access token (better-auth `jwt` plugin, 15-min TTL) — verified
- *    statelessly against the IdP's JWKS (`AUTH_JWKS_URL`).
  *  - Personal access token (`th_pat_…`) — sha256 lookup in the shared
  *    `personal_access_tokens` collection (parity with Fastify).
+ *  - Meteor resume token — standard Meteor Accounts session token
  *
  * Token sources:
  *  - DDP:   client calls Meteor login handlers via DDP login protocol
@@ -16,7 +14,6 @@ import { Meteor } from 'meteor/meteor';
 import { Accounts } from 'meteor/accounts-base';
 import { MongoInternals } from 'meteor/mongo';
 import { createHash } from 'crypto';
-import { jwtVerify, SignJWT, createRemoteJWKSet } from 'jose';
 import { currentBearerToken } from 'meteor/wreiske:meteor-wormhole';
 import { rawDb } from './collections';
 
@@ -24,11 +21,6 @@ import { rawDb } from './collections';
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 const PAT_PREFIX = 'th_pat_';
-
-// JWKS published by the better-auth backend. jose caches keys and handles
-// `kid` rotation with a cooldown — verification itself is local.
-const JWKS_URL = process.env.AUTH_JWKS_URL || 'http://localhost:4000/api/auth/jwks';
-let jwks = null;
 
 /** connectionId -> { userId, name } for DDP sessions. */
 const connectionIdentity = new Map();
@@ -160,27 +152,6 @@ export async function findUserById(id) {
   };
 }
 
-/** A JWT has exactly three dot-separated segments. */
-function looksLikeJwt(token) {
-  return token.split('.').length === 3;
-}
-
-async function resolveJwt(token) {
-  try {
-    jwks ??= createRemoteJWKSet(new URL(JWKS_URL));
-    const { payload } = await jwtVerify(token, jwks);
-    if (!payload.sub) {
-      console.log('[auth-bridge] JWT missing sub claim');
-      return null;
-    }
-    console.log('[auth-bridge] JWT verified for user:', payload.sub);
-    return { userId: payload.sub, name: payload.name || payload.email || 'Unknown' };
-  } catch (err) {
-    console.log('[auth-bridge] JWT verification failed:', err.message);
-    return null;
-  }
-}
-
 async function resolvePat(token) {
   const tokenHash = createHash('sha256').update(token).digest('hex');
   const db = rawDb();
@@ -208,16 +179,13 @@ async function resolveMeteorToken(token) {
   };
 }
 
-/** Resolve a bearer token (JWT, PAT, or Meteor resume token) to { userId, name } or null. */
+/** Resolve a bearer token (PAT or Meteor resume token) to { userId, name } or null. */
 export async function resolveToken(raw) {
   if (typeof raw !== 'string' || !raw.trim()) return null;
   const token = raw.trim();
   if (token.startsWith(PAT_PREFIX)) return resolvePat(token);
-  if (looksLikeJwt(token)) return resolveJwt(token);
-  // Try as Meteor resume token
-  const meteorIdentity = await resolveMeteorToken(token);
-  if (meteorIdentity) return meteorIdentity;
-  return null;
+  // Try Meteor resume token
+  return resolveMeteorToken(token);
 }
 
 /**

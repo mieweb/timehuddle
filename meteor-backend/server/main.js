@@ -124,21 +124,10 @@ const proxyWhoamiHandler = async (req, res) => {
     name = `${firstName} ${lastName}`.trim() || email;
   }
 
-  // Path 2: better-auth session token or Meteor token (header or cookie)
+  // Path 2: Meteor resume token or PAT (Authorization header)
   if (!email) {
     const authHeader = req.headers['authorization'] || '';
     let bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-
-    // Also check better-auth session cookie (browser flow)
-    // Production uses __Secure-better-auth.session_token, dev uses better-auth.session_token
-    if (!bearerToken && req.headers.cookie) {
-      const match = req.headers.cookie.match(/(?:__Secure-)?better-auth\.session_token=([^;]+)/);
-      if (match) {
-        const raw = decodeURIComponent(match[1]);
-        // Strip the HMAC signature suffix (token.signature)
-        bearerToken = raw.split('.')[0];
-      }
-    }
 
     if (bearerToken) {
       const db = rawDb();
