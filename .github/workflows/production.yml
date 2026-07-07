@@ -274,9 +274,13 @@ jobs:
             cd meteor-backend
             sudo npm install --no-audit --no-fund
 
-            echo "=== sudo pm2 restart meteor backend (process id 2) ==="
-            sudo pm2 restart 2 || sudo pm2 restart timehuddle-meteor
-            sudo pm2 save
+            echo "=== pm2 restart meteor backend (try user's pm2 first, then sudo) ==="
+            pm2 restart 2 || pm2 restart timehuddle-meteor || \
+            sudo pm2 restart 2 || sudo pm2 restart timehuddle-meteor || \
+            echo "WARNING: Could not restart meteor backend via pm2"
+            
+            # Save pm2 process list (whichever instance actually has the process)
+            pm2 save 2>/dev/null || sudo pm2 save 2>/dev/null || true
 
             echo "=== pm2 list ==="
             sudo pm2 list
