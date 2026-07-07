@@ -73,44 +73,90 @@ class DdpClient {
   private activeSubs = new Map<string, { name: string; params: unknown[] }>();
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectAttempt = 0;
   status: 'idle' | 'connecting' | 'connected' | 'failed' = 'idle';
 
   /** Connect (once) and authenticate the connection via auth.bridge. */
   public ensureConnected(): Promise<void> {
     if (!this.connectPromise) {
-      this.status = 'connecting';
-      this.connectPromise = new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('DDP connection timeout'));
-        }, 5000); // 5 second timeout
-
-        const ws = new WebSocket(METEOR_WS_URL);
-        this.ws = ws;
-        ws.onopen = () => ws.send(JSON.stringify({ msg: 'connect', version: '1', support: ['1'] }));
-        ws.onmessage = (e) => {
-          const data = JSON.parse(e.data as string) as DdpMessage;
-          if (data.msg === 'connected') {
-            clearTimeout(timeout);
-            this.status = 'connected';
-            this.reconnectAttempt = 0;
-            resolve();
-          }
-          this.handleMessage(data);
-        };
-        ws.onerror = () => {
-          clearTimeout(timeout);
-          this.status = 'failed';
-          reject(new Error('DDP connection failed'));
-        };
-        ws.onclose = () => {
-          clearTimeout(timeout);
-          if (this.status !== 'connected') reject(new Error('DDP connection closed'));
-          this.status = 'failed';
-          this.handleDisconnect();
-        };
-      });
+      this.connectPromise = this.connectWithRetry();
     }
     return this.connectPromise;
+  }
+
+  private async connectWithRetry(retryCount = 0): Promise<void> {
+    const maxRetries = 3;
+    const timeout = 15000; // 15 second timeout per attempt
+
+    try {
+      await this.attemptConnection(timeout);
+      this.connectAttempt = 0; // Reset on success
+    } catch (_error) {
+      // Reset connection state to allow retry
+      this.connectPromise = null;
+      this.ws = null;
+      this.status = 'failed';
+
+      if (retryCount < maxRetries) {
+        // Exponential backoff: 500ms, 1s, 2s
+        const delay = 500 * 2 ** retryCount;
+        console.log(`[DDP] Connection failed, retrying in ${delay}ms (attempt ${retryCount + 1}/${maxRetries})...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.connectWithRetry(retryCount + 1);
+      }
+
+      // All retries exhausted
+      throw new Error('DDP connection timeout - server may be unavailable');
+    }
+  }
+
+  private attemptConnection(timeoutMs: number): Promise<void> {
+    this.status = 'connecting';
+    
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
+          ws.close();
+        }
+        reject(new Error('Connection timeout'));
+      }, timeoutMs);
+
+      const ws = new WebSocket(METEOR_WS_URL);
+      this.ws = ws;
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ msg: 'connect', version: '1', support: ['1'] }));
+      };
+
+      ws.onmessage = (e) => {
+        const data = JSON.parse(e.data as string) as DdpMessage;
+        if (data.msg === 'connected') {
+          clearTimeout(timeout);
+          this.status = 'connected';
+          this.reconnectAttempt = 0;
+          resolve();
+        }
+        this.handleMessage(data);
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        this.status = 'failed';
+        reject(new Error('DDP connection failed'));
+      };
+
+      ws.onclose = () => {
+        clearTimeout(timeout);
+        // Only reject if we haven't already connected successfully
+        if (this.status === 'connecting') {
+          reject(new Error('DDP connection closed before establishing'));
+        } else if (this.status === 'connected') {
+          // Normal disconnect after being connected - trigger reconnection
+          this.status = 'failed';
+          this.handleDisconnect();
+        }
+      };
+    });
   }
 
   /**
