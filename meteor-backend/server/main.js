@@ -47,6 +47,7 @@ import './uploads';
 import './email';
 import './push';
 import { initAgenda } from './agenda';
+import { bearerContextMiddleware } from 'meteor/wreiske:meteor-wormhole';
 
 /**
  * CORS for ALL routes — the Vite frontend on another origin calls both DDP and
@@ -79,6 +80,10 @@ WebApp.rawConnectHandlers.use((req, res, next) => {
   }
   next();
 });
+
+// Bearer token context — must be registered BEFORE wormhole REST bridge
+WebApp.connectHandlers.use('/api', bearerContextMiddleware);
+WebApp.connectHandlers.use('/mcp', bearerContextMiddleware);
 
 // Root endpoint — identifies the server as Meteor backend
 WebApp.connectHandlers.use('/', (req, res, next) => {
