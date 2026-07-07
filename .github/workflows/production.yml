@@ -274,8 +274,8 @@ jobs:
             cd meteor-backend
             sudo npm install --no-audit --no-fund
 
-            echo "=== sudo pm2 restart all ==="
-            sudo pm2 restart all
+            echo "=== sudo pm2 restart meteor backend (process id 2) ==="
+            sudo pm2 restart 2 || sudo pm2 restart timehuddle-meteor
             sudo pm2 save
 
             echo "=== pm2 list ==="
