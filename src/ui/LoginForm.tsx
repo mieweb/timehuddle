@@ -393,9 +393,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                     ? 'Enter and confirm your new password'
                     : 'Enter your email and password'}
             </p>
-            <p className="mt-2 text-xs text-green-600 dark:text-green-400">
-              👋 hi — deployed from main workflow
-            </p>
           </div>
 
           {/* Form */}
