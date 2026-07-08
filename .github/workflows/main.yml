@@ -80,17 +80,18 @@ jobs:
 
       - name: Lint Meteor backend
         working-directory: meteor-backend
-        run: npm run lint || echo "Lint not configured"
+        run: npm run lint
 
       - name: Typecheck Meteor backend
         working-directory: meteor-backend
-        run: npm run typecheck || echo "Typecheck not configured"
+        run: npm run typecheck
 
       - name: Test Meteor backend
         working-directory: meteor-backend
         env:
           MONGODB_URI: mongodb://localhost:27017/timehuddle_test
-        run: npm test || echo "Tests not configured"
+        run: npm test
+        continue-on-error: true
 
   # ── DEVELOPMENT DEPLOYMENT ───────────────────────────────────────────────────
   deploy_dev:
@@ -379,7 +380,7 @@ jobs:
 
           # Add both frontend and backend hosts to known_hosts
           ssh-keyscan -p 2090 huddle.os.mieweb.org >> ~/.ssh/known_hosts
-          ssh-keyscan -p 2090 timecore-prod.os.mieweb.org >> ~/.ssh/known_hosts
+          ssh-keyscan -p 2065 timecore-prod.os.mieweb.org >> ~/.ssh/known_hosts
 
       - name: Deploy Frontend to PROD (huddle.os.mieweb.org:2090)
         run: |
@@ -477,10 +478,10 @@ jobs:
             echo "Frontend deployment completed successfully"
           ENDSSH
 
-      - name: Deploy Backend to PROD (timecore-prod.os.mieweb.org:2090)
+      - name: Deploy Backend to PROD (timecore-prod.os.mieweb.org:2065)
         run: |
           ssh -i ~/.ssh/deploy_key \
-              -p 2090 \
+              -p 2065 \
               -o StrictHostKeyChecking=yes \
               -o ConnectTimeout=15 \
               pdharamkar@timecore-prod.os.mieweb.org bash << 'ENDSSH'
@@ -491,7 +492,7 @@ jobs:
             pwd
             cd ..
             git branch --show-current
-            pm2 list
+            sudo pm2 list
 
             echo "=== check for local changes ==="
             if [[ -n $(git status -s) ]]; then
@@ -539,15 +540,13 @@ jobs:
             cd meteor-backend
             sudo npm install --no-audit --no-fund
 
-            echo "=== pm2 restart meteor backend (try user's pm2 first, then sudo) ==="
-            pm2 restart 2 || pm2 restart timehuddle-meteor || \
-            sudo pm2 restart 2 || sudo pm2 restart timehuddle-meteor || \
-            echo "WARNING: Could not restart meteor backend via pm2"
+            echo "=== sudo pm2 restart timehuddle-meteor ==="
+            sudo pm2 restart timehuddle-meteor
             
-            # Save pm2 process list (whichever instance actually has the process)
-            pm2 save 2>/dev/null || sudo pm2 save 2>/dev/null || true
+            # Save pm2 process list
+            sudo pm2 save
 
-            echo "=== pm2 list ==="
+            echo "=== sudo pm2 list ==="
             sudo pm2 list
           ENDSSH
 

@@ -64,7 +64,7 @@ class DDPConnection {
         }
       });
       
-      this.ws.on('error', (err) => {
+      this.ws.on('error', (err: Error) => {
         clearTimeout(timeout);
         console.log('[DDP] WebSocket error:', err.message);
         reject(err);
