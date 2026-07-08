@@ -119,7 +119,7 @@ describe('enterprises.takeOwnership', () => {
     const db = await getDb();
     
     // Check installations collection
-    const installation = await db.collection('installations').findOne({ _id: 'Installation' });
+    const installation = await db.collection('installations').findOne({ _id: 'Installation' as any });
     expect(installation).toBeTruthy();
     expect(installation!.completedAt).toBeInstanceOf(Date);
     expect(installation!.completedByUserId).toBe(userOneId);
@@ -188,7 +188,7 @@ describe('enterprises.takeOwnership', () => {
 
     // The winner should be recorded
     const db = await getDb();
-    const installation = await db.collection('installations').findOne({ _id: 'Installation' });
+    const installation = await db.collection('installations').findOne({ _id: 'Installation' as any });
     expect(installation).toBeTruthy();
     expect(installation!.completedAt).toBeInstanceOf(Date);
     expect([userOneId, userTwoId]).toContain(installation!.completedByUserId);
