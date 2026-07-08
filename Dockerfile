@@ -15,9 +15,9 @@ WORKDIR /app
 COPY package*.json ./
 COPY meteor-backend/package*.json ./meteor-backend/
 
-# Install dependencies
-RUN npm ci --omit=dev
-RUN cd meteor-backend && npm ci --omit=dev
+# Install dependencies (skip scripts - no git hooks needed in container)
+RUN npm ci --omit=dev --ignore-scripts
+RUN cd meteor-backend && npm ci --omit=dev --ignore-scripts
 
 # Copy application code
 COPY . .
