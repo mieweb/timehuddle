@@ -3,7 +3,7 @@ name: PR Preview Environment
 # Triggers: push to any branch, branch creation/deletion, and PR events
 on:
   push:
-    branches-ignore: [main]  # Only feature branches
+    branches-ignore: [main] # Only feature branches
   create:
   delete:
   pull_request:
@@ -33,33 +33,33 @@ jobs:
           # ── Basic Configuration ────────────────────────────────────────
           proxmox_username: ${{ secrets.PROXMOX_USERNAME }}
           proxmox_password: ${{ secrets.PROXMOX_PASSWORD }}
-          github_pat: ${{ secrets.GH_PAT }}  # For PR comments and deployments
-          
+          github_pat: ${{ secrets.GH_PAT }} # For PR comments and deployments
+
           http_port: 3000
-          linux_distribution: debian  # debian or rocky
-          
+          linux_distribution: debian # debian or rocky
+
           # ── Multi-Component Setup ──────────────────────────────────────
           # TimeHuddle has 2 components: frontend (.) and backend (meteor-backend)
           multi_component: y
-          
+
           # ── Install Dependencies ───────────────────────────────────────
           install_command: '{".": "npm ci", "meteor-backend": "npm ci"}'
-          
+
           # ── Build Commands ─────────────────────────────────────────────
           build_command: '{".": "npm run build", "meteor-backend": ""}'
-          
+
           # ── Start Commands ─────────────────────────────────────────────
           # Frontend: Vite preview server on 0.0.0.0:3000
           # Backend: Fastify server on 0.0.0.0:4000
           start_command: '{".": "npm run preview -- --host 0.0.0.0 --port 3000", "meteor-backend": "npm start"}'
-          
+
           # ── Runtime Languages ──────────────────────────────────────────
           runtime_language: '{".": "nodejs", "meteor-backend": "nodejs"}'
-          
+
           # ── Services ───────────────────────────────────────────────────
           # Automatically install and start MongoDB
           services: '["mongodb"]'
-          
+
           # ── Environment Variables ──────────────────────────────────────
           container_env_vars: |
             {
@@ -78,7 +78,7 @@ jobs:
             }
 
 # ── Notes ──────────────────────────────────────────────────────────────────
-# 
+#
 # CONFIGURATION: Path 2 (Auto-Provisioning) - ACTIVE
 #   - Launchpad automatically creates/manages runners per branch
 #   - setup-runner job provisions the runner on ubuntu-latest
