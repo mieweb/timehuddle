@@ -1,0 +1,102 @@
+name: PR Preview Environment
+
+# Triggers: push to any branch, branch creation/deletion, and PR events
+on:
+  push:
+    branches-ignore: [main]  # Only feature branches
+  create:
+  delete:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  # Path 2: Auto-Provisioning - creates runners automatically per branch
+  setup-runner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Dependencies
+        run: |
+          sudo apt install -y sshpass jq
+
+      - uses: maxklema/proxmox-launchpad@main
+        with:
+          proxmox_username: ${{ secrets.PROXMOX_USERNAME }}
+          proxmox_password: ${{ secrets.PROXMOX_PASSWORD }}
+          github_pat: ${{ secrets.GH_PAT }}
+
+  manage-container:
+    runs-on: self-hosted
+    needs: setup-runner
+    steps:
+      - uses: maxklema/proxmox-launchpad@main
+        with:
+          # ── Basic Configuration ────────────────────────────────────────
+          proxmox_username: ${{ secrets.PROXMOX_USERNAME }}
+          proxmox_password: ${{ secrets.PROXMOX_PASSWORD }}
+          github_pat: ${{ secrets.GH_PAT }}  # For PR comments and deployments
+          
+          http_port: 3000
+          linux_distribution: debian  # debian or rocky
+          
+          # ── Multi-Component Setup ──────────────────────────────────────
+          # TimeHuddle has 2 components: frontend (.) and backend (meteor-backend)
+          multi_component: y
+          
+          # ── Install Dependencies ───────────────────────────────────────
+          install_command: '{".": "npm ci", "meteor-backend": "npm ci"}'
+          
+          # ── Build Commands ─────────────────────────────────────────────
+          build_command: '{".": "npm run build", "meteor-backend": ""}'
+          
+          # ── Start Commands ─────────────────────────────────────────────
+          # Frontend: Vite preview server on 0.0.0.0:3000
+          # Backend: Fastify server on 0.0.0.0:4000
+          start_command: '{".": "npm run preview -- --host 0.0.0.0 --port 3000", "meteor-backend": "npm start"}'
+          
+          # ── Runtime Languages ──────────────────────────────────────────
+          runtime_language: '{".": "nodejs", "meteor-backend": "nodejs"}'
+          
+          # ── Services ───────────────────────────────────────────────────
+          # Automatically install and start MongoDB
+          services: '["mongodb"]'
+          
+          # ── Environment Variables ──────────────────────────────────────
+          container_env_vars: |
+            {
+              ".": {
+                "VITE_API_URL": "http://localhost:4000",
+                "NODE_ENV": "production"
+              },
+              "meteor-backend": {
+                "MONGODB_URI": "mongodb://localhost:27017/timehuddle",
+                "PORT": "4000",
+                "HOST": "0.0.0.0",
+                "NODE_ENV": "production",
+                "BETTER_AUTH_SECRET": "${{ secrets.BETTER_AUTH_SECRET }}",
+                "BETTER_AUTH_URL": "http://localhost:4000"
+              }
+            }
+
+# ── Notes ──────────────────────────────────────────────────────────────────
+# 
+# CONFIGURATION: Path 2 (Auto-Provisioning) - ACTIVE
+#   - Launchpad automatically creates/manages runners per branch
+#   - setup-runner job provisions the runner on ubuntu-latest
+#   - manage-container job runs on the auto-provisioned self-hosted runner
+#   - github_pat is REQUIRED for runner management and PR comments
+#
+# Container Lifecycle:
+#   - Push to branch → creates or updates container
+#   - New branch → creates new container
+#   - Delete branch → destroys container
+#   - Each branch gets its own isolated environment
+#
+# Access URL:
+#   - https://timehuddle-<branch-name>.opensource.mieweb.org
+#   - Automatically posted as PR comment
+#
+# Secrets Required:
+#   - PROXMOX_USERNAME (from Max Klema)
+#   - PROXMOX_PASSWORD (from Max Klema)
+#   - GH_PAT (GitHub PAT with manage_runners:org permission)
+#   - BETTER_AUTH_SECRET (your existing auth secret)
