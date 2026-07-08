@@ -1,102 +1,222 @@
 name: PR Preview Environment
 
-# Triggers: push to any branch, branch creation/deletion, and PR events
+# Build Docker image and deploy preview container using Proxmox Launchpad
 on:
-  push:
-    branches-ignore: [main] # Only feature branches
-  create:
-  delete:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, closed]
+
+env:
+  REGISTRY: ghcr.io
 
 jobs:
-  # Path 2: Auto-Provisioning - creates runners automatically per branch
-  setup-runner:
+  build-and-push:
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.image.outputs.tag }}
     steps:
-      - name: Install Dependencies
+      - uses: actions/checkout@v4
+
+      - name: Delete failed container (if any)
+        env:
+          API_KEY: ${{ secrets.LAUNCHPAD_API_KEY }}
+          API_URL: ${{ secrets.LAUNCHPAD_API_URL }}
         run: |
-          sudo apt install -y sshpass jq
+          REPO_NAME=$(basename "${{ github.repository }}")
+          CONTAINER_NAME="${{ github.repository_owner }}-${REPO_NAME}-${{ github.head_ref }}"
+          CONTAINER_NAME=${CONTAINER_NAME,,}
+          CONTAINER_NAME=$(echo "$CONTAINER_NAME" | sed 's/[^a-z0-9-]/-/g')
 
-      - uses: maxklema/proxmox-launchpad@main
+          RESPONSE=$(curl -s -H "Authorization: Bearer $API_KEY" -H "Accept: application/json" \
+            "$API_URL/sites/1/containers?hostname=$CONTAINER_NAME")
+
+          if ! echo "$RESPONSE" | jq -e . >/dev/null 2>&1; then
+            echo "Launchpad API returned non-JSON response; skipping cleanup."
+            CONTAINER_ID=""
+            CONTAINER_STATUS=""
+          else
+            CONTAINER_ID=$(echo "$RESPONSE" | jq -r '.containers[0].id // empty')
+            CONTAINER_STATUS=$(echo "$RESPONSE" | jq -r '.containers[0].status // empty')
+          fi
+
+          if [[ -n "$CONTAINER_ID" && "$CONTAINER_STATUS" == "failed" ]]; then
+            echo "Deleting failed container $CONTAINER_NAME (ID: $CONTAINER_ID)..."
+            DELETE_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              -X DELETE -H "Authorization: Bearer $API_KEY" \
+              "$API_URL/sites/1/containers/$CONTAINER_ID")
+            echo "DELETE response: $DELETE_CODE"
+          else
+            echo "No failed container to clean up (status: ${CONTAINER_STATUS:-none})."
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
         with:
-          proxmox_username: ${{ secrets.PROXMOX_USERNAME }}
-          proxmox_password: ${{ secrets.PROXMOX_PASSWORD }}
-          github_pat: ${{ secrets.GH_PAT }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-  manage-container:
-    runs-on: self-hosted
-    needs: setup-runner
+      - id: image
+        run: |
+          echo "tag=${{ env.REGISTRY }}/${{ github.repository_owner }}/timehuddle:pr-${{ github.event.pull_request.number }}" | tr '[:upper:]' '[:lower:]' >> $GITHUB_OUTPUT
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.tag }}
+          cache-from: type=registry,ref=${{ steps.image.outputs.tag }}-cache
+          cache-to: type=registry,ref=${{ steps.image.outputs.tag }}-cache,mode=max
+
+  deploy-preview:
+    if: github.event.action != 'closed'
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
-      - uses: maxklema/proxmox-launchpad@main
+      - uses: actions/checkout@v4
+
+      - id: preview
+        name: Compute preview URL
+        run: |
+          REPO_NAME=$(basename "${{ github.repository }}")
+          CONTAINER_NAME="${{ github.repository_owner }}-${REPO_NAME}-${{ github.head_ref }}"
+          CONTAINER_NAME=${CONTAINER_NAME,,}
+          CONTAINER_NAME=$(echo "$CONTAINER_NAME" | sed 's/[^a-z0-9-]/-/g')
+          echo "container_name=${CONTAINER_NAME}" >> "$GITHUB_OUTPUT"
+          echo "url=https://${CONTAINER_NAME}.os.mieweb.org" >> "$GITHUB_OUTPUT"
+
+      - uses: mieweb/launchpad@main
         with:
-          # ── Basic Configuration ────────────────────────────────────────
-          proxmox_username: ${{ secrets.PROXMOX_USERNAME }}
-          proxmox_password: ${{ secrets.PROXMOX_PASSWORD }}
-          github_pat: ${{ secrets.GH_PAT }} # For PR comments and deployments
-
-          http_port: 3000
-          linux_distribution: debian # debian or rocky
-
-          # ── Multi-Component Setup ──────────────────────────────────────
-          # TimeHuddle has 2 components: frontend (.) and backend (meteor-backend)
-          multi_component: y
-
-          # ── Install Dependencies ───────────────────────────────────────
-          install_command: '{".": "npm ci", "meteor-backend": "npm ci"}'
-
-          # ── Build Commands ─────────────────────────────────────────────
-          build_command: '{".": "npm run build", "meteor-backend": ""}'
-
-          # ── Start Commands ─────────────────────────────────────────────
-          # Frontend: Vite preview server on 0.0.0.0:3000
-          # Backend: Fastify server on 0.0.0.0:4000
-          start_command: '{".": "npm run preview -- --host 0.0.0.0 --port 3000", "meteor-backend": "npm start"}'
-
-          # ── Runtime Languages ──────────────────────────────────────────
-          runtime_language: '{".": "nodejs", "meteor-backend": "nodejs"}'
-
-          # ── Services ───────────────────────────────────────────────────
-          # Automatically install and start MongoDB
-          services: '["mongodb"]'
-
-          # ── Environment Variables ──────────────────────────────────────
+          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
+          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          template_name: ${{ needs.build-and-push.outputs.image_tag }}
           container_env_vars: |
             {
-              ".": {
-                "VITE_API_URL": "http://localhost:4000",
-                "NODE_ENV": "production"
+              "MONGODB_URI": "mongodb://localhost:27017/timehuddle",
+              "NODE_ENV": "production",
+              "APP_URL": "http://localhost:3000",
+              "ROOT_URL": "http://localhost:3000",
+              "PORT": "4000",
+              "VITE_API_URL": "http://localhost:4000"
+            }
+          services: |
+            [
+              {
+                "type": "http",
+                "internalPort": 3000,
+                "externalHostname": "${{ steps.preview.outputs.container_name }}",
+                "externalDomainId": 1
               },
-              "meteor-backend": {
-                "MONGODB_URI": "mongodb://localhost:27017/timehuddle",
-                "PORT": "4000",
-                "HOST": "0.0.0.0",
-                "NODE_ENV": "production",
-                "BETTER_AUTH_SECRET": "${{ secrets.BETTER_AUTH_SECRET }}",
-                "BETTER_AUTH_URL": "http://localhost:4000"
+              {
+                "type": "mongodb",
+                "internalPort": 27017
               }
+            ]
+
+      - name: Comment preview URL on PR
+        uses: actions/github-script@v7
+        env:
+          PREVIEW_URL: ${{ steps.preview.outputs.url }}
+        with:
+          script: |
+            const marker = '<!-- preview-url-comment -->';
+            const body = `${marker}
+            ## 🚀 Preview Deployment Ready
+
+            Your preview environment is live at:
+            **${ process.env.PREVIEW_URL }**
+
+            _This preview will be automatically deleted when the PR is closed._
+            `;
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const existing = comments.find(
+              (comment) =>
+                comment.user?.type === 'Bot' &&
+                typeof comment.body === 'string' &&
+                comment.body.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
             }
 
-# ── Notes ──────────────────────────────────────────────────────────────────
-#
-# CONFIGURATION: Path 2 (Auto-Provisioning) - ACTIVE
-#   - Launchpad automatically creates/manages runners per branch
-#   - setup-runner job provisions the runner on ubuntu-latest
-#   - manage-container job runs on the auto-provisioned self-hosted runner
-#   - github_pat is REQUIRED for runner management and PR comments
-#
-# Container Lifecycle:
-#   - Push to branch → creates or updates container
-#   - New branch → creates new container
-#   - Delete branch → destroys container
-#   - Each branch gets its own isolated environment
-#
-# Access URL:
-#   - https://timehuddle-<branch-name>.opensource.mieweb.org
-#   - Automatically posted as PR comment
-#
-# Secrets Required:
-#   - PROXMOX_USERNAME (from Max Klema)
-#   - PROXMOX_PASSWORD (from Max Klema)
-#   - GH_PAT (GitHub PAT with manage_runners:org permission)
-#   - BETTER_AUTH_SECRET (your existing auth secret)
+  cleanup-preview:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mieweb/launchpad@main
+        with:
+          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
+          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          # Omitting template_name triggers container deletion
+
+      - name: Comment cleanup on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- preview-url-comment -->';
+            const body = `${marker}
+            ## 🗑️ Preview Environment Cleaned Up
+
+            The preview container for this PR has been deleted.
+            `;
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const existing = comments.find(
+              (comment) =>
+                comment.user?.type === 'Bot' &&
+                typeof comment.body === 'string' &&
+                comment.body.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            }
