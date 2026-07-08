@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="TimeHuddle Support - Real-time team time tracking and collaboration platform"
+    />
+    <title>TimeHuddle - Support</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --primary-color: #2563eb;
+        --primary-hover: #1d4ed8;
+        --text-primary: #1f2937;
+        --text-secondary: #6b7280;
+        --bg-light: #f9fafb;
+        --bg-white: #ffffff;
+        --border-color: #e5e7eb;
+        --success-color: #10b981;
+        --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        line-height: 1.6;
+        color: var(--text-primary);
+        background-color: var(--bg-light);
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 20px;
+      }
+
+      header {
+        background-color: var(--bg-white);
+        border-bottom: 1px solid var(--border-color);
+        padding: 20px 0;
+        box-shadow: var(--shadow);
+      }
+
+      .header-content {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .logo {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--primary-color);
+      }
+
+      .tagline {
+        color: var(--text-secondary);
+        font-size: 14px;
+      }
+
+      main {
+        padding: 40px 0;
+      }
+
+      .hero {
+        background-color: var(--bg-white);
+        border-radius: 12px;
+        padding: 48px 32px;
+        margin-bottom: 32px;
+        box-shadow: var(--shadow);
+        text-align: center;
+      }
+
+      .hero h1 {
+        font-size: 36px;
+        margin-bottom: 16px;
+        color: var(--text-primary);
+      }
+
+      .hero p {
+        font-size: 18px;
+        color: var(--text-secondary);
+        max-width: 700px;
+        margin: 0 auto 24px;
+      }
+
+      .badges {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-top: 24px;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 6px 12px;
+        background-color: var(--bg-light);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        font-size: 14px;
+        color: var(--text-secondary);
+      }
+
+      section {
+        background-color: var(--bg-white);
+        border-radius: 12px;
+        padding: 32px;
+        margin-bottom: 32px;
+        box-shadow: var(--shadow);
+      }
+
+      h2 {
+        font-size: 28px;
+        margin-bottom: 20px;
+        color: var(--text-primary);
+        border-bottom: 2px solid var(--primary-color);
+        padding-bottom: 12px;
+      }
+
+      h3 {
+        font-size: 20px;
+        margin: 24px 0 12px;
+        color: var(--text-primary);
+      }
+
+      .features-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 24px;
+        margin-top: 24px;
+      }
+
+      .feature-card {
+        padding: 24px;
+        background-color: var(--bg-light);
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+      }
+
+      .feature-card h3 {
+        margin-top: 0;
+        font-size: 18px;
+        color: var(--primary-color);
+      }
+
+      .feature-card p {
+        color: var(--text-secondary);
+        margin: 8px 0 0;
+        font-size: 14px;
+      }
+
+      .feature-icon {
+        font-size: 32px;
+        margin-bottom: 12px;
+      }
+
+      ul {
+        margin-left: 20px;
+        margin-top: 12px;
+      }
+
+      li {
+        margin-bottom: 8px;
+        color: var(--text-secondary);
+      }
+
+      .faq-item {
+        margin-bottom: 24px;
+        padding-bottom: 24px;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .faq-item:last-child {
+        border-bottom: none;
+      }
+
+      .faq-question {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 8px;
+        font-size: 16px;
+      }
+
+      .faq-answer {
+        color: var(--text-secondary);
+        line-height: 1.6;
+      }
+
+      .contact-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 24px;
+        margin-top: 24px;
+      }
+
+      .contact-card {
+        padding: 24px;
+        background-color: var(--bg-light);
+        border-radius: 8px;
+        text-align: center;
+      }
+
+      .contact-card h3 {
+        margin-top: 12px;
+        font-size: 18px;
+      }
+
+      .contact-icon {
+        font-size: 48px;
+        margin-bottom: 12px;
+      }
+
+      a {
+        color: var(--primary-color);
+        text-decoration: none;
+      }
+
+      a:hover {
+        color: var(--primary-hover);
+        text-decoration: underline;
+      }
+
+      .cta-button {
+        display: inline-block;
+        padding: 12px 24px;
+        background-color: var(--primary-color);
+        color: white;
+        border-radius: 8px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: background-color 0.2s;
+      }
+
+      .cta-button:hover {
+        background-color: var(--primary-hover);
+        text-decoration: none;
+      }
+
+      footer {
+        background-color: var(--bg-white);
+        border-top: 1px solid var(--border-color);
+        padding: 32px 0;
+        margin-top: 40px;
+        text-align: center;
+      }
+
+      .footer-links {
+        display: flex;
+        gap: 24px;
+        justify-content: center;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+      }
+
+      .footer-text {
+        color: var(--text-secondary);
+        font-size: 14px;
+      }
+
+      @media (max-width: 768px) {
+        .hero h1 {
+          font-size: 28px;
+        }
+
+        .hero p {
+          font-size: 16px;
+        }
+
+        section {
+          padding: 24px;
+        }
+
+        .features-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="container">
+        <div class="header-content">
+          <div class="logo">⏱️ TimeHuddle</div>
+          <div class="tagline">Team Time Tracking & Collaboration</div>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <div class="hero">
+        <h1>Welcome to TimeHuddle</h1>
+        <p>
+          Real-time team time tracking and collaboration platform designed for modern teams. Track
+          time, manage tasks, collaborate with teammates, and stay productive—all in one place.
+        </p>
+        <div class="badges">
+          <span class="badge">📱 iOS & Android</span>
+          <span class="badge">🌐 Web App</span>
+          <span class="badge">🔒 Secure & Private</span>
+          <span class="badge">⚡ Real-time Updates</span>
+        </div>
+      </div>
+
+      <section id="about">
+        <h2>About TimeHuddle</h2>
+        <p>
+          TimeHuddle is a comprehensive team time tracking and collaboration platform built for
+          organizations of all sizes. Whether you're a small team or a large enterprise, TimeHuddle
+          helps you track work hours, manage projects, collaborate with team members, and generate
+          detailed timesheets—all with real-time synchronization across all devices.
+        </p>
+        <p style="margin-top: 16px">
+          Built with modern web technologies including React 19, Vite, Tailwind CSS, and TypeScript,
+          TimeHuddle offers a fast, responsive, and intuitive user experience.
+        </p>
+      </section>
+
+      <section id="features">
+        <h2>Key Features</h2>
+        <div class="features-grid">
+          <div class="feature-card">
+            <div class="feature-icon">⏰</div>
+            <h3>Clock In/Out</h3>
+            <p>
+              Track your work hours with easy clock in/out functionality. Start and stop timers for
+              specific tasks, attach photos or notes, and view your active time in real-time.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">🎫</div>
+            <h3>Ticket Tracking</h3>
+            <p>
+              Create, assign, and track work tickets. See accumulated time per ticket, assign tasks
+              to team members, and monitor progress across your organization.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">📊</div>
+            <h3>Timesheets</h3>
+            <p>
+              Generate detailed timesheets by date range. View your work history, export time data,
+              and get comprehensive reports on time spent across different tasks and projects.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">👥</div>
+            <h3>Team Management</h3>
+            <p>
+              Create and manage teams within your organization. Invite members, assign roles,
+              control permissions, and collaborate seamlessly with your colleagues.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">💬</div>
+            <h3>Direct Messaging</h3>
+            <p>
+              Communicate with team members directly within the app. Send messages with ticket
+              context, share updates, and keep all work-related conversations in one place.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">📈</div>
+            <h3>Dashboard & Analytics</h3>
+            <p>
+              View at-a-glance insights including today's time, weekly totals, active sessions, team
+              count, and recent activity. Track your productivity and team performance.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">🔔</div>
+            <h3>Push Notifications</h3>
+            <p>
+              Stay informed with real-time push notifications for important events, shift reminders,
+              team updates, and messages—even when the app is closed.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">🌓</div>
+            <h3>Dark Mode</h3>
+            <p>
+              Choose between light and dark themes for comfortable viewing in any lighting
+              condition. Your preference is saved and persists across sessions.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">🔐</div>
+            <h3>Secure Authentication</h3>
+            <p>
+              Secure email/password authentication with optional GitHub OAuth. Password reset
+              functionality, encrypted data transmission, and role-based access controls.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">🏢</div>
+            <h3>Organization Management</h3>
+            <p>
+              Manage multiple organizations with hierarchical team structures. Control member
+              permissions, block/unblock users, and maintain organizational security.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">📸</div>
+            <h3>Media Attachments</h3>
+            <p>
+              Attach photos and media to your clock entries and work logs. Document your work
+              visually and provide context for time entries.
+            </p>
+          </div>
+
+          <div class="feature-card">
+            <div class="feature-icon">⚡</div>
+            <h3>Real-time Sync</h3>
+            <p>
+              All data syncs in real-time across all your devices. Start work on mobile, continue on
+              desktop—your data is always up to date.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="getting-started">
+        <h2>Getting Started</h2>
+
+        <h3>1. Create an Account</h3>
+        <p>
+          Download TimeHuddle from the App Store or Google Play, or access the web version. Sign up
+          with your email address or GitHub account to get started.
+        </p>
+
+        <h3>2. Set Up Your Organization</h3>
+        <p>
+          Create your organization or join an existing one using an invitation code. Your
+          organization is your workspace where you'll collaborate with your team.
+        </p>
+
+        <h3>3. Create or Join Teams</h3>
+        <p>
+          Within your organization, create teams for different projects or departments. Invite team
+          members and assign roles (admin or member).
+        </p>
+
+        <h3>4. Start Tracking Time</h3>
+        <p>
+          Clock in when you start work, select a ticket or task, and TimeHuddle will track your time
+          automatically. Clock out when you're done. It's that simple!
+        </p>
+
+        <h3>5. View Reports & Timesheets</h3>
+        <p>
+          Access your dashboard to see daily and weekly summaries. Generate timesheets for any date
+          range to review your work history and export data as needed.
+        </p>
+      </section>
+
+      <section id="faq">
+        <h2>Frequently Asked Questions</h2>
+
+        <div class="faq-item">
+          <div class="faq-question">What platforms does TimeHuddle support?</div>
+          <div class="faq-answer">
+            TimeHuddle is available as a web application accessible from any modern browser, as well
+            as native iOS and Android mobile apps. All platforms sync in real-time, so you can
+            switch between devices seamlessly.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">Is my data secure?</div>
+          <div class="faq-answer">
+            Yes. All data is transmitted over HTTPS/TLS encryption, and stored securely on our
+            servers. Passwords are hashed using industry-standard algorithms and never stored in
+            plain text. We do not sell or share your personal data with third parties.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">Can I use TimeHuddle offline?</div>
+          <div class="faq-answer">
+            TimeHuddle requires an internet connection to sync data in real-time. However, you can
+            continue to use the app with limited functionality when offline, and your data will sync
+            automatically when you reconnect.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">How do I invite team members?</div>
+          <div class="faq-answer">
+            As an organization owner or team admin, you can invite members by sharing your team's
+            unique join code. Members can enter this code during signup or in the Teams section to
+            join your team.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">Can I track time for multiple projects?</div>
+          <div class="faq-answer">
+            Yes. You can create multiple teams within your organization, each representing different
+            projects or departments. You can also create tickets within teams to track time for
+            specific tasks.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">How do I export my timesheet data?</div>
+          <div class="faq-answer">
+            Navigate to the Timesheets section, select your desired date range, and use the export
+            functionality to download your time data in various formats. Your organization admin may
+            also have access to team-wide reports.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">What permissions do team admins have?</div>
+          <div class="faq-answer">
+            Team admins can invite and remove members, approve join requests, create and assign
+            tickets, and view team timesheets. Organization owners have additional permissions to
+            manage the entire organization and all its teams.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">How do push notifications work?</div>
+          <div class="faq-answer">
+            TimeHuddle sends push notifications for important events like shift reminders, new
+            messages, team updates, and ticket assignments. You can customize notification
+            preferences in your account settings.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">Is there a limit to team size?</div>
+          <div class="faq-answer">
+            TimeHuddle supports teams of all sizes, from small groups to large organizations with
+            hundreds of members. There is no hard limit on the number of teams or members you can
+            have.
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">What if I forget my password?</div>
+          <div class="faq-answer">
+            Use the "Forgot Password" link on the login screen to reset your password. You'll
+            receive an email with instructions to create a new password securely.
+          </div>
+        </div>
+      </section>
+
+      <section id="system-requirements">
+        <h2>System Requirements</h2>
+
+        <h3>Web Application</h3>
+        <ul>
+          <li>Modern web browser (Chrome, Firefox, Safari, Edge)</li>
+          <li>JavaScript enabled</li>
+          <li>Internet connection for real-time sync</li>
+        </ul>
+
+        <h3>Mobile Apps</h3>
+        <ul>
+          <li><strong>iOS:</strong> Requires iOS 13.0 or later</li>
+          <li><strong>Android:</strong> Requires Android 7.0 or later</li>
+          <li>Active internet connection recommended</li>
+          <li>Push notification permissions (optional but recommended)</li>
+        </ul>
+
+        <h3>Server Requirements (Self-Hosted)</h3>
+        <ul>
+          <li>Node.js 24.x or later</li>
+          <li>MongoDB 6.0 or later</li>
+          <li>Docker & Docker Compose (optional)</li>
+        </ul>
+      </section>
+
+      <section id="contact">
+        <h2>Contact & Support</h2>
+        <div class="contact-grid">
+          <div class="contact-card">
+            <div class="contact-icon">📧</div>
+            <h3>Email Support</h3>
+            <p>
+              <a href="mailto:dharamkarpoonam9@gmail.com">dharamkarpoonam9@gmail.com</a>
+            </p>
+            <p style="margin-top: 8px; font-size: 14px; color: var(--text-secondary)">
+              We typically respond within 24-48 hours
+            </p>
+          </div>
+
+          <div class="contact-card">
+            <div class="contact-icon">💬</div>
+            <h3>GitHub</h3>
+            <p>
+              <a
+                href="https://github.com/mieweb/timehuddle"
+                target="_blank"
+                rel="noopener noreferrer"
+                >github.com/mieweb/timehuddle</a
+              >
+            </p>
+            <p style="margin-top: 8px; font-size: 14px; color: var(--text-secondary)">
+              Report issues, request features, or contribute
+            </p>
+          </div>
+
+          <div class="contact-card">
+            <div class="contact-icon">🌐</div>
+            <h3>Company Website</h3>
+            <p>
+              <a href="https://mieweb.org/" target="_blank" rel="noopener noreferrer">mieweb.org</a>
+            </p>
+            <p style="margin-top: 8px; font-size: 14px; color: var(--text-secondary)">
+              Learn more about Medical Informatics Engineering
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section id="privacy">
+        <h2>Privacy & Legal</h2>
+        <p>
+          Your privacy is important to us. We collect only the data necessary to provide our
+          services and never sell your information to third parties.
+        </p>
+        <p style="margin-top: 16px">
+          <a href="privacy.html">Read our full Privacy Policy</a>
+        </p>
+        <p style="margin-top: 12px; color: var(--text-secondary)">
+          TimeHuddle is developed and maintained by Medical Informatics Engineering, a healthcare
+          technology company based in the United States.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <div class="container">
+        <div class="footer-links">
+          <a href="support.html">Support</a>
+          <a href="privacy.html">Privacy Policy</a>
+          <a href="https://github.com/mieweb/timehuddle" target="_blank" rel="noopener noreferrer"
+            >GitHub</a
+          >
+          <a href="https://mieweb.org/" target="_blank" rel="noopener noreferrer">MIE Website</a>
+        </div>
+        <div class="footer-text">
+          &copy; 2026 Medical Informatics Engineering. All rights reserved.
+        </div>
+        <div class="footer-text" style="margin-top: 8px">Built with ❤️ for modern teams</div>
+      </div>
+    </footer>
+  </body>
+</html>

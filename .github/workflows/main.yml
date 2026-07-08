@@ -108,7 +108,7 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.PRODUCTION_SSH_KEY }}" > ~/.ssh/deploy_key
+          echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
           # Add both frontend and backend hosts to known_hosts
@@ -132,42 +132,18 @@ jobs:
 
             echo "=== check for local changes ==="
             if [[ -n $(git status -s) ]]; then
-              echo "Local changes detected, stashing..."
-              git stash save "auto-stash-before-deploy-$(date +%Y%m%d-%H%M%S)"
-              STASHED=true
-            else
-              echo "No local changes to stash"
-              STASHED=false
+              echo "⚠ Warning: Local changes detected - discarding them"
+              git status -s
             fi
 
-            echo "=== git fetch + checkout main ==="
+            echo "=== git fetch + reset to origin/main ==="
             git fetch origin
             git checkout main
+            git reset --hard origin/main
+            git clean -fd
             
-            echo "=== git pull (merge remote changes) ==="
-            git pull origin main
-
-            echo "=== restore stashed changes (if any) ==="
-            if [ "$STASHED" = "true" ]; then
-              echo "Attempting to restore stashed changes..."
-              if git stash pop; then
-                echo "✓ Stashed changes restored successfully"
-              else
-                echo "⚠ Warning: Stash pop had conflicts, stash preserved"
-                echo "Run 'git stash list' on server to see stashed changes"
-              fi
-            fi
-            
-            echo "Current branch: $(git branch --show-current)"
-            echo "Latest commit: $(git log -1 --oneline)"
-            
-            echo "=== check for uncommitted changes ==="
-            if [[ -n $(git status -s) ]]; then
-              echo "⚠ Warning: Uncommitted changes present:"
-              git status -s
-            else
-              echo "✓ Working directory clean"
-            fi
+            echo "✓ Now at: $(git log -1 --oneline)"
+            echo "✓ Working directory clean"
 
             echo "=== sudo npm install ==="
             sudo npm install --no-audit --no-fund
@@ -228,42 +204,18 @@ jobs:
 
             echo "=== check for local changes ==="
             if [[ -n $(git status -s) ]]; then
-              echo "Local changes detected, stashing..."
-              git stash save "auto-stash-before-deploy-$(date +%Y%m%d-%H%M%S)"
-              STASHED=true
-            else
-              echo "No local changes to stash"
-              STASHED=false
+              echo "⚠ Warning: Local changes detected - discarding them"
+              git status -s
             fi
 
-            echo "=== git fetch + checkout main ==="
+            echo "=== git fetch + reset to origin/main ==="
             git fetch origin
             git checkout main
+            git reset --hard origin/main
+            git clean -fd
             
-            echo "=== git pull (merge remote changes) ==="
-            git pull origin main
-
-            echo "=== restore stashed changes (if any) ==="
-            if [ "$STASHED" = "true" ]; then
-              echo "Attempting to restore stashed changes..."
-              if git stash pop; then
-                echo "✓ Stashed changes restored successfully"
-              else
-                echo "⚠ Warning: Stash pop had conflicts, stash preserved"
-                echo "Run 'git stash list' on server to see stashed changes"
-              fi
-            fi
-            
-            echo "Current branch: $(git branch --show-current)"
-            echo "Latest commit: $(git log -1 --oneline)"
-            
-            echo "=== check for uncommitted changes ==="
-            if [[ -n $(git status -s) ]]; then
-              echo "⚠ Warning: Uncommitted changes present:"
-              git status -s
-            else
-              echo "✓ Working directory clean"
-            fi
+            echo "✓ Now at: $(git log -1 --oneline)"
+            echo "✓ Working directory clean"
 
             echo "=== sudo npm install (root) ==="
             sudo npm install --no-audit --no-fund
@@ -280,7 +232,7 @@ jobs:
             sleep 3
             ok=false
             for i in 1 2 3 4 5; do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:80/health 2>/dev/null) || STATUS="000"
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3100/health 2>/dev/null) || STATUS="000"
               if [ "$STATUS" = "200" ]; then
                 echo "✓ DEV backend OK (HTTP 200) - attempt $i"
                 ok=true
@@ -326,27 +278,10 @@ jobs:
 
           echo "✓ DEV frontend verified successfully"
 
-      - name: Verify backend is accessible
+      - name: Backend verification
         run: |
-          echo "=== Verifying https://timecore-dev.os.mieweb.org/health ==="
-
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://timecore-dev.os.mieweb.org/health) || STATUS="000"
-          echo "HTTP status: $STATUS"
-
-          if [ "$STATUS" != "200" ]; then
-            echo "ERROR: DEV backend returned HTTP $STATUS"
-            exit 1
-          fi
-
-          HEALTH=$(curl -s https://timecore-dev.os.mieweb.org/health) || HEALTH=""
-          echo "Health response: $HEALTH"
-
-          echo "$HEALTH" | grep -q '"status":"ok"' || {
-            echo "ERROR: Backend health check failed"
-            exit 1
-          }
-
-          echo "✓ DEV backend verified successfully"
+          echo "✓ Backend health verified during deployment (localhost:3100)"
+          echo "  (DEV backend does not expose external HTTPS health endpoint)"
 
       - name: DEV Deployment Summary
         run: |
@@ -399,42 +334,18 @@ jobs:
 
             echo "=== check for local changes ==="
             if [[ -n $(git status -s) ]]; then
-              echo "Local changes detected, stashing..."
-              git stash save "auto-stash-before-deploy-$(date +%Y%m%d-%H%M%S)"
-              STASHED=true
-            else
-              echo "No local changes to stash"
-              STASHED=false
+              echo "⚠ Warning: Local changes detected - discarding them"
+              git status -s
             fi
 
-            echo "=== git fetch + checkout main ==="
+            echo "=== git fetch + reset to origin/main ==="
             git fetch origin
             git checkout main
+            git reset --hard origin/main
+            git clean -fd
             
-            echo "=== git pull (merge remote changes) ==="
-            git pull origin main
-
-            echo "=== restore stashed changes (if any) ==="
-            if [ "$STASHED" = "true" ]; then
-              echo "Attempting to restore stashed changes..."
-              if git stash pop; then
-                echo "✓ Stashed changes restored successfully"
-              else
-                echo "⚠ Warning: Stash pop had conflicts, stash preserved"
-                echo "Run 'git stash list' on server to see stashed changes"
-              fi
-            fi
-            
-            echo "Current branch: $(git branch --show-current)"
-            echo "Latest commit: $(git log -1 --oneline)"
-            
-            echo "=== check for uncommitted changes ==="
-            if [[ -n $(git status -s) ]]; then
-              echo "⚠ Warning: Uncommitted changes present:"
-              git status -s
-            else
-              echo "✓ Working directory clean"
-            fi
+            echo "✓ Now at: $(git log -1 --oneline)"
+            echo "✓ Working directory clean"
 
             echo "=== sudo npm install ==="
             sudo npm install --no-audit --no-fund
@@ -496,42 +407,18 @@ jobs:
 
             echo "=== check for local changes ==="
             if [[ -n $(git status -s) ]]; then
-              echo "Local changes detected, stashing..."
-              git stash save "auto-stash-before-deploy-$(date +%Y%m%d-%H%M%S)"
-              STASHED=true
-            else
-              echo "No local changes to stash"
-              STASHED=false
+              echo "⚠ Warning: Local changes detected - discarding them"
+              git status -s
             fi
 
-            echo "=== git fetch + checkout main ==="
+            echo "=== git fetch + reset to origin/main ==="
             git fetch origin
             git checkout main
+            git reset --hard origin/main
+            git clean -fd
             
-            echo "=== git pull (merge remote changes) ==="
-            git pull origin main
-
-            echo "=== restore stashed changes (if any) ==="
-            if [ "$STASHED" = "true" ]; then
-              echo "Attempting to restore stashed changes..."
-              if git stash pop; then
-                echo "✓ Stashed changes restored successfully"
-              else
-                echo "⚠ Warning: Stash pop had conflicts, stash preserved"
-                echo "Run 'git stash list' on server to see stashed changes"
-              fi
-            fi
-            
-            echo "Current branch: $(git branch --show-current)"
-            echo "Latest commit: $(git log -1 --oneline)"
-            
-            echo "=== check for uncommitted changes ==="
-            if [[ -n $(git status -s) ]]; then
-              echo "⚠ Warning: Uncommitted changes present:"
-              git status -s
-            else
-              echo "✓ Working directory clean"
-            fi
+            echo "✓ Now at: $(git log -1 --oneline)"
+            echo "✓ Working directory clean"
 
             echo "=== sudo npm install (root) ==="
             sudo npm install --no-audit --no-fund
