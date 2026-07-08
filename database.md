@@ -1,608 +1,810 @@
-# TimeHuddle — Backend API Reference
+# TimeHuddle — Database & API Architecture
 
-This document describes every backend API group, how each endpoint works, and how the API modules relate to one another. For the raw MongoDB schema and index definitions, see [backend/DATABASE.md](backend/DATABASE.md).
+This document describes the TimeHuddle backend architecture, MongoDB collections, and API structure. The backend is built with **Meteor 3** using **meteor-wormhole** for REST/OpenAPI/MCP and **DDP** for real-time pub/sub.
 
-## Base URL
-
-All `/v1/*` routes are served from the backend on port **4000** by default.
+## Base URLs
 
 ```
-Development:  http://localhost:4000
-Production:   https://timehubbackend.os.mieweb.org
+Development:  http://localhost:3100
+Production:   https://huddle.os.mieweb.org
 ```
 
-Interactive OpenAPI docs are available at `GET /docs`.
+Interactive OpenAPI docs: `GET /docs`
 
 ---
 
 ## Architecture Overview
 
-Every feature follows a strict **Route → Controller → Service** pipeline. Routes declare schemas and call a controller; controllers read from `req`, delegate to service methods, and call `reply.send()`; services contain all business logic and database access.
+TimeHuddle uses **Meteor 3** with dual API layers:
+
+1. **REST API** via meteor-wormhole (OpenAPI + MCP server support)
+2. **DDP Pub/Sub** for real-time subscriptions
+3. **Better Auth** for authentication
 
 ```mermaid
-flowchart TD
-    Client["Frontend / Mobile Client"]
-    Auth["Auth Layer\n/api/auth/*\n(Better Auth)"]
-    V1["Fastify /v1/* Routes"]
-    WS["WebSocket / SSE\nRoutes"]
-
-    Client --> Auth
-    Client --> V1
-    Client --> WS
-
-    subgraph Routes [Route Layer — /v1/*]
-        RUsers["/users\n/me\n/admin/organization"]
-        ROrg["/org"]
-        RTeams["/teams"]
-        RTickets["/tickets"]
-        RClock["/clock"]
-        RTimers["/timers"]
-        RWork["/work"]
-        RHuddle["/huddle"]
-        RNotif["/notifications"]
-        RMsg["/messages"]
-        RChannels["/channels"]
-        RAttach["/attachments"]
-        RMedia["/media"]
-        RPulse["/video (PulseVault)"]
-        RActivity["/activity"]
-        RTokens["/me/tokens"]
-        RPresence["/presence"]
-        RHealth["/health"]
+graph TB
+    Client[Client Apps<br/>Web · iOS · Android]
+    
+    subgraph "Meteor Backend (Port 3100)"
+        HTTP[HTTP/REST Layer<br/>meteor-wormhole]
+        DDP[DDP Layer<br/>Pub/Sub]
+        Methods[Meteor Methods<br/>RPC + Validation]
+        Auth[Better Auth<br/>Session Management]
+        
+        HTTP --> Methods
+        DDP --> Methods
+        Auth -.-> Methods
     end
-
-    V1 --> Routes
-    WS --> Routes
-
-    subgraph Services [Service Layer]
-        SUser[UserService]
-        SOrgSvc[OrgService]
-        STeam[TeamService]
-        STicket[TicketService]
-        SClock[ClockService]
-        STimer[TimerService]
-        SHuddle[HuddleService]
-        SNotif[NotificationService]
-        SPush[PushService]
-        SMsg[MessageService]
-        SChan[ChannelService]
-        SAttach[AttachmentService]
-        SMedia[MediaService]
-        SActivity[ActivityService]
-        SPat[PATService]
-        SPresence[PresenceService]
-        SClockMon[ClockMonitorService]
+    
+    subgraph "MongoDB Collections"
+        Users[(user)]
+        Orgs[(organizations<br/>org_members)]
+        Teams[(teams<br/>team_members)]
+        Tickets[(tickets)]
+        Clock[(clockevents<br/>clockbreaks)]
+        Work[(workitems<br/>work_summaries)]
+        Timers[(timers)]
+        Huddle[(huddleposts<br/>huddlecomments)]
+        Notif[(notifications)]
+        Channels[(channels<br/>channelmessages)]
+        Media[(attachments<br/>mediaitems)]
     end
-
-    Routes --> Services
-
-    subgraph DB [MongoDB Collections]
-        CUser[(user)]
-        COrgs[(organizations)]
-        CTeams[(teams)]
-        CTickets[(tickets)]
-        CClockE[(clockevents)]
-        CClockB[(clockbreaks)]
-        CWorkI[(workitems)]
-        CTimers[(timers)]
-        CHuddle[(huddleposts)]
-        CNotif[(notifications)]
-        CMsg[(messages)]
-        CChan[(channels)]
-        CChanMsg[(channelmessages)]
-        CAttach[(attachments)]
-        CMedia[(mediaitems)]
-        CActivity[(activities)]
-        CPush[(pushsubscriptions)]
-        CDevTok[(devicetokens)]
-        CPAT[(personal_access_tokens)]
-        CProfile[(profiles)]
-    end
-
-    Services --> DB
+    
+    Client -->|REST /api/*| HTTP
+    Client -->|WebSocket| DDP
+    Client -->|/api/auth/*| Auth
+    
+    Methods --> Users
+    Methods --> Orgs
+    Methods --> Teams
+    Methods --> Tickets
+    Methods --> Clock
+    Methods --> Work
+    Methods --> Timers
+    Methods --> Huddle
+    Methods --> Notif
+    Methods --> Channels
+    Methods --> Media
+    
+    classDef clientColor fill:#e1f5ff,stroke:#01579b
+    classDef meteorColor fill:#fff3e0,stroke:#e65100
+    classDef dbColor fill:#f3e5f5,stroke:#4a148c
+    
+    class Client clientColor
+    class HTTP,DDP,Methods,Auth meteorColor
+    class Users,Orgs,Teams,Tickets,Clock,Work,Timers,Huddle,Notif,Channels,Media dbColor
 ```
 
 ---
 
-## How Services Link to Each Other
-
-The diagram below shows which services call into other services — the key cross-cutting dependencies.
+## Data Flow: REST & Real-time
 
 ```mermaid
-flowchart LR
-    SClock["ClockService"] -->|closeAllForUser| STimer["TimerService"]
-    SClock -->|create| SNotif["NotificationService"]
-    SClock -->|getMembers| STeam["TeamService"]
-    SClockMon["ClockMonitorService\n(auto-close scheduler)"] -->|stop| SClock
-    SClockMon -->|create| SNotif
-    STimer -->|getTicket| STicket["TicketService"]
-    SNotif -->|sendToUser| SPush["PushService"]
-    SNotif -->|broadcastSSE| SPresence["PresenceService / SSE"]
-    STeam -->|getByUserId| SUser["UserService"]
-    STicket -->|logEvent| SActivity["ActivityService"]
-    SPat["PATService"] -->|verify| SUser
+sequenceDiagram
+    participant Client
+    participant REST as REST API<br/>(meteor-wormhole)
+    participant Method as Meteor Method
+    participant DB as MongoDB
+    participant DDP as DDP Pub/Sub
+    participant Sub as Subscribed Clients
+    
+    Note over Client,Sub: Write Operation (e.g., Create Ticket)
+    Client->>REST: POST /api/tickets
+    REST->>Method: Call tickets.create()
+    Method->>DB: Insert document
+    DB-->>Method: Return doc
+    Method-->>REST: Return result
+    REST-->>Client: 201 Created
+    
+    Note over DB,Sub: Real-time Broadcast
+    DB->>DDP: Change detected (oplog)
+    DDP->>Sub: Publish update
+    Sub-->>Sub: UI updates automatically
+    
+    Note over Client,Sub: Subscribe to Updates
+    Client->>DDP: Subscribe 'tickets.forTeam'
+    DDP->>DB: Query tickets
+    DB-->>DDP: Initial dataset
+    DDP-->>Client: Initial data + live cursor
+    Note over Client: Client receives real-time updates
+```
+
+---
+
+## MongoDB Collections
+
+### Core Collections
+
+#### user
+User accounts managed by Better Auth.
+
+```typescript
+{
+  _id: ObjectId,
+  email: string,
+  emailVerified: boolean,
+  name: string,
+  username?: string,
+  image?: string,
+  createdAt: Date,
+  updatedAt: Date,
+  blocked?: string[]  // Array of org IDs user is blocked from
+}
+```
+
+**Indexes:**
+- `email` (unique)
+- `username` (unique, sparse)
+
+---
+
+#### organizations
+Top-level organizational units.
+
+```typescript
+{
+  _id: ObjectId,
+  name: string,
+  createdAt: Date,
+  updatedAt: Date
+}
+```
+
+---
+
+#### org_members
+Organization membership with roles.
+
+```typescript
+{
+  _id: ObjectId,
+  orgId: ObjectId,
+  userId: ObjectId | string,
+  role: 'owner' | 'admin' | 'member',
+  joinedAt: Date
+}
+```
+
+**Indexes:**
+- `{ orgId: 1, userId: 1 }` (unique)
+- `{ userId: 1 }`
+
+---
+
+#### teams
+Teams within an organization.
+
+```typescript
+{
+  _id: ObjectId,
+  name: string,
+  orgId: ObjectId,
+  isPersonal: boolean,  // Personal workspace teams
+  inviteCode: string,   // 6-character join code
+  createdAt: Date,
+  updatedAt: Date,
+  archivedAt?: Date
+}
+```
+
+**Indexes:**
+- `inviteCode` (unique)
+- `orgId`
+
+---
+
+#### team_members
+Team membership with roles.
+
+```typescript
+{
+  _id: ObjectId,
+  teamId: ObjectId,
+  userId: ObjectId | string,
+  role: 'admin' | 'member',
+  joinedAt: Date
+}
+```
+
+**Indexes:**
+- `{ teamId: 1, userId: 1 }` (unique)
+- `{ userId: 1 }`
+
+---
+
+#### team_join_requests
+Pending join requests for teams.
+
+```typescript
+{
+  _id: ObjectId,
+  teamId: ObjectId,
+  userId: ObjectId | string,
+  status: 'pending' | 'approved' | 'declined',
+  createdAt: Date,
+  resolvedAt?: Date,
+  resolvedBy?: ObjectId | string
+}
+```
+
+**Indexes:**
+- `{ teamId: 1, userId: 1, status: 1 }`
+
+---
+
+### Work Tracking Collections
+
+#### tickets
+Work items tracked within teams.
+
+```typescript
+{
+  _id: ObjectId,
+  title: string,
+  description?: string,
+  teamId: ObjectId,
+  orgId: ObjectId,
+  status: 'open' | 'in-progress' | 'blocked' | 'reviewed' | 'closed' | 'deleted',
+  priority: 'low' | 'medium' | 'high' | 'urgent',
+  assignedTo?: ObjectId | string,
+  createdBy: ObjectId | string,
+  createdAt: Date,
+  updatedAt: Date,
+  githubIssueUrl?: string,
+  estimatedMinutes?: number,
+  sharedWithTimeHarbor?: boolean
+}
+```
+
+**Indexes:**
+- `{ teamId: 1, status: 1 }`
+- `{ assignedTo: 1 }`
+- `{ orgId: 1 }`
+
+---
+
+#### clockevents
+User attendance sessions (clock in/out).
+
+```typescript
+{
+  _id: ObjectId,
+  userId: ObjectId | string,
+  teamId: ObjectId,
+  orgId: ObjectId,
+  startTime: Date,
+  endTime?: Date,
+  manualEntry?: boolean,
+  createdAt: Date,
+  updatedAt: Date
+}
+```
+
+**Indexes:**
+- `{ userId: 1, startTime: -1 }`
+- `{ teamId: 1, startTime: -1 }`
+- `{ userId: 1, endTime: 1 }` (find active sessions)
+
+---
+
+#### clockbreaks
+Breaks during clock sessions.
+
+```typescript
+{
+  _id: ObjectId,
+  clockEventId: ObjectId,
+  userId: ObjectId | string,
+  startTime: Date,
+  endTime?: Date,
+  createdAt: Date
+}
+```
+
+**Indexes:**
+- `{ clockEventId: 1 }`
+
+---
+
+#### timers
+Ticket-level time tracking.
+
+```typescript
+{
+  _id: ObjectId,
+  userId: ObjectId | string,
+  ticketId: ObjectId,
+  teamId: ObjectId,
+  startTime: Date,
+  endTime?: Date,
+  totalMinutes?: number,
+  createdAt: Date,
+  updatedAt: Date
+}
+```
+
+**Indexes:**
+- `{ userId: 1, endTime: 1 }` (find active timers)
+- `{ ticketId: 1 }`
+- `{ teamId: 1 }`
+
+---
+
+#### workitems
+Time entries (can be manual or from closed timers).
+
+```typescript
+{
+  _id: ObjectId,
+  userId: ObjectId | string,
+  ticketId: ObjectId,
+  teamId: ObjectId,
+  orgId: ObjectId,
+  date: Date,  // Date at midnight UTC
+  minutes: number,
+  description?: string,
+  timerId?: ObjectId,  // Reference to timer if auto-created
+  createdAt: Date,
+  updatedAt: Date
+}
+```
+
+**Indexes:**
+- `{ userId: 1, date: -1 }`
+- `{ ticketId: 1 }`
+- `{ teamId: 1, date: -1 }`
+
+---
+
+#### work_summaries
+Daily aggregated work summaries per user.
+
+```typescript
+{
+  _id: ObjectId,
+  userId: ObjectId | string,
+  teamId: ObjectId,
+  date: Date,  // Date at midnight UTC
+  totalMinutes: number,
+  createdAt: Date,
+  updatedAt: Date
+}
+```
+
+**Indexes:**
+- `{ userId: 1, teamId: 1, date: 1 }` (unique)
+
+---
+
+### Communication Collections
+
+#### huddleposts
+Team news feed posts.
+
+```typescript
+{
+  _id: ObjectId,
+  teamId: ObjectId,
+  userId: ObjectId | string,
+  content: string,
+  attachmentId?: ObjectId,
+  ticketId?: ObjectId,
+  likedBy: (ObjectId | string)[],
+  viewedBy: (ObjectId | string)[],
+  createdAt: Date,
+  updatedAt: Date
+}
+```
+
+**Indexes:**
+- `{ teamId: 1, createdAt: -1 }`
+
+---
+
+#### huddlecomments
+Comments on huddle posts.
+
+```typescript
+{
+  _id: ObjectId,
+  postId: ObjectId,
+  userId: ObjectId | string,
+  content: string,
+  createdAt: Date,
+  updatedAt: Date
+}
+```
+
+**Indexes:**
+- `{ postId: 1, createdAt: 1 }`
+
+---
+
+#### channels
+Team communication channels.
+
+```typescript
+{
+  _id: ObjectId,
+  teamId: ObjectId,
+  name: string,
+  description?: string,
+  createdBy: ObjectId | string,
+  createdAt: Date,
+  updatedAt: Date
+}
+```
+
+**Indexes:**
+- `{ teamId: 1 }`
+
+---
+
+#### channelmessages
+Messages within channels.
+
+```typescript
+{
+  _id: ObjectId,
+  channelId: ObjectId,
+  userId: ObjectId | string,
+  content: string,
+  attachmentId?: ObjectId,
+  createdAt: Date,
+  updatedAt: Date,
+  editedAt?: Date
+}
+```
+
+**Indexes:**
+- `{ channelId: 1, createdAt: -1 }`
+
+---
+
+#### notifications
+User notifications.
+
+```typescript
+{
+  _id: ObjectId,
+  userId: ObjectId | string,
+  type: 'clock_reminder' | 'shift_reminder' | 'ticket_assigned' | 'comment_mention' | ...,
+  title: string,
+  body?: string,
+  data?: object,  // Type-specific metadata
+  read: boolean,
+  createdAt: Date,
+  readAt?: Date
+}
+```
+
+**Indexes:**
+- `{ userId: 1, read: 1, createdAt: -1 }`
+
+---
+
+### Media Collections
+
+#### attachments
+File attachments (videos, images, documents).
+
+```typescript
+{
+  _id: ObjectId,
+  userId: ObjectId | string,
+  filename: string,
+  mimeType: string,
+  size: number,
+  storageKey: string,  // S3/local storage path
+  thumbnailKey?: string,
+  metadata?: {
+    width?: number,
+    height?: number,
+    duration?: number  // For videos
+  },
+  createdAt: Date
+}
+```
+
+**Indexes:**
+- `{ userId: 1, createdAt: -1 }`
+
+---
+
+#### mediaitems
+Shareable media library items.
+
+```typescript
+{
+  _id: ObjectId,
+  teamId: ObjectId,
+  userId: ObjectId | string,
+  title: string,
+  description?: string,
+  attachmentId: ObjectId,
+  tags: string[],
+  createdAt: Date,
+  updatedAt: Date
+}
+```
+
+**Indexes:**
+- `{ teamId: 1, createdAt: -1 }`
+
+---
+
+## Entity Relationships
+
+```mermaid
+erDiagram
+    USER ||--o{ ORG_MEMBERS : "belongs to"
+    ORGANIZATIONS ||--o{ ORG_MEMBERS : "has"
+    ORGANIZATIONS ||--o{ TEAMS : "contains"
+    TEAMS ||--o{ TEAM_MEMBERS : "has"
+    USER ||--o{ TEAM_MEMBERS : "joins"
+    TEAMS ||--o{ TICKETS : "owns"
+    USER ||--o{ TICKETS : "assigned to"
+    TICKETS ||--o{ TIMERS : "tracked by"
+    USER ||--o{ TIMERS : "starts"
+    TIMERS ||--o| WORKITEMS : "creates"
+    USER ||--o{ WORKITEMS : "logs"
+    TICKETS ||--o{ WORKITEMS : "accumulates"
+    USER ||--o{ CLOCKEVENTS : "clocks"
+    CLOCKEVENTS ||--o{ CLOCKBREAKS : "has"
+    TEAMS ||--o{ HUDDLEPOSTS : "contains"
+    USER ||--o{ HUDDLEPOSTS : "authors"
+    HUDDLEPOSTS ||--o{ HUDDLECOMMENTS : "has"
+    TEAMS ||--o{ CHANNELS : "owns"
+    CHANNELS ||--o{ CHANNELMESSAGES : "contains"
+    USER ||--o{ NOTIFICATIONS : "receives"
+    USER ||--o{ ATTACHMENTS : "uploads"
+    
+    USER {
+        ObjectId _id PK
+        string email UK
+        string name
+        string username UK
+        string[] blocked
+    }
+    
+    ORGANIZATIONS {
+        ObjectId _id PK
+        string name
+    }
+    
+    ORG_MEMBERS {
+        ObjectId _id PK
+        ObjectId orgId FK
+        ObjectId userId FK
+        string role
+    }
+    
+    TEAMS {
+        ObjectId _id PK
+        ObjectId orgId FK
+        string name
+        boolean isPersonal
+        string inviteCode UK
+    }
+    
+    TEAM_MEMBERS {
+        ObjectId _id PK
+        ObjectId teamId FK
+        ObjectId userId FK
+        string role
+    }
+    
+    TICKETS {
+        ObjectId _id PK
+        ObjectId teamId FK
+        ObjectId orgId FK
+        ObjectId assignedTo FK
+        string title
+        string status
+        string priority
+    }
+    
+    TIMERS {
+        ObjectId _id PK
+        ObjectId userId FK
+        ObjectId ticketId FK
+        Date startTime
+        Date endTime
+    }
+    
+    WORKITEMS {
+        ObjectId _id PK
+        ObjectId userId FK
+        ObjectId ticketId FK
+        ObjectId timerId FK
+        Date date
+        number minutes
+    }
+    
+    CLOCKEVENTS {
+        ObjectId _id PK
+        ObjectId userId FK
+        ObjectId teamId FK
+        Date startTime
+        Date endTime
+    }
+    
+    CLOCKBREAKS {
+        ObjectId _id PK
+        ObjectId clockEventId FK
+        Date startTime
+        Date endTime
+    }
+    
+    HUDDLEPOSTS {
+        ObjectId _id PK
+        ObjectId teamId FK
+        ObjectId userId FK
+        string content
+    }
+    
+    HUDDLECOMMENTS {
+        ObjectId _id PK
+        ObjectId postId FK
+        ObjectId userId FK
+        string content
+    }
+    
+    CHANNELS {
+        ObjectId _id PK
+        ObjectId teamId FK
+        string name
+    }
+    
+    CHANNELMESSAGES {
+        ObjectId _id PK
+        ObjectId channelId FK
+        ObjectId userId FK
+        string content
+    }
+    
+    NOTIFICATIONS {
+        ObjectId _id PK
+        ObjectId userId FK
+        string type
+        boolean read
+    }
+    
+    ATTACHMENTS {
+        ObjectId _id PK
+        ObjectId userId FK
+        string filename
+        string storageKey
+    }
+```
+
+---
+
+## Key Workflows
+
+### Clock In/Out with Timer Auto-close
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Method as Meteor Method
+    participant DB
+    participant DDP
+    
+    Note over Client,DDP: Clock Out
+    Client->>Method: clock.stop()
+    Method->>DB: Find active timers for user
+    Method->>DB: Close all timers (set endTime)
+    Method->>DB: Close clock event (set endTime)
+    Method->>DB: Create work items from timers
+    DB->>DDP: Broadcast updates
+    DDP->>Client: Real-time UI update
+```
+
+### Ticket Status Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> open : tickets.create()
+    open --> in_progress : tickets.updateStatus()
+    in_progress --> blocked : tickets.updateStatus()
+    blocked --> in_progress : tickets.updateStatus()
+    in_progress --> reviewed : tickets.updateStatus()
+    reviewed --> in_progress : Revisions needed
+    reviewed --> closed : tickets.updateStatus()
+    closed --> open : tickets.updateStatus()
+    open --> deleted : tickets.delete()
+    in_progress --> deleted : tickets.delete()
 ```
 
 ---
 
 ## Authentication
 
-All `/api/auth/*` routes are handled by **Better Auth** and are proxied through Fastify.
+Authentication is handled by **Better Auth** at `/api/auth/*`:
 
-| Method | Path                               | Description                                    |
-| ------ | ---------------------------------- | ---------------------------------------------- |
-| `POST` | `/api/auth/sign-up/email`          | Register with email, password, and name        |
-| `POST` | `/api/auth/sign-in/email`          | Sign in; returns session cookie + bearer token |
-| `POST` | `/api/auth/sign-out`               | Sign out — clears session cookie               |
-| `GET`  | `/api/auth/get-session`            | Return current session and user                |
-| `POST` | `/api/auth/request-password-reset` | Send reset-link email                          |
-| `POST` | `/api/auth/reset-password`         | Consume token and set new password             |
-| `POST` | `/api/auth/sign-in/social`         | Initiate Google / GitHub OAuth flow            |
-| `GET`  | `/api/auth/callback/:provider`     | OAuth redirect handler (google, github)        |
-| `GET`  | `/api/auth/ok`                     | Auth service health check                      |
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/auth/sign-up/email` | Register with email + password |
+| `POST` | `/api/auth/sign-in/email` | Sign in with email + password |
+| `POST` | `/api/auth/sign-out` | Sign out (clear session) |
+| `GET` | `/api/auth/get-session` | Get current session |
+| `POST` | `/api/auth/sign-in/social` | OAuth (GitHub, Google) |
 
-**Authentication is carried** as an HTTP-only session cookie (`better-auth.session_token`) or as a `Bearer` token in the `Authorization` header (used by Capacitor native).
+Sessions are stored as HTTP-only cookies (`better-auth.session_token`) or bearer tokens for mobile apps.
 
 ---
 
-## User & Organization APIs
+## Real-time Subscriptions (DDP)
 
-### Users
+Meteor DDP subscriptions provide real-time data:
 
-| Method   | Path                              | Description                                       |
-| -------- | --------------------------------- | ------------------------------------------------- |
-| `GET`    | `/v1/me`                          | Current user from session (with org membership)   |
-| `GET`    | `/v1/me/profile`                  | Full profile record                               |
-| `GET`    | `/v1/me/username-available`       | Check username availability (`?username=`)        |
-| `POST`   | `/v1/me/username`                 | Claim a canonical username                        |
-| `PUT`    | `/v1/me/profile`                  | Update name, bio, website, reportsToUserId, image |
-| `POST`   | `/v1/me/avatar`                   | Upload avatar (multipart/form-data)               |
-| `DELETE` | `/v1/me/avatar`                   | Remove avatar                                     |
-| `POST`   | `/v1/me/background`               | Upload profile background (multipart/form-data)   |
-| `DELETE` | `/v1/me/background`               | Remove background image                           |
-| `GET`    | `/v1/users/:id`                   | Public profile by user ID                         |
-| `GET`    | `/v1/users/by/username/:username` | Public profile by username                        |
-| `GET`    | `/v1/users`                       | Batch public profiles (`?ids=id1,id2,...`)        |
+| Subscription | Description |
+|--------------|-------------|
+| `tickets.forTeam` | Live ticket updates for a team |
+| `huddle.posts` | Live huddle post feed |
+| `channels.messages` | Live channel messages |
+| `clock.events` | Live clock events for team admins |
+| `notifications.forUser` | Live user notifications |
 
-### Organization
-
-| Method | Path                                        | Auth required     | Description                                     |
-| ------ | ------------------------------------------- | ----------------- | ----------------------------------------------- |
-| `GET`  | `/v1/organization`                          | Any user          | Get org metadata                                |
-| `GET`  | `/v1/organization/ownership-status`         | Any user          | Check if an owner has claimed the install       |
-| `POST` | `/v1/organization/install`                  | Public (one-time) | Bootstrap: claim ownership when no owner exists |
-| `GET`  | `/v1/organization/users`                    | Any user          | All users with org role (for org chart)         |
-| `GET`  | `/v1/admin/organization`                    | Owner/Admin       | Admin org metadata                              |
-| `PUT`  | `/v1/admin/organization`                    | Owner/Admin       | Rename organization                             |
-| `GET`  | `/v1/admin/organization/users`              | Owner/Admin       | All users with roles                            |
-| `PUT`  | `/v1/admin/organization/users/:userId/role` | Owner/Admin       | Set role for a user                             |
-| `PUT`  | `/v1/org/users/:userId`                     | Owner/Admin       | Set `reportsToUserId` (reporting hierarchy)     |
+All subscriptions automatically push updates when underlying MongoDB documents change (via oplog tailing).
 
 ---
 
-## Teams API
+## API Routes
 
-| Method   | Path                                     | Auth   | Description                                   |
-| -------- | ---------------------------------------- | ------ | --------------------------------------------- |
-| `GET`    | `/v1/teams`                              | Member | List all teams for current user               |
-| `POST`   | `/v1/teams`                              | Any    | Create a new team                             |
-| `POST`   | `/v1/teams/ensure-personal`              | Any    | Ensure personal workspace exists (idempotent) |
-| `POST`   | `/v1/teams/join`                         | Any    | Join team by invite code                      |
-| `PUT`    | `/v1/teams/:id/name`                     | Admin  | Rename team                                   |
-| `DELETE` | `/v1/teams/:id`                          | Admin  | Delete team                                   |
-| `GET`    | `/v1/teams/:id/members`                  | Member | List members                                  |
-| `POST`   | `/v1/teams/:id/invite`                   | Admin  | Invite user by email                          |
-| `DELETE` | `/v1/teams/:id/members/:userId`          | Admin  | Remove a member                               |
-| `PUT`    | `/v1/teams/:id/members/:userId/role`     | Admin  | Promote/demote admin role                     |
-| `PUT`    | `/v1/teams/:id/members/:userId/password` | Admin  | Force-set member password                     |
+### REST API (meteor-wormhole)
 
-**WebSocket — Teams**
+All REST routes are under `/api/*`:
 
-| Protocol | Path           | Description                          |
-| -------- | -------------- | ------------------------------------ |
-| `WS`     | `/v1/teams/ws` | Live team state stream (admins only) |
+- **Organizations**: `/api/organizations`, `/api/org/members`
+- **Teams**: `/api/teams`, `/api/teams/join`
+- **Tickets**: `/api/tickets`, `/api/tickets/:id`
+- **Clock**: `/api/clock/start`, `/api/clock/stop`
+- **Timers**: `/api/timers/start`, `/api/timers/stop`
+- **Work**: `/api/work/items`, `/api/work/summary`
+- **Huddle**: `/api/huddle/posts`, `/api/huddle/comments`
+- **Channels**: `/api/channels`, `/api/channels/messages`
+- **Notifications**: `/api/notifications`
+- **Attachments**: `/api/attachments/upload`
+
+Full OpenAPI spec available at `GET /docs`.
 
 ---
 
-## Tickets API
+## Development Setup
 
-Tickets are the core work unit. They belong to a team and are the target for timers and assignments.
+```bash
+cd meteor-backend
+npm install
+npm run dev  # Starts on port 3100
+```
 
-| Method   | Path                                 | Auth     | Description                                             |
-| -------- | ------------------------------------ | -------- | ------------------------------------------------------- |
-| `GET`    | `/v1/tickets`                        | Member   | List tickets for a team (`?teamId=`)                    |
-| `GET`    | `/v1/tickets/:id`                    | Member   | Get single ticket                                       |
-| `GET`    | `/v1/tickets/:id/activity`           | Member   | Activity events for a ticket                            |
-| `GET`    | `/v1/tickets/shared-with-timeharbor` | Member   | Tickets flagged for TimeHarbor sync                     |
-| `POST`   | `/v1/tickets`                        | Member   | Create a ticket                                         |
-| `PUT`    | `/v1/tickets/:id`                    | Member   | Update title, description, or GitHub link               |
-| `DELETE` | `/v1/tickets/:id`                    | Member   | Soft-delete (status → `"deleted"`)                      |
-| `PATCH`  | `/v1/tickets/:id/status-priority`    | Member   | Update status and/or priority                           |
-| `PUT`    | `/v1/tickets/:id/assign`             | Member   | Assign / unassign ticket to a member                    |
-| `PATCH`  | `/v1/tickets/:id/timeharbor-share`   | Member   | Flag/unflag for TimeHarbor import                       |
-| `PATCH`  | `/v1/tickets/bulk-timeharbor-share`  | Member   | Flag/unflag multiple tickets                            |
-| `POST`   | `/v1/tickets/batch-status`           | Member   | Batch update status for multiple tickets                |
-| `PATCH`  | `/v1/tickets/:id/external-update`    | Internal | Accept update from TimeHarbor (ms, status, description) |
+MongoDB connection string is read from `.env`:
 
-**WebSocket — Tickets**
-
-| Protocol | Path             | Description                               |
-| -------- | ---------------- | ----------------------------------------- |
-| `WS`     | `/v1/tickets/ws` | Real-time ticket change stream for a team |
-
-**Ticket Status Flow**
-
-```mermaid
-stateDiagram-v2
-    [*] --> open : Created
-    open --> in-progress : Work started
-    in-progress --> blocked : Blocked
-    blocked --> in-progress : Unblocked
-    in-progress --> reviewed : Review submitted
-    reviewed --> in-progress : Revisions requested
-    reviewed --> closed : Approved
-    closed --> open : Reopened
-    open --> deleted : Deleted
-    in-progress --> deleted : Deleted
+```
+MONGO_URL=mongodb://localhost:27017/timehuddle
 ```
 
 ---
 
-## Clock API
+## Migration Notes
 
-The Clock tracks **attendance-level** work sessions for a user within a team. Independent of ticket-level timers.
+The system migrated from **Fastify + Better Auth** to **Meteor 3 + Better Auth** in July 2026. Key changes:
 
-| Method   | Path                               | Auth        | Description                                    |
-| -------- | ---------------------------------- | ----------- | ---------------------------------------------- |
-| `POST`   | `/v1/clock/start`                  | Member      | Clock in to a team                             |
-| `POST`   | `/v1/clock/stop`                   | Member      | Clock out — also closes all running timers     |
-| `POST`   | `/v1/clock/manual`                 | Member      | Backfill a past clock session                  |
-| `GET`    | `/v1/clock/active`                 | Member      | Get currently active clock event (any team)    |
-| `GET`    | `/v1/clock/events`                 | Member      | List all user's clock events                   |
-| `GET`    | `/v1/clock/timesheet`              | Member      | Session list + summary for a date range        |
-| `PUT`    | `/v1/clock/:id/times`              | Owner/Admin | Edit start/end times                           |
-| `DELETE` | `/v1/clock/:id`                    | Owner/Admin | Delete a clock event                           |
-| `POST`   | `/v1/clock/:id/break/start`        | Member      | Start a break (pauses timer if one is running) |
-| `POST`   | `/v1/clock/:id/break/:breakId/end` | Member      | End a break (resumes timer)                    |
-| `GET`    | `/v1/clock/:id/breaks`             | Member      | List all breaks for a clock event              |
+1. ✅ Single `user` collection (Better Auth) — no dual user collections
+2. ✅ REST API via meteor-wormhole (auto-generates OpenAPI + MCP)
+3. ✅ DDP pub/sub replaces hand-rolled WebSocket fan-out
+4. ✅ Meteor Methods replace Fastify route handlers
+5. ✅ Better Auth continues to handle authentication
 
-**WebSocket — Clock**
-
-| Protocol | Path           | Description                           |
-| -------- | -------------- | ------------------------------------- |
-| `WS`     | `/v1/clock/ws` | Live team clock state stream (admins) |
-
-**Clock → Timer Cross-Dependency**
-
-When a user clocks out (`POST /v1/clock/stop`), the service calls `timerService.closeAllForUser()` to stop any running ticket timers. This is the primary coupling between the clock and timer subsystems.
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant CR as ClockRoute
-    participant CS as ClockService
-    participant TS as TimerService
-    participant NS as NotificationService
-
-    C->>CR: POST /v1/clock/stop
-    CR->>CS: stop(userId, teamId)
-    CS->>TS: closeAllForUser(userId)
-    TS-->>CS: count of closed timers
-    CS->>NS: create(adminNotification)
-    NS-->>CS: notification created
-    CS-->>CR: PublicClockEvent
-    CR-->>C: 200 { clockEvent }
-```
-
-**Break Classification**
-
-| Duration     | Type   | Paid?                                |
-| ------------ | ------ | ------------------------------------ |
-| < 20 minutes | `rest` | Yes — counted as paid work time      |
-| ≥ 20 minutes | `meal` | No — deducted from `accumulatedTime` |
+The `meteor-backend/` directory is the active backend. The old `backend/` directory contains only legacy migrations.
 
 ---
 
-## Timers API
-
-Timers track **ticket-level** work segments. One running timer per user globally (enforced by a unique partial index in MongoDB).
-
-| Method   | Path                           | Auth   | Description                                                |
-| -------- | ------------------------------ | ------ | ---------------------------------------------------------- |
-| `GET`    | `/v1/timers/day`               | Member | WorkItems + timer sessions for a date (`?date=YYYY-MM-DD`) |
-| `GET`    | `/v1/timers/week`              | Member | Daily second totals for a 7-day week                       |
-| `POST`   | `/v1/timers/entries`           | Member | Create a WorkItem (optionally start timer immediately)     |
-| `POST`   | `/v1/timers/entries/:id/start` | Member | Start timer for a WorkItem                                 |
-| `POST`   | `/v1/timers/entries/:id/stop`  | Member | Stop running timer                                         |
-| `PUT`    | `/v1/timers/entries/:id`       | Member | Update note, durationSeconds, or ticketId                  |
-| `DELETE` | `/v1/timers/entries/:id`       | Member | Delete WorkItem + all its timer sessions                   |
-
-**WorkItem → Timer relationship**
-
-```
-Ticket (1) ──< WorkItem (M) ──< Timer (M)
-             userId × date       work segments
-```
-
----
-
-## Work Summary API
-
-| Method | Path                            | Auth   | Description                                               |
-| ------ | ------------------------------- | ------ | --------------------------------------------------------- |
-| `GET`  | `/v1/work/summary/user/:userId` | Member | Plain-English summary of a user's last 48 h of timer work |
-
----
-
-## Huddle API
-
-Team communication feed for sharing updates, linking tickets, and posting media attachments. Posts are visible to all team members.
-
-| Method   | Path                   | Auth   | Description                                      |
-| -------- | ---------------------- | ------ | ------------------------------------------------ |
-| `GET`    | `/v1/huddle/posts`     | Member | List posts for a team (`?teamId=`)               |
-| `POST`   | `/v1/huddle/posts`     | Member | Create a post with text, mentions, ticket, media |
-| `PATCH`  | `/v1/huddle/posts/:id` | Author | Update post content (author only)                |
-| `DELETE` | `/v1/huddle/posts/:id` | Auth   | Delete post (author/admin/org owner)             |
-
-**WebSocket — Huddle**
-
-| Protocol | Path            | Description                                                 |
-| -------- | --------------- | ----------------------------------------------------------- |
-| `WS`     | `/v1/huddle/ws` | Real-time post stream (`?teamId=&token=`); snapshot + diffs |
-
-**Post Structure**
-
-```typescript
-{
-  id: string;
-  teamId: string;
-  userId: string;
-  content: {
-    text: string;
-    mentions: string[];  // user IDs
-  };
-  ticketId?: string;
-  attachments: Array<{
-    mediaId: string;
-    type: 'image' | 'video' | 'file';
-    url: string;
-    thumbnailUrl?: string;
-    filename?: string;
-  }>;
-  createdAt: string;
-  updatedAt: string;
-}
-```
-
-**Permissions**
-
-- **Create post**: Any team member
-- **Edit post**: Post author only
-- **Delete post**: Post author, team admin, or organization owner
-
-**WebSocket Events**
-
-```typescript
-// Snapshot on connect
-{ type: 'snapshot', posts: HuddlePost[] }
-
-// New or updated post
-{ type: 'create', post: HuddlePost }
-
-// Post deleted
-{ type: 'delete', postId: string }
-```
-
----
-
-## Notifications API
-
-| Method  | Path                         | Auth   | Description                                  |
-| ------- | ---------------------------- | ------ | -------------------------------------------- |
-| `GET`   | `/v1/notifications/inbox`    | Member | Fetch up to 200 notifications (newest first) |
-| `PATCH` | `/v1/notifications/:id/read` | Member | Mark a notification as read                  |
-
-**WebSocket — Notifications**
-
-| Protocol | Path                   | Description                                        |
-| -------- | ---------------------- | -------------------------------------------------- |
-| `WS`     | `/v1/notifications/ws` | SSE-style stream of new notifications in real time |
-
-**Notification Delivery Flow**
-
-```mermaid
-sequenceDiagram
-    participant Svc as Any Service
-    participant NS as NotificationService
-    participant DB as MongoDB (notifications)
-    participant SSE as SSE Broadcaster
-    participant PS as PushService
-    participant Device as FCM / APNs / Web Push
-
-    Svc->>NS: create({ userId, title, body, data })
-    NS->>DB: insertOne(notification)
-    NS->>SSE: broadcastToUser(userId, notification)
-    NS->>PS: sendToUser(userId, notification) [async, non-blocking]
-    PS->>Device: FCM / APNs / WebPush delivery
-```
-
----
-
-## Messages API (Admin–Member DM)
-
-Direct threads between an admin and a team member. Thread identity: `teamId:adminId:memberId`.
-
-| Method | Path           | Auth   | Description                                               |
-| ------ | -------------- | ------ | --------------------------------------------------------- |
-| `GET`  | `/v1/messages` | Member | Cursor-paginated messages (`?teamId=&adminId=&memberId=`) |
-| `POST` | `/v1/messages` | Member | Send a message in a thread                                |
-
-**WebSocket — Messages**
-
-| Protocol | Path              | Description                                                      |
-| -------- | ----------------- | ---------------------------------------------------------------- |
-| `WS`     | `/v1/messages/ws` | Real-time DM stream (`?threadId=teamId:adminId:memberId&token=`) |
-
----
-
-## Channels API (Team Group Chat)
-
-| Method | Path                        | Auth   | Description                           |
-| ------ | --------------------------- | ------ | ------------------------------------- |
-| `GET`  | `/v1/channels`              | Member | List channels for a team (`?teamId=`) |
-| `POST` | `/v1/channels`              | Member | Create a channel                      |
-| `GET`  | `/v1/channels/:id/messages` | Member | Cursor-paginated channel messages     |
-| `POST` | `/v1/channels/:id/messages` | Member | Send a message to a channel           |
-
-**WebSocket — Channels**
-
-| Protocol | Path              | Description                                             |
-| -------- | ----------------- | ------------------------------------------------------- |
-| `WS`     | `/v1/channels/ws` | Real-time channel stream (`?channelId=&teamId=&token=`) |
-
----
-
-## Attachments API
-
-Attachments can be linked to either a `clock` event or a `ticket`.
-
-| Method   | Path                  | Auth   | Description                                                       |
-| -------- | --------------------- | ------ | ----------------------------------------------------------------- |
-| `POST`   | `/v1/attachments`     | Member | Create attachment (video/image/link) for a clock or ticket entity |
-| `GET`    | `/v1/attachments`     | Member | List attachments (`?kind=clock\|ticket&id=`)                      |
-| `DELETE` | `/v1/attachments/:id` | Owner  | Delete attachment                                                 |
-
----
-
-## Media Library API
-
-| Method   | Path                      | Auth     | Description                               |
-| -------- | ------------------------- | -------- | ----------------------------------------- |
-| `POST`   | `/v1/media`               | Member   | Upload image to media library (multipart) |
-| `GET`    | `/v1/media`               | Member   | List own media items                      |
-| `GET`    | `/v1/media/user/:userId`  | Teammate | List media for a user                     |
-| `PATCH`  | `/v1/media/:id`           | Owner    | Update title, caption, altText            |
-| `POST`   | `/v1/media/:id/thumbnail` | Owner    | Upload JPEG thumbnail (multipart)         |
-| `DELETE` | `/v1/media/:id`           | Owner    | Delete media item (files cleaned up)      |
-
----
-
-## PulseVault (Video Upload) API
-
-PulseVault handles TUS-protocol video uploads. Videos are linked to either a ticket or the media library.
-
-| Method  | Path                 | Auth   | Description                                                         |
-| ------- | -------------------- | ------ | ------------------------------------------------------------------- |
-| `POST`  | `/v1/video/reserve`  | Member | Reserve a `videoid`; returns `videoid`, `uploadToken`, `uploadLink` |
-| `POST`  | `/v1/video`          | Token  | TUS — Create upload session                                         |
-| `PATCH` | `/v1/video/:videoid` | Token  | TUS — Upload chunk                                                  |
-| `HEAD`  | `/v1/video/:videoid` | Token  | TUS — Query upload offset                                           |
-| `GET`   | `/v1/video/:videoid` | Token  | Stream completed video                                              |
-
-**Legacy Compat Routes** (for old Pulse Cam devices — no `/v1` prefix, unauthenticated):
-
-| Method                | Path        | Description            |
-| --------------------- | ----------- | ---------------------- |
-| `POST`                | `/reserve`  | Reserve random videoid |
-| `POST/PATCH/HEAD/GET` | `/:videoid` | TUS upload / playback  |
-
----
-
-## Activity API
-
-| Method | Path                         | Auth     | Description                                    |
-| ------ | ---------------------------- | -------- | ---------------------------------------------- |
-| `GET`  | `/v1/activity/log`           | Member   | Cursor-paginated activity log for current user |
-| `GET`  | `/v1/users/:userId/activity` | Teammate | Activity log for a specific user               |
-
-Activity event types: `clock.in`, `clock.out`, `ticket.created`, `ticket.updated`, `pat.created`, `pat.revoked`.
-
----
-
-## Personal Access Tokens API
-
-| Method   | Path                | Auth   | Description                       |
-| -------- | ------------------- | ------ | --------------------------------- |
-| `GET`    | `/v1/me/tokens`     | Member | List PATs (no raw value)          |
-| `POST`   | `/v1/me/tokens`     | Member | Create PAT — raw value shown once |
-| `DELETE` | `/v1/me/tokens/:id` | Owner  | Revoke a PAT                      |
-
-PATs are stored as SHA-256 hashes. The raw token is returned only at creation time.
-
----
-
-## Presence API
-
-| Protocol | Path              | Description                                                                                                                               |
-| -------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `WS`     | `/v1/presence/ws` | Heartbeat channel — sends online snapshot on connect, then streams presence diffs. Client pings every 30 s. (`?watch=id1,id2,...&token=`) |
-
----
-
-## Health API
-
-| Method | Path         | Auth | Description                                                   |
-| ------ | ------------ | ---- | ------------------------------------------------------------- |
-| `GET`  | `/v1/health` | None | Returns `{ status, timestamp, version }`                      |
-| `GET`  | `/`          | None | Root info — `{ service: "timehuddle-backend", status: "ok" }` |
-
----
-
-## Cross-Module Data Flow
-
-```mermaid
-flowchart TD
-    Auth["Better Auth\n/api/auth/*"] -->|session / userId| UserAPI["Users & Org API\n/v1/me  /v1/organization"]
-    UserAPI -->|userId| TeamAPI["Teams API\n/v1/teams"]
-    TeamAPI -->|teamId| TicketAPI["Tickets API\n/v1/tickets"]
-    TeamAPI -->|teamId| ClockAPI["Clock API\n/v1/clock"]
-    TeamAPI -->|teamId| HuddleAPI["Huddle API\n/v1/huddle"]
-    TicketAPI -->|ticketId| TimerAPI["Timers API\n/v1/timers"]
-    TicketAPI -->|link to post| HuddleAPI
-    ClockAPI -->|stop → closeAll| TimerAPI
-    ClockAPI -->|notifyAdmins| NotifAPI["Notifications API\n/v1/notifications"]
-    TimerAPI -->|workSummary| WorkAPI["Work Summary\n/v1/work"]
-    TicketAPI -->|attach media| AttachAPI["Attachments\n/v1/attachments"]
-    TicketAPI -->|upload video| PulseAPI["PulseVault\n/v1/video"]
-    HuddleAPI -->|attach media| AttachAPI
-    TeamAPI -->|DM thread| MsgAPI["Messages\n/v1/messages"]
-    TeamAPI -->|group chat| ChanAPI["Channels\n/v1/channels"]
-    UserAPI -->|activity events| ActivityAPI["Activity\n/v1/activity"]
-    UserAPI -->|PATs| TokenAPI["Tokens\n/v1/me/tokens"]
-    UserAPI -->|presence| PresenceAPI["Presence\n/v1/presence/ws"]
-```
-
----
-
-## Startup & Background Jobs
-
-At boot (`backend/src/server.ts`), the backend runs:
-
-1. `connectDB()` — native MongoDB driver connection
-2. `ensureMongooseConnected()` — Mongoose connection (for `tickets`)
-3. `ensureIndexes()` — creates operational indexes if missing
-4. `initAgenda()` — starts the Agenda.js MongoDB-backed job scheduler
-
-**Agenda** runs three job types:
-
-- Fires a 4-hour break-reminder notification (`shift-4h-reminder`)
-- Opens the shift-end modal at 7h 45m (`shift-end-reminder`)
-- Auto-clocks-out the session at 8h if the user agreed (`shift-auto-clockout`)
-
----
-
-## Real-Time Channels Summary
-
-| Channel          | Protocol  | Route                  | Who subscribes                      |
-| ---------------- | --------- | ---------------------- | ----------------------------------- |
-| Notifications    | WebSocket | `/v1/notifications/ws` | Any authenticated user              |
-| Team clock state | WebSocket | `/v1/clock/ws`         | Team admins                         |
-| Ticket changes   | WebSocket | `/v1/tickets/ws`       | Team members                        |
-| Team events      | WebSocket | `/v1/teams/ws`         | Team members                        |
-| Huddle posts     | WebSocket | `/v1/huddle/ws`        | Team members                        |
-| DM thread        | WebSocket | `/v1/messages/ws`      | Thread participants                 |
-| Channel chat     | WebSocket | `/v1/channels/ws`      | Channel members                     |
-| Presence         | WebSocket | `/v1/presence/ws`      | Any user watching a set of user IDs |
-
-All WebSocket routes validate the `Origin` header against a trusted allowlist on upgrade. Capacitor native (`capacitor://localhost`) and `http://localhost:3000` are always trusted.
+## References
+
+- **Meteor Docs**: https://docs.meteor.com
+- **meteor-wormhole**: https://github.com/mieweb/meteor-wormhole
+- **Better Auth**: https://www.better-auth.com
+- **Production URL**: https://huddle.os.mieweb.org

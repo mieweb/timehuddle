@@ -1,8 +1,8 @@
 # TimeHuddle — Team Time Tracking & Collaboration
 
-Real-time team time tracking and collaboration platform built with React 19, Vite, Tailwind CSS 4, and TypeScript — powered by a Fastify + MongoDB backend.
+Real-time team time tracking and collaboration platform built with React 19, Vite, Tailwind CSS 4, and TypeScript — powered by a Meteor 3 + MongoDB backend.
 
-Features **Clock In/Out**, **Ticket Tracking**, **Timesheets**, **Team Management**, and **Direct Messaging**.
+Features **Clock In/Out**, **Ticket Tracking**, **Timesheets**, **Team Management**, and **Real-time Collaboration**.
 
 | Stack        | Version | Notes                              |
 | ------------ | ------- | ---------------------------------- |
@@ -55,41 +55,14 @@ Features **Clock In/Out**, **Ticket Tracking**, **Timesheets**, **Team Managemen
 
 ## Quick Start
 
-### Docker
+### Local Development Setup
 
-The fastest way to get everything running locally is Docker Compose — MongoDB, the backend, and the frontend all start together with live reload.
+#### 1. Prerequisites
 
-```bash
-docker compose up
-```
+- **Node.js 24.x** (run `nvm use` to activate the pinned version)
+- **MongoDB** running locally or accessible via connection string
 
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:4000
-- MongoDB: `mongodb://localhost:27017/timehuddle`
-
-`node_modules` are installed automatically inside the containers on first start. Subsequent starts skip the install and boot quickly.
-
-**Seed the database** with demo data after the containers are up:
-
-```bash
-sh scripts/seed-docker.sh
-```
-
-**Environment**: create `backend/.env.local` to override any backend env vars (it's optional and gitignored). At minimum the backend needs:
-
-```bash
-# backend/.env.local
-MONGODB_URI=mongodb://mongodb:27017/timehuddle
-TRUSTED_ORIGINS=http://localhost:3000
-```
-
-> These are already set in `docker-compose.yml` — only needed if you override them.
-
----
-
-### Manual Setup
-
-#### 1. Clone and install
+#### 2. Clone and install dependencies
 
 ```bash
 git clone https://github.com/mieweb/timehuddle.git
@@ -98,21 +71,45 @@ nvm use
 npm install
 ```
 
-#### 2. Start the backend
+#### 3. Configure environment
+
+Create a `.env` file in `meteor-backend/`:
 
 ```bash
-cd backend
-npm run dev        # Fastify API on http://localhost:4000
+# meteor-backend/.env
+MONGO_URL=mongodb://localhost:27017/timehuddle
+ROOT_URL=http://localhost:3100
+PORT=3100
 ```
 
-#### 3. Start the frontend
+#### 4. Start MongoDB (if not running)
 
 ```bash
-cd ..
-npm run dev        # Vite dev server on http://localhost:3000
+mongod --dbpath ~/data/db
 ```
 
-Open http://localhost:3000 — you'll see the login page. Create an account to get started.
+Or use Docker:
+
+```bash
+docker run -d -p 27017:27017 --name mongodb mongo:8
+```
+
+#### 5. Start the Meteor backend
+
+```bash
+cd meteor-backend
+npm install
+npm run dev  # Starts on http://localhost:3100
+```
+
+#### 6. Seed the database (optional)
+
+```bash
+# From meteor-backend directory
+npm run seed:dev
+```
+
+The frontend (Vite) runs on http://localhost:3000 and connects to the Meteor backend at http://localhost:3100.
 
 ### Environment
 
