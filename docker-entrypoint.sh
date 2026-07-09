@@ -3,10 +3,16 @@ set -e
 set -x
 
 echo "=================================================="
-echo "TimeHuddle PR Preview - FRONTEND ONLY"
+echo "TimeHuddle PR Preview - TEST MODE"
 echo "=================================================="
-echo "Starting frontend on port 3000..."
+echo "Container is alive!"
+echo "Node version: $(node --version)"
+echo "NPM version: $(npm --version)"
+echo "Working directory: $(pwd)"
+echo "Contents of /app:"
+ls -la /app
+echo "Contents of /app/dist:"
+ls -la /app/dist 2>&1 || echo "No dist directory"
 echo "=================================================="
-
-cd /app
-exec npm run preview -- --host 0.0.0.0 --port 3000
+echo "Sleeping forever to keep container alive..."
+exec tail -f /dev/null
