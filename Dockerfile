@@ -79,6 +79,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 LABEL org.mieweb.opensource-server.services.http.default-port=3000
 
 # Entrypoint
-ENTRYPOINT ["docker-entrypoint.sh"]
-
-ENTRYPOINT ["docker-entrypoint.sh"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
