@@ -9,6 +9,17 @@ echo "Backend:  http://localhost:4000"
 echo "MongoDB:  ${MONGODB_URI}"
 echo "=================================================="
 
+# Start MongoDB
+echo "Starting MongoDB..."
+mongod --fork --logpath /var/log/mongodb.log --dbpath /data/db --bind_ip_all
+
+echo "Waiting for MongoDB to be ready..."
+until mongosh --eval "db.adminCommand('ping')" > /dev/null 2>&1; do
+  echo "  MongoDB not ready yet, waiting..."
+  sleep 2
+done
+echo "✓ MongoDB is ready"
+
 # Start backend in background
 echo "Starting backend..."
 cd /app/meteor-backend
