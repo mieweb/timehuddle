@@ -80,6 +80,7 @@
     "remark-breaks": "^4.0.0",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
+    "serve": "^14.2.4",
     "tus-js-client": "^4.3.1",
     "yaml": "^2.8.1",
     "zod": "^4.3.6"
