@@ -69,4 +69,4 @@ meteor-backend/data/
 meteor-backend/uploads/
 
 # Other
-vendor/
+# vendor/ - needed for meteor-wormhole packages
