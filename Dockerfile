@@ -6,8 +6,9 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files (including workspace packages)
 COPY package*.json ./
+COPY packages ./packages
 COPY meteor-backend/package*.json ./meteor-backend/
 
 # Install ALL dependencies (including dev) for building
@@ -30,9 +31,12 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy package files and install production dependencies only
+# Copy package files and workspace packages
 COPY package*.json ./
+COPY packages ./packages
 COPY meteor-backend/package*.json ./meteor-backend/
+
+# Install production dependencies only
 RUN npm ci --omit=dev --ignore-scripts
 RUN cd meteor-backend && npm ci --omit=dev --ignore-scripts
 
