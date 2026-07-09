@@ -113,10 +113,6 @@ jobs:
                 "internalPort": 3000,
                 "externalHostname": "${{ steps.preview.outputs.container_name }}",
                 "externalDomainId": 1
-              },
-              {
-                "type": "mongodb",
-                "internalPort": 27017
               }
             ]
 
