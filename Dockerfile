@@ -6,14 +6,22 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Copy package files (including workspace packages)
-COPY package*.json ./
-COPY packages ./packages
-COPY meteor-backend/package*.json ./meteor-backend/
+# Copy root package files and workspace configuration
+COPY package.json package-lock.json ./
+
+# Copy workspace packages (packages/youtube etc.)
+COPY packages/youtube/package.json ./packages/youtube/
+COPY packages/README.md ./packages/
+
+# Copy meteor-backend package files
+COPY meteor-backend/package.json meteor-backend/package-lock.json ./meteor-backend/
+
+# Copy scripts directory (needed for prepare hook)
+COPY scripts ./scripts
 
 # Install ALL dependencies (including dev) for building
-RUN npm ci --ignore-scripts
-RUN cd meteor-backend && npm ci --ignore-scripts
+RUN npm install
+RUN cd meteor-backend && npm install
 
 # Copy source code
 COPY . .
@@ -50,14 +58,22 @@ RUN curl -fsSL "https://install.meteor.com/?release=3.4.1" | sh
 
 WORKDIR /app
 
-# Copy package files and workspace packages
-COPY package*.json ./
-COPY packages ./packages
-COPY meteor-backend/package*.json ./meteor-backend/
+# Copy root package files
+COPY package.json package-lock.json ./
+
+# Copy workspace packages structure
+COPY packages/youtube/package.json ./packages/youtube/
+COPY packages/README.md ./packages/
+
+# Copy meteor-backend package files
+COPY meteor-backend/package.json meteor-backend/package-lock.json ./meteor-backend/
 
 # Install production dependencies only
-RUN npm ci --omit=dev --ignore-scripts
-RUN cd meteor-backend && npm ci --omit=dev --ignore-scripts
+RUN npm install --production
+RUN cd workspace packages source (needed for imports)
+COPY packages/youtube ./packages/youtube
+
+# Copy meteor-backend && npm install --production
 
 # Copy built frontend from builder stage
 COPY --from=builder /app/dist ./dist
