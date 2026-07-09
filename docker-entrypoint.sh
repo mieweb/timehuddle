@@ -14,11 +14,17 @@ echo "Starting MongoDB..."
 mongod --fork --logpath /var/log/mongodb.log --dbpath /data/db --bind_ip_all
 
 echo "Waiting for MongoDB to be ready..."
-until mongosh --eval "db.adminCommand('ping')" > /dev/null 2>&1; do
-  echo "  MongoDB not ready yet, waiting..."
+for i in {1..30}; do
+  if mongosh --eval "db.adminCommand('ping')" > /dev/null 2>&1 || mongo --eval "db.adminCommand('ping')" > /dev/null 2>&1; then
+    echo "✓ MongoDB is ready"
+    break
+  fi
+  if [ $i -eq 30 ]; then
+    echo "⚠ MongoDB may not be ready, continuing anyway..."
+    break
+  fi
   sleep 2
 done
-echo "✓ MongoDB is ready"
 
 # Start backend in background
 echo "Starting backend..."
