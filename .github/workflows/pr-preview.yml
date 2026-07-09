@@ -99,12 +99,15 @@ jobs:
           template_name: ${{ needs.build-and-push.outputs.image_tag }}
           container_env_vars: |
             {
-              "MONGODB_URI": "mongodb://localhost:27017/timehuddle",
-              "NODE_ENV": "production",
+              "MONGO_URL": "mongodb://localhost:27017/timehuddle?directConnection=true",
+              "MONGO_OPLOG_URL": "mongodb://localhost:27017/local?directConnection=true",
+              "METEOR_PACKAGE_DIRS": "../vendor/meteor-wormhole/packages",
+              "METEOR_ALLOW_SUPERUSER": "true",
+              "METEOR_AGENDA_ENABLED": "true",
+              "CORS_ORIGINS": "http://localhost:3000",
               "APP_URL": "http://localhost:3000",
               "ROOT_URL": "http://localhost:3000",
-              "PORT": "4000",
-              "VITE_API_URL": "http://localhost:4000"
+              "VITE_METEOR_URL": "http://localhost:3100"
             }
           services: |
             [
@@ -112,6 +115,12 @@ jobs:
                 "type": "http",
                 "internalPort": 3000,
                 "externalHostname": "${{ steps.preview.outputs.container_name }}",
+                "externalDomainId": 1
+              },
+              {
+                "type": "http",
+                "internalPort": 3100,
+                "externalHostname": "${{ steps.preview.outputs.container_name }}-api",
                 "externalDomainId": 1
               }
             ]

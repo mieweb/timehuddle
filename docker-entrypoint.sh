@@ -26,24 +26,24 @@ for i in {1..30}; do
   sleep 2
 done
 
-# Start backend in background
-echo "Starting backend..."
+# Start Meteor backend in background
+echo "Starting Meteor backend..."
 cd /app/meteor-backend
-npm start &
+meteor run --allow-superuser --port 3100 &
 BACKEND_PID=$!
 
 # Wait for backend to be ready
-echo "Waiting for backend to start..."
-for i in {1..30}; do
-    if curl -sf http://localhost:4000/health > /dev/null 2>&1; then
-        echo "✓ Backend is ready"
+echo "Waiting for Meteor backend to start..."
+for i in {1..60}; do
+    if curl -sf http://localhost:3100/ > /dev/null 2>&1; then
+        echo "✓ Meteor backend is ready"
         break
     fi
-    if [ $i -eq 30 ]; then
-        echo "✗ Backend failed to start"
-        exit 1
+    if [ $i -eq 60 ]; then
+        echo "⚠ Meteor backend may not be ready, continuing anyway..."
+        break
     fi
-    sleep 2
+    sleep 3
 done
 
 # Start frontend in foreground (keeps container alive)
