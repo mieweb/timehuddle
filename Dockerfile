@@ -1,6 +1,26 @@
 # TimeHuddle PR Preview Container
 # Runs both frontend (Vite) and backend (Fastify) with MongoDB support
 
+# Build stage - includes devDependencies for building
+FROM node:22-slim AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY meteor-backend/package*.json ./meteor-backend/
+
+# Install ALL dependencies (including dev) for building
+RUN npm ci --ignore-scripts
+RUN cd meteor-backend && npm ci --ignore-scripts
+
+# Copy source code
+COPY . .
+
+# Build frontend
+RUN npm run build
+
+# Production stage - runtime only
 FROM node:22-slim
 
 # Install required system packages
@@ -8,22 +28,20 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files first for better layer caching
+# Copy package files and install production dependencies only
 COPY package*.json ./
 COPY meteor-backend/package*.json ./meteor-backend/
-
-# Install dependencies (skip scripts - no git hooks needed in container)
 RUN npm ci --omit=dev --ignore-scripts
 RUN cd meteor-backend && npm ci --omit=dev --ignore-scripts
 
-# Copy application code
-COPY . .
+# Copy built frontend from builder stage
+COPY --from=builder /app/dist ./dist
 
-# Build frontend
-RUN npm run build
+# Copy backend source and other necessary files
+COPY meteor-backend ./meteor-backend
+COPY docker-entrypoint.sh ./
 
 # Expose ports
 EXPOSE 3000 4000
