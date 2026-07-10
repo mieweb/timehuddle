@@ -60,7 +60,7 @@ echo "Meteor backend started (PID: $METEOR_PID)"
 # Wait for backend to be ready
 echo "Waiting for backend on port 3100..."
 for i in {1..60}; do
-  if curl -sf http://localhost:3100/ > /dev/null 2>&1; then
+  if curl -sf --max-time 3 http://localhost:3100/ > /dev/null 2>&1; then
     echo "Backend is ready!"
     break
   fi
@@ -79,7 +79,7 @@ echo "Frontend started (PID: $FRONTEND_PID)"
 # Wait for frontend to be ready
 echo "Waiting for frontend on port 3000..."
 for i in {1..30}; do
-  if curl -sf http://localhost:3000/ > /dev/null 2>&1; then
+  if curl -sf --max-time 3 http://localhost:3000/ > /dev/null 2>&1; then
     echo "Frontend is ready!"
     break
   fi
