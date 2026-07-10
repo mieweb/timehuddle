@@ -103,10 +103,35 @@ jobs:
           echo "container_name=${CONTAINER_NAME}" >> "$GITHUB_OUTPUT"
           echo "url=https://${CONTAINER_NAME}.os.mieweb.org" >> "$GITHUB_OUTPUT"
 
-      - uses: mieweb/launchpad@main
+      # This app bundles MongoDB + Meteor + the frontend into a single,
+      # heavy image (~50GB rootfs once unpacked), so Proxmox's vzcreate
+      # step routinely runs past mieweb/launchpad@main's built-in 300s
+      # wait — that composite action doesn't expose max_attempts/
+      # poll_interval, so we call the same lower-level actions it wraps
+      # directly, with a longer wait budget.
+      - name: Locate existing container
+        id: locate
+        uses: mieweb/opensource-server/.github/actions/get-container@main
         with:
-          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
           api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
+          hostname: ${{ steps.preview.outputs.container_name }}
+
+      - name: Delete existing container (recreate with new image)
+        if: steps.locate.outputs.found == 'true'
+        uses: mieweb/opensource-server/.github/actions/delete-container@main
+        with:
+          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
+          container_id: ${{ steps.locate.outputs.container_id }}
+
+      - name: Create container
+        id: create
+        uses: mieweb/opensource-server/.github/actions/create-container@main
+        with:
+          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
+          hostname: ${{ steps.preview.outputs.container_name }}
           template_name: ${{ needs.build-and-push.outputs.image_tag }}
           container_env_vars: |
             {
@@ -135,13 +160,39 @@ jobs:
               }
             ]
 
-      # TEMPORARY: mieweb/opensource-server's wait-for-job action only treats
-      # "failed"/"error"/"cancelled" as terminal — the API returns "failure",
-      # so it polls silently to a timeout instead of surfacing the real error.
-      # This step dumps the raw container record so we can see what actually
-      # went wrong. Remove once the deploy is reliably green.
+      - name: Wait for creation job to complete
+        if: steps.create.outputs.created == 'true'
+        uses: mieweb/opensource-server/.github/actions/wait-for-job@main
+        with:
+          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
+          job_id: ${{ steps.create.outputs.job_id }}
+          max_attempts: "90"
+          poll_interval: "10"
+
+      - name: Confirm container is running
+        id: status
+        uses: mieweb/opensource-server/.github/actions/get-container@main
+        with:
+          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
+          hostname: ${{ steps.preview.outputs.container_name }}
+
+      - name: Report container status
+        env:
+          CONTAINER_STATUS: ${{ steps.status.outputs.status }}
+        run: |
+          echo "Container status: ${CONTAINER_STATUS:-unknown}"
+          if [ "$CONTAINER_STATUS" != "running" ]; then
+            echo "::error::Container status is '${CONTAINER_STATUS:-unknown}', expected 'running'."
+            exit 1
+          fi
+
+      # TEMPORARY: dumps the raw container record and job log on failure
+      # so we can confirm whether the extended wait above was sufficient.
+      # Remove once the deploy is reliably green.
       - name: Debug — dump raw container record and job log
-        if: always()
+        if: failure()
         continue-on-error: true
         env:
           API_KEY: ${{ secrets.LAUNCHPAD_API_KEY }}
