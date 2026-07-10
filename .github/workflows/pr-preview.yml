@@ -17,19 +17,25 @@ jobs:
       packages: write
     outputs:
       image_tag: ${{ steps.image.outputs.tag }}
+      container_name: ${{ steps.container.outputs.name }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Delete failed container (if any)
-        env:
-          API_KEY: ${{ secrets.LAUNCHPAD_API_KEY }}
-          API_URL: ${{ secrets.LAUNCHPAD_API_URL }}
+      - id: container
+        name: Compute container name
         run: |
           REPO_NAME=$(basename "${{ github.repository }}")
           CONTAINER_NAME="${{ github.repository_owner }}-${REPO_NAME}-${{ github.head_ref }}"
           CONTAINER_NAME=${CONTAINER_NAME,,}
           CONTAINER_NAME=$(echo "$CONTAINER_NAME" | sed 's/[^a-z0-9-]/-/g')
+          echo "name=${CONTAINER_NAME}" >> "$GITHUB_OUTPUT"
 
+      - name: Delete failed container (if any)
+        env:
+          API_KEY: ${{ secrets.LAUNCHPAD_API_KEY }}
+          API_URL: ${{ secrets.LAUNCHPAD_API_URL }}
+          CONTAINER_NAME: ${{ steps.container.outputs.name }}
+        run: |
           RESPONSE=$(curl -s -H "Authorization: Bearer $API_KEY" -H "Accept: application/json" \
             "$API_URL/sites/1/containers?hostname=$CONTAINER_NAME")
 
@@ -67,9 +73,11 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile.simple
+          file: Dockerfile
           push: true
           tags: ${{ steps.image.outputs.tag }}
+          build-args: |
+            VITE_TIMECORE_URL=https://${{ steps.container.outputs.name }}-api.os.mieweb.org
           cache-from: type=registry,ref=${{ steps.image.outputs.tag }}-cache
           cache-to: type=registry,ref=${{ steps.image.outputs.tag }}-cache,mode=max
 
@@ -105,10 +113,9 @@ jobs:
               "METEOR_PACKAGE_DIRS": "../vendor/meteor-wormhole/packages",
               "METEOR_ALLOW_SUPERUSER": "true",
               "METEOR_AGENDA_ENABLED": "true",
-              "CORS_ORIGINS": "http://localhost:3000",
-              "APP_URL": "http://localhost:3000",
-              "ROOT_URL": "http://localhost:3000",
-              "VITE_METEOR_URL": "http://localhost:3100"
+              "CORS_ORIGINS": "https://${{ steps.preview.outputs.container_name }}.os.mieweb.org",
+              "APP_URL": "https://${{ steps.preview.outputs.container_name }}.os.mieweb.org",
+              "ROOT_URL": "https://${{ steps.preview.outputs.container_name }}-api.os.mieweb.org"
             }
           services: |
             [

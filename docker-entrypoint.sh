@@ -71,7 +71,7 @@ done
 # 3. Start frontend static server on port 3000
 echo "Starting frontend on port 3000..."
 cd /app
-npx serve dist -l 3000 &
+npx serve -s dist -l 3000 &
 
 FRONTEND_PID=$!
 echo "Frontend started (PID: $FRONTEND_PID)"

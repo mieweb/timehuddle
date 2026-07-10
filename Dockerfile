@@ -26,16 +26,18 @@ RUN cd meteor-backend && npm install
 # Copy source code
 COPY . .
 
-# Build frontend
-# Note: VITE_METEOR_URL needs to be configured at runtime based on the preview hostname
-# For now, we'll inject it via a script in the entrypoint
+# Build frontend against this preview's own backend hostname (Vite bakes
+# VITE_* vars in at build time, so this must be passed as a build arg —
+# a runtime env var on the container has no effect on the static bundle).
+ARG VITE_TIMECORE_URL
+ENV VITE_TIMECORE_URL=${VITE_TIMECORE_URL}
 RUN npm run build
 
 # Production stage - runtime only
 FROM node:22-slim
 
 # Install required system packages including MongoDB and Meteor dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gnupg \
     ca-certificates \
@@ -47,7 +49,7 @@ RUN apt-get update && apt-get install -y \
     && curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg \
     && echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] http://repo.mongodb.org/apt/debian bookworm/mongodb-org/7.0 main" | tee /etc/apt/sources.list.d/mongodb-org-7.0.list \
     && apt-get update \
-    && apt-get install -y mongodb-org \
+    && apt-get install -y --no-install-recommends mongodb-org \
     && mkdir -p /data/db \
     && chown -R node:node /data/db \
     && rm -rf /var/lib/apt/lists/*
@@ -68,18 +70,23 @@ COPY packages/README.md ./packages/
 # Copy meteor-backend package files
 COPY meteor-backend/package.json meteor-backend/package-lock.json ./meteor-backend/
 
+# Copy scripts (needed for prepare hook)
+COPY scripts ./scripts
+
 # Install production dependencies only
 RUN npm install --production
-RUN cd workspace packages source (needed for imports)
+
+# Copy workspace packages source (needed for imports)
 COPY packages/youtube ./packages/youtube
 
-# Copy meteor-backend && npm install --production
+# Copy meteor-backend source and install its production dependencies
+COPY meteor-backend ./meteor-backend
+RUN cd meteor-backend && npm install --production
 
 # Copy built frontend from builder stage
 COPY --from=builder /app/dist ./dist
 
-# Copy backend source, vendor packages, and entrypoint script
-COPY meteor-backend ./meteor-backend
+# Copy vendor packages and entrypoint script
 COPY vendor ./vendor
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

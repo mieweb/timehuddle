@@ -42,5 +42,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:3000/ || exit 1
 
-# Start frontend server
-CMD ["serve", "dist", "-l", "3000"]
+# Start frontend server (SPA fallback: rewrite unmatched routes to index.html)
+CMD ["serve", "-s", "dist", "-l", "3000"]
