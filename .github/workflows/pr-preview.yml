@@ -20,6 +20,8 @@ jobs:
       container_name: ${{ steps.container.outputs.name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - id: container
         name: Compute container name
