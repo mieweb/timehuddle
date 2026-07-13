@@ -146,6 +146,41 @@ jobs:
           max_attempts: "90"
           poll_interval: "10"
 
+      - name: Start container (trigger reconfigure job)
+        id: start
+        env:
+          API_KEY: ${{ secrets.LAUNCHPAD_API_KEY }}
+          API_URL: ${{ secrets.LAUNCHPAD_API_URL }}
+          CONTAINER_ID: ${{ steps.create.outputs.container_id }}
+        run: |
+          echo "Sending restart=true to start the provisioned container..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X PUT "$API_URL/api/v1/sites/1/containers/$CONTAINER_ID" \
+            -H "Authorization: Bearer $API_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" \
+            -d '{"restart":true}')
+          CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "HTTP $CODE — $BODY"
+          JOB_ID=$(echo "$BODY" | jq -r '.data.jobId // .jobId // empty')
+          echo "start_job_id=${JOB_ID}" >> "$GITHUB_OUTPUT"
+          if [ "$CODE" -ge 200 ] && [ "$CODE" -lt 300 ]; then
+            echo "Start job enqueued (job_id=${JOB_ID})."
+          else
+            echo "::warning::Start request returned HTTP $CODE — container may already be running or start failed."
+          fi
+
+      - name: Wait for container start job to complete
+        if: steps.start.outputs.start_job_id != ''
+        uses: mieweb/opensource-server/.github/actions/wait-for-job@main
+        with:
+          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
+          job_id: ${{ steps.start.outputs.start_job_id }}
+          max_attempts: "30"
+          poll_interval: "10"
+
       - name: Confirm container is running
         id: status
         uses: mieweb/opensource-server/.github/actions/get-container@main
