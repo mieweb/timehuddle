@@ -41,18 +41,19 @@ until mongosh --eval "db.adminCommand('ping')" > /dev/null 2>&1; do
 done
 echo "MongoDB is ready!"
 
-# 2. Start Meteor backend on port 3100 (bind to 0.0.0.0 so Proxmox reverse proxy can reach it)
+# 2. Start Meteor backend on port 3100 using the pre-built bundle.
+# Running `node main.js` instead of `meteor run` — no compilation, starts in seconds,
+# and does not require HOME to be set (plain Node.js process).
 echo "Starting Meteor backend on port 3100..."
-cd /app/meteor-backend
-METEOR_ALLOW_SUPERUSER=true \
-  MONGO_URL="${MONGO_URL:-mongodb://localhost:27017/timehuddle?directConnection=true}" \
+cd /app/meteor-bundle/bundle
+MONGO_URL="${MONGO_URL:-mongodb://localhost:27017/timehuddle?directConnection=true}" \
   MONGO_OPLOG_URL="${MONGO_OPLOG_URL:-mongodb://localhost:27017/local?directConnection=true}" \
-  METEOR_PACKAGE_DIRS="${METEOR_PACKAGE_DIRS:-../vendor/meteor-wormhole/packages}" \
   METEOR_AGENDA_ENABLED="${METEOR_AGENDA_ENABLED:-true}" \
   APP_URL="${APP_URL:-http://localhost:3000}" \
-  ROOT_URL="${ROOT_URL:-http://localhost:3000}" \
+  ROOT_URL="${ROOT_URL:-http://localhost:3100}" \
   CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:3000}" \
-  meteor run --port 0.0.0.0:3100 --production &
+  PORT=3100 \
+  node main.js &
 
 METEOR_PID=$!
 echo "Meteor backend started (PID: $METEOR_PID)"

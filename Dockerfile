@@ -79,15 +79,28 @@ RUN npm install --production
 # Copy workspace packages source (needed for imports)
 COPY packages/youtube ./packages/youtube
 
+# Copy vendor packages first — needed by Meteor at build time (METEOR_PACKAGE_DIRS)
+COPY vendor ./vendor
+
 # Copy meteor-backend source and install its production dependencies
 COPY meteor-backend ./meteor-backend
 RUN cd meteor-backend && npm install --production
 
+# Pre-build the Meteor bundle at image build time so the container starts in
+# seconds (plain `node main.js`) without any runtime compilation or HOME env var.
+WORKDIR /app/meteor-backend
+RUN HOME=/root \
+    METEOR_ALLOW_SUPERUSER=true \
+    METEOR_PACKAGE_DIRS=/app/vendor/meteor-wormhole/packages \
+    meteor build --server-only --directory /app/meteor-bundle && \
+    cd /app/meteor-bundle/bundle/programs/server && \
+    npm install --production
+WORKDIR /app
+
 # Copy built frontend from builder stage
 COPY --from=builder /app/dist ./dist
 
-# Copy vendor packages and entrypoint script
-COPY vendor ./vendor
+# Copy entrypoint script
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
