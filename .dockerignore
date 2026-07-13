@@ -67,6 +67,8 @@ backups/
 # Meteor legacy
 meteor-backend/data/
 meteor-backend/uploads/
+# Meteor build cache — causes EXDEV cross-device rename error in Docker
+meteor-backend/.meteor/local/
 
 # Other
 # vendor/ - needed for meteor-wormhole packages
