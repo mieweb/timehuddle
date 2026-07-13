@@ -37,14 +37,12 @@ RUN npm run build
 FROM node:22-slim
 
 # Install required system packages including MongoDB and Meteor dependencies
+# Runtime deps only — curl + mongod. Meteor is NOT installed here because the
+# bundle was already compiled in the builder stage; only `node main.js` runs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     gnupg \
     ca-certificates \
-    python3 \
-    g++ \
-    make \
-    git \
     procps \
     && curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg \
     && echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] http://repo.mongodb.org/apt/debian bookworm/mongodb-org/7.0 main" | tee /etc/apt/sources.list.d/mongodb-org-7.0.list \
@@ -53,10 +51,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /data/db \
     && chown -R node:node /data/db \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Meteor
-ENV METEOR_ALLOW_SUPERUSER=true
-RUN curl -fsSL "https://install.meteor.com/?release=3.4.1" | sh
 
 WORKDIR /app
 
