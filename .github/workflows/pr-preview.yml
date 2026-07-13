@@ -104,132 +104,16 @@ jobs:
           echo "url=https://${CONTAINER_NAME}.os.mieweb.org" >> "$GITHUB_OUTPUT"
           echo "api_url=https://${CONTAINER_NAME}-api.os.mieweb.org" >> "$GITHUB_OUTPUT"
 
-      # This app bundles MongoDB + Meteor + the frontend into a single,
-      # heavy image (~50GB rootfs once unpacked), so Proxmox's vzcreate
-      # step routinely runs past mieweb/launchpad@main's built-in 300s
-      # wait — that composite action doesn't expose max_attempts/
-      # poll_interval, so we call the same lower-level actions it wraps
-      # directly, with a longer wait budget.
-      - name: Locate existing container
-        id: locate
-        uses: mieweb/opensource-server/.github/actions/get-container@main
+      - name: Deploy preview container
+        uses: mieweb/launchpad@main
         with:
-          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
           api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
-          hostname: ${{ steps.preview.outputs.container_name }}
-
-      - name: Delete existing container (recreate with new image)
-        if: steps.locate.outputs.found == 'true'
-        uses: mieweb/opensource-server/.github/actions/delete-container@main
-        with:
           api_url: ${{ secrets.LAUNCHPAD_API_URL }}
-          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
-          container_id: ${{ steps.locate.outputs.container_id }}
-
-      - name: Prepare services configuration
-        id: services
-        run: |
-          FRONTEND_HOSTNAME="${{ steps.preview.outputs.container_name }}"
-          API_HOSTNAME="${{ steps.preview.outputs.container_name }}-api"
-          
-          cat > /tmp/services.json <<EOF
-          [
-            {
-              "type": "http",
-              "internalPort": 3000,
-              "externalHostname": "${FRONTEND_HOSTNAME}",
-              "externalDomainId": 1
-            },
-            {
-              "type": "http",
-              "internalPort": 3100,
-              "externalHostname": "${API_HOSTNAME}",
-              "externalDomainId": 1
-            }
-          ]
-          EOF
-          
-          SERVICES_JSON=$(cat /tmp/services.json | jq -c .)
-          echo "services=${SERVICES_JSON}" >> "$GITHUB_OUTPUT"
-          echo "--- Services Configuration ---"
-          echo "${SERVICES_JSON}" | jq .
-
-      - name: Create container
-        id: create
-        uses: mieweb/opensource-server/.github/actions/create-container@main
-        with:
-          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
-          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
-          hostname: ${{ steps.preview.outputs.container_name }}
           template_name: ${{ needs.build-and-push.outputs.image_tag }}
-          container_env_vars: |
-            {
-              "MONGO_URL": "mongodb://localhost:27017/timehuddle?directConnection=true",
-              "MONGO_OPLOG_URL": "mongodb://localhost:27017/local?directConnection=true",
-              "METEOR_PACKAGE_DIRS": "../vendor/meteor-wormhole/packages",
-              "METEOR_ALLOW_SUPERUSER": "true",
-              "METEOR_AGENDA_ENABLED": "true",
-              "CORS_ORIGINS": "${{ steps.preview.outputs.url }}",
-              "APP_URL": "${{ steps.preview.outputs.url }}",
-              "ROOT_URL": "${{ steps.preview.outputs.api_url }}"
-            }
-          services: ${{ steps.services.outputs.services }}
-
-      - name: Wait for creation job to complete
-        if: steps.create.outputs.created == 'true'
-        uses: mieweb/opensource-server/.github/actions/wait-for-job@main
-        with:
-          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
-          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
-          job_id: ${{ steps.create.outputs.job_id }}
-          max_attempts: "90"
-          poll_interval: "10"
-
-      - name: Confirm container is running
-        id: status
-        uses: mieweb/opensource-server/.github/actions/get-container@main
-        with:
-          api_url: ${{ secrets.LAUNCHPAD_API_URL }}
-          api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
-          hostname: ${{ steps.preview.outputs.container_name }}
-
-      - name: Report container status
-        env:
-          CONTAINER_STATUS: ${{ steps.status.outputs.status }}
-        run: |
-          echo "Container status: ${CONTAINER_STATUS:-unknown}"
-          if [ "$CONTAINER_STATUS" != "running" ]; then
-            echo "::error::Container status is '${CONTAINER_STATUS:-unknown}', expected 'running'."
-            exit 1
-          fi
-
-      # TEMPORARY: dumps the raw container record and job log on failure
-      # so we can confirm whether the extended wait above was sufficient.
-      # Remove once the deploy is reliably green.
-      - name: Debug — dump raw container record and job log
-        if: failure()
-        continue-on-error: true
-        env:
-          API_KEY: ${{ secrets.LAUNCHPAD_API_KEY }}
-          API_URL: ${{ secrets.LAUNCHPAD_API_URL }}
-          CONTAINER_NAME: ${{ steps.preview.outputs.container_name }}
-        run: |
-          echo "--- container record (by hostname) ---"
-          BODY=$(curl -s -H "Authorization: Bearer $API_KEY" -H "Accept: application/json" \
-            "$API_URL/api/v1/sites/1/containers?hostname=$CONTAINER_NAME")
-          echo "$BODY" | jq .
-
-          JOB_ID=$(echo "$BODY" | jq -r '.data[0].creationJobId // empty')
-          if [ -n "$JOB_ID" ]; then
-            echo "--- job $JOB_ID metadata ---"
-            curl -s -H "Authorization: Bearer $API_KEY" -H "Accept: application/json" \
-              "$API_URL/api/v1/jobs/$JOB_ID" | jq .
-            echo "--- job $JOB_ID status log rows ---"
-            curl -s -H "Authorization: Bearer $API_KEY" -H "Accept: application/json" \
-              "$API_URL/api/v1/jobs/$JOB_ID/status?limit=1000" | jq .
-          else
-            echo "No creationJobId found on container record — skipping job log fetch."
-          fi
+          container_env_vars: >-
+            {"MONGO_URL":"mongodb://localhost:27017/timehuddle?directConnection=true","MONGO_OPLOG_URL":"mongodb://localhost:27017/local?directConnection=true","METEOR_PACKAGE_DIRS":"../vendor/meteor-wormhole/packages","METEOR_ALLOW_SUPERUSER":"true","METEOR_AGENDA_ENABLED":"true","CORS_ORIGINS":"${{ steps.preview.outputs.url }}","APP_URL":"${{ steps.preview.outputs.url }}","ROOT_URL":"${{ steps.preview.outputs.api_url }}"}
+          services: >-
+            [{"type":"http","internalPort":3000,"externalHostname":"${{ steps.preview.outputs.container_name }}","externalDomainId":1},{"type":"http","internalPort":3100,"externalHostname":"${{ steps.preview.outputs.container_name }}-api","externalDomainId":1}]
 
       - name: Comment preview URL on PR
         uses: actions/github-script@v7
