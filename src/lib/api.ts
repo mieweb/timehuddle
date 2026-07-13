@@ -25,10 +25,11 @@ export const METEOR_BASE_URL: string =
 /**
  * Base URL for REST API fetch calls (wormhole, avatar, media, etc.).
  *
- * In a Capacitor native build the app loads from the device filesystem — there
- * is no Vite proxy, so we must hit the backend directly via VITE_TIMECORE_URL.
- * On the web (dev or production) we use '' (same-origin) so requests go
- * through the Vite proxy and avoid cross-origin issues.
+ * - Capacitor native: no Vite proxy, must use absolute VITE_TIMECORE_URL.
+ * - Web with explicit VITE_TIMECORE_URL (Docker/production preview): frontend
+ *   and backend are on different hostnames, so use the absolute backend URL.
+ * - Web without VITE_TIMECORE_URL (local dev): Vite proxy handles relative
+ *   paths, so use '' (same-origin).
  */
 const _isNativeWebView =
   typeof window !== 'undefined' &&
@@ -37,7 +38,13 @@ const _isNativeWebView =
     window as unknown as { Capacitor: { isNativePlatform: () => boolean } }
   ).Capacitor.isNativePlatform();
 
-export const METEOR_API_BASE: string = _isNativeWebView ? METEOR_BASE_URL : '';
+const _hasExplicitApiUrl = !!(
+  typeof import.meta !== 'undefined' &&
+  (import.meta as { env?: Record<string, string> }).env?.VITE_TIMECORE_URL
+);
+
+export const METEOR_API_BASE: string =
+  _isNativeWebView || _hasExplicitApiUrl ? METEOR_BASE_URL : '';
 
 const FORCED_TIMEZONE: string | undefined =
   (typeof import.meta !== 'undefined' &&
