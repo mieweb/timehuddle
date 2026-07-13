@@ -95,26 +95,19 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # (Docker ENTRYPOINT is not executed by LXC — systemd is needed)
 RUN apt-get update && apt-get install -y --no-install-recommends systemd && rm -rf /var/lib/apt/lists/*
 
-# Create systemd service so the app starts automatically on LXC boot
-RUN mkdir -p /etc/systemd/system /etc/systemd/system/multi-user.target.wants
-COPY --chmod=644 <<'EOF' /etc/systemd/system/timehuddle.service
-[Unit]
-Description=TimeHuddle PR Preview
-After=network.target
+# Create systemd service so the app starts automatically on LXC boot.
+# Using RUN printf instead of heredoc COPY (no syntax=1.4 header required).
+RUN mkdir -p /etc/systemd/system/multi-user.target.wants && \
+    printf '[Unit]\nDescription=TimeHuddle PR Preview\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=/usr/local/bin/docker-entrypoint.sh\nRestart=always\nRestartSec=10\nStandardOutput=journal\nStandardError=journal\n\n[Install]\nWantedBy=multi-user.target\n' \
+      > /etc/systemd/system/timehuddle.service && \
+    chmod 644 /etc/systemd/system/timehuddle.service && \
+    ln -sf /etc/systemd/system/timehuddle.service \
+           /etc/systemd/system/multi-user.target.wants/timehuddle.service
 
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/docker-entrypoint.sh
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-RUN ln -sf /etc/systemd/system/timehuddle.service \
-        /etc/systemd/system/multi-user.target.wants/timehuddle.service
+# rc.local fallback — runs on boot even in minimal LXC setups without full systemd
+RUN printf '#!/bin/sh -e\n/usr/local/bin/docker-entrypoint.sh >> /var/log/timehuddle.log 2>&1 &\nexit 0\n' \
+      > /etc/rc.local && \
+    chmod +x /etc/rc.local
 
 # Expose ports (3000=frontend, 3100=meteor backend)
 EXPOSE 3000 3100
