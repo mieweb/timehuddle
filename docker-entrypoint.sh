@@ -27,17 +27,36 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT
 
-# 1. Start MongoDB
+# 1. Start MongoDB as a single-node replica set (required for Meteor oplog tailing)
 echo "Starting MongoDB..."
 mkdir -p /data/db
 chown -R node:node /data/db || true
-mongod --fork --logpath /var/log/mongodb.log --dbpath /data/db --bind_ip 127.0.0.1 --port 27017
+mongod --fork --logpath /var/log/mongodb.log --dbpath /data/db --bind_ip 127.0.0.1 --port 27017 --replSet rs0
 
 # Wait for MongoDB to be ready
 echo "Waiting for MongoDB..."
 until mongosh --eval "db.adminCommand('ping')" > /dev/null 2>&1; do
   echo "  MongoDB not ready yet, waiting..."
   sleep 2
+done
+
+# Initiate replica set (idempotent — safe to run on every start)
+echo "Initiating replica set..."
+mongosh --eval "
+  try {
+    rs.status();
+    print('Replica set already initiated');
+  } catch(e) {
+    rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] });
+    print('Replica set initiated');
+  }
+" > /dev/null 2>&1
+
+# Wait for replica set PRIMARY to be elected
+echo "Waiting for replica set PRIMARY..."
+until mongosh --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q true; do
+  echo "  Waiting for PRIMARY..."
+  sleep 1
 done
 echo "MongoDB is ready!"
 
