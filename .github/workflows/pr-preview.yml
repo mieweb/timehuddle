@@ -102,6 +102,7 @@ jobs:
           CONTAINER_NAME=$(echo "$CONTAINER_NAME" | sed 's/[^a-z0-9-]/-/g')
           echo "container_name=${CONTAINER_NAME}" >> "$GITHUB_OUTPUT"
           echo "url=https://${CONTAINER_NAME}.os.mieweb.org" >> "$GITHUB_OUTPUT"
+          echo "api_url=https://${CONTAINER_NAME}-api.os.mieweb.org" >> "$GITHUB_OUTPUT"
 
       # This app bundles MongoDB + Meteor + the frontend into a single,
       # heavy image (~50GB rootfs once unpacked), so Proxmox's vzcreate
@@ -125,6 +126,34 @@ jobs:
           api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
           container_id: ${{ steps.locate.outputs.container_id }}
 
+      - name: Prepare services configuration
+        id: services
+        run: |
+          FRONTEND_HOSTNAME="${{ steps.preview.outputs.container_name }}"
+          API_HOSTNAME="${{ steps.preview.outputs.container_name }}-api"
+          
+          cat > /tmp/services.json <<EOF
+          [
+            {
+              "type": "http",
+              "internalPort": 3000,
+              "externalHostname": "${FRONTEND_HOSTNAME}",
+              "externalDomainId": 1
+            },
+            {
+              "type": "http",
+              "internalPort": 3100,
+              "externalHostname": "${API_HOSTNAME}",
+              "externalDomainId": 1
+            }
+          ]
+          EOF
+          
+          SERVICES_JSON=$(cat /tmp/services.json | jq -c .)
+          echo "services=${SERVICES_JSON}" >> "$GITHUB_OUTPUT"
+          echo "--- Services Configuration ---"
+          echo "${SERVICES_JSON}" | jq .
+
       - name: Create container
         id: create
         uses: mieweb/opensource-server/.github/actions/create-container@main
@@ -140,25 +169,11 @@ jobs:
               "METEOR_PACKAGE_DIRS": "../vendor/meteor-wormhole/packages",
               "METEOR_ALLOW_SUPERUSER": "true",
               "METEOR_AGENDA_ENABLED": "true",
-              "CORS_ORIGINS": "https://${{ steps.preview.outputs.container_name }}.os.mieweb.org",
-              "APP_URL": "https://${{ steps.preview.outputs.container_name }}.os.mieweb.org",
-              "ROOT_URL": "https://${{ steps.preview.outputs.container_name }}-api.os.mieweb.org"
+              "CORS_ORIGINS": "${{ steps.preview.outputs.url }}",
+              "APP_URL": "${{ steps.preview.outputs.url }}",
+              "ROOT_URL": "${{ steps.preview.outputs.api_url }}"
             }
-          services: |
-            [
-              {
-                "type": "http",
-                "internalPort": 3000,
-                "externalHostname": "${{ steps.preview.outputs.container_name }}",
-                "externalDomainId": 1
-              },
-              {
-                "type": "http",
-                "internalPort": 3100,
-                "externalHostname": "${{ steps.preview.outputs.container_name }}-api",
-                "externalDomainId": 1
-              }
-            ]
+          services: ${{ steps.services.outputs.services }}
 
       - name: Wait for creation job to complete
         if: steps.create.outputs.created == 'true'
@@ -220,6 +235,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           PREVIEW_URL: ${{ steps.preview.outputs.url }}
+          API_URL: ${{ steps.preview.outputs.api_url }}
         with:
           script: |
             const marker = '<!-- preview-url-comment -->';
@@ -227,7 +243,8 @@ jobs:
             ## 🚀 Preview Deployment Ready
 
             Your preview environment is live at:
-            **${ process.env.PREVIEW_URL }**
+            - **Frontend:** ${ process.env.PREVIEW_URL }
+            - **API:** ${ process.env.API_URL }
 
             _This preview will be automatically deleted when the PR is closed._
             `;
