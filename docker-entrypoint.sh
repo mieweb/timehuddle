@@ -40,17 +40,11 @@ until mongosh --eval "db.adminCommand('ping')" > /dev/null 2>&1; do
   sleep 2
 done
 
-# Initiate replica set (idempotent — safe to run on every start)
+# Initiate replica set. rs.status() returns {ok:0} instead of throwing in mongosh v2+,
+# so try/catch is unreliable — always call rs.initiate() (returns AlreadyInitialized if
+# already done, which is safe to ignore).
 echo "Initiating replica set..."
-mongosh --eval "
-  try {
-    rs.status();
-    print('Replica set already initiated');
-  } catch(e) {
-    rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] });
-    print('Replica set initiated');
-  }
-" > /dev/null 2>&1
+mongosh --eval "rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] })" > /dev/null 2>&1 || true
 
 # Wait for replica set PRIMARY to be elected
 echo "Waiting for replica set PRIMARY..."
