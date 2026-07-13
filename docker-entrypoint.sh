@@ -54,22 +54,27 @@ until mongosh --eval "rs.isMaster().ismaster" 2>/dev/null | grep -q true; do
 done
 echo "MongoDB is ready!"
 
-# 2. Start Meteor backend on port 3100 using the pre-built bundle.
-# Running `node main.js` instead of `meteor run` — no compilation, starts in seconds,
-# and does not require HOME to be set (plain Node.js process).
-echo "Starting Meteor backend on port 3100..."
-cd /app/meteor-bundle/bundle
-MONGO_URL="${MONGO_URL:-mongodb://localhost:27017/timehuddle?directConnection=true}" \
-  MONGO_OPLOG_URL="${MONGO_OPLOG_URL:-mongodb://localhost:27017/local?directConnection=true}" \
-  METEOR_AGENDA_ENABLED="${METEOR_AGENDA_ENABLED:-true}" \
-  APP_URL="${APP_URL:-http://localhost:3000}" \
-  ROOT_URL="${ROOT_URL:-http://localhost:3100}" \
-  CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:3000}" \
-  PORT=3100 \
-  node main.js &
+# Function to start/restart the Meteor backend (used for initial start + auto-restart)
+start_meteor() {
+  cd /app/meteor-bundle/bundle
+  MONGO_URL="${MONGO_URL:-mongodb://localhost:27017/timehuddle?replicaSet=rs0}" \
+    MONGO_OPLOG_URL="${MONGO_OPLOG_URL:-mongodb://localhost:27017/local?replicaSet=rs0}" \
+    METEOR_AGENDA_ENABLED="${METEOR_AGENDA_ENABLED:-true}" \
+    APP_URL="${APP_URL:-http://localhost:3000}" \
+    ROOT_URL="${ROOT_URL:-http://localhost:3100}" \
+    CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:3000}" \
+    PORT=3100 \
+    node main.js &
+  METEOR_PID=$!
+  echo "Meteor backend (re)started (PID: $METEOR_PID)"
+}
 
-METEOR_PID=$!
-echo "Meteor backend started (PID: $METEOR_PID)"
+# 2. Start Meteor backend on port 3100 using the pre-built bundle.
+# Running `node main.js` instead of `meteor run` — no compilation, starts in seconds.
+echo "Starting Meteor backend on port 3100..."
+echo "  CORS_ORIGINS=${CORS_ORIGINS:-<not set>}"
+echo "  ROOT_URL=${ROOT_URL:-<not set>}"
+start_meteor
 
 # Wait for backend to be ready
 echo "Waiting for backend on port 3100..."
@@ -109,11 +114,14 @@ echo "   - Frontend: http://localhost:3000"
 echo "=================================================="
 
 # Keep script running and monitor processes
+METEOR_RESTART_COUNT=0
 while true; do
-  # Check if Meteor is still running
+  # Check if Meteor is still running — restart it if not (keep frontend alive)
   if ! kill -0 $METEOR_PID 2>/dev/null; then
-    echo "ERROR: Meteor backend died!"
-    exit 1
+    METEOR_RESTART_COUNT=$((METEOR_RESTART_COUNT + 1))
+    echo "WARNING: Meteor backend died (restart #${METEOR_RESTART_COUNT}), restarting..."
+    sleep 3
+    start_meteor
   fi
   
   # Check if frontend is still running

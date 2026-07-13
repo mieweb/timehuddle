@@ -52,10 +52,40 @@ import { bearerContextMiddleware } from './bearer-context';
 /**
  * CORS for ALL routes — the Vite frontend on another origin calls both DDP and
  * HTTP endpoints. Global middleware catches everything before any other handlers.
+ *
+ * CORS_ORIGINS: comma-separated list of allowed origins, or '*' for all.
+ * If unset, falls back to origins sharing the same base domain as ROOT_URL
+ * (handles PR preview deployments where env vars may not propagate).
  */
-const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3000')
-  .split(',')
-  .map((s) => s.trim());
+const _rawCorsOrigins = process.env.CORS_ORIGINS || '';
+const CORS_ALLOW_ALL = _rawCorsOrigins === '*';
+const ALLOWED_ORIGINS = _rawCorsOrigins
+  ? _rawCorsOrigins.split(',').map((s) => s.trim()).filter(Boolean)
+  : [];
+
+// Derive base domain from ROOT_URL for same-deployment auto-allow
+// e.g. ROOT_URL=https://foo-api.os.mieweb.org → base domain = os.mieweb.org
+const _rootUrl = process.env.ROOT_URL || '';
+const _rootHostname = (() => {
+  try { return new URL(_rootUrl).hostname; } catch { return ''; }
+})();
+const _baseDomain = _rootHostname.split('.').slice(-2).join('.');
+
+function isOriginAllowed(origin) {
+  if (!origin) return false;
+  if (CORS_ALLOW_ALL) return true;
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  // Auto-allow any origin on the same base domain as ROOT_URL (preview envs)
+  if (_baseDomain && _baseDomain !== 'localhost') {
+    try {
+      const h = new URL(origin).hostname;
+      if (h === _baseDomain || h.endsWith('.' + _baseDomain)) return true;
+    } catch { /* ignore */ }
+  }
+  return false;
+}
+
+console.log('[cors] CORS_ORIGINS:', _rawCorsOrigins || '(not set)', '| ROOT_URL base domain:', _baseDomain || '(none)');
 
 // Global CORS — catches ALL routes (DDP, /api, /uploads, etc.)
 // EXCEPT /uploads/tus which handles its own protocol-specific OPTIONS
@@ -64,9 +94,9 @@ WebApp.rawConnectHandlers.use((req, res, next) => {
   if (req.url?.startsWith('/uploads/tus')) {
     return next();
   }
-  
+
   const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+  if (isOriginAllowed(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
