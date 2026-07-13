@@ -41,7 +41,7 @@ until mongosh --eval "db.adminCommand('ping')" > /dev/null 2>&1; do
 done
 echo "MongoDB is ready!"
 
-# 2. Start Meteor backend on port 3100
+# 2. Start Meteor backend on port 3100 (bind to 0.0.0.0 so Proxmox reverse proxy can reach it)
 echo "Starting Meteor backend on port 3100..."
 cd /app/meteor-backend
 METEOR_ALLOW_SUPERUSER=true \
@@ -52,7 +52,7 @@ METEOR_ALLOW_SUPERUSER=true \
   APP_URL="${APP_URL:-http://localhost:3000}" \
   ROOT_URL="${ROOT_URL:-http://localhost:3000}" \
   CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:3000}" \
-  meteor run --port 3100 --production &
+  meteor run --port 0.0.0.0:3100 --production &
 
 METEOR_PID=$!
 echo "Meteor backend started (PID: $METEOR_PID)"
@@ -68,10 +68,10 @@ for i in {1..60}; do
   sleep 2
 done
 
-# 3. Start frontend static server on port 3000
+# 3. Start frontend static server on port 3000 (bind to 0.0.0.0 so Proxmox reverse proxy can reach it)
 echo "Starting frontend on port 3000..."
 cd /app
-npx serve -s dist -l 3000 &
+npx serve -s dist -l tcp:0.0.0.0:3000 &
 
 FRONTEND_PID=$!
 echo "Frontend started (PID: $FRONTEND_PID)"

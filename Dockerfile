@@ -91,6 +91,31 @@ COPY vendor ./vendor
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# Install systemd for auto-start in Proxmox LXC containers
+# (Docker ENTRYPOINT is not executed by LXC — systemd is needed)
+RUN apt-get update && apt-get install -y --no-install-recommends systemd && rm -rf /var/lib/apt/lists/*
+
+# Create systemd service so the app starts automatically on LXC boot
+RUN mkdir -p /etc/systemd/system /etc/systemd/system/multi-user.target.wants
+COPY --chmod=644 <<'EOF' /etc/systemd/system/timehuddle.service
+[Unit]
+Description=TimeHuddle PR Preview
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/docker-entrypoint.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+EOF
+RUN ln -sf /etc/systemd/system/timehuddle.service \
+        /etc/systemd/system/multi-user.target.wants/timehuddle.service
+
 # Expose ports (3000=frontend, 3100=meteor backend)
 EXPOSE 3000 3100
 
@@ -101,5 +126,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 # Set labels for Proxmox Launchpad
 LABEL org.mieweb.opensource-server.services.http.default-port=3000
 
-# Entrypoint
+# Entrypoint (used when run as a plain Docker container; LXC uses systemd instead)
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
