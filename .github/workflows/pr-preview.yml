@@ -90,6 +90,32 @@ jobs:
           cache-from: type=registry,ref=${{ steps.image.outputs.tag }}-cache
           cache-to: type=registry,ref=${{ steps.image.outputs.tag }}-cache,mode=max
 
+      # Launchpad pulls images anonymously — the package must be public.
+      # Requires GHCR_ADMIN_TOKEN secret: a PAT from an org admin with write:packages scope.
+      # One-time manual fallback: https://github.com/orgs/mieweb/packages/container/timehuddle/settings
+      - name: Make GHCR image public (Launchpad requires anonymous pull)
+        env:
+          GHCR_ADMIN_TOKEN: ${{ secrets.GHCR_ADMIN_TOKEN }}
+        run: |
+          if [ -z "$GHCR_ADMIN_TOKEN" ]; then
+            echo "::warning::GHCR_ADMIN_TOKEN secret not set — skipping auto-visibility. Ensure ghcr.io/mieweb/timehuddle is manually set to public."
+            exit 0
+          fi
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X PATCH "https://api.github.com/orgs/mieweb/packages/container/timehuddle" \
+            -H "Authorization: Bearer $GHCR_ADMIN_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            -d '{"visibility":"public"}')
+          CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          if [ "$CODE" = "200" ]; then
+            echo "✅ Package visibility set to public (HTTP $CODE)"
+          else
+            echo "::warning::Could not set package visibility: HTTP $CODE — $BODY"
+            echo "Ensure ghcr.io/mieweb/timehuddle is manually set to public."
+          fi
+
   # ── Deploy via Launchpad (same pattern as FHIRTogether — proven to work) ──
   deploy-preview:
     if: github.event.action != 'closed'
