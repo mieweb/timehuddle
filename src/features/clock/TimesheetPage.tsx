@@ -446,7 +446,7 @@ export const TimesheetPage: React.FC = () => {
   }
 
   return (
-    <AppPage className="flex h-full min-h-0 flex-col">
+    <AppPage width="wide" fill>
       {/* Fixed top: filters + summary stats */}
       <div className="flex shrink-0 flex-col gap-3">
         {/* Date range filter + Add Entry */}

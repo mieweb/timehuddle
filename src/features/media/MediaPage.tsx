@@ -523,7 +523,7 @@ export const MediaPage: React.FC = () => {
   };
 
   return (
-    <AppPage fullWidth>
+    <AppPage>
       {/* Toolbar */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         {/* Upload button */}
