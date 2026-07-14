@@ -91,16 +91,22 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
 
   useEffect(() => {
     if (!invitationToken) return;
+    let active = true;
     const ddp = getDdpClient();
     void ddp
       .getTeamInvitation(invitationToken)
       .then((invitation) => {
+        if (!active) return;
         setEmail(invitation.email);
         setInvitedTeamName(invitation.teamName);
       })
       .catch((err: unknown) => {
+        if (!active) return;
         setError((err as Error).message || 'This invitation is no longer available.');
       });
+    return () => {
+      active = false;
+    };
   }, [invitationToken]);
 
   const acceptInvitation = async (ddp: ReturnType<typeof getDdpClient>) => {
