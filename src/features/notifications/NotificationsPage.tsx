@@ -29,6 +29,7 @@ import { MESSAGES_PENDING_THREAD_KEY } from '../../lib/constants';
 import { useSession } from '../../lib/useSession';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { EmptyState } from '../../ui/EmptyState';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useShiftReminder } from './ShiftReminderContext';
 
@@ -454,15 +455,11 @@ export const NotificationsPage: React.FC = () => {
           })}
         </ul>
       ) : (
-        <div className="py-16 text-center">
-          <div className="mb-4 text-4xl" aria-hidden>
-            🔔
-          </div>
-          <Text variant="muted">No notifications yet</Text>
-          <Text variant="muted" size="sm" className="mt-1 block">
-            Team invites and new messages will show up here.
-          </Text>
-        </div>
+        <EmptyState
+          icon="🔔"
+          title="No notifications yet"
+          description="Team invites and new messages will show up here."
+        />
       )}
 
       <Modal open={!!invitePreview} onOpenChange={(open) => !open && closeInviteModal()} size="lg">

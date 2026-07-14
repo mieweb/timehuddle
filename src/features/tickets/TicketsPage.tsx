@@ -67,6 +67,7 @@ import { useClockToggle } from '../../lib/useClockToggle';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { EmptyState } from '../../ui/EmptyState';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
@@ -1355,15 +1356,18 @@ export const TicketsPage: React.FC = () => {
             ) : ticketsLoading ? (
               <TicketListSkeleton />
             ) : (
-              <div className="px-4 py-10 text-center">
-                <Text variant="muted" size="sm">
-                  {searchQuery
-                    ? 'No tickets match your search.'
+              <EmptyState
+                title={
+                  searchQuery
+                    ? 'No tickets match your search'
                     : statusFilter === 'open'
-                      ? 'No open tickets. Create one to get started!'
-                      : 'No closed tickets.'}
-                </Text>
-              </div>
+                      ? 'No open tickets'
+                      : 'No closed tickets'
+                }
+                description={
+                  !searchQuery && statusFilter === 'open' ? 'Create one to get started.' : undefined
+                }
+              />
             )}
           </div>
         </Card>

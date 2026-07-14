@@ -54,6 +54,7 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
+import { EmptyState } from '../../ui/EmptyState';
 import { useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 
@@ -750,11 +751,7 @@ export const WorkPage: React.FC = () => {
 
       {/* ── Day View ── */}
       {dayEntries.length === 0 ? (
-        <div className="py-10 text-center">
-          <Text variant="muted" size="sm">
-            No timers for this day. Create one with "+".
-          </Text>
-        </div>
+        <EmptyState title="No timers for this day" description='Create one with "+".' />
       ) : (
         <Card padding="none">
           <Table>
