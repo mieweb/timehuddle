@@ -1,10 +1,8 @@
 name: PR Preview Environment
 
 # Build Docker image and deploy preview container using Proxmox Launchpad.
-# On PR close, the container is automatically deleted.
-#
-# Base image: ghcr.io/mieweb/opensource-server/nodejs (systemd PID 1, Node 24, SSH)
-# Services:   port 3000 (frontend), port 3100 (Meteor API), port 22 (SSH)
+# Pattern mirrors the working FHIRTogether workflow — uses mieweb/launchpad@main
+# directly instead of lower-level sub-actions.
 
 on:
   pull_request:
@@ -30,9 +28,9 @@ jobs:
             const body = `${marker}
             ## ⏳ Preview Build In Progress
 
-            Docker image is building — Meteor bundle compilation takes a few minutes.
+            Docker image is building — this takes a few minutes (Meteor bundle compilation happens at image-build time, not container start time).
 
-            A new comment will appear here when the preview is ready.
+            A new comment will appear here when the preview is ready or if the build fails.
             `;
             const { owner, repo } = context.repo;
             const issue_number = parseInt(process.env.PR_NUMBER);
@@ -88,16 +86,19 @@ jobs:
           tags: ${{ steps.image.outputs.tag }}
           build-args: |
             VITE_TIMECORE_URL=https://${{ steps.container.outputs.name }}-api.os.mieweb.org
+          # Aggressive layer cache — Meteor package installs are the slow part
           cache-from: type=registry,ref=${{ steps.image.outputs.tag }}-cache
           cache-to: type=registry,ref=${{ steps.image.outputs.tag }}-cache,mode=max
 
-      # Launchpad pulls images anonymously — package must be public.
-      - name: Make GHCR image public
+      # Launchpad pulls images anonymously — the package must be public.
+      # Requires GHCR_ADMIN_TOKEN secret: a PAT from an org admin with write:packages scope.
+      # One-time manual fallback: https://github.com/orgs/mieweb/packages/container/timehuddle/settings
+      - name: Make GHCR image public (Launchpad requires anonymous pull)
         env:
           GHCR_ADMIN_TOKEN: ${{ secrets.GHCR_ADMIN_TOKEN }}
         run: |
           if [ -z "$GHCR_ADMIN_TOKEN" ]; then
-            echo "::warning::GHCR_ADMIN_TOKEN not set — ensure ghcr.io/mieweb/timehuddle is public."
+            echo "::warning::GHCR_ADMIN_TOKEN secret not set — skipping auto-visibility. Ensure ghcr.io/mieweb/timehuddle is manually set to public."
             exit 0
           fi
           RESPONSE=$(curl -s -w "\n%{http_code}" \
@@ -107,13 +108,15 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             -d '{"visibility":"public"}')
           CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
           if [ "$CODE" = "200" ]; then
-            echo "✅ Package visibility set to public"
+            echo "✅ Package visibility set to public (HTTP $CODE)"
           else
-            echo "::warning::Could not set package visibility: HTTP $CODE"
+            echo "::warning::Could not set package visibility: HTTP $CODE — $BODY"
+            echo "Ensure ghcr.io/mieweb/timehuddle is manually set to public."
           fi
 
-  # ── Deploy via Launchpad ─────────────────────────────────────────────────
+  # ── Deploy via Launchpad (same pattern as FHIRTogether — proven to work) ──
   deploy-preview:
     if: github.event.action != 'closed'
     needs: build-and-push
@@ -132,9 +135,8 @@ jobs:
           echo "url=https://${CONTAINER_NAME}.os.mieweb.org" >> "$GITHUB_OUTPUT"
           echo "api_url=https://${CONTAINER_NAME}-api.os.mieweb.org" >> "$GITHUB_OUTPUT"
 
-      # Deploy using MIEWeb nodejs base image (systemd + SSH).
-      # Services: HTTP 3000 (frontend), HTTP 3100 (Meteor API), TCP 22 (SSH).
-      # Env vars land in /etc/environment and are picked up by systemd units.
+      # Uses mieweb/launchpad@main — handles locate/delete/create/wait internally.
+      # Two http services: port 3000 (frontend) and port 3100 (Meteor backend).
       - name: Deploy via Launchpad
         uses: mieweb/launchpad@main
         with:
@@ -144,7 +146,7 @@ jobs:
           container_env_vars: >-
             {"MONGO_URL":"mongodb://localhost:27017/timehuddle?replicaSet=rs0","MONGO_OPLOG_URL":"mongodb://localhost:27017/local?replicaSet=rs0","METEOR_AGENDA_ENABLED":"true","CORS_ORIGINS":"${{ steps.preview.outputs.url }}","APP_URL":"${{ steps.preview.outputs.url }}","ROOT_URL":"${{ steps.preview.outputs.api_url }}"}
           services: >-
-            [{"type":"http","internalPort":3000,"externalHostname":"${{ steps.preview.outputs.container_name }}","externalDomainId":1},{"type":"http","internalPort":3100,"externalHostname":"${{ steps.preview.outputs.container_name }}-api","externalDomainId":1},{"type":"tcp","internalPort":22,"externalHostname":"${{ steps.preview.outputs.container_name }}","externalDomainId":1}]
+            [{"type":"http","internalPort":3000,"externalHostname":"${{ steps.preview.outputs.container_name }}","externalDomainId":1},{"type":"http","internalPort":3100,"externalHostname":"${{ steps.preview.outputs.container_name }}-api","externalDomainId":1}]
 
       - name: Comment preview URL on PR
         if: success()
@@ -152,7 +154,6 @@ jobs:
         env:
           PREVIEW_URL: ${{ steps.preview.outputs.url }}
           API_URL: ${{ steps.preview.outputs.api_url }}
-          CONTAINER_NAME: ${{ steps.preview.outputs.container_name }}
         with:
           script: |
             const marker = '<!-- preview-url-comment -->';
@@ -161,11 +162,10 @@ jobs:
 
             | Service | URL |
             |---------|-----|
-            | **App** | [${ process.env.PREVIEW_URL }](${ process.env.PREVIEW_URL }) |
-            | **API** (Meteor) | ${ process.env.API_URL } |
-            | **SSH** | \`ssh ${ process.env.CONTAINER_NAME }.os.mieweb.org\` |
+            | Frontend | ${ process.env.PREVIEW_URL } |
+            | API (Meteor backend) | ${ process.env.API_URL } |
 
-            _Preview auto-deletes when this PR is closed._
+            _Preview will be automatically deleted when this PR is closed._
             `;
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request.number;
@@ -188,7 +188,7 @@ jobs:
             const body = `${marker}
             ## ❌ Preview Build Failed
 
-            [View logs](${ process.env.RUN_URL }) for details.
+            The preview deployment failed. [View logs](${ process.env.RUN_URL }) for details.
             `;
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request.number;
@@ -210,11 +210,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Omitting template_name tells Launchpad to delete the container
       - uses: mieweb/launchpad@main
         with:
           api_key: ${{ secrets.LAUNCHPAD_API_KEY }}
           api_url: ${{ secrets.LAUNCHPAD_API_URL }}
+          # Omitting template_name tells launchpad to delete the container
 
       - name: Comment cleanup on PR
         uses: actions/github-script@v7
