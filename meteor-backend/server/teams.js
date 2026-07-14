@@ -11,6 +11,7 @@ import { sendEmail } from './email';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 const INVITATION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_APP_URL = 'http://localhost:3000';
 
 Meteor.startup(async () => {
   try {
@@ -506,7 +507,7 @@ Meteor.methods({
       throw error;
     }
 
-    const appUrl = (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+    const appUrl = (process.env.APP_URL || DEFAULT_APP_URL).replace(/\/$/, '');
     const invitationUrl = `${appUrl}/app?mode=signup&invite=${encodeURIComponent(token)}`;
     try {
       await sendEmail({

@@ -32,7 +32,7 @@ let pendingInvitationToken: string;
 
 const MAILPIT_URL = process.env.MAILPIT_URL ?? 'http://localhost:8025';
 
-function randomInvitationToken(seed: string): string {
+function generateTestInvitationToken(seed: string): string {
   return createHash('sha256').update(`${seed}-${Date.now()}-${Math.random()}`).digest('hex');
 }
 
@@ -435,7 +435,7 @@ describe('teams.invite', () => {
     ['expired', new Date(Date.now() - 1_000), /expired/i],
     ['revoked', new Date(Date.now() + 60_000), /revoked/i],
   ])('rejects %s invitations with clear feedback', async (status, expiresAt, errorPattern) => {
-    const token = randomInvitationToken(status);
+    const token = generateTestInvitationToken(status);
     const db = await getDb();
     await db.collection('team_invitations').insertOne({
       _id: new ObjectId(),
