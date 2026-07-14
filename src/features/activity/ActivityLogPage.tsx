@@ -15,6 +15,7 @@ import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
+import { EmptyState } from '../../ui/EmptyState';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -241,15 +242,11 @@ export const ActivityLogPage: React.FC = () => {
           </Text>
         </div>
       ) : filteredItems.length === 0 ? (
-        <div className="py-16 text-center">
-          <div className="mb-4 text-4xl" aria-hidden>
-            📋
-          </div>
-          <Text variant="muted">No activity yet</Text>
-          <Text variant="muted" size="sm" className="mt-1 block">
-            Events like clocking in and creating tickets will appear here.
-          </Text>
-        </div>
+        <EmptyState
+          icon="📋"
+          title="No activity yet"
+          description="Events like clocking in and creating tickets will appear here."
+        />
       ) : (
         <>
           <ul
