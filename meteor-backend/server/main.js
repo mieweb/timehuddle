@@ -52,10 +52,51 @@ import { bearerContextMiddleware } from './bearer-context';
 /**
  * CORS for ALL routes — the Vite frontend on another origin calls both DDP and
  * HTTP endpoints. Global middleware catches everything before any other handlers.
+ *
+ * CORS_ORIGINS: comma-separated list of allowed origins, or '*' for all.
+ * If unset, falls back to origins sharing the same base domain as ROOT_URL
+ * (handles PR preview deployments where env vars may not propagate).
  */
-const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3000')
-  .split(',')
-  .map((s) => s.trim());
+const _rawCorsOrigins = process.env.CORS_ORIGINS || '';
+const CORS_ALLOW_ALL = _rawCorsOrigins === '*';
+const ALLOWED_ORIGINS = _rawCorsOrigins
+  ? _rawCorsOrigins.split(',').map((s) => s.trim()).filter(Boolean)
+  : [];
+
+// Hardcoded preview base domain — all MIEWeb Proxmox previews live here.
+// This guarantees CORS works for PR previews even if env vars are not injected.
+const PREVIEW_BASE_DOMAINS = ['os.mieweb.org'];
+
+// Optionally derive an additional base domain from ROOT_URL
+const _rootUrl = process.env.ROOT_URL || '';
+const _rootHostname = (() => {
+  try { return new URL(_rootUrl).hostname; } catch { return ''; }
+})();
+// Use all suffix components (e.g. os.mieweb.org) not just the last 2
+// to avoid accidentally allowing all of mieweb.org
+const _baseDomain = _rootHostname.includes('.')
+  ? _rootHostname.split('.').slice(-3).join('.')  // last 3 parts: os.mieweb.org
+  : '';
+
+function isOriginAllowed(origin) {
+  if (!origin) return false;
+  if (CORS_ALLOW_ALL) return true;
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  try {
+    const h = new URL(origin).hostname;
+    // Allow hardcoded preview base domains
+    for (const base of PREVIEW_BASE_DOMAINS) {
+      if (h === base || h.endsWith('.' + base)) return true;
+    }
+    // Allow same base domain as ROOT_URL (non-localhost)
+    if (_baseDomain && _baseDomain !== 'localhost') {
+      if (h === _baseDomain || h.endsWith('.' + _baseDomain)) return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
+console.log('[cors] CORS_ORIGINS:', _rawCorsOrigins || '(not set)', '| ROOT_URL base domain:', _baseDomain || '(none)');
 
 // Global CORS — catches ALL routes (DDP, /api, /uploads, etc.)
 // EXCEPT /uploads/tus which handles its own protocol-specific OPTIONS
@@ -64,9 +105,9 @@ WebApp.rawConnectHandlers.use((req, res, next) => {
   if (req.url?.startsWith('/uploads/tus')) {
     return next();
   }
-  
+
   const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+  if (isOriginAllowed(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
