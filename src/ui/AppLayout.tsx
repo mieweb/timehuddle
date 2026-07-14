@@ -3,8 +3,8 @@
  *
  * Composes three primitives:
  *   • Sidebar     — collapsible, icon-only or full width, drawer on mobile
- *   • AppHeader   — sticky top bar with title, theme toggle, user menu
- *   • <main>      — scrollable content area
+ *   • AppHeader   — sticky top bar with the org/team switcher and user menu
+ *   • <main>      — scrollable content area, led by <PageTitle />
  *
  * RouterContext is the single source of truth for pathname so any descendant
  * can read the current route or navigate without prop-drilling or an external
@@ -39,6 +39,7 @@ import { EnterprisePage } from '../features/enterprise/EnterprisePage';
 import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
+import { useClockDocumentTitle } from '../lib/useClockDocumentTitle';
 import { useSession } from '../lib/useSession';
 import { RefreshProvider } from '../lib/RefreshContext';
 import { ShiftReminderProvider } from '../features/notifications/ShiftReminderContext';
@@ -47,6 +48,7 @@ import { ReportIssueModal } from '../features/feedback/ReportIssueModal';
 import { AppHeader } from './AppHeader';
 import { BottomNav } from './BottomNav';
 import { CommandPalette } from './CommandPalette';
+import { PageTitleContext } from './pageTitle';
 import { PullToRefresh } from './PullToRefresh';
 import { RouterContext } from './router';
 import { SettingsPage } from './SettingsPage';
@@ -292,12 +294,24 @@ const AppLayoutContent: React.FC = () => {
       ? pathname.slice('/app/tickets/'.length)
       : null;
 
-  const route = profileSegment || ticketDetailId ? null : match(pathname);
-  const pageTitle = profileSegment
-    ? 'Profile'
-    : ticketDetailId
-      ? 'Ticket'
-      : (route?.title ?? 'App');
+  const route = profileUserId || profileUsername || ticketDetailId ? null : match(pathname);
+
+  // Shown in the browser tab. Covers the dynamic routes too, which have no
+  // registry entry.
+  const documentTitle =
+    profileUserId || profileUsername
+      ? 'Profile'
+      : ticketDetailId
+        ? 'Ticket'
+        : (route?.title ?? 'App');
+  useClockDocumentTitle(documentTitle);
+
+  // Rendered in the body by <PageTitle />. Null on profile and ticket detail:
+  // both already lead with a more specific heading of their own.
+  const pageTitle = route?.title ?? null;
+
+  const isTicketsRoute =
+    !profileUserId && !profileUsername && !ticketDetailId && pathname === '/app/tickets';
   const isMessagesPage = pathname === '/app/messages';
 
   const [messagesHasActiveChat, setMessagesHasActiveChat] = useState(false);
@@ -332,105 +346,113 @@ const AppLayoutContent: React.FC = () => {
 
   return (
     <RouterContext.Provider value={{ pathname, navigate }}>
-      <RefreshProvider globalRefreshHandlers={[refetchSession, refetchTeams, refetchClock]}>
-        <CommandPalette />
-        <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
-        <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
-        <ShiftReminderProvider>
-          <AppFeedbackContext.Provider
-            value={{
-              openReportIssue: () => setReportIssueOpen(true),
-              openFeedback: () => setFeedbackOpen(true),
-            }}
-          >
-            <MessagesActiveChatContext.Provider
-              value={{ setHasActiveChat: setMessagesHasActiveChat }}
+      <PageTitleContext.Provider value={pageTitle}>
+        <RefreshProvider globalRefreshHandlers={[refetchSession, refetchTeams, refetchClock]}>
+          <CommandPalette />
+          <ReportIssueModal open={reportIssueOpen} onClose={() => setReportIssueOpen(false)} />
+          <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />
+          <ShiftReminderProvider>
+            <AppFeedbackContext.Provider
+              value={{
+                openReportIssue: () => setReportIssueOpen(true),
+                openFeedback: () => setFeedbackOpen(true),
+              }}
             >
-              <SidebarContext.Provider
-                value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+              <MessagesActiveChatContext.Provider
+                value={{ setHasActiveChat: setMessagesHasActiveChat }}
               >
-                <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-                  {/* Mobile backdrop */}
-                  {isMobileOpen &&
-                    createPortal(
-                      <div
-                        className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
-                        onClick={closeMobile}
-                        aria-hidden
-                      />,
-                      document.body,
-                    )}
+                <SidebarContext.Provider
+                  value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+                >
+                  <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+                    {/* Mobile backdrop */}
+                    {isMobileOpen &&
+                      createPortal(
+                        <div
+                          className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
+                          onClick={closeMobile}
+                          aria-hidden
+                        />,
+                        document.body,
+                      )}
 
-                  {/* Foreground push notification banner (native iOS/Android) */}
-                  {foregroundNotif &&
-                    createPortal(
-                      <div
-                        onClick={() => {
-                          handleNotificationData(foregroundNotif.data);
-                          console.log(
-                            '[Banner] tapped, data:',
-                            JSON.stringify(foregroundNotif.data),
-                          );
-                          setForegroundNotif(null);
-                          if (dismissTimer.current) clearTimeout(dismissTimer.current);
-                        }}
-                        className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm
+                    {/* Foreground push notification banner (native iOS/Android) */}
+                    {foregroundNotif &&
+                      createPortal(
+                        <div
+                          onClick={() => {
+                            handleNotificationData(foregroundNotif.data);
+                            console.log(
+                              '[Banner] tapped, data:',
+                              JSON.stringify(foregroundNotif.data),
+                            );
+                            setForegroundNotif(null);
+                            if (dismissTimer.current) clearTimeout(dismissTimer.current);
+                          }}
+                          className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm
                                    bg-neutral-900 dark:bg-neutral-800 text-white rounded-2xl
                                    shadow-xl px-4 py-3 cursor-pointer flex flex-col gap-0.5
                                    border border-white/10"
-                        role="alert"
-                      >
-                        <span className="font-semibold text-sm leading-tight">
-                          {foregroundNotif.title}
-                        </span>
-                        <span className="text-xs text-neutral-300 leading-snug">
-                          {foregroundNotif.body}
-                        </span>
-                      </div>,
-                      document.body,
-                    )}
-
-                  <Sidebar />
-
-                  {/* Content column */}
-                  <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                    <AppHeader title={pageTitle} />
-                    <main
-                      ref={mainRef}
-                      className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'app-main-scroll'}` : 'app-main-scroll'} md:pb-0`}
-                    >
-                      <PullToRefresh>
-                        <div
-                          className={
-                            !profileSegment && !ticketDetailId && pathname === '/app/tickets'
-                              ? 'h-full w-full flex flex-col'
-                              : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
-                          }
+                          role="alert"
                         >
-                          <TicketsPage />
-                        </div>
-                        {profileUserId ? (
-                          <ProfilePage userId={profileUserId} />
-                        ) : profileUsername ? (
-                          <ProfilePage username={profileUsername} />
-                        ) : ticketDetailId ? (
-                          <TicketDetailPage ticketId={ticketDetailId} />
-                        ) : (
-                          route &&
-                          route.component !== TicketsPage &&
-                          React.createElement(route.component)
-                        )}
-                      </PullToRefresh>
-                    </main>
-                  </div>
+                          <span className="font-semibold text-sm leading-tight">
+                            {foregroundNotif.title}
+                          </span>
+                          <span className="text-xs text-neutral-300 leading-snug">
+                            {foregroundNotif.body}
+                          </span>
+                        </div>,
+                        document.body,
+                      )}
 
-                  {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
-                </div>
-              </SidebarContext.Provider>
-            </MessagesActiveChatContext.Provider>
-          </AppFeedbackContext.Provider>
-        </ShiftReminderProvider>
-      </RefreshProvider>
+                    <Sidebar />
+
+                    {/* Content column */}
+                    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                      <AppHeader />
+                      <main
+                        ref={mainRef}
+                        className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'app-main-scroll'}` : 'app-main-scroll'} md:pb-0`}
+                      >
+                        <PullToRefresh>
+                          {/* TicketsPage stays mounted to preserve its state, and
+                            is only hidden when another route is showing. It must
+                            not render a page title while hidden — it isn't the
+                            page — so the title is withheld from that instance. */}
+                          <PageTitleContext.Provider value={isTicketsRoute ? pageTitle : null}>
+                            <div
+                              className={
+                                isTicketsRoute
+                                  ? 'h-full w-full flex flex-col'
+                                  : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
+                              }
+                            >
+                              <TicketsPage />
+                            </div>
+                          </PageTitleContext.Provider>
+                          {profileUserId ? (
+                            <ProfilePage userId={profileUserId} />
+                          ) : profileUsername ? (
+                            <ProfilePage username={profileUsername} />
+                          ) : ticketDetailId ? (
+                            <TicketDetailPage ticketId={ticketDetailId} />
+                          ) : (
+                            route &&
+                            route.component !== TicketsPage &&
+                            React.createElement(route.component)
+                          )}
+                        </PullToRefresh>
+                      </main>
+                    </div>
+
+                    {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
+                  </div>
+                </SidebarContext.Provider>
+              </MessagesActiveChatContext.Provider>
+            </AppFeedbackContext.Provider>
+          </ShiftReminderProvider>
+        </RefreshProvider>
+      </PageTitleContext.Provider>
     </RouterContext.Provider>
   );
 };
