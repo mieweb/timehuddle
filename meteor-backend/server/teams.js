@@ -1,13 +1,31 @@
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
+import { createHash, randomBytes } from 'crypto';
 import { Teams, TeamJoinRequests, rawDb, isValidId } from './collections';
 import { requireIdentity, identityForConnection } from './auth-bridge';
 import { ensureDefaultOrganization, addOrgMember, getAccessibleOrgIds } from './org-helpers';
 import { ensureDefaultChannel } from './channels';
 import { createNotification } from './notify-core';
+import { sendEmail } from './email';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
+const INVITATION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
+
+Meteor.startup(async () => {
+  try {
+    await rawDb().collection('team_invitations').createIndex(
+      { teamId: 1, email: 1 },
+      {
+        name: 'unique_pending_team_invitation',
+        unique: true,
+        partialFilterExpression: { status: 'pending' },
+      },
+    );
+  } catch (error) {
+    console.error('[teams] failed to create invitation index:', error);
+  }
+});
 
 // Safe ObjectId conversion — only converts 24-char hex strings
 function toId(id) {
@@ -16,6 +34,60 @@ function toId(id) {
 
 function generateTeamCode() {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
+}
+
+function normalizeEmail(email) {
+  if (typeof email !== 'string') return null;
+  const normalized = email.trim().toLowerCase();
+  if (
+    normalized.length === 0 ||
+    normalized.length > 254 ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+function hashInvitationToken(token) {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+async function getInvitationByToken(token) {
+  if (typeof token !== 'string' || token.length < 32) {
+    throw new Meteor.Error('invalid-invitation', 'This invitation link is invalid.');
+  }
+  const invitations = rawDb().collection('team_invitations');
+  const invitation = await invitations.findOne({ tokenHash: hashInvitationToken(token) });
+  if (!invitation) {
+    throw new Meteor.Error('invalid-invitation', 'This invitation link is invalid or has been revoked.');
+  }
+  if (invitation.status === 'accepted') {
+    throw new Meteor.Error('invitation-used', 'This invitation has already been accepted.');
+  }
+  if (invitation.status === 'revoked') {
+    throw new Meteor.Error('invitation-revoked', 'This invitation has been revoked.');
+  }
+  if (invitation.status !== 'pending') {
+    throw new Meteor.Error('invalid-invitation', 'This invitation is no longer available.');
+  }
+  if (invitation.expiresAt <= new Date()) {
+    await invitations.updateOne(
+      { _id: invitation._id, status: 'pending' },
+      { $set: { status: 'expired', updatedAt: new Date() } },
+    );
+    throw new Meteor.Error('invitation-expired', 'This invitation has expired. Ask a team administrator for a new one.');
+  }
+  return invitation;
 }
 
 function toPublicTeam(team) {
@@ -352,44 +424,199 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
-    if (typeof email !== 'string' || !email.trim()) {
-      throw new Meteor.Error('bad-request', 'email is required');
-    }
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) throw new Meteor.Error('invalid-email', 'Enter a valid email address.');
 
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.members.includes(userId)) {
-      throw new Meteor.Error('forbidden', 'Not a team member');
+    if (!team.admins.includes(userId)) {
+      throw new Meteor.Error('forbidden', 'Admin access required');
     }
 
-    // Check Meteor users collection
-    const normalizedEmail = email.trim();
     const meteorUser = await rawDb().collection('users').findOne({ 'emails.address': normalizedEmail });
 
-    let invitedId;
     if (meteorUser) {
-      invitedId = String(meteorUser._id);
-    } else {
-      throw new Meteor.Error('user-not-found', 'User not found');
+      const invitedId = String(meteorUser._id);
+      if (team.members.includes(invitedId)) {
+        throw new Meteor.Error('already-member', 'Already a member');
+      }
+
+      await Teams.updateAsync(team._id, {
+        $addToSet: { members: invitedId },
+        $set: { updatedAt: new Date() },
+      });
+
+      const db = rawDb();
+      const org = team.orgId && isValidId(team.orgId)
+        ? await db.collection('organizations').findOne({ _id: new ObjectId(team.orgId) })
+        : null;
+      if (org?.allowAutoJoin !== false) {
+        await addOrgMember(team.orgId, invitedId, 'member', true);
+      }
+
+      return { ok: true, status: 'joined' };
     }
 
-    if (team.members.includes(invitedId)) {
-      throw new Meteor.Error('already-member', 'Already a member');
+    const db = rawDb();
+    const invitations = db.collection('team_invitations');
+    await invitations.updateMany(
+      {
+        teamId,
+        email: normalizedEmail,
+        status: 'pending',
+        expiresAt: { $lte: new Date() },
+      },
+      { $set: { status: 'expired', updatedAt: new Date() } },
+    );
+    const duplicate = await invitations.findOne({
+      teamId,
+      email: normalizedEmail,
+      status: 'pending',
+    });
+    if (duplicate) {
+      throw new Meteor.Error(
+        'invitation-exists',
+        'A pending invitation already exists for this email address.',
+      );
+    }
+
+    const token = randomBytes(32).toString('hex');
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + INVITATION_LIFETIME_MS);
+    const invitation = {
+      _id: new ObjectId(),
+      teamId,
+      email: normalizedEmail,
+      tokenHash: hashInvitationToken(token),
+      invitedBy: userId,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt,
+    };
+    try {
+      await invitations.insertOne(invitation);
+    } catch (error) {
+      if (error?.code === 11000) {
+        throw new Meteor.Error(
+          'invitation-exists',
+          'A pending invitation already exists for this email address.',
+        );
+      }
+      throw error;
+    }
+
+    const appUrl = (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+    const invitationUrl = `${appUrl}/app?mode=signup&invite=${encodeURIComponent(token)}`;
+    try {
+      await sendEmail({
+        to: normalizedEmail,
+        subject: "You're invited to join a team on TimeHuddle",
+        html: `<p>You have been invited to join <strong>${escapeHtml(team.name)}</strong> on TimeHuddle.</p>
+<p><a href="${escapeHtml(invitationUrl)}">Create your account and join the team</a></p>
+<p>This invitation expires in 7 days. If you did not expect this invitation, you can ignore this email.</p>`,
+      });
+    } catch (error) {
+      await invitations.updateOne(
+        { _id: invitation._id },
+        { $set: { status: 'delivery_failed', updatedAt: new Date() } },
+      );
+      console.error('[teams.invite] invitation email failed:', error);
+      throw new Meteor.Error(
+        'delivery-failed',
+        'The invitation could not be delivered. Check the address and try again.',
+      );
+    }
+
+    return {
+      ok: true,
+      status: 'pending',
+      invitationId: invitation._id.toHexString(),
+      expiresAt: expiresAt.toISOString(),
+    };
+  },
+
+  async 'teams.getInvitation'({ token }) {
+    const invitation = await getInvitationByToken(token);
+    const team = await Teams.findOneAsync(new Mongo.ObjectID(invitation.teamId));
+    if (!team) throw new Meteor.Error('not-found', 'The invited team no longer exists.');
+    return {
+      teamName: team.name,
+      email: invitation.email,
+      expiresAt: invitation.expiresAt.toISOString(),
+    };
+  },
+
+  async 'teams.acceptInvite'({ token }) {
+    const identity = await requireIdentity(this);
+    const invitation = await getInvitationByToken(token);
+    const user = await rawDb().collection('users').findOne({ _id: String(identity.userId) });
+    const userEmail = normalizeEmail(user?.emails?.[0]?.address);
+    if (userEmail !== invitation.email) {
+      throw new Meteor.Error(
+        'email-mismatch',
+        `Sign in with ${invitation.email} to accept this invitation.`,
+      );
+    }
+
+    const invitations = rawDb().collection('team_invitations');
+    const acceptedAt = new Date();
+    const claimed = await invitations.findOneAndUpdate(
+      { _id: invitation._id, status: 'pending', expiresAt: { $gt: acceptedAt } },
+      {
+        $set: {
+          status: 'accepted',
+          acceptedAt,
+          acceptedBy: identity.userId,
+          updatedAt: acceptedAt,
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    if (!claimed) return getInvitationByToken(token);
+
+    const team = await Teams.findOneAsync(new Mongo.ObjectID(invitation.teamId));
+    if (!team) {
+      await invitations.updateOne(
+        { _id: invitation._id, acceptedBy: identity.userId },
+        { $set: { status: 'revoked', updatedAt: new Date() } },
+      );
+      throw new Meteor.Error('not-found', 'The invited team no longer exists.');
     }
 
     await Teams.updateAsync(team._id, {
-      $addToSet: { members: invitedId },
+      $addToSet: { members: identity.userId },
       $set: { updatedAt: new Date() },
     });
-
-    const db = rawDb();
     const org = team.orgId && isValidId(team.orgId)
-      ? await db.collection('organizations').findOne({ _id: new ObjectId(team.orgId) })
+      ? await rawDb().collection('organizations').findOne({ _id: new ObjectId(team.orgId) })
       : null;
     if (org?.allowAutoJoin !== false) {
-      await addOrgMember(team.orgId, invitedId, 'member', true);
+      await addOrgMember(team.orgId, identity.userId, 'member', true);
     }
 
+    return { ok: true, team: toPublicTeam({ ...team, members: [...new Set([...team.members, identity.userId])] }) };
+  },
+
+  async 'teams.revokeInvite'({ invitationId }) {
+    const identity = await requireIdentity(this);
+    if (typeof invitationId !== 'string' || !/^[a-f0-9]{24}$/i.test(invitationId)) {
+      throw new Meteor.Error('not-found', 'Invalid invitation id');
+    }
+    const invitations = rawDb().collection('team_invitations');
+    const invitation = await invitations.findOne({ _id: new ObjectId(invitationId) });
+    if (!invitation) throw new Meteor.Error('not-found', 'Invitation not found');
+    const team = await Teams.findOneAsync(new Mongo.ObjectID(invitation.teamId));
+    if (!team || !team.admins.includes(identity.userId)) {
+      throw new Meteor.Error('forbidden', 'Admin access required');
+    }
+    if (invitation.status !== 'pending') {
+      throw new Meteor.Error('invalid-invitation', 'Only pending invitations can be revoked.');
+    }
+    await invitations.updateOne(
+      { _id: invitation._id, status: 'pending' },
+      { $set: { status: 'revoked', revokedAt: new Date(), updatedAt: new Date() } },
+    );
     return { ok: true };
   },
 

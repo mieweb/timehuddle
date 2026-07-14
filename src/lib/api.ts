@@ -1097,7 +1097,10 @@ export const teamApi = {
     ),
 
   inviteMember: (id: string, email: string) =>
-    wormholeCall<{ ok: boolean }>('teams.invite', { teamId: id, email }),
+    wormholeCall<
+      | { ok: true; status: 'joined' }
+      | { ok: true; status: 'pending'; invitationId: string; expiresAt: string }
+    >('teams.invite', { teamId: id, email }),
 
   removeMember: (id: string, userId: string) =>
     wormholeCall<{ ok: boolean }>('teams.removeMember', { teamId: id, userId }),

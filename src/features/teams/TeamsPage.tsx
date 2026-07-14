@@ -186,11 +186,14 @@ export const TeamsPage: React.FC = () => {
     | 'rename'
     | 'delete'
     | 'invite'
+    | { type: 'invite-sent'; email: string }
     | { type: 'password'; memberId: string }
     | { type: 'remove'; memberId: string }
     | { type: 'created'; code: string }
     | { type: 'pending-request'; teamCode: string }
   >(null);
+  const inviteSentEmail =
+    typeof modal === 'object' && modal?.type === 'invite-sent' ? modal.email : null;
 
   const [formValue, setFormValue] = useState('');
   const [createDescription, setCreateDescription] = useState('');
@@ -285,10 +288,15 @@ export const TeamsPage: React.FC = () => {
   const handleInvite = useCallback(async () => {
     if (!formValue.trim() || !selectedTeamId) return;
     setInviteLoading(true);
+    setFormError(null);
     try {
-      await teamApi.inviteMember(selectedTeamId, formValue.trim());
-      closeModal();
-      await fetchMembers(selectedTeamId);
+      const result = await teamApi.inviteMember(selectedTeamId, formValue.trim());
+      if (result.status === 'pending') {
+        setModal({ type: 'invite-sent', email: formValue.trim() });
+      } else {
+        closeModal();
+        await fetchMembers(selectedTeamId);
+      }
     } catch (e: any) {
       setFormError(e.message || 'Failed to invite');
     } finally {
@@ -745,6 +753,27 @@ export const TeamsPage: React.FC = () => {
         <ModalFooter>
           <Button variant="primary" fullWidth onClick={handleInvite} isLoading={inviteLoading}>
             Send Invite
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      <Modal
+        open={inviteSentEmail !== null}
+        onOpenChange={(open) => !open && closeModal()}
+        size="md"
+      >
+        <ModalHeader>
+          <ModalTitle>Invitation Sent</ModalTitle>
+          <ModalClose />
+        </ModalHeader>
+        <ModalBody>
+          <Text variant="muted" size="sm" role="status" aria-live="polite">
+            {inviteSentEmail ? `A secure account setup link was sent to ${inviteSentEmail}.` : ''}
+          </Text>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="primary" fullWidth onClick={closeModal}>
+            Done
           </Button>
         </ModalFooter>
       </Modal>

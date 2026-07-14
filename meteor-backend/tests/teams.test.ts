@@ -5,6 +5,7 @@
  * Ported from backend/tests/teams.test.ts (Fastify) to Meteor wormhole calls.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { createHash } from 'crypto';
 import {
   createUserAndGetJwt,
   wormhole,
@@ -17,6 +18,7 @@ import {
 const OWNER = { name: 'Team Owner', email: 'wh-team-owner@test.dev', password: 'Password1!' };
 const MEMBER = { name: 'Team Member', email: 'wh-team-member@test.dev', password: 'Password1!' };
 const OUTSIDER = { name: 'Team Outsider', email: 'wh-team-outsider@test.dev', password: 'Password1!' };
+const INVITEE = { name: 'New Invitee', email: 'wh-team-invitee@test.dev', password: 'Password1!' };
 
 let ownerJwt: string;
 let memberJwt: string;
@@ -25,9 +27,44 @@ let ownerId: string;
 let memberId: string;
 let outsiderId: string;
 let fixtureTeamId: string;
+let pendingInvitationId: string;
+let pendingInvitationToken: string;
+
+const MAILPIT_URL = process.env.MAILPIT_URL ?? 'http://localhost:8025';
+
+function randomInvitationToken(seed: string): string {
+  return createHash('sha256').update(`${seed}-${Date.now()}-${Math.random()}`).digest('hex');
+}
+
+async function waitForInvitationToken(email: string, timeoutMs = 15_000): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const list = (await (await fetch(`${MAILPIT_URL}/api/v1/messages`)).json()) as {
+      messages: Array<{ ID: string; To: Array<{ Address: string }> }>;
+    };
+    const message = list.messages.find((candidate) =>
+      candidate.To.some((recipient) => recipient.Address.toLowerCase() === email.toLowerCase()),
+    );
+    if (message) {
+      const detail = (await (
+        await fetch(`${MAILPIT_URL}/api/v1/message/${message.ID}`)
+      ).json()) as { HTML?: string; Text?: string };
+      const body = detail.HTML ?? detail.Text ?? '';
+      const token = body.match(/[?&]invite=([a-f0-9]{64})/)?.[1];
+      if (token) return token;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`No team invitation email arrived for ${email} within ${timeoutMs}ms`);
+}
 
 beforeAll(async () => {
-  await Promise.all([purgeUser(OWNER.email), purgeUser(MEMBER.email), purgeUser(OUTSIDER.email)]);
+  await Promise.all([
+    purgeUser(OWNER.email),
+    purgeUser(MEMBER.email),
+    purgeUser(OUTSIDER.email),
+    purgeUser(INVITEE.email),
+  ]);
   const [owner, member, outsider] = await Promise.all([
     createUserAndGetJwt(OWNER),
     createUserAndGetJwt(MEMBER),
@@ -55,7 +92,12 @@ beforeAll(async () => {
 afterAll(async () => {
   // Clean up fixture team (may already be deleted by tests)
   await wormhole('teams.delete', { teamId: fixtureTeamId }, ownerJwt).catch(() => {});
-  await Promise.all([purgeUser(OWNER.email), purgeUser(MEMBER.email), purgeUser(OUTSIDER.email)]);
+  await Promise.all([
+    purgeUser(OWNER.email),
+    purgeUser(MEMBER.email),
+    purgeUser(OUTSIDER.email),
+    purgeUser(INVITEE.email),
+  ]);
   await closeDb();
 });
 
@@ -294,14 +336,110 @@ describe('teams.invite', () => {
     );
   });
 
-  it('returns error for unknown email', async () => {
+  it('creates a pending invitation for an unregistered email', async () => {
+    const res = await wormhole<{ status: string; invitationId: string }>(
+      'teams.invite',
+      { teamId: fixtureTeamId, email: INVITEE.email },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.status).toBe('pending');
+    pendingInvitationId = res.result.invitationId;
+    pendingInvitationToken = await waitForInvitationToken(INVITEE.email);
+    const db = await getDb();
+    const invitation = await db.collection('team_invitations').findOne({
+      _id: new ObjectId(res.result.invitationId),
+    });
+    expect(invitation).toMatchObject({
+      teamId: fixtureTeamId,
+      email: INVITEE.email,
+      status: 'pending',
+    });
+    expect(invitation?.tokenHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(invitation?.tokenHash).toBe(
+      createHash('sha256').update(pendingInvitationToken).digest('hex'),
+    );
+  });
+
+  it('rejects duplicate pending invitations', async () => {
     const res = await wormhole(
       'teams.invite',
-      { teamId: fixtureTeamId, email: 'nobody@nowhere.test' },
+      { teamId: fixtureTeamId, email: INVITEE.email },
       ownerJwt,
     );
     expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/not found/i);
+    expect(res.error).toMatch(/pending invitation/i);
+  });
+
+  it('rejects invalid email addresses', async () => {
+    const res = await wormhole(
+      'teams.invite',
+      { teamId: fixtureTeamId, email: 'not-an-email' },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/valid email/i);
+  });
+
+  it('only allows the invited email to accept and joins that user after registration', async () => {
+    const mismatch = await wormhole(
+      'teams.acceptInvite',
+      { token: pendingInvitationToken },
+      outsiderJwt,
+    );
+    expect(mismatch.ok).toBe(false);
+    expect(mismatch.error).toMatch(/sign in with/i);
+
+    const invitee = await createUserAndGetJwt(INVITEE);
+    const accepted = await wormhole<{ ok: boolean; team: { id: string } }>(
+      'teams.acceptInvite',
+      { token: pendingInvitationToken },
+      invitee.jwt,
+    );
+    expect(accepted.ok).toBe(true);
+    expect(accepted.result.team.id).toBe(fixtureTeamId);
+
+    const db = await getDb();
+    const team = await db.collection('teams').findOne({ _id: new ObjectId(fixtureTeamId) });
+    expect(team?.members).toContain(invitee.userId);
+    const invitation = await db
+      .collection('team_invitations')
+      .findOne({ _id: new ObjectId(pendingInvitationId) });
+    expect(invitation).toMatchObject({
+      status: 'accepted',
+      acceptedBy: invitee.userId,
+    });
+
+    const reused = await wormhole(
+      'teams.acceptInvite',
+      { token: pendingInvitationToken },
+      invitee.jwt,
+    );
+    expect(reused.ok).toBe(false);
+    expect(reused.error).toMatch(/already been accepted/i);
+  });
+
+  it.each([
+    ['expired', new Date(Date.now() - 1_000), /expired/i],
+    ['revoked', new Date(Date.now() + 60_000), /revoked/i],
+  ])('rejects %s invitations with clear feedback', async (status, expiresAt, errorPattern) => {
+    const token = randomInvitationToken(status);
+    const db = await getDb();
+    await db.collection('team_invitations').insertOne({
+      _id: new ObjectId(),
+      teamId: fixtureTeamId,
+      email: `wh-${status}@test.dev`,
+      tokenHash: createHash('sha256').update(token).digest('hex'),
+      invitedBy: ownerId,
+      status: status === 'expired' ? 'pending' : status,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      expiresAt,
+    });
+
+    const res = await wormhole('teams.getInvitation', { token }, ownerJwt);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(errorPattern);
   });
 
   it('returns error if already a member', async () => {

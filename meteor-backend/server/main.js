@@ -1206,6 +1206,33 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('teams.getInvitation', {
+    description: 'Get a team invitation preview',
+    inputSchema: {
+      type: 'object',
+      properties: { token: { type: 'string' } },
+      required: ['token'],
+    },
+  });
+
+  Wormhole.expose('teams.acceptInvite', {
+    description: 'Accept a team invitation',
+    inputSchema: {
+      type: 'object',
+      properties: { token: { type: 'string' } },
+      required: ['token'],
+    },
+  });
+
+  Wormhole.expose('teams.revokeInvite', {
+    description: 'Revoke a pending team invitation',
+    inputSchema: {
+      type: 'object',
+      properties: { invitationId: { type: 'string' } },
+      required: ['invitationId'],
+    },
+  });
+
   Wormhole.expose('teams.removeMember', {
     description: 'Remove a member from a team (admin only)',
     inputSchema: {
