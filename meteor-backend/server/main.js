@@ -63,25 +63,36 @@ const ALLOWED_ORIGINS = _rawCorsOrigins
   ? _rawCorsOrigins.split(',').map((s) => s.trim()).filter(Boolean)
   : [];
 
-// Derive base domain from ROOT_URL for same-deployment auto-allow
-// e.g. ROOT_URL=https://foo-api.os.mieweb.org → base domain = os.mieweb.org
+// Hardcoded preview base domain — all MIEWeb Proxmox previews live here.
+// This guarantees CORS works for PR previews even if env vars are not injected.
+const PREVIEW_BASE_DOMAINS = ['os.mieweb.org'];
+
+// Optionally derive an additional base domain from ROOT_URL
 const _rootUrl = process.env.ROOT_URL || '';
 const _rootHostname = (() => {
   try { return new URL(_rootUrl).hostname; } catch { return ''; }
 })();
-const _baseDomain = _rootHostname.split('.').slice(-2).join('.');
+// Use all suffix components (e.g. os.mieweb.org) not just the last 2
+// to avoid accidentally allowing all of mieweb.org
+const _baseDomain = _rootHostname.includes('.')
+  ? _rootHostname.split('.').slice(-3).join('.')  // last 3 parts: os.mieweb.org
+  : '';
 
 function isOriginAllowed(origin) {
   if (!origin) return false;
   if (CORS_ALLOW_ALL) return true;
   if (ALLOWED_ORIGINS.includes(origin)) return true;
-  // Auto-allow any origin on the same base domain as ROOT_URL (preview envs)
-  if (_baseDomain && _baseDomain !== 'localhost') {
-    try {
-      const h = new URL(origin).hostname;
+  try {
+    const h = new URL(origin).hostname;
+    // Allow hardcoded preview base domains
+    for (const base of PREVIEW_BASE_DOMAINS) {
+      if (h === base || h.endsWith('.' + base)) return true;
+    }
+    // Allow same base domain as ROOT_URL (non-localhost)
+    if (_baseDomain && _baseDomain !== 'localhost') {
       if (h === _baseDomain || h.endsWith('.' + _baseDomain)) return true;
-    } catch { /* ignore */ }
-  }
+    }
+  } catch { /* ignore */ }
   return false;
 }
 
