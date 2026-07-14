@@ -1,28 +1,23 @@
 /**
  * AppHeader — Sticky top bar.
  *
- * Left  : hamburger (mobile), current page title, org/team switcher
+ * Left  : hamburger (mobile), org/team switcher
  * Right : clock-in timer (if active), UserDropdown
+ *
+ * The page title lives in the body, not here — see ui/pageTitle.tsx.
  */
 import { faBars } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Text } from '@mieweb/ui';
+import { Button } from '@mieweb/ui';
 import React from 'react';
 
-import { useClockDocumentTitle } from '../lib/useClockDocumentTitle';
 import { useSidebar } from './AppLayout';
 import { ClockInHeaderTimer } from './ClockInHeaderTimer';
 import { OrgTeamSwitcher } from './OrgTeamSwitcher';
 import { UserDropdown } from './UserDropdown';
 
-interface AppHeaderProps {
-  title: string;
-}
-
-export const AppHeader: React.FC<AppHeaderProps> = ({ title }) => {
+export const AppHeader: React.FC = () => {
   const { openMobile } = useSidebar();
-
-  useClockDocumentTitle(title);
 
   return (
     <header className="app-header sticky top-0 z-40 flex shrink-0 flex-col justify-end border-b border-neutral-200 bg-white/85 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/85">
@@ -39,18 +34,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ title }) => {
           >
             <FontAwesomeIcon icon={faBars} />
           </Button>
-
-          {/* Page title — yields space faster than the switcher (it is also in
-              the tab title, sidebar and bottom nav), but min-w stops it from
-              collapsing to nothing on narrow screens */}
-          <Text
-            as="h1"
-            size="base"
-            weight="semibold"
-            className="min-w-[3.5rem] shrink-[3] truncate tracking-tight"
-          >
-            {title}
-          </Text>
 
           {/* Current org/team scope */}
           <OrgTeamSwitcher />

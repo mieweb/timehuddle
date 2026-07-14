@@ -119,10 +119,7 @@ export const OrgTeamSwitcher: React.FC = () => {
             className="flex min-w-0 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
           >
             {selectedOrg && (
-              /* Below 360px (original iPhone SE) there isn't room for both
-                 segments plus a legible title, so the org yields; it is still
-                 the first row of the panel. Every current phone is >= 360. */
-              <span className="hidden min-w-0 items-center gap-1.5 min-[360px]:flex">
+              <span className="flex min-w-0 items-center gap-1.5">
                 <span
                   className="min-w-0 max-w-[4.5rem] truncate md:max-w-[9rem]"
                   title={selectedOrg.name}
