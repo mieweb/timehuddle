@@ -57,8 +57,10 @@ test.describe('Teams', () => {
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await page.waitForTimeout(3000);
 
-    // Verify the team appears
-    await expect(page.getByText(teamName)).toBeVisible({ timeout: 10000 });
+    // Verify the team appears in the list. Scoped to <main> because the new
+    // team also becomes the selected scope, so its name appears in the header
+    // switcher too — an unscoped getByText would match both.
+    await expect(page.locator('main').getByText(teamName)).toBeVisible({ timeout: 10000 });
 
     // Verify team code badge exists (it's a short code like ABC123)
     // The team code is shown as a Badge below the team name with a "Copy" button

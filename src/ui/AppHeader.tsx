@@ -1,7 +1,7 @@
 /**
  * AppHeader — Sticky top bar.
  *
- * Left  : hamburger (mobile), current page title
+ * Left  : hamburger (mobile), current page title, org/team switcher
  * Right : clock-in timer (if active), UserDropdown
  */
 import { faBars } from '@fortawesome/free-solid-svg-icons';
@@ -12,6 +12,7 @@ import React from 'react';
 import { useClockDocumentTitle } from '../lib/useClockDocumentTitle';
 import { useSidebar } from './AppLayout';
 import { ClockInHeaderTimer } from './ClockInHeaderTimer';
+import { OrgTeamSwitcher } from './OrgTeamSwitcher';
 import { UserDropdown } from './UserDropdown';
 
 interface AppHeaderProps {
@@ -34,19 +35,29 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ title }) => {
             size="icon"
             onClick={openMobile}
             aria-label="Open navigation"
-            className="md:hidden"
+            className="shrink-0 md:hidden"
           >
             <FontAwesomeIcon icon={faBars} />
           </Button>
 
-          {/* Page title */}
-          <Text as="h1" size="base" weight="semibold" className="truncate tracking-tight">
+          {/* Page title — yields space faster than the switcher (it is also in
+              the tab title, sidebar and bottom nav), but min-w stops it from
+              collapsing to nothing on narrow screens */}
+          <Text
+            as="h1"
+            size="base"
+            weight="semibold"
+            className="min-w-[3.5rem] shrink-[3] truncate tracking-tight"
+          >
             {title}
           </Text>
+
+          {/* Current org/team scope */}
+          <OrgTeamSwitcher />
         </div>
 
         {/* ── Right ── */}
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {/* Clock-in timer (visible when clocked in) */}
           <ClockInHeaderTimer />
           <UserDropdown />
