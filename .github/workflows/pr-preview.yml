@@ -144,7 +144,7 @@ jobs:
           api_url: ${{ secrets.LAUNCHPAD_API_URL }}
           template_name: ${{ needs.build-and-push.outputs.image_tag }}
           container_env_vars: >-
-            {"MONGO_URL":"mongodb://localhost:27017/timehuddle?directConnection=true","MONGO_OPLOG_URL":"mongodb://localhost:27017/local?directConnection=true","METEOR_AGENDA_ENABLED":"true","CORS_ORIGINS":"${{ steps.preview.outputs.url }}","APP_URL":"${{ steps.preview.outputs.url }}","ROOT_URL":"${{ steps.preview.outputs.api_url }}"}
+            {"MONGO_URL":"mongodb://localhost:27017/timehuddle?replicaSet=rs0","MONGO_OPLOG_URL":"mongodb://localhost:27017/local?replicaSet=rs0","METEOR_AGENDA_ENABLED":"true","CORS_ORIGINS":"${{ steps.preview.outputs.url }}","APP_URL":"${{ steps.preview.outputs.url }}","ROOT_URL":"${{ steps.preview.outputs.api_url }}"}
           services: >-
             [{"type":"http","internalPort":3000,"externalHostname":"${{ steps.preview.outputs.container_name }}","externalDomainId":1},{"type":"http","internalPort":3100,"externalHostname":"${{ steps.preview.outputs.container_name }}-api","externalDomainId":1}]
 
