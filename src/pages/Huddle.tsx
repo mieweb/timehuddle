@@ -1,11 +1,11 @@
 import { faBell, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button } from '@mieweb/ui';
+import { Button, Input } from '@mieweb/ui';
 import { useState, useEffect } from 'react';
 import { HuddleComposer } from '../features/huddle/HuddleComposer';
 import { PostCard } from '../features/huddle/PostCard';
 import type { ComposerContent } from '../features/huddle/types';
-import { PageTitle } from '../ui/pageTitle';
+import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
@@ -172,132 +172,111 @@ export default function Huddle() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 dark:bg-neutral-900 min-h-screen">
-      {/* Sticky header section with both title and composer */}
-      <div className="sticky top-0 z-10 bg-white dark:bg-neutral-800 shrink-0">
-        {/* Header — the page name comes from the shared PageTitle */}
-        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-gray-100 dark:border-neutral-700">
-          <PageTitle />
-          <div className="flex shrink-0 gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowSearch(!showSearch)}
-              aria-label="Search posts"
-              title="Search posts"
-            >
-              <FontAwesomeIcon icon={faMagnifyingGlass} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => navigate('/app/notifications')}
-              aria-label="Notifications"
-              title="Notifications"
-            >
-              <FontAwesomeIcon icon={faBell} />
-            </Button>
-          </div>
+    <AppPage fill>
+      <div className="huddle flex h-full min-h-0 flex-col gap-4">
+        {/* Feed actions — the page name comes from AppPage's shared PageTitle */}
+        <div className="huddle-actions flex shrink-0 items-center justify-end gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowSearch(!showSearch)}
+            aria-label="Search posts"
+            title="Search posts"
+          >
+            <FontAwesomeIcon icon={faMagnifyingGlass} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate('/app/notifications')}
+            aria-label="Notifications"
+            title="Notifications"
+          >
+            <FontAwesomeIcon icon={faBell} />
+          </Button>
         </div>
 
-        {/* Search bar (shows when search button clicked) */}
         {showSearch && (
-          <div className="px-5 py-3 border-b border-gray-100 dark:border-neutral-700 bg-gray-50 dark:bg-neutral-900">
-            <div className="relative">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search posts..."
-                className="w-full px-4 py-2 pl-10 text-sm bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-neutral-500"
-                autoFocus
-              />
-              <svg
-                className="absolute left-3 top-2.5 w-4 h-4 text-gray-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
-              </svg>
-            </div>
-          </div>
-        )}
-
-        {/* Composer - part of sticky section */}
-        {selectedTeamId && (
-          <HuddleComposer
-            onPost={addPost}
-            userInitials={user ? getUserInitials(user.name) : 'U'}
-            userColor={user ? getUserColor(user.id) : 'indigo'}
+          <Input
+            label="Search posts"
+            hideLabel
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search posts…"
+            className="shrink-0"
+            autoFocus
           />
         )}
-      </div>
 
-      {/* Feed */}
-      <div className="flex-1 overflow-y-auto">
-        {!selectedTeamId && (
-          <div className="flex items-center justify-center py-16 px-4">
-            <p className="text-sm text-gray-500 dark:text-neutral-400">
-              Please select a team to view the huddle feed
-            </p>
+        {/* Composer stays put while the feed below it scrolls */}
+        {selectedTeamId && (
+          <div className="huddle-composer shrink-0">
+            <HuddleComposer
+              onPost={addPost}
+              userInitials={user ? getUserInitials(user.name) : 'U'}
+              userColor={user ? getUserColor(user.id) : 'indigo'}
+            />
           </div>
         )}
 
-        {selectedTeamId && (
-          <>
-            <div className="h-2 bg-gray-100 dark:bg-neutral-800 border-y border-gray-200 dark:border-neutral-700" />
+        {/* Feed */}
+        <div className="huddle-feed min-h-0 flex-1 overflow-y-auto">
+          {!selectedTeamId && (
+            <div className="flex items-center justify-center py-16 px-4">
+              <p className="text-sm text-gray-500 dark:text-neutral-400">
+                Please select a team to view the huddle feed
+              </p>
+            </div>
+          )}
 
-            {loading && (
-              <div className="flex items-center justify-center py-16">
-                <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-              </div>
-            )}
+          {selectedTeamId && (
+            <>
+              {loading && (
+                <div className="flex items-center justify-center py-16">
+                  <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
 
-            {error && (
-              <div className="flex items-center justify-center py-16 px-4">
-                <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
-              </div>
-            )}
+              {error && (
+                <div className="flex items-center justify-center py-16 px-4">
+                  <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
+                </div>
+              )}
 
-            {!loading && !error && posts.length === 0 && (
-              <div className="flex items-center justify-center py-16 px-4">
-                <p className="text-sm text-gray-500 dark:text-neutral-400">
-                  No posts yet. Be the first to share!
-                </p>
-              </div>
-            )}
+              {!loading && !error && posts.length === 0 && (
+                <div className="flex items-center justify-center py-16 px-4">
+                  <p className="text-sm text-gray-500 dark:text-neutral-400">
+                    No posts yet. Be the first to share!
+                  </p>
+                </div>
+              )}
 
-            {!loading &&
-              !error &&
-              user &&
-              posts
-                .filter((post) => {
-                  if (!searchQuery.trim()) return true;
-                  const query = searchQuery.toLowerCase();
-                  return (
-                    post.content.text.toLowerCase().includes(query) ||
-                    post.userName?.toLowerCase().includes(query) ||
-                    post.ticketTitle?.toLowerCase().includes(query)
-                  );
-                })
-                .map((post) => (
-                  <PostCard
-                    key={post.id}
-                    post={post}
-                    currentUserId={user?.id ?? ''}
-                    canEdit={canEditPost(post)}
-                    canDelete={canDeletePost(post)}
-                  />
-                ))}
-          </>
-        )}
+              {!loading &&
+                !error &&
+                user &&
+                posts
+                  .filter((post) => {
+                    if (!searchQuery.trim()) return true;
+                    const query = searchQuery.toLowerCase();
+                    return (
+                      post.content.text.toLowerCase().includes(query) ||
+                      post.userName?.toLowerCase().includes(query) ||
+                      post.ticketTitle?.toLowerCase().includes(query)
+                    );
+                  })
+                  .map((post) => (
+                    <PostCard
+                      key={post.id}
+                      post={post}
+                      currentUserId={user?.id ?? ''}
+                      canEdit={canEditPost(post)}
+                      canDelete={canDeletePost(post)}
+                    />
+                  ))}
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </AppPage>
   );
 }
