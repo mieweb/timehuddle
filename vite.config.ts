@@ -40,6 +40,14 @@ export default defineConfig({
         target: process.env.API_TARGET ?? 'http://localhost:3100',
         changeOrigin: true,
       },
+      '/pulsevault': {
+        target: process.env.API_TARGET ?? 'http://localhost:3100',
+        // changeOrigin: false (the default) — @mieweb/pulsevault's TUS layer
+        // builds its `Location` header from the request's Host header. With
+        // changeOrigin:true that Host becomes localhost:3100, so the browser's
+        // follow-up PATCH/HEAD requests would go direct to 3100 (bypassing this
+        // proxy) and hit real cross-origin CORS instead of the proxied same-origin path.
+      },
       '/v1': {
         target: process.env.API_TARGET ?? 'http://localhost:3100',
         changeOrigin: true,

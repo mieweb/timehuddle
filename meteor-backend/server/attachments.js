@@ -39,6 +39,34 @@ async function fetchYouTubeTitle(url) {
   }
 }
 
+/**
+ * Insert an attachment directly, bypassing the `attachments.add` method's
+ * caller-identity resolution. Used by upload pipelines (PulseVault) that
+ * already know the owning userId from their own reservation/auth context
+ * rather than the current Meteor method invocation.
+ */
+export async function createAttachment({ url, type, title, thumbnail, attachedTo, addedBy }) {
+  if (typeof url !== 'string' || !url.trim()) throw new Meteor.Error('bad-request', 'url is required');
+  if (!VALID_TYPES.includes(type)) throw new Meteor.Error('bad-request', 'Invalid type');
+  if (!attachedTo?.kind || !attachedTo?.id) throw new Meteor.Error('bad-request', 'attachedTo is required');
+  if (!VALID_KINDS.includes(attachedTo.kind)) throw new Meteor.Error('bad-request', 'Invalid attachedTo.kind');
+
+  const resolvedTitle = title ?? (isYouTubeUrl(url) ? await fetchYouTubeTitle(url) : undefined);
+
+  const doc = {
+    _id: new ObjectId(),
+    url: url.trim(),
+    type,
+    ...(resolvedTitle ? { title: resolvedTitle } : {}),
+    ...(thumbnail ? { thumbnail } : {}),
+    attachedTo,
+    addedBy,
+    addedAt: new Date(),
+  };
+  await rawDb().collection('attachments').insertOne(doc);
+  return toPublic(doc);
+}
+
 Meteor.methods({
   async 'attachments.list'({ kind, id }) {
     const identity = await requireIdentity(this);
@@ -55,26 +83,8 @@ Meteor.methods({
 
   async 'attachments.add'({ url, type, title, thumbnail, attachedTo }) {
     const identity = await requireIdentity(this);
-    const userId = identity.userId;
-    if (typeof url !== 'string' || !url.trim()) throw new Meteor.Error('bad-request', 'url is required');
-    if (!VALID_TYPES.includes(type)) throw new Meteor.Error('bad-request', 'Invalid type');
-    if (!attachedTo?.kind || !attachedTo?.id) throw new Meteor.Error('bad-request', 'attachedTo is required');
-    if (!VALID_KINDS.includes(attachedTo.kind)) throw new Meteor.Error('bad-request', 'Invalid attachedTo.kind');
-
-    const resolvedTitle = title ?? (isYouTubeUrl(url) ? await fetchYouTubeTitle(url) : undefined);
-
-    const doc = {
-      _id: new ObjectId(),
-      url: url.trim(),
-      type,
-      ...(resolvedTitle ? { title: resolvedTitle } : {}),
-      ...(thumbnail ? { thumbnail } : {}),
-      attachedTo,
-      addedBy: userId,
-      addedAt: new Date(),
-    };
-    await rawDb().collection('attachments').insertOne(doc);
-    return { attachment: toPublic(doc) };
+    const attachment = await createAttachment({ url, type, title, thumbnail, attachedTo, addedBy: identity.userId });
+    return { attachment };
   },
 
   async 'attachments.remove'({ attachmentId }) {

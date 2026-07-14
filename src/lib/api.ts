@@ -1519,7 +1519,7 @@ export const timerApi = {
 
 export const videoApi = {
   /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
-  uploadEndpoint: () => `${METEOR_API_BASE}/uploads/tus`,
+  uploadEndpoint: () => `${METEOR_API_BASE}/pulsevault/upload`,
 
   /** Reserve a videoid for a ticket upload before starting TUS.
    *  Pass `existingVideoid` when resuming a recording session so the backend
