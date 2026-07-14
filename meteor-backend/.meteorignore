@@ -1,3 +1,7 @@
+# Upload directories — must never be watched; file writes trigger hot reloads
+uploads/
+data/
+
 # Test configuration files
 vitest.config.ts
 vitest.config.js

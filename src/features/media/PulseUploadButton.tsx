@@ -18,18 +18,29 @@ import React, { useEffect, useRef, useState } from 'react';
 import { attachmentApi, TIMECORE_BASE_URL, videoApi } from '../../lib/api';
 
 /**
- * The Pulse Cam server base for deep links.
- * Points at the API root so Pulse Cam uses the unauthenticated compat TUS
- * path (/reserve, /upload) — Pulse Cam has no session token to authenticate
- * with the versioned /v1/video path.
+ * The Pulse Cam server base for deep links — origin plus the `/pulsevault`
+ * mount prefix, per @mieweb/pulsevault's `buildUploadLink` `server` contract
+ * (the client builds every request as `${server}/<path>` with no separate
+ * prefix concept of its own).
  */
 export function pulseServerBase(): string {
-  return TIMECORE_BASE_URL.replace(/\/$/, '');
+  return `${TIMECORE_BASE_URL.replace(/\/$/, '')}/pulsevault`;
 }
 
-/** Build the pulsecam:// deep link entirely client-side from the configured backend URL. */
-function buildUploadDeepLink(videoid: string): string {
-  const params = new URLSearchParams({ mode: 'upload', videoid, server: pulseServerBase() });
+/**
+ * Build the pulsecam:// deep link entirely client-side. Mirrors
+ * @mieweb/pulsevault's `buildUploadLink` protocol (PROTOCOL.md): `v=1`,
+ * `artifactId`, `server`, `token` (the capability token authorizing the
+ * upload), and `uploadUnit=merged` (one pre-recorded file per session).
+ */
+export function buildUploadDeepLink(videoid: string, uploadToken: string): string {
+  const params = new URLSearchParams({
+    v: '1',
+    artifactId: videoid,
+    server: pulseServerBase(),
+    token: uploadToken,
+    uploadUnit: 'merged',
+  });
   return `pulsecam://?${params.toString()}`;
 }
 
@@ -120,7 +131,7 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
       setStoredVideoid(ticketId, videoid);
       // Build deep link client-side so it always uses TIMECORE_BASE_URL
       // (the same URL the Capacitor app already talks to).
-      const link = buildUploadDeepLink(videoid);
+      const link = buildUploadDeepLink(videoid, uploadToken);
       setVideoid(videoid);
       setUploadToken(uploadToken);
       setUploadLink(link);
