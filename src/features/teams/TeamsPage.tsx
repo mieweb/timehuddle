@@ -286,7 +286,7 @@ export const TeamsPage: React.FC = () => {
   }, [selectedTeamId, refetchTeams]);
 
   const handleInvite = useCallback(async () => {
-    if (!formValue.trim() || !selectedTeamId) return;
+    if (!formValue.trim() || !selectedTeamId || inviteLoading) return;
     setInviteLoading(true);
     setFormError(null);
     try {
@@ -302,7 +302,7 @@ export const TeamsPage: React.FC = () => {
     } finally {
       setInviteLoading(false);
     }
-  }, [formValue, selectedTeamId, fetchMembers]);
+  }, [formValue, selectedTeamId, fetchMembers, inviteLoading]);
 
   const handleSetPassword = useCallback(
     async (memberId: string) => {
@@ -747,11 +747,18 @@ export const TeamsPage: React.FC = () => {
             onChange={(e) => setFormValue(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleInvite()}
             error={formError ?? undefined}
+            disabled={inviteLoading}
             autoFocus
           />
         </ModalBody>
         <ModalFooter>
-          <Button variant="primary" fullWidth onClick={handleInvite} isLoading={inviteLoading}>
+          <Button
+            variant="primary"
+            fullWidth
+            onClick={handleInvite}
+            disabled={inviteLoading}
+            isLoading={inviteLoading}
+          >
             Send Invite
           </Button>
         </ModalFooter>

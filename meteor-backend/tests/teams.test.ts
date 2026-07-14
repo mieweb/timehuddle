@@ -92,6 +92,8 @@ beforeAll(async () => {
 afterAll(async () => {
   // Clean up fixture team (may already be deleted by tests)
   await wormhole('teams.delete', { teamId: fixtureTeamId }, ownerJwt).catch(() => {});
+  const db = await getDb();
+  await db.collection('team_invitations').deleteMany({ teamId: fixtureTeamId });
   await Promise.all([
     purgeUser(OWNER.email),
     purgeUser(MEMBER.email),
@@ -379,6 +381,16 @@ describe('teams.invite', () => {
     );
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/valid email/i);
+  });
+
+  it('requires a team administrator', async () => {
+    const res = await wormhole(
+      'teams.invite',
+      { teamId: fixtureTeamId, email: 'another-invitee@test.dev' },
+      memberJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/admin/i);
   });
 
   it('only allows the invited email to accept and joins that user after registration', async () => {
