@@ -162,10 +162,10 @@ jobs:
 
             | Service | URL |
             |---------|-----|
-            | Frontend | ${ process.env.PREVIEW_URL } |
-            | API (Meteor backend) | ${ process.env.API_URL } |
+            | **App** | [${ process.env.PREVIEW_URL }](${ process.env.PREVIEW_URL }) |
+            | **API** (Meteor) | ${ process.env.API_URL } |
 
-            _Preview will be automatically deleted when this PR is closed._
+            _Preview auto-deletes when this PR is closed._
             `;
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request.number;
