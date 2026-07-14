@@ -142,12 +142,13 @@ const AppLayoutContent: React.FC = () => {
 
   useBrand();
 
-  const normalizePath = (p: string) => (p === '/app' ? '/app/dashboard' : p);
+  const normalizePath = (p: string) =>
+    p === '/app' || p === '/' ? '/app/dashboard' : p;
 
   const [pathname, setPathname] = useState(() => {
     if (typeof window === 'undefined') return '/app/dashboard';
     const p = window.location.pathname;
-    if (p === '/app') window.history.replaceState(null, '', '/app/dashboard');
+    if (p === '/app' || p === '/') window.history.replaceState(null, '', '/app/dashboard');
     return normalizePath(p);
   });
 

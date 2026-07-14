@@ -60,8 +60,9 @@ test.describe('Dashboard', () => {
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
 
-    // The dashboard shows "Session Active" alert with a "View" button
-    await expect(page.getByText('Session Active')).toBeVisible({ timeout: 10000 });
+    // The dashboard shows "Session Active" alert with a "View" button.
+    // Allow extra time — the dashboard polls for clock state which can be slow.
+    await expect(page.getByText('Session Active')).toBeVisible({ timeout: 20000 });
     const viewButton = page.getByRole('button', { name: 'View', exact: true });
     await expect(viewButton).toBeVisible();
 

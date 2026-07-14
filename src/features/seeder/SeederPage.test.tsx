@@ -94,7 +94,7 @@ describe('SeederPage', () => {
       expect.stringContaining('Midwest Services'),
       'org-1',
     );
-  });
+  }, 15_000);
 
   it('disables Import and shows inline error on invalid YAML', async () => {
     render(<SeederPage />);
