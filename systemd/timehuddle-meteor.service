@@ -1,0 +1,16 @@
+[Unit]
+Description=TimeHuddle Meteor Backend (port 3100)
+After=timehuddle-mongodb-init.service
+Requires=timehuddle-mongodb-init.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/environment
+ExecStart=/usr/local/bin/start-meteor.sh
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

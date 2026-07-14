@@ -1,0 +1,14 @@
+[Unit]
+Description=TimeHuddle Frontend Static Server (port 3000)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/serve -s /app/dist -l tcp:0.0.0.0:3000
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

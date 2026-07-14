@@ -1,0 +1,13 @@
+[Unit]
+Description=MongoDB Replica Set Initializer (TimeHuddle)
+After=timehuddle-mongodb.service
+Requires=timehuddle-mongodb.service
+Before=timehuddle-meteor.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/mongodb-init.sh
+
+[Install]
+WantedBy=multi-user.target
