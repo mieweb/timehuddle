@@ -150,6 +150,19 @@ describe('teams.ensurePersonal', () => {
     expect(res.result.team.members).toContain(outsiderId);
   });
 
+  it('also enrolls the user as a default-org member (regression: signup gave a personal team but no org)', async () => {
+    const db = await getDb();
+    const defaultOrg = await db.collection('organizations').findOne({ slug: 'default' });
+    expect(defaultOrg).toBeTruthy();
+
+    const membership = await db.collection('org_members').findOne({
+      orgId: defaultOrg!._id.toHexString(),
+      userId: outsiderId,
+    });
+    expect(membership).toBeTruthy();
+    expect(membership!.role).toBe('member');
+  });
+
   it('is idempotent — calling twice returns the same team', async () => {
     const res1 = await wormhole<{ team: { id: string } }>('teams.ensurePersonal', {}, memberJwt);
     const res2 = await wormhole<{ team: { id: string } }>('teams.ensurePersonal', {}, memberJwt);

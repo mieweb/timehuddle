@@ -185,6 +185,7 @@ Meteor.methods({
       createdAt: new Date(),
     };
     await Teams.insertAsync(doc);
+    await addOrgMember(defaultOrg._id.toHexString(), userId, 'member', true);
     ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
     return { team: toPublicTeam(doc) };
   },
