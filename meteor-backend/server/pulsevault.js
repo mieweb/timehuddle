@@ -1,8 +1,16 @@
 /**
  * PulseVault — video upload + serving for Meteor, backed by the real
  * `@mieweb/pulsevault` package (framework-agnostic core) instead of a
- * hand-rolled TUS server. Mounted on `WebApp.connectHandlers` per the
- * package's documented Meteor integration pattern.
+ * hand-rolled TUS server. Registered as a Wormhole plugin (`Wormhole.use()`),
+ * which mounts the handler on `WebApp.connectHandlers` under the hood — see
+ * the package's documented Meteor integration pattern. Registering through
+ * Wormhole (rather than a bare `WebApp.connectHandlers.use()` call) means
+ * this endpoint is tracked in Wormhole's plugin registry instead of being an
+ * untracked side-channel mount; the TUS request handling itself is
+ * unchanged, since `api.mount()` is a thin wrapper around the same
+ * `WebApp.connectHandlers.use()` call. The plugin also contributes hand-written
+ * OpenAPI docs for these binary routes via `api.addOpenApiPaths()` (see
+ * `pulsevault-docs.js`), merged into the same spec served at `/api/docs`.
  *
  * Reservation → capability-token → upload → attach flow:
  *  1. `pulsevault.reserve` (ticket) / `pulsevault.reserveForLibrary` mint an
@@ -13,9 +21,9 @@
  *  3. `onUploadComplete` looks up the recorded context and creates the
  *     ticket attachment / media-library item.
  */
-import { WebApp } from 'meteor/webapp';
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
+import { Wormhole } from 'meteor/wreiske:meteor-wormhole';
 import {
   createPulseVaultCore,
   createLocalStorage,
@@ -26,6 +34,7 @@ import {
 import { rawDb } from './collections.js';
 import { requireIdentity, resolveToken } from './auth-bridge.js';
 import { createAttachment } from './attachments.js';
+import { pulsevaultOpenApiPaths } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
 
@@ -165,80 +174,91 @@ function decodeUploadMetadata(raw) {
   );
 }
 
-WebApp.connectHandlers.use('/pulsevault', (req, res, next) => {
-  const logCtx = {
-    'upload-offset': req.headers['upload-offset'],
-    'upload-length': req.headers['upload-length'],
-    'content-length': req.headers['content-length'],
-    'tus-resumable': req.headers['tus-resumable'],
-    authorization: req.headers.authorization ? 'present' : 'missing',
-  };
+Wormhole.use({
+  name: 'pulsevault',
+  start(api) {
+    // Wormhole's own /api/openapi.json only documents Meteor methods — these
+    // are raw TUS/artifact routes, so they're contributed by hand and merged
+    // into the same spec (see pulsevault-docs.js).
+    api.addOpenApiPaths(pulsevaultOpenApiPaths);
 
-  // Decode Upload-Metadata on POST (TUS upload creation) so we can see what
-  // artifactId/kind/filename the client is sending and whether it was reserved.
-  if (req.method === 'POST') {
-    const meta = decodeUploadMetadata(req.headers['upload-metadata']);
-    const artifactId = meta.artifactId ?? meta.videoid ?? meta.projectid ?? '(missing)';
-    logCtx['meta.artifactId'] = artifactId;
-    logCtx['meta.filename'] = meta.filename ?? '(missing)';
-    logCtx['meta.kind'] = meta.kind ?? 'video (default)';
-    logCtx['meta.relatedTo'] = meta.relatedTo ?? null;
-    logCtx['reservationExists'] = reservationContext.has(artifactId);
-    console.log('[pulsevault][POST] decoded Upload-Metadata:', logCtx);
-  }
+    api.mount('/pulsevault', (req, res, next) => {
+      const logCtx = {
+        'upload-offset': req.headers['upload-offset'],
+        'upload-length': req.headers['upload-length'],
+        'content-length': req.headers['content-length'],
+        'tus-resumable': req.headers['tus-resumable'],
+        authorization: req.headers.authorization ? 'present' : 'missing',
+      };
 
-  // Log Upload-Offset on PATCH — a mismatch vs the server's tracked offset is
-  // the direct cause of a TUS 409 Conflict.
-  if (req.method === 'PATCH') {
-    console.log('[pulsevault][PATCH] offset info:', {
-      url: req.url,
-      'upload-offset': req.headers['upload-offset'],
-      'upload-length': req.headers['upload-length'],
-      'content-length': req.headers['content-length'],
+      // Decode Upload-Metadata on POST (TUS upload creation) so we can see what
+      // artifactId/kind/filename the client is sending and whether it was reserved.
+      if (req.method === 'POST') {
+        const meta = decodeUploadMetadata(req.headers['upload-metadata']);
+        const artifactId = meta.artifactId ?? meta.videoid ?? meta.projectid ?? '(missing)';
+        logCtx['meta.artifactId'] = artifactId;
+        logCtx['meta.filename'] = meta.filename ?? '(missing)';
+        logCtx['meta.kind'] = meta.kind ?? 'video (default)';
+        logCtx['meta.relatedTo'] = meta.relatedTo ?? null;
+        logCtx['reservationExists'] = reservationContext.has(artifactId);
+        console.log('[pulsevault][POST] decoded Upload-Metadata:', logCtx);
+      }
+
+      // Log Upload-Offset on PATCH — a mismatch vs the server's tracked offset is
+      // the direct cause of a TUS 409 Conflict.
+      if (req.method === 'PATCH') {
+        console.log('[pulsevault][PATCH] offset info:', {
+          url: req.url,
+          'upload-offset': req.headers['upload-offset'],
+          'upload-length': req.headers['upload-length'],
+          'content-length': req.headers['content-length'],
+        });
+      }
+
+      console.log('[pulsevault][req]', req.method, req.url, logCtx);
+
+      const originalWriteHead = res.writeHead.bind(res);
+      res.writeHead = function (status, ...args) {
+        console.log('[pulsevault][res]', req.method, req.url, 'status:', status);
+
+        // Capture response body for 4xx responses so we can see the TUS error string
+        // (e.g. the exact reason behind a 409 Conflict).
+        if (status >= 400) {
+          const chunks = [];
+          const originalWrite = res.write.bind(res);
+          const originalEnd = res.end.bind(res);
+          res.write = function (chunk, ...rest) {
+            if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            return originalWrite(chunk, ...rest);
+          };
+          res.end = function (chunk, ...rest) {
+            if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            const body = Buffer.concat(chunks).toString('utf8');
+            console.error('[pulsevault][res] error body', req.method, req.url, 'status:', status, 'body:', body);
+            return originalEnd(chunk, ...rest);
+          };
+        }
+
+        return originalWriteHead(status, ...args);
+      };
+
+      // A mobile client aborting mid-upload (backgrounded, network drop, user
+      // cancel) fires an 'error' event on the request stream. With no listener,
+      // Node treats that as unhandled and crashes the whole process — not just
+      // this request. Attaching a listener (even a no-op) marks it handled.
+      req.on('error', (err) => {
+        console.warn('[pulsevault] request stream aborted:', err.code || err.message);
+      });
+      core.handler(req, res, next).catch((err) => {
+        console.error('[pulsevault] handler error:', err);
+        if (!res.headersSent) {
+          res.writeHead(500);
+          res.end();
+        }
+      });
     });
-  }
-
-  console.log('[pulsevault][req]', req.method, req.url, logCtx);
-
-  const originalWriteHead = res.writeHead.bind(res);
-  res.writeHead = function (status, ...args) {
-    console.log('[pulsevault][res]', req.method, req.url, 'status:', status);
-
-    // Capture response body for 4xx responses so we can see the TUS error string
-    // (e.g. the exact reason behind a 409 Conflict).
-    if (status >= 400) {
-      const chunks = [];
-      const originalWrite = res.write.bind(res);
-      const originalEnd = res.end.bind(res);
-      res.write = function (chunk, ...rest) {
-        if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-        return originalWrite(chunk, ...rest);
-      };
-      res.end = function (chunk, ...rest) {
-        if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-        const body = Buffer.concat(chunks).toString('utf8');
-        console.error('[pulsevault][res] error body', req.method, req.url, 'status:', status, 'body:', body);
-        return originalEnd(chunk, ...rest);
-      };
-    }
-
-    return originalWriteHead(status, ...args);
-  };
-
-  // A mobile client aborting mid-upload (backgrounded, network drop, user
-  // cancel) fires an 'error' event on the request stream. With no listener,
-  // Node treats that as unhandled and crashes the whole process — not just
-  // this request. Attaching a listener (even a no-op) marks it handled.
-  req.on('error', (err) => {
-    console.warn('[pulsevault] request stream aborted:', err.code || err.message);
-  });
-  core.handler(req, res, next).catch((err) => {
-    console.error('[pulsevault] handler error:', err);
-    if (!res.headersSent) {
-      res.writeHead(500);
-      res.end();
-    }
-  });
+    console.log('[pulsevault] @mieweb/pulsevault mounted at /pulsevault via Wormhole plugin');
+  },
 });
 
 function mintUploadToken(artifactId) {
@@ -272,6 +292,54 @@ Meteor.methods({
     reservationContext.set(videoid, { userId: identity.userId, target: 'library' });
     return { videoid, uploadToken };
   },
-});
 
-console.log('[pulsevault] @mieweb/pulsevault mounted at /pulsevault');
+  /**
+   * Get a single video from the media library by its artifactId (videoid).
+   * Returns the video metadata and a ready-to-use playback URL.
+   */
+  async 'pulsevault.getVideo'({ artifactId } = {}) {
+    await requireIdentity(this);
+    if (!artifactId || typeof artifactId !== 'string') {
+      throw new Meteor.Error('bad-request', 'artifactId is required');
+    }
+    const doc = await rawDb().collection('mediaitems').findOne({ videoid: artifactId });
+    if (!doc) throw new Meteor.Error('not-found', 'Video not found');
+    return {
+      artifactId: doc.videoid,
+      mediaId: String(doc._id),
+      url: doc.url ?? `${ISSUER}/pulsevault/artifacts/${doc.videoid}`,
+      title: doc.title ?? null,
+      mimeType: doc.mimeType ?? 'video/mp4',
+      size: doc.size ?? 0,
+      thumbnail: doc.thumbnail ?? null,
+      uploadedAt: doc.uploadedAt ?? null,
+    };
+  },
+
+  /**
+   * List videos from the media library for the calling user.
+   * Filters to type='video' so images are excluded.
+   */
+  async 'pulsevault.listVideos'({ limit } = {}) {
+    const identity = await requireIdentity(this);
+    const safeLimit = Math.min(Math.max(1, limit ?? 50), 100);
+    const docs = await rawDb()
+      .collection('mediaitems')
+      .find({ userId: identity.userId, type: 'video' })
+      .sort({ uploadedAt: -1 })
+      .limit(safeLimit)
+      .toArray();
+    return {
+      videos: docs.map((doc) => ({
+        artifactId: doc.videoid,
+        mediaId: String(doc._id),
+        url: doc.url ?? `${ISSUER}/pulsevault/artifacts/${doc.videoid}`,
+        title: doc.title ?? null,
+        mimeType: doc.mimeType ?? 'video/mp4',
+        size: doc.size ?? 0,
+        thumbnail: doc.thumbnail ?? null,
+        uploadedAt: doc.uploadedAt ?? null,
+      })),
+    };
+  },
+});
