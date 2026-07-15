@@ -84,6 +84,9 @@ test.describe('Tickets', () => {
     await page.goto('/app/tickets');
     await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
 
+    // Wait for the org/team context to fully load before creating a ticket
+    // (avoids the "No team available" modal that shows when org hasn't initialised yet).
+    await page.waitForLoadState('networkidle');
     // Create a ticket to edit
     const editTitle = `E2E Edit Test ${Date.now()}`;
     await page.getByRole('button', { name: 'New Ticket' }).click();

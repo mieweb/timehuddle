@@ -135,7 +135,7 @@ test.describe('Member Blocking - Full Flow', () => {
     });
 
     // ── Step 9: Unblocked member can login successfully ────────────────────
-    await loginPage.goto();
+    // Login form is already showing after owner logout — no goto() needed.
     await loginPage.login(member.email, member.password);
     await page.waitForURL('**/dashboard', { timeout: 15000 });
 

@@ -32,7 +32,8 @@ import './channels'; // must precede teams (teams.create calls ensureDefaultChan
 import './teams';
 import './team-join-requests';
 
-// PulseVault — TUS video upload + serving
+// PulseVault — video upload + serving
+import './pulsevault';
 import './messages';
 import './huddle';
 // M3 — Org & profiles
@@ -1475,6 +1476,92 @@ Meteor.startup(async() => {
   Wormhole.expose('media.update', { description: 'Update media metadata (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' }, title: { type: 'string' }, caption: { type: 'string' }, altText: { type: 'string' } }, required: ['mediaId'] } });
   Wormhole.expose('media.remove', { description: 'Delete media item + files (owner)', inputSchema: { type: 'object', properties: { mediaId: { type: 'string' } }, required: ['mediaId'] } });
 
+  // ── PulseVault ────────────────────────────────────────────────────────────
+
+  Wormhole.expose('pulsevault.reserve', {
+    description: 'Reserve a videoid for TUS video upload',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        existingVideoid: { type: 'string' },
+        target: { type: 'string', enum: ['ticket', 'library'] },
+      },
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        videoid: { type: 'string' },
+        uploadToken: { type: 'string' },
+      },
+    },
+  });
+  Wormhole.expose('pulsevault.reserveForLibrary', {
+    description: 'Reserve a videoid for media library TUS upload',
+    inputSchema: { type: 'object', properties: {} },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        videoid: { type: 'string' },
+        uploadToken: { type: 'string' },
+      },
+    },
+  });
+
+  Wormhole.expose('pulsevault.getVideo', {
+    description: 'Get a single video from the media library by its artifactId',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifactId: { type: 'string', description: 'The artifact/video UUID' },
+      },
+      required: ['artifactId'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        artifactId: { type: 'string' },
+        mediaId: { type: 'string' },
+        url: { type: 'string', description: 'Playback URL at /pulsevault/artifacts/:artifactId' },
+        title: { type: 'string' },
+        mimeType: { type: 'string' },
+        size: { type: 'integer' },
+        thumbnail: { type: 'string' },
+        uploadedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+  });
+
+  Wormhole.expose('pulsevault.listVideos', {
+    description: 'List videos from the media library for the calling user',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max results (default 50)' },
+      },
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        videos: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              artifactId: { type: 'string' },
+              mediaId: { type: 'string' },
+              url: { type: 'string' },
+              title: { type: 'string' },
+              mimeType: { type: 'string' },
+              size: { type: 'integer' },
+              thumbnail: { type: 'string' },
+              uploadedAt: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    },
+  });
 
   // Agenda foundation: defines clock jobs against the shared `agendajobs`
   // collection. Processor stays OFF unless METEOR_AGENDA_ENABLED=true, so it

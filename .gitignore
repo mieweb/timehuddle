@@ -56,3 +56,6 @@ backups/
 prod-backups/
 backend/
 backups/
+
+# PulseVault + general uploaded files — written at runtime, never commit
+uploads/
