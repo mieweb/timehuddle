@@ -69,7 +69,7 @@ export async function uploadMedia(file: File): Promise<MediaItem> {
     });
 
     // Build MediaItem shape from the uploaded video
-    const videoUrl = `${METEOR_BASE_URL.replace(/\/$/, '')}/v1/video/${videoid}`;
+    const videoUrl = `${METEOR_BASE_URL.replace(/\/$/, '')}/pulsevault/artifacts/${videoid}`;
     media = {
       id: videoid,
       type: 'video',
