@@ -315,9 +315,7 @@ export const OrganizationChart: React.FC<OrganizationChartProps> = ({
   }
 
   const profilePath = selectedMember
-    ? selectedMember.username
-      ? `/${selectedMember.username}`
-      : `/app/profile/${selectedMember.id}`
+    ? `/app/profile/${selectedMember.username ?? selectedMember.id}`
     : '';
 
   const handleNavigateProfile = () => {

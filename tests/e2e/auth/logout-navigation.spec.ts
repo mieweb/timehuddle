@@ -179,6 +179,9 @@ test.describe('Logout Navigation', () => {
     await dashboardPage.logout();
     await page.waitForTimeout(1000);
 
+    // Navigate back to the login form before logging in again
+    await loginPage.goto();
+
     // Should be able to login again
     await loginPage.loginAs(user);
     await page.waitForURL('**/dashboard', { timeout: 15000 });

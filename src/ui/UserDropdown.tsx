@@ -48,7 +48,7 @@ export const UserDropdown: React.FC = () => {
   const handleProfile = useCallback(() => {
     setOpen(false);
     if (user?.username) {
-      navigate(`/${user.username}`);
+      navigate(`/app/profile/${user.username}`);
     } else {
       navigate('/app/settings');
     }
