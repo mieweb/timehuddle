@@ -8,9 +8,10 @@
  * this endpoint is tracked in Wormhole's plugin registry instead of being an
  * untracked side-channel mount; the TUS request handling itself is
  * unchanged, since `api.mount()` is a thin wrapper around the same
- * `WebApp.connectHandlers.use()` call. The plugin also contributes hand-written
- * OpenAPI docs for these binary routes via `api.addOpenApiPaths()` (see
- * `pulsevault-docs.js`), merged into the same spec served at `/api/docs`.
+ * `WebApp.connectHandlers.use()` call. Also serves a standalone Swagger page
+ * at `/pulsevault/docs` for these binary routes (see `pulsevault-docs.js`) —
+ * Wormhole's own `/api/docs` only documents Meteor methods, with no
+ * extension point for hand-written paths.
  *
  * Reservation → capability-token → upload → attach flow:
  *  1. `pulsevault.reserve` (ticket) / `pulsevault.reserveForLibrary` mint an
@@ -34,7 +35,7 @@ import {
 import { rawDb } from './collections.js';
 import { requireIdentity, resolveToken } from './auth-bridge.js';
 import { createAttachment } from './attachments.js';
-import { pulsevaultOpenApiPaths } from './pulsevault-docs.js';
+import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
 
@@ -177,12 +178,22 @@ function decodeUploadMetadata(raw) {
 Wormhole.use({
   name: 'pulsevault',
   start(api) {
-    // Wormhole's own /api/openapi.json only documents Meteor methods — these
-    // are raw TUS/artifact routes, so they're contributed by hand and merged
-    // into the same spec (see pulsevault-docs.js).
-    api.addOpenApiPaths(pulsevaultOpenApiPaths);
-
     api.mount('/pulsevault', (req, res, next) => {
+      // Serve a hand-written Swagger page for this mount's raw TUS/artifact
+      // routes — Wormhole's own /api/openapi.json only documents Meteor
+      // methods, so these routes need their own doc page (see pulsevault-docs.js).
+      const docsUrl = req.url.split('?')[0];
+      if (req.method === 'GET' && docsUrl === '/openapi.json') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(pulsevaultOpenApiSpec));
+        return;
+      }
+      if (req.method === 'GET' && docsUrl === '/docs') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(pulsevaultSwaggerHtml('/pulsevault/openapi.json'));
+        return;
+      }
+
       const logCtx = {
         'upload-offset': req.headers['upload-offset'],
         'upload-length': req.headers['upload-length'],
