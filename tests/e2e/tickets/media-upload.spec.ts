@@ -21,7 +21,9 @@ const TEST_MP4 = path.join(FIXTURES_DIR, 'test-video.mp4');
 async function goToMedia(page: import('@playwright/test').Page) {
   await page.goto('/app/media');
   // aria-label on the button is "Upload media"
-  await page.getByRole('button', { name: 'Upload media' }).waitFor({ state: 'visible', timeout: 15000 });
+  await page
+    .getByRole('button', { name: 'Upload media' })
+    .waitFor({ state: 'visible', timeout: 15000 });
 }
 
 async function countVideoItems(page: import('@playwright/test').Page): Promise<number> {
@@ -31,7 +33,13 @@ async function countVideoItems(page: import('@playwright/test').Page): Promise<n
   // Filter to video items (they carry an MP4 badge)
   let count = 0;
   for (const item of all) {
-    if (await item.locator('text=MP4').isVisible().catch(() => false)) count++;
+    if (
+      await item
+        .locator('text=MP4')
+        .isVisible()
+        .catch(() => false)
+    )
+      count++;
   }
   return count;
 }
@@ -80,7 +88,9 @@ test.describe('Media Library — Upload button', () => {
 
   test('Upload error state is shown if the upload fails', async ({ page }) => {
     // Intercept the TUS POST to force a 500 so we can verify error UI
-    await page.route('**/pulsevault/upload', (route) => route.fulfill({ status: 500, body: 'error' }));
+    await page.route('**/pulsevault/upload', (route) =>
+      route.fulfill({ status: 500, body: 'error' }),
+    );
 
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles(TEST_MP4);

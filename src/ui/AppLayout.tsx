@@ -141,8 +141,7 @@ const AppLayoutContent: React.FC = () => {
 
   useBrand();
 
-  const normalizePath = (p: string) =>
-    p === '/app' || p === '/' ? '/app/dashboard' : p;
+  const normalizePath = (p: string) => (p === '/app' || p === '/' ? '/app/dashboard' : p);
 
   const [pathname, setPathname] = useState(() => {
     if (typeof window === 'undefined') return '/app/dashboard';
