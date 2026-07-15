@@ -2,15 +2,15 @@ import { test, expect } from '@playwright/test';
 
 /**
  * Test that after signup + username claim, the organization appears in the
- * user dropdown menu WITHOUT requiring a page refresh.
+ * header switcher WITHOUT requiring a page refresh.
  *
  * Regression test for the race condition where Accounts.onLogin auto-join
  * hadn't completed before TeamContext fetched organizations, leaving the
- * dropdown empty until manual refresh.
+ * switcher empty until manual refresh.
  */
 
 test.describe.serial('Organization Visible After Signup', () => {
-  test('organization appears in user dropdown immediately after signup and username claim', async ({
+  test('organization appears in header switcher immediately after signup and username claim', async ({
     page,
   }) => {
     const timestamp = Date.now();
@@ -61,18 +61,13 @@ test.describe.serial('Organization Visible After Signup', () => {
 
     await expect(page).toHaveURL(/\/app\/(dashboard|org|enterprise)/, { timeout: 15000 });
 
-    // ── Step 3: Verify org in dropdown WITHOUT page refresh ───────────────────
+    // ── Step 3: Verify org in the header WITHOUT page refresh ─────────────────
 
-    // Open the account menu dropdown
-    const accountMenu = page.getByRole('button', { name: 'Account menu' });
-    await expect(accountMenu).toBeVisible({ timeout: 10000 });
-    await accountMenu.click();
-
-    // The ORGANIZATION section with the default org should be visible
-    // without requiring a page refresh.
+    // The switcher names the current org in its trigger, so no click is needed.
     // Wait up to 15s to allow for the retry mechanism (1.5s delayed refetch).
-    await expect(
-      page.getByRole('menuitem').filter({ hasText: /Default Organization/i }),
-    ).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('button', { name: /Switch organization and team/i })).toContainText(
+      /Default Organization/i,
+      { timeout: 15000 },
+    );
   });
 });

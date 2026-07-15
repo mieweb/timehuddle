@@ -43,7 +43,11 @@ export const ClockInHeaderTimer: React.FC = () => {
       }}
     >
       <TimerIcon size="md" loading />
-      <TimerDisplay time={display} size="md" />
+      {/* Below sm the header also carries the page title and the org/team
+          switcher; the elapsed digits yield so those stay legible. The icon
+          still signals "clocked in", the aria-label above still announces the
+          time, and the tab title carries it too (useClockDocumentTitle). */}
+      <TimerDisplay time={display} size="md" className="hidden sm:block" />
     </TimerRoot>
   );
 };
