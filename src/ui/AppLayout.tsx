@@ -91,7 +91,6 @@ const ROUTES: Record<string, RouteConfig> = {
 function match(pathname: string): RouteConfig | null {
   if (pathname.startsWith('/app/profile/')) return null;
   if (pathname.startsWith('/app/tickets/')) return null;
-  if (/^\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/.test(pathname)) return null;
   return ROUTES[pathname] ?? ROUTES['/app/dashboard'];
 }
 
@@ -279,23 +278,24 @@ const AppLayoutContent: React.FC = () => {
   }, [navigate]);
 
   // ── Parameterized routes ──────────────────────────────────────────────────
-  const profileUserId = pathname.startsWith('/app/profile/')
+  // /app/profile/:id  — numeric/ObjectId user ID
+  // /app/profile/:username — alphanumeric username (falls through from ID check)
+  const profileSegment = pathname.startsWith('/app/profile/')
     ? pathname.slice('/app/profile/'.length)
     : null;
+  const profileUserId = profileSegment && /^[a-f0-9]{24}$|^\d+$/.test(profileSegment)
+    ? profileSegment
+    : null;
+  const profileUsername = profileSegment && !profileUserId ? profileSegment : null;
 
   const ticketDetailId =
-    !profileUserId && pathname.startsWith('/app/tickets/')
+    !profileSegment && pathname.startsWith('/app/tickets/')
       ? pathname.slice('/app/tickets/'.length)
       : null;
 
-  const profileUsername =
-    !profileUserId && /^\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/.test(pathname)
-      ? pathname.slice(1)
-      : null;
-
-  const route = profileUserId || profileUsername || ticketDetailId ? null : match(pathname);
+  const route = profileSegment || ticketDetailId ? null : match(pathname);
   const pageTitle =
-    profileUserId || profileUsername
+    profileSegment
       ? 'Profile'
       : ticketDetailId
         ? 'Ticket'
@@ -404,8 +404,7 @@ const AppLayoutContent: React.FC = () => {
                       <PullToRefresh>
                         <div
                           className={
-                            !profileUserId &&
-                            !profileUsername &&
+                            !profileSegment &&
                             !ticketDetailId &&
                             pathname === '/app/tickets'
                               ? 'h-full w-full flex flex-col'
