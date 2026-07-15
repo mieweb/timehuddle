@@ -484,7 +484,9 @@ export const TeamsPage: React.FC = () => {
                           <Button
                             variant="ghost"
                             onClick={() =>
-                              navigate(username ? `/app/profile/${username}` : `/app/profile/${memberId}`)
+                              navigate(
+                                username ? `/app/profile/${username}` : `/app/profile/${memberId}`,
+                              )
                             }
                             className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
                             aria-label={`View ${name}'s profile`}
