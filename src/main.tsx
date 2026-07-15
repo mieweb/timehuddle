@@ -60,46 +60,6 @@ import { LandingPage } from './ui/LandingPage';
 import { LoginForm } from './ui/LoginForm';
 import { UsernameClaimModal } from './ui/UsernameClaimModal';
 
-// ─── Username path detection ──────────────────────────────────────────────────
-
-/** Regex matching /:username — 3-30 chars, start/end alphanumeric. */
-const USERNAME_PATH_RE = /^\/([a-z0-9][a-z0-9_-]{1,28}[a-z0-9])$/;
-
-/** Reserved path segments that must never be treated as usernames. */
-const RESERVED_PATHS = new Set([
-  'app',
-  'api',
-  'auth',
-  'login',
-  'logout',
-  'signup',
-  'register',
-  'admin',
-  'dashboard',
-  'settings',
-  'profile',
-  'account',
-  'user',
-  'static',
-  'assets',
-  'public',
-  'health',
-  'favicon',
-  'robots',
-  'sw',
-  'manifest',
-  'sitemap',
-  'feed',
-  'rss',
-  'help',
-  'support',
-  'about',
-  'contact',
-  'privacy',
-  'terms',
-  'legal',
-]);
-
 // ─── Deep link handling (Capacitor native only) ───────────────────────────────
 //
 // Password reset emails contain a timehuddle://reset?token=XXX link.
@@ -343,14 +303,6 @@ function renderRoot() {
       _root = createRoot(el);
       _root.render(<InboxPage />);
       return;
-    }
-
-    // Public profile route — /:username
-    // AppLayout handles this internally, so fall through to <App /> which keeps the sidebar.
-    // The USERNAME_PATH_RE + RESERVED_PATHS check is still used by AppLayout for in-app routing.
-    const usernameMatch = window.location.pathname.match(USERNAME_PATH_RE);
-    if (usernameMatch && !RESERVED_PATHS.has(usernameMatch[1])) {
-      _log(`profile route — @${usernameMatch[1]} — mounting full app shell`);
     }
 
     _root = createRoot(el);

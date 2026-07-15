@@ -138,7 +138,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
     );
   }
 
-  const nameText = profile?.name || sessionUser?.email?.split('@')[0] || 'Unknown user';
+  const nameText =
+    profile?.name ||
+    profile?.username ||
+    (isOwn ? sessionUser?.email?.split('@')[0] : null) ||
+    'Unknown user';
 
   return (
     <AppPage>
