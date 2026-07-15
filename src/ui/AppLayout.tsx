@@ -283,9 +283,8 @@ const AppLayoutContent: React.FC = () => {
   const profileSegment = pathname.startsWith('/app/profile/')
     ? pathname.slice('/app/profile/'.length)
     : null;
-  const profileUserId = profileSegment && /^[a-f0-9]{24}$|^\d+$/.test(profileSegment)
-    ? profileSegment
-    : null;
+  const profileUserId =
+    profileSegment && /^[a-f0-9]{24}$|^\d+$/.test(profileSegment) ? profileSegment : null;
   const profileUsername = profileSegment && !profileUserId ? profileSegment : null;
 
   const ticketDetailId =
@@ -294,12 +293,11 @@ const AppLayoutContent: React.FC = () => {
       : null;
 
   const route = profileSegment || ticketDetailId ? null : match(pathname);
-  const pageTitle =
-    profileSegment
-      ? 'Profile'
-      : ticketDetailId
-        ? 'Ticket'
-        : (route?.title ?? 'App');
+  const pageTitle = profileSegment
+    ? 'Profile'
+    : ticketDetailId
+      ? 'Ticket'
+      : (route?.title ?? 'App');
   const isMessagesPage = pathname === '/app/messages';
 
   const [messagesHasActiveChat, setMessagesHasActiveChat] = useState(false);
@@ -404,9 +402,7 @@ const AppLayoutContent: React.FC = () => {
                       <PullToRefresh>
                         <div
                           className={
-                            !profileSegment &&
-                            !ticketDetailId &&
-                            pathname === '/app/tickets'
+                            !profileSegment && !ticketDetailId && pathname === '/app/tickets'
                               ? 'h-full w-full flex flex-col'
                               : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
                           }

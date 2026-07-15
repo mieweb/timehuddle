@@ -67,9 +67,7 @@ test.describe('Profile Routing', () => {
     await membersTab.click();
 
     // Click the first member button (View … profile)
-    const memberButton = page
-      .getByRole('button', { name: /view .+'s profile/i })
-      .first();
+    const memberButton = page.getByRole('button', { name: /view .+'s profile/i }).first();
     await memberButton.waitFor({ state: 'visible', timeout: 10000 });
 
     // Extract expected username from aria-label: "View Test Member One's profile"
