@@ -73,7 +73,6 @@ test.describe('Profile Routing', () => {
     await memberButton.waitFor({ state: 'visible', timeout: 10000 });
 
     // Extract expected username from aria-label: "View Test Member One's profile"
-    const ariaLabel = await memberButton.getAttribute('aria-label') ?? '';
     // We clicked a member — just verify the URL is /app/profile/... not /:username
     await memberButton.click();
 
