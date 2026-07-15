@@ -1447,10 +1447,79 @@ Meteor.startup(async() => {
         target: { type: 'string', enum: ['ticket', 'library'] },
       },
     },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        videoid: { type: 'string' },
+        uploadToken: { type: 'string' },
+      },
+    },
   });
   Wormhole.expose('pulsevault.reserveForLibrary', {
     description: 'Reserve a videoid for media library TUS upload',
     inputSchema: { type: 'object', properties: {} },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        videoid: { type: 'string' },
+        uploadToken: { type: 'string' },
+      },
+    },
+  });
+
+  Wormhole.expose('pulsevault.getVideo', {
+    description: 'Get a single video from the media library by its artifactId',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifactId: { type: 'string', description: 'The artifact/video UUID' },
+      },
+      required: ['artifactId'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        artifactId: { type: 'string' },
+        mediaId: { type: 'string' },
+        url: { type: 'string', description: 'Playback URL at /pulsevault/artifacts/:artifactId' },
+        title: { type: 'string' },
+        mimeType: { type: 'string' },
+        size: { type: 'integer' },
+        thumbnail: { type: 'string' },
+        uploadedAt: { type: 'string', format: 'date-time' },
+      },
+    },
+  });
+
+  Wormhole.expose('pulsevault.listVideos', {
+    description: 'List videos from the media library for the calling user',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max results (default 50)' },
+      },
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        videos: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              artifactId: { type: 'string' },
+              mediaId: { type: 'string' },
+              url: { type: 'string' },
+              title: { type: 'string' },
+              mimeType: { type: 'string' },
+              size: { type: 'integer' },
+              thumbnail: { type: 'string' },
+              uploadedAt: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    },
   });
 
   // Agenda foundation: defines clock jobs against the shared `agendajobs`
