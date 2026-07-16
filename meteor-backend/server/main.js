@@ -111,8 +111,19 @@ WebApp.rawConnectHandlers.use((req, res, next) => {
   if (isOriginAllowed(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
+    // Includes the TUS resumable-upload protocol headers (@mieweb/pulsevault's
+    // /pulsevault/upload route) — tus-js-client sends Tus-Resumable on every
+    // request, so without it here the browser blocks the preflight before the
+    // upload ever reaches the handler.
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Authorization, X-Requested-With, Tus-Resumable, Upload-Length, Upload-Metadata, Upload-Offset, Upload-Concat, Upload-Defer-Length',
+    );
+    res.setHeader(
+      'Access-Control-Expose-Headers',
+      'Location, Upload-Offset, Upload-Length, Tus-Resumable, Tus-Version, Tus-Max-Size, Tus-Extension',
+    );
     res.setHeader('Access-Control-Max-Age', '86400');
   }
   if (req.method === 'OPTIONS') {
