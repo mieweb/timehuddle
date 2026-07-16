@@ -81,10 +81,9 @@ test.describe('Profile Routing', () => {
     // Must NOT be a bare root path like /member1
     expect(url).not.toMatch(/^http:\/\/[^/]+\/[^/]+$/);
 
-    // Profile page should be visible
-    await expect(page.getByRole('heading', { level: 1, name: 'Profile' })).toBeVisible({
-      timeout: 10000,
-    });
+    // Profile page should be visible — the hero card h1 shows the person's name
+    // (the nav bar no longer carries a "Profile" heading per the page-title-in-body refactor)
+    await expect(page.locator('h1.text-white').first()).toBeVisible({ timeout: 10000 });
   });
 
   // ── 2. Teams page: click member1 specifically → /app/profile/member1 ──────

@@ -4,12 +4,15 @@
  * Centralises top-level padding, spacing, max content width (md:max-w-4xl
  * centered), and page-heading structure so routes render consistently.
  *
- * Intentionally minimal: no routing, no auth, no context reads.
+ * Renders <PageTitle /> so every page leads with its name without restating
+ * it — the name comes from AppLayout's ROUTES registry.
  */
 import React from 'react';
 
+import { PageTitle } from './pageTitle';
+
 interface AppPageProps {
-  /** Optional subtitle rendered below the header area. */
+  /** Optional subtitle rendered below the page title. */
   subtitle?: string;
   children: React.ReactNode;
   /**
@@ -42,7 +45,7 @@ export const AppPage: React.FC<AppPageProps> = ({
       fullWidth ? '' : ' md:mx-auto md:max-w-4xl'
     }${className ? ` ${className}` : ''}`}
   >
-    {subtitle && <p className="text-sm text-neutral-500 dark:text-neutral-400">{subtitle}</p>}
+    <PageTitle subtitle={subtitle} />
     {children}
   </div>
 );
