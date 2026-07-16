@@ -35,22 +35,23 @@ function toPublicSession(s) {
   };
 }
 
-function toUtcDateKey(epochMs) {
-  return new Date(epochMs).toISOString().slice(0, 10);
+/** "YYYY-MM-DD" for the given tz (IANA name), falling back to UTC if tz is
+ * missing/invalid — must match the client's `date` computation (also local),
+ * or WorkItems created "today" locally silently vanish from UTC-bucketed
+ * lookups for hours around midnight in any timezone behind UTC. */
+function todayInTz(tz) {
+  if (tz) {
+    try {
+      return new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
+    } catch {
+      // fall through to UTC
+    }
+  }
+  return new Date().toISOString().slice(0, 10);
 }
 
 function isPreviousDate(date, tz) {
-  let today;
-  if (tz) {
-    try {
-      today = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
-    } catch {
-      today = new Date().toISOString().slice(0, 10);
-    }
-  } else {
-    today = new Date().toISOString().slice(0, 10);
-  }
-  return date < today;
+  return date < todayInTz(tz);
 }
 
 async function closeRunningSession(userId, now) {
@@ -150,7 +151,7 @@ Meteor.methods({
       userId = targetUserId;
     }
 
-    const today = toUtcDateKey(Date.now());
+    const today = todayInTz(tz);
     const entries = await getDayEntries(userId, today);
     const ticketIds = [...new Set(entries.map(({ entry }) => entry.ticketId))];
     const titleMap = await getTicketTitleMap(ticketIds);
@@ -272,7 +273,7 @@ Meteor.methods({
   },
 
   /** Get or create a WorkItem for a ticket on a given date. Optionally start a timer. */
-  async 'timers.createEntry'({ ticketId, date, note, startNow = false, notifyAdmins = true } = {}) {
+  async 'timers.createEntry'({ ticketId, date, note, startNow = false, notifyAdmins = true, tz } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(ticketId)) throw new Meteor.Error('not-found', 'Ticket not found');
@@ -309,7 +310,7 @@ Meteor.methods({
 
     let session = null;
     if (startNow) {
-      if (isPreviousDate(date)) throw new Meteor.Error('invalid-date', 'Cannot start a timer on a previous day');
+      if (isPreviousDate(date, tz)) throw new Meteor.Error('invalid-date', 'Cannot start a timer on a previous day');
       await closeRunningSession(userId, Date.now());
       const sessionId = await Timers.insertAsync({
         workItemId: entry._id.toHexString(),

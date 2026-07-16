@@ -47,6 +47,7 @@ import {
   type Timer,
   type Ticket,
 } from '../../lib/api';
+import { toLocalDateStr } from '../../lib/date';
 import { getDdpClient } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -57,10 +58,6 @@ import { useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function toLocalDateStr(d: Date): string {
-  return d.toLocaleDateString('en-CA'); // "YYYY-MM-DD" in local time
-}
 
 /** Format total seconds as "H:MM" for the duration input field. */
 function secondsToHHMM(secs: number): string {
