@@ -75,7 +75,10 @@ export default async function globalSetup(): Promise<void> {
       .updateOne({ 'emails.address': u.email }, { $unset: { 'services.password.reset': '' } });
   }
 
-  // Ensure a default organization exists.
+  // Ensure a default organization exists with the canonical name/settings the
+  // suite depends on — reset both on every run so leftover state from manual
+  // dev testing (e.g. someone renaming the org via the UI) can't desync the
+  // fixture from what tests assert.
   let defaultOrg = await db.collection('organizations').findOne({ slug: 'default' });
   if (!defaultOrg) {
     const orgDoc = {
@@ -90,6 +93,14 @@ export default async function globalSetup(): Promise<void> {
     };
     await db.collection('organizations').insertOne(orgDoc);
     defaultOrg = orgDoc;
+  } else {
+    await db
+      .collection('organizations')
+      .updateOne(
+        { _id: defaultOrg._id },
+        { $set: { name: 'Default Organization', allowAutoJoin: true, updatedAt: new Date() } },
+      );
+    defaultOrg = { ...defaultOrg, name: 'Default Organization', allowAutoJoin: true };
   }
   const orgId = defaultOrg._id.toHexString();
 
