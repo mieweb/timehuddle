@@ -31,6 +31,8 @@ vi.mock('./seedImport', () => ({
 }));
 
 vi.mock('@mieweb/ui', () => ({
+  // AppPage (which SeederPage renders) composes its classes with cn.
+  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
   Button: ({
     children,
     isLoading: _isLoading,

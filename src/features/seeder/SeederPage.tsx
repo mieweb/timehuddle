@@ -121,7 +121,7 @@ export const SeederPage: React.FC = () => {
   };
 
   return (
-    <AppPage fullWidth className="max-w-7xl">
+    <AppPage width="wide">
       <div className="space-y-6">
         <div className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
           <div>

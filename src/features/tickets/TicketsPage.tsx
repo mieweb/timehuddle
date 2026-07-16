@@ -67,6 +67,7 @@ import { useClockToggle } from '../../lib/useClockToggle';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
+import { EmptyState } from '../../ui/EmptyState';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
@@ -1011,7 +1012,7 @@ export const TicketsPage: React.FC = () => {
     'ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:border-blue-300 focus-visible:border-blue-300';
 
   return (
-    <AppPage fullWidth className="flex h-full min-h-0 flex-col">
+    <AppPage width="wide" fill>
       {/* ── Header: New Ticket + Search ── */}
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
@@ -1355,15 +1356,18 @@ export const TicketsPage: React.FC = () => {
             ) : ticketsLoading ? (
               <TicketListSkeleton />
             ) : (
-              <div className="px-4 py-10 text-center">
-                <Text variant="muted" size="sm">
-                  {searchQuery
-                    ? 'No tickets match your search.'
+              <EmptyState
+                title={
+                  searchQuery
+                    ? 'No tickets match your search'
                     : statusFilter === 'open'
-                      ? 'No open tickets. Create one to get started!'
-                      : 'No closed tickets.'}
-                </Text>
-              </div>
+                      ? 'No open tickets'
+                      : 'No closed tickets'
+                }
+                description={
+                  !searchQuery && statusFilter === 'open' ? 'Create one to get started.' : undefined
+                }
+              />
             )}
           </div>
         </Card>

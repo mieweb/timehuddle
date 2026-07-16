@@ -29,6 +29,7 @@ import {
 } from '../../lib/videoThumbnail';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
+import { EmptyState } from '../../ui/EmptyState';
 import { ViewportOverlay } from '../../ui/ViewportOverlay';
 import { getDdpClient } from '../../lib/ddp';
 
@@ -523,7 +524,7 @@ export const MediaPage: React.FC = () => {
   };
 
   return (
-    <AppPage fullWidth>
+    <AppPage>
       {/* Toolbar */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         {/* Upload button */}
@@ -584,17 +585,11 @@ export const MediaPage: React.FC = () => {
               <Spinner size="lg" label="Loading media…" />
             </div>
           ) : filteredItems.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
-              <FontAwesomeIcon
-                icon={faImage}
-                className="text-4xl text-neutral-300 dark:text-neutral-600"
-              />
-              <Text variant="muted" size="sm">
-                {filter === 'all'
-                  ? 'No media yet. Upload a video or image to get started.'
-                  : `No ${filter}s in your library.`}
-              </Text>
-            </div>
+            <EmptyState
+              icon={<FontAwesomeIcon icon={faImage} />}
+              title={filter === 'all' ? 'No media yet' : `No ${filter}s in your library`}
+              description={filter === 'all' ? 'Upload a video or image to get started.' : undefined}
+            />
           ) : (
             <div className="grid gap-3 auto-rows-[1fr] grid-cols-[repeat(auto-fill,minmax(240px,1fr))]">
               {filteredItems.map((item) => (

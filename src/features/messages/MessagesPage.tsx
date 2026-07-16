@@ -619,7 +619,7 @@ export const MessagesPage: React.FC = () => {
 
   return (
     <>
-      <AppPage noPadding className="flex h-full w-full flex-col md:p-6">
+      <AppPage width="wide" fill>
         <div className="flex min-h-0 flex-1 gap-0 overflow-hidden md:gap-2">
           {/* ── Sidebar ─────────────────────────────────────────────────────── */}
           <Card

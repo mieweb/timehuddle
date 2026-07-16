@@ -59,7 +59,7 @@ export const OrganizationPage: React.FC = () => {
     }
 
     return (
-      <AppPage fullWidth noPadding className="h-full">
+      <AppPage fill flush>
         <div className="flex h-full items-center justify-center px-6 text-center">
           <Text variant="muted" size="sm">
             No organization data available.
@@ -70,7 +70,7 @@ export const OrganizationPage: React.FC = () => {
   }
 
   return (
-    <AppPage fullWidth noPadding className="h-full min-h-0 space-y-0">
+    <AppPage fill flush>
       <div className="relative h-full min-h-0 w-full overflow-hidden">
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 py-3 md:px-4 md:py-4">
           {error && (
