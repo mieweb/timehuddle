@@ -90,8 +90,7 @@ function getSessionBreakSeconds(session: ClockEvent, now: number): number {
     // still open. If the session already ended, clamp to the session's end
     // instead of `now` — otherwise a dangling break on a completed session
     // accrues phantom hours forever. Matches TimesheetRow's buildTimelineRows.
-    const end =
-      typeof brk.endTime === 'number' ? brk.endTime : (session.endTime ?? now);
+    const end = typeof brk.endTime === 'number' ? brk.endTime : (session.endTime ?? now);
     if (end <= brk.startTime) return sum;
     return sum + Math.max(0, Math.floor((end - brk.startTime) / 1000));
   }, 0);
