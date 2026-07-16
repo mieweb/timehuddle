@@ -4,27 +4,36 @@
  * Uses @mieweb/ui Dropdown, Avatar, and DropdownItem components.
  */
 import {
+  faBug,
   faBuilding,
   faCircleUser,
+  faComments,
+  faGear,
   faRightFromBracket,
   faUsers,
   faWrench,
 } from '@fortawesome/free-solid-svg-icons';
+import { faApple } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Dropdown, DropdownItem, DropdownSeparator, Text } from '@mieweb/ui';
+import { Dropdown, DropdownItem, DropdownLabel, DropdownSeparator, Text } from '@mieweb/ui';
 import React, { useCallback, useState } from 'react';
 
 import { useTeam } from '../lib/TeamContext';
 import { useSession } from '../lib/useSession';
 import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
+import { useAppFeedback } from './AppLayout';
 import { useRouter } from './router';
 import { UserAvatar } from './UserAvatar';
+
+// Update this URL once the TestFlight build is published in App Store Connect.
+const TESTFLIGHT_URL = 'https://testflight.apple.com/join/45w2knYf';
 
 // ─── UserDropdown ─────────────────────────────────────────────────────────────
 
 export const UserDropdown: React.FC = () => {
   const { user, signOut } = useSession();
   const { enterprises } = useTeam();
+  const { openFeedback, openReportIssue } = useAppFeedback();
   const email = user?.email;
   const [open, setOpen] = useState(false);
 
@@ -62,6 +71,26 @@ export const UserDropdown: React.FC = () => {
     setOpen(false);
     navigate('/app/seeder');
   }, [navigate]);
+
+  const handleSettings = useCallback(() => {
+    setOpen(false);
+    navigate('/app/settings');
+  }, [navigate]);
+
+  const handleReportIssue = useCallback(() => {
+    setOpen(false);
+    openReportIssue();
+  }, [openReportIssue]);
+
+  const handleFeedback = useCallback(() => {
+    setOpen(false);
+    openFeedback();
+  }, [openFeedback]);
+
+  const handleTestFlight = useCallback(() => {
+    setOpen(false);
+    window.open(TESTFLIGHT_URL, '_blank', 'noopener,noreferrer');
+  }, []);
 
   return (
     <>
@@ -102,18 +131,14 @@ export const UserDropdown: React.FC = () => {
           <span className="font-normal">Profile</span>
         </DropdownItem>
 
+        <DropdownItem icon={<FontAwesomeIcon icon={faGear} />} onClick={handleSettings}>
+          <span className="font-normal">Settings</span>
+        </DropdownItem>
+
         {(showOrganizationAdmin || enterprises.length > 0) && (
           <>
             <DropdownSeparator />
-            <div className="px-3 py-1">
-              <Text
-                variant="muted"
-                size="xs"
-                className="text-left font-semibold uppercase tracking-wide"
-              >
-                Admin
-              </Text>
-            </div>
+            <DropdownLabel>Admin</DropdownLabel>
           </>
         )}
 
@@ -135,20 +160,27 @@ export const UserDropdown: React.FC = () => {
         {import.meta.env.MODE !== 'production' && (
           <>
             <DropdownSeparator />
-            <div className="px-3 py-1">
-              <Text
-                variant="muted"
-                size="xs"
-                className="text-left font-semibold uppercase tracking-wide"
-              >
-                Developers
-              </Text>
-            </div>
+            <DropdownLabel>Developers</DropdownLabel>
             <DropdownItem icon={<FontAwesomeIcon icon={faWrench} />} onClick={handleSeeder}>
               <span className="font-normal">Seeder</span>
             </DropdownItem>
           </>
         )}
+
+        <DropdownSeparator />
+        <DropdownLabel>Help</DropdownLabel>
+
+        <DropdownItem icon={<FontAwesomeIcon icon={faBug} />} onClick={handleReportIssue}>
+          <span className="font-normal">Report an Issue</span>
+        </DropdownItem>
+
+        <DropdownItem icon={<FontAwesomeIcon icon={faComments} />} onClick={handleFeedback}>
+          <span className="font-normal">Share Your Feedback</span>
+        </DropdownItem>
+
+        <DropdownItem icon={<FontAwesomeIcon icon={faApple} />} onClick={handleTestFlight}>
+          <span className="font-normal">TestFlight</span>
+        </DropdownItem>
 
         <DropdownSeparator />
 

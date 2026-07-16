@@ -16,10 +16,14 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (isOpen && tickets.length === 0) {
+    // Re-fetches on every open (and if teamId resolves/changes while open) —
+    // dropping the "already have tickets" guard is what fixes the picker
+    // opening before TeamContext's async team resolution finishes, loading
+    // an empty list for a stale/blank teamId that never gets retried.
+    if (isOpen && teamId) {
       loadTickets();
     }
-  }, [isOpen]);
+  }, [isOpen, teamId]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

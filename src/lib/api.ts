@@ -1438,7 +1438,11 @@ export const timerApi = {
     note?: string;
     notifyAdmins?: boolean;
     startNow?: boolean;
-  }) => wormholeCall<{ entry: WorkItem; session: Timer | null }>('timers.createEntry', data),
+  }) =>
+    wormholeCall<{ entry: WorkItem; session: Timer | null }>('timers.createEntry', {
+      ...data,
+      tz: clientTz(),
+    }),
 
   /** Start a timer for a WorkItem. Closes any open timer first. */
   startSession: (entryId: string, now?: number) =>

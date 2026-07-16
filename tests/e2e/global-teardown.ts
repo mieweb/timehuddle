@@ -115,12 +115,12 @@ export default async function globalTeardown(): Promise<void> {
     // and any other data linked to test users.
     const auxiliaryCollections = [
       'timers',
-      'clock_events',
+      'clockevents',
       'notifications',
       'messages',
-      'team_join_requests',
+      'teamjoinrequests',
       'tickets',
-      'work_entries',
+      'workitems',
       'channels',
     ];
     let auxiliaryDeleted = 0;
