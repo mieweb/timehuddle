@@ -5,7 +5,7 @@ name: PR Preview Environment
 # directly instead of lower-level sub-actions.
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened, closed]
 
 env:
@@ -55,9 +55,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # pull_request_target runs in base-repo context; explicitly check out
-          # the PR's head so the Docker image is built from the contributor's code.
-          ref: ${{ github.event.pull_request.head.sha }}
           submodules: true
 
       - id: container
@@ -129,8 +126,6 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - id: preview
         name: Compute preview URLs
