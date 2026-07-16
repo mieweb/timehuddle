@@ -48,6 +48,15 @@ export function getDateRange(preset: Preset): [Date, Date] {
   }
 }
 
+/** Returns a "YYYY-MM-DD" key for the given timestamp based on the local calendar date. */
+export function getLocalDateKey(epochMs: number): string {
+  const d = new Date(epochMs);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export function toLocalDateTimeInputValue(epochMs: number): string {
   const d = new Date(epochMs);
   const yyyy = d.getFullYear();
