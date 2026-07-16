@@ -61,6 +61,7 @@ import {
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { getDdpClient, ddpDocToTicket } from '../../lib/ddp';
+import { toLocalDateStr } from '../../lib/date';
 import { useSession } from '../../lib/useSession';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -856,7 +857,7 @@ export const TicketsPage: React.FC = () => {
   const startTimerForTicket = useCallback(async (ticketId: string) => {
     setTimerLoading(ticketId);
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = toLocalDateStr(new Date());
       const result = await timerApi.createEntry({
         ticketId,
         date: today,
