@@ -43,6 +43,7 @@ import { AdminDayGroup } from './AdminDayGroup';
 import {
   fromLocalDateTimeInputValue,
   getDateRange,
+  getLocalDateKey,
   PRESETS,
   toLocalDateTimeInputValue,
   type Preset,
@@ -189,9 +190,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   const groupedByDay = useMemo(() => {
     const map = new Map<string, ClockEvent[]>();
     for (const session of filteredSessions) {
-      const dayKey = new Date(session.originalStartTime ?? session.startTime)
-        .toISOString()
-        .slice(0, 10);
+      const dayKey = getLocalDateKey(session.originalStartTime ?? session.startTime);
       const bucket = map.get(dayKey);
       if (bucket) {
         bucket.push(session);
@@ -230,10 +229,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
       0,
     );
     const workingDays = new Set(
-      filteredSessions.map((s) => {
-        const sessionStart = s.originalStartTime ?? s.startTime;
-        return new Date(sessionStart).toISOString().slice(0, 10);
-      }),
+      filteredSessions.map((s) => getLocalDateKey(s.originalStartTime ?? s.startTime)),
     ).size;
     return {
       totalSeconds,
