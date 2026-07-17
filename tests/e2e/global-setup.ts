@@ -15,7 +15,7 @@ import bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 
 const MONGO_URL =
-  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle?directConnection=true';
+  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 const PASSWORD = 'TestPass1!';
 
 const SEED_USERS = [

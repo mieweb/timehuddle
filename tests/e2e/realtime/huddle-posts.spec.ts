@@ -29,8 +29,8 @@ test.describe('Real-time Huddle Posts', () => {
     await expect(session2).toHaveURL(/\/app\//);
 
     // Navigate to Huddle
-    await session1.goto('http://localhost:3000/app/huddle');
-    await session2.goto('http://localhost:3000/app/huddle');
+    await session1.goto('http://localhost:3002/app/huddle');
+    await session2.goto('http://localhost:3002/app/huddle');
 
     await session1.waitForLoadState('networkidle');
     await session2.waitForLoadState('networkidle');

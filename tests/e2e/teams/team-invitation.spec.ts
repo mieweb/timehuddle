@@ -27,7 +27,7 @@ test.describe('Team Invitation with Org Membership', () => {
   let db: any;
 
   const MONGO_URL =
-    process.env.MONGO_URL || 'mongodb://127.0.0.1:27017/timehuddle?directConnection=true';
+    process.env.MONGO_URL || 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 
   // Test users
   const _admin = TEST_USERS.admin1;

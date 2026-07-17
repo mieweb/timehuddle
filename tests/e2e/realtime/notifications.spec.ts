@@ -29,8 +29,8 @@ test.describe('Real-time Notifications', () => {
     await expect(session2).toHaveURL(/\/app\//);
 
     // Navigate to Notifications
-    await session1.goto('http://localhost:3000/app/notifications');
-    await session2.goto('http://localhost:3000/app/notifications');
+    await session1.goto('http://localhost:3002/app/notifications');
+    await session2.goto('http://localhost:3002/app/notifications');
 
     await session1.waitForLoadState('networkidle');
     await session2.waitForLoadState('networkidle');

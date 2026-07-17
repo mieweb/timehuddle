@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test';
 import type { BrowserContext, Page } from '@playwright/test';
 import { LoginPage } from '../pages/LoginPage';
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = 'http://localhost:3002';
 
 test.describe('Timesheet Real-time Sync', () => {
   let context1: BrowserContext;

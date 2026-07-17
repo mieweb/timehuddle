@@ -29,8 +29,8 @@ test.describe('Real-time Messages', () => {
     await expect(session2).toHaveURL(/\/app\//);
 
     // Navigate to Messages
-    await session1.goto('http://localhost:3000/app/messages');
-    await session2.goto('http://localhost:3000/app/messages');
+    await session1.goto('http://localhost:3002/app/messages');
+    await session2.goto('http://localhost:3002/app/messages');
 
     await session1.waitForLoadState('networkidle');
     await session2.waitForLoadState('networkidle');

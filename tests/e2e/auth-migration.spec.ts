@@ -24,7 +24,7 @@ test.describe('Authentication Migration', () => {
 
   test('Better Auth user gets auto-redirect to password reset', async ({ page }) => {
     // Navigate to login page
-    await page.goto('http://localhost:3000/app');
+    await page.goto('http://localhost:3002/app');
     await expect(page.locator('h2')).toContainText('Sign in to your account');
 
     // Try to login with Better Auth user (test@example.com)
@@ -46,7 +46,7 @@ test.describe('Authentication Migration', () => {
 
   test('Better Auth user can set new password and login', async ({ page }) => {
     // Start at login
-    await page.goto('http://localhost:3000/app');
+    await page.goto('http://localhost:3002/app');
 
     // Trigger migration redirect
     await page.getByPlaceholder('you@example.com').fill('test@example.com');
@@ -78,7 +78,7 @@ test.describe('Authentication Migration', () => {
   });
 
   test('Invalid credentials show error message', async ({ page }) => {
-    await page.goto('http://localhost:3000/app');
+    await page.goto('http://localhost:3002/app');
 
     // Try invalid login
     await page.getByPlaceholder('you@example.com').fill('nonexistent@example.com');
@@ -97,7 +97,7 @@ test.describe('Authentication Migration', () => {
   test('Migration preserves user data', async ({ page }) => {
     // After migration, verify user data is intact
     // Login with migrated user
-    await page.goto('http://localhost:3000/app');
+    await page.goto('http://localhost:3002/app');
     await page.getByPlaceholder('you@example.com').fill('test@example.com');
     await page.getByPlaceholder('••••••••').first().fill('NewMigratedPassword123!');
     await page.getByRole('button', { name: 'Sign in' }).click();

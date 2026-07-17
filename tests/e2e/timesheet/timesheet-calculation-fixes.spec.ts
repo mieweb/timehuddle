@@ -23,7 +23,7 @@ import { TEST_USERS, loginAs } from '../fixtures/users';
 import { TimesheetPage } from '../pages/TimesheetPage';
 
 const MONGO_URL =
-  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle?directConnection=true';
+  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 
 async function connectDb(): Promise<{ client: MongoClient; db: Db }> {
   const client = await MongoClient.connect(MONGO_URL);

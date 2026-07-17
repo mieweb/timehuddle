@@ -17,7 +17,7 @@
 import { MongoClient } from 'mongodb';
 
 const MONGO_URL =
-  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle?directConnection=true';
+  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 
 export default async function globalTeardown(): Promise<void> {
   if (process.env.SKIP_CLEANUP === '1' || process.env.SKIP_CLEANUP === 'true') {
