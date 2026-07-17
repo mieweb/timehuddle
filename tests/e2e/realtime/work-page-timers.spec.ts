@@ -29,8 +29,8 @@ test.describe('Real-time Work Page Timers', () => {
     await expect(session2).toHaveURL(/\/app\//);
 
     // Navigate to Work page
-    await session1.goto('http://localhost:3000/app/work');
-    await session2.goto('http://localhost:3000/app/work');
+    await session1.goto('http://localhost:3002/app/work');
+    await session2.goto('http://localhost:3002/app/work');
 
     await session1.waitForLoadState('networkidle');
     await session2.waitForLoadState('networkidle');

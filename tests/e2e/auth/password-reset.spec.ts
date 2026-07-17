@@ -19,7 +19,7 @@ import { test, expect } from '@playwright/test';
 import { WebSocket } from 'ws';
 
 const MAILPIT_URL = process.env.MAILPIT_URL ?? 'http://localhost:8025';
-const METEOR_WS = process.env.METEOR_WS ?? 'ws://localhost:3100/websocket';
+const METEOR_WS = process.env.METEOR_WS ?? 'ws://localhost:3101/websocket';
 
 interface MailpitMessage {
   ID: string;

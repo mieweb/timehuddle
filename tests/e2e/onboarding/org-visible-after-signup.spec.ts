@@ -20,7 +20,7 @@ test.describe.serial('Organization Visible After Signup', () => {
 
     // ── Step 1: Sign up ───────────────────────────────────────────────────────
 
-    await page.goto('http://localhost:3000/app?mode=signup');
+    await page.goto('http://localhost:3002/app?mode=signup');
     await expect(page.getByRole('heading', { name: /Create.*account/i })).toBeVisible({
       timeout: 10000,
     });

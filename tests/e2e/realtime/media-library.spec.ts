@@ -29,8 +29,8 @@ test.describe('Real-time Media Library', () => {
     await expect(session2).toHaveURL(/\/app\//);
 
     // Navigate to Media Library
-    await session1.goto('http://localhost:3000/app/media');
-    await session2.goto('http://localhost:3000/app/media');
+    await session1.goto('http://localhost:3002/app/media');
+    await session2.goto('http://localhost:3002/app/media');
 
     await session1.waitForLoadState('networkidle');
     await session2.waitForLoadState('networkidle');

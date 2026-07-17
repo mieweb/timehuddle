@@ -5,7 +5,7 @@ test.describe('New User Signup and Onboarding', () => {
     const timestamp = Date.now();
 
     // Navigate to signup page
-    await page.goto('http://localhost:3000/app?mode=signup');
+    await page.goto('http://localhost:3002/app?mode=signup');
     await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible();
 
     // Use unique name to avoid username collisions across parallel workers
