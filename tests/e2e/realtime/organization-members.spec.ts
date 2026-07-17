@@ -29,8 +29,8 @@ test.describe('Real-time Organization Members', () => {
     await expect(session2).toHaveURL(/\/app\//);
 
     // Navigate directly to the members page
-    await session1.goto('http://localhost:3000/app/org/members');
-    await session2.goto('http://localhost:3000/app/org/members');
+    await session1.goto('http://localhost:3002/app/org/members');
+    await session2.goto('http://localhost:3002/app/org/members');
 
     await session1.waitForLoadState('networkidle');
     await session2.waitForLoadState('networkidle');

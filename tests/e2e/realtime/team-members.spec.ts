@@ -29,8 +29,8 @@ test.describe('Real-time Team Members', () => {
     await expect(session2).toHaveURL(/\/app\//);
 
     // Navigate to Teams page
-    await session1.goto('http://localhost:3000/app/teams');
-    await session2.goto('http://localhost:3000/app/teams');
+    await session1.goto('http://localhost:3002/app/teams');
+    await session2.goto('http://localhost:3002/app/teams');
 
     await session1.waitForLoadState('networkidle');
     await session2.waitForLoadState('networkidle');

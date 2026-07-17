@@ -15,7 +15,7 @@ import { MongoClient } from 'mongodb';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 
 const MONGO_URL =
-  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle?directConnection=true';
+  process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 
 async function getTeamId(code: string): Promise<string | null> {
   const client = await MongoClient.connect(MONGO_URL);

@@ -12,7 +12,7 @@ test.describe('New User Auto-Join', () => {
     const timestamp = Date.now();
 
     // Navigate to signup
-    await page.goto('http://localhost:3000/app?mode=signup');
+    await page.goto('http://localhost:3002/app?mode=signup');
     await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible();
 
     // Use unique name to avoid username collisions across parallel workers
@@ -37,7 +37,7 @@ test.describe('New User Auto-Join', () => {
     await expect(installerModal).not.toBeVisible();
 
     // Verify user can access org members page (auto-joined)
-    await page.goto('http://localhost:3000/app/org/members');
+    await page.goto('http://localhost:3002/app/org/members');
     await expect(page.getByRole('heading', { name: /Members/i }).first()).toBeVisible({
       timeout: 10000,
     });

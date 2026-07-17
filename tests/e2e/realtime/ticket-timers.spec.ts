@@ -26,8 +26,8 @@ test.describe('Real-time Ticket Timers', () => {
     session2 = await context.newPage();
 
     // Navigate both sessions to the Tickets page
-    await session1.goto('http://localhost:3000/app/tickets');
-    await session2.goto('http://localhost:3000/app/tickets');
+    await session1.goto('http://localhost:3002/app/tickets');
+    await session2.goto('http://localhost:3002/app/tickets');
 
     // Wait for page load
     await session1.waitForLoadState('networkidle');

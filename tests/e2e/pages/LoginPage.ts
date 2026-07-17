@@ -24,7 +24,7 @@ export class LoginPage extends BasePage {
    * Navigate to the login page
    */
   async goto() {
-    await this.page.goto('http://localhost:3000/app');
+    await this.page.goto('http://localhost:3002/app');
     await this.heading.waitFor({ state: 'visible' });
     // Ensure the DDP connection and React hydration are fully settled before
     // any credentials are submitted — prevents transient "Invalid email or

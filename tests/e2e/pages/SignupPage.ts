@@ -30,7 +30,7 @@ export class SignupPage extends BasePage {
    * Navigate to the signup page
    */
   async goto() {
-    await this.page.goto('http://localhost:3000/app?mode=signup');
+    await this.page.goto('http://localhost:3002/app?mode=signup');
     await this.heading.waitFor({ state: 'visible', timeout: 10000 });
   }
 

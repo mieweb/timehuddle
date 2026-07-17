@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Better Auth Migration Flow', () => {
   test.beforeEach(async ({ page }) => {
     // Start at login page
-    await page.goto('http://localhost:3000/app');
+    await page.goto('http://localhost:3002/app');
     await expect(page.locator('h2')).toContainText('Sign in to your account');
   });
 
