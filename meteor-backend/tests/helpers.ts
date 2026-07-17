@@ -197,7 +197,10 @@ let _client: MongoClient | null = null;
 
 export async function getDb() {
   if (!_client) {
-    const uri = process.env.MONGODB_URI ?? 'mongodb://localhost:27017/timehuddle';
+    // Must match whatever database METEOR_URL's backend instance is using
+    // (see setup.ts) — the DDP/REST calls in this file and the direct Mongo
+    // access here have to land in the same database or fixtures desync.
+    const uri = process.env.MONGODB_URI ?? 'mongodb://localhost:27017/timehuddle_test';
     _client = new MongoClient(uri);
     await _client.connect();
   }

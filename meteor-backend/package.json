@@ -2,7 +2,7 @@
   "name": "meteor-backend",
   "private": true,
   "scripts": {
-    "start": "METEOR_AGENDA_ENABLED=\"${METEOR_AGENDA_ENABLED:-true}\" SMTP_HOST=\"${SMTP_HOST:-localhost}\" SMTP_PORT=\"${SMTP_PORT:-1025}\" SMTP_SECURE=\"${SMTP_SECURE:-false}\" EMAIL_FROM=\"${EMAIL_FROM:-TimeHuddle <noreply@timehuddle.local>}\" APP_URL=\"${APP_URL:-http://localhost:3000}\" METEOR_PACKAGE_DIRS=../vendor/meteor-wormhole/packages meteor run --port 3100",
+    "start": "METEOR_AGENDA_ENABLED=\"${METEOR_AGENDA_ENABLED:-true}\" SMTP_HOST=\"${SMTP_HOST:-localhost}\" SMTP_PORT=\"${SMTP_PORT:-1025}\" SMTP_SECURE=\"${SMTP_SECURE:-false}\" EMAIL_FROM=\"${EMAIL_FROM:-TimeHuddle <noreply@timehuddle.local>}\" APP_URL=\"${APP_URL:-http://localhost:3000}\" METEOR_PACKAGE_DIRS=../vendor/meteor-wormhole/packages meteor run --port \"${PORT:-3100}\"",
     "test": "meteor test --once --driver-package meteortesting:mocha",
     "test:integration": "vitest run --config vitest.config.ts",
     "lint": "eslint .",
@@ -12,7 +12,7 @@
     "@agendajs/mongo-backend": "^4.0.2",
     "@babel/runtime": "^7.23.5",
     "@casl/ability": "^6.8.1",
-    "@mieweb/pulsevault": "github:mieweb/pulsevault",
+    "@mieweb/pulsevault": "^0.1.0",
     "@parse/node-apn": "^8.1.0",
     "@swc/helpers": "^0.5.17",
     "agenda": "^6.2.5",
