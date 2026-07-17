@@ -12,7 +12,7 @@
     "@agendajs/mongo-backend": "^4.0.2",
     "@babel/runtime": "^7.23.5",
     "@casl/ability": "^6.8.1",
-    "@mieweb/pulsevault": "github:mieweb/pulsevault",
+    "@mieweb/pulsevault": "^0.1.0",
     "@parse/node-apn": "^8.1.0",
     "@swc/helpers": "^0.5.17",
     "agenda": "^6.2.5",
