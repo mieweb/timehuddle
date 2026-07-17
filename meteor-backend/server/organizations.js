@@ -467,11 +467,27 @@ Meteor.methods({
       throw new Meteor.Error('already-blocked', 'User is already blocked from this organization');
     }
 
+    // Record which teams (and roles) the user is being removed from so
+    // unblockMember can restore exactly this membership — without this,
+    // unblocking only clears the `blocked` flag and leaves the user
+    // permanently missing from every team they were pulled out of.
+    const teamsInOrg = await db.collection('teams')
+      .find(
+        { orgId, $or: [{ members: targetUserId }, { admins: targetUserId }] },
+        { projection: { admins: 1 } }
+      )
+      .toArray();
+    const removedFromTeams = teamsInOrg.map((t) => ({
+      teamId: t._id.toHexString(),
+      wasAdmin: (t.admins ?? []).includes(targetUserId),
+    }));
+
     const block = {
       orgId,
       blockedBy: userId,
       blockedAt: new Date(),
       reason: reason ?? null,
+      removedFromTeams,
     };
 
     await db.collection('users').updateOne(
@@ -537,8 +553,8 @@ Meteor.methods({
       throw new Meteor.Error('not-found', 'Target user not found');
     }
 
-    const isBlocked = (targetUser.blocked ?? []).some((b) => b.orgId === orgId);
-    if (!isBlocked) {
+    const blockRecord = (targetUser.blocked ?? []).find((b) => b.orgId === orgId);
+    if (!blockRecord) {
       throw new Meteor.Error('not-blocked', 'User is not blocked from this organization');
     }
 
@@ -546,6 +562,20 @@ Meteor.methods({
       { _id: String(targetUserId) },
       { $pull: { blocked: { orgId } } }
     );
+
+    // Restore membership in whichever teams blockMember removed them from.
+    for (const { teamId, wasAdmin } of blockRecord.removedFromTeams ?? []) {
+      if (!isValidId(teamId)) continue;
+      await db.collection('teams').updateOne(
+        { _id: new ObjectId(teamId) },
+        {
+          $addToSet: {
+            members: targetUserId,
+            ...(wasAdmin ? { admins: targetUserId } : {}),
+          },
+        }
+      );
+    }
 
     // Fire-and-forget activity
     void emitActivity({
