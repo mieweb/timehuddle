@@ -30,7 +30,7 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration } from '../../lib/timeUtils';
@@ -118,6 +118,14 @@ export const TimesheetPage: React.FC = () => {
   const [addEntryLoading, setAddEntryLoading] = useState(false);
   const [addEntryError, setAddEntryError] = useState<string | null>(null);
 
+  // Guards against out-of-order responses: fetchData can be triggered
+  // repeatedly in quick succession (preset change, Apply click, DDP live
+  // update, pull-to-refresh) with no cancellation, so a slower earlier
+  // request can resolve after a faster later one and silently overwrite
+  // its correct result with stale data. Each call claims the next id and
+  // only applies its response if it's still the most recent call.
+  const fetchRequestIdRef = useRef(0);
+
   const fetchData = useCallback(async () => {
     if (!user?.id) return;
     let startMs: number;
@@ -133,15 +141,18 @@ export const TimesheetPage: React.FC = () => {
       endMs = e.getTime();
     }
 
+    const requestId = ++fetchRequestIdRef.current;
     setLoading(true);
     setError(null);
     try {
       const result = await clockApi.getTimesheet(user?.id ?? '', startMs, endMs);
+      if (fetchRequestIdRef.current !== requestId) return;
       setData(result);
     } catch (e) {
+      if (fetchRequestIdRef.current !== requestId) return;
       setError(e instanceof Error ? e.message : 'Failed to load timesheet');
     } finally {
-      setLoading(false);
+      if (fetchRequestIdRef.current === requestId) setLoading(false);
     }
   }, [user?.id, preset, customStart, customEnd]);
 
