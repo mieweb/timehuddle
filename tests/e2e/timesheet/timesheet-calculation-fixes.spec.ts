@@ -111,6 +111,12 @@ test.describe('Timesheet calculation fixes', () => {
       const timesheetPage = new TimesheetPage(page);
       await timesheetPage.goto();
 
+      // Scope to the team this seeded session belongs to — the page
+      // defaults to the user's personal workspace (sorted first), not
+      // necessarily "Test Team Alpha".
+      await page.getByRole('button', { name: /Switch organization and team/i }).click();
+      await page.getByRole('menuitem', { name: 'Test Team Alpha' }).click();
+
       // Custom range tightly bounding just this seeded session, so no other
       // test's "now"-relative clock in/out data can leak into the totals.
       const rangeStart = new Date(sessionStart);
@@ -188,6 +194,17 @@ test.describe('Timesheet calculation fixes', () => {
         await loginAs(page, TEST_USERS.member5);
         const timesheetPage = new TimesheetPage(page);
         await timesheetPage.goto();
+
+        // The Timesheet page scopes sessions to the currently selected team,
+        // which defaults to the user's personal workspace (sorted first) —
+        // not necessarily "Test Team Alpha" where these seeded sessions live.
+        // Select it explicitly so this doesn't depend on default-team
+        // selection order, which drifts as member5 accumulates other teams
+        // (e.g. a personal team auto-created by an earlier login) across the
+        // suite.
+        await page.getByRole('button', { name: /Switch organization and team/i }).click();
+        await page.getByRole('menuitem', { name: 'Test Team Alpha' }).click();
+
         await applyCustomRange(page, '2026-01-14', '2026-01-17');
 
         // Both rows should read "Jan 15, 2026" — never "Jan 16, 2026".

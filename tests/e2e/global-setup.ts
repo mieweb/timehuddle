@@ -16,7 +16,34 @@ import { createHash } from 'crypto';
 
 const MONGO_URL =
   process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
+const BACKEND_URL = process.env.API_TARGET ?? 'http://localhost:3101';
 const PASSWORD = 'TestPass1!';
+
+/**
+ * Poll the Meteor backend's /health endpoint until it responds.
+ *
+ * Guards against a race where the backend was just (re)started — e.g. via
+ * `pm2 restart all` — and is still finishing DDP/Mongo initialization when
+ * the suite begins. Without this, the first test(s) to log in can hang on
+ * the DDP handshake past the login timeout (see activity-log.spec.ts flake).
+ */
+async function waitForBackend(url: string, timeoutMs = 30000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${url}/health`);
+      if (res.ok) return;
+      lastError = new Error(`/health returned ${res.status}`);
+    } catch (err) {
+      lastError = err;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(
+    `Meteor backend at ${url} did not become healthy within ${timeoutMs}ms: ${String(lastError)}`,
+  );
+}
 
 const SEED_USERS = [
   { email: 'owner1@test.local', name: 'Test Owner One', username: 'owner1', role: 'owner' },
@@ -38,6 +65,8 @@ const SEED_USERS = [
 ] as const;
 
 export default async function globalSetup(): Promise<void> {
+  await waitForBackend(BACKEND_URL);
+
   const client = await MongoClient.connect(MONGO_URL);
   const db = client.db();
 
