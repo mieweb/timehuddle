@@ -332,10 +332,13 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [scopedTeams, selectedTeamId],
   );
 
-  const isAdmin = useMemo(
-    () => !!(userId && selectedTeam?.admins.includes(userId)),
-    [userId, selectedTeam],
-  );
+  const isAdmin = useMemo(() => {
+    if (!userId || !selectedTeam) return false;
+    if (selectedTeam.admins.includes(userId)) return true;
+    // Org owners get full team-admin authority on every team in their org.
+    const org = organizations.find((o) => o.id === selectedTeam.orgId);
+    return org?.role === 'owner';
+  }, [userId, selectedTeam, organizations]);
 
   // ── Clock events via Meteor DDP (real-time) + REST fallback ─────────────
 

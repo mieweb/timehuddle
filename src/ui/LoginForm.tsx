@@ -67,6 +67,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     typeof window !== 'undefined'
       ? (new URLSearchParams(window.location.search).get('invite') ?? undefined)
       : undefined;
+  const orgInvitationToken =
+    typeof window !== 'undefined'
+      ? (new URLSearchParams(window.location.search).get('org_invite') ?? undefined)
+      : undefined;
 
   const [mode, setMode] = useState<AuthMode>(initialMode ?? getMode(!!resetToken));
   const [email, setEmail] = useState('');
@@ -84,6 +88,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   const [selectedLoginType, setSelectedLoginType] = useState('member');
   const [joinTeam, setJoinTeam] = useState(false);
   const [invitedTeamName, setInvitedTeamName] = useState<string | null>(null);
+  const [invitedOrgName, setInvitedOrgName] = useState<string | null>(null);
 
   const isSignup = mode === 'signup';
   const isForgot = mode === 'forgot';
@@ -109,11 +114,37 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     };
   }, [invitationToken]);
 
+  useEffect(() => {
+    if (!orgInvitationToken) return;
+    let active = true;
+    const ddp = getDdpClient();
+    void ddp
+      .getOrgInvitation(orgInvitationToken)
+      .then((invitation) => {
+        if (!active) return;
+        setEmail(invitation.email);
+        setInvitedOrgName(invitation.orgName);
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setError((err as Error).message || 'This invitation is no longer available.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [orgInvitationToken]);
+
   const acceptInvitation = async (ddp: ReturnType<typeof getDdpClient>) => {
-    if (!invitationToken) return;
-    await ddp.acceptTeamInvitation(invitationToken);
+    if (invitationToken) {
+      await ddp.acceptTeamInvitation(invitationToken);
+    }
+    if (orgInvitationToken) {
+      await ddp.acceptOrgInvitation(orgInvitationToken);
+    }
+    if (!invitationToken && !orgInvitationToken) return;
     const url = new URL(window.location.href);
     url.searchParams.delete('invite');
+    url.searchParams.delete('org_invite');
     url.searchParams.delete('mode');
     window.history.replaceState(null, '', url.toString());
   };
@@ -461,10 +492,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
               </div>
             ) : (
               <>
-                {invitedTeamName && (
+                {(invitedTeamName || invitedOrgName) && (
                   <Text variant="muted" size="sm" as="div" role="status">
-                    You were invited to join {invitedTeamName}. Sign in or create an account with
-                    the invited email address to join.
+                    You were invited to join {invitedTeamName ?? invitedOrgName}. Sign in or create
+                    an account with the invited email address to join.
                   </Text>
                 )}
 
@@ -504,7 +535,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                     inputMode="email"
                     spellCheck={false}
                     placeholder="you@example.com"
-                    disabled={loading || !!invitationToken}
+                    disabled={loading || !!invitationToken || !!orgInvitationToken}
                   />
                 )}
 

@@ -13,6 +13,7 @@ import {
   faCopy,
   faCrown,
   faEllipsisV,
+  faGear,
   faKey,
   faPen,
   faPlus,
@@ -38,6 +39,12 @@ import {
   ModalHeader,
   ModalTitle,
   Spinner,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
   Tabs,
   TabsContent,
   TabsList,
@@ -47,7 +54,7 @@ import {
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { teamApi, type TeamMember } from '../../lib/api';
+import { teamApi, type TeamMember, type TeamInvitation } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -58,6 +65,25 @@ import { AdminTimesheetPanel } from './AdminTimesheetPanel';
 import { PendingJoinRequests } from './PendingJoinRequests';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { getDdpClient } from '../../lib/ddp';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function invitationStatusVariant(
+  status: TeamInvitation['status'],
+): 'warning' | 'success' | 'outline' | 'danger' {
+  switch (status) {
+    case 'pending':
+      return 'warning';
+    case 'accepted':
+      return 'success';
+    case 'delivery_failed':
+      return 'danger';
+    case 'expired':
+    case 'revoked':
+    default:
+      return 'outline';
+  }
+}
 
 // ─── TeamsPage ────────────────────────────────────────────────────────────────
 
@@ -165,6 +191,10 @@ export const TeamsPage: React.FC = () => {
     [selectedTeamId, pendingRequests],
   );
 
+  // `isAdmin` (from TeamContext) already covers org owners, who get full
+  // team-admin authority on every team in their org.
+  const canManageTeamSettings = isAdmin && !selectedTeam?.isPersonal;
+
   // Real-time online/offline presence for team members
   const memberIds = useMemo(() => members.map((m) => m.id), [members]);
   const onlineUsers = usePresence(memberIds);
@@ -177,6 +207,11 @@ export const TeamsPage: React.FC = () => {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [removeLoading, setRemoveLoading] = useState(false);
+  const [revokeLoadingId, setRevokeLoadingId] = useState<string | null>(null);
+
+  // Pending/sent team invitations shown in the Team Settings modal
+  const [invitations, setInvitations] = useState<TeamInvitation[]>([]);
+  const [invitationsLoading, setInvitationsLoading] = useState(false);
 
   // Modal state
   const [modal, setModal] = useState<
@@ -186,6 +221,7 @@ export const TeamsPage: React.FC = () => {
     | 'rename'
     | 'delete'
     | 'invite'
+    | 'settings'
     | { type: 'invite-sent'; email: string }
     | { type: 'password'; memberId: string }
     | { type: 'remove'; memberId: string }
@@ -304,6 +340,44 @@ export const TeamsPage: React.FC = () => {
     }
   }, [formValue, selectedTeamId, fetchMembers, inviteLoading]);
 
+  // Fetch pending/sent invitations for the Team Settings modal
+  const fetchInvitations = useCallback(async (teamId: string | null) => {
+    if (!teamId) {
+      setInvitations([]);
+      return;
+    }
+    setInvitationsLoading(true);
+    try {
+      const data = await teamApi.getPendingInvitations(teamId);
+      setInvitations(data);
+    } catch {
+      setInvitations([]);
+    } finally {
+      setInvitationsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (modal === 'settings') {
+      void fetchInvitations(selectedTeamId);
+    }
+  }, [modal, selectedTeamId, fetchInvitations]);
+
+  const handleRevokeInvitation = useCallback(
+    async (invitationId: string) => {
+      setRevokeLoadingId(invitationId);
+      try {
+        await teamApi.revokeInvitation(invitationId);
+        await fetchInvitations(selectedTeamId);
+      } catch (e: any) {
+        setFormError(e.message || 'Failed to revoke invitation');
+      } finally {
+        setRevokeLoadingId(null);
+      }
+    },
+    [selectedTeamId, fetchInvitations],
+  );
+
   const handleSetPassword = useCallback(
     async (memberId: string) => {
       if (!formValue.trim() || !selectedTeamId) return;
@@ -402,29 +476,41 @@ export const TeamsPage: React.FC = () => {
                 </div>
               )}
             </div>
-            {isAdmin && !selectedTeam.isPersonal && (
-              <div className="flex gap-2">
+            <div className="flex gap-2">
+              {canManageTeamSettings && (
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={() => {
-                    setFormValue(selectedTeam.name);
-                    setModal('rename');
-                  }}
-                  aria-label="Rename"
+                  onClick={() => setModal('settings')}
+                  aria-label="Team Settings"
                 >
-                  <FontAwesomeIcon icon={faPen} className="text-xs" />
+                  <FontAwesomeIcon icon={faGear} className="text-xs" />
                 </Button>
-                <Button
-                  variant="danger"
-                  size="icon"
-                  onClick={() => setModal('delete')}
-                  aria-label="Delete"
-                >
-                  <FontAwesomeIcon icon={faTrash} className="text-xs" />
-                </Button>
-              </div>
-            )}
+              )}
+              {isAdmin && !selectedTeam.isPersonal && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => {
+                      setFormValue(selectedTeam.name);
+                      setModal('rename');
+                    }}
+                    aria-label="Rename"
+                  >
+                    <FontAwesomeIcon icon={faPen} className="text-xs" />
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="icon"
+                    onClick={() => setModal('delete')}
+                    aria-label="Delete"
+                  >
+                    <FontAwesomeIcon icon={faTrash} className="text-xs" />
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Tabs: Members | Pending | Timesheet — controlled so deep-links can set initial tab */}
@@ -785,6 +871,75 @@ export const TeamsPage: React.FC = () => {
             Done
           </Button>
         </ModalFooter>
+      </Modal>
+
+      <Modal open={modal === 'settings'} onOpenChange={(open) => !open && closeModal()} size="lg">
+        <ModalHeader>
+          <ModalTitle>Team Settings</ModalTitle>
+          <ModalClose />
+        </ModalHeader>
+        <ModalBody>
+          <Text
+            variant="muted"
+            size="xs"
+            weight="semibold"
+            className="mb-3 uppercase tracking-widest"
+          >
+            Invitations
+          </Text>
+          {invitationsLoading ? (
+            <div className="flex justify-center py-6">
+              <Spinner size="sm" label="Loading invitations…" />
+            </div>
+          ) : (
+            <Table responsive>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Sent</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead className="w-32">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invitations.map((inv) => (
+                  <TableRow key={inv.id}>
+                    <TableCell>{inv.email}</TableCell>
+                    <TableCell>
+                      <Badge variant={invitationStatusVariant(inv.status)}>{inv.status}</Badge>
+                    </TableCell>
+                    <TableCell>{new Date(inv.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell>{new Date(inv.expiresAt).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      {inv.status === 'pending' && (
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => void handleRevokeInvitation(inv.id)}
+                          disabled={revokeLoadingId === inv.id}
+                          isLoading={revokeLoadingId === inv.id}
+                          aria-label={`Revoke invitation for ${inv.email}`}
+                        >
+                          Revoke
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {invitations.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5}>
+                      <Text size="sm" variant="muted" className="py-2">
+                        No invitations have been sent for this team.
+                      </Text>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </ModalBody>
       </Modal>
 
       <Modal

@@ -129,3 +129,18 @@ export async function getAccessibleOrgIds(userId) {
   const memberships = await db.collection('org_members').find({ userId }).toArray();
   return memberships.map((m) => m.orgId);
 }
+
+/**
+ * True if `userId` has team-admin authority on `team` — either because they
+ * are listed in `team.admins`, or because they own the organization the team
+ * belongs to. Org owners get full team-admin authority on every team in
+ * their org (rename, delete, invite, remove member, set role/password,
+ * approve/decline join requests, manage invitations).
+ */
+export async function isTeamAdminOrOrgOwner(team, userId) {
+  if (team.admins.includes(userId)) return true;
+  if (!team.orgId || !isValidId(team.orgId)) return false;
+  const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(team.orgId) });
+  return !!org?.owners?.includes(userId);
+}
+

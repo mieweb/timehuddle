@@ -1,18 +1,27 @@
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
-import { createHash, randomBytes } from 'crypto';
 import { Teams, TeamJoinRequests, rawDb, isValidId } from './collections';
-import { requireIdentity, identityForConnection } from './auth-bridge';
-import { ensureDefaultOrganization, addOrgMember, getAccessibleOrgIds } from './org-helpers';
+import { requireIdentity, identityForConnection, findUserById } from './auth-bridge';
+import {
+  ensureDefaultOrganization,
+  addOrgMember,
+  getAccessibleOrgIds,
+  isTeamAdminOrOrgOwner,
+} from './org-helpers';
 import { ensureDefaultChannel } from './channels';
 import { createNotification } from './notify-core';
 import { sendEmail } from './email';
+import {
+  INVITATION_LIFETIME_MS,
+  APP_URL,
+  normalizeEmail,
+  generateInvitationToken,
+  hashInvitationToken,
+  escapeHtml,
+} from './invitation-helpers';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
-const INVITATION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
-const DEFAULT_APP_URL = 'http://localhost:3000';
-const APP_URL = (process.env.APP_URL || DEFAULT_APP_URL).replace(/\/$/, '');
 
 Meteor.startup(async () => {
   try {
@@ -36,32 +45,6 @@ function toId(id) {
 
 function generateTeamCode() {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
-}
-
-function normalizeEmail(email) {
-  if (typeof email !== 'string') return null;
-  const normalized = email.trim().toLowerCase();
-  if (
-    normalized.length === 0 ||
-    normalized.length > 254 ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)
-  ) {
-    return null;
-  }
-  return normalized;
-}
-
-function hashInvitationToken(token) {
-  return createHash('sha256').update(token).digest('hex');
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;');
 }
 
 async function getInvitationByToken(token) {
@@ -90,6 +73,20 @@ async function getInvitationByToken(token) {
     throw new Meteor.Error('invitation-expired', 'This invitation has expired. Ask a team administrator for a new one.');
   }
   return invitation;
+}
+
+function toPublicInvitation(doc, invitedByName) {
+  const id = doc._id?.toHexString ? doc._id.toHexString() : String(doc._id);
+  return {
+    id,
+    email: doc.email,
+    status: doc.status,
+    invitedByName: invitedByName ?? 'Unknown',
+    createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : String(doc.createdAt),
+    expiresAt: doc.expiresAt instanceof Date ? doc.expiresAt.toISOString() : String(doc.expiresAt),
+    acceptedAt: doc.acceptedAt instanceof Date ? doc.acceptedAt.toISOString() : undefined,
+    revokedAt: doc.revokedAt instanceof Date ? doc.revokedAt.toISOString() : undefined,
+  };
 }
 
 function toPublicTeam(team) {
@@ -260,12 +257,12 @@ Meteor.methods({
       });
       if (membership && membership.role === 'owner') {
         // Add owner directly to team without approval
-        await Teams.updateAsync(new Mongo.ObjectID(team._id), {
+        await Teams.updateAsync(new Mongo.ObjectID(teamId), {
           $addToSet: { members: identity.userId },
           $set: { updatedAt: new Date() },
         });
 
-        const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(team._id));
+        const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
         return { status: 'joined', team: toPublicTeam(updatedTeam) };
       }
     }
@@ -359,7 +356,7 @@ Meteor.methods({
     }
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(userId)) {
+    if (!(await isTeamAdminOrOrgOwner(team, userId))) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
     await Teams.updateAsync(team._id, { $set: { name: newName.trim(), updatedAt: new Date() } });
@@ -373,7 +370,7 @@ Meteor.methods({
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(userId)) {
+    if (!(await isTeamAdminOrOrgOwner(team, userId))) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
     await Teams.removeAsync(team._id);
@@ -432,7 +429,7 @@ Meteor.methods({
 
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(userId)) {
+    if (!(await isTeamAdminOrOrgOwner(team, userId))) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
 
@@ -483,7 +480,7 @@ Meteor.methods({
       );
     }
 
-    const token = randomBytes(32).toString('hex');
+    const token = generateInvitationToken();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + INVITATION_LIFETIME_MS);
     const invitation = {
@@ -600,6 +597,36 @@ Meteor.methods({
     return { ok: true, team: toPublicTeam({ ...team, members: [...new Set([...team.members, identity.userId])] }) };
   },
 
+  async 'teams.getPendingInvitations'({ teamId }) {
+    const identity = await requireIdentity(this);
+    if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
+
+    const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+    if (!team) throw new Meteor.Error('not-found', 'Team not found');
+    if (!(await isTeamAdminOrOrgOwner(team, identity.userId))) {
+      throw new Meteor.Error('forbidden', 'Admin access required');
+    }
+
+    const invitations = await rawDb()
+      .collection('team_invitations')
+      .find({ teamId })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const invitedByIds = [...new Set(invitations.map((i) => i.invitedBy).filter(Boolean))];
+    const userMap = new Map();
+    await Promise.all(
+      invitedByIds.map(async (id) => {
+        const user = await findUserById(id);
+        if (user) userMap.set(id, user);
+      }),
+    );
+
+    return {
+      invitations: invitations.map((i) => toPublicInvitation(i, userMap.get(i.invitedBy)?.name)),
+    };
+  },
+
   async 'teams.revokeInvite'({ invitationId }) {
     const identity = await requireIdentity(this);
     if (typeof invitationId !== 'string' || !/^[a-f0-9]{24}$/i.test(invitationId)) {
@@ -609,7 +636,7 @@ Meteor.methods({
     const invitation = await invitations.findOne({ _id: new ObjectId(invitationId) });
     if (!invitation) throw new Meteor.Error('not-found', 'Invitation not found');
     const team = await Teams.findOneAsync(new Mongo.ObjectID(invitation.teamId));
-    if (!team || !team.admins.includes(identity.userId)) {
+    if (!team || !(await isTeamAdminOrOrgOwner(team, identity.userId))) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
     if (invitation.status !== 'pending') {
@@ -628,7 +655,7 @@ Meteor.methods({
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(userId)) {
+    if (!(await isTeamAdminOrOrgOwner(team, userId))) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
     if (targetUserId === userId) {
@@ -658,7 +685,7 @@ Meteor.methods({
     }
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(userId)) {
+    if (!(await isTeamAdminOrOrgOwner(team, userId))) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
     if (!team.members.includes(targetUserId)) {
@@ -689,7 +716,7 @@ Meteor.methods({
     }
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(userId)) {
+    if (!(await isTeamAdminOrOrgOwner(team, userId))) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
     if (!team.members.includes(targetUserId)) {

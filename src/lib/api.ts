@@ -482,6 +482,17 @@ export interface AdminOrganization {
   adminsCount?: number;
 }
 
+export interface OrganizationInvitation {
+  id: string;
+  email: string;
+  status: 'pending' | 'accepted' | 'expired' | 'revoked' | 'delivery_failed';
+  invitedByName: string;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt?: string;
+  revokedAt?: string;
+}
+
 export const orgAdminApi = {
   getOrganization: () =>
     wormholeCall<{ organization: AdminOrganization }>('orgs.adminGet', {}).then(
@@ -615,6 +626,20 @@ export const orgApi = {
     wormholeCall<{ user: { userId: string } }>('orgs.removeMember', { orgId: id, userId }).then(
       (r) => r.user,
     ),
+
+  inviteMember: (id: string, email: string) =>
+    wormholeCall<
+      | { ok: true; status: 'joined' }
+      | { ok: true; status: 'pending'; invitationId: string; expiresAt: string }
+    >('orgs.invite', { orgId: id, email }),
+
+  getPendingInvitations: (id: string) =>
+    wormholeCall<{ invitations: OrganizationInvitation[] }>('orgs.getPendingInvitations', {
+      orgId: id,
+    }).then((r) => r.invitations),
+
+  revokeInvitation: (invitationId: string) =>
+    wormholeCall<{ ok: boolean }>('orgs.revokeInvite', { invitationId }),
 
   blockMember: (id: string, targetUserId: string, reason?: string) =>
     wormholeCall<{
@@ -1058,6 +1083,17 @@ export interface TeamJoinRequestPreview {
   alreadyProcessed: boolean;
 }
 
+export interface TeamInvitation {
+  id: string;
+  email: string;
+  status: 'pending' | 'accepted' | 'expired' | 'revoked' | 'delivery_failed';
+  invitedByName: string;
+  createdAt: string;
+  expiresAt: string;
+  acceptedAt?: string;
+  revokedAt?: string;
+}
+
 export const teamApi = {
   getTeams: () =>
     wormholeCall<{ teams: Team[]; pendingRequests: TeamJoinRequest[] }>('teams.list', {}),
@@ -1121,6 +1157,14 @@ export const teamApi = {
 
   declineJoinRequest: (requestId: string) =>
     wormholeCall<{ status: string }>('teams.declineJoinRequest', { requestId }),
+
+  getPendingInvitations: (teamId: string) =>
+    wormholeCall<{ invitations: TeamInvitation[] }>('teams.getPendingInvitations', {
+      teamId,
+    }).then((r) => r.invitations),
+
+  revokeInvitation: (invitationId: string) =>
+    wormholeCall<{ ok: boolean }>('teams.revokeInvite', { invitationId }),
 };
 
 // ─── Clock API ────────────────────────────────────────────────────────────────

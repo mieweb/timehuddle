@@ -49,7 +49,7 @@ async function waitForInvitationToken(email: string, timeoutMs = 15_000): Promis
       const detail = (await (
         await fetch(`${MAILPIT_URL}/api/v1/message/${message.ID}`)
       ).json()) as { HTML?: string; Text?: string };
-      const body = detail.HTML ?? detail.Text ?? '';
+      const body = detail.Text ?? detail.HTML ?? '';
       const token = body.match(/[?&]invite=([a-f0-9]{64})/)?.[1];
       if (token) return token;
     }
@@ -475,6 +475,186 @@ describe('teams.invite', () => {
     );
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/already/i);
+  });
+});
+
+// ─── teams.getPendingInvitations / teams.revokeInvite ────────────────────────
+
+describe('teams.getPendingInvitations / teams.revokeInvite', () => {
+  const ORG_OWNER = { name: 'Org Owner', email: 'wh-team-org-owner@test.dev', password: 'Password1!' };
+  let orgOwnerJwt: string;
+  let orgOwnerId: string;
+  let settingsTeamId: string;
+
+  beforeAll(async () => {
+    await purgeUser(ORG_OWNER.email);
+    const orgOwner = await createUserAndGetJwt(ORG_OWNER);
+    orgOwnerJwt = orgOwner.jwt;
+    const db = await getDb();
+    orgOwnerId = String(
+      (await db.collection('users').findOne({ 'emails.address': ORG_OWNER.email }))!._id,
+    );
+
+    // Team owned/administered by OWNER, but living in an org whose owner is a
+    // different user (ORG_OWNER) who is NOT a team admin.
+    const createRes = await wormhole<{ team: { id: string } }>(
+      'teams.create',
+      { name: 'Invitation Settings Team' },
+      ownerJwt,
+    );
+    settingsTeamId = createRes.result.team.id;
+
+    const orgId = new ObjectId();
+    await db.collection('organizations').insertOne({
+      _id: orgId,
+      name: 'Invitation Settings Org',
+      slug: `invitation-settings-org-${orgId.toHexString()}`,
+      owners: [orgOwnerId],
+      admins: [],
+      allowAutoJoin: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await db
+      .collection('teams')
+      .updateOne({ _id: new ObjectId(settingsTeamId) }, { $set: { orgId: orgId.toHexString() } });
+  }, 30000);
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('team_invitations').deleteMany({ teamId: settingsTeamId });
+    await wormhole('teams.delete', { teamId: settingsTeamId }, ownerJwt).catch(() => {});
+    await db.collection('organizations').deleteMany({ name: 'Invitation Settings Org' });
+    await purgeUser(ORG_OWNER.email);
+  });
+
+  it('plain team admin can list pending invitations', async () => {
+    const invite = await wormhole<{ invitationId: string }>(
+      'teams.invite',
+      { teamId: settingsTeamId, email: 'wh-settings-admin-invitee@test.dev' },
+      ownerJwt,
+    );
+    expect(invite.ok).toBe(true);
+
+    const res = await wormhole<{ invitations: Array<{ id: string; email: string; status: string }> }>(
+      'teams.getPendingInvitations',
+      { teamId: settingsTeamId },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.invitations).toContainEqual(
+      expect.objectContaining({ email: 'wh-settings-admin-invitee@test.dev', status: 'pending' }),
+    );
+  });
+
+  it('plain team admin can revoke a pending invitation', async () => {
+    const invite = await wormhole<{ invitationId: string }>(
+      'teams.invite',
+      { teamId: settingsTeamId, email: 'wh-settings-admin-revoke@test.dev' },
+      ownerJwt,
+    );
+    expect(invite.ok).toBe(true);
+
+    const revoke = await wormhole(
+      'teams.revokeInvite',
+      { invitationId: invite.result.invitationId },
+      ownerJwt,
+    );
+    expect(revoke.ok).toBe(true);
+
+    const db = await getDb();
+    const invitation = await db
+      .collection('team_invitations')
+      .findOne({ _id: new ObjectId(invite.result.invitationId) });
+    expect(invitation?.status).toBe('revoked');
+  });
+
+  it('org owner (non-admin) can list pending invitations', async () => {
+    const res = await wormhole<{ invitations: unknown[] }>(
+      'teams.getPendingInvitations',
+      { teamId: settingsTeamId },
+      orgOwnerJwt,
+    );
+    expect(res.ok).toBe(true);
+  });
+
+  it('org owner (non-admin) can revoke a pending invitation', async () => {
+    const invite = await wormhole<{ invitationId: string }>(
+      'teams.invite',
+      { teamId: settingsTeamId, email: 'wh-settings-orgowner-revoke@test.dev' },
+      ownerJwt,
+    );
+    expect(invite.ok).toBe(true);
+
+    const revoke = await wormhole(
+      'teams.revokeInvite',
+      { invitationId: invite.result.invitationId },
+      orgOwnerJwt,
+    );
+    expect(revoke.ok).toBe(true);
+
+    const db = await getDb();
+    const invitation = await db
+      .collection('team_invitations')
+      .findOne({ _id: new ObjectId(invite.result.invitationId) });
+    expect(invitation?.status).toBe('revoked');
+  });
+
+  it('non-admin, non-org-owner is forbidden from listing invitations', async () => {
+    const res = await wormhole('teams.getPendingInvitations', { teamId: settingsTeamId }, outsiderJwt);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/admin/i);
+  });
+
+  it('non-admin, non-org-owner is forbidden from revoking invitations', async () => {
+    const invite = await wormhole<{ invitationId: string }>(
+      'teams.invite',
+      { teamId: settingsTeamId, email: 'wh-settings-outsider-revoke@test.dev' },
+      ownerJwt,
+    );
+    expect(invite.ok).toBe(true);
+
+    const revoke = await wormhole(
+      'teams.revokeInvite',
+      { invitationId: invite.result.invitationId },
+      outsiderJwt,
+    );
+    expect(revoke.ok).toBe(false);
+    expect(revoke.error).toMatch(/admin/i);
+  });
+
+  it('revoked invitations remain visible in the list but are not re-revocable', async () => {
+    const invite = await wormhole<{ invitationId: string }>(
+      'teams.invite',
+      { teamId: settingsTeamId, email: 'wh-settings-revoked-visible@test.dev' },
+      ownerJwt,
+    );
+    expect(invite.ok).toBe(true);
+
+    const firstRevoke = await wormhole(
+      'teams.revokeInvite',
+      { invitationId: invite.result.invitationId },
+      ownerJwt,
+    );
+    expect(firstRevoke.ok).toBe(true);
+
+    const list = await wormhole<{ invitations: Array<{ id: string; status: string }> }>(
+      'teams.getPendingInvitations',
+      { teamId: settingsTeamId },
+      ownerJwt,
+    );
+    expect(list.ok).toBe(true);
+    expect(list.result.invitations).toContainEqual(
+      expect.objectContaining({ id: invite.result.invitationId, status: 'revoked' }),
+    );
+
+    const secondRevoke = await wormhole(
+      'teams.revokeInvite',
+      { invitationId: invite.result.invitationId },
+      ownerJwt,
+    );
+    expect(secondRevoke.ok).toBe(false);
+    expect(secondRevoke.error).toMatch(/pending/i);
   });
 });
 

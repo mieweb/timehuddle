@@ -3,6 +3,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { Teams, TeamJoinRequests, rawDb, isValidId } from './collections';
 import { requireIdentity, identityForConnection, findUserById } from './auth-bridge';
 import { createNotification } from './notify-core';
+import { isTeamAdminOrOrgOwner } from './org-helpers';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -77,7 +78,7 @@ Meteor.methods({
 
     const team = await Teams.rawCollection().findOne({ _id: new ObjectId(teamId) });
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(identity.userId)) {
+    if (!(await isTeamAdminOrOrgOwner(team, identity.userId))) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
 
@@ -117,7 +118,7 @@ Meteor.methods({
 
     const team = await Teams.rawCollection().findOne({ _id: new ObjectId(request.teamId) });
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(identity.userId)) {
+    if (!(await isTeamAdminOrOrgOwner(team, identity.userId))) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
 
@@ -180,7 +181,7 @@ Meteor.methods({
 
     const team = await Teams.rawCollection().findOne({ _id: new ObjectId(request.teamId) });
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    if (!team.admins.includes(identity.userId)) {
+    if (!(await isTeamAdminOrOrgOwner(team, identity.userId))) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
 

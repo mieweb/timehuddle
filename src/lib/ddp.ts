@@ -279,6 +279,22 @@ class DdpClient {
     await this.call('teams.acceptInvite', { token });
   }
 
+  async getOrgInvitation(token: string): Promise<{
+    orgName: string;
+    email: string;
+    expiresAt: string;
+  }> {
+    return this.call('orgs.getInvitation', { token }) as Promise<{
+      orgName: string;
+      email: string;
+      expiresAt: string;
+    }>;
+  }
+
+  async acceptOrgInvitation(token: string): Promise<void> {
+    await this.call('orgs.acceptInvite', { token });
+  }
+
   /**
    * Login via Meteor OAuth callback tokens.
    * After GitHub OAuth completes, Meteor redirects with meteor_token and meteor_resume params.
