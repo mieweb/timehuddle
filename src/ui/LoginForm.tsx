@@ -7,7 +7,7 @@ import {
   faListCheck,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { authApi, METEOR_BASE_URL } from '../lib/api';
 import { getDdpClient } from '../lib/ddp';
@@ -63,6 +63,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     typeof window !== 'undefined'
       ? (new URLSearchParams(window.location.search).get('token') ?? undefined)
       : undefined;
+  const invitationToken =
+    typeof window !== 'undefined'
+      ? (new URLSearchParams(window.location.search).get('invite') ?? undefined)
+      : undefined;
+  const orgInvitationToken =
+    typeof window !== 'undefined'
+      ? (new URLSearchParams(window.location.search).get('org_invite') ?? undefined)
+      : undefined;
 
   const [mode, setMode] = useState<AuthMode>(initialMode ?? getMode(!!resetToken));
   const [email, setEmail] = useState('');
@@ -79,10 +87,67 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   );
   const [selectedLoginType, setSelectedLoginType] = useState('member');
   const [joinTeam, setJoinTeam] = useState(false);
+  const [invitedTeamName, setInvitedTeamName] = useState<string | null>(null);
+  const [invitedOrgName, setInvitedOrgName] = useState<string | null>(null);
 
   const isSignup = mode === 'signup';
   const isForgot = mode === 'forgot';
   const isResetConfirm = mode === 'reset-confirm';
+
+  useEffect(() => {
+    if (!invitationToken) return;
+    let active = true;
+    const ddp = getDdpClient();
+    void ddp
+      .getTeamInvitation(invitationToken)
+      .then((invitation) => {
+        if (!active) return;
+        setEmail(invitation.email);
+        setInvitedTeamName(invitation.teamName);
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setError((err as Error).message || 'This invitation is no longer available.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [invitationToken]);
+
+  useEffect(() => {
+    if (!orgInvitationToken) return;
+    let active = true;
+    const ddp = getDdpClient();
+    void ddp
+      .getOrgInvitation(orgInvitationToken)
+      .then((invitation) => {
+        if (!active) return;
+        setEmail(invitation.email);
+        setInvitedOrgName(invitation.orgName);
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setError((err as Error).message || 'This invitation is no longer available.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [orgInvitationToken]);
+
+  const acceptInvitation = async (ddp: ReturnType<typeof getDdpClient>) => {
+    if (invitationToken) {
+      await ddp.acceptTeamInvitation(invitationToken);
+    }
+    if (orgInvitationToken) {
+      await ddp.acceptOrgInvitation(orgInvitationToken);
+    }
+    if (!invitationToken && !orgInvitationToken) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('invite');
+    url.searchParams.delete('org_invite');
+    url.searchParams.delete('mode');
+    window.history.replaceState(null, '', url.toString());
+  };
 
   const loginOptions =
     selectedDomain === 'enterprise'
@@ -112,6 +177,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     try {
       const ddp = getDdpClient();
       await ddp.loginWithPassword(email.trim().toLowerCase(), password);
+      await acceptInvitation(ddp);
       await session.refetch();
       // Check for blocking after refetch
       if (session.blockMessage) {
@@ -188,6 +254,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       const name = `${firstName.trim()} ${lastName.trim()}`.trim();
       const ddp = getDdpClient();
       await ddp.signUpWithPassword(email.trim().toLowerCase(), password, name);
+      await acceptInvitation(ddp);
       await session.refetch();
     } catch (err: unknown) {
       setLoading(false);
@@ -425,6 +492,13 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
               </div>
             ) : (
               <>
+                {(invitedTeamName || invitedOrgName) && (
+                  <Text variant="muted" size="sm" as="div" role="status">
+                    You were invited to join {invitedTeamName ?? invitedOrgName}. Sign in or create
+                    an account with the invited email address to join.
+                  </Text>
+                )}
+
                 {/* Name fields (signup only) */}
                 {isSignup && (
                   <div className="flex items-start gap-3">
@@ -461,7 +535,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                     inputMode="email"
                     spellCheck={false}
                     placeholder="you@example.com"
-                    disabled={loading}
+                    disabled={loading || !!invitationToken || !!orgInvitationToken}
                   />
                 )}
 
@@ -522,13 +596,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
           {/* Forgot password (login mode only) */}
           {mode === 'login' && (
             <div className="mt-3 text-center">
-              <button
-                type="button"
-                onClick={() => switchMode('forgot')}
-                className="text-xs text-neutral-500 hover:underline dark:text-neutral-400"
-              >
+              <Button variant="link" size="sm" type="button" onClick={() => switchMode('forgot')}>
                 Forgot your password?
-              </button>
+              </Button>
             </div>
           )}
 
@@ -586,24 +656,26 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                 {isSignup ? (
                   <>
                     Already have an account?{' '}
-                    <button
+                    <Button
+                      variant="link"
+                      size="sm"
                       type="button"
                       onClick={() => switchMode('login')}
-                      className="font-semibold text-blue-600 hover:underline dark:text-blue-400"
                     >
                       Sign in
-                    </button>
+                    </Button>
                   </>
                 ) : (
                   <>
                     Don&apos;t have an account?{' '}
-                    <button
+                    <Button
+                      variant="link"
+                      size="sm"
                       type="button"
                       onClick={() => switchMode('signup')}
-                      className="font-semibold text-blue-600 hover:underline dark:text-blue-400"
                     >
                       Sign up
-                    </button>
+                    </Button>
                   </>
                 )}
               </p>
@@ -663,13 +735,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
           {/* Back to sign in (forgot / reset-confirm) */}
           {(isForgot || isResetConfirm) && !successMessage && (
             <div className="mt-4 text-center">
-              <button
-                type="button"
-                onClick={() => switchMode('login')}
-                className="text-xs text-neutral-500 hover:underline dark:text-neutral-400"
-              >
+              <Button variant="link" size="sm" type="button" onClick={() => switchMode('login')}>
                 Back to sign in
-              </button>
+              </Button>
             </div>
           )}
         </div>

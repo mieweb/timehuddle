@@ -1218,6 +1218,42 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('teams.getInvitation', {
+    description: 'Get a team invitation preview',
+    inputSchema: {
+      type: 'object',
+      properties: { token: { type: 'string' } },
+      required: ['token'],
+    },
+  });
+
+  Wormhole.expose('teams.acceptInvite', {
+    description: 'Accept a team invitation',
+    inputSchema: {
+      type: 'object',
+      properties: { token: { type: 'string' } },
+      required: ['token'],
+    },
+  });
+
+  Wormhole.expose('teams.revokeInvite', {
+    description: 'Revoke a pending team invitation',
+    inputSchema: {
+      type: 'object',
+      properties: { invitationId: { type: 'string' } },
+      required: ['invitationId'],
+    },
+  });
+
+  Wormhole.expose('teams.getPendingInvitations', {
+    description: 'List email invitations sent for a team (team admin or org owner only)',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
   Wormhole.expose('teams.removeMember', {
     description: 'Remove a member from a team (admin only)',
     inputSchema: {
@@ -1441,6 +1477,11 @@ Meteor.startup(async() => {
   Wormhole.expose('orgs.searchUsers', { description: 'Search users to add to org', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, q: { type: 'string' } }, required: ['orgId'] } });
   Wormhole.expose('orgs.setMemberRole', { description: 'Set org member role', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, userId: { type: 'string' }, role: { type: 'string', enum: ['owner', 'admin', 'member'] } }, required: ['orgId', 'userId', 'role'] } });
   Wormhole.expose('orgs.removeMember', { description: 'Remove org member', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, userId: { type: 'string' } }, required: ['orgId', 'userId'] } });
+  Wormhole.expose('orgs.invite', { description: 'Invite a user to an organization by email', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, email: { type: 'string' } }, required: ['orgId', 'email'] } });
+  Wormhole.expose('orgs.getInvitation', { description: 'Get an organization invitation preview', inputSchema: { type: 'object', properties: { token: { type: 'string' } }, required: ['token'] } });
+  Wormhole.expose('orgs.acceptInvite', { description: 'Accept an organization invitation', inputSchema: { type: 'object', properties: { token: { type: 'string' } }, required: ['token'] } });
+  Wormhole.expose('orgs.getPendingInvitations', { description: 'List email invitations sent for an organization (manage permission)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' } }, required: ['orgId'] } });
+  Wormhole.expose('orgs.revokeInvite', { description: 'Revoke a pending organization invitation', inputSchema: { type: 'object', properties: { invitationId: { type: 'string' } }, required: ['invitationId'] } });
   Wormhole.expose('orgs.updateMemberReportsTo', { description: 'Update org member reports-to', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, userId: { type: 'string' }, reportsToUserId: { type: ['string', 'null'] } }, required: ['orgId', 'userId'] } });
   Wormhole.expose('orgs.updateReportsTo', { description: 'Update user reports-to (default org admin)', inputSchema: { type: 'object', properties: { userId: { type: 'string' }, reportsToUserId: { type: ['string', 'null'] } }, required: ['userId'] } });
   Wormhole.expose('orgs.adminGet', { description: 'Get default org admin metadata', inputSchema: { type: 'object', properties: {} } });

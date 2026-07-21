@@ -64,6 +64,10 @@ jobs:
           CONTAINER_NAME="${{ github.repository_owner }}-${REPO_NAME}-${{ github.head_ref }}"
           CONTAINER_NAME=${CONTAINER_NAME,,}
           CONTAINER_NAME=$(echo "$CONTAINER_NAME" | sed 's/[^a-z0-9-]/-/g')
+          # Launchpad enforces a 63-character hostname limit, and the API
+          # service reuses this name with a "-api" suffix — so truncate to
+          # leave room for it, and drop any trailing hyphen left by the cut.
+          CONTAINER_NAME=$(echo "$CONTAINER_NAME" | cut -c1-59 | sed 's/-*$//')
           echo "name=${CONTAINER_NAME}" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3

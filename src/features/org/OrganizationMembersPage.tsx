@@ -29,12 +29,30 @@ import {
   orgApi,
   type DefaultOrganizationRole,
   type OrganizationAdminUser,
+  type OrganizationInvitation,
 } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
 import { getDdpClient } from '../../lib/ddp';
+
+function invitationStatusVariant(
+  status: OrganizationInvitation['status'],
+): 'warning' | 'success' | 'outline' | 'danger' {
+  switch (status) {
+    case 'pending':
+      return 'warning';
+    case 'accepted':
+      return 'success';
+    case 'delivery_failed':
+      return 'danger';
+    case 'expired':
+    case 'revoked':
+    default:
+      return 'outline';
+  }
+}
 
 export const OrganizationMembersPage: React.FC = () => {
   const { user } = useSession();
@@ -55,6 +73,15 @@ export const OrganizationMembersPage: React.FC = () => {
   const [blockUserId, setBlockUserId] = useState<string | null>(null);
   const [blockReason, setBlockReason] = useState('');
   const [blockingSaving, setBlockingSaving] = useState(false);
+
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteStatus, setInviteStatus] = useState<string | null>(null);
+  const [invitationsModalOpen, setInvitationsModalOpen] = useState(false);
+  const [invitations, setInvitations] = useState<OrganizationInvitation[]>([]);
+  const [invitationsLoading, setInvitationsLoading] = useState(false);
+  const [revokeLoadingId, setRevokeLoadingId] = useState<string | null>(null);
 
   const loadUsers = useCallback(async () => {
     if (!selectedOrgId) {
@@ -235,6 +262,72 @@ export const OrganizationMembersPage: React.FC = () => {
     [loadUsers, selectedOrgId],
   );
 
+  const handleInviteMember = useCallback(async () => {
+    if (!selectedOrgId || !inviteEmail.trim() || inviteLoading) return;
+    setInviteLoading(true);
+    setInviteError(null);
+    setInviteStatus(null);
+    try {
+      const result = await orgApi.inviteMember(selectedOrgId, inviteEmail.trim());
+      if (result.status === 'pending') {
+        setInviteStatus(`A secure account setup link was sent to ${inviteEmail.trim()}.`);
+      } else {
+        setInviteStatus(null);
+        await loadUsers();
+      }
+      setInviteEmail('');
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setInviteError(err.message);
+      } else {
+        setInviteError('Failed to invite organization member');
+      }
+    } finally {
+      setInviteLoading(false);
+    }
+  }, [inviteEmail, inviteLoading, loadUsers, selectedOrgId]);
+
+  const fetchInvitations = useCallback(async () => {
+    if (!selectedOrgId) {
+      setInvitations([]);
+      return;
+    }
+    setInvitationsLoading(true);
+    try {
+      const data = await orgApi.getPendingInvitations(selectedOrgId);
+      setInvitations(data);
+    } catch {
+      setInvitations([]);
+    } finally {
+      setInvitationsLoading(false);
+    }
+  }, [selectedOrgId]);
+
+  useEffect(() => {
+    if (invitationsModalOpen) {
+      void fetchInvitations();
+    }
+  }, [invitationsModalOpen, fetchInvitations]);
+
+  const handleRevokeInvitation = useCallback(
+    async (invitationId: string) => {
+      setRevokeLoadingId(invitationId);
+      try {
+        await orgApi.revokeInvitation(invitationId);
+        await fetchInvitations();
+      } catch (err) {
+        if (err instanceof ApiError) {
+          setError(err.message);
+        } else {
+          setError('Failed to revoke invitation');
+        }
+      } finally {
+        setRevokeLoadingId(null);
+      }
+    },
+    [fetchInvitations],
+  );
+
   const roleOptions = useMemo(
     () => [
       { value: 'owner', label: 'Owner' },
@@ -358,6 +451,38 @@ export const OrganizationMembersPage: React.FC = () => {
                   }}
                 />
               </div>
+            </div>
+          )}
+
+          {selectedOrgId && canManage && (
+            <div className="flex flex-wrap items-end gap-3 rounded-md border border-neutral-200/70 p-3 dark:border-neutral-800">
+              <div className="min-w-[20rem] flex-1">
+                <Input
+                  label="Invite by Email"
+                  type="email"
+                  placeholder="user@example.com"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && void handleInviteMember()}
+                  error={inviteError ?? undefined}
+                  disabled={inviteLoading}
+                />
+              </div>
+              <Button
+                variant="primary"
+                onClick={() => void handleInviteMember()}
+                disabled={inviteLoading || !inviteEmail.trim()}
+              >
+                {inviteLoading ? 'Inviting…' : 'Send Invite'}
+              </Button>
+              <Button variant="outline" onClick={() => setInvitationsModalOpen(true)}>
+                Pending Invitations
+              </Button>
+              {inviteStatus && (
+                <Text variant="muted" size="sm" role="status" aria-live="polite" className="w-full">
+                  {inviteStatus}
+                </Text>
+              )}
             </div>
           )}
 
@@ -575,6 +700,68 @@ export const OrganizationMembersPage: React.FC = () => {
             {blockingSaving ? 'Blocking…' : 'Block Member'}
           </Button>
         </ModalFooter>
+      </Modal>
+
+      <Modal
+        open={invitationsModalOpen}
+        onOpenChange={(open) => setInvitationsModalOpen(open)}
+        size="lg"
+      >
+        <ModalHeader>Pending Invitations</ModalHeader>
+        <ModalBody>
+          {invitationsLoading ? (
+            <div className="flex justify-center py-6">
+              <Spinner size="sm" label="Loading invitations…" />
+            </div>
+          ) : (
+            <Table responsive>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Sent</TableHead>
+                  <TableHead>Expires</TableHead>
+                  <TableHead className="w-32">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invitations.map((inv) => (
+                  <TableRow key={inv.id}>
+                    <TableCell>{inv.email}</TableCell>
+                    <TableCell>
+                      <Badge variant={invitationStatusVariant(inv.status)}>{inv.status}</Badge>
+                    </TableCell>
+                    <TableCell>{new Date(inv.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell>{new Date(inv.expiresAt).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      {inv.status === 'pending' && (
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={() => void handleRevokeInvitation(inv.id)}
+                          disabled={revokeLoadingId === inv.id}
+                          isLoading={revokeLoadingId === inv.id}
+                          aria-label={`Revoke invitation for ${inv.email}`}
+                        >
+                          Revoke
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {invitations.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5}>
+                      <Text size="sm" variant="muted" className="py-2">
+                        No invitations have been sent for this organization.
+                      </Text>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          )}
+        </ModalBody>
       </Modal>
     </AppPage>
   );

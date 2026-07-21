@@ -1,7 +1,7 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, rawDb, isValidId } from './collections';
-import { requireIdentity } from './auth-bridge';
+import { requireIdentity, findUserById } from './auth-bridge';
 import {
   ensureDefaultOrganization,
   addOrgMember,
@@ -10,11 +10,35 @@ import {
 import { buildAbilityFor } from './permissions';
 import { subject } from '@casl/ability';
 import { emitActivity, ActivityType } from './activity-core';
+import { sendEmail } from './email';
+import {
+  INVITATION_LIFETIME_MS,
+  APP_URL,
+  normalizeEmail,
+  generateInvitationToken,
+  hashInvitationToken,
+  escapeHtml,
+} from './invitation-helpers';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 const DEFAULT_ORG_KEY = process.env.DEFAULT_ORG_KEY || 'default';
 const ELEVATED_ROLES = ['owner', 'admin'];
+
+Meteor.startup(async () => {
+  try {
+    await rawDb().collection('org_invitations').createIndex(
+      { orgId: 1, email: 1 },
+      {
+        name: 'unique_pending_org_invitation',
+        unique: true,
+        partialFilterExpression: { status: 'pending' },
+      },
+    );
+  } catch (error) {
+    console.error('[organizations] failed to create invitation index:', error);
+  }
+});
 
 function slugify(value) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/-{2,}/g, '-').slice(0, 64);
@@ -71,6 +95,48 @@ function toOrgSummary(org, role) {
     slug: org.slug,
     allowAutoJoin: org.allowAutoJoin !== false,
     role,
+  };
+}
+
+async function getOrgInvitationByToken(token) {
+  if (typeof token !== 'string' || token.length < 32) {
+    throw new Meteor.Error('invalid-invitation', 'This invitation link is invalid.');
+  }
+  const invitations = rawDb().collection('org_invitations');
+  const invitation = await invitations.findOne({ tokenHash: hashInvitationToken(token) });
+  if (!invitation) {
+    throw new Meteor.Error('invalid-invitation', 'This invitation link is invalid or has been revoked.');
+  }
+  if (invitation.status === 'accepted') {
+    throw new Meteor.Error('invitation-used', 'This invitation has already been accepted.');
+  }
+  if (invitation.status === 'revoked') {
+    throw new Meteor.Error('invitation-revoked', 'This invitation has been revoked.');
+  }
+  if (invitation.status !== 'pending') {
+    throw new Meteor.Error('invalid-invitation', 'This invitation is no longer available.');
+  }
+  if (invitation.expiresAt <= new Date()) {
+    await invitations.updateOne(
+      { _id: invitation._id, status: 'pending' },
+      { $set: { status: 'expired', updatedAt: new Date() } },
+    );
+    throw new Meteor.Error('invitation-expired', 'This invitation has expired. Ask an organization administrator for a new one.');
+  }
+  return invitation;
+}
+
+function toPublicOrgInvitation(doc, invitedByName) {
+  const id = doc._id?.toHexString ? doc._id.toHexString() : String(doc._id);
+  return {
+    id,
+    email: doc.email,
+    status: doc.status,
+    invitedByName: invitedByName ?? 'Unknown',
+    createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : String(doc.createdAt),
+    expiresAt: doc.expiresAt instanceof Date ? doc.expiresAt.toISOString() : String(doc.expiresAt),
+    acceptedAt: doc.acceptedAt instanceof Date ? doc.acceptedAt.toISOString() : undefined,
+    revokedAt: doc.revokedAt instanceof Date ? doc.revokedAt.toISOString() : undefined,
   };
 }
 
@@ -444,6 +510,218 @@ Meteor.methods({
       { $pull: { owners: userId, admins: userId }, $set: { updatedAt: new Date() } },
     );
     return { user: { userId } };
+  },
+
+  // ── Org email invitations ─────────────────────────────────────────────────
+
+  async 'orgs.invite'({ orgId, email }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) throw new Meteor.Error('invalid-email', 'Enter a valid email address.');
+
+    const db = rawDb();
+    const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
+    if (!org) throw new Meteor.Error('not-found', 'Organization not found');
+    const access = await buildOrgAccess(userId, org);
+    if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
+
+    const existingUser = await db.collection('users').findOne({ 'emails.address': normalizedEmail });
+
+    if (existingUser) {
+      const invitedId = String(existingUser._id);
+      const existingMembership = await getOrgMembership(orgId, invitedId);
+      if (existingMembership) {
+        throw new Meteor.Error('already-member', 'Already a member');
+      }
+      await addOrgMember(orgId, invitedId, 'member', false);
+      return { ok: true, status: 'joined' };
+    }
+
+    const invitations = db.collection('org_invitations');
+    await invitations.updateMany(
+      {
+        orgId,
+        email: normalizedEmail,
+        status: 'pending',
+        expiresAt: { $lte: new Date() },
+      },
+      { $set: { status: 'expired', updatedAt: new Date() } },
+    );
+    const duplicate = await invitations.findOne({
+      orgId,
+      email: normalizedEmail,
+      status: 'pending',
+    });
+    if (duplicate) {
+      throw new Meteor.Error(
+        'invitation-exists',
+        'A pending invitation already exists for this email address.',
+      );
+    }
+
+    const token = generateInvitationToken();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + INVITATION_LIFETIME_MS);
+    const invitation = {
+      _id: new ObjectId(),
+      orgId,
+      email: normalizedEmail,
+      tokenHash: hashInvitationToken(token),
+      invitedBy: userId,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+      expiresAt,
+    };
+    try {
+      await invitations.insertOne(invitation);
+    } catch (error) {
+      if (error?.code === 11000) {
+        throw new Meteor.Error(
+          'invitation-exists',
+          'A pending invitation already exists for this email address.',
+        );
+      }
+      throw error;
+    }
+
+    const invitationUrl = `${APP_URL}/app?mode=signup&org_invite=${encodeURIComponent(token)}`;
+    try {
+      await sendEmail({
+        to: normalizedEmail,
+        subject: "You're invited to join an organization on TimeHuddle",
+        html: `<p>You have been invited to join <strong>${escapeHtml(org.name)}</strong> on TimeHuddle.</p>
+<p><a href="${escapeHtml(invitationUrl)}">Create your account and join the organization</a></p>
+<p>This invitation expires in 7 days. If you did not expect this invitation, you can ignore this email.</p>`,
+      });
+    } catch (error) {
+      await invitations.updateOne(
+        { _id: invitation._id },
+        { $set: { status: 'delivery_failed', updatedAt: new Date() } },
+      );
+      console.error('[orgs.invite] invitation email failed:', error);
+      throw new Meteor.Error(
+        'delivery-failed',
+        'The invitation could not be delivered. Check the address and try again.',
+      );
+    }
+
+    return {
+      ok: true,
+      status: 'pending',
+      invitationId: invitation._id.toHexString(),
+      expiresAt: expiresAt.toISOString(),
+    };
+  },
+
+  async 'orgs.getInvitation'({ token }) {
+    const invitation = await getOrgInvitationByToken(token);
+    const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(invitation.orgId) });
+    if (!org) throw new Meteor.Error('not-found', 'The invited organization no longer exists.');
+    return {
+      orgName: org.name,
+      email: invitation.email,
+      expiresAt: invitation.expiresAt.toISOString(),
+    };
+  },
+
+  async 'orgs.acceptInvite'({ token }) {
+    const identity = await requireIdentity(this);
+    const invitation = await getOrgInvitationByToken(token);
+    const db = rawDb();
+    const user = await db.collection('users').findOne({ _id: String(identity.userId) });
+    const userEmail = normalizeEmail(user?.emails?.[0]?.address);
+    if (userEmail !== invitation.email) {
+      throw new Meteor.Error(
+        'email-mismatch',
+        `Sign in with ${invitation.email} to accept this invitation.`,
+      );
+    }
+
+    const invitations = db.collection('org_invitations');
+    const acceptedAt = new Date();
+    const claimed = await invitations.findOneAndUpdate(
+      { _id: invitation._id, status: 'pending', expiresAt: { $gt: acceptedAt } },
+      {
+        $set: {
+          status: 'accepted',
+          acceptedAt,
+          acceptedBy: identity.userId,
+          updatedAt: acceptedAt,
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    if (!claimed) return getOrgInvitationByToken(token);
+
+    const org = await db.collection('organizations').findOne({ _id: new ObjectId(invitation.orgId) });
+    if (!org) {
+      await invitations.updateOne(
+        { _id: invitation._id, acceptedBy: identity.userId },
+        { $set: { status: 'revoked', updatedAt: new Date() } },
+      );
+      throw new Meteor.Error('not-found', 'The invited organization no longer exists.');
+    }
+
+    await addOrgMember(invitation.orgId, identity.userId, 'member', false);
+
+    return { ok: true, organization: toOrgSummary(org, 'member') };
+  },
+
+  async 'orgs.getPendingInvitations'({ orgId }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!isValidId(orgId)) throw new Meteor.Error('not-found', 'Invalid orgId');
+    const db = rawDb();
+    const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
+    if (!org) throw new Meteor.Error('not-found', 'Organization not found');
+    const access = await buildOrgAccess(userId, org);
+    if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
+
+    const invitations = await db
+      .collection('org_invitations')
+      .find({ orgId })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const invitedByIds = [...new Set(invitations.map((i) => i.invitedBy).filter(Boolean))];
+    const userMap = new Map();
+    await Promise.all(
+      invitedByIds.map(async (id) => {
+        const invitedByUser = await findUserById(id);
+        if (invitedByUser) userMap.set(id, invitedByUser);
+      }),
+    );
+
+    return {
+      invitations: invitations.map((i) => toPublicOrgInvitation(i, userMap.get(i.invitedBy)?.name)),
+    };
+  },
+
+  async 'orgs.revokeInvite'({ invitationId }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (typeof invitationId !== 'string' || !/^[a-f0-9]{24}$/i.test(invitationId)) {
+      throw new Meteor.Error('not-found', 'Invalid invitation id');
+    }
+    const db = rawDb();
+    const invitations = db.collection('org_invitations');
+    const invitation = await invitations.findOne({ _id: new ObjectId(invitationId) });
+    if (!invitation) throw new Meteor.Error('not-found', 'Invitation not found');
+    const org = await db.collection('organizations').findOne({ _id: new ObjectId(invitation.orgId) });
+    if (!org) throw new Meteor.Error('not-found', 'Organization not found');
+    const access = await buildOrgAccess(userId, org);
+    if (!access.canManage) throw new Meteor.Error('forbidden', 'Manage permission required');
+    if (invitation.status !== 'pending') {
+      throw new Meteor.Error('invalid-invitation', 'Only pending invitations can be revoked.');
+    }
+    await invitations.updateOne(
+      { _id: invitation._id, status: 'pending' },
+      { $set: { status: 'revoked', revokedAt: new Date(), updatedAt: new Date() } },
+    );
+    return { ok: true };
   },
 
   async 'orgs.blockMember'({ orgId, targetUserId, reason }) {
