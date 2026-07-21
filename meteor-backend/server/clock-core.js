@@ -7,6 +7,7 @@
  * the close-out. No Meteor method/DDP context here — plain async helpers.
  */
 import { ClockEvents, ClockBreaks } from './collections';
+import { closeAllForUser } from './timer-core';
 
 /** 20-minute threshold: breaks >= this are non-compensable meal breaks (deducted). */
 export const MEAL_BREAK_THRESHOLD_SECONDS = 20 * 60;
@@ -195,15 +196,19 @@ export function toPublicClockEvent(event, breaks) {
 }
 
 /**
- * Close the user's active clock event in a team: auto-classify any open break,
- * compute accumulatedTime (span minus meal breaks), and set endTime. Returns the
- * updated event doc, or null when there was nothing open. Mirrors ClockService.stop.
+ * Close the user's active clock event in a team: close any running ticket
+ * timers, auto-classify any open break, compute accumulatedTime (span minus
+ * meal breaks), and set endTime. Returns the updated event doc, or null when
+ * there was nothing open. Mirrors ClockService.stop / clock.stop.
  */
 export async function stopActiveClock(userId, teamId, now = Date.now()) {
   const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
   if (!event) return null;
 
   const eventId = event._id.toHexString();
+
+  // Close any running timer sessions for this user (mirrors clock.stop).
+  await closeAllForUser(userId, now);
 
   const openBreak = await ClockBreaks.findOneAsync({ clockEventId: eventId, endTime: null });
   if (openBreak) {
