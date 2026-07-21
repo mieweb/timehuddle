@@ -1,3 +1,4 @@
+import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 
@@ -10,56 +11,93 @@ const DEFAULT_ENTERPRISE_NAME = process.env.DEFAULT_ENTERPRISE_NAME || 'Default 
 
 const ROLE_RANK = { member: 1, admin: 2, owner: 3 };
 
+const DUPLICATE_KEY_ERROR_CODE = 11000;
+
+// Upsert-by-slug relies on these unique indexes to make first-writer-wins
+// atomic across concurrent requests (e.g. two browsers hitting takeOwnership
+// on a fresh install at the same time). Without them, concurrent findOne+
+// insertOne calls can each observe "not found" and create duplicate default
+// enterprise/organization documents.
+Meteor.startup(async () => {
+  try {
+    await rawDb().collection('enterprises').createIndex(
+      { slug: 1 },
+      { name: 'unique_enterprise_slug', unique: true },
+    );
+    await rawDb().collection('organizations').createIndex(
+      { slug: 1 },
+      { name: 'unique_organization_slug', unique: true },
+    );
+  } catch (error) {
+    console.error('[org-helpers] failed to create default org/enterprise indexes:', error);
+  }
+});
+
 async function ensureDefaultEnterprise() {
   const db = rawDb();
-  const existing = await db.collection('enterprises').findOne({ slug: DEFAULT_ENTERPRISE_SLUG });
-  if (existing) return existing;
-
   const now = new Date();
-  const enterprise = {
-    _id: new ObjectId(),
-    name: DEFAULT_ENTERPRISE_NAME,
-    slug: DEFAULT_ENTERPRISE_SLUG,
-    owners: [],
-    admins: [],
-    createdAt: now,
-    updatedAt: now,
-  };
-  await db.collection('enterprises').insertOne(enterprise);
-  return enterprise;
+
+  try {
+    await db.collection('enterprises').updateOne(
+      { slug: DEFAULT_ENTERPRISE_SLUG },
+      {
+        $setOnInsert: {
+          _id: new ObjectId(),
+          name: DEFAULT_ENTERPRISE_NAME,
+          slug: DEFAULT_ENTERPRISE_SLUG,
+          owners: [],
+          admins: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+      { upsert: true },
+    );
+  } catch (error) {
+    // Lost the race to another concurrent upsert on the same unique slug — fine, fall through to read it.
+    if (error?.code !== DUPLICATE_KEY_ERROR_CODE) throw error;
+  }
+
+  return db.collection('enterprises').findOne({ slug: DEFAULT_ENTERPRISE_SLUG });
 }
 
 export async function ensureDefaultOrganization() {
   const db = rawDb();
   const defaultEnterprise = await ensureDefaultEnterprise();
-  const existing = await db.collection('organizations').findOne({ slug: DEFAULT_ORG_KEY });
+  const now = new Date();
 
-  if (existing) {
-    const updates = {};
-    if (!existing.enterpriseId) updates.enterpriseId = defaultEnterprise._id.toHexString();
-    if (existing.allowAutoJoin === undefined) updates.allowAutoJoin = true;
-    if (Object.keys(updates).length > 0) {
-      updates.updatedAt = new Date();
-      await db.collection('organizations').updateOne({ _id: existing._id }, { $set: updates });
-      return (await db.collection('organizations').findOne({ _id: existing._id })) ?? existing;
-    }
-    return existing;
+  try {
+    await db.collection('organizations').updateOne(
+      { slug: DEFAULT_ORG_KEY },
+      {
+        $setOnInsert: {
+          _id: new ObjectId(),
+          enterpriseId: defaultEnterprise._id.toHexString(),
+          slug: DEFAULT_ORG_KEY,
+          name: DEFAULT_ORG_NAME,
+          owners: [],
+          admins: [],
+          allowAutoJoin: true,
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+      { upsert: true },
+    );
+  } catch (error) {
+    if (error?.code !== DUPLICATE_KEY_ERROR_CODE) throw error;
   }
 
-  const now = new Date();
-  const org = {
-    _id: new ObjectId(),
-    enterpriseId: defaultEnterprise._id.toHexString(),
-    slug: DEFAULT_ORG_KEY,
-    name: DEFAULT_ORG_NAME,
-    owners: [],
-    admins: [],
-    allowAutoJoin: true,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await db.collection('organizations').insertOne(org);
-  return org;
+  const existing = await db.collection('organizations').findOne({ slug: DEFAULT_ORG_KEY });
+  const updates = {};
+  if (!existing.enterpriseId) updates.enterpriseId = defaultEnterprise._id.toHexString();
+  if (existing.allowAutoJoin === undefined) updates.allowAutoJoin = true;
+  if (Object.keys(updates).length > 0) {
+    updates.updatedAt = new Date();
+    await db.collection('organizations').updateOne({ _id: existing._id }, { $set: updates });
+    return (await db.collection('organizations').findOne({ _id: existing._id })) ?? existing;
+  }
+  return existing;
 }
 
 async function syncLegacyRoleArrays(orgId, userId, role) {
