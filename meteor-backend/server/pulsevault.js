@@ -76,7 +76,11 @@ const core = createPulseVaultCore({
   // Pulse Cam and the web fallback both upload one pre-recorded MP4 per
   // session rather than per-clip "beats".
   uploadUnit: 'merged',
-  allowedExtensions: { video: ['.mp4'], captions: ['.vtt', '.srt'] },
+  allowedExtensions: {
+    video: ['.mp4'],
+    captions: ['.vtt', '.srt'],
+    thumbnail: ['.jpg', '.jpeg', '.png'],
+  },
   authorize: async (request, ctx) => {
     console.log('[pulsevault][hook] authorize called', {
       phase: ctx.phase,
@@ -118,6 +122,21 @@ const core = createPulseVaultCore({
   },
   onUploadComplete: async (_request, ctx) => {
     console.log('[pulsevault][hook] onUploadComplete called', JSON.stringify(ctx));
+
+    // Handle thumbnail uploads separately - they relate to another video via relatedTo
+    if (ctx.kind === 'thumbnail') {
+      console.log('[pulsevault][hook] Thumbnail upload complete, relatedTo:', ctx.relatedTo);
+      if (ctx.relatedTo) {
+        // Update the media item with the thumbnail
+        await rawDb().collection('mediaitems').updateOne(
+          { videoid: ctx.relatedTo },
+          { $set: { thumbnail: `/pulsevault/artifacts/${ctx.artifactId}` } }
+        );
+        console.log('[pulsevault] Updated thumbnail for video:', ctx.relatedTo);
+      }
+      return;
+    }
+
     console.log('[pulsevault][hook] reservationContext keys:', [...reservationContext.keys()]);
     const reservation = reservationContext.get(ctx.artifactId);
     reservationContext.delete(ctx.artifactId);
