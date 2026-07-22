@@ -1386,6 +1386,33 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('channels.update', {
+    description: 'Edit a channel (name, description, members) — creator or team admin only',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channelId: { type: 'string' },
+        teamId: { type: 'string' },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        members: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['channelId', 'teamId'],
+    },
+  });
+
+  Wormhole.expose('channels.delete', {
+    description: 'Delete a non-default channel and its messages — creator or team admin only',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channelId: { type: 'string' },
+        teamId: { type: 'string' },
+      },
+      required: ['channelId', 'teamId'],
+    },
+  });
+
   // ── Messages (DMs) ────────────────────────────────────────────────────────
 
   Wormhole.expose('messages.getThread', {

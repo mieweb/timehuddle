@@ -129,6 +129,98 @@ Meteor.methods({
     return { channel: toPublicChannel(doc) };
   },
 
+  async 'channels.update'({ channelId, teamId, name, description, members }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!isValidId(teamId) || !isValidId(channelId)) {
+      throw new Meteor.Error('bad-request', 'Invalid channelId or teamId');
+    }
+
+    const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+    if (!team) throw new Meteor.Error('not-found', 'Team not found');
+    const allTeamMembers = [...team.members, ...(team.admins || [])];
+    if (!allTeamMembers.includes(userId)) {
+      throw new Meteor.Error('forbidden', 'Not a team member');
+    }
+
+    const channel = await Channels.rawCollection().findOne({
+      _id: new ObjectId(channelId),
+      teamId,
+    });
+    if (!channel) throw new Meteor.Error('not-found', 'Channel not found');
+    if (channel.createdBy !== userId && !(team.admins || []).includes(userId)) {
+      throw new Meteor.Error('forbidden', 'Only the creator or a team admin can edit this channel');
+    }
+
+    const update = {};
+
+    if (typeof name === 'string') {
+      const cleanName = name.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-').slice(0, 50);
+      if (!cleanName) throw new Meteor.Error('bad-request', 'name is required');
+      if (channel.isDefault && cleanName !== 'general') {
+        throw new Meteor.Error('bad-request', 'The default channel cannot be renamed');
+      }
+      if (cleanName !== channel.name) {
+        const existing = await Channels.rawCollection().findOne({
+          teamId,
+          name: cleanName,
+          _id: { $ne: channel._id },
+        });
+        if (existing) throw new Meteor.Error('duplicate', 'Channel name already exists');
+      }
+      update.name = cleanName;
+    }
+
+    if (typeof description === 'string') {
+      update.description = description.trim();
+    }
+
+    if (Array.isArray(members)) {
+      const validIds = members.filter((id) => allTeamMembers.includes(id));
+      if (!validIds.includes(channel.createdBy)) validIds.push(channel.createdBy);
+      update.members = validIds;
+    }
+
+    if (Object.keys(update).length === 0) {
+      return { channel: toPublicChannel(channel) };
+    }
+
+    await Channels.rawCollection().updateOne({ _id: channel._id }, { $set: update });
+    const updated = await Channels.rawCollection().findOne({ _id: channel._id });
+    return { channel: toPublicChannel(updated) };
+  },
+
+  async 'channels.delete'({ channelId, teamId }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!isValidId(teamId) || !isValidId(channelId)) {
+      throw new Meteor.Error('bad-request', 'Invalid channelId or teamId');
+    }
+
+    const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+    if (!team) throw new Meteor.Error('not-found', 'Team not found');
+    const allTeamMembers = [...team.members, ...(team.admins || [])];
+    if (!allTeamMembers.includes(userId)) {
+      throw new Meteor.Error('forbidden', 'Not a team member');
+    }
+
+    const channel = await Channels.rawCollection().findOne({
+      _id: new ObjectId(channelId),
+      teamId,
+    });
+    if (!channel) throw new Meteor.Error('not-found', 'Channel not found');
+    if (channel.createdBy !== userId && !(team.admins || []).includes(userId)) {
+      throw new Meteor.Error('forbidden', 'Only the creator or a team admin can delete this channel');
+    }
+    if (channel.isDefault) {
+      throw new Meteor.Error('forbidden', 'Cannot delete the default channel');
+    }
+
+    await ChannelMessages.rawCollection().deleteMany({ channelId });
+    await Channels.rawCollection().deleteOne({ _id: channel._id });
+    return { success: true };
+  },
+
   async 'channels.getMessages'({ channelId, teamId, before, limit }) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
@@ -219,7 +311,13 @@ Meteor.methods({
         userId: recipientId,
         title: `${senderName} in #${channel.name}`,
         body: truncatedText,
-        data: { type: 'channel_message', teamId, channelId, senderName, url: '/app/messages' },
+        data: {
+          type: 'channel_message',
+          teamId,
+          channelId,
+          senderName,
+          url: `/app/messages?openTeam=${teamId}&openChannel=${channelId}`,
+        },
       }).catch((err) => console.error('[channel] notification failed:', err));
     }
 

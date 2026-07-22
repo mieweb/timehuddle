@@ -12,6 +12,7 @@ import {
   faEnvelope,
   faHashtag,
   faPaperPlane,
+  faPen,
   faPlus,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -25,6 +26,7 @@ import {
   ModalBody,
   ModalFooter,
   ModalHeader,
+  ModalTitle,
   Spinner,
   Text,
 } from '@mieweb/ui';
@@ -116,6 +118,17 @@ export const MessagesPage: React.FC = () => {
   const [createChannelError, setCreateChannelError] = useState<string | null>(null);
   const [channelSendError, setChannelSendError] = useState<string | null>(null);
 
+  // Edit / delete channel modal
+  const [showEditChannel, setShowEditChannel] = useState(false);
+  const [editChannelName, setEditChannelName] = useState('');
+  const [editChannelDesc, setEditChannelDesc] = useState('');
+  const [editChannelMembers, setEditChannelMembers] = useState<string[]>([]);
+  const [editChannelLoading, setEditChannelLoading] = useState(false);
+  const [editChannelError, setEditChannelError] = useState<string | null>(null);
+  const [showDeleteChannelConfirm, setShowDeleteChannelConfirm] = useState(false);
+  const [deleteChannelLoading, setDeleteChannelLoading] = useState(false);
+  const [deleteChannelError, setDeleteChannelError] = useState<string | null>(null);
+
   // ── DM state ─────────────────────────────────────────────────────────────────
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [memberNames, setMemberNames] = useState<Record<string, string>>({});
@@ -137,17 +150,22 @@ export const MessagesPage: React.FC = () => {
 
   // ── Deep-link / pending thread handling ──────────────────────────────────────
   const pendingOpenPeerRef = useRef<string | null>(null);
+  const pendingOpenChannelRef = useRef<string | null>(null);
   const pendingDmIntentRef = useRef(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const q = new URLSearchParams(window.location.search);
     const openTeam = q.get('openTeam');
     const openPeer = q.get('openPeer');
-    if (!openTeam && !openPeer) return;
+    const openChannel = q.get('openChannel');
+    if (!openTeam && !openPeer && !openChannel) return;
     if (openTeam) setSelectedTeamId(openTeam);
     if (openPeer) {
       pendingOpenPeerRef.current = openPeer;
       pendingDmIntentRef.current = true;
+    }
+    if (openChannel) {
+      pendingOpenChannelRef.current = openChannel;
     }
     window.history.replaceState(null, '', '/app/messages');
   }, []);
@@ -248,6 +266,15 @@ export const MessagesPage: React.FC = () => {
       .getChannels(selectedTeamId)
       .then((cs) => {
         setChannels(cs);
+        const pendingChannel = pendingOpenChannelRef.current
+          ? cs.find((c) => c.id === pendingOpenChannelRef.current)
+          : undefined;
+        if (pendingChannel) {
+          pendingOpenChannelRef.current = null;
+          setSelectedChannelId(pendingChannel.id);
+          setActiveView('channel');
+          return;
+        }
         const def = cs.find((c) => c.isDefault) ?? cs[0];
         if (def) {
           setSelectedChannelId(def.id);
@@ -433,6 +460,62 @@ export const MessagesPage: React.FC = () => {
     }
   }, [newChannelName, newChannelDesc, newChannelMembers, selectedTeamId]);
 
+  const selectedChannel = channels.find((c) => c.id === selectedChannelId);
+
+  // ── Edit / delete channel ─────────────────────────────────────────────────────
+  const canManageSelectedChannel =
+    !!selectedChannel && (selectedChannel.createdBy === userId || isAdmin);
+
+  const openEditChannel = useCallback(() => {
+    if (!selectedChannel) return;
+    setEditChannelName(selectedChannel.name);
+    setEditChannelDesc(selectedChannel.description ?? '');
+    setEditChannelMembers(selectedChannel.members ?? []);
+    setEditChannelError(null);
+    setShowEditChannel(true);
+  }, [selectedChannel]);
+
+  const handleUpdateChannel = useCallback(async () => {
+    if (!selectedChannelId || !selectedTeamId || !editChannelName.trim()) return;
+    setEditChannelLoading(true);
+    setEditChannelError(null);
+    try {
+      const updated = await channelApi.updateChannel(selectedChannelId, {
+        teamId: selectedTeamId,
+        name: editChannelName.trim(),
+        description: editChannelDesc.trim(),
+        members: editChannelMembers,
+      });
+      setChannels((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+      setShowEditChannel(false);
+    } catch (err) {
+      setEditChannelError(err instanceof Error ? err.message : 'Failed to update channel');
+    } finally {
+      setEditChannelLoading(false);
+    }
+  }, [selectedChannelId, selectedTeamId, editChannelName, editChannelDesc, editChannelMembers]);
+
+  const handleDeleteChannel = useCallback(async () => {
+    if (!selectedChannelId || !selectedTeamId) return;
+    setDeleteChannelLoading(true);
+    setDeleteChannelError(null);
+    try {
+      await channelApi.deleteChannel(selectedChannelId, selectedTeamId);
+      setChannels((prev) => {
+        const remaining = prev.filter((c) => c.id !== selectedChannelId);
+        const fallback = remaining.find((c) => c.isDefault) ?? remaining[0] ?? null;
+        setSelectedChannelId(fallback ? fallback.id : null);
+        return remaining;
+      });
+      setShowDeleteChannelConfirm(false);
+      setShowEditChannel(false);
+    } catch (err) {
+      setDeleteChannelError(err instanceof Error ? err.message : 'Failed to delete channel');
+    } finally {
+      setDeleteChannelLoading(false);
+    }
+  }, [selectedChannelId, selectedTeamId]);
+
   // ── DM thread logic (load messages on select) ───────────────────────────────
   useEffect(() => {
     if (!selectedTeamId || !effectiveAdminId || !effectiveMemberId) {
@@ -615,8 +698,6 @@ export const MessagesPage: React.FC = () => {
     );
   }
 
-  const selectedChannel = channels.find((c) => c.id === selectedChannelId);
-
   return (
     <>
       <AppPage width="wide" fill>
@@ -781,6 +862,16 @@ export const MessagesPage: React.FC = () => {
                     <Text size="xs" variant="muted" className="ml-2 hidden md:block">
                       {selectedChannel.description}
                     </Text>
+                  )}
+                  {canManageSelectedChannel && (
+                    <button
+                      type="button"
+                      onClick={openEditChannel}
+                      className="ml-auto flex items-center justify-center rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+                      aria-label={`Edit channel ${selectedChannel.name}`}
+                    >
+                      <FontAwesomeIcon icon={faPen} className="text-xs" />
+                    </button>
                   )}
                 </CardHeader>
 
@@ -1001,7 +1092,9 @@ export const MessagesPage: React.FC = () => {
         }}
         aria-label="Create channel"
       >
-        <ModalHeader>Create Channel</ModalHeader>
+        <ModalHeader>
+          <ModalTitle>Create Channel</ModalTitle>
+        </ModalHeader>
         <ModalBody>
           <div className="flex flex-col gap-4">
             {createChannelError && (
@@ -1083,6 +1176,153 @@ export const MessagesPage: React.FC = () => {
             isLoading={createChannelLoading}
           >
             Create
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Edit channel modal */}
+      <Modal
+        open={showEditChannel}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowEditChannel(false);
+            setEditChannelError(null);
+          }
+        }}
+        aria-label="Edit channel"
+      >
+        <ModalHeader>
+          <ModalTitle>Edit Channel</ModalTitle>
+        </ModalHeader>
+        <ModalBody>
+          <div className="flex flex-col gap-4">
+            {editChannelError && (
+              <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950 dark:text-red-400">
+                {editChannelError}
+              </p>
+            )}
+            <Input
+              label="Channel name"
+              size="sm"
+              disabled={!!selectedChannel?.isDefault}
+              placeholder="e.g. engineering"
+              value={editChannelName}
+              onChange={(e) => {
+                setEditChannelName(e.target.value);
+                setEditChannelError(null);
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && handleUpdateChannel()}
+            />
+            {selectedChannel?.isDefault && (
+              <Text size="xs" variant="muted">
+                The default channel cannot be renamed.
+              </Text>
+            )}
+            <Input
+              label="Description (optional)"
+              size="sm"
+              placeholder="What is this channel for?"
+              value={editChannelDesc}
+              onChange={(e) => setEditChannelDesc(e.target.value)}
+            />
+            {memberNamesLoaded && threadMembers.length > 0 && (
+              <div>
+                <Text size="sm" weight="semibold" className="mb-2 block">
+                  Members
+                </Text>
+                <Text size="xs" variant="muted" className="mb-3 block">
+                  Leave all unchecked for a team-wide channel.
+                </Text>
+                <ul className="scrollbar-mieweb scrollbar-mieweb-visible max-h-48 rounded-lg border border-neutral-200 dark:border-neutral-700">
+                  {threadMembers.map((m) => (
+                    <li key={m.id}>
+                      <label className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-neutral-50 dark:hover:bg-neutral-800">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-neutral-300 accent-blue-600"
+                          checked={editChannelMembers.includes(m.id)}
+                          onChange={(e) =>
+                            setEditChannelMembers((prev) =>
+                              e.target.checked ? [...prev, m.id] : prev.filter((id) => id !== m.id),
+                            )
+                          }
+                        />
+                        <UserAvatar name={m.name} size="sm" src={memberImages[m.id]} />
+                        <span className="text-sm">{m.name}</span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+                {editChannelMembers.length > 0 && (
+                  <Text size="xs" variant="muted" className="mt-1">
+                    {editChannelMembers.length} member{editChannelMembers.length > 1 ? 's' : ''}{' '}
+                    selected
+                  </Text>
+                )}
+              </div>
+            )}
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          {!selectedChannel?.isDefault && (
+            <Button
+              variant="danger"
+              className="mr-auto"
+              onClick={() => setShowDeleteChannelConfirm(true)}
+            >
+              Delete channel
+            </Button>
+          )}
+          <Button variant="ghost" onClick={() => setShowEditChannel(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleUpdateChannel}
+            disabled={editChannelLoading || !editChannelName.trim()}
+            isLoading={editChannelLoading}
+          >
+            Save
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Delete channel confirmation */}
+      <Modal
+        open={showDeleteChannelConfirm}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowDeleteChannelConfirm(false);
+            setDeleteChannelError(null);
+          }
+        }}
+        size="sm"
+        aria-label="Delete channel"
+      >
+        <ModalHeader>
+          <ModalTitle>Delete #{selectedChannel?.name}?</ModalTitle>
+        </ModalHeader>
+        <ModalBody>
+          {deleteChannelError && (
+            <p className="mb-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950 dark:text-red-400">
+              {deleteChannelError}
+            </p>
+          )}
+          <Text variant="muted" size="sm">
+            This will permanently delete this channel and all of its messages.
+          </Text>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="ghost" onClick={() => setShowDeleteChannelConfirm(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={handleDeleteChannel}
+            disabled={deleteChannelLoading}
+            isLoading={deleteChannelLoading}
+          >
+            Delete
           </Button>
         </ModalFooter>
       </Modal>
