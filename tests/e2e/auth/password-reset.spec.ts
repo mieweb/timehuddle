@@ -10,6 +10,12 @@
  *   4. Open the reset link, submit a new password
  *   5. Sign in with the new password and land in the app
  *
+ * This also guards against a past regression where SMTP_HOST="::1" (Mailpit's
+ * IPv6 loopback — see ecosystem.config.cjs) produced an unbracketed MAIL_URL
+ * ("smtp://::1:1025"), which Node's `new URL()` rejects. That silently broke
+ * Accounts.sendResetPasswordEmail; step 2 above would fail immediately if it
+ * regresses. See meteor-backend/server/mail-url.js + its unit tests.
+ *
  * Requirements to run locally:
  *   - Meteor backend up on :3100
  *   - Vite frontend up on :3000
