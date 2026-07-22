@@ -15,6 +15,7 @@ import { OAuth } from 'meteor/oauth';
 import { Random } from 'meteor/random';
 import { Accounts } from 'meteor/accounts-base';
 
+import { buildMailUrl } from './mail-url';
 import './collections';
 import './migration-login-handler';
 import { rawDb } from './collections';
@@ -630,14 +631,8 @@ WebApp.connectHandlers.use('/auth/apple/callback',
 // Build MAIL_URL from SMTP_* env vars so Meteor's `email` package (used by
 // Accounts.sendResetPasswordEmail) can send. Runs at module load.
 if (!process.env.MAIL_URL && process.env.SMTP_HOST) {
-  const smtpHost = process.env.SMTP_HOST;
-  const smtpPort = process.env.SMTP_PORT || '587';
-  const smtpUser = process.env.SMTP_USER;
-  const smtpPass = process.env.SMTP_PASS;
-  const scheme = process.env.SMTP_SECURE === 'true' ? 'smtps' : 'smtp';
-  const auth = smtpUser ? encodeURIComponent(smtpUser) + ':' + encodeURIComponent(smtpPass || '') + '@' : '';
-  process.env.MAIL_URL = scheme + '://' + auth + smtpHost + ':' + smtpPort;
-  console.log('[email] MAIL_URL configured: ' + scheme + '://' + smtpHost + ':' + smtpPort);
+  process.env.MAIL_URL = buildMailUrl(process.env);
+  console.log('[email] MAIL_URL configured: ' + process.env.MAIL_URL.replace(/\/\/[^@]+@/, '//***@'));
 }
 if (!process.env.ROOT_URL) {
   process.env.ROOT_URL = process.env.APP_URL || 'http://localhost:3000';
