@@ -49,6 +49,9 @@ import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
 
+const profilePath = (member: TeamMemberClockStatus) =>
+  `/app/profile/${member.username ?? member.userId}`;
+
 // ─── DashboardPage ────────────────────────────────────────────────────────────
 
 export const DashboardPage: React.FC = () => {
@@ -331,6 +334,7 @@ export const DashboardPage: React.FC = () => {
                         member={member}
                         currentTime={currentTime}
                         isAdmin={teamAdminIds.has(member.userId)}
+                        onNavigate={() => navigate(profilePath(member))}
                       />
                     ))}
                 </ul>
@@ -355,6 +359,7 @@ export const DashboardPage: React.FC = () => {
                             member={member}
                             currentTime={currentTime}
                             isAdmin={teamAdminIds.has(member.userId)}
+                            onNavigate={() => navigate(profilePath(member))}
                           />
                         ))}
                     </ul>
@@ -463,19 +468,26 @@ export const DashboardPage: React.FC = () => {
                   const barPct = Math.round((member.todaySeconds / maxMemberSeconds) * 100);
                   return (
                     <li key={member.userId} className="flex items-center gap-3 px-5 py-3">
-                      <UserAvatar name={member.name} src={member.image} size="sm" />
-                      <div className="min-w-0 flex-1">
-                        <Text size="sm" weight="medium">
-                          {member.name.split(' ')[0]}
-                          {member.name.split(' ')[1] ? ` ${member.name.split(' ')[1][0]}.` : ''}
-                        </Text>
-                        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
-                          <div
-                            className={`h-full rounded-full transition-all ${member.isClockedIn ? 'bg-blue-500' : 'bg-neutral-300 dark:bg-neutral-600'}`}
-                            style={{ width: `${barPct}%` }}
-                          />
+                      <Button
+                        variant="ghost"
+                        onClick={() => navigate(profilePath(member))}
+                        className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                        aria-label={`View ${member.name}'s profile`}
+                      >
+                        <UserAvatar name={member.name} src={member.image} size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <Text size="sm" weight="medium">
+                            {member.name.split(' ')[0]}
+                            {member.name.split(' ')[1] ? ` ${member.name.split(' ')[1][0]}.` : ''}
+                          </Text>
+                          <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+                            <div
+                              className={`h-full rounded-full transition-all ${member.isClockedIn ? 'bg-blue-500' : 'bg-neutral-300 dark:bg-neutral-600'}`}
+                              style={{ width: `${barPct}%` }}
+                            />
+                          </div>
                         </div>
-                      </div>
+                      </Button>
                       <Text size="sm" weight="medium" className="shrink-0 tabular-nums">
                         {formatDuration(member.todaySeconds)}
                       </Text>
@@ -505,9 +517,10 @@ interface MemberRowProps {
   member: TeamMemberClockStatus;
   currentTime: number;
   isAdmin?: boolean;
+  onNavigate: () => void;
 }
 
-const MemberRow: React.FC<MemberRowProps> = ({ member, currentTime, isAdmin }) => {
+const MemberRow: React.FC<MemberRowProps> = ({ member, currentTime, isAdmin, onNavigate }) => {
   const sessionSeconds =
     member.isClockedIn && member.activeClockStart
       ? Math.floor((currentTime - member.activeClockStart) / 1000)
@@ -515,41 +528,48 @@ const MemberRow: React.FC<MemberRowProps> = ({ member, currentTime, isAdmin }) =
 
   return (
     <li className="flex items-center gap-3 px-5 py-3">
-      <div className="relative shrink-0">
-        <UserAvatar name={member.name} src={member.image} size="sm" />
-        <span
-          className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white dark:border-neutral-900 ${
-            member.isClockedIn ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'
-          }`}
-          aria-hidden="true"
-        />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <Text size="sm" weight="medium" className="truncate">
-            {member.name}
-          </Text>
-          {isAdmin && (
-            <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-400">
-              Admin
-            </span>
-          )}
-          {member.isOnBreak && (
-            <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400">
-              On Break
-            </span>
-          )}
+      <Button
+        variant="ghost"
+        onClick={onNavigate}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+        aria-label={`View ${member.name}'s profile`}
+      >
+        <div className="relative shrink-0">
+          <UserAvatar name={member.name} src={member.image} size="sm" />
+          <span
+            className={`absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-white dark:border-neutral-900 ${
+              member.isClockedIn ? 'bg-green-500' : 'bg-neutral-300 dark:bg-neutral-600'
+            }`}
+            aria-hidden="true"
+          />
         </div>
-        <Text variant="muted" size="xs">
-          {member.isClockedIn
-            ? member.isOnBreak
-              ? 'On break'
-              : 'Clocked in'
-            : member.todaySeconds > 0
-              ? 'Clocked out'
-              : 'Not tracked today'}
-        </Text>
-      </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <Text size="sm" weight="medium" className="truncate">
+              {member.name}
+            </Text>
+            {isAdmin && (
+              <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-400">
+                Admin
+              </span>
+            )}
+            {member.isOnBreak && (
+              <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400">
+                On Break
+              </span>
+            )}
+          </div>
+          <Text variant="muted" size="xs">
+            {member.isClockedIn
+              ? member.isOnBreak
+                ? 'On break'
+                : 'Clocked in'
+              : member.todaySeconds > 0
+                ? 'Clocked out'
+                : 'Not tracked today'}
+          </Text>
+        </div>
+      </Button>
       {sessionSeconds > 0 && (
         <Text size="sm" weight="medium" className="shrink-0 tabular-nums">
           {formatDuration(sessionSeconds)}

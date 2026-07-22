@@ -652,10 +652,11 @@ Meteor.methods({
 
     // All users are now in Meteor users collection
     const meteorUsers = allMemberIds.length > 0
-      ? await rawDb().collection('users').find({ _id: { $in: allMemberIds } }).project({ image: 1 }).toArray()
+      ? await rawDb().collection('users').find({ _id: { $in: allMemberIds } }).project({ image: 1, username: 1 }).toArray()
       : [];
 
     const meteorImageMap = new Map(meteorUsers.map((u) => [String(u._id), u.image ?? null]));
+    const meteorUsernameMap = new Map(meteorUsers.map((u) => [String(u._id), u.username ?? null]));
 
     // Group clock events by userId
     const eventsByUser = new Map();
@@ -667,6 +668,7 @@ Meteor.methods({
     const members = allMemberIds.map((memberId) => {
       const name = nameMap.get(memberId) ?? 'Unknown';
       const image = meteorImageMap.get(memberId) ?? null;
+      const username = meteorUsernameMap.get(memberId) ?? null;
 
       const userEvents = eventsByUser.get(memberId) ?? [];
       const activeEvent = userEvents.find((e) => e.endTime === null) ?? null;
@@ -686,6 +688,7 @@ Meteor.methods({
       return {
         userId: memberId,
         name,
+        username,
         image,
         isClockedIn,
         isOnBreak,
