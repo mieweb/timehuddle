@@ -150,4 +150,27 @@ describe('clock (wormhole)', () => {
       expect(res.error).toMatch(/overlap/i);
     });
   });
+
+  describe('teamStatus', () => {
+    // Dashboard links members to /app/profile/:username, falling back to the raw
+    // Meteor userId when no username is set — teamStatus must expose username
+    // so that fallback path isn't the only one ever exercised.
+    it('includes each member\'s username so the dashboard can link to their profile', async () => {
+      const claim = await wormhole<{ username: string }>(
+        'users.claimUsername',
+        { username: 'whclockstatususer' },
+        jwt,
+      );
+      expect(claim.ok).toBe(true);
+
+      const res = await wormhole<{
+        members: Array<{ userId: string; username: string | null }>;
+      }>('clock.teamStatus', { teamId }, jwt);
+      expect(res.ok).toBe(true);
+
+      const me = res.result.members.find((m) => m.userId === userId);
+      expect(me).toBeDefined();
+      expect(me!.username).toBe('whclockstatususer');
+    });
+  });
 });

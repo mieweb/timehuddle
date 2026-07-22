@@ -1258,6 +1258,7 @@ export const clockApi = {
 export interface TeamMemberClockStatus {
   userId: string;
   name: string;
+  username: string | null;
   image: string | null;
   isClockedIn: boolean;
   isOnBreak: boolean;
@@ -1754,6 +1755,18 @@ export const channelApi = {
       channelId,
       ...data,
     }).then((r) => r.message),
+
+  updateChannel: (
+    channelId: string,
+    data: { teamId: string; name?: string; description?: string; members?: string[] },
+  ): Promise<Channel> =>
+    wormholeCall<{ channel: Channel }>('channels.update', {
+      channelId,
+      ...data,
+    }).then((r) => r.channel),
+
+  deleteChannel: (channelId: string, teamId: string): Promise<void> =>
+    wormholeCall<{ success: boolean }>('channels.delete', { channelId, teamId }).then(() => {}),
 };
 
 // ─── Personal Access Tokens ───────────────────────────────────────────────────
