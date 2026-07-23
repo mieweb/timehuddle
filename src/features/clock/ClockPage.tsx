@@ -13,7 +13,7 @@
  * page never needs a reload. With the team setting off, it's a plain
  * clock-in/out screen.
  */
-import { Button, Spinner, Text, Textarea } from '@mieweb/ui';
+import { Button, Spinner, Text } from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
 
 import { huddleApi, type HuddlePost } from '../../lib/api';
@@ -21,6 +21,7 @@ import { getDdpClient } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { formatTimer, getActiveClockSeconds, toDateString } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
+import { MarkdownEditor } from '../huddle/MarkdownEditor';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 
@@ -70,6 +71,9 @@ export const ClockPage: React.FC = () => {
   const [text, setText] = useState('');
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
+  // Bumped to remount the (uncontrolled) editor — clears it after posting and
+  // re-seeds it when a draft loads.
+  const [editorKey, setEditorKey] = useState(0);
 
   // ── Drafts — save a plan without publishing/clocking in ──
   type DraftRef = Pick<HuddlePost, 'id' | 'content'>;
@@ -97,7 +101,12 @@ export const ClockPage: React.FC = () => {
       .then((post) => {
         if (cancelled || !post) return;
         setDraft(post);
-        setText((current) => (current.trim() ? current : post.content.text));
+        setText((current) => {
+          if (current.trim()) return current;
+          // Remount the editor so it shows the loaded draft content.
+          setEditorKey((k) => k + 1);
+          return post.content.text;
+        });
       })
       .catch(() => {});
     return () => {
@@ -271,22 +280,13 @@ export const ClockPage: React.FC = () => {
         {/* ── Composer — one box, one combined action ── */}
         {composerMode && (
           <div className="clock-plan-composer flex shrink-0 flex-col gap-3">
-            <Textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder={
-                composerMode === 'plan'
-                  ? 'What are you working on this session? One line per item is plenty.'
-                  : 'How did it go? A line or two is plenty.'
+            <MarkdownEditor
+              key={`${composerMode}-${editorKey}`}
+              value={composerMode === 'plan' ? (draft?.content.text ?? '') : ''}
+              onChange={setText}
+              onSubmit={() =>
+                void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
               }
-              rows={10}
-              className="min-h-52 text-base leading-relaxed"
-              aria-label={composerMode === 'plan' ? 'Session plan' : 'Wrap-up for this session'}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                  void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut());
-                }
-              }}
             />
             <div className="flex flex-wrap items-center gap-3">
               <Button
