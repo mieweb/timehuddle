@@ -41,19 +41,24 @@ export function useClockToggle() {
   // Clock Out requires today's post (in the active session's team) to have a wrap-up.
   const wrapUpMissing = !!activeClockEvent && requirePlan && (!todayPost || !todayPost.wrapUpAt);
 
-  const clockIn = useCallback(async () => {
-    // planMissing: the plan-first gate refuses clock-in until today's plan
-    // is posted — callers disable their buttons and/or show the hint.
-    if (!selectedTeamId || planMissing) return false;
-    setClockInLoading(true);
-    try {
-      await clockApi.start(selectedTeamId);
-      await refetchClock();
-      return true;
-    } finally {
-      setClockInLoading(false);
-    }
-  }, [selectedTeamId, planMissing, refetchClock]);
+  const clockIn = useCallback(
+    async (opts?: { planJustPosted?: boolean }) => {
+      // planMissing: the plan-first gate refuses clock-in until today's plan is
+      // posted — callers disable their buttons and/or show the hint. The
+      // combined "post plan and clock in" flow passes planJustPosted because
+      // the DDP-delivered post may not have reached this hook's state yet.
+      if (!selectedTeamId || (planMissing && !opts?.planJustPosted)) return false;
+      setClockInLoading(true);
+      try {
+        await clockApi.start(selectedTeamId);
+        await refetchClock();
+        return true;
+      } finally {
+        setClockInLoading(false);
+      }
+    },
+    [selectedTeamId, planMissing, refetchClock],
+  );
 
   const clockOut = useCallback(async () => {
     const teamId = activeClockEvent?.teamId ?? selectedTeamId;
@@ -131,6 +136,7 @@ export function useClockToggle() {
     planGate: {
       teamId: gateTeamId,
       teamName: gateTeam?.name ?? null,
+      requirePlan,
       todayPost,
       planMissing,
       wrapUpMissing,

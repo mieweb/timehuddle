@@ -1,17 +1,45 @@
 /**
- * ClockPage — Clock in/out with live session timer.
+ * ClockPage — plan-first shift screen.
+ *
+ * Reads top-to-bottom as a gate rather than a dashboard:
+ *   1. Banner — status lamp + one plain sentence that always says what's
+ *      blocking you (Ready to work → Plan posted → On shift).
+ *   2. Composer — plain textarea with a single combined action: "Post plan
+ *      and clock in" / "Post wrap-up and clock out" (⌘/Ctrl+↵ submits).
+ *   3. Clock module — compact seven-segment punch clock pinned near the
+ *      bottom with a live status readout line.
+ *
+ * Gate state comes from useClockToggle.planGate (realtime via DDP), so this
+ * page never needs a reload. With the team setting off, it's a plain
+ * clock-in/out screen.
  */
-import { faCircleStop, faStopwatch } from '@fortawesome/free-solid-svg-icons';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Card, CardContent, CardHeader, CardTitle, Spinner, Text } from '@mieweb/ui';
-import React from 'react';
+import { Button, Spinner, Text, Textarea } from '@mieweb/ui';
+import React, { useState } from 'react';
 
+import { huddleApi } from '../../lib/api';
+import { getDdpClient } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
-import { formatTimer, getActiveClockSeconds } from '../../lib/timeUtils';
-import { AppPage } from '../../ui/AppPage';
+import { formatTimer, getActiveClockSeconds, toDateString } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
-import { PlanComposer } from './PlanComposer';
+import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
+
+// Figure space keeps single-digit hours aligned against the 88:88:88 backdrop.
+const FIGURE_SPACE = '\u2007';
+
+function clockParts(now: number) {
+  const d = new Date(now);
+  let hours = d.getHours() % 12;
+  if (hours === 0) hours = 12;
+  const hh = String(hours).padStart(2, FIGURE_SPACE);
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  const meridiem = d.getHours() >= 12 ? 'PM' : 'AM';
+  const date = d
+    .toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+    .toUpperCase();
+  return { time: `${hh}:${mm}:${ss}`, meridiem, date };
+}
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
@@ -31,33 +59,106 @@ export const ClockPage: React.FC = () => {
     planGate,
   } = useClockToggle();
 
-  // Plan-first gate state is centralized in useClockToggle so every clock
-  // surface (this page, bottom-nav FAB, work/tickets prompts) agrees.
-  const {
-    teamId: gateTeamId,
-    teamName: gateTeamName,
-    todayPost,
-    planMissing,
-    wrapUpMissing,
-  } = planGate;
+  const { teamId: gateTeamId, teamName, requirePlan, todayPost, planMissing, wrapUpMissing } =
+    planGate;
 
-  // Session duration
-  const sessionSeconds = getActiveClockSeconds(activeClockEvent, currentTime);
+  const isClockedIn = !!activeClockEvent;
   const isPaused = !!activeClockEvent?.isPaused;
+  const sessionSeconds = getActiveClockSeconds(activeClockEvent, currentTime);
 
-  // Live wall-clock display
-  const currentTimeDisplay = new Date(currentTime).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-  const currentDateDisplay = new Date(currentTime).toLocaleDateString([], {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  });
+  // ── Composer state (plan before clock-in, wrap-up before clock-out) ──
+  const [text, setText] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [postError, setPostError] = useState<string | null>(null);
 
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const composerMode: 'plan' | 'wrapup' | null = !isClockedIn
+    ? planMissing
+      ? 'plan'
+      : null
+    : wrapUpMissing
+      ? 'wrapup'
+      : null;
+
+  async function postPlanAndClockIn() {
+    const trimmed = text.trim();
+    if (!gateTeamId || !trimmed || posting) return;
+    setPosting(true);
+    setPostError(null);
+    try {
+      await getDdpClient().call('huddle.createPost', {
+        teamId: gateTeamId,
+        content: { text: trimmed, mentions: [] },
+        postDate: toDateString(new Date()),
+      });
+      setText('');
+      await clockIn({ planJustPosted: true });
+    } catch (e) {
+      setPostError(e instanceof Error ? e.message : 'Failed to post. Please try again.');
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  async function postWrapUpAndClockOut() {
+    const trimmed = text.trim();
+    if (!todayPost || !trimmed || posting) return;
+    setPosting(true);
+    setPostError(null);
+    try {
+      await huddleApi.updatePost(
+        todayPost.id,
+        {
+          text: `${todayPost.content.text}\n\n**Wrap-up:** ${trimmed}`,
+          mentions: todayPost.content.mentions,
+        },
+        { wrapUp: true },
+      );
+      setText('');
+      await clockOut();
+    } catch (e) {
+      setPostError(e instanceof Error ? e.message : 'Failed to post. Please try again.');
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  // ── Banner copy — always says what's blocking you ──
+  const teamSuffix = teamName && gateTeamId !== selectedTeamId ? ` in “${teamName}”` : '';
+  let eyebrow: string;
+  let headline: string;
+  let subline: React.ReactNode = null;
+  if (!isClockedIn) {
+    eyebrow = 'Ready to work';
+    if (composerMode === 'plan') {
+      headline = 'Write today’s plan before clocking in.';
+      subline = (
+        <>
+          Posting starts your shift.{' '}
+          <button
+            type="button"
+            onClick={() => navigate('/app/huddle')}
+            className="underline underline-offset-2 hover:text-white"
+          >
+            Open huddle
+          </button>
+        </>
+      );
+    } else if (requirePlan) {
+      headline = 'Plan posted — you’re set to clock in.';
+    } else {
+      headline = 'You’re set to clock in.';
+    }
+  } else {
+    eyebrow = isPaused ? 'On break' : 'On shift';
+    if (composerMode === 'wrapup') {
+      headline = `Add a wrap-up to today’s post${teamSuffix} before clocking out.`;
+      subline = 'Posting ends your shift.';
+    } else {
+      headline = `Clocked in — ${formatTimer(sessionSeconds)} this shift.`;
+    }
+  }
+
+  const { time, meridiem, date } = clockParts(currentTime);
 
   if (!teamsReady) {
     return (
@@ -68,129 +169,161 @@ export const ClockPage: React.FC = () => {
   }
 
   return (
-    <AppPage>
-      {/* ── Clock Button ── */}
-      <Card padding="lg" className="relative rounded-2xl">
-        <CardContent className="flex flex-col-reverse items-center gap-4 sm:flex-row sm:items-center">
-          {/* Clock button — full width on mobile, 1/4 on sm+ */}
-          <div className="flex w-full flex-col items-center gap-2 sm:w-1/4">
-            {activeClockEvent ? (
+    <AppPage fill>
+      <div className="clock-screen flex h-full min-h-0 flex-col gap-6">
+        {/* ── Banner — the gate, in one sentence ── */}
+        <div
+          className="clock-banner shrink-0 rounded-2xl border-b-4 border-red-600 bg-neutral-900 px-5 py-4 text-white dark:bg-neutral-950"
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-white/60">
+            <span
+              className={[
+                'h-2.5 w-2.5 shrink-0 rounded-full',
+                isClockedIn ? (isPaused ? 'bg-amber-400' : 'bg-green-500') : 'bg-red-500',
+              ].join(' ')}
+            />
+            {eyebrow}
+          </div>
+          <Text as="h2" size="xl" weight="semibold" className="mt-1 text-white">
+            {headline}
+          </Text>
+          {subline && <p className="mt-1 text-sm text-white/60">{subline}</p>}
+        </div>
+
+        {/* ── Composer — one box, one combined action ── */}
+        {composerMode && (
+          <div className="clock-plan-composer flex shrink-0 flex-col gap-3">
+            <Textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder={
+                composerMode === 'plan'
+                  ? 'What are you working on today? One line per item is plenty.'
+                  : 'How did it go? A line or two is plenty.'
+              }
+              rows={6}
+              aria-label={composerMode === 'plan' ? 'Today’s plan' : 'Wrap-up for today’s post'}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut());
+                }
+              }}
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                variant="primary"
+                onClick={() =>
+                  void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
+                }
+                isLoading={posting || clockInLoading || clockOutLoading}
+                disabled={!text.trim()}
+              >
+                {composerMode === 'plan' ? 'Post plan and clock in' : 'Post wrap-up and clock out'}
+              </Button>
+              <Text variant="muted" size="sm" className="font-mono">
+                {!text.trim() &&
+                  (composerMode === 'plan' ? 'Write a plan first · ' : 'Write a wrap-up first · ')}
+                ⌘↵ to post and {composerMode === 'plan' ? 'clock in' : 'clock out'}
+              </Text>
+            </div>
+            {postError && (
+              <Text variant="destructive" size="sm">
+                {postError}
+              </Text>
+            )}
+          </div>
+        )}
+
+        {/* ── Plain actions when the gate is satisfied (or off) ── */}
+        {!composerMode && (
+          <div className="clock-actions flex shrink-0 flex-wrap items-center gap-3">
+            {!isClockedIn ? (
+              <Button
+                variant="primary"
+                onClick={() => void clockIn()}
+                isLoading={clockInLoading}
+                disabled={!selectedTeamId}
+                aria-label="Clock in"
+              >
+                Clock in
+              </Button>
+            ) : (
               <>
                 <Button
-                  onClick={clockOut}
+                  variant="danger"
+                  onClick={() => void clockOut()}
                   isLoading={clockOutLoading}
-                  disabled={wrapUpMissing}
-                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-red-500 py-4 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-red-600 active:scale-95 disabled:opacity-50 sm:h-16 sm:w-16 sm:rounded-full sm:py-0"
                   aria-label="Clock out"
                 >
-                  <FontAwesomeIcon icon={faCircleStop} className="text-2xl" />
-                  <span className="text-sm font-semibold sm:hidden">Clock Out</span>
+                  Clock out
                 </Button>
                 <Button
-                  onClick={isPaused ? resumeClock : pauseClock}
+                  variant="outline"
+                  onClick={() => void (isPaused ? resumeClock() : pauseClock())}
                   isLoading={clockPauseLoading}
-                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-amber-500 py-3 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-amber-600 active:scale-95 disabled:opacity-50 sm:w-28"
                   aria-label={isPaused ? 'Resume work' : 'Start break'}
                 >
-                  <span className="text-sm font-semibold">{isPaused ? 'Resume' : 'Break'}</span>
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  onClick={clockIn}
-                  isLoading={clockInLoading}
-                  disabled={!selectedTeamId || planMissing}
-                  className="flex w-full items-center justify-center gap-3 rounded-2xl bg-green-500 py-4 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-green-600 active:scale-95 disabled:opacity-50 sm:h-16 sm:w-16 sm:rounded-full sm:py-0"
-                  aria-label="Clock in"
-                >
-                  <FontAwesomeIcon icon={faStopwatch} className="text-2xl" />
-                  <span className="text-sm font-semibold sm:hidden">Clock In</span>
+                  {isPaused ? 'Resume' : 'Break'}
                 </Button>
               </>
             )}
           </div>
+        )}
 
-          {/* Time display — full width on mobile, 3/4 on sm+; border switches from top to left */}
-          <div className="flex w-full flex-col items-center gap-1 border-b border-neutral-200 pb-4 text-center dark:border-neutral-700 sm:w-3/4 sm:items-start sm:border-b-0 sm:border-l sm:pb-0 sm:pl-4 sm:text-left">
-            <div className="font-mono text-4xl font-bold leading-none tabular-nums">
-              {currentTimeDisplay}
-            </div>
-            <Text variant="muted" size="sm">
-              {currentDateDisplay}
-            </Text>
-            {activeClockEvent ? (
-              <Text
-                variant={isPaused ? 'warning' : 'success'}
-                size="xs"
-                weight="medium"
-                className="mt-1 uppercase tracking-widest"
-              >
-                {isPaused ? 'On break' : 'Session active'} — {formatTimer(sessionSeconds)}
-              </Text>
-            ) : (
-              <Text
-                variant="muted"
-                size="xs"
-                weight="medium"
-                className="mt-1 uppercase tracking-widest"
-              >
-                Ready to work
-              </Text>
-            )}
+        {/* Break/Resume stays reachable while the wrap-up composer is up */}
+        {composerMode === 'wrapup' && (
+          <div className="shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void (isPaused ? resumeClock() : pauseClock())}
+              isLoading={clockPauseLoading}
+              aria-label={isPaused ? 'Resume work' : 'Start break'}
+            >
+              {isPaused ? 'Resume' : 'Break'}
+            </Button>
           </div>
-        </CardContent>
-        {/* Plan-first gate — inline composer so the gate can be satisfied right here */}
-        {gateTeamId && (planMissing || wrapUpMissing) ? (
-          <div className="clock-plan-gate px-5 pb-4" aria-live="polite">
-            <PlanComposer
-              teamId={gateTeamId}
-              todayPost={todayPost}
-              mode={todayPost ? 'wrapup' : 'plan'}
-              teamName={gateTeamId !== selectedTeamId ? (gateTeamName ?? undefined) : undefined}
-              onGoToHuddle={() => navigate('/app/huddle')}
+        )}
+
+        {clockOutBlockedReason && (
+          <Text variant="warning" size="sm" className="shrink-0" aria-live="polite">
+            {clockOutBlockedReason}
+          </Text>
+        )}
+
+        {/* ── Clock module — compact punch clock near the bottom ── */}
+        <div className="clock-module mx-auto mb-4 mt-auto w-fit shrink-0 rounded-2xl bg-neutral-900 px-8 py-5 text-white shadow-xl dark:bg-black">
+          <div className="relative font-mono text-4xl font-bold leading-none tabular-nums">
+            <span aria-hidden className="absolute inset-0 select-none text-white/10">
+              88:88:88
+            </span>
+            <span className="relative">{time}</span>
+            <span className="relative ml-2 align-top text-xs font-semibold text-white/70">
+              {meridiem}
+            </span>
+          </div>
+          <div className="mt-3 flex items-center justify-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-white/60">
+            <span
+              className={[
+                'h-2 w-2 shrink-0 rounded-full',
+                isClockedIn
+                  ? isPaused
+                    ? 'bg-amber-400'
+                    : 'animate-pulse bg-green-500'
+                  : 'bg-red-500',
+              ].join(' ')}
             />
-            {clockOutBlockedReason && (
-              <Text variant="warning" size="xs" className="mt-2">
-                {clockOutBlockedReason}
-              </Text>
-            )}
+            <span>
+              {isClockedIn
+                ? `${isPaused ? 'On break' : 'On shift'} ${formatTimer(sessionSeconds)}`
+                : 'Not clocked in'}
+              {' · '}
+              {date}
+            </span>
           </div>
-        ) : null}
-        <span className="block px-5 pb-3 font-mono text-xs text-neutral-400 text-center dark:text-neutral-500 sm:absolute sm:bottom-3 sm:right-4 sm:px-0 sm:pb-0 sm:text-right">
-          {timeZone}
-        </span>
-      </Card>
-
-      {/* ── Quick Ticket Creation ── */}
-      {activeClockEvent && (
-        <Card padding="none">
-          <CardHeader className="flex flex-row items-center justify-between px-5 py-3">
-            <CardTitle className="text-sm">Quick Actions</CardTitle>
-          </CardHeader>
-          <CardContent className="px-5 py-4">
-            <Text variant="muted" size="sm">
-              Coming soon… In the meantime, track your time on the{' '}
-              <button
-                type="button"
-                onClick={() => navigate('/app/work')}
-                className="text-blue-500 hover:underline"
-              >
-                Work
-              </button>{' '}
-              page or manage your{' '}
-              <button
-                type="button"
-                onClick={() => navigate('/app/tickets')}
-                className="text-blue-500 hover:underline"
-              >
-                Tickets
-              </button>
-              .
-            </Text>
-          </CardContent>
-        </Card>
-      )}
+        </div>
+      </div>
     </AppPage>
   );
 };
