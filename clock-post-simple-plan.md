@@ -15,11 +15,11 @@ The core loop, nothing else: **write today's plan as a Huddle post → clock in 
 
 Work against `mieweb/ui` as a **git submodule** so we can build it locally and PR changes upstream (the repo already uses this convention: `vendor/meteor-wormhole`).
 
-- [ ] `git submodule add https://github.com/mieweb/ui vendor/ui` (track `main`).
-- [ ] Build it locally (`npm install && npm run build` inside `vendor/ui`) and point `package.json` at the build: `"@mieweb/ui": "file:vendor/ui"`.
-- [ ] Smoke-test existing `@mieweb/ui` usage across the app (we're coming from 0.2.4 — budget for breaking changes).
-- [ ] Wire the submodule build into dev docs/scripts so `nvm use && npm install` after a fresh clone doesn't silently break (submodule init + build step).
-- [ ] Fallback/CI note: `@mieweb/ui@0.6.1-dev.169` is the closest published release with SuperChat + kerebron if `file:` causes CI friction; swap to the full release when it lands and drop the submodule once no local patches remain.
+- [x] `git submodule add https://github.com/mieweb/ui vendor/ui` (track `main`).
+- [x] Build it locally (`npm install && npm run build` inside `vendor/ui`) and point `package.json` at the build: `"@mieweb/ui": "file:vendor/ui"`.
+- [x] Smoke-test existing `@mieweb/ui` usage across the app (0.2.4 → 0.6.1: typecheck, lint, 76 unit tests, production build, and login-page render all clean — no breaking changes in the 40 components we import).
+- [x] Wire the submodule build into dev docs/scripts so `nvm use && npm install` after a fresh clone doesn't silently break: `postinstall` runs `scripts/ensure-ui-build.mjs` (no-op when `vendor/ui/dist` exists, `SKIP_UI_BUILD=1` to skip); `npm run setup:ui` for manual runs.
+- [ ] Fallback/CI note: `@mieweb/ui@0.6.1-dev.169` is the closest published release with SuperChat + kerebron if `file:` causes CI friction; swap to the full release when it lands and drop the submodule once no local patches remain. (CI checkouts must init submodules — the repo already does this for `vendor/meteor-wormhole`.)
 
 ### Upstream PR from the submodule
 
