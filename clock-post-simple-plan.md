@@ -56,9 +56,9 @@ Milestones 1–3 (setting, data model, gates) have no dependency on this and can
 
 ## Milestone 3 — Gates
 
-- [ ] `ClockPage.tsx`: when the team setting is on and there's no `todayPost`, disable Clock In with a one-line "Write today's plan first" link to Huddle. Setting off → unchanged.
-- [ ] `clock.stop` in `meteor-backend/server/clock.js`: when the setting is on and today's post has no `wrapUpAt`, throw `Meteor.Error('plan-required', 'Add a wrap-up to today's post first')`. Setting off → unchanged.
-- [ ] `useClockToggle` / `ClockPage.tsx`: show the `plan-required` message inline with a link to Huddle.
+- [x] `ClockPage.tsx`: when the team setting is on and there's no `todayPost`, disable Clock In with a one-line "Write today's plan first" link to Huddle. Setting off → unchanged.
+- [x] `clock.stop` in `meteor-backend/server/clock.js`: when the setting is on and today's post has no `wrapUpAt`, throw `Meteor.Error('plan-required', 'Add a wrap-up to today's post first')`. Setting off → unchanged. (Accepts an optional client-local `localDate` so "today" matches the user's timezone; falls back to the server-local date.)
+- [x] `useClockToggle` / `ClockPage.tsx`: show the `plan-required` message inline with a link to Huddle.
 
 ## Milestone 4 — Composer → RichEditor (Kerebron)
 
@@ -80,8 +80,8 @@ Milestones 1–3 (setting, data model, gates) have no dependency on this and can
 
 ## Milestone 6 — Verify
 
-- [ ] Backend tests: gate off → clock in/out unchanged; gate on → in blocked without today's post, out blocked without wrap-up, both pass once satisfied.
-- [ ] `npm run lint && npm run typecheck && npm run test:all` clean.
+- [x] Backend tests: gate off → clock in/out unchanged; gate on → in blocked without today's post, out blocked without wrap-up, both pass once satisfied. (`meteor-backend/tests/plan-gate.test.ts`)
+- [x] `npm run lint && npm run typecheck` clean; unit tests + clock/teams integration tests pass. (`test:all` — full Playwright e2e — still pending for Milestones 4–5.)
 - [ ] Manual: publish plan (RichEditor) → clock in → wrap-up edit via clock-out prompt → clock out; confirm no duplicate post in the SuperChat feed and legacy plain-text posts still render.
 
 ## Milestone 7 (stretch) — Live collaborative sync (Yjs)

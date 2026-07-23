@@ -807,7 +807,10 @@ Meteor.startup(async() => {
     description: 'Clock out of a team (computes worked time minus meal breaks)',
     inputSchema: {
       type: 'object',
-      properties: { teamId: { type: 'string' } },
+      properties: {
+        teamId: { type: 'string' },
+        localDate: { type: 'string', description: "Caller's local YYYY-MM-DD (plan-first gate)" },
+      },
       required: ['teamId'],
     },
   });
@@ -957,6 +960,15 @@ Meteor.startup(async() => {
       type: 'object',
       properties: { ticketId: { type: 'string' } },
       required: ['ticketId'],
+    },
+  });
+
+  Wormhole.expose('huddle.getMyPostForDate', {
+    description: "The caller's own huddle post for a calendar date in a team, or null",
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' }, postDate: { type: 'string' } },
+      required: ['teamId', 'postDate'],
     },
   });
 
@@ -1183,6 +1195,15 @@ Meteor.startup(async() => {
       type: 'object',
       properties: { teamId: { type: 'string' }, newName: { type: 'string' } },
       required: ['teamId', 'newName'],
+    },
+  });
+
+  Wormhole.expose('teams.updateSettings', {
+    description: 'Update team settings, e.g. requirePlanForClock (admin only)',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' }, requirePlanForClock: { type: 'boolean' } },
+      required: ['teamId', 'requirePlanForClock'],
     },
   });
 

@@ -46,6 +46,15 @@ import {
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 const oid = (hex) => new Mongo.ObjectID(hex);
 
+const LOCAL_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Server-local YYYY-MM-DD fallback when the client didn't send its date. */
+function localDateString(date) {
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${m}-${d}`;
+}
+
 /** Load one team the user belongs to (member or admin), or null. */
 async function findUserTeam(userId, teamId) {
   if (!isValidId(teamId)) return null;
@@ -184,11 +193,28 @@ Meteor.methods({
   },
 
   /** Clock out: cancel jobs, close timers + open break, recompute, notify, log. */
-  async 'clock.stop'({ teamId } = {}) {
+  async 'clock.stop'({ teamId, localDate } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
     if (!event) throw new Meteor.Error('not-found', 'No active clock event');
+
+    const team = await findUserTeam(userId, teamId);
+
+    // Plan-first flow: when the team requires a daily plan, block clock-out
+    // until today's Huddle post has a wrap-up (see clock-post-simple-plan.md).
+    if (team?.settings?.requirePlanForClock) {
+      const postDate =
+        typeof localDate === 'string' && LOCAL_DATE_RE.test(localDate)
+          ? localDate
+          : localDateString(new Date());
+      const post = await rawDb()
+        .collection('huddlePosts')
+        .findOne({ teamId, userId, postDate }, { sort: { createdAt: -1 } });
+      if (!post?.wrapUpAt) {
+        throw new Meteor.Error('plan-required', "Add a wrap-up to today's post first");
+      }
+    }
 
     const now = Date.now();
     const eventId = event._id.toHexString();
@@ -221,7 +247,6 @@ Meteor.methods({
     const updated = await ClockEvents.findOneAsync(event._id);
     const pub = toPublicClockEvent(updated, closedBreaks);
 
-    const team = await findUserTeam(userId, teamId);
     if (team) {
       const userName = await userDisplayName(userId);
       const totalSecs = pub.accumulatedTime ?? 0;

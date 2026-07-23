@@ -45,7 +45,9 @@ export const BottomNav: React.FC = () => {
   const handleClockToggle = useCallback(async () => {
     try {
       if (isClockedIn) {
-        await clockOut();
+        const ok = await clockOut();
+        // Blocked (e.g. plan-required gate) — the clock page explains why.
+        if (!ok) navigate('/app/clock');
       } else {
         await clockIn();
       }

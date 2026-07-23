@@ -6,6 +6,7 @@
  */
 // autoReconnectWs removed - no longer needed after migrating tickets to wormhole
 import { getDdpClient } from './ddp.js';
+import { toDateString } from './timeUtils';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -121,6 +122,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    /** Meteor.Error code (e.g. 'plan-required'), when the backend provided one. */
+    public readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -849,6 +852,7 @@ async function wormholeCall<T = unknown>(
 
   const data = (await res.json().catch(() => ({}))) as {
     result?: T;
+    error?: string;
     reason?: string;
     message?: string;
   };
@@ -865,7 +869,11 @@ async function wormholeCall<T = unknown>(
   }
 
   if (!res.ok) {
-    throw new ApiError(data.reason || data.message || `Request failed (${res.status})`, res.status);
+    throw new ApiError(
+      data.reason || data.message || `Request failed (${res.status})`,
+      res.status,
+      data.error,
+    );
   }
   return data.result as T;
 }
@@ -1220,7 +1228,8 @@ export const clockApi = {
   start: (teamId: string) => wormholeCall<ClockEvent>('clock.start', { teamId }),
 
   /** Clock out of a team. */
-  stop: (teamId: string) => wormholeCall<ClockEvent>('clock.stop', { teamId }),
+  stop: (teamId: string) =>
+    wormholeCall<ClockEvent>('clock.stop', { teamId, localDate: toDateString(new Date()) }),
 
   /** Pause an active clock session (break start). */
   pause: (teamId: string) => wormholeCall<ClockEvent>('clock.pause', { teamId }),

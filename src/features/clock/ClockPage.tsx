@@ -10,12 +10,13 @@ import { useTeam } from '../../lib/TeamContext';
 import { formatTimer, getActiveClockSeconds } from '../../lib/timeUtils';
 import { AppPage } from '../../ui/AppPage';
 import { useClockToggle } from '../../lib/useClockToggle';
+import { useDailyPost } from '../../lib/useDailyPost';
 import { useRouter } from '../../ui/router';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
 export const ClockPage: React.FC = () => {
-  const { selectedTeamId, activeClockEvent, currentTime, teamsReady } = useTeam();
+  const { selectedTeamId, selectedTeam, activeClockEvent, currentTime, teamsReady } = useTeam();
   const { navigate } = useRouter();
 
   const {
@@ -26,7 +27,20 @@ export const ClockPage: React.FC = () => {
     clockInLoading,
     clockOutLoading,
     clockPauseLoading,
+    clockOutBlockedReason,
   } = useClockToggle();
+
+  // ── Plan-first gates (team setting, default off) ──
+  const { todayPost } = useDailyPost(selectedTeamId);
+  const requirePlan = !!selectedTeam?.settings?.requirePlanForClock;
+  // Clock In requires today's post to exist.
+  const planMissing = requirePlan && !todayPost;
+  // Clock Out requires today's post to have a wrap-up — only meaningful when
+  // the active session is on the currently selected team.
+  const wrapUpMissing =
+    requirePlan &&
+    activeClockEvent?.teamId === selectedTeamId &&
+    (!todayPost || !todayPost.wrapUpAt);
 
   // Session duration
   const sessionSeconds = getActiveClockSeconds(activeClockEvent, currentTime);
@@ -66,6 +80,7 @@ export const ClockPage: React.FC = () => {
                 <Button
                   onClick={clockOut}
                   isLoading={clockOutLoading}
+                  disabled={wrapUpMissing}
                   className="flex w-full items-center justify-center gap-3 rounded-2xl bg-red-500 py-4 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-red-600 active:scale-95 disabled:opacity-50 sm:h-16 sm:w-16 sm:rounded-full sm:py-0"
                   aria-label="Clock out"
                 >
@@ -86,7 +101,7 @@ export const ClockPage: React.FC = () => {
                 <Button
                   onClick={clockIn}
                   isLoading={clockInLoading}
-                  disabled={!selectedTeamId}
+                  disabled={!selectedTeamId || planMissing}
                   className="flex w-full items-center justify-center gap-3 rounded-2xl bg-green-500 py-4 text-white shadow-lg transition-transform hover:scale-[1.02] hover:bg-green-600 active:scale-95 disabled:opacity-50 sm:h-16 sm:w-16 sm:rounded-full sm:py-0"
                   aria-label="Clock in"
                 >
@@ -126,6 +141,23 @@ export const ClockPage: React.FC = () => {
             )}
           </div>
         </CardContent>
+        {/* Plan-first gate messages — one-liners linking to Huddle */}
+        {(planMissing && !activeClockEvent) || wrapUpMissing || clockOutBlockedReason ? (
+          <div className="clock-plan-gate px-5 pb-3 text-center sm:text-left" aria-live="polite">
+            <Text variant="warning" size="sm">
+              {activeClockEvent
+                ? (clockOutBlockedReason ?? 'Add a wrap-up to today’s post before clocking out.')
+                : 'Write today’s plan first.'}{' '}
+              <button
+                type="button"
+                onClick={() => navigate('/app/huddle')}
+                className="text-blue-500 hover:underline"
+              >
+                Go to Huddle
+              </button>
+            </Text>
+          </div>
+        ) : null}
         <span className="block px-5 pb-3 font-mono text-xs text-neutral-400 text-center dark:text-neutral-500 sm:absolute sm:bottom-3 sm:right-4 sm:px-0 sm:pb-0 sm:text-right">
           {timeZone}
         </span>

@@ -350,9 +350,9 @@ Meteor.methods({
 
   /** The caller's own post for a given calendar date in a team, or null. */
   async 'huddle.getMyPostForDate'({ teamId, postDate }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Authentication required');
-    }
+    // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
     if (!teamId || typeof teamId !== 'string') {
       throw new Meteor.Error('bad-request', 'teamId is required');
     }
@@ -364,13 +364,13 @@ Meteor.methods({
     if (!team) {
       throw new Meteor.Error('not-found', 'Team not found');
     }
-    const isMember = (team.members ?? []).includes(this.userId) || (team.admins ?? []).includes(this.userId);
+    const isMember = (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
     if (!isMember) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
 
     const post = await rawDb().collection('huddlePosts').findOne(
-      { teamId, userId: this.userId, postDate },
+      { teamId, userId, postDate },
       { sort: { createdAt: -1 } }
     );
     return { post: post ? await enrichPost(post) : null };

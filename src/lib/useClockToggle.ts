@@ -7,7 +7,7 @@
  */
 import { useCallback, useState } from 'react';
 
-import { clockApi } from './api';
+import { ApiError, clockApi } from './api';
 import { useTeam } from './TeamContext';
 
 export function useClockToggle() {
@@ -16,6 +16,9 @@ export function useClockToggle() {
   const [clockInLoading, setClockInLoading] = useState(false);
   const [clockOutLoading, setClockOutLoading] = useState(false);
   const [clockPauseLoading, setClockPauseLoading] = useState(false);
+  // Set when clock-out is refused by the plan-first gate ('plan-required');
+  // pages render it inline with a link to Huddle instead of an alert.
+  const [clockOutBlockedReason, setClockOutBlockedReason] = useState<string | null>(null);
 
   const isClockedIn = !!activeClockEvent;
 
@@ -32,16 +35,25 @@ export function useClockToggle() {
 
   const clockOut = useCallback(async () => {
     const teamId = activeClockEvent?.teamId ?? selectedTeamId;
-    if (!teamId) return;
+    if (!teamId) return false;
     setClockOutLoading(true);
+    setClockOutBlockedReason(null);
     try {
       await clockApi.stop(teamId);
       await refetchClock();
       // Notify all timer-displaying pages to refetch immediately
       window.dispatchEvent(new CustomEvent('work:refetch'));
       window.dispatchEvent(new CustomEvent('tickets:refetch'));
+      return true;
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Failed to clock out. Please try again.');
+      if (err instanceof ApiError && err.code === 'plan-required') {
+        setClockOutBlockedReason(err.message);
+      } else {
+        window.alert(
+          err instanceof Error ? err.message : 'Failed to clock out. Please try again.',
+        );
+      }
+      return false;
     } finally {
       setClockOutLoading(false);
     }
@@ -92,5 +104,6 @@ export function useClockToggle() {
     clockInLoading,
     clockOutLoading,
     clockPauseLoading,
+    clockOutBlockedReason,
   };
 }
