@@ -87,11 +87,11 @@ Save a plan without publishing (and without clocking in); publish it later to st
 
 ## Milestone 6 — Feed → SuperChat panel
 
-- [ ] Map huddle posts → a `SuperChatConversation`: one participant per team member (name/avatar → `participants`), one message per post (`createdAt`, markdown `text`).
-- [ ] Render `<SuperChat order="desc" readOnly virtualized>` for the feed — newest-first, composer disabled (authoring goes through the RichEditor above the feed, since SuperChat's built-in composer can't be swapped out).
-- [ ] Enable `renderPlugins` (`createCodePlugin`, `createImagePlugin`, `createMermaidPlugin`) as wanted; skip math/KaTeX.
-- [ ] Wire `onMessageEdited` (self-authored messages only) → `huddle.updatePost`, so "edit today's post" also works inline from the feed.
-- [ ] Decide comment handling: keep the existing per-post comment UI outside SuperChat for v1 (SuperChat has no per-message thread concept) — don't force-fit it.
+- [x] Map huddle posts → a `SuperChatConversation`: one participant per post author, one message per post (`createdAt`, markdown `text`, `editedAt` when edited); image attachments embedded as markdown images, other attachments as links; ticket title as an inline tag. (`src/features/huddle/superChatFeed.ts`)
+- [x] Render `<SuperChat order="desc" readOnly virtualized>` for the feed — newest-first, composer disabled (authoring goes through the RichEditor above the feed, since SuperChat's built-in composer can't be swapped out).
+- [x] Enable `renderPlugins` (`createCodePlugin`, `createImagePlugin`, `createMermaidPlugin`) — math/KaTeX skipped. (Plugins import from `@mieweb/ui/components/SuperChat/plugins`.)
+- [x] Wire `onMessageEdited` (self-authored messages only) → `huddle.updatePost`, so "edit today's post" also works inline from the feed.
+- [x] Comment handling decided: per-post comments and likes stay in the classic card view — a chat/cards toggle on the feed header switches views (SuperChat has no per-message thread concept; not force-fit).
 
 ## Milestone 7 — Verify
 

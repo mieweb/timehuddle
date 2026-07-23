@@ -1,11 +1,18 @@
-import { faBell, faMagnifyingGlass } from '@fortawesome/free-solid-svg-icons';
+import { faBell, faComments, faMagnifyingGlass, faTableList } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Input } from '@mieweb/ui';
-import { useState, useEffect } from 'react';
+import { SuperChat } from '@mieweb/ui/components/SuperChat';
+import {
+  createCodePlugin,
+  createImagePlugin,
+  createMermaidPlugin,
+} from '@mieweb/ui/components/SuperChat/plugins';
+import { useMemo, useState, useEffect } from 'react';
 import { HuddleComposer } from '../features/huddle/HuddleComposer';
 import { PostCard } from '../features/huddle/PostCard';
 import { toPostAttachment } from '../features/huddle/api';
 import { getUserColor, getUserInitials } from '../features/huddle/avatar';
+import { postsToConversation } from '../features/huddle/superChatFeed';
 import type { ComposerContent } from '../features/huddle/types';
 import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
@@ -24,6 +31,10 @@ export default function Huddle() {
   const [team, setTeam] = useState<Team | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // Feed view: SuperChat thread (default) or the classic card view — the
+  // card view keeps per-post comments/likes, which SuperChat has no
+  // per-message-thread concept for (deliberately not force-fit).
+  const [feedView, setFeedView] = useState<'chat' | 'cards'>('chat');
   const { user } = useSession();
   const { selectedTeamId } = useTeam();
   // Today's post (realtime) — when it exists, the composer edits it instead
@@ -149,11 +160,57 @@ export default function Huddle() {
     return canEditPost(post);
   }
 
+  const filteredPosts = posts.filter((post) => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      post.content.text.toLowerCase().includes(query) ||
+      post.userName?.toLowerCase().includes(query) ||
+      post.ticketTitle?.toLowerCase().includes(query)
+    );
+  });
+
+  // ── SuperChat mapping (memoized — posts update via DDP) ──
+  // Keyed by an id:updatedAt fingerprint instead of the array identity,
+  // because filteredPosts is a fresh array every render.
+  const conversationKey = filteredPosts.map((p) => `${p.id}:${p.updatedAt}`).join(',');
+  const conversation = useMemo(
+    () => postsToConversation(selectedTeamId ?? 'huddle', team?.name ?? 'Huddle', filteredPosts),
+    [selectedTeamId, team?.name, conversationKey],
+  );
+  const renderPlugins = useMemo(
+    () => [createCodePlugin(), createImagePlugin(), createMermaidPlugin()],
+    [],
+  );
+
+  // Inline edit from the feed (self-authored messages only) → huddle.updatePost
+  async function handleMessageEdited(messageId: string, text: string) {
+    const post = posts.find((p) => p.id === messageId);
+    if (!post) return;
+    try {
+      await huddleApi.updatePost(messageId, { text, mentions: post.content.mentions });
+    } catch (err) {
+      console.error('[Huddle] Failed to save edit:', err);
+      alert('Failed to save the edit. Please try again.');
+    }
+  }
+
   return (
     <AppPage fill>
       <div className="huddle flex h-full min-h-0 flex-col gap-4">
         {/* Feed actions — the page name comes from AppPage's shared PageTitle */}
         <div className="huddle-actions flex shrink-0 items-center justify-end gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setFeedView(feedView === 'chat' ? 'cards' : 'chat')}
+            aria-label={feedView === 'chat' ? 'Switch to card view' : 'Switch to chat view'}
+            title={
+              feedView === 'chat' ? 'Card view (comments & likes)' : 'Chat view (rich thread)'
+            }
+          >
+            <FontAwesomeIcon icon={feedView === 'chat' ? faTableList : faComments} />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -233,28 +290,35 @@ export default function Huddle() {
                 </div>
               )}
 
+              {/* Chat view — SuperChat thread (newest-first, read-only
+                  composer: authoring goes through the RichEditor above) */}
+              {!loading && !error && user && posts.length > 0 && feedView === 'chat' && (
+                <SuperChat
+                  conversation={conversation}
+                  currentParticipantId={user.id}
+                  order="desc"
+                  readOnly
+                  virtualized
+                  renderPlugins={renderPlugins}
+                  onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
+                  className="h-full"
+                />
+              )}
+
+              {/* Classic card view — keeps per-post comments and likes */}
               {!loading &&
                 !error &&
                 user &&
-                posts
-                  .filter((post) => {
-                    if (!searchQuery.trim()) return true;
-                    const query = searchQuery.toLowerCase();
-                    return (
-                      post.content.text.toLowerCase().includes(query) ||
-                      post.userName?.toLowerCase().includes(query) ||
-                      post.ticketTitle?.toLowerCase().includes(query)
-                    );
-                  })
-                  .map((post) => (
-                    <PostCard
-                      key={post.id}
-                      post={post}
-                      currentUserId={user?.id ?? ''}
-                      canEdit={canEditPost(post)}
-                      canDelete={canDeletePost(post)}
-                    />
-                  ))}
+                feedView === 'cards' &&
+                filteredPosts.map((post) => (
+                  <PostCard
+                    key={post.id}
+                    post={post}
+                    currentUserId={user?.id ?? ''}
+                    canEdit={canEditPost(post)}
+                    canDelete={canDeletePost(post)}
+                  />
+                ))}
             </>
           )}
         </div>
