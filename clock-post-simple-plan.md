@@ -82,7 +82,7 @@ Milestones 1–3 (setting, data model, gates) have no dependency on this and can
 
 - [x] Backend tests: gate off → clock in/out unchanged; gate on → in blocked without today's post, out blocked without wrap-up, both pass once satisfied. (`meteor-backend/tests/plan-gate.test.ts`)
 - [x] `npm run lint && npm run typecheck` clean; unit tests + clock/teams integration tests pass. (`test:all` — full Playwright e2e — still pending for Milestones 4–5.)
-- [ ] Manual: publish plan (RichEditor) → clock in → wrap-up edit via clock-out prompt → clock out; confirm no duplicate post in the SuperChat feed and legacy plain-text posts still render.
+- [ ] Manual: publish plan (RichEditor) → clock in → wrap-up edit via clock-out prompt → clock out; confirm no duplicate post in the SuperChat feed and legacy plain-text posts still render. (M1–3 slice smoke-tested in-browser 2026-07-22: toggle persists, Clock In blocked until today's post exists, Clock Out blocked until wrap-up, gate-off restores old behavior; RichEditor/SuperChat parts pending M4–5.)
 
 ## Milestone 7 (stretch) — Live collaborative sync (Yjs)
 
