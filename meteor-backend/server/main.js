@@ -972,6 +972,15 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('huddle.getMyLatestDraft', {
+    description: "The caller's newest unpublished draft post in a team, or null",
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
   // ─── Timers ────────────────────────────────────────────────────────────────
   Wormhole.expose('timers.getDay', {
     description: 'List WorkItems with timers for a local calendar day',

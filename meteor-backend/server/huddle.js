@@ -13,6 +13,9 @@ function toId(id) {
 // postDate is a plain calendar date string (client-local), e.g. "2026-07-22"
 const POST_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// Drafts carry status: 'draft'; absent status = published (legacy posts included).
+const PUBLISHED = { status: { $ne: 'draft' } };
+
 // Permission helpers
 async function getTeam(teamId) {
   // Try plain string first (Meteor-created teams)
@@ -86,6 +89,7 @@ async function enrichPost(post) {
     })),
     likes: post.likes ?? [],
     commentCount: post.commentCount ?? 0,
+    status: post.status ?? undefined,
     postDate: post.postDate ?? undefined,
     wrapUpAt: post.wrapUpAt instanceof Date
       ? post.wrapUpAt.toISOString()
@@ -135,12 +139,13 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
   const db = rawDb();
   const collection = db.collection('huddlePosts');
   
-  // Initial fetch and send
-  let posts = await collection.find({ teamId }).sort({ createdAt: -1 }).toArray();
+  // Initial fetch and send — published posts only (drafts are author-only
+  // and never appear in the team feed).
+  let posts = await collection.find({ teamId, ...PUBLISHED }).sort({ createdAt: -1 }).toArray();
   // Also fetch posts where teamId was stored as ObjectId (legacy)
   if (/^[a-f0-9]{24}$/i.test(teamId)) {
     const legacyPosts = await collection
-      .find({ teamId: new ObjectId(teamId) })
+      .find({ teamId: new ObjectId(teamId), ...PUBLISHED })
       .sort({ createdAt: -1 })
       .toArray();
     // Merge, deduplicate by _id hex string
@@ -152,9 +157,13 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
     posts.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
   
+  // Track which ids this subscription has sent, so a draft being published
+  // (an update) is delivered as `added` rather than a no-op `changed`.
+  const sentIds = new Set();
   for (const post of posts) {
     const enriched = await enrichPost(post);
     this.added('huddlePosts', enriched.id, enriched);
+    sentIds.add(enriched.id);
   }
   
   this.ready();
@@ -173,15 +182,31 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
             : String(change.fullDocument?.teamId ?? '');
           if (tdStr !== teamId) return;
         }
+        const docId = change.fullDocument._id.toHexString
+          ? change.fullDocument._id.toHexString()
+          : String(change.fullDocument._id);
+        // Drafts never reach the feed.
+        if (change.fullDocument.status === 'draft') {
+          if (sentIds.has(docId)) {
+            sentIds.delete(docId);
+            self.removed('huddlePosts', docId);
+          }
+          return;
+        }
         const enriched = await enrichPost(change.fullDocument);
-        if (change.operationType === 'insert') {
-          self.added('huddlePosts', enriched.id, enriched);
-        } else {
+        if (sentIds.has(docId)) {
           self.changed('huddlePosts', enriched.id, enriched);
+        } else {
+          // Covers both fresh inserts and drafts being published.
+          sentIds.add(docId);
+          self.added('huddlePosts', enriched.id, enriched);
         }
       } else if (change.operationType === 'delete') {
         const deletedId = change.documentKey._id.toHexString();
-        self.removed('huddlePosts', deletedId);
+        if (sentIds.has(deletedId)) {
+          sentIds.delete(deletedId);
+          self.removed('huddlePosts', deletedId);
+        }
       }
     } catch (err) {
       console.error('[huddle] change stream error:', err);
@@ -220,7 +245,7 @@ Meteor.methods({
     }
     
     const posts = await rawDb().collection('huddlePosts')
-      .find({ teamId })
+      .find({ teamId, ...PUBLISHED })
       .sort({ createdAt: -1 })
       .toArray();
     
@@ -228,7 +253,7 @@ Meteor.methods({
     return { posts: enriched };
   },
   
-  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate }) {
+  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, draft }) {
     if (!this.userId) {
       throw new Meteor.Error('not-authorized', 'Authentication required');
     }
@@ -285,7 +310,8 @@ Meteor.methods({
       attachments: attachments ?? [],
       likes: [],
       commentCount: 0,
-      ...(postDate ? { postDate } : {}),
+      // Drafts are author-only and date-less — postDate is stamped at publish.
+      ...(draft === true ? { status: 'draft' } : postDate ? { postDate } : {}),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -370,10 +396,82 @@ Meteor.methods({
     }
 
     const post = await rawDb().collection('huddlePosts').findOne(
-      { teamId, userId, postDate },
+      { teamId, userId, postDate, ...PUBLISHED },
       { sort: { createdAt: -1 } }
     );
     return { post: post ? await enrichPost(post) : null };
+  },
+
+  /** The caller's newest unpublished draft in a team, or null. */
+  async 'huddle.getMyLatestDraft'({ teamId }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!teamId || typeof teamId !== 'string') {
+      throw new Meteor.Error('bad-request', 'teamId is required');
+    }
+
+    const team = await getTeam(teamId);
+    if (!team) {
+      throw new Meteor.Error('not-found', 'Team not found');
+    }
+    const isMember = (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
+    if (!isMember) {
+      throw new Meteor.Error('forbidden', 'Not a team member');
+    }
+
+    const post = await rawDb().collection('huddlePosts').findOne(
+      { teamId, userId, status: 'draft' },
+      { sort: { createdAt: -1 } }
+    );
+    return { post: post ? await enrichPost(post) : null };
+  },
+
+  /**
+   * Publish a draft: optionally update its content, stamp the client-local
+   * postDate, and clear the draft status so it enters the team feed (the
+   * publication's change stream delivers it as an `added`).
+   */
+  async 'huddle.publishPost'({ postId, content, postDate }) {
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Authentication required');
+    }
+    if (!postId || !isValidId(postId)) {
+      throw new Meteor.Error('bad-request', 'Invalid postId');
+    }
+    if (typeof postDate !== 'string' || !POST_DATE_RE.test(postDate)) {
+      throw new Meteor.Error('bad-request', 'postDate must be a YYYY-MM-DD string');
+    }
+    if (content !== undefined && typeof content?.text !== 'string') {
+      throw new Meteor.Error('bad-request', 'content.text is required when content is provided');
+    }
+
+    const post = await rawDb().collection('huddlePosts').findOne({ _id: toId(postId) });
+    if (!post) {
+      throw new Meteor.Error('not-found', 'Post not found');
+    }
+    if (post.status !== 'draft') {
+      throw new Meteor.Error('bad-request', 'Post is not a draft');
+    }
+    // Drafts are strictly author-only — admins can't see or publish them.
+    if (post.userId !== this.userId) {
+      throw new Meteor.Error('forbidden', 'Only the author can publish a draft');
+    }
+
+    await rawDb().collection('huddlePosts').updateOne(
+      { _id: toId(postId) },
+      {
+        $set: {
+          ...(content !== undefined
+            ? { content: { text: content.text, mentions: content.mentions ?? [] } }
+            : {}),
+          postDate,
+          updatedAt: new Date(),
+        },
+        $unset: { status: '' },
+      }
+    );
+
+    return { id: postId };
   },
   
   async 'huddle.deletePost'({ postId }) {
@@ -632,7 +730,7 @@ Meteor.methods({
     if (!ticketId) throw new Meteor.Error('bad-request', 'ticketId is required');
     const posts = await rawDb()
       .collection('huddlePosts')
-      .find({ ticketId })
+      .find({ ticketId, ...PUBLISHED })
       .sort({ createdAt: -1 })
       .toArray();
     const enriched = await Promise.all(posts.map(enrichPost));

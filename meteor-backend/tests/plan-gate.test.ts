@@ -206,3 +206,105 @@ describe('plan-first clock flow (wormhole)', () => {
     expect(stop.ok).toBe(true);
   });
 });
+
+describe('drafts (plan-first)', () => {
+  let draftId: string;
+
+  it('creates an author-only draft (no postDate, status draft)', async () => {
+    // Re-enable the gate for this suite.
+    const res = await wormhole(
+      'teams.updateSettings',
+      { teamId, requirePlanForClock: true },
+      adminJwt,
+    );
+    expect(res.ok).toBe(true);
+
+    const created = (await memberDdp.call('huddle.createPost', [
+      { teamId, content: { text: 'Tomorrow: finish drafts milestone.' }, draft: true },
+    ])) as { id: string };
+    draftId = created.id;
+    expect(draftId).toBeTruthy();
+
+    const fetched = await wormhole<{ post: { id: string; status?: string; postDate?: string } }>(
+      'huddle.getMyLatestDraft',
+      { teamId },
+      memberJwt,
+    );
+    expect(fetched.ok).toBe(true);
+    expect(fetched.result.post?.id).toBe(draftId);
+    expect(fetched.result.post?.status).toBe('draft');
+    expect(fetched.result.post?.postDate).toBeUndefined();
+  });
+
+  it('drafts are invisible in the team feed', async () => {
+    const feed = (await memberDdp.call('huddle.getPosts', [{ teamId }])) as {
+      posts: Array<{ id: string }>;
+    };
+    expect(feed.posts.some((p) => p.id === draftId)).toBe(false);
+  });
+
+  it('a draft does not satisfy the gate', async () => {
+    const forDate = await wormhole<{ post: null }>(
+      'huddle.getMyPostForDate',
+      { teamId, postDate: todayString() },
+      memberJwt,
+    );
+    expect(forDate.ok).toBe(true);
+    expect(forDate.result.post).toBeNull();
+
+    const start = await wormhole<{ id: string }>('clock.start', { teamId }, memberJwt);
+    expect(start.ok).toBe(true);
+    const stop = await wormhole('clock.stop', { teamId, localDate: todayString() }, memberJwt);
+    expect(stop.ok).toBe(false);
+    expect(stop.error).toMatch(/wrap-up/i);
+  });
+
+  it('only the author can publish a draft', async () => {
+    const adminDdp = new DDPConnection(METEOR_URL.replace('http://', 'ws://') + '/websocket');
+    await adminDdp.connect();
+    await adminDdp.login(ADMIN.email, ADMIN.password);
+    await expect(
+      adminDdp.call('huddle.publishPost', [{ postId: draftId, postDate: todayString() }]),
+    ).rejects.toThrow(/author/i);
+    adminDdp.close();
+  });
+
+  it('publishing stamps postDate, enters the feed, and satisfies the gate', async () => {
+    await memberDdp.call('huddle.publishPost', [
+      {
+        postId: draftId,
+        postDate: todayString(),
+        content: { text: 'Today: finish drafts milestone.' },
+      },
+    ]);
+
+    const forDate = await wormhole<{ post: { id: string; status?: string; postDate?: string } }>(
+      'huddle.getMyPostForDate',
+      { teamId, postDate: todayString() },
+      memberJwt,
+    );
+    expect(forDate.ok).toBe(true);
+    expect(forDate.result.post?.id).toBe(draftId);
+    expect(forDate.result.post?.status).toBeUndefined();
+    expect(forDate.result.post?.postDate).toBe(todayString());
+
+    const feed = (await memberDdp.call('huddle.getPosts', [{ teamId }])) as {
+      posts: Array<{ id: string }>;
+    };
+    expect(feed.posts.some((p) => p.id === draftId)).toBe(true);
+
+    const noDraft = await wormhole<{ post: null }>('huddle.getMyLatestDraft', { teamId }, memberJwt);
+    expect(noDraft.result.post).toBeNull();
+
+    // Wrap up and clock out to close the session opened in the previous test.
+    await memberDdp.call('huddle.updatePost', [
+      { postId: draftId, content: { text: 'Done. Wrap-up: drafts work.' }, wrapUp: true },
+    ]);
+    const stop = await wormhole<{ id: string }>(
+      'clock.stop',
+      { teamId, localDate: todayString() },
+      memberJwt,
+    );
+    expect(stop.ok).toBe(true);
+  });
+});

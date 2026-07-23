@@ -990,6 +990,8 @@ export interface HuddlePost {
   }>;
   likes: string[];
   commentCount: number;
+  /** 'draft' = author-only, not in the feed, doesn't satisfy clock gates. */
+  status?: 'draft';
   /** Client-local calendar date (YYYY-MM-DD) this post is the plan for. */
   postDate?: string;
   /** Set when the author saved a wrap-up edit (plan-first clock flow). */
@@ -1024,6 +1026,25 @@ export const huddleApi = {
       teamId,
       postDate,
     }).then((r) => r.post),
+
+  /** The caller's newest unpublished draft in a team, or null. */
+  getMyLatestDraft: (teamId: string) =>
+    wormholeCall<{ post: HuddlePost | null }>('huddle.getMyLatestDraft', { teamId }).then(
+      (r) => r.post,
+    ),
+
+  /** Save a plan as an author-only draft (not in the feed, no gate effect). */
+  saveDraft: (teamId: string, content: { text: string; mentions: string[] }) =>
+    getDdpClient().call('huddle.createPost', { teamId, content, draft: true }) as Promise<{
+      id: string;
+    }>,
+
+  /** Publish a draft: optional content update + client-local postDate stamp. */
+  publishPost: (
+    postId: string,
+    postDate: string,
+    content?: { text: string; mentions: string[] },
+  ) => getDdpClient().call('huddle.publishPost', { postId, postDate, content }),
 
   /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow). */
   updatePost: (

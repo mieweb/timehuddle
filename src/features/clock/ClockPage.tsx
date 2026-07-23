@@ -14,9 +14,9 @@
  * clock-in/out screen.
  */
 import { Button, Spinner, Text, Textarea } from '@mieweb/ui';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
-import { huddleApi } from '../../lib/api';
+import { huddleApi, type HuddlePost } from '../../lib/api';
 import { getDdpClient } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { formatTimer, getActiveClockSeconds, toDateString } from '../../lib/timeUtils';
@@ -71,6 +71,12 @@ export const ClockPage: React.FC = () => {
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
 
+  // ── Drafts — save a plan without publishing/clocking in ──
+  type DraftRef = Pick<HuddlePost, 'id' | 'content'>;
+  const [draft, setDraft] = useState<DraftRef | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(false);
+
   const composerMode: 'plan' | 'wrapup' | null = !isClockedIn
     ? planMissing
       ? 'plan'
@@ -79,17 +85,71 @@ export const ClockPage: React.FC = () => {
       ? 'wrapup'
       : null;
 
+  // Load the latest draft when the plan composer opens; prefill once.
+  useEffect(() => {
+    if (composerMode !== 'plan' || !gateTeamId) {
+      setDraft(null);
+      return;
+    }
+    let cancelled = false;
+    huddleApi
+      .getMyLatestDraft(gateTeamId)
+      .then((post) => {
+        if (cancelled || !post) return;
+        setDraft(post);
+        setText((current) => (current.trim() ? current : post.content.text));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [composerMode, gateTeamId]);
+
+  async function saveDraft() {
+    const trimmed = text.trim();
+    if (!gateTeamId || !trimmed || savingDraft || posting) return;
+    setSavingDraft(true);
+    setPostError(null);
+    try {
+      if (draft) {
+        await huddleApi.updatePost(draft.id, {
+          text: trimmed,
+          mentions: draft.content.mentions,
+        });
+        setDraft({ ...draft, content: { ...draft.content, text: trimmed } });
+      } else {
+        const created = await huddleApi.saveDraft(gateTeamId, { text: trimmed, mentions: [] });
+        setDraft({ id: created.id, content: { text: trimmed, mentions: [] } });
+      }
+      setDraftSaved(true);
+      setTimeout(() => setDraftSaved(false), 2500);
+    } catch (e) {
+      setPostError(e instanceof Error ? e.message : 'Failed to save draft. Please try again.');
+    } finally {
+      setSavingDraft(false);
+    }
+  }
+
   async function postPlanAndClockIn() {
     const trimmed = text.trim();
     if (!gateTeamId || !trimmed || posting) return;
     setPosting(true);
     setPostError(null);
     try {
-      await getDdpClient().call('huddle.createPost', {
-        teamId: gateTeamId,
-        content: { text: trimmed, mentions: [] },
-        postDate: toDateString(new Date()),
-      });
+      if (draft) {
+        // Publishing the draft (with any edits) is the post.
+        await huddleApi.publishPost(draft.id, toDateString(new Date()), {
+          text: trimmed,
+          mentions: draft.content.mentions,
+        });
+        setDraft(null);
+      } else {
+        await getDdpClient().call('huddle.createPost', {
+          teamId: gateTeamId,
+          content: { text: trimmed, mentions: [] },
+          postDate: toDateString(new Date()),
+        });
+      }
       setText('');
       await clockIn({ planJustPosted: true });
     } catch (e) {
@@ -219,11 +279,30 @@ export const ClockPage: React.FC = () => {
                 isLoading={posting || clockInLoading || clockOutLoading}
                 disabled={!text.trim()}
               >
-                {composerMode === 'plan' ? 'Post plan and clock in' : 'Post wrap-up and clock out'}
+                {composerMode === 'plan'
+                  ? draft
+                    ? 'Publish plan and clock in'
+                    : 'Post plan and clock in'
+                  : 'Post wrap-up and clock out'}
               </Button>
+              {composerMode === 'plan' && (
+                <Button
+                  variant="outline"
+                  onClick={() => void saveDraft()}
+                  isLoading={savingDraft}
+                  disabled={!text.trim()}
+                >
+                  {draft ? 'Update draft' : 'Save draft'}
+                </Button>
+              )}
               <Text variant="muted" size="sm" className="font-mono">
-                {!text.trim() &&
-                  (composerMode === 'plan' ? 'Write a plan first · ' : 'Write a wrap-up first · ')}
+                {draftSaved
+                  ? 'Draft saved — publish to start your shift · '
+                  : !text.trim()
+                    ? composerMode === 'plan'
+                      ? 'Write a plan first · '
+                      : 'Write a wrap-up first · '
+                    : ''}
                 ⌘↵ to post and {composerMode === 'plan' ? 'clock in' : 'clock out'}
               </Text>
             </div>

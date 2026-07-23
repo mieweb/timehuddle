@@ -203,6 +203,7 @@ Meteor.methods({
 
     // Plan-first flow: when the team requires a daily plan, block clock-out
     // until today's Huddle post has a wrap-up (see clock-post-simple-plan.md).
+    // Drafts (status: 'draft') never count — only published posts.
     if (team?.settings?.requirePlanForClock) {
       const postDate =
         typeof localDate === 'string' && LOCAL_DATE_RE.test(localDate)
@@ -210,7 +211,10 @@ Meteor.methods({
           : localDateString(new Date());
       const post = await rawDb()
         .collection('huddlePosts')
-        .findOne({ teamId, userId, postDate }, { sort: { createdAt: -1 } });
+        .findOne(
+          { teamId, userId, postDate, status: { $ne: 'draft' } },
+          { sort: { createdAt: -1 } }
+        );
       if (!post?.wrapUpAt) {
         throw new Meteor.Error('plan-required', "Add a wrap-up to today's post first");
       }
