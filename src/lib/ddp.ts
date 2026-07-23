@@ -544,6 +544,11 @@ export function ddpDocToTeam(doc: DdpDoc): import('./api').Team {
     admins: Array.isArray(doc.admins) ? doc.admins.map(String) : [],
     code: String(doc.code ?? ''),
     isPersonal: Boolean(doc.isPersonal),
+    settings: {
+      requirePlanForClock: Boolean(
+        (doc.settings as { requirePlanForClock?: boolean } | undefined)?.requirePlanForClock,
+      ),
+    },
     createdAt: String(doc.createdAt ?? ''),
     updatedAt: (doc.updatedAt as string | undefined) ?? null,
   };

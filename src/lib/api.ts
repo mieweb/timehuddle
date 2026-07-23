@@ -1042,6 +1042,9 @@ export interface Team {
   admins: string[];
   code: string;
   isPersonal: boolean;
+  settings?: {
+    requirePlanForClock?: boolean;
+  };
   createdAt: string;
   updatedAt: string | null;
 }
@@ -1120,6 +1123,11 @@ export const teamApi = {
 
   renameTeam: (id: string, newName: string) =>
     wormholeCall<{ team: Team }>('teams.rename', { teamId: id, newName }).then((r) => r.team),
+
+  updateSettings: (id: string, settings: { requirePlanForClock: boolean }) =>
+    wormholeCall<{ team: Team }>('teams.updateSettings', { teamId: id, ...settings }).then(
+      (r) => r.team,
+    ),
 
   deleteTeam: (id: string) => wormholeCall<{ ok: boolean }>('teams.delete', { teamId: id }),
 
