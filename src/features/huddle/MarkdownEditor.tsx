@@ -3,10 +3,13 @@
  *
  * Adds two things the raw RichEditor lacks:
  *  1. A capturing `mousedown` handler that preventDefaults clicks on the
- *     editor's own toolbar/menu (`.kb-custom-menu__wrapper`). ProseMirror
- *     otherwise blurs and collapses the selection before a toolbar command
- *     runs, so "Toggle bold" etc. would no-op. preventDefault keeps the
- *     selection alive; the click still fires and applies the mark.
+ *     editor's toolbar/menu controls (but never on the editable content).
+ *     ProseMirror otherwise blurs and collapses the selection before a toolbar
+ *     command runs, so "Toggle bold" etc. would no-op. preventDefault keeps the
+ *     selection alive; the click still fires and applies the mark. The editable
+ *     area sits inside the same `.kb-custom-menu__wrapper`, so it's explicitly
+ *     excluded — otherwise clicking the text would fail to place the caret and
+ *     the editor would appear frozen (no typing).
  *  2. ⌘/Ctrl+↵ submit.
  *
  * RichEditor is uncontrolled — `value` seeds the document on mount only, so
@@ -33,8 +36,15 @@ export function MarkdownEditor({ value = '', onChange, onSubmit, className }: Ma
         className ?? '',
       ].join(' ')}
       onMouseDownCapture={(e) => {
-        // Preserve the editor selection when clicking the toolbar/menu.
-        if ((e.target as HTMLElement).closest('.kb-custom-menu__wrapper')) {
+        const target = e.target as HTMLElement;
+        // The editable content area lives inside `.kb-custom-menu__wrapper`
+        // alongside the toolbar. Clicking the text must place the caret, so
+        // never preventDefault there — otherwise the editor never focuses and
+        // you can't type.
+        if (target.closest('.kb-custom-menu__editor')) return;
+        // For the toolbar/menu controls, preventDefault keeps the editor's
+        // selection alive so the command (bold, italic, …) applies.
+        if (target.closest('.kb-custom-menu__wrapper, [role="menu"]')) {
           e.preventDefault();
         }
       }}

@@ -14,7 +14,7 @@
  * clock-in/out screen.
  */
 import { Button, Spinner, Text } from '@mieweb/ui';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { huddleApi, type HuddlePost } from '../../lib/api';
 import { getDdpClient } from '../../lib/ddp';
@@ -89,7 +89,7 @@ export const ClockPage: React.FC = () => {
       ? 'wrapup'
       : null;
 
-  // Load the latest draft when the plan composer opens; prefill once.
+  // Load the latest draft when the plan composer opens (prefill source below).
   useEffect(() => {
     if (composerMode !== 'plan' || !gateTeamId) {
       setDraft(null);
@@ -99,20 +99,37 @@ export const ClockPage: React.FC = () => {
     huddleApi
       .getMyLatestDraft(gateTeamId)
       .then((post) => {
-        if (cancelled || !post) return;
-        setDraft(post);
-        setText((current) => {
-          if (current.trim()) return current;
-          // Remount the editor so it shows the loaded draft content.
-          setEditorKey((k) => k + 1);
-          return post.content.text;
-        });
+        if (!cancelled && post) setDraft(post);
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, [composerMode, gateTeamId]);
+
+  // Content pre-loaded into the (uncontrolled) editor for the current composer:
+  //   • plan   → the latest saved draft, so you keep editing it.
+  //   • wrapup → THIS session's plan post, so clocking out continues the same
+  //              content you wrote at clock-in instead of a blank box.
+  const seedText =
+    composerMode === 'plan'
+      ? (draft?.content.text ?? '')
+      : composerMode === 'wrapup'
+        ? (sessionPost?.content.text ?? '')
+        : '';
+
+  // Apply the seed once it becomes available (draft / session post load async),
+  // unless the user has already started typing. Remount the uncontrolled editor
+  // via `editorKey` so it picks up the seeded value.
+  const seededTokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!composerMode || !seedText) return;
+    const token = `${composerMode}:${seedText}`;
+    if (seededTokenRef.current === token) return;
+    seededTokenRef.current = token;
+    setText((current) => (current.trim() ? current : seedText));
+    setEditorKey((k) => k + 1);
+  }, [composerMode, seedText]);
 
   async function saveDraft() {
     const trimmed = text.trim();
@@ -179,10 +196,12 @@ export const ClockPage: React.FC = () => {
     setPostError(null);
     try {
       if (sessionPost) {
+        // The editor was seeded with this session's plan post, so `trimmed` is
+        // the full continued content — save it as-is and stamp the wrap-up.
         await huddleApi.updatePost(
           sessionPost.id,
           {
-            text: `${sessionPost.content.text}\n\n**Wrap-up:** ${trimmed}`,
+            text: trimmed,
             mentions: sessionPost.content.mentions,
           },
           { wrapUp: true },
@@ -282,7 +301,7 @@ export const ClockPage: React.FC = () => {
           <div className="clock-plan-composer flex shrink-0 flex-col gap-3">
             <MarkdownEditor
               key={`${composerMode}-${editorKey}`}
-              value={composerMode === 'plan' ? (draft?.content.text ?? '') : ''}
+              value={seedText}
               onChange={setText}
               onSubmit={() =>
                 void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())

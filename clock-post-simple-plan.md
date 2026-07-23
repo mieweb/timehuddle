@@ -116,6 +116,8 @@ Every clock session gets its own plan + wrap-up post, not one shared per day.
 
 Only after the upstream `extensions` prop PR merges (or against our pinned submodule branch). Ship independently of 1–7.
 
+> **[mieweb/yorm](https://github.com/mieweb/yorm) evaluated (2026-07-23) — right idea, wrong milestone.** YORM is a strong fit when the Y.Doc is the persisted canonical object with relational projections (and its suggestion mode is exactly a propose/review workflow). M8 is deliberately smaller: symmetric co-editing of one rich-text post where **markdown in Mongo stays the source of truth** and the Y.Doc is ephemeral — so plain `y-websocket` (the same primitive YORM builds on) covers it. **Revisit YORM when** (a) we want a suggest/approve mode on huddle posts, or (b) posts become structured collaborative objects needing queryable projections — and its MongoDB backend (PLAN.md M9) has landed. Adopting it then would mean flipping to Y.Doc-canonical persistence, which is a product decision, not a drop-in.
+
 - [ ] `/yjs` WebSocket route on the existing server: `y-websocket`'s `setupWSConnection` attached to the HTTP server on its own path (clear of DDP's `/websocket`), auth via the same token-in-query pattern as the other WS routes.
 - [ ] Room per post id; Y.Doc held in memory, seeded from the post's stored markdown on first join. Markdown stays the source of truth — saves still go through `huddle.updatePost`, no Y.Doc persistence layer.
 - [ ] Wire `@kerebron/extension-yjs` into `RichEditor` via the new `extensions` prop, room = post id.
