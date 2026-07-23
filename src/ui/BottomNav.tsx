@@ -5,6 +5,8 @@
  * Five tabs: Dashboard, Tickets, Clock In/Out (center FAB), Teams, Settings.
  * Active tab indicator is an animated bubble that glides between positions.
  * FAB uses CSS brand tokens so it follows brand/theme changes automatically.
+ * The FAB navigates to the clock page (rather than toggling directly) so the
+ * plan-first gates and their inline composer are always visible.
  */
 import {
   faCircleStop,
@@ -16,7 +18,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { motion, MotionConfig } from 'motion/react';
-import React, { useCallback } from 'react';
+import React from 'react';
 
 import { useClockToggle } from '../lib/useClockToggle';
 import { useRouter } from './router';
@@ -38,23 +40,7 @@ const TABS: NavTab[] = [
 
 export const BottomNav: React.FC = () => {
   const { pathname, navigate } = useRouter();
-  const { isClockedIn, clockIn, clockOut, clockInLoading, clockOutLoading } = useClockToggle();
-
-  const clockLoading = clockInLoading || clockOutLoading;
-
-  const handleClockToggle = useCallback(async () => {
-    try {
-      if (isClockedIn) {
-        const ok = await clockOut();
-        // Blocked (e.g. plan-required gate) — the clock page explains why.
-        if (!ok) navigate('/app/clock');
-      } else {
-        await clockIn();
-      }
-    } catch {
-      navigate('/app/clock');
-    }
-  }, [isClockedIn, clockIn, clockOut, navigate]);
+  const { isClockedIn } = useClockToggle();
 
   return (
     <MotionConfig transition={{ type: 'spring', damping: 26, stiffness: 300 }}>
@@ -71,8 +57,7 @@ export const BottomNav: React.FC = () => {
               <button
                 key={tab.href}
                 type="button"
-                onClick={handleClockToggle}
-                disabled={clockLoading}
+                onClick={() => navigate(tab.href)}
                 aria-label={isClockedIn ? 'Clock Out' : 'Clock In'}
                 aria-pressed={isClockedIn}
                 className="relative -top-4 flex h-16 w-16 flex-col items-center justify-center rounded-full shadow-lg transition-transform active:scale-95 disabled:opacity-60"

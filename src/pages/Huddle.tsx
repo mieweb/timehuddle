@@ -111,9 +111,8 @@ export default function Huddle() {
         postDate: toDateString(new Date()),
       });
 
-      // DDP subscription will automatically reflect the new post; the clock-in
-      // gate (useDailyPost) listens for this event to flip live.
-      window.dispatchEvent(new CustomEvent('huddle:refetch'));
+      // The DDP subscription reflects the new post automatically (feed and
+      // clock gates alike).
     } catch (error) {
       console.error('[Huddle] Error in addPost:', error);
       alert('Failed to create post. Please try again.');

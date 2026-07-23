@@ -59,8 +59,8 @@ export const PlanComposer: React.FC<PlanComposerProps> = ({
           { wrapUp: true },
         );
       }
-      // useDailyPost listens for this and refetches, flipping the clock gates.
-      window.dispatchEvent(new CustomEvent('huddle:refetch'));
+      // The huddlePosts.byTeam publication delivers the change; useDailyPost
+      // flips the clock gates in realtime.
     } catch (error) {
       console.error('[PlanComposer] Failed to post:', error);
       alert('Failed to post. Please try again.');

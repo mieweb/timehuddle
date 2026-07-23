@@ -1,44 +1,52 @@
 /**
- * useDailyPost — the caller's own Huddle post for today in a team.
+ * useDailyPost — the caller's own Huddle post for today in a team, kept live
+ * via the `huddlePosts.byTeam` DDP publication (oplog/change-stream backed).
  *
  * Backs the plan-first clock flow gates: Clock In requires today's post to
- * exist, Clock Out requires it to have a wrap-up. Listens for the
- * `huddle:refetch` window event so gates flip live after posting.
+ * exist, Clock Out requires it to have a wrap-up. Creates, edits, and deletes
+ * flip the gates in realtime — no reload or manual refetch needed.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
-import { huddleApi, type HuddlePost } from './api';
+import type { HuddlePost } from './api';
+import { getDdpClient } from './ddp';
 import { toDateString } from './timeUtils';
+import { useSession } from './useSession';
 
 export function useDailyPost(teamId: string | null) {
+  const { user } = useSession();
+  const userId = user?.id ?? null;
   const [todayPost, setTodayPost] = useState<HuddlePost | null>(null);
-  const [loading, setLoading] = useState(false);
 
-  const refetch = useCallback(async () => {
-    if (!teamId) {
+  useEffect(() => {
+    if (!teamId || !userId) {
       setTodayPost(null);
       return;
     }
-    setLoading(true);
-    try {
-      const post = await huddleApi.getMyPostForDate(teamId, toDateString(new Date()));
-      setTodayPost(post);
-    } catch {
+
+    const ddp = getDdpClient();
+    const today = toDateString(new Date());
+
+    const sync = () => {
+      const mine = ddp
+        .docs('huddlePosts')
+        .filter((p) => p.teamId === teamId && p.userId === userId && p.postDate === today)
+        .map((p) => ({ ...p, id: (p.id ?? p._id) as string }) as unknown as HuddlePost)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setTodayPost(mine[0] ?? null);
+    };
+
+    const unsubscribe = ddp.subscribe('huddlePosts.byTeam', [teamId], sync);
+    const offChange = ddp.onCollectionChange('huddlePosts', sync);
+    // Sync immediately in case the collection is already cached.
+    sync();
+
+    return () => {
+      offChange();
+      unsubscribe();
       setTodayPost(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [teamId]);
+    };
+  }, [teamId, userId]);
 
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
-
-  useEffect(() => {
-    const handler = () => void refetch();
-    window.addEventListener('huddle:refetch', handler);
-    return () => window.removeEventListener('huddle:refetch', handler);
-  }, [refetch]);
-
-  return { todayPost, loading, refetch };
+  return { todayPost };
 }
