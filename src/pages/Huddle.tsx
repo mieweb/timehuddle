@@ -4,6 +4,8 @@ import { Button, Input } from '@mieweb/ui';
 import { useState, useEffect } from 'react';
 import { HuddleComposer } from '../features/huddle/HuddleComposer';
 import { PostCard } from '../features/huddle/PostCard';
+import { toPostAttachment } from '../features/huddle/api';
+import { getUserColor, getUserInitials } from '../features/huddle/avatar';
 import type { ComposerContent } from '../features/huddle/types';
 import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
@@ -12,27 +14,6 @@ import { useTeam } from '@lib/TeamContext';
 import { teamApi, type HuddlePost, type Team } from '@lib/api';
 import { getDdpClient } from '@lib/ddp';
 import { toDateString } from '@lib/timeUtils';
-
-function getUserInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  }
-  return name.substring(0, 2).toUpperCase();
-}
-
-function getUserColor(userId: string): 'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green' {
-  const colors: Array<'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green'> = [
-    'indigo',
-    'teal',
-    'coral',
-    'amber',
-    'pink',
-    'green',
-  ];
-  const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return colors[hash % colors.length];
-}
 
 export default function Huddle() {
   const { navigate } = useRouter();
@@ -116,27 +97,7 @@ export default function Huddle() {
       }
 
       // Prepare attachments for API
-      const attachments = content.attachments.map((att) => {
-        // Map MediaItem type to attachment type
-        let type: 'image' | 'video' | 'file';
-        if (att.type === 'image') {
-          type = 'image';
-        } else if (att.type === 'video') {
-          type = 'video';
-        } else if (att.type === 'document') {
-          type = 'file';
-        } else {
-          // Fallback based on mimeType
-          type = att.mimeType?.startsWith('image/') ? 'image' : 'file';
-        }
-
-        return {
-          mediaId: att.id,
-          type,
-          url: att.url,
-          filename: att.filename,
-        };
-      });
+      const attachments = content.attachments.map(toPostAttachment);
 
       // Extract user IDs from mentions
       const mentionUserIds = (content.mentions || []).map((m) => m.userId);

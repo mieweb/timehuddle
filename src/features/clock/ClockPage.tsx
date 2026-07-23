@@ -11,12 +11,14 @@ import { formatTimer, getActiveClockSeconds } from '../../lib/timeUtils';
 import { AppPage } from '../../ui/AppPage';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useDailyPost } from '../../lib/useDailyPost';
+import { PlanComposer } from './PlanComposer';
 import { useRouter } from '../../ui/router';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
 export const ClockPage: React.FC = () => {
-  const { selectedTeamId, selectedTeam, activeClockEvent, currentTime, teamsReady } = useTeam();
+  const { teams, selectedTeamId, selectedTeam, activeClockEvent, currentTime, teamsReady } =
+    useTeam();
   const { navigate } = useRouter();
 
   const {
@@ -31,16 +33,20 @@ export const ClockPage: React.FC = () => {
   } = useClockToggle();
 
   // ── Plan-first gates (team setting, default off) ──
-  const { todayPost } = useDailyPost(selectedTeamId);
-  const requirePlan = !!selectedTeam?.settings?.requirePlanForClock;
+  // Clock In targets the selected team; Clock Out targets the team of the
+  // active session (which may differ if the user switched teams after
+  // clocking in — see useClockToggle). Gate against whichever applies.
+  const clockOutTeamId = activeClockEvent?.teamId ?? selectedTeamId;
+  const gateTeamId = activeClockEvent ? clockOutTeamId : selectedTeamId;
+  const gateTeam = activeClockEvent
+    ? (teams.find((t) => t.id === clockOutTeamId) ?? null)
+    : selectedTeam;
+  const { todayPost } = useDailyPost(gateTeamId);
+  const requirePlan = !!gateTeam?.settings?.requirePlanForClock;
   // Clock In requires today's post to exist.
-  const planMissing = requirePlan && !todayPost;
-  // Clock Out requires today's post to have a wrap-up — only meaningful when
-  // the active session is on the currently selected team.
-  const wrapUpMissing =
-    requirePlan &&
-    activeClockEvent?.teamId === selectedTeamId &&
-    (!todayPost || !todayPost.wrapUpAt);
+  const planMissing = !activeClockEvent && requirePlan && !todayPost;
+  // Clock Out requires today's post (in the active session's team) to have a wrap-up.
+  const wrapUpMissing = !!activeClockEvent && requirePlan && (!todayPost || !todayPost.wrapUpAt);
 
   // Session duration
   const sessionSeconds = getActiveClockSeconds(activeClockEvent, currentTime);
@@ -141,21 +147,21 @@ export const ClockPage: React.FC = () => {
             )}
           </div>
         </CardContent>
-        {/* Plan-first gate messages — one-liners linking to Huddle */}
-        {(planMissing && !activeClockEvent) || wrapUpMissing || clockOutBlockedReason ? (
-          <div className="clock-plan-gate px-5 pb-3 text-center sm:text-left" aria-live="polite">
-            <Text variant="warning" size="sm">
-              {activeClockEvent
-                ? (clockOutBlockedReason ?? 'Add a wrap-up to today’s post before clocking out.')
-                : 'Write today’s plan first.'}{' '}
-              <button
-                type="button"
-                onClick={() => navigate('/app/huddle')}
-                className="text-blue-500 hover:underline"
-              >
-                Go to Huddle
-              </button>
-            </Text>
+        {/* Plan-first gate — inline composer so the gate can be satisfied right here */}
+        {gateTeamId && (planMissing || wrapUpMissing) ? (
+          <div className="clock-plan-gate px-5 pb-4" aria-live="polite">
+            <PlanComposer
+              teamId={gateTeamId}
+              todayPost={todayPost}
+              mode={todayPost ? 'wrapup' : 'plan'}
+              teamName={gateTeamId !== selectedTeamId ? gateTeam?.name : undefined}
+              onGoToHuddle={() => navigate('/app/huddle')}
+            />
+            {clockOutBlockedReason && (
+              <Text variant="warning" size="xs" className="mt-2">
+                {clockOutBlockedReason}
+              </Text>
+            )}
           </div>
         ) : null}
         <span className="block px-5 pb-3 font-mono text-xs text-neutral-400 text-center dark:text-neutral-500 sm:absolute sm:bottom-3 sm:right-4 sm:px-0 sm:pb-0 sm:text-right">
