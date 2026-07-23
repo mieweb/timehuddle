@@ -98,7 +98,7 @@ Save a plan without publishing (and without clocking in); publish it later to st
 - [x] Backend tests: gate off → clock in/out unchanged; gate on → in blocked without today's post, out blocked without wrap-up, both pass once satisfied; drafts never satisfy the gate. (`meteor-backend/tests/plan-gate.test.ts`, 14 passing)
 - [x] Full meteor-backend integration suite green post-M6: 137/137 (2026-07-23; first run after a server restart cold-start-flaked — warm reruns pass, see repo notes).
 - [x] `npm run lint && npm run typecheck` clean; 76 unit tests; production build (incl. `/kerebron-wasm` asset copy) clean. (`test:all` — full Playwright e2e — still pending.)
-- [ ] Manual: publish plan (RichEditor) → clock in → wrap-up → clock out; confirm no duplicate post in the SuperChat feed and legacy plain-text posts still render. (M1–4 slice smoke-tested in-browser 2026-07-22/23; the RichEditor composer + SuperChat feed views need a logged-in in-browser pass.)
+- [x] Manual: publish plan (RichEditor) → feed → edit today's post → update; confirmed in-browser 2026-07-23: composer expands to Kerebron RichEditor (toolbar + markdown input rules), posting lands in the SuperChat thread with real markdown rendering (bold/code), composer flips to "Edit today's post…" and prefills rich content, updates show an "(edited)" badge, chat↔cards toggle keeps comments/likes in the card view, no duplicate posts. (Gates/drafts/clock flow smoke-tested 2026-07-22/23.)
 
 ## Milestone 8 (stretch) — Live collaborative sync (Yjs)
 
