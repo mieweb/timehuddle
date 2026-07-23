@@ -103,7 +103,7 @@ describe('useClockToggle', () => {
 
       await act(() => result.current.clockIn());
 
-      expect(mockStart).toHaveBeenCalledWith('team-abc');
+      expect(mockStart).toHaveBeenCalledWith('team-abc', undefined);
       expect(mockRefetchClock).toHaveBeenCalledOnce();
     });
 

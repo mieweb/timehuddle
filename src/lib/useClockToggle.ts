@@ -10,7 +10,7 @@
 import { useCallback, useState } from 'react';
 
 import { ApiError, clockApi } from './api';
-import { useDailyPost } from './useDailyPost';
+import { useSessionPost } from './useSessionPost';
 import { useTeam } from './TeamContext';
 
 export function useClockToggle() {
@@ -25,7 +25,7 @@ export function useClockToggle() {
 
   const isClockedIn = !!activeClockEvent;
 
-  // ── Plan-first gates (team setting, default off) ──
+  // ── Plan-first gates (team setting, default off) — per session ──
   // Clock In targets the selected team; Clock Out targets the team of the
   // active session (which may differ if the user switched teams after
   // clocking in). Gate against whichever applies.
@@ -34,23 +34,27 @@ export function useClockToggle() {
     ? (teams.find((t) => t.id === activeClockEvent.teamId) ?? null)
     : selectedTeam;
   const requirePlan = !!gateTeam?.settings?.requirePlanForClock;
-  // Only subscribe to today's post when the gate is actually on.
-  const { todayPost } = useDailyPost(requirePlan ? gateTeamId : null);
-  // Clock In requires today's post to exist.
-  const planMissing = !activeClockEvent && requirePlan && !todayPost;
-  // Clock Out requires today's post (in the active session's team) to have a wrap-up.
-  const wrapUpMissing = !!activeClockEvent && requirePlan && (!todayPost || !todayPost.wrapUpAt);
+  // The published post linked to THIS clock session (one post per session).
+  const { sessionPost } = useSessionPost(
+    requirePlan ? gateTeamId : null,
+    activeClockEvent?.id ?? null,
+  );
+  // Every session needs a fresh plan: Clock In is gated whenever the setting
+  // is on and no session is active (the plan composer is always shown).
+  const planMissing = !activeClockEvent && requirePlan;
+  // Clock Out requires this session's post to have a wrap-up.
+  const wrapUpMissing =
+    !!activeClockEvent && requirePlan && (!sessionPost || !sessionPost.wrapUpAt);
 
   const clockIn = useCallback(
-    async (opts?: { planJustPosted?: boolean }) => {
-      // planMissing: the plan-first gate refuses clock-in until today's plan is
-      // posted — callers disable their buttons and/or show the hint. The
-      // combined "post plan and clock in" flow passes planJustPosted because
-      // the DDP-delivered post may not have reached this hook's state yet.
+    async (opts?: { planJustPosted?: boolean; planPostId?: string }) => {
+      // planMissing: the per-session gate refuses a bare clock-in until a plan
+      // is posted for this session. The combined "post plan and clock in" flow
+      // passes planJustPosted (+ planPostId to link the plan to the session).
       if (!selectedTeamId || (planMissing && !opts?.planJustPosted)) return false;
       setClockInLoading(true);
       try {
-        await clockApi.start(selectedTeamId);
+        await clockApi.start(selectedTeamId, opts?.planPostId);
         await refetchClock();
         return true;
       } finally {
@@ -137,7 +141,8 @@ export function useClockToggle() {
       teamId: gateTeamId,
       teamName: gateTeam?.name ?? null,
       requirePlan,
-      todayPost,
+      /** The published post for the active clock session (per-session gate). */
+      sessionPost,
       planMissing,
       wrapUpMissing,
     },

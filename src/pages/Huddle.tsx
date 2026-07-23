@@ -9,6 +9,7 @@ import {
 } from '@mieweb/ui/components/SuperChat/plugins';
 import { useMemo, useState, useEffect } from 'react';
 import { HuddleComposer } from '../features/huddle/HuddleComposer';
+import { DraftsPanel } from '../features/huddle/DraftsPanel';
 import { PostCard } from '../features/huddle/PostCard';
 import { toPostAttachment } from '../features/huddle/api';
 import { getUserColor, getUserInitials } from '../features/huddle/avatar';
@@ -21,7 +22,6 @@ import { useTeam } from '@lib/TeamContext';
 import { teamApi, huddleApi, type HuddlePost, type Team } from '@lib/api';
 import { getDdpClient } from '@lib/ddp';
 import { toDateString } from '@lib/timeUtils';
-import { useDailyPost } from '@lib/useDailyPost';
 
 export default function Huddle() {
   const { navigate } = useRouter();
@@ -31,15 +31,14 @@ export default function Huddle() {
   const [team, setTeam] = useState<Team | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // Top-level tab: the team feed or the user's private drafts.
+  const [feedTab, setFeedTab] = useState<'feed' | 'drafts'>('feed');
   // Feed view: SuperChat thread (default) or the classic card view — the
   // card view keeps per-post comments/likes, which SuperChat has no
   // per-message-thread concept for (deliberately not force-fit).
   const [feedView, setFeedView] = useState<'chat' | 'cards'>('chat');
   const { user } = useSession();
   const { selectedTeamId } = useTeam();
-  // Today's post (realtime) — when it exists, the composer edits it instead
-  // of creating a second one (plan-first flow).
-  const { todayPost } = useDailyPost(selectedTeamId);
 
   // Load team data for permission checks
   useEffect(() => {
@@ -114,20 +113,11 @@ export default function Huddle() {
       // Extract user IDs from mentions
       const mentionUserIds = (content.mentions || []).map((m) => m.userId);
 
-      if (todayPost) {
-        // Plan-first flow: the composer edits today's post instead of
-        // creating a second one.
-        await huddleApi.updatePost(todayPost.id, {
-          text: content.text,
-          mentions: [...new Set([...todayPost.content.mentions, ...mentionUserIds])],
-        });
-        return;
-      }
-
       // Prepare attachments for API
       const attachments = content.attachments.map(toPostAttachment);
 
-      // Call DDP method to create post
+      // Always create a new post — session plan/wrap-up editing happens on the
+      // Clock page (one post per session).
       await getDdpClient().call('huddle.createPost', {
         teamId: selectedTeamId,
         content: { text: content.text, mentions: mentionUserIds },
@@ -136,8 +126,7 @@ export default function Huddle() {
         postDate: toDateString(new Date()),
       });
 
-      // The DDP subscription reflects the new post automatically (feed and
-      // clock gates alike).
+      // The DDP subscription reflects the new post automatically.
     } catch (error) {
       console.error('[Huddle] Error in addPost:', error);
       alert('Failed to create post. Please try again.');
@@ -198,40 +187,76 @@ export default function Huddle() {
   return (
     <AppPage fill>
       <div className="huddle flex h-full min-h-0 flex-col gap-4">
-        {/* Feed actions — the page name comes from AppPage's shared PageTitle */}
-        <div className="huddle-actions flex shrink-0 items-center justify-end gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setFeedView(feedView === 'chat' ? 'cards' : 'chat')}
-            aria-label={feedView === 'chat' ? 'Switch to card view' : 'Switch to chat view'}
-            title={
-              feedView === 'chat' ? 'Card view (comments & likes)' : 'Chat view (rich thread)'
-            }
-          >
-            <FontAwesomeIcon icon={feedView === 'chat' ? faTableList : faComments} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShowSearch(!showSearch)}
-            aria-label="Search posts"
-            title="Search posts"
-          >
-            <FontAwesomeIcon icon={faMagnifyingGlass} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate('/app/notifications')}
-            aria-label="Notifications"
-            title="Notifications"
-          >
-            <FontAwesomeIcon icon={faBell} />
-          </Button>
+        {/* Feed / Drafts tabs + actions */}
+        <div className="huddle-actions flex shrink-0 items-center gap-2">
+          <div className="flex items-center gap-1 rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800">
+            <button
+              type="button"
+              onClick={() => setFeedTab('feed')}
+              className={[
+                'rounded-md px-3 py-1 text-sm font-medium transition-colors',
+                feedTab === 'feed'
+                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300',
+              ].join(' ')}
+              aria-pressed={feedTab === 'feed'}
+            >
+              Feed
+            </button>
+            <button
+              type="button"
+              onClick={() => setFeedTab('drafts')}
+              className={[
+                'rounded-md px-3 py-1 text-sm font-medium transition-colors',
+                feedTab === 'drafts'
+                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300',
+              ].join(' ')}
+              aria-pressed={feedTab === 'drafts'}
+            >
+              Drafts
+            </button>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {feedTab === 'feed' && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setFeedView(feedView === 'chat' ? 'cards' : 'chat')}
+                  aria-label={feedView === 'chat' ? 'Switch to card view' : 'Switch to chat view'}
+                  title={
+                    feedView === 'chat'
+                      ? 'Card view (comments & likes)'
+                      : 'Chat view (rich thread)'
+                  }
+                >
+                  <FontAwesomeIcon icon={feedView === 'chat' ? faTableList : faComments} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowSearch(!showSearch)}
+                  aria-label="Search posts"
+                  title="Search posts"
+                >
+                  <FontAwesomeIcon icon={faMagnifyingGlass} />
+                </Button>
+              </>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate('/app/notifications')}
+              aria-label="Notifications"
+              title="Notifications"
+            >
+              <FontAwesomeIcon icon={faBell} />
+            </Button>
+          </div>
         </div>
 
-        {showSearch && (
+        {showSearch && feedTab === 'feed' && (
           <Input
             label="Search posts"
             hideLabel
@@ -243,22 +268,28 @@ export default function Huddle() {
           />
         )}
 
+        {/* Drafts tab — private, multiple drafts */}
+        {selectedTeamId && feedTab === 'drafts' && user && (
+          <DraftsPanel
+            teamId={selectedTeamId}
+            userInitials={getUserInitials(user.name)}
+            userColor={getUserColor(user.id)}
+          />
+        )}
+
         {/* Composer stays put while the feed below it scrolls */}
-        {selectedTeamId && (
+        {selectedTeamId && feedTab === 'feed' && (
           <div className="huddle-composer shrink-0">
             <HuddleComposer
-              key={todayPost?.id ?? 'new'}
               onPost={addPost}
               userInitials={user ? getUserInitials(user.name) : 'U'}
               userColor={user ? getUserColor(user.id) : 'indigo'}
-              initialText={todayPost?.content.text ?? ''}
-              submitLabel={todayPost ? 'Update post' : 'Post'}
-              collapsedLabel={todayPost ? 'Edit today’s post…' : 'Share an update...'}
             />
           </div>
         )}
 
         {/* Feed */}
+        {feedTab === 'feed' && (
         <div className="huddle-feed min-h-0 flex-1 overflow-y-auto">
           {!selectedTeamId && (
             <div className="flex items-center justify-center py-16 px-4">
@@ -322,6 +353,7 @@ export default function Huddle() {
             </>
           )}
         </div>
+        )}
       </div>
     </AppPage>
   );

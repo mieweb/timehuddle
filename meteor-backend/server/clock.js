@@ -46,15 +46,6 @@ import {
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 const oid = (hex) => new Mongo.ObjectID(hex);
 
-const LOCAL_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** Server-local YYYY-MM-DD fallback when the client didn't send its date. */
-function localDateString(date) {
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${m}-${d}`;
-}
-
 /** Load one team the user belongs to (member or admin), or null. */
 async function findUserTeam(userId, teamId) {
   if (!isValidId(teamId)) return null;
@@ -132,7 +123,7 @@ Meteor.methods({
   },
 
   /** Clock in: close any dangling open events, open a new one, fire side-effects. */
-  async 'clock.start'({ teamId } = {}) {
+  async 'clock.start'({ teamId, planPostId } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const team = await findUserTeam(userId, teamId);
@@ -155,6 +146,15 @@ Meteor.methods({
     });
     const created = await ClockEvents.findOneAsync(_id);
     const pub = toPublicClockEvent(created, []);
+
+    // Plan-first flow: link the just-posted plan to this session so the
+    // per-session clock-out gate can find it (one post per clock session).
+    if (planPostId && isValidId(planPostId)) {
+      await rawDb().collection('huddlePosts').updateOne(
+        { _id: new ObjectId(planPostId), userId },
+        { $set: { clockEventId: created._id.toHexString(), updatedAt: new Date() } }
+      );
+    }
 
     // Schedule 4h break reminder + 7h45m shift-end reminder.
     scheduleClockJobs(created._id.toHexString(), userId, teamId, now).catch((err) =>
@@ -193,7 +193,7 @@ Meteor.methods({
   },
 
   /** Clock out: cancel jobs, close timers + open break, recompute, notify, log. */
-  async 'clock.stop'({ teamId, localDate } = {}) {
+  async 'clock.stop'({ teamId } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
@@ -201,22 +201,19 @@ Meteor.methods({
 
     const team = await findUserTeam(userId, teamId);
 
-    // Plan-first flow: when the team requires a daily plan, block clock-out
-    // until today's Huddle post has a wrap-up (see clock-post-simple-plan.md).
-    // Drafts (status: 'draft') never count — only published posts.
+    // Plan-first flow: when the team requires a plan, block clock-out until
+    // THIS session's Huddle post has a wrap-up. One post per clock session,
+    // linked by clockEventId (see clock-post-simple-plan.md). Drafts never
+    // count — only published posts.
     if (team?.settings?.requirePlanForClock) {
-      const postDate =
-        typeof localDate === 'string' && LOCAL_DATE_RE.test(localDate)
-          ? localDate
-          : localDateString(new Date());
       const post = await rawDb()
         .collection('huddlePosts')
         .findOne(
-          { teamId, userId, postDate, status: { $ne: 'draft' } },
+          { teamId, userId, clockEventId: event._id.toHexString(), status: { $ne: 'draft' } },
           { sort: { createdAt: -1 } }
         );
       if (!post?.wrapUpAt) {
-        throw new Meteor.Error('plan-required', "Add a wrap-up to today's post first");
+        throw new Meteor.Error('plan-required', "Add a wrap-up to this session's post first");
       }
     }
 

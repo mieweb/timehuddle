@@ -126,66 +126,105 @@ describe('plan-first clock flow (wormhole)', () => {
     expect(res.ok).toBe(true);
   });
 
-  it('gate on: clock-out is blocked when there is no post for today', async () => {
-    const res = await wormhole(
-      'clock.stop',
-      { teamId, localDate: todayString() },
-      memberJwt,
-    );
+  it('gate on: clock-out is blocked when this session has no linked post', async () => {
+    const res = await wormhole('clock.stop', { teamId }, memberJwt);
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/wrap-up/i);
   });
 
-  it("creating today's post (no wrap-up yet) still blocks clock-out", async () => {
-    const created = (await memberDdp.call('huddle.createPost', [
+  it('recovery: a session post created for the active session unblocks clock-out', async () => {
+    // The session started bare (previous test). Its active event:
+    const active = await wormhole<{ id: string }>('clock.activeForUser', {}, memberJwt);
+    expect(active.ok).toBe(true);
+    const clockEventId = active.result.id;
+
+    // A plain post for today (no session link) does NOT satisfy the gate.
+    await memberDdp.call('huddle.createPost', [
+      { teamId, content: { text: 'unrelated update' }, postDate: todayString() },
+    ]);
+    const stillBlocked = await wormhole('clock.stop', { teamId }, memberJwt);
+    expect(stillBlocked.ok).toBe(false);
+
+    // A post linked to this session WITH a wrap-up satisfies it.
+    await memberDdp.call('huddle.createPost', [
       {
         teamId,
-        content: { text: 'Today I will ship the plan-first flow.' },
+        content: { text: '**Wrap-up:** recovered session' },
         postDate: todayString(),
-      },
-    ])) as { id: string };
-    postId = created.id;
-    expect(postId).toBeTruthy();
-
-    const fetched = await wormhole<{ post: { id: string; wrapUpAt: string | null } }>(
-      'huddle.getMyPostForDate',
-      { teamId, postDate: todayString() },
-      memberJwt,
-    );
-    expect(fetched.ok).toBe(true);
-    expect(fetched.result.post?.id).toBe(postId);
-    expect(fetched.result.post?.wrapUpAt).toBeNull();
-
-    // No localDate sent — exercises the server-local date fallback.
-    const stop = await wormhole('clock.stop', { teamId }, memberJwt);
-    expect(stop.ok).toBe(false);
-    expect(stop.error).toMatch(/wrap-up/i);
-  });
-
-  it('saving a wrap-up edit stamps wrapUpAt and unblocks clock-out', async () => {
-    await memberDdp.call('huddle.updatePost', [
-      {
-        postId,
-        content: { text: 'Today I shipped the plan-first flow. Wrap-up: it works.' },
+        clockEventId,
         wrapUp: true,
       },
     ]);
-
-    const fetched = await wormhole<{ post: { wrapUpAt: string | null } }>(
-      'huddle.getMyPostForDate',
-      { teamId, postDate: todayString() },
-      memberJwt,
-    );
-    expect(fetched.ok).toBe(true);
-    expect(fetched.result.post?.wrapUpAt).toBeTruthy();
-
-    const stop = await wormhole<{ id: string; endTime: number }>(
-      'clock.stop',
-      { teamId, localDate: todayString() },
-      memberJwt,
-    );
+    const stop = await wormhole<{ id: string; endTime: number }>('clock.stop', { teamId }, memberJwt);
     expect(stop.ok).toBe(true);
     expect(stop.result.endTime).toBeGreaterThan(0);
+  });
+
+  it('per-session flow: plan → clock-in links it → wrap-up → clock-out', async () => {
+    const db = await getDb();
+    await db.collection('huddlePosts').deleteMany({ teamId });
+
+    // 1) Post the plan (published, dated).
+    const plan = (await memberDdp.call('huddle.createPost', [
+      { teamId, content: { text: 'Session plan: ship per-session gates.' }, postDate: todayString() },
+    ])) as { id: string };
+    postId = plan.id;
+
+    // 2) Clock in with planPostId → links the plan to the new session.
+    const start = await wormhole<{ id: string }>(
+      'clock.start',
+      { teamId, planPostId: postId },
+      memberJwt,
+    );
+    expect(start.ok).toBe(true);
+    const clockEventId = start.result.id;
+
+    const linked = await wormhole<{ post: { id: string; clockEventId?: string } }>(
+      'huddle.getMyPostForSession',
+      { teamId, clockEventId },
+      memberJwt,
+    );
+    expect(linked.ok).toBe(true);
+    expect(linked.result.post?.id).toBe(postId);
+
+    // 3) No wrap-up yet → clock-out blocked.
+    const blocked = await wormhole('clock.stop', { teamId }, memberJwt);
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error).toMatch(/wrap-up/i);
+
+    // 4) Wrap up the session post → clock-out works.
+    await memberDdp.call('huddle.updatePost', [
+      { postId, content: { text: 'Session plan. Wrap-up: shipped.' }, wrapUp: true },
+    ]);
+    const stop = await wormhole<{ id: string; endTime: number }>('clock.stop', { teamId }, memberJwt);
+    expect(stop.ok).toBe(true);
+    expect(stop.result.endTime).toBeGreaterThan(0);
+  });
+
+  it('second clock-in of the day needs its OWN plan (per session, not per day)', async () => {
+    // Today's post from the previous session already exists and is wrapped up,
+    // but a fresh session's post is a different one.
+    const start = await wormhole<{ id: string }>('clock.start', { teamId }, memberJwt);
+    expect(start.ok).toBe(true);
+    // No post linked to this new session → clock-out blocked even though an
+    // earlier wrapped-up post exists for today.
+    const blocked = await wormhole('clock.stop', { teamId }, memberJwt);
+    expect(blocked.ok).toBe(false);
+    expect(blocked.error).toMatch(/wrap-up/i);
+
+    // Recover so the suite leaves no open session.
+    const active = await wormhole<{ id: string }>('clock.activeForUser', {}, memberJwt);
+    await memberDdp.call('huddle.createPost', [
+      {
+        teamId,
+        content: { text: '**Wrap-up:** second session' },
+        postDate: todayString(),
+        clockEventId: active.result.id,
+        wrapUp: true,
+      },
+    ]);
+    const stop = await wormhole('clock.stop', { teamId }, memberJwt);
+    expect(stop.ok).toBe(true);
   });
 
   it('gate turned back off: clock in/out works again without a post', async () => {
@@ -244,17 +283,10 @@ describe('drafts (plan-first)', () => {
   });
 
   it('a draft does not satisfy the gate', async () => {
-    const forDate = await wormhole<{ post: null }>(
-      'huddle.getMyPostForDate',
-      { teamId, postDate: todayString() },
-      memberJwt,
-    );
-    expect(forDate.ok).toBe(true);
-    expect(forDate.result.post).toBeNull();
-
+    // Start a bare session; a draft alone can't unblock clock-out.
     const start = await wormhole<{ id: string }>('clock.start', { teamId }, memberJwt);
     expect(start.ok).toBe(true);
-    const stop = await wormhole('clock.stop', { teamId, localDate: todayString() }, memberJwt);
+    const stop = await wormhole('clock.stop', { teamId }, memberJwt);
     expect(stop.ok).toBe(false);
     expect(stop.error).toMatch(/wrap-up/i);
   });
@@ -269,24 +301,29 @@ describe('drafts (plan-first)', () => {
     adminDdp.close();
   });
 
-  it('publishing stamps postDate, enters the feed, and satisfies the gate', async () => {
+  it('publishing a draft as the session plan enters the feed and unblocks clock-out', async () => {
+    const active = await wormhole<{ id: string }>('clock.activeForUser', {}, memberJwt);
+    const clockEventId = active.result.id;
+
+    // Publish the draft, linking it to the active session.
     await memberDdp.call('huddle.publishPost', [
       {
         postId: draftId,
         postDate: todayString(),
         content: { text: 'Today: finish drafts milestone.' },
+        clockEventId,
       },
     ]);
 
-    const forDate = await wormhole<{ post: { id: string; status?: string; postDate?: string } }>(
-      'huddle.getMyPostForDate',
-      { teamId, postDate: todayString() },
+    // Now it's the session post (published, linked), but no wrap-up yet.
+    const linked = await wormhole<{ post: { id: string; status?: string } }>(
+      'huddle.getMyPostForSession',
+      { teamId, clockEventId },
       memberJwt,
     );
-    expect(forDate.ok).toBe(true);
-    expect(forDate.result.post?.id).toBe(draftId);
-    expect(forDate.result.post?.status).toBeUndefined();
-    expect(forDate.result.post?.postDate).toBe(todayString());
+    expect(linked.ok).toBe(true);
+    expect(linked.result.post?.id).toBe(draftId);
+    expect(linked.result.post?.status).toBeUndefined();
 
     const feed = (await memberDdp.call('huddle.getPosts', [{ teamId }])) as {
       posts: Array<{ id: string }>;
@@ -300,11 +337,7 @@ describe('drafts (plan-first)', () => {
     await memberDdp.call('huddle.updatePost', [
       { postId: draftId, content: { text: 'Done. Wrap-up: drafts work.' }, wrapUp: true },
     ]);
-    const stop = await wormhole<{ id: string }>(
-      'clock.stop',
-      { teamId, localDate: todayString() },
-      memberJwt,
-    );
+    const stop = await wormhole<{ id: string }>('clock.stop', { teamId }, memberJwt);
     expect(stop.ok).toBe(true);
   });
 });

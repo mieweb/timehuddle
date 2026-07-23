@@ -798,7 +798,10 @@ Meteor.startup(async() => {
     description: 'Clock in to a team (closes any dangling open events first)',
     inputSchema: {
       type: 'object',
-      properties: { teamId: { type: 'string' } },
+      properties: {
+        teamId: { type: 'string' },
+        planPostId: { type: 'string', description: 'Link this plan post to the new session' },
+      },
       required: ['teamId'],
     },
   });
@@ -809,7 +812,6 @@ Meteor.startup(async() => {
       type: 'object',
       properties: {
         teamId: { type: 'string' },
-        localDate: { type: 'string', description: "Caller's local YYYY-MM-DD (plan-first gate)" },
       },
       required: ['teamId'],
     },
@@ -978,6 +980,24 @@ Meteor.startup(async() => {
       type: 'object',
       properties: { teamId: { type: 'string' } },
       required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('huddle.getMyDrafts', {
+    description: "All of the caller's unpublished drafts in a team, newest first",
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('huddle.getMyPostForSession', {
+    description: "The caller's post linked to a clock session, or null",
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' }, clockEventId: { type: 'string' } },
+      required: ['teamId', 'clockEventId'],
     },
   });
 

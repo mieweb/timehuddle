@@ -208,7 +208,7 @@ export function HuddleComposer({
         <div className="flex-1 min-w-0">
           {/* ── Rich editor (Kerebron — markdown in/out) ── */}
           <div
-            className="huddle-rich-editor rounded-lg border border-gray-200 dark:border-neutral-700 [&_.ProseMirror]:min-h-28 [&_.ProseMirror]:px-3 [&_.ProseMirror]:py-2.5 [&_.ProseMirror]:text-sm [&_.ProseMirror]:outline-none"
+            className="huddle-rich-editor rounded-lg border border-gray-200 dark:border-neutral-700 [&_.ProseMirror]:min-h-52 [&_.ProseMirror]:px-3 [&_.ProseMirror]:py-2.5 [&_.ProseMirror]:text-base [&_.ProseMirror]:leading-relaxed [&_.ProseMirror]:outline-none"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();

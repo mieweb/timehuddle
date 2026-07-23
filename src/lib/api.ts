@@ -6,7 +6,6 @@
  */
 // autoReconnectWs removed - no longer needed after migrating tickets to wormhole
 import { getDdpClient } from './ddp.js';
-import { toDateString } from './timeUtils';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -994,6 +993,8 @@ export interface HuddlePost {
   status?: 'draft';
   /** Client-local calendar date (YYYY-MM-DD) this post is the plan for. */
   postDate?: string;
+  /** Clock session this post is the plan/wrap-up for (per-session gate). */
+  clockEventId?: string;
   /** Set when the author saved a wrap-up edit (plan-first clock flow). */
   wrapUpAt?: string | null;
   createdAt: string;
@@ -1027,11 +1028,22 @@ export const huddleApi = {
       postDate,
     }).then((r) => r.post),
 
+  /** The caller's post linked to a clock session (per-session gate), or null. */
+  getMyPostForSession: (teamId: string, clockEventId: string) =>
+    wormholeCall<{ post: HuddlePost | null }>('huddle.getMyPostForSession', {
+      teamId,
+      clockEventId,
+    }).then((r) => r.post),
+
   /** The caller's newest unpublished draft in a team, or null. */
   getMyLatestDraft: (teamId: string) =>
     wormholeCall<{ post: HuddlePost | null }>('huddle.getMyLatestDraft', { teamId }).then(
       (r) => r.post,
     ),
+
+  /** All of the caller's unpublished drafts in a team, newest first. */
+  getMyDrafts: (teamId: string) =>
+    wormholeCall<{ posts: HuddlePost[] }>('huddle.getMyDrafts', { teamId }).then((r) => r.posts),
 
   /** Save a plan as an author-only draft (not in the feed, no gate effect). */
   saveDraft: (teamId: string, content: { text: string; mentions: string[] }) =>
@@ -1039,12 +1051,14 @@ export const huddleApi = {
       id: string;
     }>,
 
-  /** Publish a draft: optional content update + client-local postDate stamp. */
+  /** Publish a draft: optional content update + client-local postDate stamp;
+   * optionally link it to a clock session. */
   publishPost: (
     postId: string,
     postDate: string,
     content?: { text: string; mentions: string[] },
-  ) => getDdpClient().call('huddle.publishPost', { postId, postDate, content }),
+    clockEventId?: string,
+  ) => getDdpClient().call('huddle.publishPost', { postId, postDate, content, clockEventId }),
 
   /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow). */
   updatePost: (
@@ -1246,11 +1260,11 @@ export interface ClockEvent {
 
 export const clockApi = {
   /** Clock in to a team. Returns the new clock event. */
-  start: (teamId: string) => wormholeCall<ClockEvent>('clock.start', { teamId }),
+  start: (teamId: string, planPostId?: string) =>
+    wormholeCall<ClockEvent>('clock.start', { teamId, planPostId }),
 
   /** Clock out of a team. */
-  stop: (teamId: string) =>
-    wormholeCall<ClockEvent>('clock.stop', { teamId, localDate: toDateString(new Date()) }),
+  stop: (teamId: string) => wormholeCall<ClockEvent>('clock.stop', { teamId }),
 
   /** Pause an active clock session (break start). */
   pause: (teamId: string) => wormholeCall<ClockEvent>('clock.pause', { teamId }),

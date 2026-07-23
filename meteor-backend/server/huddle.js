@@ -91,6 +91,7 @@ async function enrichPost(post) {
     commentCount: post.commentCount ?? 0,
     status: post.status ?? undefined,
     postDate: post.postDate ?? undefined,
+    clockEventId: post.clockEventId ?? undefined,
     wrapUpAt: post.wrapUpAt instanceof Date
       ? post.wrapUpAt.toISOString()
       : (post.wrapUpAt ? String(post.wrapUpAt) : null),
@@ -253,7 +254,7 @@ Meteor.methods({
     return { posts: enriched };
   },
   
-  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, draft }) {
+  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, draft, clockEventId, wrapUp }) {
     if (!this.userId) {
       throw new Meteor.Error('not-authorized', 'Authentication required');
     }
@@ -312,6 +313,11 @@ Meteor.methods({
       commentCount: 0,
       // Drafts are author-only and date-less — postDate is stamped at publish.
       ...(draft === true ? { status: 'draft' } : postDate ? { postDate } : {}),
+      // Optionally link to a clock session (per-session gate) and/or stamp a
+      // wrap-up at creation — used by the clock-out recovery path when a
+      // session somehow has no plan post.
+      ...(clockEventId ? { clockEventId } : {}),
+      ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -426,12 +432,54 @@ Meteor.methods({
     return { post: post ? await enrichPost(post) : null };
   },
 
+  /** All of the caller's unpublished drafts in a team, newest first. */
+  async 'huddle.getMyDrafts'({ teamId }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!teamId || typeof teamId !== 'string') {
+      throw new Meteor.Error('bad-request', 'teamId is required');
+    }
+
+    const team = await getTeam(teamId);
+    if (!team) {
+      throw new Meteor.Error('not-found', 'Team not found');
+    }
+    const isMember = (team.members ?? []).includes(userId) || (team.admins ?? []).includes(userId);
+    if (!isMember) {
+      throw new Meteor.Error('forbidden', 'Not a team member');
+    }
+
+    const drafts = await rawDb().collection('huddlePosts')
+      .find({ teamId, userId, status: 'draft' })
+      .sort({ createdAt: -1 })
+      .toArray();
+    return { posts: await Promise.all(drafts.map(enrichPost)) };
+  },
+
+  /** The caller's post linked to a clock session (by clockEventId), or null. */
+  async 'huddle.getMyPostForSession'({ teamId, clockEventId }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!teamId || typeof teamId !== 'string') {
+      throw new Meteor.Error('bad-request', 'teamId is required');
+    }
+    if (!clockEventId || typeof clockEventId !== 'string') {
+      throw new Meteor.Error('bad-request', 'clockEventId is required');
+    }
+
+    const post = await rawDb().collection('huddlePosts').findOne(
+      { teamId, userId, clockEventId, status: { $ne: 'draft' } },
+      { sort: { createdAt: -1 } }
+    );
+    return { post: post ? await enrichPost(post) : null };
+  },
+
   /**
    * Publish a draft: optionally update its content, stamp the client-local
    * postDate, and clear the draft status so it enters the team feed (the
    * publication's change stream delivers it as an `added`).
    */
-  async 'huddle.publishPost'({ postId, content, postDate }) {
+  async 'huddle.publishPost'({ postId, content, postDate, clockEventId }) {
     if (!this.userId) {
       throw new Meteor.Error('not-authorized', 'Authentication required');
     }
@@ -464,6 +512,7 @@ Meteor.methods({
           ...(content !== undefined
             ? { content: { text: content.text, mentions: content.mentions ?? [] } }
             : {}),
+          ...(clockEventId ? { clockEventId } : {}),
           postDate,
           updatedAt: new Date(),
         },

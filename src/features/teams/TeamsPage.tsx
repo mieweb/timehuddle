@@ -899,17 +899,17 @@ export const TeamsPage: React.FC = () => {
           <div className="team-setting-plan-for-clock mb-6 flex items-center justify-between gap-4">
             <div>
               <Text size="sm" weight="medium">
-                Require a daily plan to clock in/out
+                Require a plan for every clock-in/out
               </Text>
               <Text variant="muted" size="xs">
-                Members must post today’s plan in Huddle before clocking in, and add a wrap-up to
-                it before clocking out.
+                Members post a plan to start each session, and add a wrap-up to it before clocking
+                out — one Huddle post per session.
               </Text>
             </div>
             <Switch
               checked={requirePlanForClock}
               disabled={savingPlanSetting || !selectedTeamId}
-              aria-label="Toggle requiring a daily plan to clock in and out"
+              aria-label="Toggle requiring a plan for every clock-in and out"
               onCheckedChange={async (checked) => {
                 if (!selectedTeamId) return;
                 const previous = requirePlanForClock;

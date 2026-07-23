@@ -59,7 +59,7 @@ export const ClockPage: React.FC = () => {
     planGate,
   } = useClockToggle();
 
-  const { teamId: gateTeamId, teamName, requirePlan, todayPost, planMissing, wrapUpMissing } =
+  const { teamId: gateTeamId, teamName, requirePlan, sessionPost, planMissing, wrapUpMissing } =
     planGate;
 
   const isClockedIn = !!activeClockEvent;
@@ -136,22 +136,26 @@ export const ClockPage: React.FC = () => {
     setPosting(true);
     setPostError(null);
     try {
+      let planPostId: string;
       if (draft) {
-        // Publishing the draft (with any edits) is the post.
+        // Publishing the draft (with any edits) is this session's plan post.
         await huddleApi.publishPost(draft.id, toDateString(new Date()), {
           text: trimmed,
           mentions: draft.content.mentions,
         });
+        planPostId = draft.id;
         setDraft(null);
       } else {
-        await getDdpClient().call('huddle.createPost', {
+        const created = (await getDdpClient().call('huddle.createPost', {
           teamId: gateTeamId,
           content: { text: trimmed, mentions: [] },
           postDate: toDateString(new Date()),
-        });
+        })) as { id: string };
+        planPostId = created.id;
       }
       setText('');
-      await clockIn({ planJustPosted: true });
+      // Link this plan to the new session so the per-session gate finds it.
+      await clockIn({ planJustPosted: true, planPostId });
     } catch (e) {
       setPostError(e instanceof Error ? e.message : 'Failed to post. Please try again.');
     } finally {
@@ -161,18 +165,31 @@ export const ClockPage: React.FC = () => {
 
   async function postWrapUpAndClockOut() {
     const trimmed = text.trim();
-    if (!todayPost || !trimmed || posting) return;
+    if (!activeClockEvent || !trimmed || posting) return;
     setPosting(true);
     setPostError(null);
     try {
-      await huddleApi.updatePost(
-        todayPost.id,
-        {
-          text: `${todayPost.content.text}\n\n**Wrap-up:** ${trimmed}`,
-          mentions: todayPost.content.mentions,
-        },
-        { wrapUp: true },
-      );
+      if (sessionPost) {
+        await huddleApi.updatePost(
+          sessionPost.id,
+          {
+            text: `${sessionPost.content.text}\n\n**Wrap-up:** ${trimmed}`,
+            mentions: sessionPost.content.mentions,
+          },
+          { wrapUp: true },
+        );
+      } else {
+        // Recovery: this session has no plan post (e.g. gate was enabled
+        // mid-shift). Create one that doubles as the wrap-up, linked to the
+        // session so the gate is satisfied.
+        await getDdpClient().call('huddle.createPost', {
+          teamId: gateTeamId,
+          content: { text: `**Wrap-up:** ${trimmed}`, mentions: [] },
+          postDate: toDateString(new Date()),
+          clockEventId: activeClockEvent.id,
+          wrapUp: true,
+        });
+      }
       setText('');
       await clockOut();
     } catch (e) {
@@ -190,7 +207,7 @@ export const ClockPage: React.FC = () => {
   if (!isClockedIn) {
     eyebrow = 'Ready to work';
     if (composerMode === 'plan') {
-      headline = 'Write today’s plan before clocking in.';
+      headline = 'Write a plan before starting this session.';
       subline = (
         <>
           Posting starts your shift.{' '}
@@ -211,7 +228,7 @@ export const ClockPage: React.FC = () => {
   } else {
     eyebrow = isPaused ? 'On break' : 'On shift';
     if (composerMode === 'wrapup') {
-      headline = `Add a wrap-up to today’s post${teamSuffix} before clocking out.`;
+      headline = `Add a wrap-up to this session’s post${teamSuffix} before clocking out.`;
       subline = 'Posting ends your shift.';
     } else {
       headline = `Clocked in — ${formatTimer(sessionSeconds)} this shift.`;
@@ -259,11 +276,12 @@ export const ClockPage: React.FC = () => {
               onChange={(e) => setText(e.target.value)}
               placeholder={
                 composerMode === 'plan'
-                  ? 'What are you working on today? One line per item is plenty.'
+                  ? 'What are you working on this session? One line per item is plenty.'
                   : 'How did it go? A line or two is plenty.'
               }
-              rows={6}
-              aria-label={composerMode === 'plan' ? 'Today’s plan' : 'Wrap-up for today’s post'}
+              rows={10}
+              className="min-h-52 text-base leading-relaxed"
+              aria-label={composerMode === 'plan' ? 'Session plan' : 'Wrap-up for this session'}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                   void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut());

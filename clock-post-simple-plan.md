@@ -1,12 +1,12 @@
 # Clock ↔ Huddle Plan-First Flow — Minimal Plan
 
-The core loop, nothing else: **write today's plan as a Huddle post → clock in → edit that same post with a wrap-up → clock out.** Gated per team by one setting, off by default.
+The core loop, nothing else: **write a plan as a Huddle post → clock in → add a wrap-up to that post → clock out.** One post per **clock session**, gated per team by one setting, off by default.
 
 ## What's in
 
 - One team setting: `settings.requirePlanForClock` (default `false`), toggled by admins in the existing Team Settings modal.
-- Posts get a `postDate` (`YYYY-MM-DD`) so "today's post" is a real query.
-- Gate on: Clock In disabled until you have a post for today; Clock Out blocked until you've saved a wrap-up edit to it. Clear inline message when blocked — no modals, no overrides.
+- Posts get a `postDate` (`YYYY-MM-DD`); session posts also get a `clockEventId` linking them to the clock session they're the plan/wrap-up for.
+- Gate on (per session): every Clock In needs a fresh plan (a post linked to that session); Clock Out is blocked until that session's post has a wrap-up. A second clock-in the same day needs its own plan. Clear inline message when blocked — no modals, no overrides.
 - Gate off (default): everything behaves exactly as today.
 - Clock page is the gate (design iteration, shipped): status banner → plain textarea → punch-clock module, with single combined actions — “Post plan and clock in” / “Post wrap-up and clock out”. The gate state is centralized in `useClockToggle.planGate` (realtime via DDP) so every clock surface (clock page, bottom-nav FAB, work/tickets prompts) agrees. This replaced the earlier `?prompt=clockin|clockout` redirect idea.
 - Composer on the Huddle tab = `RichEditor` from `@mieweb/ui/kerebron` (Kerebron/ProseMirror, markdown in/out). Feed = `SuperChat` panel (`order="desc"`, read-only thread) so posts render rich markdown for free. (The clock page keeps its plain textarea by design.)
@@ -76,6 +76,18 @@ Save a plan without publishing (and without clocking in); publish it later to st
 - [x] `huddle.getMyLatestDraft({ teamId })` → `{ post | null }` (requireIdentity + wormhole exposure).
 - [x] Clock page composer: "Save draft"/"Update draft" secondary action; an existing draft is prefilled and the primary action becomes "Publish plan and clock in".
 - [x] Tests: draft doesn't satisfy the gate; publish does (and enters the feed); drafts invisible in the feed; only the author can publish. (`meteor-backend/tests/plan-gate.test.ts`, 14 passing)
+- [x] **Drafts tab (added by request):** a Feed/Drafts toggle on the Huddle page; `huddle.getMyDrafts` lists all of a user's drafts; `DraftsPanel` supports creating multiple drafts and editing/publishing/deleting each. Publishing a draft as a session plan links it to the session (`huddle.publishPost` accepts `clockEventId`).
+
+## Milestone 4b — Per-session gate (added by request)
+
+Every clock session gets its own plan + wrap-up post, not one shared per day.
+
+- [x] Posts carry `clockEventId`; `clock.start` accepts `planPostId` and links the plan to the new session; `clock.stop` gates on the session's linked post (not the date).
+- [x] `huddle.getMyPostForSession({ teamId, clockEventId })`; `useSessionPost` hook (realtime via DDP); `useClockToggle.planGate` exposes `sessionPost`; `planMissing` = gate on && no active session (a fresh plan is always required to start).
+- [x] Clock page: "Post plan and clock in" links the plan; "Post wrap-up and clock out" wraps up the session post; recovery path creates a linked wrap-up post if a session somehow has none (`createPost` accepts `clockEventId` + `wrapUp`).
+- [x] Huddle-tab composer always creates a new post (no auto-edit of "today's post").
+- [x] Bigger editor: RichEditor `min-h-52` + larger text; clock-page textarea `rows={10}` / `min-h-52`.
+- [x] Tests updated for per-session semantics incl. "second clock-in of the day needs its own plan" (`plan-gate.test.ts`, 15 passing). In-browser verified 2026-07-23: two sessions each gated independently, two separate posts in the feed, drafts tab creates/hides multiple drafts.
 
 ## Milestone 5 — Composer → RichEditor (Kerebron)
 
