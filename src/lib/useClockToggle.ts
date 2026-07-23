@@ -1,17 +1,20 @@
 /**
  * useClockToggle — Shared clock-in / clock-out logic.
  *
- * Encapsulates the API calls, loading states, and the teamId guard (always
- * prefer the active event's teamId over the currently selected team, since the
- * user may have switched teams after clocking in).
+ * Encapsulates the API calls, loading states, the teamId guard (always
+ * prefer the active event's teamId over the currently selected team, since
+ * the user may have switched teams after clocking in), and the plan-first
+ * gates — so every clock surface (clock page, bottom-nav FAB, work/tickets
+ * clock-in prompts) enforces them consistently.
  */
 import { useCallback, useState } from 'react';
 
 import { ApiError, clockApi } from './api';
+import { useDailyPost } from './useDailyPost';
 import { useTeam } from './TeamContext';
 
 export function useClockToggle() {
-  const { activeClockEvent, selectedTeamId, refetchClock } = useTeam();
+  const { teams, activeClockEvent, selectedTeamId, selectedTeam, refetchClock } = useTeam();
 
   const [clockInLoading, setClockInLoading] = useState(false);
   const [clockOutLoading, setClockOutLoading] = useState(false);
@@ -22,16 +25,35 @@ export function useClockToggle() {
 
   const isClockedIn = !!activeClockEvent;
 
+  // ── Plan-first gates (team setting, default off) ──
+  // Clock In targets the selected team; Clock Out targets the team of the
+  // active session (which may differ if the user switched teams after
+  // clocking in). Gate against whichever applies.
+  const gateTeamId = activeClockEvent?.teamId ?? selectedTeamId;
+  const gateTeam = activeClockEvent
+    ? (teams.find((t) => t.id === activeClockEvent.teamId) ?? null)
+    : selectedTeam;
+  const requirePlan = !!gateTeam?.settings?.requirePlanForClock;
+  // Only subscribe to today's post when the gate is actually on.
+  const { todayPost } = useDailyPost(requirePlan ? gateTeamId : null);
+  // Clock In requires today's post to exist.
+  const planMissing = !activeClockEvent && requirePlan && !todayPost;
+  // Clock Out requires today's post (in the active session's team) to have a wrap-up.
+  const wrapUpMissing = !!activeClockEvent && requirePlan && (!todayPost || !todayPost.wrapUpAt);
+
   const clockIn = useCallback(async () => {
-    if (!selectedTeamId) return;
+    // planMissing: the plan-first gate refuses clock-in until today's plan
+    // is posted — callers disable their buttons and/or show the hint.
+    if (!selectedTeamId || planMissing) return false;
     setClockInLoading(true);
     try {
       await clockApi.start(selectedTeamId);
       await refetchClock();
+      return true;
     } finally {
       setClockInLoading(false);
     }
-  }, [selectedTeamId, refetchClock]);
+  }, [selectedTeamId, planMissing, refetchClock]);
 
   const clockOut = useCallback(async () => {
     const teamId = activeClockEvent?.teamId ?? selectedTeamId;
@@ -105,5 +127,13 @@ export function useClockToggle() {
     clockOutLoading,
     clockPauseLoading,
     clockOutBlockedReason,
+    /** Plan-first gate state for the team the next clock action targets. */
+    planGate: {
+      teamId: gateTeamId,
+      teamName: gateTeam?.name ?? null,
+      todayPost,
+      planMissing,
+      wrapUpMissing,
+    },
   };
 }

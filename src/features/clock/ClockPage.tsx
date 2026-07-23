@@ -10,15 +10,13 @@ import { useTeam } from '../../lib/TeamContext';
 import { formatTimer, getActiveClockSeconds } from '../../lib/timeUtils';
 import { AppPage } from '../../ui/AppPage';
 import { useClockToggle } from '../../lib/useClockToggle';
-import { useDailyPost } from '../../lib/useDailyPost';
 import { PlanComposer } from './PlanComposer';
 import { useRouter } from '../../ui/router';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
 export const ClockPage: React.FC = () => {
-  const { teams, selectedTeamId, selectedTeam, activeClockEvent, currentTime, teamsReady } =
-    useTeam();
+  const { selectedTeamId, activeClockEvent, currentTime, teamsReady } = useTeam();
   const { navigate } = useRouter();
 
   const {
@@ -30,23 +28,18 @@ export const ClockPage: React.FC = () => {
     clockOutLoading,
     clockPauseLoading,
     clockOutBlockedReason,
+    planGate,
   } = useClockToggle();
 
-  // ── Plan-first gates (team setting, default off) ──
-  // Clock In targets the selected team; Clock Out targets the team of the
-  // active session (which may differ if the user switched teams after
-  // clocking in — see useClockToggle). Gate against whichever applies.
-  const clockOutTeamId = activeClockEvent?.teamId ?? selectedTeamId;
-  const gateTeamId = activeClockEvent ? clockOutTeamId : selectedTeamId;
-  const gateTeam = activeClockEvent
-    ? (teams.find((t) => t.id === clockOutTeamId) ?? null)
-    : selectedTeam;
-  const { todayPost } = useDailyPost(gateTeamId);
-  const requirePlan = !!gateTeam?.settings?.requirePlanForClock;
-  // Clock In requires today's post to exist.
-  const planMissing = !activeClockEvent && requirePlan && !todayPost;
-  // Clock Out requires today's post (in the active session's team) to have a wrap-up.
-  const wrapUpMissing = !!activeClockEvent && requirePlan && (!todayPost || !todayPost.wrapUpAt);
+  // Plan-first gate state is centralized in useClockToggle so every clock
+  // surface (this page, bottom-nav FAB, work/tickets prompts) agrees.
+  const {
+    teamId: gateTeamId,
+    teamName: gateTeamName,
+    todayPost,
+    planMissing,
+    wrapUpMissing,
+  } = planGate;
 
   // Session duration
   const sessionSeconds = getActiveClockSeconds(activeClockEvent, currentTime);
@@ -154,7 +147,7 @@ export const ClockPage: React.FC = () => {
               teamId={gateTeamId}
               todayPost={todayPost}
               mode={todayPost ? 'wrapup' : 'plan'}
-              teamName={gateTeamId !== selectedTeamId ? gateTeam?.name : undefined}
+              teamName={gateTeamId !== selectedTeamId ? (gateTeamName ?? undefined) : undefined}
               onGoToHuddle={() => navigate('/app/huddle')}
             />
             {clockOutBlockedReason && (

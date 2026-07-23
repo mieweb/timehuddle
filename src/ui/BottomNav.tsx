@@ -40,7 +40,12 @@ const TABS: NavTab[] = [
 
 export const BottomNav: React.FC = () => {
   const { pathname, navigate } = useRouter();
-  const { isClockedIn } = useClockToggle();
+  const { isClockedIn, planGate } = useClockToggle();
+
+  // Plan-first gate: the FAB still navigates to the clock page (where the
+  // inline composer lives), but shows a dimmed "blocked" state so it's clear
+  // clocking in/out needs today's plan or wrap-up first.
+  const planBlocked = planGate.planMissing || planGate.wrapUpMissing;
 
   return (
     <MotionConfig transition={{ type: 'spring', damping: 26, stiffness: 300 }}>
@@ -58,9 +63,20 @@ export const BottomNav: React.FC = () => {
                 key={tab.href}
                 type="button"
                 onClick={() => navigate(tab.href)}
-                aria-label={isClockedIn ? 'Clock Out' : 'Clock In'}
+                aria-label={
+                  isClockedIn
+                    ? planBlocked
+                      ? 'Clock Out — wrap-up required'
+                      : 'Clock Out'
+                    : planBlocked
+                      ? 'Clock In — plan required'
+                      : 'Clock In'
+                }
                 aria-pressed={isClockedIn}
-                className="relative -top-4 flex h-16 w-16 flex-col items-center justify-center rounded-full shadow-lg transition-transform active:scale-95 disabled:opacity-60"
+                className={[
+                  'relative -top-4 flex h-16 w-16 flex-col items-center justify-center rounded-full shadow-lg transition-transform active:scale-95 disabled:opacity-60',
+                  planBlocked ? 'opacity-50 saturate-50' : '',
+                ].join(' ')}
                 style={{
                   background: isClockedIn
                     ? 'linear-gradient(135deg, #f87171, #dc2626)'
