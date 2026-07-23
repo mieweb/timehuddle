@@ -11,6 +11,7 @@ import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { teamApi, type HuddlePost, type Team } from '@lib/api';
 import { getDdpClient } from '@lib/ddp';
+import { toDateString } from '@lib/timeUtils';
 
 function getUserInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -146,9 +147,12 @@ export default function Huddle() {
         content: { text: content.text, mentions: mentionUserIds },
         ticketId: content.ticketId,
         attachments,
+        postDate: toDateString(new Date()),
       });
 
-      // DDP subscription will automatically reflect the new post
+      // DDP subscription will automatically reflect the new post; the clock-in
+      // gate (useDailyPost) listens for this event to flip live.
+      window.dispatchEvent(new CustomEvent('huddle:refetch'));
     } catch (error) {
       console.error('[Huddle] Error in addPost:', error);
       alert('Failed to create post. Please try again.');

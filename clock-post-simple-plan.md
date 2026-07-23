@@ -49,10 +49,10 @@ Milestones 1–3 (setting, data model, gates) have no dependency on this and can
 
 ## Milestone 2 — Today's post
 
-- [ ] `huddle.createPost`: accept `postDate` (client sends `toDateString(new Date())` from `src/lib/timeUtils.ts`).
-- [ ] `huddle.updatePost`: accept optional `wrapUp: boolean` → sets `wrapUpAt: new Date()` on the post.
-- [ ] `huddle.getMyPostForDate({ teamId, postDate })` → `{ post }` or `{ post: null }`.
-- [ ] Frontend: `HuddlePost` gets `postDate` + `wrapUpAt`; `huddleApi.getMyPostForDate` wrapper; tiny `useDailyPost(teamId)` hook returning `{ todayPost, refetch }`.
+- [x] `huddle.createPost`: accept `postDate` (client sends `toDateString(new Date())` from `src/lib/timeUtils.ts`).
+- [x] `huddle.updatePost`: accept optional `wrapUp: boolean` → sets `wrapUpAt: new Date()` on the post.
+- [x] `huddle.getMyPostForDate({ teamId, postDate })` → `{ post }` or `{ post: null }`.
+- [x] Frontend: `HuddlePost` gets `postDate` + `wrapUpAt`; `huddleApi.getMyPostForDate` wrapper; tiny `useDailyPost(teamId)` hook returning `{ todayPost, refetch }`.
 
 ## Milestone 3 — Gates
 

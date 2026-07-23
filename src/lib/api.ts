@@ -982,6 +982,10 @@ export interface HuddlePost {
   }>;
   likes: string[];
   commentCount: number;
+  /** Client-local calendar date (YYYY-MM-DD) this post is the plan for. */
+  postDate?: string;
+  /** Set when the author saved a wrap-up edit (plan-first clock flow). */
+  wrapUpAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1006,9 +1010,19 @@ export const huddleApi = {
       (r) => r.posts,
     ),
 
-  /** Update a huddle post. */
-  updatePost: (postId: string, content: { text: string; mentions: string[] }) =>
-    getDdpClient().call('huddle.updatePost', { postId, content }),
+  /** The caller's own post for a calendar date (YYYY-MM-DD) in a team, or null. */
+  getMyPostForDate: (teamId: string, postDate: string) =>
+    wormholeCall<{ post: HuddlePost | null }>('huddle.getMyPostForDate', {
+      teamId,
+      postDate,
+    }).then((r) => r.post),
+
+  /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow). */
+  updatePost: (
+    postId: string,
+    content: { text: string; mentions: string[] },
+    options?: { wrapUp?: boolean },
+  ) => getDdpClient().call('huddle.updatePost', { postId, content, ...options }),
 
   /** Delete a huddle post. */
   deletePost: (postId: string) => getDdpClient().call('huddle.deletePost', { postId }),

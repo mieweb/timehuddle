@@ -10,6 +10,9 @@ function toId(id) {
   return /^[a-f0-9]{24}$/i.test(id) ? new ObjectId(id) : id;
 }
 
+// postDate is a plain calendar date string (client-local), e.g. "2026-07-22"
+const POST_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 // Permission helpers
 async function getTeam(teamId) {
   // Try plain string first (Meteor-created teams)
@@ -83,6 +86,10 @@ async function enrichPost(post) {
     })),
     likes: post.likes ?? [],
     commentCount: post.commentCount ?? 0,
+    postDate: post.postDate ?? undefined,
+    wrapUpAt: post.wrapUpAt instanceof Date
+      ? post.wrapUpAt.toISOString()
+      : (post.wrapUpAt ? String(post.wrapUpAt) : null),
     createdAt: post.createdAt instanceof Date ? post.createdAt.toISOString() : String(post.createdAt),
     updatedAt: post.updatedAt instanceof Date ? post.updatedAt.toISOString() : String(post.updatedAt ?? post.createdAt),
   };
@@ -221,7 +228,7 @@ Meteor.methods({
     return { posts: enriched };
   },
   
-  async 'huddle.createPost'({ teamId, content, ticketId, attachments }) {
+  async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate }) {
     if (!this.userId) {
       throw new Meteor.Error('not-authorized', 'Authentication required');
     }
@@ -230,6 +237,9 @@ Meteor.methods({
     }
     if (!content || typeof content.text !== 'string') {
       throw new Meteor.Error('bad-request', 'content.text is required');
+    }
+    if (postDate !== undefined && (typeof postDate !== 'string' || !POST_DATE_RE.test(postDate))) {
+      throw new Meteor.Error('bad-request', 'postDate must be a YYYY-MM-DD string');
     }
     
     const team = await getTeam(teamId);
@@ -275,6 +285,7 @@ Meteor.methods({
       attachments: attachments ?? [],
       likes: [],
       commentCount: 0,
+      ...(postDate ? { postDate } : {}),
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -284,7 +295,7 @@ Meteor.methods({
     return { id: doc._id.toHexString() };
   },
   
-  async 'huddle.updatePost'({ postId, content }) {
+  async 'huddle.updatePost'({ postId, content, wrapUp }) {
     if (!this.userId) {
       throw new Meteor.Error('not-authorized', 'Authentication required');
     }
@@ -328,12 +339,41 @@ Meteor.methods({
             text: content.text,
             mentions: content.mentions ?? [],
           },
+          ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
           updatedAt: new Date(),
         },
       }
     );
     
     return { id: postId };
+  },
+
+  /** The caller's own post for a given calendar date in a team, or null. */
+  async 'huddle.getMyPostForDate'({ teamId, postDate }) {
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Authentication required');
+    }
+    if (!teamId || typeof teamId !== 'string') {
+      throw new Meteor.Error('bad-request', 'teamId is required');
+    }
+    if (typeof postDate !== 'string' || !POST_DATE_RE.test(postDate)) {
+      throw new Meteor.Error('bad-request', 'postDate must be a YYYY-MM-DD string');
+    }
+
+    const team = await getTeam(teamId);
+    if (!team) {
+      throw new Meteor.Error('not-found', 'Team not found');
+    }
+    const isMember = (team.members ?? []).includes(this.userId) || (team.admins ?? []).includes(this.userId);
+    if (!isMember) {
+      throw new Meteor.Error('forbidden', 'Not a team member');
+    }
+
+    const post = await rawDb().collection('huddlePosts').findOne(
+      { teamId, userId: this.userId, postDate },
+      { sort: { createdAt: -1 } }
+    );
+    return { post: post ? await enrichPost(post) : null };
   },
   
   async 'huddle.deletePost'({ postId }) {
