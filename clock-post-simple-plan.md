@@ -95,9 +95,10 @@ Save a plan without publishing (and without clocking in); publish it later to st
 
 ## Milestone 7 — Verify
 
-- [x] Backend tests: gate off → clock in/out unchanged; gate on → in blocked without today's post, out blocked without wrap-up, both pass once satisfied. (`meteor-backend/tests/plan-gate.test.ts`)
-- [x] `npm run lint && npm run typecheck` clean; unit tests + clock/teams integration tests pass. (`test:all` — full Playwright e2e — still pending for Milestones 5–6.)
-- [ ] Manual: publish plan (RichEditor) → clock in → wrap-up → clock out; confirm no duplicate post in the SuperChat feed and legacy plain-text posts still render. (M1–3 slice smoke-tested in-browser 2026-07-22/23 incl. the redesigned clock page and realtime gates; RichEditor/SuperChat parts pending M5–6.)
+- [x] Backend tests: gate off → clock in/out unchanged; gate on → in blocked without today's post, out blocked without wrap-up, both pass once satisfied; drafts never satisfy the gate. (`meteor-backend/tests/plan-gate.test.ts`, 14 passing)
+- [x] Full meteor-backend integration suite green post-M6: 137/137 (2026-07-23; first run after a server restart cold-start-flaked — warm reruns pass, see repo notes).
+- [x] `npm run lint && npm run typecheck` clean; 76 unit tests; production build (incl. `/kerebron-wasm` asset copy) clean. (`test:all` — full Playwright e2e — still pending.)
+- [ ] Manual: publish plan (RichEditor) → clock in → wrap-up → clock out; confirm no duplicate post in the SuperChat feed and legacy plain-text posts still render. (M1–4 slice smoke-tested in-browser 2026-07-22/23; the RichEditor composer + SuperChat feed views need a logged-in in-browser pass.)
 
 ## Milestone 8 (stretch) — Live collaborative sync (Yjs)
 
