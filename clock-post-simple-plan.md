@@ -79,11 +79,11 @@ Save a plan without publishing (and without clocking in); publish it later to st
 
 ## Milestone 5 — Composer → RichEditor (Kerebron)
 
-- [ ] Install `@kerebron/editor`, `@kerebron/editor-kits`, `@kerebron/wasm`; import `@mieweb/ui/kerebron.css`.
-- [ ] Serve `@kerebron/wasm`'s `assets/` at `/kerebron-wasm` (Vite static copy or `publicDir` alias — the editor fetches tree-sitter grammars from there at runtime).
-- [ ] Swap the Huddle composer's textarea for `<RichEditor value onChange />` (markdown out). Posts store markdown in the existing `content` field — plain-text legacy posts render fine as markdown.
-- [ ] `RichEditor` is uncontrolled (initial `value` applies on mount only) — remount it via `key={editingPostId ?? 'new'}` when switching between new-post and edit-today's-post.
-- [ ] If `todayPost` exists, the composer opens it for editing and submit updates instead of creating.
+- [x] Install `@kerebron/editor`, `@kerebron/editor-kits`, `@kerebron/wasm`; import `@mieweb/ui/kerebron.css`.
+- [x] Serve `@kerebron/wasm`'s `assets/` at `/kerebron-wasm` (inline Vite plugin: dev middleware + copy into `dist/` on build — the editor fetches tree-sitter grammars from there at runtime).
+- [x] Swap the Huddle composer's textarea for `<RichEditor value onChange />` (markdown out). Posts store markdown in the existing `content` field — plain-text legacy posts render fine as markdown. (The old manual markdown toolbar + preview tabs are gone — RichEditor is WYSIWYG; mentions become removable chips below the editor since RichEditor has no insert-at-cursor API.)
+- [x] `RichEditor` is uncontrolled (initial `value` applies on mount only) — remount it via `key={editingPostId ?? 'new'}` when switching between new-post and edit-today's-post.
+- [x] If `todayPost` exists, the composer opens it for editing ("Edit today's post…" / "Update post") and submit updates instead of creating.
 
 ## Milestone 6 — Feed → SuperChat panel
 

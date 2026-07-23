@@ -11,9 +11,10 @@ import { AppPage } from '../ui/AppPage';
 import { useRouter } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
-import { teamApi, type HuddlePost, type Team } from '@lib/api';
+import { teamApi, huddleApi, type HuddlePost, type Team } from '@lib/api';
 import { getDdpClient } from '@lib/ddp';
 import { toDateString } from '@lib/timeUtils';
+import { useDailyPost } from '@lib/useDailyPost';
 
 export default function Huddle() {
   const { navigate } = useRouter();
@@ -25,6 +26,9 @@ export default function Huddle() {
   const [searchQuery, setSearchQuery] = useState('');
   const { user } = useSession();
   const { selectedTeamId } = useTeam();
+  // Today's post (realtime) — when it exists, the composer edits it instead
+  // of creating a second one (plan-first flow).
+  const { todayPost } = useDailyPost(selectedTeamId);
 
   // Load team data for permission checks
   useEffect(() => {
@@ -96,11 +100,21 @@ export default function Huddle() {
         return;
       }
 
-      // Prepare attachments for API
-      const attachments = content.attachments.map(toPostAttachment);
-
       // Extract user IDs from mentions
       const mentionUserIds = (content.mentions || []).map((m) => m.userId);
+
+      if (todayPost) {
+        // Plan-first flow: the composer edits today's post instead of
+        // creating a second one.
+        await huddleApi.updatePost(todayPost.id, {
+          text: content.text,
+          mentions: [...new Set([...todayPost.content.mentions, ...mentionUserIds])],
+        });
+        return;
+      }
+
+      // Prepare attachments for API
+      const attachments = content.attachments.map(toPostAttachment);
 
       // Call DDP method to create post
       await getDdpClient().call('huddle.createPost', {
@@ -176,9 +190,13 @@ export default function Huddle() {
         {selectedTeamId && (
           <div className="huddle-composer shrink-0">
             <HuddleComposer
+              key={todayPost?.id ?? 'new'}
               onPost={addPost}
               userInitials={user ? getUserInitials(user.name) : 'U'}
               userColor={user ? getUserColor(user.id) : 'indigo'}
+              initialText={todayPost?.content.text ?? ''}
+              submitLabel={todayPost ? 'Update post' : 'Post'}
+              collapsedLabel={todayPost ? 'Edit today’s post…' : 'Share an update...'}
             />
           </div>
         )}
