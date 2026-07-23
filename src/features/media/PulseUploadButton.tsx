@@ -15,7 +15,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import * as tus from 'tus-js-client';
 import React, { useEffect, useRef, useState } from 'react';
 
-import { attachmentApi, TIMECORE_BASE_URL, videoApi } from '../../lib/api';
+import { attachmentApi, TIMECORE_BASE_URL, videoApi, mediaApi } from '../../lib/api';
+import { extractThumbnailFromVideoUrl, extractVideoThumbnail } from '../../lib/videoThumbnail';
 
 /**
  * The Pulse Cam server base for deep links — origin plus the `/pulsevault`
@@ -104,13 +105,26 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
     const interval = setInterval(async () => {
       try {
         const attachments = await attachmentApi.list('ticket', ticketId);
-        const hasNew = attachments.some(
+        const newVideo = attachments.find(
           (a) => a.type === 'video' && !knownAttachmentIds.current.has(a.id),
         );
-        if (hasNew) {
+        if (newVideo) {
           clearInterval(interval);
           clearStoredVideoid(ticketId);
           setModalOpen(false);
+
+          // Extract and upload thumbnail for the video uploaded via Pulse.
+          // This replaces the thumbnail that Pulse tries (and fails) to upload via TUS
+          // with kind='thumbnail' (unsupported by PulseVault).
+          if (videoid && newVideo.url) {
+            extractThumbnailFromVideoUrl(newVideo.url)
+              .then((thumbnailBlob) => mediaApi.uploadThumbnail(videoid, thumbnailBlob))
+              .catch((err) => {
+                console.warn('[PulseUpload] Thumbnail extraction/upload failed:', err);
+                // Non-blocking — video upload already succeeded
+              });
+          }
+
           onUploadComplete();
         }
       } catch {
@@ -118,7 +132,7 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [modalOpen, ticketId, onUploadComplete]);
+  }, [modalOpen, ticketId, videoid, onUploadComplete]);
 
   const doReserve = async (): Promise<{ videoid: string; uploadLink: string } | null> => {
     setReserving(true);
@@ -172,6 +186,9 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
     setError(null);
     setProgress(0);
 
+    // Start thumbnail extraction in parallel with the upload.
+    const thumbnailPromise = extractVideoThumbnail(file).catch(() => null);
+
     const upload = new tus.Upload(file, {
       endpoint: videoApi.uploadEndpoint(),
       retryDelays: [0, 3000, 5000, 10000],
@@ -180,10 +197,23 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
       onProgress(bytesUploaded, bytesTotal) {
         setProgress(Math.round((bytesUploaded / bytesTotal) * 100));
       },
-      onSuccess() {
+      async onSuccess() {
         clearStoredVideoid(ticketId);
         setUploadToken(null);
         setProgress(null);
+
+        // Upload thumbnail if extraction succeeded.
+        // This replaces the thumbnail that would be uploaded via TUS with an unsupported kind.
+        const thumbnailBlob = await thumbnailPromise;
+        if (thumbnailBlob && videoid) {
+          try {
+            await mediaApi.uploadThumbnail(videoid, thumbnailBlob);
+          } catch (err) {
+            console.warn('[PulseUpload] Thumbnail upload failed:', err);
+            // Non-blocking — video upload already succeeded
+          }
+        }
+
         onUploadComplete();
       },
       onError(err) {
