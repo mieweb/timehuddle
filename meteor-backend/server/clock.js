@@ -123,7 +123,7 @@ Meteor.methods({
   },
 
   /** Clock in: close any dangling open events, open a new one, fire side-effects. */
-  async 'clock.start'({ teamId } = {}) {
+  async 'clock.start'({ teamId, planPostId } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const team = await findUserTeam(userId, teamId);
@@ -146,6 +146,15 @@ Meteor.methods({
     });
     const created = await ClockEvents.findOneAsync(_id);
     const pub = toPublicClockEvent(created, []);
+
+    // Plan-first flow: link the just-posted plan to this session so the
+    // per-session clock-out gate can find it (one post per clock session).
+    if (planPostId && isValidId(planPostId)) {
+      await rawDb().collection('huddlePosts').updateOne(
+        { _id: new ObjectId(planPostId), userId },
+        { $set: { clockEventId: created._id.toHexString(), updatedAt: new Date() } }
+      );
+    }
 
     // Schedule 4h break reminder + 7h45m shift-end reminder.
     scheduleClockJobs(created._id.toHexString(), userId, teamId, now).catch((err) =>
@@ -190,6 +199,24 @@ Meteor.methods({
     const event = await ClockEvents.findOneAsync({ userId, teamId, endTime: null });
     if (!event) throw new Meteor.Error('not-found', 'No active clock event');
 
+    const team = await findUserTeam(userId, teamId);
+
+    // Plan-first flow: when the team requires a plan, block clock-out until
+    // THIS session's Huddle post has a wrap-up. One post per clock session,
+    // linked by clockEventId (see clock-post-simple-plan.md). Drafts never
+    // count — only published posts.
+    if (team?.settings?.requirePlanForClock) {
+      const post = await rawDb()
+        .collection('huddlePosts')
+        .findOne(
+          { teamId, userId, clockEventId: event._id.toHexString(), status: { $ne: 'draft' } },
+          { sort: { createdAt: -1 } }
+        );
+      if (!post?.wrapUpAt) {
+        throw new Meteor.Error('plan-required', "Add a wrap-up to this session's post first");
+      }
+    }
+
     const now = Date.now();
     const eventId = event._id.toHexString();
 
@@ -221,7 +248,6 @@ Meteor.methods({
     const updated = await ClockEvents.findOneAsync(event._id);
     const pub = toPublicClockEvent(updated, closedBreaks);
 
-    const team = await findUserTeam(userId, teamId);
     if (team) {
       const userName = await userDisplayName(userId);
       const totalSecs = pub.accumulatedTime ?? 0;

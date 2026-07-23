@@ -101,6 +101,9 @@ function toPublicTeam(team) {
     admins: team.admins,
     code: team.code,
     isPersonal: team.isPersonal ?? false,
+    settings: {
+      requirePlanForClock: team.settings?.requirePlanForClock ?? false,
+    },
     createdAt: team.createdAt instanceof Date ? team.createdAt.toISOString() : String(team.createdAt),
     updatedAt: team.updatedAt instanceof Date ? team.updatedAt.toISOString() : (team.updatedAt ?? null),
   };
@@ -360,6 +363,25 @@ Meteor.methods({
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
     await Teams.updateAsync(team._id, { $set: { name: newName.trim(), updatedAt: new Date() } });
+    const updated = await Teams.findOneAsync(team._id);
+    return { team: toPublicTeam(updated) };
+  },
+
+  async 'teams.updateSettings'({ teamId, requirePlanForClock }) {
+    const identity = await requireIdentity(this);
+    const userId = identity.userId;
+    if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
+    if (typeof requirePlanForClock !== 'boolean') {
+      throw new Meteor.Error('bad-request', 'requirePlanForClock must be a boolean');
+    }
+    const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+    if (!team) throw new Meteor.Error('not-found', 'Team not found');
+    if (!(await isTeamAdminOrOrgOwner(team, userId))) {
+      throw new Meteor.Error('forbidden', 'Admin access required');
+    }
+    await Teams.updateAsync(team._id, {
+      $set: { 'settings.requirePlanForClock': requirePlanForClock, updatedAt: new Date() },
+    });
     const updated = await Teams.findOneAsync(team._id);
     return { team: toPublicTeam(updated) };
   },

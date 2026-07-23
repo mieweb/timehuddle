@@ -1,0 +1,122 @@
+# Clock ↔ Huddle Plan-First Flow — Minimal Plan
+
+The core loop, nothing else: **write a plan as a Huddle post → clock in → add a wrap-up to that post → clock out.** One post per **clock session**, gated per team by one setting, off by default.
+
+## What's in
+
+- One team setting: `settings.requirePlanForClock` (default `false`), toggled by admins in the existing Team Settings modal.
+- Posts get a `postDate` (`YYYY-MM-DD`); session posts also get a `clockEventId` linking them to the clock session they're the plan/wrap-up for.
+- Gate on (per session): every Clock In needs a fresh plan (a post linked to that session); Clock Out is blocked until that session's post has a wrap-up. A second clock-in the same day needs its own plan. Clear inline message when blocked — no modals, no overrides.
+- Gate off (default): everything behaves exactly as today.
+- Clock page is the gate (design iteration, shipped): status banner → plain textarea → punch-clock module, with single combined actions — “Post plan and clock in” / “Post wrap-up and clock out”. The gate state is centralized in `useClockToggle.planGate` (realtime via DDP) so every clock surface (clock page, bottom-nav FAB, work/tickets prompts) agrees. This replaced the earlier `?prompt=clockin|clockout` redirect idea.
+- Composer on the Huddle tab = `RichEditor` from `@mieweb/ui/kerebron` (Kerebron/ProseMirror, markdown in/out). Feed = `SuperChat` panel (`order="desc"`, read-only thread) so posts render rich markdown for free. (The clock page keeps its plain textarea by design.)
+
+## Dependency prerequisite (blocks Milestones 5–6)
+
+Work against `mieweb/ui` as a **git submodule** so we can build it locally and PR changes upstream (the repo already uses this convention: `vendor/meteor-wormhole`).
+
+- [x] `git submodule add https://github.com/mieweb/ui vendor/ui` (track `main`).
+- [x] Build it locally (`npm install && npm run build` inside `vendor/ui`) and point `package.json` at the build: `"@mieweb/ui": "file:vendor/ui"`.
+- [x] Smoke-test existing `@mieweb/ui` usage across the app (0.2.4 → 0.6.1: typecheck, lint, 76 unit tests, production build, and login-page render all clean — no breaking changes in the 40 components we import).
+- [x] Wire the submodule build into dev docs/scripts so `nvm use && npm install` after a fresh clone doesn't silently break: `postinstall` runs `scripts/ensure-ui-build.mjs` (no-op when `vendor/ui/dist` exists, `SKIP_UI_BUILD=1` to skip); `npm run setup:ui` for manual runs.
+- [ ] Fallback/CI note: `@mieweb/ui@0.6.1-dev.169` is the closest published release with SuperChat + kerebron if `file:` causes CI friction; swap to the full release when it lands and drop the submodule once no local patches remain. (CI checkouts must init submodules — the repo already does this for `vendor/meteor-wormhole`.)
+
+### Upstream PR from the submodule
+
+- [ ] Branch in `vendor/ui`: add an `extensions`/`kits` prop to `RichEditor` so hosts can inject Kerebron extensions (e.g. `@kerebron/extension-yjs`) alongside the default `AdvancedEditorKit`.
+- [ ] PR it to `mieweb/ui`; pin the submodule to our branch commit until merged, then move the pointer back to `main`.
+
+Milestones 1–4 (setting, data model, gates, drafts) have no dependency on this and can land first.
+
+## What's deliberately out (add later only if people ask)
+
+- "Plan tomorrow before clocking out" requirement, future-dated plans
+- Next-workday/weekend date math
+- Override/confirm modals, readiness-checklist endpoints
+- Live clock-status dot on posts
+
+(Drafts were originally out — promoted to Milestone 4 by request. Kerebron/Yjs live sync was deferred here previously — the submodule + upstream `extensions` prop PR unblocks it, so it's now stretch Milestone 8.)
+
+---
+
+## Milestone 1 — Team setting
+
+- [x] `teams` doc: `settings.requirePlanForClock` (absent = `false`).
+- [x] Admin-only `teams.updateSettings({ teamId, requirePlanForClock })` in `meteor-backend/server/teams.js` (copy the `teams.rename` auth pattern).
+- [x] `Team` type + `teamApi.updateSettings` in `src/lib/api.ts`.
+- [x] On/off toggle in the Team Settings modal in `src/features/teams/TeamsPage.tsx` (reuse `canManageTeamSettings`).
+
+## Milestone 2 — Today's post
+
+- [x] `huddle.createPost`: accept `postDate` (client sends `toDateString(new Date())` from `src/lib/timeUtils.ts`).
+- [x] `huddle.updatePost`: accept optional `wrapUp: boolean` → sets `wrapUpAt: new Date()` on the post.
+- [x] `huddle.getMyPostForDate({ teamId, postDate })` → `{ post }` or `{ post: null }`.
+- [x] Frontend: `HuddlePost` gets `postDate` + `wrapUpAt`; `huddleApi.getMyPostForDate` wrapper; tiny `useDailyPost(teamId)` hook returning `{ todayPost, refetch }`.
+
+## Milestone 3 — Gates
+
+- [x] `ClockPage.tsx`: when the team setting is on and there's no `todayPost`, disable Clock In with a one-line "Write today's plan first" link to Huddle. Setting off → unchanged.
+- [x] `clock.stop` in `meteor-backend/server/clock.js`: when the setting is on and today's post has no `wrapUpAt`, throw `Meteor.Error('plan-required', 'Add a wrap-up to today's post first')`. Setting off → unchanged. (Accepts an optional client-local `localDate` so "today" matches the user's timezone; falls back to the server-local date.)
+- [x] `useClockToggle` / `ClockPage.tsx`: show the `plan-required` message inline with a link to Huddle.
+
+Added along the way (shipped):
+
+- [x] Gate centralized in `useClockToggle.planGate`; realtime via the `huddlePosts.byTeam` DDP publication (`useDailyPost`) — no reloads.
+- [x] All clock surfaces respect the gate: bottom-nav FAB (dimmed "plan required" state, navigates to the clock page), Work/Tickets clock-in prompts.
+- [x] Clock page redesigned as the gate: banner → composer → punch clock; combined “Post plan and clock in” / “Post wrap-up and clock out” actions.
+
+## Milestone 4 — Drafts (added by request)
+
+Save a plan without publishing (and without clocking in); publish it later to start the shift. Drafts are author-only — never in the team feed, never notify, never satisfy the gate.
+
+- [x] `huddle.createPost`: accept `draft: true` → stores `status: 'draft'` (no `postDate`, no team notifications). Absent status = published; legacy posts unaffected.
+- [x] Feed excludes drafts everywhere: `huddlePosts.byTeam` publication + change stream (publish arrives as a realtime `added`), `huddle.getPosts`, `huddle.getPostsByTicket`.
+- [x] Gate ignores drafts: `huddle.getMyPostForDate` and the `clock.stop` check only match published posts.
+- [x] `huddle.publishPost({ postId, content?, postDate })`: author-only; updates content if provided, stamps `postDate` (client-local today), clears draft status.
+- [x] `huddle.getMyLatestDraft({ teamId })` → `{ post | null }` (requireIdentity + wormhole exposure).
+- [x] Clock page composer: "Save draft"/"Update draft" secondary action; an existing draft is prefilled and the primary action becomes "Publish plan and clock in".
+- [x] Tests: draft doesn't satisfy the gate; publish does (and enters the feed); drafts invisible in the feed; only the author can publish. (`meteor-backend/tests/plan-gate.test.ts`, 14 passing)
+- [x] **Drafts tab (added by request):** a Feed/Drafts toggle on the Huddle page; `huddle.getMyDrafts` lists all of a user's drafts; `DraftsPanel` supports creating multiple drafts and editing/publishing/deleting each. Publishing a draft as a session plan links it to the session (`huddle.publishPost` accepts `clockEventId`).
+
+## Milestone 4b — Per-session gate (added by request)
+
+Every clock session gets its own plan + wrap-up post, not one shared per day.
+
+- [x] Posts carry `clockEventId`; `clock.start` accepts `planPostId` and links the plan to the new session; `clock.stop` gates on the session's linked post (not the date).
+- [x] `huddle.getMyPostForSession({ teamId, clockEventId })`; `useSessionPost` hook (realtime via DDP); `useClockToggle.planGate` exposes `sessionPost`; `planMissing` = gate on && no active session (a fresh plan is always required to start).
+- [x] Clock page: "Post plan and clock in" links the plan; "Post wrap-up and clock out" wraps up the session post; recovery path creates a linked wrap-up post if a session somehow has none (`createPost` accepts `clockEventId` + `wrapUp`).
+- [x] Huddle-tab composer always creates a new post (no auto-edit of "today's post").
+- [x] Bigger editor: RichEditor `min-h-52` + larger text; clock-page textarea `rows={10}` / `min-h-52`.
+- [x] Tests updated for per-session semantics incl. "second clock-in of the day needs its own plan" (`plan-gate.test.ts`, 15 passing). In-browser verified 2026-07-23: two sessions each gated independently, two separate posts in the feed, drafts tab creates/hides multiple drafts.
+
+## Milestone 5 — Composer → RichEditor (Kerebron)
+
+- [x] Install `@kerebron/editor`, `@kerebron/editor-kits`, `@kerebron/wasm`; import `@mieweb/ui/kerebron.css`.
+- [x] Serve `@kerebron/wasm`'s `assets/` at `/kerebron-wasm` (inline Vite plugin: dev middleware + copy into `dist/` on build — the editor fetches tree-sitter grammars from there at runtime).
+- [x] Swap the Huddle composer's textarea for `<RichEditor value onChange />` (markdown out). Posts store markdown in the existing `content` field — plain-text legacy posts render fine as markdown. (The old manual markdown toolbar + preview tabs are gone — RichEditor is WYSIWYG; mentions become removable chips below the editor since RichEditor has no insert-at-cursor API.)
+- [x] `RichEditor` is uncontrolled (initial `value` applies on mount only) — remount it via `key={editingPostId ?? 'new'}` when switching between new-post and edit-today's-post.
+- [x] If `todayPost` exists, the composer opens it for editing ("Edit today's post…" / "Update post") and submit updates instead of creating.
+
+## Milestone 6 — Feed → SuperChat panel
+
+- [x] Map huddle posts → a `SuperChatConversation`: one participant per post author, one message per post (`createdAt`, markdown `text`, `editedAt` when edited); image attachments embedded as markdown images, other attachments as links; ticket title as an inline tag. (`src/features/huddle/superChatFeed.ts`)
+- [x] Render `<SuperChat order="desc" readOnly virtualized>` for the feed — newest-first, composer disabled (authoring goes through the RichEditor above the feed, since SuperChat's built-in composer can't be swapped out).
+- [x] Enable `renderPlugins` (`createCodePlugin`, `createImagePlugin`, `createMermaidPlugin`) — math/KaTeX skipped. (Plugins import from `@mieweb/ui/components/SuperChat/plugins`.)
+- [x] Wire `onMessageEdited` (self-authored messages only) → `huddle.updatePost`, so "edit today's post" also works inline from the feed.
+- [x] Comment handling decided: per-post comments and likes stay in the classic card view — a chat/cards toggle on the feed header switches views (SuperChat has no per-message thread concept; not force-fit).
+
+## Milestone 7 — Verify
+
+- [x] Backend tests: gate off → clock in/out unchanged; gate on → in blocked without today's post, out blocked without wrap-up, both pass once satisfied; drafts never satisfy the gate. (`meteor-backend/tests/plan-gate.test.ts`, 14 passing)
+- [x] Full meteor-backend integration suite green post-M6: 137/137 (2026-07-23; first run after a server restart cold-start-flaked — warm reruns pass, see repo notes).
+- [x] `npm run lint && npm run typecheck` clean; 76 unit tests; production build (incl. `/kerebron-wasm` asset copy) clean. (`test:all` — full Playwright e2e — still pending.)
+- [x] Manual: publish plan (RichEditor) → feed → edit today's post → update; confirmed in-browser 2026-07-23: composer expands to Kerebron RichEditor (toolbar + markdown input rules), posting lands in the SuperChat thread with real markdown rendering (bold/code), composer flips to "Edit today's post…" and prefills rich content, updates show an "(edited)" badge, chat↔cards toggle keeps comments/likes in the card view, no duplicate posts. (Gates/drafts/clock flow smoke-tested 2026-07-22/23.)
+
+## Milestone 8 (stretch) — Live collaborative sync (Yjs)
+
+Only after the upstream `extensions` prop PR merges (or against our pinned submodule branch). Ship independently of 1–7.
+
+- [ ] `/yjs` WebSocket route on the existing server: `y-websocket`'s `setupWSConnection` attached to the HTTP server on its own path (clear of DDP's `/websocket`), auth via the same token-in-query pattern as the other WS routes.
+- [ ] Room per post id; Y.Doc held in memory, seeded from the post's stored markdown on first join. Markdown stays the source of truth — saves still go through `huddle.updatePost`, no Y.Doc persistence layer.
+- [ ] Wire `@kerebron/extension-yjs` into `RichEditor` via the new `extensions` prop, room = post id.
+- [ ] Verify: same post open in two browsers → edits and cursors sync live; a save from either persists the merged markdown.

@@ -121,6 +121,8 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
+    /** Meteor.Error code (e.g. 'plan-required'), when the backend provided one. */
+    public readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -849,6 +851,7 @@ async function wormholeCall<T = unknown>(
 
   const data = (await res.json().catch(() => ({}))) as {
     result?: T;
+    error?: string;
     reason?: string;
     message?: string;
   };
@@ -865,7 +868,11 @@ async function wormholeCall<T = unknown>(
   }
 
   if (!res.ok) {
-    throw new ApiError(data.reason || data.message || `Request failed (${res.status})`, res.status);
+    throw new ApiError(
+      data.reason || data.message || `Request failed (${res.status})`,
+      res.status,
+      data.error,
+    );
   }
   return data.result as T;
 }
@@ -982,6 +989,14 @@ export interface HuddlePost {
   }>;
   likes: string[];
   commentCount: number;
+  /** 'draft' = author-only, not in the feed, doesn't satisfy clock gates. */
+  status?: 'draft';
+  /** Client-local calendar date (YYYY-MM-DD) this post is the plan for. */
+  postDate?: string;
+  /** Clock session this post is the plan/wrap-up for (per-session gate). */
+  clockEventId?: string;
+  /** Set when the author saved a wrap-up edit (plan-first clock flow). */
+  wrapUpAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1006,9 +1021,51 @@ export const huddleApi = {
       (r) => r.posts,
     ),
 
-  /** Update a huddle post. */
-  updatePost: (postId: string, content: { text: string; mentions: string[] }) =>
-    getDdpClient().call('huddle.updatePost', { postId, content }),
+  /** The caller's own post for a calendar date (YYYY-MM-DD) in a team, or null. */
+  getMyPostForDate: (teamId: string, postDate: string) =>
+    wormholeCall<{ post: HuddlePost | null }>('huddle.getMyPostForDate', {
+      teamId,
+      postDate,
+    }).then((r) => r.post),
+
+  /** The caller's post linked to a clock session (per-session gate), or null. */
+  getMyPostForSession: (teamId: string, clockEventId: string) =>
+    wormholeCall<{ post: HuddlePost | null }>('huddle.getMyPostForSession', {
+      teamId,
+      clockEventId,
+    }).then((r) => r.post),
+
+  /** The caller's newest unpublished draft in a team, or null. */
+  getMyLatestDraft: (teamId: string) =>
+    wormholeCall<{ post: HuddlePost | null }>('huddle.getMyLatestDraft', { teamId }).then(
+      (r) => r.post,
+    ),
+
+  /** All of the caller's unpublished drafts in a team, newest first. */
+  getMyDrafts: (teamId: string) =>
+    wormholeCall<{ posts: HuddlePost[] }>('huddle.getMyDrafts', { teamId }).then((r) => r.posts),
+
+  /** Save a plan as an author-only draft (not in the feed, no gate effect). */
+  saveDraft: (teamId: string, content: { text: string; mentions: string[] }) =>
+    getDdpClient().call('huddle.createPost', { teamId, content, draft: true }) as Promise<{
+      id: string;
+    }>,
+
+  /** Publish a draft: optional content update + client-local postDate stamp;
+   * optionally link it to a clock session. */
+  publishPost: (
+    postId: string,
+    postDate: string,
+    content?: { text: string; mentions: string[] },
+    clockEventId?: string,
+  ) => getDdpClient().call('huddle.publishPost', { postId, postDate, content, clockEventId }),
+
+  /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow). */
+  updatePost: (
+    postId: string,
+    content: { text: string; mentions: string[] },
+    options?: { wrapUp?: boolean },
+  ) => getDdpClient().call('huddle.updatePost', { postId, content, ...options }),
 
   /** Delete a huddle post. */
   deletePost: (postId: string) => getDdpClient().call('huddle.deletePost', { postId }),
@@ -1042,6 +1099,9 @@ export interface Team {
   admins: string[];
   code: string;
   isPersonal: boolean;
+  settings?: {
+    requirePlanForClock?: boolean;
+  };
   createdAt: string;
   updatedAt: string | null;
 }
@@ -1121,6 +1181,11 @@ export const teamApi = {
   renameTeam: (id: string, newName: string) =>
     wormholeCall<{ team: Team }>('teams.rename', { teamId: id, newName }).then((r) => r.team),
 
+  updateSettings: (id: string, settings: { requirePlanForClock: boolean }) =>
+    wormholeCall<{ team: Team }>('teams.updateSettings', { teamId: id, ...settings }).then(
+      (r) => r.team,
+    ),
+
   deleteTeam: (id: string) => wormholeCall<{ ok: boolean }>('teams.delete', { teamId: id }),
 
   getMembers: (id: string) =>
@@ -1195,7 +1260,8 @@ export interface ClockEvent {
 
 export const clockApi = {
   /** Clock in to a team. Returns the new clock event. */
-  start: (teamId: string) => wormholeCall<ClockEvent>('clock.start', { teamId }),
+  start: (teamId: string, planPostId?: string) =>
+    wormholeCall<ClockEvent>('clock.start', { teamId, planPostId }),
 
   /** Clock out of a team. */
   stop: (teamId: string) => wormholeCall<ClockEvent>('clock.stop', { teamId }),

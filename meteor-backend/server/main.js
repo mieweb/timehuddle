@@ -798,7 +798,10 @@ Meteor.startup(async() => {
     description: 'Clock in to a team (closes any dangling open events first)',
     inputSchema: {
       type: 'object',
-      properties: { teamId: { type: 'string' } },
+      properties: {
+        teamId: { type: 'string' },
+        planPostId: { type: 'string', description: 'Link this plan post to the new session' },
+      },
       required: ['teamId'],
     },
   });
@@ -807,7 +810,9 @@ Meteor.startup(async() => {
     description: 'Clock out of a team (computes worked time minus meal breaks)',
     inputSchema: {
       type: 'object',
-      properties: { teamId: { type: 'string' } },
+      properties: {
+        teamId: { type: 'string' },
+      },
       required: ['teamId'],
     },
   });
@@ -957,6 +962,42 @@ Meteor.startup(async() => {
       type: 'object',
       properties: { ticketId: { type: 'string' } },
       required: ['ticketId'],
+    },
+  });
+
+  Wormhole.expose('huddle.getMyPostForDate', {
+    description: "The caller's own huddle post for a calendar date in a team, or null",
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' }, postDate: { type: 'string' } },
+      required: ['teamId', 'postDate'],
+    },
+  });
+
+  Wormhole.expose('huddle.getMyLatestDraft', {
+    description: "The caller's newest unpublished draft post in a team, or null",
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('huddle.getMyDrafts', {
+    description: "All of the caller's unpublished drafts in a team, newest first",
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('huddle.getMyPostForSession', {
+    description: "The caller's post linked to a clock session, or null",
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' }, clockEventId: { type: 'string' } },
+      required: ['teamId', 'clockEventId'],
     },
   });
 
@@ -1183,6 +1224,15 @@ Meteor.startup(async() => {
       type: 'object',
       properties: { teamId: { type: 'string' }, newName: { type: 'string' } },
       required: ['teamId', 'newName'],
+    },
+  });
+
+  Wormhole.expose('teams.updateSettings', {
+    description: 'Update team settings, e.g. requirePlanForClock (admin only)',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' }, requirePlanForClock: { type: 'boolean' } },
+      required: ['teamId', 'requirePlanForClock'],
     },
   });
 

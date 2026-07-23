@@ -2,19 +2,32 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useTeam } from './TeamContext';
-import { clockApi } from './api';
+import { ApiError, clockApi } from './api';
 import { useClockToggle } from './useClockToggle';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
 vi.mock('./TeamContext', () => ({ useTeam: vi.fn() }));
 
-vi.mock('./api', () => ({
-  clockApi: {
-    start: vi.fn(),
-    stop: vi.fn(),
-  },
-}));
+vi.mock('./api', () => {
+  class ApiError extends Error {
+    constructor(
+      message: string,
+      public readonly status: number,
+      public readonly code?: string,
+    ) {
+      super(message);
+      this.name = 'ApiError';
+    }
+  }
+  return {
+    ApiError,
+    clockApi: {
+      start: vi.fn(),
+      stop: vi.fn(),
+    },
+  };
+});
 
 const mockUseTeam = vi.mocked(useTeam);
 const mockStart = vi.mocked(clockApi.start);
@@ -90,7 +103,7 @@ describe('useClockToggle', () => {
 
       await act(() => result.current.clockIn());
 
-      expect(mockStart).toHaveBeenCalledWith('team-abc');
+      expect(mockStart).toHaveBeenCalledWith('team-abc', undefined);
       expect(mockRefetchClock).toHaveBeenCalledOnce();
     });
 
@@ -172,6 +185,25 @@ describe('useClockToggle', () => {
 
       expect(window.alert).toHaveBeenCalledWith('Network error');
       expect(result.current.clockOutLoading).toBe(false);
+    });
+
+    it('exposes plan-required errors inline instead of alerting', async () => {
+      setupTeam({ activeClockEvent: { id: 'evt1', teamId: 'team1' } });
+      mockStop.mockRejectedValueOnce(
+        new ApiError("Add a wrap-up to today's post first", 500, 'plan-required'),
+      );
+
+      const { result } = renderHook(() => useClockToggle());
+
+      await act(() => result.current.clockOut());
+
+      expect(window.alert).not.toHaveBeenCalled();
+      expect(result.current.clockOutBlockedReason).toBe("Add a wrap-up to today's post first");
+
+      // A successful clock-out clears the blocked reason.
+      mockStop.mockResolvedValueOnce({} as any);
+      await act(() => result.current.clockOut());
+      expect(result.current.clockOutBlockedReason).toBeNull();
     });
 
     it('sets clockOutLoading=true during the call and false after', async () => {

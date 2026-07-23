@@ -1,6 +1,39 @@
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
 import path from 'path';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
+
+// Serve @kerebron/wasm's assets/ at /kerebron-wasm — RichEditor (Kerebron)
+// fetches tree-sitter grammars and the ODT wasm from there at runtime.
+function kerebronWasmAssets(): Plugin {
+  const assetsDir = path.resolve(__dirname, 'node_modules/@kerebron/wasm/assets');
+  const contentType = (file: string) =>
+    file.endsWith('.wasm')
+      ? 'application/wasm'
+      : file.endsWith('.json')
+        ? 'application/json'
+        : 'application/octet-stream';
+  return {
+    name: 'kerebron-wasm-assets',
+    configureServer(server) {
+      server.middlewares.use('/kerebron-wasm', (req, res, next) => {
+        const rel = decodeURIComponent((req.url ?? '/').split('?')[0]);
+        const filePath = path.normalize(path.join(assetsDir, rel));
+        // Path-traversal guard: only serve files inside the assets dir.
+        if (!filePath.startsWith(assetsDir + path.sep)) return next();
+        if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) return next();
+        res.setHeader('Content-Type', contentType(filePath));
+        fs.createReadStream(filePath).pipe(res);
+      });
+    },
+    closeBundle() {
+      // Production build: ship the assets alongside the bundle (vite preview
+      // and static hosting then serve /kerebron-wasm from dist/).
+      const out = path.resolve(__dirname, 'dist/kerebron-wasm');
+      if (fs.existsSync(assetsDir)) fs.cpSync(assetsDir, out, { recursive: true });
+    },
+  };
+}
 
 // When running inside a Capacitor WebView (live-reload or production bundle),
 // we must use the real @capacitor/* packages so native APIs work.
@@ -17,7 +50,7 @@ const capacitorStubs = isCapacitorBuild
     };
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), kerebronWasmAssets()],
 
   resolve: {
     alias: {
