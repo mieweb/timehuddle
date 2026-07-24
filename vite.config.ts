@@ -53,6 +53,10 @@ export default defineConfig({
   plugins: [react(), kerebronWasmAssets()],
 
   resolve: {
+    // Force a single React instance. @mieweb/ui is linked via `file:vendor/ui`,
+    // whose own node_modules can carry a second copy of react/react-dom —
+    // two copies break hooks ("Invalid hook call" / useReducer of null).
+    dedupe: ['react', 'react-dom'],
     alias: {
       '@ui': path.resolve(__dirname, 'src/ui'),
       '@lib': path.resolve(__dirname, 'src/lib'),
