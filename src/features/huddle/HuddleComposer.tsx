@@ -16,9 +16,12 @@ import { useTeam } from '@lib/TeamContext';
 import { attachmentApi } from '@lib/api';
 import { TicketPicker } from './TicketPicker';
 import { AttachmentBar } from './AttachmentBar';
+import { PulseAttachButton } from './PulseAttachButton';
 import { MarkdownEditor } from './MarkdownEditor';
 import { MentionMenu } from './MentionMenu';
 import type { ComposerContent, MediaItem } from './types';
+
+type MentionRef = { userId: string; name: string };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface HuddleComposerProps {
@@ -35,6 +38,20 @@ interface HuddleComposerProps {
   submitLabel?: string;
   /** Placeholder for the collapsed bar. */
   collapsedLabel?: string;
+  /**
+   * Edit mode: start expanded with no collapsed bar / click-outside collapse.
+   * Submit and Cancel defer to the host (via onPost / onCancel) instead of
+   * resetting the composer in place.
+   */
+  editing?: boolean;
+  /** Called when the user cancels in edit mode. */
+  onCancel?: () => void;
+  /** Attachments preloaded into the composer (edit mode). */
+  initialAttachments?: MediaItem[];
+  /** Ticket preselected in the composer (edit mode). */
+  initialTicketId?: string;
+  /** Mentions preloaded into the composer (edit mode). */
+  initialMentions?: MentionRef[];
 }
 
 // ─── HuddleComposer ───────────────────────────────────────────────────────────
@@ -45,20 +62,26 @@ export function HuddleComposer({
   initialText = '',
   submitLabel = 'Post',
   collapsedLabel = 'Share an update...',
+  editing = false,
+  onCancel,
+  initialAttachments,
+  initialTicketId,
+  initialMentions,
 }: HuddleComposerProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(editing);
   const [text, setText] = useState(initialText);
-  const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>();
-  const [attachments, setAttachments] = useState<MediaItem[]>([]);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(initialTicketId);
+  const [attachments, setAttachments] = useState<MediaItem[]>(initialAttachments ?? []);
   const [ticketVideos, setTicketVideos] = useState<MediaItem[]>([]);
-  const [mentions, setMentions] = useState<Array<{ userId: string; name: string }>>([]);
+  const [mentions, setMentions] = useState<MentionRef[]>(initialMentions ?? []);
   const { selectedTeamId } = useTeam();
   const composerRef = useRef<HTMLDivElement>(null);
 
   // Click-outside → collapse (only when empty, so in-progress writing is never
-  // lost). Frees up feed space when you're not actively composing.
+  // lost). Frees up feed space when you're not actively composing. Disabled in
+  // edit mode — the host owns dismissal there.
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded || editing) return;
     const onDocMouseDown = (e: MouseEvent) => {
       if (composerRef.current?.contains(e.target as Node)) return;
       // Kerebron popovers (toolbar dropdowns) can portal outside the composer.
@@ -117,13 +140,26 @@ export function HuddleComposer({
       // Combine user attachments with ticket videos
       const allAttachments = [...attachments, ...ticketVideos];
 
+      // RichEditor has no insert-at-cursor API, so append any selected mentions
+      // that aren't already written in the body as trailing @name tokens —
+      // otherwise they'd be tracked but never visible in the post.
+      const base = text.trim();
+      const mentionSuffix = mentions
+        .filter((m) => !base.includes(`@${m.name}`))
+        .map((m) => `@${m.name}`)
+        .join(' ');
+      const finalText = [base, mentionSuffix].filter(Boolean).join(' ') || '(Image post)';
+
       onPost({
-        text: text.trim() || '(Image post)',
-        json: { text: text.trim() || '(Image post)' },
+        text: finalText,
+        json: { text: finalText },
         ticketId: selectedTicketId,
         attachments: allAttachments,
         mentions,
       });
+      // In edit mode the host closes the composer once the update resolves; keep
+      // the fields intact so nothing flickers before it unmounts.
+      if (editing) return;
       setText(initialText);
       setExpanded(false);
       setSelectedTicketId(undefined);
@@ -137,6 +173,10 @@ export function HuddleComposer({
   };
 
   const handleCancel = () => {
+    if (editing) {
+      onCancel?.();
+      return;
+    }
     setText(initialText);
     setExpanded(false);
     setSelectedTicketId(undefined);
@@ -183,30 +223,6 @@ export function HuddleComposer({
         <div className="flex-1 bg-gray-100 dark:bg-neutral-700 border border-gray-200 dark:border-neutral-600 rounded-full px-4 py-2.5 text-sm text-gray-400 dark:text-neutral-500">
           {collapsedLabel}
         </div>
-        <button
-          className="w-9 h-9 rounded-full bg-gray-100 dark:bg-neutral-700 border border-gray-200 dark:border-neutral-600 flex items-center justify-center shrink-0"
-          aria-label="Open composer"
-        >
-          <svg
-            className="w-4 h-4 text-gray-400 dark:text-neutral-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-            />
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-            />
-          </svg>
-        </button>
       </div>
     );
   }
@@ -340,6 +356,7 @@ export function HuddleComposer({
           {/* ── Button bar ── */}
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <AttachmentBar onAttachmentAdd={handleAttachmentAdd} />
+            <PulseAttachButton onAttach={handleAttachmentAdd} />
             {selectedTeamId && (
               <TicketPicker
                 teamId={selectedTeamId}
@@ -347,7 +364,9 @@ export function HuddleComposer({
                 selectedId={selectedTicketId}
               />
             )}
-            {selectedTeamId && <MentionMenu teamId={selectedTeamId} onSelect={handleMentionSelect} />}
+            {selectedTeamId && (
+              <MentionMenu teamId={selectedTeamId} onSelect={handleMentionSelect} />
+            )}
             <button
               onClick={handleCancel}
               className="text-xs text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 transition-colors ml-1"

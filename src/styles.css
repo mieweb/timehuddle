@@ -77,6 +77,15 @@ html[data-theme='dark'] {
   --kb-menu-dropdown-hover: rgba(255, 255, 255, 0.08);
 }
 
+/* Kerebron ships its sticky toolbar at `z-index: 1000`, which sits ABOVE the
+   app's modal layer (@mieweb/ui Modal is `z-50`) and bleeds through any dialog
+   opened over the composer (e.g. the Pulse upload modal). Pull it back into the
+   app's z-scale: high enough to stay above editor content while scrolling, well
+   below modals/overlays. */
+.kb-component .kb-custom-menu {
+  z-index: 10;
+}
+
 /* Prevent iOS Safari from auto-zooming when focusing inputs smaller than 16px */
 @media (max-width: 767px) {
   input,

@@ -327,7 +327,7 @@ Meteor.methods({
     return { id: doc._id.toHexString() };
   },
   
-  async 'huddle.updatePost'({ postId, content, wrapUp }) {
+  async 'huddle.updatePost'({ postId, content, wrapUp, attachments, ticketId }) {
     if (!this.userId) {
       throw new Meteor.Error('not-authorized', 'Authentication required');
     }
@@ -362,7 +362,18 @@ Meteor.methods({
         }
       }
     }
-    
+
+    // Validate ticketId when the caller is (re)assigning one. `null` clears it.
+    if (ticketId !== undefined && ticketId !== null) {
+      const ticket = await rawDb().collection('tickets').findOne({ _id: toId(ticketId) });
+      if (!ticket) {
+        throw new Meteor.Error('not-found', 'Ticket not found');
+      }
+      if (ticket.teamId !== post.teamId) {
+        throw new Meteor.Error('bad-request', 'Ticket does not belong to this team');
+      }
+    }
+
     await rawDb().collection('huddlePosts').updateOne(
       { _id: toId(postId) },
       {
@@ -371,6 +382,10 @@ Meteor.methods({
             text: content.text,
             mentions: content.mentions ?? [],
           },
+          // Only touch attachments/ticketId when the editor sends them, so the
+          // plan-first clock flow (which omits them) leaves them untouched.
+          ...(attachments !== undefined ? { attachments: attachments ?? [] } : {}),
+          ...(ticketId !== undefined ? { ticketId: ticketId ?? undefined } : {}),
           ...(wrapUp === true ? { wrapUpAt: new Date() } : {}),
           updatedAt: new Date(),
         },

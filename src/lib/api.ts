@@ -1060,11 +1060,22 @@ export const huddleApi = {
     clockEventId?: string,
   ) => getDdpClient().call('huddle.publishPost', { postId, postDate, content, clockEventId }),
 
-  /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow). */
+  /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow).
+   * Pass attachments/ticketId to edit them (omit to leave untouched). */
   updatePost: (
     postId: string,
     content: { text: string; mentions: string[] },
-    options?: { wrapUp?: boolean },
+    options?: {
+      wrapUp?: boolean;
+      attachments?: Array<{
+        mediaId: string;
+        type: 'image' | 'video' | 'file';
+        url: string;
+        thumbnailUrl?: string;
+        filename?: string;
+      }>;
+      ticketId?: string | null;
+    },
   ) => getDdpClient().call('huddle.updatePost', { postId, content, ...options }),
 
   /** Delete a huddle post. */

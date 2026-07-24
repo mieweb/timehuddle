@@ -9,7 +9,7 @@ The core loop, nothing else: **write a plan as a Huddle post → clock in → ad
 - Gate on (per session): every Clock In needs a fresh plan (a post linked to that session); Clock Out is blocked until that session's post has a wrap-up. A second clock-in the same day needs its own plan. Clear inline message when blocked — no modals, no overrides.
 - Gate off (default): everything behaves exactly as today.
 - Clock page is the gate (design iteration, shipped): status banner → plain textarea → punch-clock module, with single combined actions — “Post plan and clock in” / “Post wrap-up and clock out”. The gate state is centralized in `useClockToggle.planGate` (realtime via DDP) so every clock surface (clock page, bottom-nav FAB, work/tickets prompts) agrees. This replaced the earlier `?prompt=clockin|clockout` redirect idea.
-- Composer on the Huddle tab = `RichEditor` from `@mieweb/ui/kerebron` (Kerebron/ProseMirror, markdown in/out). Feed = `SuperChat` panel (`order="desc"`, read-only thread) so posts render rich markdown for free. (The clock page keeps its plain textarea by design.)
+- Composer on the Huddle tab = `RichEditor` from `@mieweb/ui/kerebron` (Kerebron/ProseMirror, markdown in/out). Feed = `SuperChat` panel (`order="desc"`, read-only thread) so posts render rich markdown for free. The clock page uses the **same** theme-aware RichEditor (see Milestone 9 — the earlier plain-textarea design was replaced).
 
 ## Dependency prerequisite (blocks Milestones 5–6)
 
@@ -93,7 +93,7 @@ Every clock session gets its own plan + wrap-up post, not one shared per day.
 
 - [x] Install `@kerebron/editor`, `@kerebron/editor-kits`, `@kerebron/wasm`; import `@mieweb/ui/kerebron.css`.
 - [x] Serve `@kerebron/wasm`'s `assets/` at `/kerebron-wasm` (inline Vite plugin: dev middleware + copy into `dist/` on build — the editor fetches tree-sitter grammars from there at runtime).
-- [x] Swap the Huddle composer's textarea for `<RichEditor value onChange />` (markdown out). Posts store markdown in the existing `content` field — plain-text legacy posts render fine as markdown. (The old manual markdown toolbar + preview tabs are gone — RichEditor is WYSIWYG; mentions become removable chips below the editor since RichEditor has no insert-at-cursor API.)
+- [x] Swap the Huddle composer's textarea for `<RichEditor value onChange />` (markdown out). Posts store markdown in the existing `content` field — plain-text legacy posts render fine as markdown. (The old manual markdown toolbar + preview tabs are gone — RichEditor is WYSIWYG; mentions are picked from a chip list and **appended into the post text as `@name` on submit** — see Milestone 9 — since RichEditor has no insert-at-cursor API.)
 - [x] `RichEditor` is uncontrolled (initial `value` applies on mount only) — remount it via `key={editingPostId ?? 'new'}` when switching between new-post and edit-today's-post.
 - [x] If `todayPost` exists, the composer opens it for editing ("Edit today's post…" / "Update post") and submit updates instead of creating.
 
@@ -122,3 +122,29 @@ Only after the upstream `extensions` prop PR merges (or against our pinned submo
 - [ ] Room per post id; Y.Doc held in memory, seeded from the post's stored markdown on first join. Markdown stays the source of truth — saves still go through `huddle.updatePost`, no Y.Doc persistence layer.
 - [ ] Wire `@kerebron/extension-yjs` into `RichEditor` via the new `extensions` prop, room = post id.
 - [ ] Verify: same post open in two browsers → edits and cursors sync live; a save from either persists the merged markdown.
+
+## Milestone 9 — Composer parity & polish (added by request)
+
+A round of editor/composer fixes and feature parity across the clock page and the Huddle composer.
+
+**Clock-page RichEditor (replaces the plain textarea):**
+
+- [x] Clock page now uses the same Kerebron `MarkdownEditor` wrapper as the Huddle composer, theme-aware (dark/light).
+- [x] Fixed "can't type": the wrapper's capturing `mousedown` handler was `preventDefault`-ing clicks on the editable content itself (it lives inside `.kb-custom-menu__wrapper` next to the toolbar), which blocked caret placement. It now only preserves the selection for toolbar/menu clicks, never the editable body.
+- [x] Dark mode: mapped Kerebron's `--kb-color-*` / `--kb-menu-*` vars under `[data-theme='dark']` in `src/styles.css` (the editor themes via `.kb-component--dark` / `prefers-color-scheme`, but the app drives theme with `data-theme`).
+- [x] Content continuity: the wrap-up composer is seeded with this session's plan post so clock-out continues the same content; submit saves the edited content directly (no plan duplication).
+
+**Huddle composer:**
+
+- [x] Removed the camera button from the collapsed bar.
+- [x] Added a **Pulse** video button with full parity to ticket details: QR-record-with-phone **and** device upload, via a shared `PulseUploadModal` (extracted so the ticket-scoped `PulseUploadButton` and the new library-mode `PulseAttachButton` share one modal). Library uploads reserve with no ticket and poll `mediaApi.list` by `videoid` for completion.
+- [x] **Mentions now render**: they were stored in `content.mentions` but never inserted into the text, so posts showed nothing. The composer appends `@name` into the post text on submit.
+- [x] **Edit uses the full composer**: post editing opens the whole `HuddleComposer` (RichEditor + Photo/Video/Doc/Pulse/Ticket/@Mention), replacing the plain textarea, so attachments/tickets/mentions are all editable. Backend `huddle.updatePost` now accepts + persists `attachments` and `ticketId` (omitted → untouched, so the clock flow is unaffected).
+- [x] Fixed a z-index bug: Kerebron's sticky toolbar (`z-index: 1000`) bled over `@mieweb/ui` modals (`z-50`); pulled it into the app's z-scale (`z-index: 10`).
+
+Verified in-browser 2026-07-23: camera gone; Pulse modal (QR + device); mentions render in the feed + persist in the DB; edit preloads content and saves with the "edited" badge; clean modal stacking. `typecheck` / `eslint` / `prettier` clean.
+
+**Dependency hygiene:**
+
+- [x] Aligned `@kerebron/extension-basic-editor` to `^0.8.6` (was `^0.7.9`, which pulled a second `@kerebron/editor` / `prosemirror-model` copy → duplicate-instance warnings). Deduped the lockfile.
+- [x] Added `.github/dependabot.yml`: groups `@kerebron/*` into one weekly PR (release train) and bumps the `vendor/ui` / `vendor/meteor-wormhole` submodule pointers.
