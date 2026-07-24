@@ -19,6 +19,7 @@ import { AttachmentBar } from './AttachmentBar';
 import { PulseAttachButton } from './PulseAttachButton';
 import { MarkdownEditor } from './MarkdownEditor';
 import { MentionMenu } from './MentionMenu';
+import { huddlePostCollab } from './collab';
 import type { ComposerContent, MediaItem } from './types';
 
 type MentionRef = { userId: string; name: string };
@@ -52,6 +53,12 @@ interface HuddleComposerProps {
   initialTicketId?: string;
   /** Mentions preloaded into the composer (edit mode). */
   initialMentions?: MentionRef[];
+  /**
+   * When set, enables live collaborative editing (Yjs) for this room — every
+   * peer editing the same post co-edits one shared document. Only meaningful
+   * for an existing post (room = post id); leave unset for new posts.
+   */
+  collabRoom?: string;
 }
 
 // ─── HuddleComposer ───────────────────────────────────────────────────────────
@@ -67,6 +74,7 @@ export function HuddleComposer({
   initialAttachments,
   initialTicketId,
   initialMentions,
+  collabRoom,
 }: HuddleComposerProps) {
   const [expanded, setExpanded] = useState(editing);
   const [text, setText] = useState(initialText);
@@ -242,7 +250,12 @@ export function HuddleComposer({
 
         <div className="flex-1 min-w-0">
           {/* ── Rich editor (Kerebron — markdown in/out, working toolbar) ── */}
-          <MarkdownEditor value={text} onChange={setText} onSubmit={handleSubmit} />
+          <MarkdownEditor
+            value={text}
+            onChange={setText}
+            onSubmit={handleSubmit}
+            collab={huddlePostCollab(collabRoom)}
+          />
 
           {/* ── Ticket chip ── */}
           {selectedTicketId && (

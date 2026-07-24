@@ -64,6 +64,7 @@
     "@kerebron/editor-kits": "^0.8.6",
     "@kerebron/extension-automerge": "^0.2.1",
     "@kerebron/extension-basic-editor": "^0.8.6",
+    "@kerebron/extension-yjs": "^0.8.6",
     "@kerebron/wasm": "^0.8.6",
     "@mieweb/ui": "file:vendor/ui",
     "@mieweb/ychart": "^1.1.0",
@@ -87,7 +88,9 @@
     "remark-math": "^6.0.0",
     "serve": "^14.2.4",
     "tus-js-client": "^4.3.1",
+    "y-protocols": "^1.0.6",
     "yaml": "^2.8.1",
+    "yjs": "^13.6.30",
     "zod": "^4.3.6"
   },
   "devDependencies": {

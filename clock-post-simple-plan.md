@@ -23,8 +23,8 @@ Work against `mieweb/ui` as a **git submodule** so we can build it locally and P
 
 ### Upstream PR from the submodule
 
-- [ ] Branch in `vendor/ui`: add an `extensions`/`kits` prop to `RichEditor` so hosts can inject Kerebron extensions (e.g. `@kerebron/extension-yjs`) alongside the default `AdvancedEditorKit`.
-- [ ] PR it to `mieweb/ui`; pin the submodule to our branch commit until merged, then move the pointer back to `main`.
+- [x] Branch in `vendor/ui` (`feat/richeditor-collab-yjs`): add a `collab` prop to `RichEditor` so hosts can enable Kerebron's Yjs live sync. (Implemented as a focused `collab={{ room, wsUrl?, params? }}` prop rather than a raw `extensions` list: `@kerebron/extension-yjs` **conflicts** with the default `history` extension, so collaborative mode swaps `AdvancedEditorKit` for the same extensions minus `history`, then adds `MarkYChange` + `ExtensionYjs`. The websocket provider threads caller `params` — e.g. an auth token — which editor-kits' own `YjsEditorKit` can't. `src/components/RichEditor/collabKits.ts`.)
+- [ ] PR it to `mieweb/ui`; pin the submodule to our branch commit until merged, then move the pointer back to `main`. (Submodule currently pinned to the `feat/richeditor-collab-yjs` branch commit.)
 
 Milestones 1–4 (setting, data model, gates, drafts) have no dependency on this and can land first.
 
@@ -118,10 +118,13 @@ Only after the upstream `extensions` prop PR merges (or against our pinned submo
 
 > **[mieweb/yorm](https://github.com/mieweb/yorm) evaluated (2026-07-23) — right idea, wrong milestone.** YORM is a strong fit when the Y.Doc is the persisted canonical object with relational projections (and its suggestion mode is exactly a propose/review workflow). M8 is deliberately smaller: symmetric co-editing of one rich-text post where **markdown in Mongo stays the source of truth** and the Y.Doc is ephemeral — so plain `y-websocket` (the same primitive YORM builds on) covers it. **Revisit YORM when** (a) we want a suggest/approve mode on huddle posts, or (b) posts become structured collaborative objects needing queryable projections — and its MongoDB backend (PLAN.md M9) has landed. Adopting it then would mean flipping to Y.Doc-canonical persistence, which is a product decision, not a drop-in.
 
-- [ ] `/yjs` WebSocket route on the existing server: `y-websocket`'s `setupWSConnection` attached to the HTTP server on its own path (clear of DDP's `/websocket`), auth via the same token-in-query pattern as the other WS routes.
-- [ ] Room per post id; Y.Doc held in memory, seeded from the post's stored markdown on first join. Markdown stays the source of truth — saves still go through `huddle.updatePost`, no Y.Doc persistence layer.
-- [ ] Wire `@kerebron/extension-yjs` into `RichEditor` via the new `extensions` prop, room = post id.
-- [ ] Verify: same post open in two browsers → edits and cursors sync live; a save from either persists the merged markdown.
+- [x] `/yjs` WebSocket route on the existing server: a minimal `y-websocket`-compatible relay attached to Meteor's HTTP server on its own path (clear of DDP's `/websocket`), auth via the same token-in-query pattern the DDP client uses (`resolveToken`). Anonymous upgrades are rejected. (`meteor-backend/server/yjs.js`; `ws` moved to runtime deps + `yjs`/`y-protocols`/`lib0` added.)
+- [x] Room per post id; Y.Doc held in memory, seeded from the post's stored markdown on first join (the first client loads the markdown into the editor and the Yjs binding seeds the empty shared doc from it — no server-side markdown→Y.Doc conversion). Markdown stays the source of truth — saves still go through `huddle.updatePost`, no Y.Doc persistence layer; the room is dropped from memory once the last peer leaves.
+- [x] Wire the Yjs kit into `RichEditor` via the new `collab` prop, room = post id. The Huddle composer enables it when **editing an existing post** (`collabRoom={post.id}` → `MarkdownEditor` → `RichEditor`; auth token from `localStorage.meteor_resume_token`, WS URL points at the Meteor backend, not the Vite origin). New-post composing stays single-user. (`src/features/huddle/collab.ts`, `MarkdownEditor.tsx`, `HuddleComposer.tsx`, `PostCard/index.tsx`.)
+- [ ] Verify: same post open in two browsers → edits and cursors sync live; a save from either persists the merged markdown. (Static checks green: frontend `typecheck`/`lint`/`build`, backend `eslint`, vendor/ui build. In-browser two-window test still pending.)
+
+> **Known follow-ups (not blockers for the co-edit MVP):** per-post authorization on the `/yjs` room (currently any authenticated user with a room id can join — a room id is only obtainable by a client that can already see the post); enabling collab on the clock-page wrap-up composer (single-user today).
+
 
 ## Milestone 9 — Composer parity & polish (added by request)
 

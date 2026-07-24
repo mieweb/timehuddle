@@ -262,6 +262,7 @@ export function PostCard({
             userColor={avatarColor}
             initialText={post.content.text}
             initialTicketId={post.ticketId}
+            collabRoom={post.id}
             initialAttachments={(post.attachments ?? []).map<MediaItem>((a) => ({
               id: a.mediaId,
               url: a.url,

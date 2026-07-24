@@ -16,6 +16,7 @@
  * remount via `key` when switching documents.
  */
 import { RichEditor } from '@mieweb/ui/kerebron';
+import type { CollabConfig } from '@mieweb/ui/kerebron';
 import React from 'react';
 
 interface MarkdownEditorProps {
@@ -24,9 +25,11 @@ interface MarkdownEditorProps {
   /** Cmd/Ctrl+Enter handler. */
   onSubmit?: () => void;
   className?: string;
+  /** When set, enables live collaborative editing (Yjs) for the given room. */
+  collab?: CollabConfig;
 }
 
-export function MarkdownEditor({ value = '', onChange, onSubmit, className }: MarkdownEditorProps) {
+export function MarkdownEditor({ value = '', onChange, onSubmit, className, collab }: MarkdownEditorProps) {
   return (
     <div
       className={[
@@ -55,7 +58,7 @@ export function MarkdownEditor({ value = '', onChange, onSubmit, className }: Ma
         }
       }}
     >
-      <RichEditor value={value} onChange={onChange} />
+      <RichEditor value={value} onChange={onChange} collab={collab} />
     </div>
   );
 }
