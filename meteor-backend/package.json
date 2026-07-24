@@ -21,11 +21,15 @@
     "busboy": "^1.6.0",
     "firebase-admin": "^14.0.0",
     "jose": "^6.2.3",
+    "lib0": "^0.2.109",
     "lodash.throttle": "^4.1.1",
     "meteor-node-stubs": "^1.2.12",
     "nodemailer": "^9.0.1",
     "srvx": "^0.11.18",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "ws": "^8.21.0",
+    "y-protocols": "^1.0.6",
+    "yjs": "^13.6.30"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
@@ -35,8 +39,7 @@
     "mongodb": "^6.12.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.19.1",
-    "vitest": "^4.1.9",
-    "ws": "^8.21.0"
+    "vitest": "^4.1.9"
   },
   "meteor": {
     "mainModule": {

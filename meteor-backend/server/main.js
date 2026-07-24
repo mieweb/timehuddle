@@ -37,6 +37,8 @@ import './team-join-requests';
 import './pulsevault';
 import './messages';
 import './huddle';
+// M8 — Live collaborative editing relay (Yjs) on /yjs
+import './yjs';
 // M3 — Org & profiles
 import './users';
 import './organizations';
