@@ -63,7 +63,7 @@
     "@kerebron/editor": "^0.8.6",
     "@kerebron/editor-kits": "^0.8.6",
     "@kerebron/extension-automerge": "^0.2.1",
-    "@kerebron/extension-basic-editor": "^0.7.9",
+    "@kerebron/extension-basic-editor": "^0.8.6",
     "@kerebron/wasm": "^0.8.6",
     "@mieweb/ui": "file:vendor/ui",
     "@mieweb/ychart": "^1.1.0",
