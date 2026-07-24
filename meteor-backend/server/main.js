@@ -102,6 +102,41 @@ function isOriginAllowed(origin) {
 
 console.log('[cors] CORS_ORIGINS:', _rawCorsOrigins || '(not set)', '| ROOT_URL base domain:', _baseDomain || '(none)');
 
+// Relax Node's HTTP timeouts for slow mobile video uploads. PulseCam streams
+// the whole video in a single TUS PATCH; Node's defaults kill it:
+//  - requestTimeout (default 300s) destroys ANY request older than 5 min —
+//    a video upload on a slow cell link easily exceeds that, causing the
+//    mid-transfer ECONNRESET → Upload-Offset conflict → delete-and-restart
+//    loop (uploads "stuck at 2%/25%" then starting over).
+//  - keepAliveTimeout (default 5s) races reused proxy connections, causing
+//    sporadic resets right after a request finishes.
+// headersTimeout stays modest — it only covers reading headers, so it still
+// protects against slowloris-style abuse while bodies may stream for hours.
+Meteor.startup(() => {
+  const server = WebApp.httpServer;
+  server.requestTimeout = 0;            // no overall per-request deadline (bodies may stream slowly)
+  server.headersTimeout = 60 * 1000;    // 60s to receive request headers
+  server.keepAliveTimeout = 75 * 1000;  // longer than typical proxy idle timeouts (60s)
+  server.setTimeout(0);                 // disable per-socket inactivity teardown
+  console.log('[http] timeouts tuned: requestTimeout=0 headersTimeout=60s keepAliveTimeout=75s socketTimeout=0');
+});
+
+// Normalize x-forwarded-proto — the upstream proxy chain (external LB +
+// os.mieweb.org ingress) can send a comma-separated or oddly-cased value
+// (e.g. "https, http"). @mieweb/pulsevault's bundled @tus/server
+// HeaderValidator requires the header to be EXACTLY "http" or "https"
+// (strict equality) and rejects the request with 400 "Invalid
+// x-forwarded-proto" otherwise. Take the first value, lowercase it, and
+// default to https if it's still not a valid scheme.
+WebApp.rawConnectHandlers.use((req, _res, next) => {
+  const proto = req.headers['x-forwarded-proto'];
+  if (proto) {
+    const first = String(proto).split(',')[0].trim().toLowerCase();
+    req.headers['x-forwarded-proto'] = (first === 'http' || first === 'https') ? first : 'https';
+  }
+  next();
+});
+
 // Global CORS — catches ALL routes (DDP, /api, /uploads, etc.)
 // EXCEPT /uploads/tus which handles its own protocol-specific OPTIONS
 WebApp.rawConnectHandlers.use((req, res, next) => {

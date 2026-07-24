@@ -57,12 +57,88 @@ const verifyUploadToken = createCapabilityAuthorize(lookupCapabilitySecret, { is
 
 /**
  * artifactId -> { userId, ticketId } | { userId, target: 'library' }
- * Reservations are short-lived (capability tokens expire in 30 min by
- * default), so an in-memory map is fine — a server restart mid-upload just
- * means the client has to re-scan the QR code, same tradeoff the previous
- * hand-rolled reservation store made.
+ * Backed by a Mongo collection so reservations survive server restarts —
+ * meteor hot-reloads on every server file change, and a restart between
+ * upload-finish and `onUploadComplete` would otherwise wipe the context,
+ * leaving the file on disk as `ready` but never attached to anything (and
+ * the client retrying the same artifactId into permanent 409s). The
+ * in-memory Map is kept as an L1 cache so sync `.has()` calls in logging
+ * stay cheap; it is rehydrated from Mongo on startup.
  */
 const reservationContext = new Map();
+const RESERVATIONS_COLL = 'pulsevault_reservations';
+
+async function persistReservation(videoid, reservation) {
+  reservationContext.set(videoid, reservation);
+  await rawDb().collection(RESERVATIONS_COLL).updateOne(
+    { _id: videoid },
+    { $set: { ...reservation, createdAt: new Date() } },
+    { upsert: true },
+  );
+}
+
+/** Fetch AND consume the reservation for an artifactId (Map first, Mongo fallback). */
+async function takeReservation(artifactId) {
+  let reservation = reservationContext.get(artifactId) ?? null;
+  reservationContext.delete(artifactId);
+  const coll = rawDb().collection(RESERVATIONS_COLL);
+  if (!reservation) {
+    const doc = await coll.findOne({ _id: artifactId });
+    if (doc) {
+      const { _id, createdAt, ...rest } = doc;
+      reservation = rest;
+    }
+  }
+  await coll.deleteOne({ _id: artifactId }).catch(() => {});
+  return reservation;
+}
+
+Meteor.startup(async () => {
+  const coll = rawDb().collection(RESERVATIONS_COLL);
+  // Reservations are short-lived; TTL-expire leftovers after 24h.
+  await coll.createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 }).catch((err) => {
+    console.warn('[pulsevault] reservations TTL index failed:', err.message);
+  });
+  for await (const doc of coll.find({})) {
+    const { _id, createdAt, ...rest } = doc;
+    if (!reservationContext.has(_id)) reservationContext.set(_id, rest);
+  }
+  console.log('[pulsevault] rehydrated', reservationContext.size, 'reservation(s) from Mongo');
+});
+
+/** Create the mediaitems doc / ticket attachment for a finished upload. */
+async function attachUploadedVideo(artifactId, reservation, size = 0) {
+  const videoUrl = `${ISSUER}/pulsevault/artifacts/${artifactId}`;
+  const title = `Video ${artifactId.slice(0, 8)}`;
+
+  if (reservation.target === 'library') {
+    await rawDb().collection('mediaitems').insertOne({
+      _id: new ObjectId(),
+      userId: reservation.userId,
+      type: 'video',
+      mimeType: 'video/mp4',
+      url: videoUrl,
+      videoid: artifactId,
+      filename: `${artifactId}.mp4`,
+      size,
+      title,
+      caption: null,
+      altText: null,
+      thumbnail: null,
+      uploadedAt: new Date(),
+    });
+    console.log('[pulsevault] created media item for library upload:', artifactId);
+  } else {
+    await createAttachment({
+      url: videoUrl,
+      type: 'video',
+      title,
+      attachedTo: { kind: 'ticket', id: reservation.ticketId },
+      addedBy: reservation.userId,
+    });
+    console.log('[pulsevault] created attachment for ticket:', reservation.ticketId, 'video:', artifactId);
+  }
+}
 
 const storage = createLocalStorage({ workspaceDir: VIDEOS_DIR });
 
@@ -118,45 +194,13 @@ const core = createPulseVaultCore({
   },
   onUploadComplete: async (_request, ctx) => {
     console.log('[pulsevault][hook] onUploadComplete called', JSON.stringify(ctx));
-    console.log('[pulsevault][hook] reservationContext keys:', [...reservationContext.keys()]);
-    const reservation = reservationContext.get(ctx.artifactId);
-    reservationContext.delete(ctx.artifactId);
+    const reservation = await takeReservation(ctx.artifactId);
     if (!reservation) {
       console.log('[pulsevault][hook] onUploadComplete: NO reservation context for', ctx.artifactId);
       return;
     }
     console.log('[pulsevault][hook] onUploadComplete: found reservation', JSON.stringify(reservation));
-
-    const videoUrl = `${ISSUER}/pulsevault/artifacts/${ctx.artifactId}`;
-    const title = `Video ${ctx.artifactId.slice(0, 8)}`;
-
-    if (reservation.target === 'library') {
-      await rawDb().collection('mediaitems').insertOne({
-        _id: new ObjectId(),
-        userId: reservation.userId,
-        type: 'video',
-        mimeType: 'video/mp4',
-        url: videoUrl,
-        videoid: ctx.artifactId,
-        filename: `${ctx.artifactId}.mp4`,
-        size: ctx.size ?? 0,
-        title,
-        caption: null,
-        altText: null,
-        thumbnail: null,
-        uploadedAt: new Date(),
-      });
-      console.log('[pulsevault] created media item for library upload:', ctx.artifactId);
-    } else {
-      await createAttachment({
-        url: videoUrl,
-        type: 'video',
-        title,
-        attachedTo: { kind: 'ticket', id: reservation.ticketId },
-        addedBy: reservation.userId,
-      });
-      console.log('[pulsevault] created attachment for ticket:', reservation.ticketId, 'video:', ctx.artifactId);
-    }
+    await attachUploadedVideo(ctx.artifactId, reservation, ctx.size ?? 0);
   },
 });
 
@@ -260,13 +304,55 @@ Wormhole.use({
       req.on('error', (err) => {
         console.warn('[pulsevault] request stream aborted:', err.code || err.message);
       });
-      core.handler(req, res, next).catch((err) => {
-        console.error('[pulsevault] handler error:', err);
-        if (!res.headersSent) {
-          res.writeHead(500);
-          res.end();
+
+      // A retried TUS create (POST) whose earlier attempt never finished (e.g.
+      // the request stream aborted with ECONNRESET) leaves a stale "uploading"
+      // sidecar behind. pulsevault's reserveUpload uses exclusive file create,
+      // so every retry with the same artifactId would 409 forever. If the
+      // artifact isn't `ready` (resolve() returns null), remove the stale state
+      // so the retry can succeed. If it IS `ready` but still has an unconsumed
+      // reservation, the upload finished but `onUploadComplete` never ran (e.g.
+      // restart in between) — finalize the attachment now so the video isn't
+      // orphaned; the retry still 409s, correctly, since the bytes are on disk.
+      const staleCleanup = (async () => {
+        if (req.method !== 'POST') return;
+        const meta = decodeUploadMetadata(req.headers['upload-metadata']);
+        const artifactId = meta.artifactId ?? meta.videoid ?? meta.projectid;
+        if (!artifactId) return;
+        try {
+          // Only act for callers holding a valid capability token for this
+          // artifactId — otherwise an unauthenticated POST could delete
+          // someone else's in-progress upload.
+          await verifyUploadToken(req, { artifactId, phase: 'create' });
+        } catch {
+          return; // core.handler will reject it with the proper 401/403
         }
-      });
+        try {
+          const ready = await storage.resolve(artifactId);
+          if (!ready) {
+            const removed = await storage.remove(artifactId);
+            if (removed) console.log('[pulsevault] cleared stale unfinished upload for retry:', artifactId);
+            return;
+          }
+          const reservation = await takeReservation(artifactId);
+          if (reservation) {
+            console.log('[pulsevault] finalizing orphaned ready upload:', artifactId);
+            await attachUploadedVideo(artifactId, reservation);
+          }
+        } catch (err) {
+          console.warn('[pulsevault] stale-upload cleanup failed (continuing):', artifactId, err.message);
+        }
+      })();
+
+      staleCleanup
+        .then(() => core.handler(req, res, next))
+        .catch((err) => {
+          console.error('[pulsevault] handler error:', err);
+          if (!res.headersSent) {
+            res.writeHead(500);
+            res.end();
+          }
+        });
     });
     console.log('[pulsevault] @mieweb/pulsevault mounted at /pulsevault via Wormhole plugin');
   },
@@ -282,15 +368,37 @@ function mintUploadToken(artifactId) {
 Meteor.methods({
   async 'pulsevault.reserve'({ ticketId, existingVideoid, target } = {}) {
     const identity = await requireIdentity(this);
-    const videoid = existingVideoid ?? randomUUID();
+
+    // The web client caches the last reserved videoid per ticket
+    // (localStorage `pulsevault:ticket:<id>`) so a re-opened QR modal can
+    // resume an interrupted upload. But if that upload actually FINISHED,
+    // reusing the id is always wrong: the artifact file already exists, so
+    // PulseCam's create POST hard-409s ("rejected by server"), and the fresh
+    // reservation we'd record here would make the retry re-attach the same
+    // old video to the ticket again. If the cached id is already `ready` on
+    // disk, ignore it and mint a fresh videoid — the client persists the
+    // videoid we return, so its stale cache self-heals.
+    let videoid = existingVideoid ?? null;
+    if (videoid) {
+      try {
+        const alreadyDone = await storage.resolve(videoid);
+        if (alreadyDone) {
+          console.log('[pulsevault] reserve: ignoring completed existingVideoid', videoid);
+          videoid = null;
+        }
+      } catch {
+        videoid = null; // malformed id — start fresh
+      }
+    }
+    videoid = videoid ?? randomUUID();
     const uploadToken = mintUploadToken(videoid);
 
     if (target === 'library' || !ticketId) {
-      reservationContext.set(videoid, { userId: identity.userId, target: 'library' });
+      await persistReservation(videoid, { userId: identity.userId, target: 'library' });
     } else {
       const ticket = await rawDb().collection('tickets').findOne({ _id: new ObjectId(ticketId) });
       if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');
-      reservationContext.set(videoid, { userId: identity.userId, ticketId });
+      await persistReservation(videoid, { userId: identity.userId, ticketId });
     }
 
     return { videoid, uploadToken };
@@ -300,7 +408,7 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const videoid = randomUUID();
     const uploadToken = mintUploadToken(videoid);
-    reservationContext.set(videoid, { userId: identity.userId, target: 'library' });
+    await persistReservation(videoid, { userId: identity.userId, target: 'library' });
     return { videoid, uploadToken };
   },
 
