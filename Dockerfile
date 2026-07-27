@@ -81,6 +81,10 @@ WORKDIR /app
 # Root production deps (serve, etc.)
 COPY package.json package-lock.json ./
 COPY scripts ./scripts
+# @mieweb/ui resolves to file:vendor/mieweb-ui.tgz — copy it so the install can
+# resolve the dependency (it's bundled into dist/ at build time, but npm still
+# needs the file present to satisfy the manifest).
+COPY vendor/mieweb-ui.tgz ./vendor/mieweb-ui.tgz
 RUN npm install --production
 
 # Copy pre-built artifacts from builder — no source, no Meteor, no vendor
