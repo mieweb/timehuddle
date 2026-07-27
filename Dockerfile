@@ -23,6 +23,12 @@ RUN curl -fsSL "https://install.meteor.com/?release=3.4.1" | sh
 
 WORKDIR /app
 
+# Build vendor/ui first — the root package.json declares "@mieweb/ui": "file:vendor/ui"
+# so npm needs vendor/ui present (with dist/) before it can resolve and install app deps.
+# The submodule has no node_modules in a fresh checkout, so only source + config is copied.
+COPY vendor/ui ./vendor/ui
+RUN npm ci --prefix vendor/ui && npm run build --prefix vendor/ui
+
 # Copy package manifests first for layer caching
 COPY package.json package-lock.json ./
 COPY packages/youtube/package.json ./packages/youtube/
@@ -30,8 +36,9 @@ COPY packages/README.md ./packages/
 COPY meteor-backend/package.json meteor-backend/package-lock.json ./meteor-backend/
 COPY scripts ./scripts
 
-# Install all dependencies (dev included — needed for Vite build + Meteor)
-RUN npm install
+# Install all dependencies (dev included — needed for Vite build + Meteor).
+# SKIP_UI_BUILD=1: vendor/ui/dist is already built above; skip the postinstall.
+RUN SKIP_UI_BUILD=1 npm install
 RUN cd meteor-backend && npm install
 
 # Copy full source
