@@ -222,12 +222,27 @@ test.describe('Timesheet calculation fixes', () => {
           await adminPage.goto(
             `/app/teams?tab=timesheet&teamId=${teamId}&memberId=${memberUserId}`,
           );
-          // Wait for the admin timesheet panel itself to mount (deep-link
-          // sets the active tab + selected member asynchronously, once teams
-          // data finishes loading).
+          // The deep-link's `tab` and `memberId` are applied unconditionally,
+          // but `teamId` is matched against the loaded team list — so when
+          // teams arrive after the handler runs (routinely, late in a suite
+          // run) the team selection is dropped and Personal stays selected,
+          // which renders no Timesheet tab at all. Select the team explicitly,
+          // same as the member's own view above.
+          await adminPage.getByRole('button', { name: /Switch organization and team/i }).click();
+          await adminPage.getByRole('menuitem', { name: 'Test Team Alpha' }).click();
+          await adminPage.getByRole('tab', { name: 'Timesheet' }).click();
+
+          // Wait for the admin timesheet panel itself to mount.
           await adminPage
             .getByRole('button', { name: 'Custom', exact: true })
             .waitFor({ state: 'visible', timeout: 15000 });
+
+          // Switching teams resets the panel's member selection to the first
+          // member, discarding the deep-link's `memberId` — so pick the member
+          // under test explicitly rather than trusting whoever sorts first.
+          // @mieweb/ui's Select is a combobox + listbox, not a native <select>.
+          await adminPage.getByRole('combobox', { name: 'Member' }).click();
+          await adminPage.getByRole('option', { name: TEST_USERS.member5.name }).click();
 
           await applyCustomRange(adminPage, '2026-01-14', '2026-01-17');
 

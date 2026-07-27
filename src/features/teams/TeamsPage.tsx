@@ -110,6 +110,14 @@ export const TeamsPage: React.FC = () => {
 
   // ── Parse deep-link query params whenever URL changes ──
   useEffect(() => {
+    // Teams load asynchronously, and this effect consumes the query string
+    // destructively (the replaceState below). Running before they arrive means
+    // `teamId` can never match, so the team is silently dropped while the
+    // params are stripped anyway — every later run then sees an empty search
+    // and the deep link is lost for good, leaving the user on whichever team
+    // sorts first instead of the linked one.
+    if (!teamsReady) return;
+
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
     const memberId = params.get('memberId');
@@ -124,7 +132,7 @@ export const TeamsPage: React.FC = () => {
       const cleanUrl = window.location.pathname;
       window.history.replaceState(null, '', cleanUrl);
     }
-  }, [pathname, urlCheckCounter, setSelectedTeamId, teams]);
+  }, [pathname, urlCheckCounter, setSelectedTeamId, teams, teamsReady]);
 
   // ── Listen for navigation events (from navigate()) ──
   useEffect(() => {
