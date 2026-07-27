@@ -175,6 +175,29 @@ WebApp.connectHandlers.use('/uploads', (req, res, next) => {
 
 // ── Avatar upload/delete (/api/me/avatar) ─────────────────────────────────────
 
+// ── Account deletion (/api/me/account) ───────────────────────────────────────
+
+WebApp.connectHandlers.use('/api/me/account', async (req, res, next) => {
+  setCors(req, res);
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+  const identity = await authenticateRequest(req);
+  if (!identity) return sendJson(res, 401, { error: 'Unauthorized' });
+
+  if (req.method === 'DELETE') {
+    const db = rawDb();
+    const userId = identity.userId;
+    // Remove user from teams, orgs, and profiles, then delete the account.
+    await db.collection('team_members').deleteMany({ userId });
+    await db.collection('org_members').deleteMany({ userId });
+    await db.collection('profiles').deleteMany({ userId, app: 'timeharbor' });
+    await Meteor.users.removeAsync({ _id: userId });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  next();
+});
+
 WebApp.connectHandlers.use('/api/me/avatar', async (req, res, next) => {
   setCors(req, res);
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }

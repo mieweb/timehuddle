@@ -15,6 +15,7 @@ import {
   faPalette,
   faRotateLeft,
   faRightFromBracket,
+  faTrash,
   faUser,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -694,6 +695,7 @@ export const SettingsPage: React.FC = () => {
   const { navigate } = useRouter();
   const [resetBusy, setResetBusy] = useState(false);
   const [resetMessage, setResetMessage] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const canManageOrganization = hasDefaultOrganizationAdminAccess(user);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -807,6 +809,40 @@ export const SettingsPage: React.FC = () => {
             onClick={() => void signOut()}
           >
             Sign out
+          </Button>
+        </Row>
+        <Row
+          label="Delete account"
+          hint="Permanently delete your account and all associated data. This cannot be undone."
+        >
+          <Button
+            variant="danger"
+            size="sm"
+            leftIcon={<FontAwesomeIcon icon={faTrash} className="text-xs" />}
+            disabled={deleteBusy}
+            isLoading={deleteBusy}
+            loadingText="Deleting…"
+            onClick={async () => {
+              if (
+                !window.confirm(
+                  'Delete your account permanently?\n\nAll your data will be removed. This cannot be undone.',
+                )
+              )
+                return;
+              setDeleteBusy(true);
+              try {
+                await userApi.deleteAccount();
+                await signOut();
+              } catch (err: unknown) {
+                window.alert(
+                  err instanceof Error ? err.message : 'Failed to delete account. Please try again.',
+                );
+              } finally {
+                setDeleteBusy(false);
+              }
+            }}
+          >
+            Delete account
           </Button>
         </Row>
       </Section>

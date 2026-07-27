@@ -46,7 +46,9 @@ const REGISTRY: Record<string, Omit<SocialProvider, 'id'>> = {
   },
 };
 
-const DEFAULT_PROVIDERS = 'github';
+// Sign in with Apple is required by App Store guideline 4.8.0 for any app
+// that offers third-party social sign-in. Always include apple in defaults.
+const DEFAULT_PROVIDERS = 'github,apple';
 
 /** Resolve the ordered list of social providers enabled for this deployment. */
 export function getEnabledSocialProviders(): SocialProvider[] {
