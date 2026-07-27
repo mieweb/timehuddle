@@ -132,7 +132,7 @@ const App: React.FC = () => {
         const nData = n.data;
         const notif = new Notification(n.title, {
           body: n.body,
-          icon: '/timehuddle-icon.svg',
+          icon: '/logo.png',
           tag: (nData?.type as string | undefined) ?? 'timehuddle',
           silent: false,
         });

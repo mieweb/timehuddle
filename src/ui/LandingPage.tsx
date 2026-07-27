@@ -36,6 +36,7 @@ import {
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { REPO_URL } from '../lib/constants';
+import { Logo } from './Logo';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -806,11 +807,11 @@ export const LandingPage: React.FC = () => {
           {/* Logo */}
           <motion.a href="/" className="flex items-center gap-2.5" whileHover={{ scale: 1.03 }}>
             <motion.span
-              className="flex h-7 w-7 items-center justify-center rounded-md bg-orange-600 text-white shadow-sm shadow-orange-500/40"
+              className="flex items-center justify-center"
               whileHover={reduced ? {} : { rotate: 20 }}
               transition={{ type: 'spring', stiffness: 400 }}
             >
-              <FontAwesomeIcon icon={faBolt} className="text-xs" aria-hidden="true" />
+              <Logo size={28} className="rounded-md" />
             </motion.span>
             <span className="text-sm font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
               TimeHuddle
