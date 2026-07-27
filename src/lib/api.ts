@@ -459,6 +459,19 @@ export const userApi = {
     website?: string;
     reportsToUserId?: string | null;
   }) => wormholeCall<{ user: PublicUser }>('users.updateProfile', data).then((r) => r.user),
+
+  /** Permanently delete the current user's account and all associated data. */
+  deleteAccount: async (): Promise<void> => {
+    const token = await getAccessToken();
+    const res = await fetch(`${METEOR_API_BASE}/api/me/account`, {
+      method: 'DELETE',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      throw new ApiError((body.error as string) ?? `HTTP ${res.status}`, res.status);
+    }
+  },
 };
 
 export type DefaultOrganizationRole = 'owner' | 'admin' | 'member';
