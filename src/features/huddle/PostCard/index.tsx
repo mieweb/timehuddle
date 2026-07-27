@@ -168,7 +168,7 @@ export function PostCard({
   const avatarColor = getUserColor(post.userId);
 
   return (
-    <div className="border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800">
+    <div data-testid="post-card" className="border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800">
       {/* ── Author header ── */}
       <div className="flex items-center gap-2.5 mb-3">
         <Avatar initials={authorInitials} color={avatarColor} />
@@ -269,6 +269,7 @@ export function PostCard({
               type: a.type === 'file' ? 'document' : a.type,
               size: 0,
             }))}
+            collabRoom={post.id}
             onPost={handleEditPost}
             onCancel={handleCancelEdit}
           />
