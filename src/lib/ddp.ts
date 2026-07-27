@@ -73,8 +73,21 @@ class DdpClient {
   private activeSubs = new Map<string, { name: string; params: unknown[] }>();
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private connectAttempt = 0;
+  /** Backoff state for the background retry loop (see scheduleBackgroundRetry). */
+  private backgroundAttempt = 0;
+  private backgroundTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectListeners = new Set<Listener>();
   status: 'idle' | 'connecting' | 'connected' | 'failed' = 'idle';
+
+  /**
+   * Notified whenever the connection is re-established after having failed —
+   * lets callers refetch state they gave up on while the server was down.
+   * Not fired for the first successful connect. Returns an unsubscribe fn.
+   */
+  public onReconnect(fn: Listener): () => void {
+    this.reconnectListeners.add(fn);
+    return () => this.reconnectListeners.delete(fn);
+  }
 
   /** Connect (once) and authenticate the connection via auth.bridge. */
   public ensureConnected(): Promise<void> {
@@ -90,7 +103,6 @@ class DdpClient {
 
     try {
       await this.attemptConnection(timeout);
-      this.connectAttempt = 0; // Reset on success
     } catch (_error) {
       // Reset connection state to allow retry
       this.connectPromise = null;
@@ -107,9 +119,35 @@ class DdpClient {
         return this.connectWithRetry(retryCount + 1);
       }
 
-      // All retries exhausted
+      // Foreground retries (~3.5s total) are far shorter than a backend
+      // restart, so keep trying in the background too — otherwise a tab open
+      // across a server restart stays dead until a manual reload.
+      this.scheduleBackgroundRetry();
       throw new Error('DDP connection timeout - server may be unavailable');
     }
+  }
+
+  /**
+   * Retry connecting with capped exponential backoff (1s → 30s) until the
+   * server comes back, then notify onReconnect listeners. Self-rescheduling:
+   * a failed attempt runs connectWithRetry, which calls back into here.
+   */
+  private scheduleBackgroundRetry(): void {
+    if (this.backgroundTimer) return;
+    const delay = Math.min(30_000, 1000 * 2 ** this.backgroundAttempt++);
+    this.backgroundTimer = setTimeout(() => {
+      this.backgroundTimer = null;
+      void this.ensureAuthed()
+        .then(() => {
+          if (this.status !== 'connected') return;
+          this.backgroundAttempt = 0;
+          console.log('[DDP] Reconnected');
+          for (const fn of this.reconnectListeners) fn();
+        })
+        .catch(() => {
+          // connectWithRetry already scheduled the next attempt.
+        });
+    }, delay);
   }
 
   private attemptConnection(timeoutMs: number): Promise<void> {
