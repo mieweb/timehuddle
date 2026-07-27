@@ -60,8 +60,14 @@ export const ClockPage: React.FC = () => {
     planGate,
   } = useClockToggle();
 
-  const { teamId: gateTeamId, teamName, requirePlan, sessionPost, planMissing, wrapUpMissing } =
-    planGate;
+  const {
+    teamId: gateTeamId,
+    teamName,
+    requirePlan,
+    sessionPost,
+    planMissing,
+    wrapUpMissing,
+  } = planGate;
 
   const isClockedIn = !!activeClockEvent;
   const isPaused = !!activeClockEvent?.isPaused;

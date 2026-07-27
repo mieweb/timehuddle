@@ -29,7 +29,13 @@ interface MarkdownEditorProps {
   collab?: CollabConfig;
 }
 
-export function MarkdownEditor({ value = '', onChange, onSubmit, className, collab }: MarkdownEditorProps) {
+export function MarkdownEditor({
+  value = '',
+  onChange,
+  onSubmit,
+  className,
+  collab,
+}: MarkdownEditorProps) {
   return (
     <div
       className={[

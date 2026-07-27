@@ -88,7 +88,10 @@ async function openEditComposer(page: Page, seedText: string): Promise<void> {
   await postCard.waitFor({ state: 'visible', timeout: 15000 });
 
   // Open the three-dot menu (⋮ button inside the card)
-  const menuButton = postCard.locator('button').filter({ has: page.locator('circle') }).last();
+  const menuButton = postCard
+    .locator('button')
+    .filter({ has: page.locator('circle') })
+    .last();
   await menuButton.click();
 
   // Click "Edit post" in the dropdown
@@ -149,7 +152,10 @@ test.describe('Huddle — Yjs real-time collaborative editing', () => {
         const count = await staleCards.count();
         for (let i = 0; i < count; i++) {
           const card = staleCards.nth(i);
-          const menuBtn = card.locator('button').filter({ has: page.locator('circle') }).last();
+          const menuBtn = card
+            .locator('button')
+            .filter({ has: page.locator('circle') })
+            .last();
           if (await menuBtn.isVisible({ timeout: 1000 })) {
             await menuBtn.click();
             const deleteBtn = page.getByRole('button', { name: 'Delete post' });
@@ -220,8 +226,14 @@ test.describe('Huddle — Yjs real-time collaborative editing', () => {
     await adminPage.waitForTimeout(1000);
 
     // Delete the post so subsequent runs don't accumulate stale posts
-    const postCard = adminPage.locator('[data-testid="post-card"]').filter({ hasText: POST_SEED_TEXT }).first();
-    const menuButton = postCard.locator('button').filter({ has: adminPage.locator('circle') }).last();
+    const postCard = adminPage
+      .locator('[data-testid="post-card"]')
+      .filter({ hasText: POST_SEED_TEXT })
+      .first();
+    const menuButton = postCard
+      .locator('button')
+      .filter({ has: adminPage.locator('circle') })
+      .last();
     await menuButton.click();
     await adminPage.getByRole('button', { name: 'Delete post' }).click();
     // Confirm deletion dialog if present
@@ -256,12 +268,21 @@ test.describe('Huddle — Yjs real-time collaborative editing', () => {
 
     // Verify at least one /yjs/<id> WebSocket was opened
     const yjsSocket = wsUrls.find((u) => u.includes('/yjs/'));
-    expect(yjsSocket, `Expected a /yjs/<postId> WebSocket; got: ${JSON.stringify(wsUrls)}`).toBeTruthy();
+    expect(
+      yjsSocket,
+      `Expected a /yjs/<postId> WebSocket; got: ${JSON.stringify(wsUrls)}`,
+    ).toBeTruthy();
 
     // Clean up
     await adminPage.getByRole('button', { name: 'Cancel' }).click();
-    const postCard = memberPage.locator('[data-testid="post-card"]').filter({ hasText: POST_SEED_TEXT }).first();
-    const menuButton = postCard.locator('button').filter({ has: memberPage.locator('circle') }).last();
+    const postCard = memberPage
+      .locator('[data-testid="post-card"]')
+      .filter({ hasText: POST_SEED_TEXT })
+      .first();
+    const menuButton = postCard
+      .locator('button')
+      .filter({ has: memberPage.locator('circle') })
+      .last();
     await menuButton.click();
     await memberPage.getByRole('button', { name: 'Delete post' }).click();
     const confirmBtn = memberPage.getByRole('button', { name: /confirm|yes|delete/i }).first();

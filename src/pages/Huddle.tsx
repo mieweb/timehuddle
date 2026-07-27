@@ -1,4 +1,9 @@
-import { faBell, faComments, faMagnifyingGlass, faTableList } from '@fortawesome/free-solid-svg-icons';
+import {
+  faBell,
+  faComments,
+  faMagnifyingGlass,
+  faTableList,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Input } from '@mieweb/ui';
 import { SuperChat } from '@mieweb/ui/components/SuperChat';
@@ -226,9 +231,7 @@ export default function Huddle() {
                   onClick={() => setFeedView(feedView === 'chat' ? 'cards' : 'chat')}
                   aria-label={feedView === 'chat' ? 'Switch to card view' : 'Switch to chat view'}
                   title={
-                    feedView === 'chat'
-                      ? 'Card view (comments & likes)'
-                      : 'Chat view (rich thread)'
+                    feedView === 'chat' ? 'Card view (comments & likes)' : 'Chat view (rich thread)'
                   }
                 >
                   <FontAwesomeIcon icon={feedView === 'chat' ? faTableList : faComments} />
@@ -290,69 +293,69 @@ export default function Huddle() {
 
         {/* Feed */}
         {feedTab === 'feed' && (
-        <div className="huddle-feed min-h-0 flex-1 overflow-y-auto">
-          {!selectedTeamId && (
-            <div className="flex items-center justify-center py-16 px-4">
-              <p className="text-sm text-gray-500 dark:text-neutral-400">
-                Please select a team to view the huddle feed
-              </p>
-            </div>
-          )}
+          <div className="huddle-feed min-h-0 flex-1 overflow-y-auto">
+            {!selectedTeamId && (
+              <div className="flex items-center justify-center py-16 px-4">
+                <p className="text-sm text-gray-500 dark:text-neutral-400">
+                  Please select a team to view the huddle feed
+                </p>
+              </div>
+            )}
 
-          {selectedTeamId && (
-            <>
-              {loading && (
-                <div className="flex items-center justify-center py-16">
-                  <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                </div>
-              )}
+            {selectedTeamId && (
+              <>
+                {loading && (
+                  <div className="flex items-center justify-center py-16">
+                    <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
 
-              {error && (
-                <div className="flex items-center justify-center py-16 px-4">
-                  <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
-                </div>
-              )}
+                {error && (
+                  <div className="flex items-center justify-center py-16 px-4">
+                    <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
+                  </div>
+                )}
 
-              {!loading && !error && posts.length === 0 && (
-                <div className="flex items-center justify-center py-16 px-4">
-                  <p className="text-sm text-gray-500 dark:text-neutral-400">
-                    No posts yet. Be the first to share!
-                  </p>
-                </div>
-              )}
+                {!loading && !error && posts.length === 0 && (
+                  <div className="flex items-center justify-center py-16 px-4">
+                    <p className="text-sm text-gray-500 dark:text-neutral-400">
+                      No posts yet. Be the first to share!
+                    </p>
+                  </div>
+                )}
 
-              {/* Chat view — SuperChat thread (newest-first, read-only
+                {/* Chat view — SuperChat thread (newest-first, read-only
                   composer: authoring goes through the RichEditor above) */}
-              {!loading && !error && user && posts.length > 0 && feedView === 'chat' && (
-                <SuperChat
-                  conversation={conversation}
-                  currentParticipantId={user.id}
-                  order="desc"
-                  readOnly
-                  virtualized
-                  renderPlugins={renderPlugins}
-                  onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
-                  className="h-full"
-                />
-              )}
-
-              {/* Classic card view — keeps per-post comments and likes */}
-              {!loading &&
-                !error &&
-                user &&
-                feedView === 'cards' &&
-                filteredPosts.map((post) => (
-                  <PostCard
-                    key={post.id}
-                    post={post}
-                    currentUserId={user?.id ?? ''}
-                    canEdit={canEditPost(post)}
-                    canDelete={canDeletePost(post)}
+                {!loading && !error && user && posts.length > 0 && feedView === 'chat' && (
+                  <SuperChat
+                    conversation={conversation}
+                    currentParticipantId={user.id}
+                    order="desc"
+                    readOnly
+                    virtualized
+                    renderPlugins={renderPlugins}
+                    onMessageEdited={(messageId, text) => void handleMessageEdited(messageId, text)}
+                    className="h-full"
                   />
-                ))}
-            </>
-          )}
-        </div>
+                )}
+
+                {/* Classic card view — keeps per-post comments and likes */}
+                {!loading &&
+                  !error &&
+                  user &&
+                  feedView === 'cards' &&
+                  filteredPosts.map((post) => (
+                    <PostCard
+                      key={post.id}
+                      post={post}
+                      currentUserId={user?.id ?? ''}
+                      canEdit={canEditPost(post)}
+                      canDelete={canDeletePost(post)}
+                    />
+                  ))}
+              </>
+            )}
+          </div>
         )}
       </div>
     </AppPage>

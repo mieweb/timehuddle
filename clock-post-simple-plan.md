@@ -127,7 +127,6 @@ Only after the upstream `extensions` prop PR merges (or against our pinned submo
 
 > **Known follow-ups (not blockers for the co-edit MVP):** per-post authorization on the `/yjs` room (currently any authenticated user with a room id can join — a room id is only obtainable by a client that can already see the post); enabling collab on the clock-page wrap-up composer (single-user today).
 
-
 ## Milestone 9 — Composer parity & polish (added by request)
 
 A round of editor/composer fixes and feature parity across the clock page and the Huddle composer.

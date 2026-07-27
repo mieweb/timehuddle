@@ -55,10 +55,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Only init the meteor-wormhole submodule — vendor/ui is on a branch
-          # that has not been pushed to the public mieweb/ui repo, so a full
-          # submodules: true would fail. The Dockerfile uses the published
-          # @mieweb/ui package instead.
+          # Only init meteor-wormhole — vendor/ui is on a branch not pushed to
+          # the public mieweb/ui repo, so a full submodules: true would fail.
+          # The app installs @mieweb/ui from the committed vendor/mieweb-ui.tgz.
           submodules: false
 
       - name: Init meteor-wormhole submodule

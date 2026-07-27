@@ -80,9 +80,7 @@ export function useClockToggle() {
       if (err instanceof ApiError && err.code === 'plan-required') {
         setClockOutBlockedReason(err.message);
       } else {
-        window.alert(
-          err instanceof Error ? err.message : 'Failed to clock out. Please try again.',
-        );
+        window.alert(err instanceof Error ? err.message : 'Failed to clock out. Please try again.');
       }
       return false;
     } finally {

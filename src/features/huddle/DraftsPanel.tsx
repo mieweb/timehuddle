@@ -128,7 +128,12 @@ export function DraftsPanel({ teamId, userInitials, userColor }: DraftsPanelProp
                 className="draft-card mb-3 rounded-xl border border-neutral-200 bg-white px-5 py-4 dark:border-neutral-700 dark:bg-neutral-800"
               >
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <Text variant="muted" size="xs" weight="semibold" className="uppercase tracking-widest">
+                  <Text
+                    variant="muted"
+                    size="xs"
+                    weight="semibold"
+                    className="uppercase tracking-widest"
+                  >
                     Draft
                   </Text>
                   <div className="flex items-center gap-2">

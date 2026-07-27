@@ -30,15 +30,14 @@ COPY packages/README.md ./packages/
 COPY meteor-backend/package.json meteor-backend/package-lock.json ./meteor-backend/
 COPY scripts ./scripts
 
-# vendor/ui is a git submodule on a branch not pushed to the public mieweb/ui
-# repo — initialising it in Docker would fail. Use the closest published release
-# instead; the missing collab prop types are covered by src/vendor-augments.d.ts
-# and the Yjs feature gracefully degrades to single-user editing in preview.
-RUN npm pkg set 'dependencies.@mieweb/ui'='0.6.1-dev.169'
+# @mieweb/ui is installed from a committed tarball (see package.json:
+# "@mieweb/ui": "file:vendor/mieweb-ui.tgz") — the vendor/ui submodule branch is
+# not pushed to the public mieweb/ui repo, so it can't be built here. Copy the
+# tarball before install so npm can resolve the file: dependency.
+COPY vendor/mieweb-ui.tgz ./vendor/mieweb-ui.tgz
 
 # Install all dependencies (dev included — needed for Vite build + Meteor).
-# SKIP_UI_BUILD=1: no need to build the submodule; we just swapped to npm.
-RUN SKIP_UI_BUILD=1 npm install
+RUN npm install
 RUN cd meteor-backend && npm install
 
 # Copy full source

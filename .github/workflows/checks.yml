@@ -19,13 +19,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        # vendor/ui is a git submodule on a branch that has not been pushed to
-        # the public mieweb/ui repo, so `submodules: true` would fail. Swap the
-        # file: dep for the closest published release; the missing collab types
-        # are covered by src/vendor-augments.d.ts.
-        run: |
-          npm pkg set 'dependencies.@mieweb/ui'='0.6.1-dev.169'
-          SKIP_UI_BUILD=1 npm install
+        run: npm ci
 
       - name: Lint
         run: npm run lint
@@ -197,9 +191,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: |
-          npm pkg set 'dependencies.@mieweb/ui'='0.6.1-dev.169'
-          SKIP_UI_BUILD=1 npm install
+        run: npm ci
 
       - name: Vite build
         run: npm run build
