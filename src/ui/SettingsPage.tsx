@@ -835,7 +835,9 @@ export const SettingsPage: React.FC = () => {
                 await signOut();
               } catch (err: unknown) {
                 window.alert(
-                  err instanceof Error ? err.message : 'Failed to delete account. Please try again.',
+                  err instanceof Error
+                    ? err.message
+                    : 'Failed to delete account. Please try again.',
                 );
               } finally {
                 setDeleteBusy(false);
