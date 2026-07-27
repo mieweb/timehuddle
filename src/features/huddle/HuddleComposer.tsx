@@ -255,6 +255,7 @@ export function HuddleComposer({
             onChange={setText}
             onSubmit={handleSubmit}
             collab={huddlePostCollab(collabRoom)}
+            placeholder="What's on your mind?"
           />
 
           {/* ── Ticket chip ── */}

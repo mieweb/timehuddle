@@ -45,10 +45,12 @@ test.describe('Real-time Huddle Posts', () => {
     // Get initial post count in session 1
     const initialCount1 = await session1.locator('[role="article"], article').count();
 
-    // Create a new post in session 1
-    const postInput = session1
-      .locator('textarea, input[placeholder*="post" i], input[placeholder*="share" i]')
-      .first();
+    // Create a new post in session 1. The composer starts collapsed, and its
+    // editing surface is a ProseMirror contenteditable (Kerebron RichEditor),
+    // not a <textarea> — a loose `textarea` selector matches the unrelated,
+    // disabled "Read-only conversation" message composer instead.
+    await session1.getByText('Share an update...').click();
+    const postInput = session1.locator('.markdown-editor .ProseMirror').first();
 
     if ((await postInput.count()) > 0) {
       await postInput.fill('Test real-time sync post');

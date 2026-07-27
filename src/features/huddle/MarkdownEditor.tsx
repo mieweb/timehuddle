@@ -11,9 +11,16 @@
  *     excluded — otherwise clicking the text would fail to place the caret and
  *     the editor would appear frozen (no typing).
  *  2. ⌘/Ctrl+↵ submit.
+ *  3. A placeholder. RichEditorProps has no `placeholder`, and swapping the old
+ *     `<textarea placeholder="What's on your mind?…">` for RichEditor left the
+ *     empty composer with no prompt at all. Rendered as a real (non-interactive)
+ *     overlay rather than a CSS `::before`, so it stays readable by assistive
+ *     tech and doesn't depend on ProseMirror's internal empty-node markup.
  *
  * RichEditor is uncontrolled — `value` seeds the document on mount only, so
- * remount via `key` when switching documents.
+ * remount via `key` when switching documents. `value` still tracks the live
+ * content on re-render (the host updates it from `onChange`), which is what
+ * drives the placeholder's visibility.
  */
 import { RichEditor } from '@mieweb/ui/kerebron';
 import type { CollabConfig } from '@mieweb/ui/kerebron';
@@ -27,6 +34,8 @@ interface MarkdownEditorProps {
   className?: string;
   /** When set, enables live collaborative editing (Yjs) for the given room. */
   collab?: CollabConfig;
+  /** Prompt shown while the editor is empty. */
+  placeholder?: string;
 }
 
 export function MarkdownEditor({
@@ -35,7 +44,10 @@ export function MarkdownEditor({
   onSubmit,
   className,
   collab,
+  placeholder,
 }: MarkdownEditorProps) {
+  const isEmpty = value.trim().length === 0;
+
   return (
     <div
       className={[
@@ -44,6 +56,17 @@ export function MarkdownEditor({
         '[&_.ProseMirror]:text-base [&_.ProseMirror]:leading-relaxed [&_.ProseMirror]:outline-none',
         className ?? '',
       ].join(' ')}
+      // Drives the `.ProseMirror::before` placeholder in styles.css. Floated
+      // into the first line rather than absolutely positioned, so it needs no
+      // hard-coded offset for the toolbar above it.
+      data-empty={placeholder && isEmpty ? 'true' : undefined}
+      style={
+        placeholder
+          ? ({
+              '--markdown-editor-placeholder': JSON.stringify(placeholder),
+            } as React.CSSProperties)
+          : undefined
+      }
       onMouseDownCapture={(e) => {
         const target = e.target as HTMLElement;
         // The editable content area lives inside `.kb-custom-menu__wrapper`

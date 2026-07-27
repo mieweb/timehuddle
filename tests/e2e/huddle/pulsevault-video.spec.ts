@@ -17,12 +17,30 @@ import { expect, test } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { createTicket, deleteTicket, uploadVideoToTicket, TEST_MP4 } from '../tickets/helpers';
 
+/**
+ * The composer's editable surface. Kerebron's RichEditor renders a ProseMirror
+ * contenteditable rather than a <textarea>, so there is no placeholder
+ * attribute to select on — the visible prompt is a CSS `::before`.
+ */
+function composerEditor(page: import('@playwright/test').Page) {
+  return page.locator('.markdown-editor .ProseMirror').first();
+}
+
 async function goToHuddle(page: import('@playwright/test').Page) {
   await page.goto('/app/huddle');
   // The composer starts collapsed (a "Share an update..." prompt) — click it
-  // to expand into the full textarea + toolbar view.
+  // to expand into the full editor + toolbar view.
   await page.getByText('Share an update...').click();
-  await page.getByPlaceholder(/What's on your mind/i).waitFor({ state: 'visible', timeout: 15000 });
+  await composerEditor(page).waitFor({ state: 'visible', timeout: 15000 });
+}
+
+/**
+ * The feed defaults to chat view, where non-image attachments render as plain
+ * links by design (see superChatFeed.ts). Inline <video> playback lives in card
+ * view, so switch there before asserting on it.
+ */
+async function switchToCardView(page: import('@playwright/test').Page) {
+  await page.getByRole('button', { name: 'Switch to card view' }).click();
 }
 
 /** Locates a post's root container by the unique text in its body. */
@@ -43,7 +61,7 @@ test.describe('Huddle — direct video upload', () => {
   }) => {
     const postText = `Huddle Video Post ${Date.now()}`;
 
-    await page.getByPlaceholder(/What's on your mind/i).fill(postText);
+    await composerEditor(page).fill(postText);
 
     await page.getByRole('button', { name: 'Video', exact: true }).click();
     const videoInput = page.locator('input[type="file"][accept="video/*"]');
@@ -53,6 +71,8 @@ test.describe('Huddle — direct video upload', () => {
     await expect(page.getByText('test-video.mp4')).toBeVisible({ timeout: 20000 });
 
     await page.getByRole('button', { name: 'Post', exact: true }).click();
+
+    await switchToCardView(page);
 
     const post = postContainer(page, postText);
     await expect(post).toBeVisible({ timeout: 10000 });
@@ -83,7 +103,7 @@ test.describe('Huddle — ticket video cross-posting', () => {
     await goToHuddle(page);
 
     const postText = `Huddle Cross-post Test ${Date.now()}`;
-    await page.getByPlaceholder(/What's on your mind/i).fill(postText);
+    await composerEditor(page).fill(postText);
 
     await page.getByRole('button', { name: 'Ticket', exact: true }).click();
     await page.getByPlaceholder('Search tickets...').fill(TICKET_TITLE);
@@ -94,6 +114,8 @@ test.describe('Huddle — ticket video cross-posting', () => {
     await expect(page.getByText('(from ticket)')).toBeVisible({ timeout: 10000 });
 
     await page.getByRole('button', { name: 'Post', exact: true }).click();
+
+    await switchToCardView(page);
 
     const post = postContainer(page, postText);
     await expect(post).toBeVisible({ timeout: 10000 });

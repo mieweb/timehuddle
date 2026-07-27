@@ -86,6 +86,22 @@ html[data-theme='dark'] {
   z-index: 10;
 }
 
+/* Placeholder for MarkdownEditor. Kerebron's RichEditor takes no `placeholder`
+   prop, so the wrapper sets `data-empty` + `--markdown-editor-placeholder` and
+   the text is floated into the editor's first line — `float`/`height: 0` keeps
+   it out of layout flow so the caret still sits at the start of the line. */
+.markdown-editor[data-empty='true'] .ProseMirror::before {
+  content: var(--markdown-editor-placeholder, '');
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--color-gray-400, #9ca3af);
+}
+
+[data-theme='dark'] .markdown-editor[data-empty='true'] .ProseMirror::before {
+  color: var(--color-neutral-500, #737373);
+}
+
 /* Prevent iOS Safari from auto-zooming when focusing inputs smaller than 16px */
 @media (max-width: 767px) {
   input,
