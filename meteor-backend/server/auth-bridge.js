@@ -457,7 +457,6 @@ Meteor.methods({
     if (!storedBcrypt) {
       throw new Meteor.Error('no-password', 'This account has no password set. Use a social login provider.');
     }
-    const bcrypt = Npm.require('bcrypt');
     const digest = createHash('sha256').update(currentPassword).digest('hex');
     let match = await bcrypt.compare(digest, storedBcrypt);
     if (!match) {
