@@ -39,6 +39,7 @@ import {
   ModalHeader,
   ModalTitle,
   Spinner,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -109,6 +110,14 @@ export const TeamsPage: React.FC = () => {
 
   // ── Parse deep-link query params whenever URL changes ──
   useEffect(() => {
+    // Teams load asynchronously, and this effect consumes the query string
+    // destructively (the replaceState below). Running before they arrive means
+    // `teamId` can never match, so the team is silently dropped while the
+    // params are stripped anyway — every later run then sees an empty search
+    // and the deep link is lost for good, leaving the user on whichever team
+    // sorts first instead of the linked one.
+    if (!teamsReady) return;
+
     const params = new URLSearchParams(window.location.search);
     const tab = params.get('tab');
     const memberId = params.get('memberId');
@@ -123,7 +132,7 @@ export const TeamsPage: React.FC = () => {
       const cleanUrl = window.location.pathname;
       window.history.replaceState(null, '', cleanUrl);
     }
-  }, [pathname, urlCheckCounter, setSelectedTeamId, teams]);
+  }, [pathname, urlCheckCounter, setSelectedTeamId, teams, teamsReady]);
 
   // ── Listen for navigation events (from navigate()) ──
   useEffect(() => {
@@ -208,6 +217,14 @@ export const TeamsPage: React.FC = () => {
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [removeLoading, setRemoveLoading] = useState(false);
   const [revokeLoadingId, setRevokeLoadingId] = useState<string | null>(null);
+
+  // Team setting: require a daily Huddle plan to clock in/out
+  const [requirePlanForClock, setRequirePlanForClock] = useState(false);
+  const [savingPlanSetting, setSavingPlanSetting] = useState(false);
+
+  useEffect(() => {
+    setRequirePlanForClock(selectedTeam?.settings?.requirePlanForClock ?? false);
+  }, [selectedTeam?.id, selectedTeam?.settings?.requirePlanForClock]);
 
   // Pending/sent team invitations shown in the Team Settings modal
   const [invitations, setInvitations] = useState<TeamInvitation[]>([]);
@@ -879,6 +896,51 @@ export const TeamsPage: React.FC = () => {
           <ModalClose />
         </ModalHeader>
         <ModalBody>
+          <Text
+            variant="muted"
+            size="xs"
+            weight="semibold"
+            className="mb-3 uppercase tracking-widest"
+          >
+            Clock
+          </Text>
+          <div className="team-setting-plan-for-clock mb-6 flex items-center justify-between gap-4">
+            <div>
+              <Text size="sm" weight="medium">
+                Require a plan for every clock-in/out
+              </Text>
+              <Text variant="muted" size="xs">
+                Members post a plan to start each session, and add a wrap-up to it before clocking
+                out — one Huddle post per session.
+              </Text>
+            </div>
+            <Switch
+              checked={requirePlanForClock}
+              disabled={savingPlanSetting || !selectedTeamId}
+              aria-label="Toggle requiring a plan for every clock-in and out"
+              onCheckedChange={async (checked) => {
+                if (!selectedTeamId) return;
+                const previous = requirePlanForClock;
+                setRequirePlanForClock(checked);
+                setSavingPlanSetting(true);
+                setFormError(null);
+                try {
+                  await teamApi.updateSettings(selectedTeamId, { requirePlanForClock: checked });
+                  refetchTeams();
+                } catch (e: any) {
+                  setRequirePlanForClock(previous);
+                  setFormError(e.message || 'Failed to update setting');
+                } finally {
+                  setSavingPlanSetting(false);
+                }
+              }}
+            />
+          </div>
+          {formError && (
+            <Text variant="destructive" size="xs" className="mb-4">
+              {formError}
+            </Text>
+          )}
           <Text
             variant="muted"
             size="xs"

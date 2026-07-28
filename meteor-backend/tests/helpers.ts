@@ -19,7 +19,7 @@ interface DDPMessage {
   error?: { error: string; reason: string; message: string };
 }
 
-class DDPConnection {
+export class DDPConnection {
   private ws: any;
   private messageId = 0;
   private pending = new Map<string, { resolve: (val: unknown) => void; reject: (err: Error) => void }>();

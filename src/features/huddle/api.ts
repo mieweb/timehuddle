@@ -1,7 +1,34 @@
 // Huddle feature API helpers
 import { teamApi, ticketApi, mediaApi, videoApi, METEOR_BASE_URL } from '@lib/api';
+import type { HuddlePost } from '@lib/api';
 import * as tus from 'tus-js-client';
 import type { TeamMember, MediaItem } from './types';
+
+export type PostAttachment = HuddlePost['attachments'][number];
+
+/**
+ * Convert a composer MediaItem into the attachment shape stored on a post.
+ */
+export function toPostAttachment(media: MediaItem): PostAttachment {
+  let type: PostAttachment['type'];
+  if (media.type === 'image') {
+    type = 'image';
+  } else if (media.type === 'video') {
+    type = 'video';
+  } else if (media.type === 'document') {
+    type = 'file';
+  } else {
+    // Fallback based on mimeType
+    type = media.mimeType?.startsWith('image/') ? 'image' : 'file';
+  }
+
+  return {
+    mediaId: media.id,
+    type,
+    url: media.url,
+    filename: media.filename,
+  };
+}
 
 /**
  * Fetch team members for mention autocomplete

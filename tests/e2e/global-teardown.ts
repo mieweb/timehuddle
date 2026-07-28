@@ -28,6 +28,17 @@ export default async function globalTeardown(): Promise<void> {
   const client = await MongoClient.connect(MONGO_URL);
   const db = client.db();
 
+  // Everything below is destructive (deleteMany on users, teams, organizations)
+  // and runs against whatever MONGO_URL resolves to — which defaults to the
+  // test database but is overridable. Refuse anything that isn't clearly one,
+  // so a stray MONGO_URL can never point this at the dev database.
+  if (!/_test$/.test(db.databaseName)) {
+    await client.close();
+    throw new Error(
+      `[global-teardown] Refusing to clean database "${db.databaseName}" — expected a name ending in "_test".`,
+    );
+  }
+
   try {
     // ── 1. Identify all test users ──────────────────────────────────────────
     // Matches seed users (*@test.local) AND any dynamically created users

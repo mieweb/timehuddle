@@ -1,4 +1,5 @@
 @import '@mieweb/ui/brands/bluehive.css' layer(theme);
+@import '@mieweb/ui/kerebron.css';
 @import 'tailwindcss';
 @import './features/teams/ychart-dark.css';
 
@@ -38,6 +39,67 @@ html[data-theme='dark'] {
 [data-theme='dark'] input[type='date'],
 [data-theme='dark'] input[type='time'] {
   color-scheme: dark;
+}
+
+/* Kerebron RichEditor dark mode — the editor themes via `.kb-component--dark`
+   or `prefers-color-scheme`, but the app drives theme with `data-theme`, so map
+   its CSS variables here. Without this the editor stays light while the app is
+   dark (white box, dark toolbar icons). */
+[data-theme='dark'] .kb-component {
+  --kb-color-text: #e5e7eb; /* neutral-200 */
+  --kb-color-text-muted: #9ca3af; /* neutral-400 */
+  --kb-color-icon: #9ca3af;
+  --kb-color-surface: #171717; /* neutral-900 */
+  --kb-color-surface-elevated: #262626; /* neutral-800 */
+  --kb-color-surface-hover: rgba(255, 255, 255, 0.08);
+  --kb-color-border: #404040; /* neutral-700 */
+  --kb-color-border-strong: #525252; /* neutral-600 */
+  --kb-color-hover: rgba(129, 140, 248, 0.12);
+  --kb-color-active: rgba(129, 140, 248, 0.2);
+  --kb-color-focus: rgba(129, 140, 248, 0.25);
+
+  /* Toolbar dropdown popovers */
+  --kb-menu-dropdown-bg: #262626;
+  --kb-menu-dropdown-border: #525252;
+  --kb-menu-dropdown-text: #e5e7eb;
+  --kb-menu-dropdown-hover: rgba(255, 255, 255, 0.08);
+  --kb-menu-info-bg: #1e3a8a;
+  --kb-menu-info-text: #bfdbfe;
+}
+
+/* Toolbar popovers portal outside `.kb-component`, so theme them off the app
+   root too. */
+[data-theme='dark'] .kb-custom-menu__overflow-menu,
+[data-theme='dark'] [role='menu'].kb-custom-menu__dropdown {
+  --kb-menu-dropdown-bg: #262626;
+  --kb-menu-dropdown-border: #525252;
+  --kb-menu-dropdown-text: #e5e7eb;
+  --kb-menu-dropdown-hover: rgba(255, 255, 255, 0.08);
+}
+
+/* Kerebron ships its sticky toolbar at `z-index: 1000`, which sits ABOVE the
+   app's modal layer (@mieweb/ui Modal is `z-50`) and bleeds through any dialog
+   opened over the composer (e.g. the Pulse upload modal). Pull it back into the
+   app's z-scale: high enough to stay above editor content while scrolling, well
+   below modals/overlays. */
+.kb-component .kb-custom-menu {
+  z-index: 10;
+}
+
+/* Placeholder for MarkdownEditor. Kerebron's RichEditor takes no `placeholder`
+   prop, so the wrapper sets `data-empty` + `--markdown-editor-placeholder` and
+   the text is floated into the editor's first line — `float`/`height: 0` keeps
+   it out of layout flow so the caret still sits at the start of the line. */
+.markdown-editor[data-empty='true'] .ProseMirror::before {
+  content: var(--markdown-editor-placeholder, '');
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--color-gray-400, #9ca3af);
+}
+
+[data-theme='dark'] .markdown-editor[data-empty='true'] .ProseMirror::before {
+  color: var(--color-neutral-500, #737373);
 }
 
 /* Prevent iOS Safari from auto-zooming when focusing inputs smaller than 16px */

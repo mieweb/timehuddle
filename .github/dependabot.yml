@@ -1,0 +1,24 @@
+# Dependabot: PR-based notifications when dependencies advance.
+#
+# - npm: watches the root package.json/lock (includes @kerebron/* pins).
+#   @kerebron packages are grouped into a single PR so a release train of
+#   editor + kits + extensions lands together instead of as 10 PRs.
+# - gitsubmodule: bumps the vendor/ui (and vendor/meteor-wormhole) submodule
+#   pointers when their upstream default branches advance. Kerebron bumps
+#   *inside* vendor/ui must be configured in the mieweb/ui repo itself —
+#   Dependabot cannot update a submodule's package.json from here.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      kerebron:
+        patterns:
+          - '@kerebron/*'
+
+  - package-ecosystem: gitsubmodule
+    directory: /
+    schedule:
+      interval: weekly

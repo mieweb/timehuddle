@@ -10,7 +10,7 @@
  *   - Meteor backend has been started at least once so the default organization
  *     exists. If it doesn't, we create it.
  */
-import { MongoClient, ObjectId } from 'mongodb';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
 import bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 
@@ -64,11 +64,52 @@ const SEED_USERS = [
   },
 ] as const;
 
+/**
+ * Empties the test database so every run starts from a known state.
+ *
+ * Teardown can only delete what it knows how to find — it matches seed users by
+ * `@test.local`, teams by name, and auxiliary rows by `userId` — so anything
+ * keyed differently (channels by team, tickets by creator, activities at all,
+ * signups like `onboard<ts>@example.com`) survived and accumulated run over
+ * run. Once the database is large enough, the app slows down and time-boxed
+ * waits start failing in ways that look like product bugs.
+ *
+ * Guarded on the database NAME rather than the caller's intent: this suite
+ * shares a mongod with the dev database and MONGO_URL is overridable, so refuse
+ * outright anything that isn't obviously a test database.
+ */
+async function resetTestDatabase(db: Db): Promise<void> {
+  const name = db.databaseName;
+  if (!/_test$/.test(name)) {
+    throw new Error(
+      `[global-setup] Refusing to reset database "${name}" — expected a name ending in "_test". ` +
+        `MONGO_URL is pointing somewhere unexpected; aborting rather than risk a non-test database.`,
+    );
+  }
+
+  const collections = await db.listCollections({}, { nameOnly: true }).toArray();
+  let cleared = 0;
+  for (const { name: collName } of collections) {
+    if (collName.startsWith('system.')) continue;
+    // deleteMany rather than drop: keeps indexes and validators the backend
+    // built at startup, which it won't rebuild without a restart.
+    cleared += (await db.collection(collName).deleteMany({})).deletedCount;
+  }
+  console.log(
+    `[global-setup] ✔ Reset ${name} — cleared ${cleared} documents across ${collections.length} collections`,
+  );
+}
+
 export default async function globalSetup(): Promise<void> {
   await waitForBackend(BACKEND_URL);
 
   const client = await MongoClient.connect(MONGO_URL);
   const db = client.db();
+
+  // Set SKIP_DB_RESET=1 to keep existing data (mirrors teardown's SKIP_CLEANUP).
+  if (!process.env.SKIP_DB_RESET) {
+    await resetTestDatabase(db);
+  }
 
   // Same bcrypt(sha256hex(password)) format Meteor's Accounts.setPasswordAsync
   // writes, so the Meteor login handler's Path 1 accepts it.

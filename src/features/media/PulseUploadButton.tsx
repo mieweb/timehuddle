@@ -1,21 +1,12 @@
-import { faQrcode, faVideo, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faQrcode, faVideo } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  Button,
-  Modal,
-  ModalBody,
-  ModalClose,
-  ModalFooter,
-  ModalHeader,
-  ModalTitle,
-  Text,
-} from '@mieweb/ui';
+import { Button, Text } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
-import { QRCodeSVG } from 'qrcode.react';
 import * as tus from 'tus-js-client';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { attachmentApi, TIMECORE_BASE_URL, videoApi } from '../../lib/api';
+import { PulseUploadModal } from './PulseUploadModal';
 
 /**
  * The Pulse Cam server base for deep links — origin plus the `/pulsevault`
@@ -251,80 +242,16 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
       )}
 
       {/* Web QR modal */}
-      <Modal
+      <PulseUploadModal
         open={modalOpen}
-        onOpenChange={(open) => !open && setModalOpen(false)}
-        aria-label="Upload video with the Pulse app"
-      >
-        <ModalHeader>
-          <ModalTitle>
-            <span className="flex items-center gap-2">
-              <FontAwesomeIcon icon={faQrcode} />
-              Upload Video with Pulse
-            </span>
-          </ModalTitle>
-          <ModalClose />
-        </ModalHeader>
-
-        <ModalBody>
-          <div className="video-upload-modal-body flex flex-col items-center gap-4 py-2">
-            {uploadLink && (
-              <div className="video-upload-qr-container rounded-lg border border-border bg-white p-4">
-                <QRCodeSVG
-                  value={uploadLink}
-                  size={200}
-                  aria-label="QR code to open the Pulse upload screen"
-                />
-              </div>
-            )}
-
-            <Text size="sm" className="max-w-xs text-center text-muted-foreground">
-              Scan with the <strong className="text-foreground">Pulse app</strong> on your phone.
-              The attachment will appear automatically once the upload completes.
-            </Text>
-
-            <div className="video-upload-divider flex w-full items-center gap-3">
-              <hr className="flex-1 border-border" />
-              <Text size="xs" className="text-muted-foreground">
-                or
-              </Text>
-              <hr className="flex-1 border-border" />
-            </div>
-
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleUploadFromDevice}
-              aria-label="Upload video from this device instead"
-            >
-              <FontAwesomeIcon icon={faVideo} className="mr-1.5" />
-              Upload from this device
-            </Button>
-          </div>
-        </ModalBody>
-
-        <ModalFooter>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setModalOpen(false)}
-            aria-label="Close without uploading"
-          >
-            <FontAwesomeIcon icon={faXmark} className="mr-1.5" />
-            Close
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => {
-              setModalOpen(false);
-              onUploadComplete();
-            }}
-            aria-label="I have uploaded — refresh the attachment list"
-          >
-            Done — Refresh
-          </Button>
-        </ModalFooter>
-      </Modal>
+        onClose={() => setModalOpen(false)}
+        uploadLink={uploadLink}
+        onUploadFromDevice={handleUploadFromDevice}
+        onDone={() => {
+          setModalOpen(false);
+          onUploadComplete();
+        }}
+      />
     </div>
   );
 };

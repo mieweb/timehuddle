@@ -46,6 +46,8 @@ pollenate-test-*.png
 # Meteor build output and local packages
 meteor-backend/prod-build/
 meteor-backend/packages/
+meteor-backend/.meteor/local/
+meteor-backend/.meteor/local-test/
 
 # Local development scripts and configs (machine-specific, never commit)
 backend/nginx-apple-proxy.conf

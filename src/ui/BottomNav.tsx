@@ -5,6 +5,8 @@
  * Five tabs: Dashboard, Tickets, Clock In/Out (center FAB), Teams, Settings.
  * Active tab indicator is an animated bubble that glides between positions.
  * FAB uses CSS brand tokens so it follows brand/theme changes automatically.
+ * The FAB navigates to the clock page (rather than toggling directly) so the
+ * plan-first gates and their inline composer are always visible.
  */
 import {
   faCircleStop,
@@ -16,7 +18,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { motion, MotionConfig } from 'motion/react';
-import React, { useCallback } from 'react';
+import React from 'react';
 
 import { useClockToggle } from '../lib/useClockToggle';
 import { useRouter } from './router';
@@ -38,21 +40,12 @@ const TABS: NavTab[] = [
 
 export const BottomNav: React.FC = () => {
   const { pathname, navigate } = useRouter();
-  const { isClockedIn, clockIn, clockOut, clockInLoading, clockOutLoading } = useClockToggle();
+  const { isClockedIn, planGate } = useClockToggle();
 
-  const clockLoading = clockInLoading || clockOutLoading;
-
-  const handleClockToggle = useCallback(async () => {
-    try {
-      if (isClockedIn) {
-        await clockOut();
-      } else {
-        await clockIn();
-      }
-    } catch {
-      navigate('/app/clock');
-    }
-  }, [isClockedIn, clockIn, clockOut, navigate]);
+  // Plan-first gate: the FAB still navigates to the clock page (where the
+  // inline composer lives), but shows a dimmed "blocked" state so it's clear
+  // clocking in/out needs today's plan or wrap-up first.
+  const planBlocked = planGate.planMissing || planGate.wrapUpMissing;
 
   return (
     <MotionConfig transition={{ type: 'spring', damping: 26, stiffness: 300 }}>
@@ -69,11 +62,21 @@ export const BottomNav: React.FC = () => {
               <button
                 key={tab.href}
                 type="button"
-                onClick={handleClockToggle}
-                disabled={clockLoading}
-                aria-label={isClockedIn ? 'Clock Out' : 'Clock In'}
+                onClick={() => navigate(tab.href)}
+                aria-label={
+                  isClockedIn
+                    ? planBlocked
+                      ? 'Clock Out — wrap-up required'
+                      : 'Clock Out'
+                    : planBlocked
+                      ? 'Clock In — plan required'
+                      : 'Clock In'
+                }
                 aria-pressed={isClockedIn}
-                className="relative -top-4 flex h-16 w-16 flex-col items-center justify-center rounded-full shadow-lg transition-transform active:scale-95 disabled:opacity-60"
+                className={[
+                  'relative -top-4 flex h-16 w-16 flex-col items-center justify-center rounded-full shadow-lg transition-transform active:scale-95 disabled:opacity-60',
+                  planBlocked ? 'opacity-50 saturate-50' : '',
+                ].join(' ')}
                 style={{
                   background: isClockedIn
                     ? 'linear-gradient(135deg, #f87171, #dc2626)'

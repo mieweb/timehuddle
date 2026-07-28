@@ -122,6 +122,11 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     fetchSession();
   }, [fetchSession]);
 
+  // The first fetchSession gives up if the backend is down (e.g. mid-restart),
+  // leaving the tab logged out. Re-run it once DDP recovers so the session
+  // restores itself without a manual reload.
+  useEffect(() => getDdpClient().onReconnect(() => void fetchSession()), [fetchSession]);
+
   const signOut = useCallback(async () => {
     // Clear token FIRST so no wormhole calls fire with invalidated token
     localStorage.removeItem('meteor_resume_token');

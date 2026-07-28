@@ -30,7 +30,13 @@ COPY packages/README.md ./packages/
 COPY meteor-backend/package.json meteor-backend/package-lock.json ./meteor-backend/
 COPY scripts ./scripts
 
-# Install all dependencies (dev included — needed for Vite build + Meteor)
+# @mieweb/ui is installed from a committed tarball (see package.json:
+# "@mieweb/ui": "file:vendor/mieweb-ui.tgz") — the vendor/ui submodule branch is
+# not pushed to the public mieweb/ui repo, so it can't be built here. Copy the
+# tarball before install so npm can resolve the file: dependency.
+COPY vendor/mieweb-ui.tgz ./vendor/mieweb-ui.tgz
+
+# Install all dependencies (dev included — needed for Vite build + Meteor).
 RUN npm install
 RUN cd meteor-backend && npm install
 
@@ -75,6 +81,10 @@ WORKDIR /app
 # Root production deps (serve, etc.)
 COPY package.json package-lock.json ./
 COPY scripts ./scripts
+# @mieweb/ui resolves to file:vendor/mieweb-ui.tgz — copy it so the install can
+# resolve the dependency (it's bundled into dist/ at build time, but npm still
+# needs the file present to satisfy the manifest).
+COPY vendor/mieweb-ui.tgz ./vendor/mieweb-ui.tgz
 RUN npm install --production
 
 # Copy pre-built artifacts from builder — no source, no Meteor, no vendor

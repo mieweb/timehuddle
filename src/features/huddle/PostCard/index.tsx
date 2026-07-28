@@ -3,6 +3,9 @@ import type { HuddlePost } from '@lib/api';
 import { huddleApi, METEOR_BASE_URL } from '@lib/api';
 import { MarkdownContent } from '../MarkdownContent';
 import { HuddleComments } from '../HuddleComments';
+import { HuddleComposer } from '../HuddleComposer';
+import { toPostAttachment } from '../api';
+import type { ComposerContent, MediaItem } from '../types';
 import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
 
@@ -73,8 +76,6 @@ export function PostCard({
   onPostUpdated,
 }: PostCardProps) {
   const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState(post.content.text);
-  const [editTab, setEditTab] = useState<'write' | 'preview'>('write');
   const [showMenu, setShowMenu] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showComments, setShowComments] = useState(false);
@@ -82,7 +83,6 @@ export function PostCard({
   const [hasLiked, setHasLiked] = useState(post.likes?.includes(currentUserId) ?? false);
   const [commentCount, setCommentCount] = useState(post.commentCount ?? 0);
   const menuRef = useRef<HTMLDivElement>(null);
-  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -98,7 +98,6 @@ export function PostCard({
 
   // Reset edit state and update counts when post changes
   useEffect(() => {
-    setEditContent(post.content.text);
     setLikeCount(post.likes?.length ?? 0);
     setHasLiked(post.likes?.includes(currentUserId) ?? false);
     setCommentCount(post.commentCount ?? 0);
@@ -106,13 +105,19 @@ export function PostCard({
 
   const handleEdit = () => {
     setIsEditing(true);
-    setEditTab('write');
     setShowMenu(false);
   };
 
-  const handleSaveEdit = async () => {
+  const handleEditPost = async (content: ComposerContent) => {
     try {
-      await huddleApi.updatePost(post.id, { text: editContent, mentions: post.content.mentions });
+      await huddleApi.updatePost(
+        post.id,
+        { text: content.text, mentions: content.mentions.map((m) => m.userId) },
+        {
+          attachments: content.attachments.map(toPostAttachment),
+          ticketId: content.ticketId ?? null,
+        },
+      );
       setIsEditing(false);
       onPostUpdated?.();
     } catch (error) {
@@ -122,7 +127,6 @@ export function PostCard({
   };
 
   const handleCancelEdit = () => {
-    setEditContent(post.content.text);
     setIsEditing(false);
   };
 
@@ -164,7 +168,10 @@ export function PostCard({
   const avatarColor = getUserColor(post.userId);
 
   return (
-    <div className="border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800">
+    <div
+      data-testid="post-card"
+      className="border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800"
+    >
       {/* ── Author header ── */}
       <div className="flex items-center gap-2.5 mb-3">
         <Avatar initials={authorInitials} color={avatarColor} />
@@ -250,68 +257,25 @@ export function PostCard({
 
       {/* ── Post content ── */}
       {isEditing ? (
-        <div className="mb-3">
-          {/* Edit write/preview tabs */}
-          <div className="flex gap-1 border-b border-gray-100 dark:border-neutral-700 mb-0">
-            {(['write', 'preview'] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setEditTab(t)}
-                className={`text-xs px-3 pb-2 pt-1 font-medium transition-colors border-b-2 -mb-px capitalize ${
-                  editTab === t
-                    ? 'text-indigo-500 border-indigo-500'
-                    : 'text-gray-400 dark:text-neutral-500 border-transparent hover:text-gray-600 dark:hover:text-neutral-300'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-
-          {editTab === 'write' ? (
-            <textarea
-              ref={editTextareaRef}
-              autoFocus
-              value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
-              className="w-full min-h-24 p-3 mt-2 text-sm font-mono border border-gray-200 dark:border-neutral-700 rounded-lg bg-white dark:bg-neutral-900 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-neutral-500 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors resize-none leading-relaxed"
-              placeholder="Write your post... (markdown supported)"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  handleSaveEdit();
-                }
-              }}
-            />
-          ) : (
-            <div className="mt-2 min-h-24 border border-gray-200 dark:border-neutral-700 rounded-lg px-3 py-2.5">
-              {editContent.trim() ? (
-                <MarkdownContent content={editContent} />
-              ) : (
-                <span className="text-gray-300 dark:text-neutral-600 text-sm">
-                  Nothing to preview...
-                </span>
-              )}
-            </div>
-          )}
-
-          <div className="flex gap-2 mt-2">
-            <button
-              onClick={handleSaveEdit}
-              className="px-3 py-1.5 text-xs font-medium text-white bg-indigo-500 rounded-lg hover:bg-indigo-600 transition-colors"
-            >
-              Save
-            </button>
-            <button
-              onClick={handleCancelEdit}
-              className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-neutral-300 bg-gray-100 dark:bg-neutral-700 rounded-lg hover:bg-gray-200 dark:hover:bg-neutral-600 transition-colors"
-            >
-              Cancel
-            </button>
-            <span className="text-xs text-gray-300 dark:text-neutral-600 self-center ml-1 hidden sm:block">
-              ⌘↵ to save
-            </span>
-          </div>
+        <div className="mb-3 -mx-5 border-y border-gray-100 dark:border-neutral-700">
+          <HuddleComposer
+            editing
+            submitLabel="Update post"
+            userInitials={authorInitials}
+            userColor={avatarColor}
+            initialText={post.content.text}
+            initialTicketId={post.ticketId}
+            initialAttachments={(post.attachments ?? []).map<MediaItem>((a) => ({
+              id: a.mediaId,
+              url: a.url,
+              filename: a.filename ?? '',
+              type: a.type === 'file' ? 'document' : a.type,
+              size: 0,
+            }))}
+            collabRoom={post.id}
+            onPost={handleEditPost}
+            onCancel={handleCancelEdit}
+          />
         </div>
       ) : (
         // ── Render markdown instead of plain text ──
@@ -321,7 +285,7 @@ export function PostCard({
       )}
 
       {/* ── Attachments ── */}
-      {post.attachments && post.attachments.length > 0 && (
+      {!isEditing && post.attachments && post.attachments.length > 0 && (
         <div className={`mb-3 ${post.attachments.length === 1 ? '' : 'grid grid-cols-2'} gap-2`}>
           {post.attachments.map((attachment) => (
             <div key={attachment.mediaId} className="relative rounded-xl overflow-hidden">

@@ -915,7 +915,12 @@ export const TicketsPage: React.FC = () => {
     }
 
     setClockInPromptError(null);
-    await clockIn();
+    const clockedIn = await clockIn();
+    if (!clockedIn) {
+      // Plan-first gate: today's plan post is required before clocking in.
+      setClockInPromptError('Write today’s plan first — see the Clock page or Huddle.');
+      return;
+    }
 
     const ticketId = pendingStartTicketId;
     setShowClockInPrompt(false);
