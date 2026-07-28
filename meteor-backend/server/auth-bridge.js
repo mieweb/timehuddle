@@ -450,15 +450,20 @@ Meteor.methods({
     const user = await Meteor.users.findOneAsync(this.userId);
     if (!user) throw new Meteor.Error('not-found', 'User not found');
 
-    // Verify current password using the same login handler path
-    const sha256hex = async (str) => {
-      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
-    };
-    const digest = await sha256hex(currentPassword);
-    // Check via Accounts.checkPassword (works with both hashed and plain stored passwords)
-    const result = Accounts._checkPassword(user, { digest, algorithm: 'sha-256' });
-    if (result.error) {
+    // Verify the current password against the stored bcrypt hash. Meteor stores
+    // bcrypt(sha256hex(password)); older records may store bcrypt(raw). Mirror
+    // the emailPassword login handler so both formats are accepted.
+    const storedBcrypt = user.services?.password?.bcrypt;
+    if (!storedBcrypt) {
+      throw new Meteor.Error('no-password', 'This account has no password set. Use a social login provider.');
+    }
+    const bcrypt = Npm.require('bcrypt');
+    const digest = createHash('sha256').update(currentPassword).digest('hex');
+    let match = await bcrypt.compare(digest, storedBcrypt);
+    if (!match) {
+      match = await bcrypt.compare(currentPassword, storedBcrypt);
+    }
+    if (!match) {
       throw new Meteor.Error('incorrect-password', 'Current password is incorrect');
     }
     await Accounts.setPasswordAsync(this.userId, newPassword, { logout: false });

@@ -33,7 +33,10 @@ export const ProfileAvatarCropModal: React.FC<ProfileAvatarCropModalProps> = ({
   const [cropError, setCropError] = useState<string | null>(null);
 
   const getCroppedImg = async () => {
-    if (!image || !croppedAreaPixels) return;
+    if (!image) {
+      setCropError('No image selected');
+      return;
+    }
     setLoading(true);
     setCropError(null);
     try {
@@ -41,21 +44,36 @@ export const ProfileAvatarCropModal: React.FC<ProfileAvatarCropModalProps> = ({
         const img = new window.Image();
         img.addEventListener('load', () => resolve(img));
         img.addEventListener('error', () => reject(new Error('Failed to load image')));
-        img.setAttribute('crossOrigin', 'anonymous');
         img.src = image;
       });
+
+      // Fall back to a centered square crop when react-easy-crop hasn't yet
+      // reported a crop area (can happen on slow iOS WebViews if the user taps
+      // Crop & Save immediately). This guarantees the button always works.
+      const area =
+        croppedAreaPixels ??
+        (() => {
+          const side = Math.min(imageEl.naturalWidth, imageEl.naturalHeight);
+          return {
+            x: (imageEl.naturalWidth - side) / 2,
+            y: (imageEl.naturalHeight - side) / 2,
+            width: side,
+            height: side,
+          };
+        })();
+
       const canvas = document.createElement('canvas');
-      const size = Math.max(croppedAreaPixels.width, croppedAreaPixels.height);
+      const size = Math.max(area.width, area.height);
       canvas.width = size;
       canvas.height = size;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Canvas 2D context unavailable');
       ctx.drawImage(
         imageEl,
-        croppedAreaPixels.x,
-        croppedAreaPixels.y,
-        croppedAreaPixels.width,
-        croppedAreaPixels.height,
+        area.x,
+        area.y,
+        area.width,
+        area.height,
         0,
         0,
         size,
@@ -65,7 +83,7 @@ export const ProfileAvatarCropModal: React.FC<ProfileAvatarCropModalProps> = ({
         canvas.toBlob((b) => {
           if (b) resolve(b);
           else reject(new Error('Failed to encode cropped image'));
-        }, 'image/png');
+        }, 'image/jpeg', 0.9);
       });
       onCropComplete(blob);
     } catch (err) {
