@@ -14,6 +14,10 @@ import { Meteor } from 'meteor/meteor';
 import { Accounts } from 'meteor/accounts-base';
 import { MongoInternals } from 'meteor/mongo';
 import { createHash } from 'crypto';
+// Static import (not Npm.require) so Meteor's bundler links the app's bcrypt
+// into the server bundle. Npm.require is a runtime lookup that happens after
+// bundling, so it cannot pull a package the bundler never included.
+import bcrypt from 'bcrypt';
 import { currentBearerToken } from 'meteor/wreiske:meteor-wormhole';
 import { rawDb } from './collections';
 
@@ -164,7 +168,6 @@ async function resolvePat(token) {
 }
 
 async function resolveMeteorToken(token) {
-  const { createHash } = Npm.require('crypto');
   const hashedToken = createHash('sha256').update(token).digest('base64');
   
   const user = await Meteor.users.findOneAsync({
@@ -283,6 +286,7 @@ async function verifyProxyJwt(token) {
   const secret = getProxySecret();
   if (!secret) return null;
   try {
+    const { jwtVerify } = await import('jose');
     const { payload } = await jwtVerify(token, secret);
     if (!payload.proxy || !payload.email) return null;
     return { email: payload.email, name: payload.name };
@@ -295,6 +299,7 @@ async function verifyProxyJwt(token) {
 export async function signProxyJwt(email, name) {
   const secret = getProxySecret();
   if (!secret) throw new Error('PROXY_JWT_SECRET not set');
+  const { SignJWT } = await import('jose');
   return new SignJWT({ email, name, proxy: true })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
@@ -517,7 +522,6 @@ Accounts.registerLoginHandler('emailPassword', async (options) => {
   // crypto.subtle is undefined).
   const storedBcrypt = user?.services?.password?.bcrypt;
   if (storedBcrypt) {
-    const bcrypt = Npm.require('bcrypt');
     const clientDigest = password.digest && password.digest.length > 0
       ? password.digest
       : createHash('sha256').update(password.raw).digest('hex');
