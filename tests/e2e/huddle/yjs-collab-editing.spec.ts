@@ -15,6 +15,7 @@
  */
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { TEST_USERS } from '../fixtures/users';
+import { selectSharedTestTeam } from '../fixtures/team';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,11 @@ test.describe('Huddle — Yjs real-time collaborative editing', () => {
 
     // Navigate both to the Huddle feed
     await Promise.all([goToHuddle(memberPage), goToHuddle(adminPage)]);
+
+    // Both sessions must be on the same team feed — the app defaults to each
+    // user's private Personal team, so posts made by one wouldn't be visible
+    // to the other. Switch both to the shared seed team (TEST01).
+    await Promise.all([selectSharedTestTeam(memberPage), selectSharedTestTeam(adminPage)]);
 
     // Both users must be in Cards view so PostCard elements are in the DOM
     await Promise.all([switchToCardView(memberPage), switchToCardView(adminPage)]);

@@ -2,9 +2,15 @@
  * Real-time Huddle post synchronization tests.
  *
  * Verifies that huddle posts and comments sync across sessions.
+ *
+ * Both sessions must be viewing the SAME team feed. Every user has a private
+ * "Personal" team that only they see — the app defaults to Personal on first
+ * login, so we explicitly switch both sessions to the shared seed team
+ * "Test Team Alpha" (TEST01) before asserting cross-session sync.
  */
 import { test, expect, type Page } from '@playwright/test';
 import { LoginPage } from '../pages/LoginPage';
+import { selectSharedTestTeam } from '../fixtures/team';
 
 test.describe('Real-time Huddle Posts', () => {
   let session1: Page;
@@ -34,6 +40,11 @@ test.describe('Real-time Huddle Posts', () => {
 
     await session1.waitForLoadState('networkidle');
     await session2.waitForLoadState('networkidle');
+
+    // Both sessions must view the same team feed for cross-session sync
+    // assertions to be meaningful — each user's Personal team is private.
+    await selectSharedTestTeam(session1);
+    await selectSharedTestTeam(session2);
   });
 
   test.afterEach(async () => {
