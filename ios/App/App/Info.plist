@@ -33,6 +33,10 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>TimeHuddle uses the camera to update your profile photo.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>TimeHuddle accesses your photo library to update your profile photo.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
