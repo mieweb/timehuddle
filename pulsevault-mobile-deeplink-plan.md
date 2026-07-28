@@ -34,6 +34,6 @@ So a mobile browser user gets a QR code they can't scan with the same phone.
 - [x] **M2 — Ticket button** (`PulseUploadButton.tsx`): branch mobile-browser →
       `openPulseAppOrStore`, keep native + desktop paths.
 - [x] **M3 — Huddle button** (`PulseAttachButton.tsx`): same branch.
-- [ ] **M4 — Tests**: `src/lib/device.test.ts` for detection + store selection;
+- [x] **M4 — Tests**: `src/lib/device.test.ts` for detection + store selection;
       extend `PulseUploadButton.test.ts` as needed.
-- [ ] **M5 — Validation**: `npm run lint`, `npm run typecheck`, `npm test` green.
+- [x] **M5 — Validation**: `npm run lint`, `npm run typecheck`, `npm test` green.
