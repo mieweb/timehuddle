@@ -1,11 +1,11 @@
 import { faQrcode, faVideo } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Text } from '@mieweb/ui';
-import { Capacitor } from '@capacitor/core';
 import * as tus from 'tus-js-client';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { attachmentApi, TIMECORE_BASE_URL, videoApi } from '../../lib/api';
+import { getMobileOS, isMobileBrowser, isNativeApp, openPulseAppOrStore } from '../../lib/device';
 import { PulseUploadModal } from './PulseUploadModal';
 
 /**
@@ -76,7 +76,7 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
   ticketId,
   onUploadComplete,
 }) => {
-  const isNative = Capacitor.isNativePlatform();
+  const isNative = isNativeApp();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const knownAttachmentIds = useRef<Set<string>>(new Set());
@@ -143,16 +143,25 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
       // On native Capacitor: open the Pulse deep link directly.
       // Pulse is sideloaded via EAS — must be installed first.
       window.open(res.uploadLink, '_system');
-    } else {
-      // On web: seed known attachment IDs, then show QR modal.
-      try {
-        const existing = await attachmentApi.list('ticket', ticketId);
-        knownAttachmentIds.current = new Set(existing.map((a) => a.id));
-      } catch {
-        knownAttachmentIds.current = new Set();
-      }
-      setModalOpen(true);
+      return;
     }
+
+    const mobileOS = getMobileOS();
+    if (isMobileBrowser() && mobileOS) {
+      // Mobile web browser: open Pulse Cam directly (no QR to self-scan). If
+      // it isn't installed, fall back to the App Store / Play Store.
+      openPulseAppOrStore(res.uploadLink, mobileOS);
+      return;
+    }
+
+    // On desktop: seed known attachment IDs, then show QR modal.
+    try {
+      const existing = await attachmentApi.list('ticket', ticketId);
+      knownAttachmentIds.current = new Set(existing.map((a) => a.id));
+    } catch {
+      knownAttachmentIds.current = new Set();
+    }
+    setModalOpen(true);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
