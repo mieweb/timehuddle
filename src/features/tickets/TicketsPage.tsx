@@ -1026,6 +1026,10 @@ export const TicketsPage: React.FC = () => {
               variant="primary"
               size="sm"
               leftIcon={<FontAwesomeIcon icon={faPlus} />}
+              // Teams arrive asynchronously, so selectedTeam is null on first
+              // paint even for users who have one. Without this guard an early
+              // click reports "No team available" to a user who has a team.
+              disabled={!teamsReady}
               onClick={() => {
                 if (!selectedTeam) {
                   setShowNoTeamDialog(true);
