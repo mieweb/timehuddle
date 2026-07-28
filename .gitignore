@@ -53,6 +53,11 @@ meteor-backend/.meteor/local-test/
 backend/nginx-apple-proxy.conf
 meteor-backend/start-rosetta.sh
 
+# Local working clone of github.com/mieweb/ui — has its own .git, so committing
+# it would record a gitlink with no matching .gitmodules entry. @mieweb/ui is
+# consumed from npm; nothing in this project reads vendor/ui.
+vendor/ui/
+
 # Database backups (migration and production backups)
 backups/
 prod-backups/
