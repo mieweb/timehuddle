@@ -71,12 +71,16 @@ const ALLOWED_ORIGINS = _rawCorsOrigins
 // This guarantees CORS works for PR previews even if env vars are not injected.
 const PREVIEW_BASE_DOMAINS = ['os.mieweb.org'];
 
-// Capacitor / Ionic native app WebView origins. The iOS shell serves the app
-// from `capacitor://localhost`, Android from `http://localhost`, and legacy
-// Ionic builds from `ionic://localhost`. These are real cross-origin requests
-// (the API lives on a different host), so they must be explicitly allowed —
-// they have no routable DNS host to match against the base-domain rules below.
-const NATIVE_APP_ORIGINS = ['capacitor://localhost', 'ionic://localhost', 'http://localhost'];
+// Native mobile app WebView origins. These are the app's own bundled WebView
+// (not a remote site), so they are always safe to allow:
+//   • Capacitor iOS      → capacitor://localhost
+//   • Capacitor Android  → https://localhost (androidScheme: 'https')
+//   • Legacy Ionic       → ionic://localhost
+const NATIVE_APP_ORIGINS = new Set([
+  'capacitor://localhost',
+  'https://localhost',
+  'ionic://localhost',
+]);
 
 // Optionally derive an additional base domain from ROOT_URL
 const _rootUrl = process.env.ROOT_URL || '';
@@ -93,8 +97,8 @@ function isOriginAllowed(origin) {
   if (!origin) return false;
   if (CORS_ALLOW_ALL) return true;
   if (ALLOWED_ORIGINS.includes(origin)) return true;
-  // Native app WebView origins (Capacitor iOS/Android, Ionic).
-  if (NATIVE_APP_ORIGINS.includes(origin)) return true;
+  // Native mobile app WebViews (Capacitor / Ionic) — the app's own bundle.
+  if (NATIVE_APP_ORIGINS.has(origin)) return true;
   try {
     const h = new URL(origin).hostname;
     // Allow hardcoded preview base domains
@@ -263,16 +267,48 @@ const proxyWhoamiHandler = async (req, res) => {
 WebApp.connectHandlers.use('/api/whoami', proxyWhoamiHandler);
 
 // ============================================================================
+// OAuth native deep-link helper
+// ============================================================================
+//
+// Redirect a native (Capacitor) OAuth callback back into the app. A raw HTTP
+// 302 to a custom scheme is unreliable inside SFSafariViewController (it can
+// fail with "not connected to the internet"). An HTML page that performs a
+// page-level navigation to the deep link — plus a tap-link fallback — is
+// honored consistently across iOS and Android WebViews.
+function sendNativeAuthRedirect(res, token, resumeToken) {
+  const deepLink =
+    `timehuddle://auth?meteor_token=${encodeURIComponent(token)}&` +
+    `meteor_resume=${encodeURIComponent(resumeToken)}`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(
+    `<!DOCTYPE html><html><head><meta charset="utf-8">` +
+      `<meta name="viewport" content="width=device-width, initial-scale=1">` +
+      `<meta http-equiv="refresh" content="0;url=${deepLink}">` +
+      `<title>Signing you in…</title></head>` +
+      `<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;` +
+      `text-align:center;padding:48px 24px;color:#1d1d1f;">` +
+      `<script>window.location.href=${JSON.stringify(deepLink)};</script>` +
+      `<p style="font-size:17px;">Signing you in…</p>` +
+      `<p><a href="${deepLink}" style="display:inline-block;margin-top:12px;font-size:18px;` +
+      `font-weight:600;color:#c0392b;text-decoration:none;">Return to TimeHuddle</a></p>` +
+      `</body></html>`,
+  );
+}
+
+// ============================================================================
 // GitHub OAuth Endpoints
 // ============================================================================
 
 WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
-  // Only handle exact /auth/github route, not /auth/github/callback
-  if (req.url !== '/' && req.url !== '') { next(); return; }
-  const credentialToken = Random.secret();
+  // Only handle exact /auth/github route, not /auth/github/callback.
+  // Strip the query string so ?native=1 doesn't break the path match.
+  const pathname = req.url.split('?')[0];
+  if (pathname !== '/' && pathname !== '') { next(); return; }
+  const isNative = new URL(req.url, process.env.ROOT_URL).searchParams.get('native') === '1';
+  const credentialToken = (isNative ? 'native_' : '') + Random.secret();
   const callbackUrl = `${process.env.ROOT_URL}/auth/github/callback`;
   
-  console.log('[github-oauth] Initiating OAuth flow');
+  console.log('[github-oauth] Initiating OAuth flow, native=' + isNative);
   console.log('[github-oauth] Client ID:', process.env.GITHUB_CLIENT_ID);
   console.log('[github-oauth] Callback URL:', callbackUrl);
   
@@ -376,17 +412,21 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
       .setExpirationTime('5m')
       .sign(secret);
     
-    // Redirect to frontend with token
-    const frontendUrl =
-      process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
-    
-    res.writeHead(302, {
-      Location:
-        `${frontendUrl}/app/dashboard` +
-        `?meteor_token=${token}&` +
-        `meteor_resume=${stampedToken.token}`,
-    });
-    res.end();
+    // Redirect back — native apps get a deep link, browsers get the frontend URL
+    const isNative = state?.startsWith('native_');
+    if (isNative) {
+      sendNativeAuthRedirect(res, token, stampedToken.token);
+    } else {
+      const frontendUrl =
+        process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
+      res.writeHead(302, {
+        Location:
+          `${frontendUrl}/app/dashboard` +
+          `?meteor_token=${token}&` +
+          `meteor_resume=${stampedToken.token}`,
+      });
+      res.end();
+    }
   } catch (err) {
     console.error('[github-oauth] error:', err);
     res.writeHead(500);
@@ -399,12 +439,16 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
 // ============================================================================
 
 WebApp.connectHandlers.use('/auth/google', (req, res, next) => {
-  // Only handle exact /auth/google route, not /auth/google/callback
-  if (req.url !== '/' && req.url !== '') { next(); return; }
+  // Only handle exact /auth/google route, not /auth/google/callback.
+  // Strip the query string so ?native=1 doesn't break the path match.
+  const pathname = req.url.split('?')[0];
+  if (pathname !== '/' && pathname !== '') { next(); return; }
+  const isNative = new URL(req.url, process.env.ROOT_URL).searchParams.get('native') === '1';
+  const state = (isNative ? 'native_' : '') + Random.secret();
   const callbackUrl = 
     `${process.env.ROOT_URL}/auth/google/callback`
   
-  console.log('[google-oauth] Initiating OAuth flow');
+  console.log('[google-oauth] Initiating OAuth flow, native=' + isNative);
   console.log('[google-oauth] Client ID:', process.env.GOOGLE_CLIENT_ID);
   console.log('[google-oauth] Callback URL:', callbackUrl);
   
@@ -414,7 +458,7 @@ WebApp.connectHandlers.use('/auth/google', (req, res, next) => {
     `&redirect_uri=${encodeURIComponent(callbackUrl)}` +
     `&response_type=code` +
     `&scope=openid%20email%20profile` +
-    `&state=${Random.secret()}`
+    `&state=${state}`
   
   console.log('[google-oauth] Redirecting to:', googleAuthUrl);
   
@@ -424,9 +468,11 @@ WebApp.connectHandlers.use('/auth/google', (req, res, next) => {
 
 WebApp.connectHandlers.use('/auth/google/callback',
   async (req, res) => {
-    const { code } = Object.fromEntries(
+    const callbackParams = Object.fromEntries(
       new URL(req.url, process.env.ROOT_URL).searchParams
     )
+    const { code } = callbackParams
+    const isNative = callbackParams.state?.startsWith('native_')
     
     if (!code) {
       res.writeHead(400)
@@ -508,18 +554,21 @@ WebApp.connectHandlers.use('/auth/google/callback',
         .setExpirationTime('5m')
         .sign(secret);
       
-      // Redirect to frontend with token
-      const frontendUrl =
-        process.env.CORS_ORIGINS?.split(',')[0] || 
-        'http://localhost:3000'
-      
-      res.writeHead(302, {
-        Location:
-          `${frontendUrl}/app/dashboard` +
-          `?meteor_token=${token}&` +
-          `meteor_resume=${stampedToken.token}`
-      })
-      res.end()
+      // Redirect back — native apps get a deep link, browsers get the frontend URL
+      if (isNative) {
+        sendNativeAuthRedirect(res, token, stampedToken.token)
+      } else {
+        const frontendUrl =
+          process.env.CORS_ORIGINS?.split(',')[0] || 
+          'http://localhost:3000'
+        res.writeHead(302, {
+          Location:
+            `${frontendUrl}/app/dashboard` +
+            `?meteor_token=${token}&` +
+            `meteor_resume=${stampedToken.token}`
+        })
+        res.end()
+      }
       
     } catch (err) {
       console.error('[google-oauth] error:', err)
@@ -534,8 +583,12 @@ WebApp.connectHandlers.use('/auth/google/callback',
 // ============================================================================
 
 WebApp.connectHandlers.use('/auth/apple', (req, res, next) => {
-  // Only handle exact /auth/apple route, not /auth/apple/callback
-  if (req.url !== '/' && req.url !== '') { next(); return; }
+  // Only handle exact /auth/apple route, not /auth/apple/callback.
+  // Strip the query string so ?native=1 doesn't break the path match.
+  const pathname = req.url.split('?')[0];
+  if (pathname !== '/' && pathname !== '') { next(); return; }
+  const isNative = new URL(req.url, process.env.ROOT_URL).searchParams.get('native') === '1';
+  const state = (isNative ? 'native_' : '') + Random.secret();
   const callbackUrl = 
     `${process.env.ROOT_URL}/auth/apple/callback`
   
@@ -546,7 +599,7 @@ WebApp.connectHandlers.use('/auth/apple', (req, res, next) => {
     `&response_type=code%20id_token` +
     `&scope=name%20email` +
     `&response_mode=form_post` +
-    `&state=${Random.secret()}`
+    `&state=${state}`
   
   res.writeHead(302, { Location: appleAuthUrl })
   res.end()
@@ -564,6 +617,7 @@ WebApp.connectHandlers.use('/auth/apple/callback',
       const code = params.get('code')
       const idToken = params.get('id_token')
       const userParam = params.get('user')
+      const isNative = params.get('state')?.startsWith('native_') ?? false
       
       if (!code && !idToken) {
         res.writeHead(400)
@@ -637,34 +691,37 @@ WebApp.connectHandlers.use('/auth/apple/callback',
         .setExpirationTime('5m')
         .sign(secret);
       
-      // Apple sends POST so we need to redirect
-      // using HTML meta refresh or JS redirect
-      const frontendUrl =
-        process.env.CORS_ORIGINS?.split(',')[0] || 
-        'http://localhost:3000'
-      
-      const redirectUrl = 
-        `${frontendUrl}/app/dashboard` +
-        `?meteor_token=${token}&` +
-        `meteor_resume=${stampedToken.token}`
-      
-      // Use HTML redirect since Apple uses POST
-      res.writeHead(200, { 
-        'Content-Type': 'text/html' 
-      })
-      res.end(`
-        <html>
-          <body>
-            <script>
-              window.location.href = '${redirectUrl}'
-            </script>
-            <noscript>
-              <meta http-equiv="refresh" 
-                content="0;url=${redirectUrl}">
-            </noscript>
-          </body>
-        </html>
-      `)
+      // Redirect back — native apps get a deep link, browsers get the frontend URL.
+      if (isNative) {
+        sendNativeAuthRedirect(res, token, stampedToken.token);
+      } else {
+        const frontendUrl =
+          process.env.CORS_ORIGINS?.split(',')[0] || 
+          'http://localhost:3000'
+        
+        const redirectUrl = 
+          `${frontendUrl}/app/dashboard` +
+          `?meteor_token=${token}&` +
+          `meteor_resume=${stampedToken.token}`
+        
+        // Use HTML redirect since Apple uses POST
+        res.writeHead(200, { 
+          'Content-Type': 'text/html' 
+        })
+        res.end(`
+          <html>
+            <body>
+              <script>
+                window.location.href = '${redirectUrl}'
+              </script>
+              <noscript>
+                <meta http-equiv="refresh" 
+                  content="0;url=${redirectUrl}">
+              </noscript>
+            </body>
+          </html>
+        `)
+      }
       
     } catch (err) {
       console.error('[apple-oauth] error:', err)
