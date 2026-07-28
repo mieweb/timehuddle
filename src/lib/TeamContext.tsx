@@ -204,7 +204,15 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!userId) return;
     const ddp = getDdpClient();
 
+    // The subscription streams team docs in one at a time. Publishing each
+    // intermediate state would repeatedly replace `teams` with a partial list,
+    // and the "pick first available" effects below would treat the still-absent
+    // selected team as gone and silently reset the selection. Hold updates
+    // until the subscription signals ready, then track changes live.
+    let subReady = false;
+
     const applyLiveDocs = () => {
+      if (!subReady) return;
       const liveTeams = ddp.docs('teams').map(ddpDocToTeam);
       setTeams(
         liveTeams.sort((a, b) => {
@@ -216,6 +224,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const offChange = ddp.onCollectionChange('teams', applyLiveDocs);
     const unsubscribe = ddp.subscribe('teams.byUser', [], () => {
+      subReady = true;
       applyLiveDocs();
       setTeamsReady(true);
     });
@@ -232,11 +241,18 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [selectedEnterpriseId, _setSelectedEnterpriseId] = useState<string | null>(null);
   const [selectedOrgId, _setSelectedOrgId] = useState<string | null>(null);
 
+  // Which user's persisted selection has been read back into state. The
+  // "pick first available" effects below must not run before this matches
+  // `userId` — on the commit where `userId` first resolves they would still
+  // see the pre-restore `null` and overwrite the saved selection.
+  const [restoredForUser, setRestoredForUser] = useState<string | null>(null);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!userId) {
       _setSelectedTeamId(null);
       _setSelectedOrgId(null);
+      setRestoredForUser(null);
       return;
     }
 
@@ -252,6 +268,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const scopedOrg = localStorage.getItem(getUserOrgKey(userId));
     const legacyOrg = localStorage.getItem(ORG_KEY);
     _setSelectedOrgId(scopedOrg ?? legacyOrg);
+
+    setRestoredForUser(userId);
   }, [userId]);
 
   const setSelectedTeamId = useCallback(
@@ -282,7 +300,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   useEffect(() => {
-    if (!userId || enterprises.length === 0) {
+    if (!userId || restoredForUser !== userId || enterprises.length === 0) {
       if (userId && enterprises.length === 0) {
         _setSelectedEnterpriseId(null);
       }
@@ -296,7 +314,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!hasSelectedEnterprise) {
       setSelectedEnterpriseId(enterprises[0].id);
     }
-  }, [enterprises, selectedEnterpriseId, setSelectedEnterpriseId, userId]);
+  }, [enterprises, selectedEnterpriseId, setSelectedEnterpriseId, userId, restoredForUser]);
 
   const scopedTeams = useMemo(
     () => (selectedOrgId ? teams.filter((team) => team.orgId === selectedOrgId) : teams),
@@ -304,7 +322,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 
   useEffect(() => {
-    if (!userId || organizations.length === 0) return;
+    if (!userId || restoredForUser !== userId || organizations.length === 0) return;
 
     const hasSelectedOrg = selectedOrgId
       ? organizations.some((org) => org.id === selectedOrgId)
@@ -312,11 +330,11 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!hasSelectedOrg) {
       setSelectedOrgId(organizations[0].id);
     }
-  }, [organizations, selectedOrgId, setSelectedOrgId, userId]);
+  }, [organizations, selectedOrgId, setSelectedOrgId, userId, restoredForUser]);
 
   // Ensure selected team belongs to the current user; otherwise pick first available.
   useEffect(() => {
-    if (!userId || scopedTeams.length === 0) return;
+    if (!userId || restoredForUser !== userId || scopedTeams.length === 0) return;
 
     const hasSelected = selectedTeamId
       ? scopedTeams.some((team) => team.id === selectedTeamId)
@@ -325,7 +343,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!hasSelected) {
       setSelectedTeamId(scopedTeams[0].id);
     }
-  }, [selectedTeamId, scopedTeams, setSelectedTeamId, userId]);
+  }, [selectedTeamId, scopedTeams, setSelectedTeamId, userId, restoredForUser]);
 
   const selectedTeam = useMemo(
     () => scopedTeams.find((t) => t.id === selectedTeamId) ?? null,
