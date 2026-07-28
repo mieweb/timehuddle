@@ -68,22 +68,16 @@ export const ProfileAvatarCropModal: React.FC<ProfileAvatarCropModalProps> = ({
       canvas.height = size;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Canvas 2D context unavailable');
-      ctx.drawImage(
-        imageEl,
-        area.x,
-        area.y,
-        area.width,
-        area.height,
-        0,
-        0,
-        size,
-        size,
-      );
+      ctx.drawImage(imageEl, area.x, area.y, area.width, area.height, 0, 0, size, size);
       const blob = await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((b) => {
-          if (b) resolve(b);
-          else reject(new Error('Failed to encode cropped image'));
-        }, 'image/jpeg', 0.9);
+        canvas.toBlob(
+          (b) => {
+            if (b) resolve(b);
+            else reject(new Error('Failed to encode cropped image'));
+          },
+          'image/jpeg',
+          0.9,
+        );
       });
       onCropComplete(blob);
     } catch (err) {
