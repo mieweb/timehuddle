@@ -437,6 +437,34 @@ Meteor.methods({
     return { userId };
   },
 
+  'accounts.changePassword': async function({ currentPassword, newPassword }) {
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Must be logged in');
+    }
+    if (!currentPassword || !newPassword) {
+      throw new Meteor.Error('invalid-params', 'Current and new password are required');
+    }
+    if (newPassword.length < 8) {
+      throw new Meteor.Error('weak-password', 'New password must be at least 8 characters');
+    }
+    const user = await Meteor.users.findOneAsync(this.userId);
+    if (!user) throw new Meteor.Error('not-found', 'User not found');
+
+    // Verify current password using the same login handler path
+    const sha256hex = async (str) => {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,'0')).join('');
+    };
+    const digest = await sha256hex(currentPassword);
+    // Check via Accounts.checkPassword (works with both hashed and plain stored passwords)
+    const result = Accounts._checkPassword(user, { digest, algorithm: 'sha-256' });
+    if (result.error) {
+      throw new Meteor.Error('incorrect-password', 'Current password is incorrect');
+    }
+    await Accounts.setPasswordAsync(this.userId, newPassword, { logout: false });
+    return { ok: true };
+  },
+
   'accounts.sendResetPasswordEmail': async function({ email }) {
     if (!email || typeof email !== 'string') {
       throw new Meteor.Error('invalid-params', 'Email is required');

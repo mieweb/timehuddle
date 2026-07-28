@@ -693,8 +693,6 @@ const ApiTokensManager: React.FC = () => {
 export const SettingsPage: React.FC = () => {
   const { user, signOut, refetch } = useSession();
   const { navigate } = useRouter();
-  const [resetBusy, setResetBusy] = useState(false);
-  const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const canManageOrganization = hasDefaultOrganizationAdminAccess(user);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -706,20 +704,44 @@ export const SettingsPage: React.FC = () => {
     }, [refetch]),
   );
 
-  const handlePasswordReset = async () => {
-    if (!user?.email || resetBusy) return;
-    setResetBusy(true);
-    setResetMessage(null);
+  // Change-password form state
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState('');
+  const [pwNew, setPwNew] = useState('');
+  const [pwConfirm, setPwConfirm] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwMessage, setPwMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pwNew !== pwConfirm) {
+      setPwMessage({ ok: false, text: 'New passwords do not match.' });
+      return;
+    }
+    if (pwNew.length < 8) {
+      setPwMessage({ ok: false, text: 'New password must be at least 8 characters.' });
+      return;
+    }
+    setPwBusy(true);
+    setPwMessage(null);
     try {
       const ddp = getDdpClient();
-      await ddp.call('accounts.sendResetPasswordEmail', {
-        email: user.email.toLowerCase(),
+      await ddp.call('accounts.changePassword', {
+        currentPassword: pwCurrent,
+        newPassword: pwNew,
       });
-      setResetMessage('Check your email for a password reset link.');
+      setPwMessage({ ok: true, text: 'Password changed successfully.' });
+      setPwCurrent('');
+      setPwNew('');
+      setPwConfirm('');
+      setShowChangePassword(false);
     } catch (error: unknown) {
-      setResetMessage(error instanceof Error ? error.message : 'Failed to send reset email.');
+      setPwMessage({
+        ok: false,
+        text: error instanceof Error ? error.message : 'Failed to change password.',
+      });
     } finally {
-      setResetBusy(false);
+      setPwBusy(false);
     }
   };
 
@@ -781,23 +803,68 @@ export const SettingsPage: React.FC = () => {
       {/* Account */}
       <Section icon={faGear} title="Account">
         <GitHubConnectionRow />
-        <Row label="Reset password" hint="We will email you a link to choose a new password">
+        <Row label="Change password" hint="Update your password without needing email">
           <Button
             variant="outline"
             size="sm"
             leftIcon={<FontAwesomeIcon icon={faRotateLeft} className="text-xs" />}
-            onClick={() => void handlePasswordReset()}
-            disabled={!user?.email || resetBusy}
-            isLoading={resetBusy}
-            loadingText="Sending…"
+            onClick={() => {
+              setShowChangePassword((v) => !v);
+              setPwMessage(null);
+            }}
           >
-            Reset password
+            {showChangePassword ? 'Cancel' : 'Change password'}
           </Button>
         </Row>
-        {resetMessage && (
-          <div className="px-5 py-3.5">
-            <Text variant="muted" size="xs">
-              {resetMessage}
+        {showChangePassword && (
+          <div className="px-5 pb-4">
+            <form onSubmit={(e) => void handleChangePassword(e)} className="flex flex-col gap-3">
+              <Input
+                type="password"
+                placeholder="Current password"
+                value={pwCurrent}
+                onChange={(e) => setPwCurrent(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+              <Input
+                type="password"
+                placeholder="New password (min 8 characters)"
+                value={pwNew}
+                onChange={(e) => setPwNew(e.target.value)}
+                required
+                autoComplete="new-password"
+              />
+              <Input
+                type="password"
+                placeholder="Confirm new password"
+                value={pwConfirm}
+                onChange={(e) => setPwConfirm(e.target.value)}
+                required
+                autoComplete="new-password"
+              />
+              {pwMessage && (
+                <Text variant={pwMessage.ok ? 'success' : 'destructive'} size="xs">
+                  {pwMessage.text}
+                </Text>
+              )}
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                isLoading={pwBusy}
+                loadingText="Saving…"
+                disabled={!pwCurrent || !pwNew || !pwConfirm || pwBusy}
+              >
+                Save new password
+              </Button>
+            </form>
+          </div>
+        )}
+        {pwMessage && !showChangePassword && (
+          <div className="px-5 pb-3">
+            <Text variant={pwMessage.ok ? 'success' : 'destructive'} size="xs">
+              {pwMessage.text}
             </Text>
           </div>
         )}
