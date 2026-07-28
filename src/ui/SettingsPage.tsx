@@ -730,11 +730,14 @@ export const SettingsPage: React.FC = () => {
         currentPassword: pwCurrent,
         newPassword: pwNew,
       });
-      setPwMessage({ ok: true, text: 'Password changed successfully.' });
+      setPwMessage({ ok: true, text: 'Password changed. Signing you out…' });
       setPwCurrent('');
       setPwNew('');
       setPwConfirm('');
       setShowChangePassword(false);
+      // Password change invalidates all sessions — sign out so the user signs
+      // back in with their new password.
+      setTimeout(() => void signOut(), 1200);
     } catch (error: unknown) {
       setPwMessage({
         ok: false,

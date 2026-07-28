@@ -438,6 +438,7 @@ Meteor.methods({
   },
 
   'accounts.changePassword': async function({ currentPassword, newPassword }) {
+    this.unblock();
     if (!this.userId) {
       throw new Meteor.Error('not-authorized', 'Must be logged in');
     }
@@ -465,7 +466,9 @@ Meteor.methods({
     if (!match) {
       throw new Meteor.Error('incorrect-password', 'Current password is incorrect');
     }
-    await Accounts.setPasswordAsync(this.userId, newPassword, { logout: false });
+    // logout: true invalidates all existing sessions — the user must sign in
+    // again with the new password on every device.
+    await Accounts.setPasswordAsync(this.userId, newPassword, { logout: true });
     return { ok: true };
   },
 
