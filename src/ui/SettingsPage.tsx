@@ -726,6 +726,10 @@ export const SettingsPage: React.FC = () => {
     setPwMessage(null);
     try {
       const ddp = getDdpClient();
+      // Ensure the DDP connection is authenticated before the call. The socket
+      // may have reconnected (e.g. after a server restart) without re-logging
+      // in, which would make the method see a null userId ("Must be logged in").
+      await ddp.ensureAuthed();
       await ddp.call('accounts.changePassword', {
         currentPassword: pwCurrent,
         newPassword: pwNew,
@@ -739,10 +743,15 @@ export const SettingsPage: React.FC = () => {
       // back in with their new password.
       setTimeout(() => void signOut(), 1200);
     } catch (error: unknown) {
-      setPwMessage({
-        ok: false,
-        text: error instanceof Error ? error.message : 'Failed to change password.',
-      });
+      const text = error instanceof Error ? error.message : 'Failed to change password.';
+      // A dead/expired session can't change its password — force a clean sign-out
+      // so the user can re-authenticate instead of being stuck.
+      if (/logged in|not-authorized|Must be logged/i.test(text)) {
+        setPwMessage({ ok: false, text: 'Your session expired. Please sign in again.' });
+        setTimeout(() => void signOut(), 1500);
+      } else {
+        setPwMessage({ ok: false, text });
+      }
     } finally {
       setPwBusy(false);
     }
