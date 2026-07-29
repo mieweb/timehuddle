@@ -599,6 +599,9 @@ export function ddpDocToTeam(doc: DdpDoc): import('./api').Team {
       requirePlanForClock: Boolean(
         (doc.settings as { requirePlanForClock?: boolean } | undefined)?.requirePlanForClock,
       ),
+      autoAcceptJoins: Boolean(
+        (doc.settings as { autoAcceptJoins?: boolean } | undefined)?.autoAcceptJoins,
+      ),
     },
     createdAt: String(doc.createdAt ?? ''),
     updatedAt: (doc.updatedAt as string | undefined) ?? null,

@@ -224,9 +224,17 @@ export const TeamsPage: React.FC = () => {
   const [requirePlanForClock, setRequirePlanForClock] = useState(false);
   const [savingPlanSetting, setSavingPlanSetting] = useState(false);
 
+  // Team setting: auto-accept join requests (skip the pending-approval list)
+  const [autoAcceptJoins, setAutoAcceptJoins] = useState(false);
+  const [savingAutoAccept, setSavingAutoAccept] = useState(false);
+
   useEffect(() => {
     setRequirePlanForClock(selectedTeam?.settings?.requirePlanForClock ?? false);
   }, [selectedTeam?.id, selectedTeam?.settings?.requirePlanForClock]);
+
+  useEffect(() => {
+    setAutoAcceptJoins(selectedTeam?.settings?.autoAcceptJoins ?? false);
+  }, [selectedTeam?.id, selectedTeam?.settings?.autoAcceptJoins]);
 
   // Pending/sent team invitations shown in the Team Settings modal
   const [invitations, setInvitations] = useState<TeamInvitation[]>([]);
@@ -978,6 +986,46 @@ export const TeamsPage: React.FC = () => {
               {formError}
             </Text>
           )}
+          <Text
+            variant="muted"
+            size="xs"
+            weight="semibold"
+            className="mb-3 uppercase tracking-widest"
+          >
+            Membership
+          </Text>
+          <div className="team-setting-auto-accept mb-6 flex items-center justify-between gap-4">
+            <div>
+              <Text size="sm" weight="medium">
+                Auto-accept join requests
+              </Text>
+              <Text variant="muted" size="xs">
+                Anyone joining with the team code is added immediately — no pending approval from an
+                admin.
+              </Text>
+            </div>
+            <Switch
+              checked={autoAcceptJoins}
+              disabled={savingAutoAccept || !selectedTeamId}
+              aria-label="Toggle auto-accepting join requests"
+              onCheckedChange={async (checked) => {
+                if (!selectedTeamId) return;
+                const previous = autoAcceptJoins;
+                setAutoAcceptJoins(checked);
+                setSavingAutoAccept(true);
+                setFormError(null);
+                try {
+                  await teamApi.updateSettings(selectedTeamId, { autoAcceptJoins: checked });
+                  refetchTeams();
+                } catch (e: any) {
+                  setAutoAcceptJoins(previous);
+                  setFormError(e.message || 'Failed to update setting');
+                } finally {
+                  setSavingAutoAccept(false);
+                }
+              }}
+            />
+          </div>
           <Text
             variant="muted"
             size="xs"

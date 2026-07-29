@@ -103,6 +103,7 @@ function toPublicTeam(team) {
     isPersonal: team.isPersonal ?? false,
     settings: {
       requirePlanForClock: team.settings?.requirePlanForClock ?? false,
+      autoAcceptJoins: team.settings?.autoAcceptJoins ?? false,
     },
     createdAt: team.createdAt instanceof Date ? team.createdAt.toISOString() : String(team.createdAt),
     updatedAt: team.updatedAt instanceof Date ? team.updatedAt.toISOString() : (team.updatedAt ?? null),
@@ -270,6 +271,23 @@ Meteor.methods({
       }
     }
 
+    // Team setting: auto-accept join requests — add the member immediately
+    // instead of creating a pending request awaiting admin approval.
+    if (team.settings?.autoAcceptJoins) {
+      await Teams.updateAsync(new Mongo.ObjectID(teamId), {
+        $addToSet: { members: identity.userId },
+        $set: { updatedAt: new Date() },
+      });
+      if (team.orgId && isValidId(team.orgId)) {
+        const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(team.orgId) });
+        if (org?.allowAutoJoin !== false) {
+          await addOrgMember(team.orgId, identity.userId, 'member', true);
+        }
+      }
+      const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+      return { status: 'joined', team: toPublicTeam(updatedTeam) };
+    }
+
     const existing = await TeamJoinRequests.rawCollection().findOne({
       teamId,
       userId: identity.userId,
@@ -421,21 +439,28 @@ Meteor.methods({
     return { team: toPublicTeam(updated) };
   },
 
-  async 'teams.updateSettings'({ teamId, requirePlanForClock }) {
+  async 'teams.updateSettings'({ teamId, requirePlanForClock, autoAcceptJoins }) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
-    if (typeof requirePlanForClock !== 'boolean') {
+    if (requirePlanForClock === undefined && autoAcceptJoins === undefined) {
+      throw new Meteor.Error('bad-request', 'No settings provided');
+    }
+    if (requirePlanForClock !== undefined && typeof requirePlanForClock !== 'boolean') {
       throw new Meteor.Error('bad-request', 'requirePlanForClock must be a boolean');
+    }
+    if (autoAcceptJoins !== undefined && typeof autoAcceptJoins !== 'boolean') {
+      throw new Meteor.Error('bad-request', 'autoAcceptJoins must be a boolean');
     }
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
     if (!(await isTeamAdminOrOrgOwner(team, userId))) {
       throw new Meteor.Error('forbidden', 'Admin access required');
     }
-    await Teams.updateAsync(team._id, {
-      $set: { 'settings.requirePlanForClock': requirePlanForClock, updatedAt: new Date() },
-    });
+    const $set = { updatedAt: new Date() };
+    if (requirePlanForClock !== undefined) $set['settings.requirePlanForClock'] = requirePlanForClock;
+    if (autoAcceptJoins !== undefined) $set['settings.autoAcceptJoins'] = autoAcceptJoins;
+    await Teams.updateAsync(team._id, { $set });
     const updated = await Teams.findOneAsync(team._id);
     return { team: toPublicTeam(updated) };
   },

@@ -183,7 +183,7 @@ test.describe('Team QR Share & Join', () => {
         .toBe(true);
 
       const pending = await db
-        .collection('team_join_requests')
+        .collection('teamjoinrequests')
         .findOne({ userId, status: 'pending' });
       expect(pending).toBeNull();
 
