@@ -38,6 +38,7 @@ import { createAttachment } from './attachments.js';
 import { pulsevaultOpenApiSpec, pulsevaultSwaggerHtml } from './pulsevault-docs.js';
 import { randomUUID } from 'crypto';
 import path from 'path';
+import { stat } from 'fs/promises';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -48,6 +49,13 @@ const VIDEOS_DIR = process.env.VIDEOS_DIR || path.resolve(process.cwd(), 'data/v
 const CAPABILITY_KEY_ID = 'v1';
 const CAPABILITY_SECRET = process.env.PULSEVAULT_SECRET || 'dev-insecure-pulsevault-secret';
 const ISSUER = process.env.ROOT_URL;
+
+// `storage.resolve()` returning null is true both for a dead/aborted upload
+// and for one that's actively streaming its PATCH. Only treat an unresolved
+// artifact as stale (safe to clear) once its on-disk bytes have been idle
+// for this long, so a genuinely in-flight transfer can't get swept by a
+// retried create POST or a QR re-scan racing the original upload.
+const STALE_UPLOAD_IDLE_MS = 5 * 60 * 1000;
 
 function lookupCapabilitySecret(kid) {
   return kid === CAPABILITY_KEY_ID ? CAPABILITY_SECRET : null;
@@ -91,6 +99,20 @@ async function takeReservation(artifactId) {
   }
   await coll.deleteOne({ _id: artifactId }).catch(() => {});
   return reservation;
+}
+
+/**
+ * Look up the reservation for an artifactId WITHOUT consuming it (Map first,
+ * Mongo fallback) — used to check ownership before letting a caller reuse an
+ * `existingVideoid` they didn't originally reserve.
+ */
+async function peekReservation(artifactId) {
+  const cached = reservationContext.get(artifactId);
+  if (cached) return cached;
+  const doc = await rawDb().collection(RESERVATIONS_COLL).findOne({ _id: artifactId });
+  if (!doc) return null;
+  const { _id, createdAt, ...rest } = doc;
+  return rest;
 }
 
 Meteor.startup(async () => {
@@ -330,6 +352,20 @@ Wormhole.use({
         try {
           const ready = await storage.resolve(artifactId);
           if (!ready) {
+            // Age-gate the removal: a still-uploading artifact's on-disk file
+            // is touched on every PATCH chunk, so a recent mtime means the
+            // original transfer is (or very recently was) actively writing —
+            // don't sweep it out from under itself. Only clear state once
+            // it's been idle long enough to be confident it really aborted.
+            // No local path / no file yet (fresh create, no bytes written)
+            // is also treated as "too new to clean up" — fail safe.
+            const localPath = await storage.getLocalPath(artifactId);
+            const stats = localPath ? await stat(localPath).catch(() => null) : null;
+            const idleMs = stats ? Date.now() - stats.mtimeMs : 0;
+            if (idleMs < STALE_UPLOAD_IDLE_MS) {
+              console.log('[pulsevault] skipping stale cleanup, upload looks active:', artifactId, 'idleMs:', idleMs);
+              return;
+            }
             const removed = await storage.remove(artifactId);
             if (removed) console.log('[pulsevault] cleared stale unfinished upload for retry:', artifactId);
             return;
@@ -385,6 +421,23 @@ Meteor.methods({
         if (alreadyDone) {
           console.log('[pulsevault] reserve: ignoring completed existingVideoid', videoid);
           videoid = null;
+        } else {
+          // Not finished yet. Any signed-in user could otherwise pass an
+          // arbitrary in-progress existingVideoid and get a valid capability
+          // token minted for it — which would also let them trigger the
+          // stale-cleanup path against someone else's upload, and would
+          // overwrite the original reservation's userId below, misattaching
+          // the finished video to the wrong user's ticket. Only reuse it if
+          // the caller is the one who originally reserved it (or nobody has
+          // a tracked reservation for it at all, e.g. it expired).
+          const existingReservation = await peekReservation(videoid);
+          if (existingReservation && existingReservation.userId !== identity.userId) {
+            console.warn(
+              '[pulsevault] reserve: rejecting existingVideoid owned by another user',
+              videoid,
+            );
+            videoid = null;
+          }
         }
       } catch {
         videoid = null; // malformed id — start fresh
