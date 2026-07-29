@@ -20,13 +20,18 @@ test.describe('Member Blocking - Full Flow', () => {
   test('complete blocking flow: block → verify denied → unblock → verify restored', async ({
     page,
   }) => {
+    // Generous timeout: this flow does multiple hard navigations, each of which
+    // remounts SessionProvider and forces a DDP reconnect that can be slow on a
+    // cold backend.
+    test.setTimeout(90000);
+
     const loginPage = new LoginPage(page);
     const dashboardPage = new DashboardPage(page);
 
     // ── Step 1: Owner logs in ──────────────────────────────────────────────
     await loginPage.goto();
     await loginPage.loginAs(owner);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL('**/dashboard', { timeout: 45000 });
 
     // ── Step 2: Navigate to org members ────────────────────────────────────
     await page.goto('http://localhost:3002/app/org/members');
@@ -104,7 +109,7 @@ test.describe('Member Blocking - Full Flow', () => {
     // ── Step 6: Owner logs back in to unblock ──────────────────────────────
     await loginPage.goto();
     await loginPage.loginAs(owner);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL('**/dashboard', { timeout: 45000 });
 
     // ── Step 7: Unblock the member ─────────────────────────────────────────
     await page.goto('http://localhost:3002/app/org/members');
@@ -137,7 +142,7 @@ test.describe('Member Blocking - Full Flow', () => {
     // ── Step 9: Unblocked member can login successfully ────────────────────
     // Login form is already showing after owner logout — no goto() needed.
     await loginPage.login(member.email, member.password);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await page.waitForURL('**/dashboard', { timeout: 45000 });
 
     // Verify dashboard loaded
     const sidebar = page.getByRole('navigation', { name: 'Main navigation' });

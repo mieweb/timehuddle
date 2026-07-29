@@ -93,8 +93,11 @@ export async function loginAs(page: Page, user: TestUser): Promise<void> {
   await page.fill('input[type="password"]', user.password);
   await page.click('button:has-text("Sign in")');
 
-  // Wait for redirect to dashboard (login success indicator)
-  await page.waitForURL('**/dashboard', { timeout: 15000 });
+  // Wait for redirect to dashboard (login success indicator). The timeout is
+  // generous because the first DDP WebSocket connection can be slow when the
+  // backend is cold-starting (connectWithRetry does up to 3 attempts with
+  // backoff, ~46s worst case) — a shorter window makes login flaky.
+  await page.waitForURL('**/dashboard', { timeout: 45000 });
 }
 
 /**
