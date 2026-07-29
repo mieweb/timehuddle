@@ -5,7 +5,7 @@ import * as tus from 'tus-js-client';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { attachmentApi, TIMECORE_BASE_URL, videoApi } from '../../lib/api';
-import { getStoreOS, isNativeApp, openPulseAppOrStore } from '../../lib/device';
+import { getStoreOS, isNativeApp, openNativePulseOrStore, openPulseAppOrStore } from '../../lib/device';
 import { PulseUploadModal } from './PulseUploadModal';
 
 /**
@@ -139,11 +139,16 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
     const res = await doReserve();
     if (!res) return;
 
-    // Native app OR mobile browser: open Pulse Cam directly (no QR to
-    // self-scan). If it isn't installed, fall back to the App Store / Play Store.
     const storeOS = getStoreOS();
     if (storeOS) {
-      openPulseAppOrStore(res.uploadLink, storeOS);
+      if (isNativeApp()) {
+        // Native: App.openUrl returns completed:false immediately when Pulse Cam
+        // is not installed, giving us a reliable instant store redirect.
+        await openNativePulseOrStore(res.uploadLink, storeOS);
+      } else {
+        // Mobile browser: visibility-change heuristic with ~1.5s fallback.
+        openPulseAppOrStore(res.uploadLink, storeOS);
+      }
       return;
     }
 

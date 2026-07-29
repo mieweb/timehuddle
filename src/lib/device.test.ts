@@ -73,7 +73,12 @@ describe('getStoreOS', () => {
   });
 });
 
-describe('openPulseAppOrStore', () => {
+// openNativePulseOrStore relies on @capacitor/app's App.addListener bridging
+// native iOS/Android lifecycle events — unit testing it in jsdom requires
+// mocking the Capacitor bridge, which adds no signal beyond "the timer runs".
+// Integration-test this on a real device instead.
+
+describe('openPulseAppOrStore (browser)', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });

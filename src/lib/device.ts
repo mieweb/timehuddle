@@ -81,14 +81,64 @@ function navigateExternal(url: string): void {
 }
 
 /**
- * Attempt to open a `pulsecam://` deep link, falling back to the platform app
- * store if Pulse Cam isn't installed. Works in both the native app and a mobile
- * browser.
+ * **Native-only.** Attempt to open a `pulsecam://` deep link via
+ * `window.open(url, '_system')`, then use `App.addListener('appStateChange')`
+ * to detect whether the OS actually backgrounded the app (i.e. Pulse Cam
+ * opened). If the app is still active after {@link fallbackDelayMs} ms,
+ * Pulse Cam is not installed — redirect to the store.
+ *
+ * `App.addListener` is more reliable than DOM `visibilitychange` inside a
+ * WKWebView because Capacitor bridges the native `UIApplication` lifecycle
+ * events, whereas the WKWebView visibility API may not fire when `_system`
+ * link opening fails synchronously.
+ */
+export async function openNativePulseOrStore(
+  deepLink: string,
+  os: MobileOS,
+  fallbackDelayMs = 1500,
+): Promise<void> {
+  const { App } = await import('@capacitor/app');
+
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    let handle: { remove(): void } | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const cleanup = () => {
+      if (settled) return;
+      settled = true;
+      handle?.remove();
+      if (timer !== undefined) clearTimeout(timer);
+    };
+
+    // App went to background → Pulse Cam opened successfully.
+    App.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) {
+        cleanup();
+        resolve();
+      }
+    }).then((h) => { handle = h; });
+
+    // Fallback: if still active after timeout, Pulse Cam is not installed.
+    timer = setTimeout(() => {
+      cleanup();
+      window.open(PULSE_STORE_URLS[os], '_system');
+      resolve();
+    }, fallbackDelayMs);
+
+    // Attempt to open Pulse Cam.
+    window.open(deepLink, '_system');
+  });
+}
+
+/**
+ * **Browser-only.** Attempt to open a `pulsecam://` deep link in a mobile
+ * browser, falling back to the platform app store if Pulse Cam isn't installed.
  *
  * Detection is heuristic: opening a registered custom scheme backgrounds the
  * page (the OS switches to the app), which fires `visibilitychange` /
  * `pagehide` / `blur`. If the page is still visible after {@link fallbackDelayMs},
- * the app almost certainly didn't open, so we send the user to the store.
+ * the app almost certainly didn't open, so we redirect to the store.
  *
  * @returns a cleanup function that cancels the pending store-fallback timer.
  */

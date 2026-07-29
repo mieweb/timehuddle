@@ -4,7 +4,7 @@ import * as tus from 'tus-js-client';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { mediaApi, videoApi, METEOR_BASE_URL } from '../../lib/api';
-import { getStoreOS, isNativeApp, openPulseAppOrStore } from '../../lib/device';
+import { getStoreOS, isNativeApp, openNativePulseOrStore, openPulseAppOrStore } from '../../lib/device';
 import type { MediaItem } from './types';
 import { buildUploadDeepLink } from '../media/PulseUploadButton';
 import { PulseUploadModal } from '../media/PulseUploadModal';
@@ -91,11 +91,13 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({ onAttach }
     const res = await doReserve();
     if (!res) return;
 
-    // Native app OR mobile browser: open Pulse Cam directly. If it isn't
-    // installed, fall back to the App Store / Play Store.
     const storeOS = getStoreOS();
     if (storeOS) {
-      openPulseAppOrStore(res.uploadLink, storeOS);
+      if (isNativeApp()) {
+        await openNativePulseOrStore(res.uploadLink, storeOS);
+      } else {
+        openPulseAppOrStore(res.uploadLink, storeOS);
+      }
       return;
     }
 
