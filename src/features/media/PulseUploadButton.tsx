@@ -1,11 +1,16 @@
 import { faQrcode, faVideo } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Text } from '@mieweb/ui';
-import { Capacitor } from '@capacitor/core';
 import * as tus from 'tus-js-client';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { attachmentApi, TIMECORE_BASE_URL, videoApi } from '../../lib/api';
+import {
+  getStoreOS,
+  isNativeApp,
+  openNativePulseOrStore,
+  openPulseAppOrStore,
+} from '../../lib/device';
 import { PulseUploadModal } from './PulseUploadModal';
 
 /**
@@ -76,7 +81,7 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
   ticketId,
   onUploadComplete,
 }) => {
-  const isNative = Capacitor.isNativePlatform();
+  const isNative = isNativeApp();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const knownAttachmentIds = useRef<Set<string>>(new Set());
@@ -139,20 +144,27 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
     const res = await doReserve();
     if (!res) return;
 
-    if (isNative) {
-      // On native Capacitor: open the Pulse deep link directly.
-      // Pulse is sideloaded via EAS — must be installed first.
-      window.open(res.uploadLink, '_system');
-    } else {
-      // On web: seed known attachment IDs, then show QR modal.
-      try {
-        const existing = await attachmentApi.list('ticket', ticketId);
-        knownAttachmentIds.current = new Set(existing.map((a) => a.id));
-      } catch {
-        knownAttachmentIds.current = new Set();
+    const storeOS = getStoreOS();
+    if (storeOS) {
+      if (isNativeApp()) {
+        // Native: App.openUrl returns completed:false immediately when Pulse Cam
+        // is not installed, giving us a reliable instant store redirect.
+        await openNativePulseOrStore(res.uploadLink, storeOS);
+      } else {
+        // Mobile browser: visibility-change heuristic with ~1.5s fallback.
+        openPulseAppOrStore(res.uploadLink, storeOS);
       }
-      setModalOpen(true);
+      return;
     }
+
+    // On desktop: seed known attachment IDs, then show QR modal.
+    try {
+      const existing = await attachmentApi.list('ticket', ticketId);
+      knownAttachmentIds.current = new Set(existing.map((a) => a.id));
+    } catch {
+      knownAttachmentIds.current = new Set();
+    }
+    setModalOpen(true);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

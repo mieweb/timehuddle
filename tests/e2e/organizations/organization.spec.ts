@@ -8,6 +8,11 @@ import { TEST_USERS, loginAs } from '../fixtures/users';
 
 test.describe('Organization', () => {
   test('should render org chart even without team membership', async ({ page }) => {
+    // Full-page navigation to /app/organization forces a DDP session
+    // reconnect (see docs on DDP cold-start flake); allow extra headroom
+    // beyond the default 30s so this doesn't flake under load.
+    test.setTimeout(60000);
+
     // Login as a member who may not be in any non-personal team
     await loginAs(page, TEST_USERS.member5);
 
@@ -33,6 +38,8 @@ test.describe('Organization', () => {
   });
 
   test('should render org chart for owner with all members visible', async ({ page }) => {
+    test.setTimeout(60000);
+
     await loginAs(page, TEST_USERS.owner1);
 
     await page.goto('/app/organization');

@@ -39,6 +39,11 @@ test.describe('Tickets', () => {
   });
 
   test('should create a ticket', async ({ page }) => {
+    // Full-page navigation to /app/tickets forces a DDP session reconnect
+    // (see docs on DDP cold-start flake); allow extra headroom beyond the
+    // default 30s so this doesn't flake under load.
+    test.setTimeout(60000);
+
     await page.goto('/app/tickets');
     await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
 

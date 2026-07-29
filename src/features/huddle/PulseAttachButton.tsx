@@ -1,10 +1,15 @@
 import { faQrcode, faVideo } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Capacitor } from '@capacitor/core';
 import * as tus from 'tus-js-client';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { mediaApi, videoApi, METEOR_BASE_URL } from '../../lib/api';
+import {
+  getStoreOS,
+  isNativeApp,
+  openNativePulseOrStore,
+  openPulseAppOrStore,
+} from '../../lib/device';
 import type { MediaItem } from './types';
 import { buildUploadDeepLink } from '../media/PulseUploadButton';
 import { PulseUploadModal } from '../media/PulseUploadModal';
@@ -37,7 +42,7 @@ function videoMediaItem(videoid: string, filename: string, size: number): MediaI
  * reserved id (there's no ticket attachment list to watch).
  */
 export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({ onAttach }) => {
-  const isNative = Capacitor.isNativePlatform();
+  const isNative = isNativeApp();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -90,12 +95,19 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({ onAttach }
   const handleClick = async () => {
     const res = await doReserve();
     if (!res) return;
-    if (isNative) {
-      // Native Capacitor: open the Pulse deep link directly (sideloaded app).
-      window.open(res.uploadLink, '_system');
-    } else {
-      setModalOpen(true);
+
+    const storeOS = getStoreOS();
+    if (storeOS) {
+      if (isNativeApp()) {
+        await openNativePulseOrStore(res.uploadLink, storeOS);
+      } else {
+        openPulseAppOrStore(res.uploadLink, storeOS);
+      }
+      return;
     }
+
+    // Desktop: show the QR modal.
+    setModalOpen(true);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

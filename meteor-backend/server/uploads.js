@@ -43,9 +43,14 @@ const MIME_TO_EXT = {
 
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3000').split(',').map((s) => s.trim());
 
+// Capacitor / Ionic native app WebView origins (iOS: capacitor://localhost,
+// Android: http://localhost, legacy: ionic://localhost) — always allowed so
+// media uploads work from the mobile shells.
+const NATIVE_APP_ORIGINS = ['capacitor://localhost', 'ionic://localhost', 'http://localhost'];
+
 function setCors(req, res) {
   const origin = req.headers.origin;
-  if (origin && CORS_ORIGINS.includes(origin)) {
+  if (origin && (CORS_ORIGINS.includes(origin) || NATIVE_APP_ORIGINS.includes(origin))) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
