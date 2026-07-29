@@ -129,6 +129,40 @@ describe('openPulseAppOrStore (browser)', () => {
     expect(setHref).not.toHaveBeenCalledWith(PULSE_STORE_URLS.ios);
   });
 
+  it('still redirects to the store after a window blur (Safari "address invalid" alert)', () => {
+    const setHref = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { set href(v: string) { setHref(v); } },
+      configurable: true,
+    });
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+
+    openPulseAppOrStore('pulsecam://?v=1', 'ios', 1500);
+    // Safari shows a native alert (blurs window) but the page stays visible —
+    // this must NOT cancel the fallback.
+    window.dispatchEvent(new Event('blur'));
+    vi.advanceTimersByTime(1500);
+
+    expect(setHref).toHaveBeenLastCalledWith(PULSE_STORE_URLS.ios);
+  });
+
+  it('cancels the fallback when the page is truly hidden (visibilitychange)', () => {
+    const setHref = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { set href(v: string) { setHref(v); } },
+      configurable: true,
+    });
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+
+    openPulseAppOrStore('pulsecam://?v=1', 'ios', 1500);
+    // App opened → page backgrounds.
+    Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    vi.advanceTimersByTime(1500);
+
+    expect(setHref).not.toHaveBeenCalledWith(PULSE_STORE_URLS.ios);
+  });
+
   it('cancel() stops the store fallback', () => {
     const setHref = vi.fn();
     Object.defineProperty(window, 'location', {

@@ -122,10 +122,16 @@ export async function openNativePulseOrStore(deepLink: string, os: MobileOS): Pr
  * **Browser-only.** Attempt to open a `pulsecam://` deep link in a mobile
  * browser, falling back to the platform app store if Pulse Cam isn't installed.
  *
- * Detection is heuristic: opening a registered custom scheme backgrounds the
- * page (the OS switches to the app), which fires `visibilitychange` /
- * `pagehide` / `blur`. If the page is still visible after {@link fallbackDelayMs},
- * the app almost certainly didn't open, so we redirect to the store.
+ * Detection is heuristic: opening a registered custom scheme *backgrounds the
+ * page* (the OS switches to the app), which fires `visibilitychange` (with
+ * `document.hidden === true`) or `pagehide`. If the page is still visible after
+ * {@link fallbackDelayMs}, the app didn't open, so we redirect to the store.
+ *
+ * We deliberately do NOT listen for `blur`: when Pulse Cam isn't installed,
+ * mobile Safari shows a native "Cannot open — address invalid" alert that
+ * *blurs the window* while the page stays visible. Treating that blur as
+ * "app opened" would wrongly cancel the store fallback — the exact bug this
+ * guards against.
  *
  * @returns a cleanup function that cancels the pending store-fallback timer.
  */
@@ -141,19 +147,22 @@ export function openPulseAppOrStore(
       clearTimeout(timer);
       timer = undefined;
     }
-    document.removeEventListener('visibilitychange', onHide);
-    window.removeEventListener('pagehide', onHide);
-    window.removeEventListener('blur', onHide);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    window.removeEventListener('pagehide', onPageHide);
   };
 
-  function onHide() {
-    // The app opened (page backgrounded) — don't send the user to the store.
+  function onVisibilityChange() {
+    // Only a real background transition (hidden) means the app opened. The
+    // Safari "address invalid" alert does not hide the document.
+    if (document.hidden) cancel();
+  }
+
+  function onPageHide() {
     cancel();
   }
 
-  document.addEventListener('visibilitychange', onHide);
-  window.addEventListener('pagehide', onHide);
-  window.addEventListener('blur', onHide);
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('pagehide', onPageHide);
 
   timer = setTimeout(() => {
     cancel();
