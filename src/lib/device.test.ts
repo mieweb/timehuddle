@@ -93,7 +93,11 @@ describe('openPulseAppOrStore (browser)', () => {
   it('triggers the deep link via a hidden iframe (no top-level navigation)', () => {
     const setHref = vi.fn();
     Object.defineProperty(window, 'location', {
-      value: { set href(v: string) { setHref(v); } },
+      value: {
+        set href(v: string) {
+          setHref(v);
+        },
+      },
       configurable: true,
     });
     Object.defineProperty(document, 'hidden', { value: false, configurable: true });
@@ -110,7 +114,11 @@ describe('openPulseAppOrStore (browser)', () => {
   it('redirects to the store when the app does not open', () => {
     const setHref = vi.fn();
     Object.defineProperty(window, 'location', {
-      value: { set href(v: string) { setHref(v); } },
+      value: {
+        set href(v: string) {
+          setHref(v);
+        },
+      },
       configurable: true,
     });
     Object.defineProperty(document, 'hidden', { value: false, configurable: true });
@@ -124,7 +132,11 @@ describe('openPulseAppOrStore (browser)', () => {
   it('does not redirect to the store when the app opened (page hidden)', () => {
     const setHref = vi.fn();
     Object.defineProperty(window, 'location', {
-      value: { set href(v: string) { setHref(v); } },
+      value: {
+        set href(v: string) {
+          setHref(v);
+        },
+      },
       configurable: true,
     });
     Object.defineProperty(document, 'hidden', { value: true, configurable: true });
@@ -138,7 +150,11 @@ describe('openPulseAppOrStore (browser)', () => {
   it('still redirects to the store after a window blur (Safari "address invalid" alert)', () => {
     const setHref = vi.fn();
     Object.defineProperty(window, 'location', {
-      value: { set href(v: string) { setHref(v); } },
+      value: {
+        set href(v: string) {
+          setHref(v);
+        },
+      },
       configurable: true,
     });
     Object.defineProperty(document, 'hidden', { value: false, configurable: true });
@@ -155,7 +171,11 @@ describe('openPulseAppOrStore (browser)', () => {
   it('cancels the fallback when the page is truly hidden (visibilitychange)', () => {
     const setHref = vi.fn();
     Object.defineProperty(window, 'location', {
-      value: { set href(v: string) { setHref(v); } },
+      value: {
+        set href(v: string) {
+          setHref(v);
+        },
+      },
       configurable: true,
     });
     Object.defineProperty(document, 'hidden', { value: false, configurable: true });
@@ -172,7 +192,11 @@ describe('openPulseAppOrStore (browser)', () => {
   it('cancel() stops the store fallback', () => {
     const setHref = vi.fn();
     Object.defineProperty(window, 'location', {
-      value: { set href(v: string) { setHref(v); } },
+      value: {
+        set href(v: string) {
+          setHref(v);
+        },
+      },
       configurable: true,
     });
     Object.defineProperty(document, 'hidden', { value: false, configurable: true });

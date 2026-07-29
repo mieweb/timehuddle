@@ -5,7 +5,12 @@ import * as tus from 'tus-js-client';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { attachmentApi, TIMECORE_BASE_URL, videoApi } from '../../lib/api';
-import { getStoreOS, isNativeApp, openNativePulseOrStore, openPulseAppOrStore } from '../../lib/device';
+import {
+  getStoreOS,
+  isNativeApp,
+  openNativePulseOrStore,
+  openPulseAppOrStore,
+} from '../../lib/device';
 import { PulseUploadModal } from './PulseUploadModal';
 
 /**

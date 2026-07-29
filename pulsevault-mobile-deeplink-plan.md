@@ -20,11 +20,11 @@ So a mobile browser user gets a QR code they can't scan with the same phone.
 
 ## Target Behavior
 
-| Context        | Action                                                        |
-| -------------- | ------------------------------------------------------------- |
+| Context        | Action                                                                                                                                                                  |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Native app     | `@capacitor/app-launcher`: `canOpenUrl('pulsecam://')` → `openUrl(deepLink)` if installed, else `openUrl(storeUrl)` (App Store / Play Store). Deterministic, no timers. |
-| Mobile browser | Set `location.href = pulsecam://` → app opens; if not installed after ~1.5s, redirect to App Store / Play Store |
-| Desktop        | Show QR modal + "Upload from this device" (unchanged)         |
+| Mobile browser | Set `location.href = pulsecam://` → app opens; if not installed after ~1.5s, redirect to App Store / Play Store                                                         |
+| Desktop        | Show QR modal + "Upload from this device" (unchanged)                                                                                                                   |
 
 Native detection needs the `pulsecam` scheme registered in the platform query
 allow-lists: iOS `LSApplicationQueriesSchemes` (Info.plist) and Android

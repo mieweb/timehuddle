@@ -4,7 +4,12 @@ import * as tus from 'tus-js-client';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { mediaApi, videoApi, METEOR_BASE_URL } from '../../lib/api';
-import { getStoreOS, isNativeApp, openNativePulseOrStore, openPulseAppOrStore } from '../../lib/device';
+import {
+  getStoreOS,
+  isNativeApp,
+  openNativePulseOrStore,
+  openPulseAppOrStore,
+} from '../../lib/device';
 import type { MediaItem } from './types';
 import { buildUploadDeepLink } from '../media/PulseUploadButton';
 import { PulseUploadModal } from '../media/PulseUploadModal';
