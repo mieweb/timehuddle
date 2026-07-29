@@ -437,6 +437,41 @@ Meteor.methods({
     return { userId };
   },
 
+  'accounts.changePassword': async function({ currentPassword, newPassword }) {
+    this.unblock();
+    if (!this.userId) {
+      throw new Meteor.Error('not-authorized', 'Must be logged in');
+    }
+    if (!currentPassword || !newPassword) {
+      throw new Meteor.Error('invalid-params', 'Current and new password are required');
+    }
+    if (newPassword.length < 8) {
+      throw new Meteor.Error('weak-password', 'New password must be at least 8 characters');
+    }
+    const user = await Meteor.users.findOneAsync(this.userId);
+    if (!user) throw new Meteor.Error('not-found', 'User not found');
+
+    // Verify the current password against the stored bcrypt hash. Meteor stores
+    // bcrypt(sha256hex(password)); older records may store bcrypt(raw). Mirror
+    // the emailPassword login handler so both formats are accepted.
+    const storedBcrypt = user.services?.password?.bcrypt;
+    if (!storedBcrypt) {
+      throw new Meteor.Error('no-password', 'This account has no password set. Use a social login provider.');
+    }
+    const digest = createHash('sha256').update(currentPassword).digest('hex');
+    let match = await bcrypt.compare(digest, storedBcrypt);
+    if (!match) {
+      match = await bcrypt.compare(currentPassword, storedBcrypt);
+    }
+    if (!match) {
+      throw new Meteor.Error('incorrect-password', 'Current password is incorrect');
+    }
+    // logout: true invalidates all existing sessions — the user must sign in
+    // again with the new password on every device.
+    await Accounts.setPasswordAsync(this.userId, newPassword, { logout: true });
+    return { ok: true };
+  },
+
   'accounts.sendResetPasswordEmail': async function({ email }) {
     if (!email || typeof email !== 'string') {
       throw new Meteor.Error('invalid-params', 'Email is required');

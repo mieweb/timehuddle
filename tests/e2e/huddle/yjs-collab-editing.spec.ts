@@ -240,8 +240,17 @@ test.describe('Huddle — Yjs real-time collaborative editing', () => {
       .locator('button')
       .filter({ has: adminPage.locator('circle') })
       .last();
-    await menuButton.click();
-    await adminPage.getByRole('button', { name: 'Delete post' }).click();
+    const deletePost = adminPage.getByRole('button', { name: 'Delete post' });
+
+    // The kebab menu occasionally swallows the first click (it toggles shut if
+    // the menu is still animating), so open it with a bounded retry instead of
+    // waiting the full test timeout for a 'Delete post' item that never shows.
+    await expect(async () => {
+      await menuButton.click();
+      await expect(deletePost).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 15000, intervals: [500] });
+
+    await deletePost.click();
     // Confirm deletion dialog if present
     const confirmBtn = adminPage.getByRole('button', { name: /confirm|yes|delete/i }).first();
     if (await confirmBtn.isVisible({ timeout: 2000 })) {

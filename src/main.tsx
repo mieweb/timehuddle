@@ -37,6 +37,7 @@ const _log = (msg: string) =>
 _log('main.tsx evaluated');
 
 import { App as CapApp } from '@capacitor/app';
+import { Browser } from '@capacitor/browser';
 import { Capacitor } from '@capacitor/core';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -72,8 +73,25 @@ let _deepLinkToken: string | null = null;
 if (Capacitor.isNativePlatform()) {
   void CapApp.addListener('appUrlOpen', ({ url }) => {
     try {
-      // Expected format: timehuddle://reset?token=<value>
       const parsed = new URL(url);
+
+      // OAuth callback: timehuddle://auth?meteor_token=...&meteor_resume=...
+      if (parsed.host === 'auth') {
+        const meteorResume = parsed.searchParams.get('meteor_resume');
+        // Close the in-app browser and return to the app.
+        void Browser.close();
+        if (meteorResume) {
+          localStorage.setItem('meteor_resume_token', meteorResume);
+          // Notify SessionProvider to log the DDP connection in with the new
+          // token and refetch — a bare renderRoot() won't re-authenticate.
+          window.dispatchEvent(
+            new CustomEvent('timehuddle:oauth-login', { detail: { resumeToken: meteorResume } }),
+          );
+        }
+        return;
+      }
+
+      // Password reset: timehuddle://reset?token=XXX
       const token = parsed.searchParams.get('token');
       if (token) {
         _deepLinkToken = token;

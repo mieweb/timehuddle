@@ -31,6 +31,38 @@ import { ProfileAvatarCropModal } from './ProfileAvatarCropModal';
 import React, { useEffect, useState } from 'react';
 
 import { ApiError, userApi, type PublicUser } from '../../lib/api';
+
+/**
+ * Resize a photo data-URL to at most `maxDim` on its longest side.
+ * Returns the original URL unchanged when already within the limit.
+ * Prevents OOM crashes when loading high-res camera shots (e.g. 48 MP) into
+ * the crop canvas on low-memory WebView contexts (iOS App Store 2.1).
+ */
+async function resizeAvatarPhoto(dataUrl: string, maxDim = 2048): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.onload = () => {
+      const { naturalWidth: w, naturalHeight: h } = img;
+      const scale = Math.min(1, maxDim / Math.max(w, h));
+      if (scale >= 1) {
+        resolve(dataUrl);
+        return;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl); // fallback: pass through unchanged
+        return;
+      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.9));
+    };
+    img.onerror = () => reject(new Error('Failed to load image for resizing'));
+    img.src = dataUrl;
+  });
+}
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { AppPage } from '../../ui/AppPage';
@@ -257,8 +289,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
                     const file = e.target.files?.[0];
                     if (file) {
                       const reader = new FileReader();
-                      reader.onload = (ev) => {
-                        setAvatarImage(ev.target?.result as string);
+                      reader.onload = async (ev) => {
+                        const dataUrl = ev.target?.result as string;
+                        // Resize to max 2048px before cropping — prevents OOM
+                        // crashes on high-res camera photos (e.g. iPhone 48 MP).
+                        const resized = await resizeAvatarPhoto(dataUrl);
+                        setAvatarImage(resized);
                         setAvatarModalOpen(true);
                       };
                       reader.readAsDataURL(file);

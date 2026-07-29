@@ -43,14 +43,17 @@ const MIME_TO_EXT = {
 
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:3000').split(',').map((s) => s.trim());
 
-// Capacitor / Ionic native app WebView origins (iOS: capacitor://localhost,
-// Android: http://localhost, legacy: ionic://localhost) — always allowed so
-// media uploads work from the mobile shells.
-const NATIVE_APP_ORIGINS = ['capacitor://localhost', 'ionic://localhost', 'http://localhost'];
+// Native mobile app WebView origins (Capacitor iOS / Android, legacy Ionic).
+// These are the app's own bundled WebView, so they are always safe to allow.
+const NATIVE_APP_ORIGINS = new Set([
+  'capacitor://localhost',
+  'https://localhost',
+  'ionic://localhost',
+]);
 
 function setCors(req, res) {
   const origin = req.headers.origin;
-  if (origin && (CORS_ORIGINS.includes(origin) || NATIVE_APP_ORIGINS.includes(origin))) {
+  if (origin && (CORS_ORIGINS.includes(origin) || NATIVE_APP_ORIGINS.has(origin))) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -174,6 +177,29 @@ WebApp.connectHandlers.use('/uploads', (req, res, next) => {
 });
 
 // ── Avatar upload/delete (/api/me/avatar) ─────────────────────────────────────
+
+// ── Account deletion (/api/me/account) ───────────────────────────────────────
+
+WebApp.connectHandlers.use('/api/me/account', async (req, res, next) => {
+  setCors(req, res);
+  if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+  const identity = await authenticateRequest(req);
+  if (!identity) return sendJson(res, 401, { error: 'Unauthorized' });
+
+  if (req.method === 'DELETE') {
+    const db = rawDb();
+    const userId = identity.userId;
+    // Remove user from teams, orgs, and profiles, then delete the account.
+    await db.collection('team_members').deleteMany({ userId });
+    await db.collection('org_members').deleteMany({ userId });
+    await db.collection('profiles').deleteMany({ userId, app: 'timeharbor' });
+    await Meteor.users.removeAsync({ _id: userId });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  next();
+});
 
 WebApp.connectHandlers.use('/api/me/avatar', async (req, res, next) => {
   setCors(req, res);

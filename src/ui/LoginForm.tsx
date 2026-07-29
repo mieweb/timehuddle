@@ -9,6 +9,8 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import React, { useEffect, useState } from 'react';
 
+import { Browser } from '@capacitor/browser';
+import { Capacitor } from '@capacitor/core';
 import { authApi, METEOR_BASE_URL } from '../lib/api';
 import { getDdpClient } from '../lib/ddp';
 import { getEnabledSocialProviders, type SocialProvider } from '../lib/socialProviders';
@@ -347,8 +349,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setSocialError(null);
     try {
       if (provider.kind === 'meteor-oauth') {
-        // Redirect to Meteor OAuth endpoint
-        window.location.href = `${METEOR_BASE_URL}${provider.meteorPath}`;
+        const oauthUrl = `${METEOR_BASE_URL}${provider.meteorPath}`;
+        if (Capacitor.isNativePlatform()) {
+          // On native, open in an in-app browser with ?native=1 so the backend
+          // redirects to the timehuddle://auth deep link instead of the web URL.
+          await Browser.open({ url: `${oauthUrl}?native=1`, presentationStyle: 'popover' });
+        } else {
+          window.location.href = oauthUrl;
+        }
         return;
       }
 

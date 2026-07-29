@@ -127,6 +127,24 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // restores itself without a manual reload.
   useEffect(() => getDdpClient().onReconnect(() => void fetchSession()), [fetchSession]);
 
+  // Native OAuth deep-link login: after the timehuddle://auth deep link stores
+  // the resume token, log the DDP connection in with it and refetch. A plain
+  // re-render won't re-authenticate the already-connected DDP socket.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { resumeToken?: string } | undefined;
+      void (async () => {
+        const ddp = getDdpClient();
+        if (detail?.resumeToken) {
+          await ddp.loginWithMeteorToken('', detail.resumeToken).catch(() => {});
+        }
+        await fetchSession();
+      })();
+    };
+    window.addEventListener('timehuddle:oauth-login', handler);
+    return () => window.removeEventListener('timehuddle:oauth-login', handler);
+  }, [fetchSession]);
+
   const signOut = useCallback(async () => {
     // Clear token FIRST so no wormhole calls fire with invalidated token
     localStorage.removeItem('meteor_resume_token');
