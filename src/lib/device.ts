@@ -81,54 +81,41 @@ function navigateExternal(url: string): void {
 }
 
 /**
- * **Native-only.** Attempt to open a `pulsecam://` deep link via
- * `window.open(url, '_system')`, then use `App.addListener('appStateChange')`
- * to detect whether the OS actually backgrounded the app (i.e. Pulse Cam
- * opened). If the app is still active after {@link fallbackDelayMs} ms,
- * Pulse Cam is not installed — redirect to the store.
+ * **Native-only.** Open a `pulsecam://` deep link, falling back to the platform
+ * store if Pulse Cam isn't installed — deterministically, with no timers.
  *
- * `App.addListener` is more reliable than DOM `visibilitychange` inside a
- * WKWebView because Capacitor bridges the native `UIApplication` lifecycle
- * events, whereas the WKWebView visibility API may not fire when `_system`
- * link opening fails synchronously.
+ * Uses `@capacitor/app-launcher`:
+ *  - `canOpenUrl({ url: 'pulsecam://' })` asks the OS whether *any* installed
+ *    app handles the scheme. On iOS this requires `pulsecam` to be listed in
+ *    `LSApplicationQueriesSchemes` (Info.plist); on Android it requires a
+ *    matching `<queries>` entry (AndroidManifest.xml).
+ *  - If it can be opened → `openUrl(deepLink)` launches Pulse Cam.
+ *  - Otherwise → `openUrl(storeUrl)` opens the App Store / Play Store (an
+ *    `https://` store link is always openable via `UIApplication.open` /
+ *    Android intents, so it launches the store app directly).
+ *
+ * `window.open(url, '_system')` is NOT used: Capacitor's WebView doesn't
+ * implement Cordova's `_system` target, so custom schemes and even store URLs
+ * fail with "address invalid" / `LSApplicationWorkspaceErrorDomain Code=115`.
  */
-export async function openNativePulseOrStore(
-  deepLink: string,
-  os: MobileOS,
-  fallbackDelayMs = 1500,
-): Promise<void> {
-  const { App } = await import('@capacitor/app');
+export async function openNativePulseOrStore(deepLink: string, os: MobileOS): Promise<void> {
+  const { AppLauncher } = await import('@capacitor/app-launcher');
 
-  return new Promise<void>((resolve) => {
-    let settled = false;
-    let handle: { remove(): void } | undefined;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+  // The scheme (no query) is what iOS/Android check against the query allow-list.
+  const scheme = 'pulsecam://';
+  let canOpen = false;
+  try {
+    canOpen = (await AppLauncher.canOpenUrl({ url: scheme })).value;
+  } catch {
+    canOpen = false;
+  }
 
-    const cleanup = () => {
-      if (settled) return;
-      settled = true;
-      handle?.remove();
-      if (timer !== undefined) clearTimeout(timer);
-    };
-
-    // App went to background → Pulse Cam opened successfully.
-    App.addListener('appStateChange', ({ isActive }) => {
-      if (!isActive) {
-        cleanup();
-        resolve();
-      }
-    }).then((h) => { handle = h; });
-
-    // Fallback: if still active after timeout, Pulse Cam is not installed.
-    timer = setTimeout(() => {
-      cleanup();
-      window.open(PULSE_STORE_URLS[os], '_system');
-      resolve();
-    }, fallbackDelayMs);
-
-    // Attempt to open Pulse Cam.
-    window.open(deepLink, '_system');
-  });
+  if (canOpen) {
+    await AppLauncher.openUrl({ url: deepLink });
+  } else {
+    // Pulse Cam is not installed — send the user to the store.
+    await AppLauncher.openUrl({ url: PULSE_STORE_URLS[os] });
+  }
 }
 
 /**
