@@ -87,9 +87,10 @@ describe('openPulseAppOrStore (browser)', () => {
     vi.runOnlyPendingTimers();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    document.querySelectorAll('iframe').forEach((f) => f.remove());
   });
 
-  it('navigates to the deep link immediately', () => {
+  it('triggers the deep link via a hidden iframe (no top-level navigation)', () => {
     const setHref = vi.fn();
     Object.defineProperty(window, 'location', {
       value: { set href(v: string) { setHref(v); } },
@@ -98,7 +99,12 @@ describe('openPulseAppOrStore (browser)', () => {
     Object.defineProperty(document, 'hidden', { value: false, configurable: true });
 
     openPulseAppOrStore('pulsecam://?v=1', 'ios', 1500);
-    expect(setHref).toHaveBeenCalledWith('pulsecam://?v=1');
+
+    const iframe = document.querySelector('iframe');
+    expect(iframe).not.toBeNull();
+    expect(iframe?.getAttribute('src')).toBe('pulsecam://?v=1');
+    // Must NOT navigate the top-level page to the scheme (that shows the alert).
+    expect(setHref).not.toHaveBeenCalledWith('pulsecam://?v=1');
   });
 
   it('redirects to the store when the app does not open', () => {

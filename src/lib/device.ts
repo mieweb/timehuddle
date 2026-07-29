@@ -122,16 +122,18 @@ export async function openNativePulseOrStore(deepLink: string, os: MobileOS): Pr
  * **Browser-only.** Attempt to open a `pulsecam://` deep link in a mobile
  * browser, falling back to the platform app store if Pulse Cam isn't installed.
  *
- * Detection is heuristic: opening a registered custom scheme *backgrounds the
- * page* (the OS switches to the app), which fires `visibilitychange` (with
- * `document.hidden === true`) or `pagehide`. If the page is still visible after
- * {@link fallbackDelayMs}, the app didn't open, so we redirect to the store.
+ * The deep link is triggered via a **hidden iframe**, not a top-level
+ * `location.href` assignment. Assigning `location.href` to an unhandled custom
+ * scheme makes mobile Safari show a "Cannot open — address invalid" alert
+ * *before* we can redirect; an iframe navigation to the same scheme fails
+ * silently (no alert), so the user only ever sees the App Store. If Pulse Cam
+ * is installed the OS still switches to it from the iframe navigation.
  *
- * We deliberately do NOT listen for `blur`: when Pulse Cam isn't installed,
- * mobile Safari shows a native "Cannot open — address invalid" alert that
- * *blurs the window* while the page stays visible. Treating that blur as
- * "app opened" would wrongly cancel the store fallback — the exact bug this
- * guards against.
+ * Success is detected via a real background transition (`visibilitychange` with
+ * `document.hidden === true`, or `pagehide`). `blur` is intentionally NOT used —
+ * a native alert blurs the window without hiding the page and would wrongly
+ * cancel the fallback. If the page is still visible after {@link fallbackDelayMs},
+ * we do a top-level navigation to the store (which correctly opens the store app).
  *
  * @returns a cleanup function that cancels the pending store-fallback timer.
  */
@@ -141,6 +143,12 @@ export function openPulseAppOrStore(
   fallbackDelayMs = 1500,
 ): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let iframe: HTMLIFrameElement | undefined;
+
+  const removeIframe = () => {
+    if (iframe?.parentNode) iframe.parentNode.removeChild(iframe);
+    iframe = undefined;
+  };
 
   const cancel = () => {
     if (timer !== undefined) {
@@ -149,11 +157,11 @@ export function openPulseAppOrStore(
     }
     document.removeEventListener('visibilitychange', onVisibilityChange);
     window.removeEventListener('pagehide', onPageHide);
+    removeIframe();
   };
 
   function onVisibilityChange() {
-    // Only a real background transition (hidden) means the app opened. The
-    // Safari "address invalid" alert does not hide the document.
+    // Only a real background transition (hidden) means the app opened.
     if (document.hidden) cancel();
   }
 
@@ -167,13 +175,16 @@ export function openPulseAppOrStore(
   timer = setTimeout(() => {
     cancel();
     if (!document.hidden) {
+      // Top-level navigation to the https store URL opens the store app.
       navigateExternal(PULSE_STORE_URLS[os]);
     }
   }, fallbackDelayMs);
 
-  // Trigger the deep link. If Pulse Cam is installed the OS switches to it and
-  // the listeners above cancel the fallback.
-  navigateExternal(deepLink);
+  // Trigger the deep link via a hidden iframe to avoid Safari's error alert.
+  iframe = document.createElement('iframe');
+  iframe.style.display = 'none';
+  iframe.src = deepLink;
+  document.body.appendChild(iframe);
 
   return cancel;
 }
