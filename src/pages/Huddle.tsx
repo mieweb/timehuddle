@@ -38,10 +38,10 @@ export default function Huddle() {
   const [searchQuery, setSearchQuery] = useState('');
   // Top-level tab: the team feed or the user's private drafts.
   const [feedTab, setFeedTab] = useState<'feed' | 'drafts'>('feed');
-  // Feed view: SuperChat thread (default) or the classic card view — the
-  // card view keeps per-post comments/likes, which SuperChat has no
+  // Feed view: the classic card view (default) or the SuperChat thread —
+  // the card view keeps per-post comments/likes, which SuperChat has no
   // per-message-thread concept for (deliberately not force-fit).
-  const [feedView, setFeedView] = useState<'chat' | 'cards'>('chat');
+  const [feedView, setFeedView] = useState<'chat' | 'cards'>('cards');
   const { user } = useSession();
   const { selectedTeamId } = useTeam();
 
