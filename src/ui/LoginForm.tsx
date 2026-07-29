@@ -73,6 +73,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     typeof window !== 'undefined'
       ? (new URLSearchParams(window.location.search).get('org_invite') ?? undefined)
       : undefined;
+  const joinTeamCode =
+    typeof window !== 'undefined'
+      ? (new URLSearchParams(window.location.search).get('join') ?? undefined)
+      : undefined;
 
   const [mode, setMode] = useState<AuthMode>(initialMode ?? getMode(!!resetToken));
   const [email, setEmail] = useState('');
@@ -91,6 +95,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   const [joinTeam, setJoinTeam] = useState(false);
   const [invitedTeamName, setInvitedTeamName] = useState<string | null>(null);
   const [invitedOrgName, setInvitedOrgName] = useState<string | null>(null);
+  const [joinTeamName, setJoinTeamName] = useState<string | null>(null);
 
   const isSignup = mode === 'signup';
   const isForgot = mode === 'forgot';
@@ -115,6 +120,25 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       active = false;
     };
   }, [invitationToken]);
+
+  useEffect(() => {
+    if (!joinTeamCode) return;
+    let active = true;
+    const ddp = getDdpClient();
+    void ddp
+      .getTeamByCode(joinTeamCode)
+      .then((team) => {
+        if (!active) return;
+        setJoinTeamName(team.teamName);
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setError((err as Error).message || 'This team join link is no longer available.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [joinTeamCode]);
 
   useEffect(() => {
     if (!orgInvitationToken) return;
@@ -143,10 +167,20 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     if (orgInvitationToken) {
       await ddp.acceptOrgInvitation(orgInvitationToken);
     }
-    if (!invitationToken && !orgInvitationToken) return;
+    if (joinTeamCode) {
+      // Join via shared QR/link code. Never block a successful login/signup
+      // on this — if the code is stale the user still gets their account.
+      try {
+        await ddp.joinTeamByQrCode(joinTeamCode);
+      } catch (err) {
+        console.error('[login] QR team join failed:', err);
+      }
+    }
+    if (!invitationToken && !orgInvitationToken && !joinTeamCode) return;
     const url = new URL(window.location.href);
     url.searchParams.delete('invite');
     url.searchParams.delete('org_invite');
+    url.searchParams.delete('join');
     url.searchParams.delete('mode');
     window.history.replaceState(null, '', url.toString());
   };
@@ -504,6 +538,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                   <Text variant="muted" size="sm" as="div" role="status">
                     You were invited to join {invitedTeamName ?? invitedOrgName}. Sign in or create
                     an account with the invited email address to join.
+                  </Text>
+                )}
+                {joinTeamName && (
+                  <Text variant="muted" size="sm" as="div" role="status">
+                    You&apos;re joining the team {joinTeamName}. Sign in or create an account and
+                    you&apos;ll be added automatically.
                   </Text>
                 )}
 

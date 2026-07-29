@@ -17,6 +17,7 @@ import {
   faKey,
   faPen,
   faPlus,
+  faQrcode,
   faRightToBracket,
   faShield,
   faTrash,
@@ -24,6 +25,7 @@ import {
   faUserPlus,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   Badge,
   Button,
@@ -239,6 +241,7 @@ export const TeamsPage: React.FC = () => {
     | 'delete'
     | 'invite'
     | 'settings'
+    | 'share'
     | { type: 'invite-sent'; email: string }
     | { type: 'password'; memberId: string }
     | { type: 'remove'; memberId: string }
@@ -435,6 +438,31 @@ export const TeamsPage: React.FC = () => {
     }
   }, [selectedTeam]);
 
+  // Shareable signup link encoded in the QR code — scanning it lands on the
+  // signup page and auto-joins this team after account creation.
+  const joinUrl = selectedTeam?.code
+    ? `${window.location.origin}/app?mode=signup&join=${encodeURIComponent(selectedTeam.code)}`
+    : '';
+
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyJoinLink = useCallback(() => {
+    if (!joinUrl) return;
+    void navigator.clipboard.writeText(joinUrl);
+    setLinkCopied(true);
+    window.setTimeout(() => setLinkCopied(false), 2000);
+  }, [joinUrl]);
+
+  const shareJoinLink = useCallback(() => {
+    if (!joinUrl || !selectedTeam) return;
+    void navigator
+      .share({
+        title: `Join ${selectedTeam.name} on TimeHuddle`,
+        text: `Scan or open this link to join the ${selectedTeam.name} team on TimeHuddle.`,
+        url: joinUrl,
+      })
+      .catch(() => {});
+  }, [joinUrl, selectedTeam]);
+
   if (!teamsReady) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -489,6 +517,15 @@ export const TeamsPage: React.FC = () => {
                   <Button variant="link" size="sm" onClick={copyCode}>
                     <FontAwesomeIcon icon={faCopy} className="mr-1" />
                     Copy
+                  </Button>
+                  <Button
+                    variant="link"
+                    size="sm"
+                    onClick={() => setModal('share')}
+                    aria-label="Share team QR code"
+                  >
+                    <FontAwesomeIcon icon={faQrcode} className="mr-1" />
+                    Share
                   </Button>
                 </div>
               )}
@@ -1158,6 +1195,59 @@ export const TeamsPage: React.FC = () => {
           <Button variant="primary" fullWidth onClick={closeModal}>
             Got it
           </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* Share team via QR code */}
+      <Modal open={modal === 'share'} onOpenChange={(open) => !open && closeModal()} size="md">
+        <ModalHeader>
+          <ModalTitle>Share Team</ModalTitle>
+          <ModalClose />
+        </ModalHeader>
+        <ModalBody>
+          <div className="flex flex-col items-center gap-4">
+            <Text variant="muted" size="sm" className="text-center">
+              Scan this QR code to create an account and join{' '}
+              <Text as="span" weight="semibold">
+                {selectedTeam?.name}
+              </Text>{' '}
+              automatically.
+            </Text>
+            <div
+              className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-neutral-200"
+              role="img"
+              aria-label={`QR code to join team ${selectedTeam?.name ?? ''}`}
+              data-testid="team-share-qr"
+            >
+              {joinUrl && <QRCodeSVG value={joinUrl} size={220} marginSize={1} />}
+            </div>
+            <div className="w-full rounded-lg bg-neutral-100 p-3 dark:bg-neutral-800">
+              <Text
+                size="xs"
+                className="break-all font-mono text-neutral-600 dark:text-neutral-300"
+                data-testid="team-share-link"
+              >
+                {joinUrl}
+              </Text>
+            </div>
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <div className="flex w-full gap-2">
+            <Button
+              variant="outline"
+              fullWidth
+              onClick={copyJoinLink}
+              leftIcon={<FontAwesomeIcon icon={faCopy} />}
+            >
+              {linkCopied ? 'Copied!' : 'Copy Link'}
+            </Button>
+            {typeof navigator !== 'undefined' && 'share' in navigator && (
+              <Button variant="primary" fullWidth onClick={shareJoinLink}>
+                Share…
+              </Button>
+            )}
+          </div>
         </ModalFooter>
       </Modal>
     </AppPage>

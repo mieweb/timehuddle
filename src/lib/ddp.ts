@@ -317,6 +317,19 @@ class DdpClient {
     await this.call('teams.acceptInvite', { token });
   }
 
+  /** Unauthenticated preview of a team by its shareable join code (QR flow). */
+  async getTeamByCode(teamCode: string): Promise<{ teamName: string; teamCode: string }> {
+    return this.call('teams.previewByCode', { teamCode }) as Promise<{
+      teamName: string;
+      teamCode: string;
+    }>;
+  }
+
+  /** Join a team directly via a shared QR/link code (no admin approval). */
+  async joinTeamByQrCode(teamCode: string): Promise<void> {
+    await this.call('teams.joinByQr', { teamCode });
+  }
+
   async getOrgInvitation(token: string): Promise<{
     orgName: string;
     email: string;

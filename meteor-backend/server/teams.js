@@ -334,6 +334,60 @@ Meteor.methods({
     };
   },
 
+  /**
+   * Public (unauthenticated) preview of a team by its join code.
+   * Used by the QR-share signup flow so the login page can show which
+   * team the visitor is about to join. Exposes only the team name.
+   */
+  async 'teams.previewByCode'({ teamCode }) {
+    if (typeof teamCode !== 'string' || !teamCode.trim()) {
+      throw new Meteor.Error('bad-request', 'teamCode is required');
+    }
+    const team = await Teams.rawCollection().findOne({ code: teamCode.trim().toUpperCase() });
+    if (!team || team.isPersonal) {
+      throw new Meteor.Error('not-found', 'This team join link is invalid or no longer available.');
+    }
+    return { teamName: team.name, teamCode: team.code };
+  },
+
+  /**
+   * Direct join via a shared QR/link team code. Unlike 'teams.join' (which
+   * creates a pending request needing admin approval), scanning a QR code
+   * shared by the team acts as an invitation — the user is added immediately,
+   * mirroring the email-invitation acceptance flow.
+   */
+  async 'teams.joinByQr'({ teamCode }) {
+    const identity = await requireIdentity(this);
+    if (typeof teamCode !== 'string' || !teamCode.trim()) {
+      throw new Meteor.Error('bad-request', 'teamCode is required');
+    }
+
+    const raw = await Teams.rawCollection().findOne({ code: teamCode.trim().toUpperCase() });
+    if (!raw || raw.isPersonal) {
+      throw new Meteor.Error('not-found', 'This team join link is invalid or no longer available.');
+    }
+    const team = await Teams.findOneAsync(new Mongo.ObjectID(String(raw._id)));
+    if (!team) throw new Meteor.Error('not-found', 'Team not found');
+
+    if (team.members.includes(identity.userId)) {
+      return { ok: true, team: toPublicTeam(team) };
+    }
+
+    await Teams.updateAsync(team._id, {
+      $addToSet: { members: identity.userId },
+      $set: { updatedAt: new Date() },
+    });
+    const org = team.orgId && isValidId(team.orgId)
+      ? await rawDb().collection('organizations').findOne({ _id: new ObjectId(team.orgId) })
+      : null;
+    if (org?.allowAutoJoin !== false) {
+      await addOrgMember(team.orgId, identity.userId, 'member', true);
+    }
+
+    const updated = await Teams.findOneAsync(team._id);
+    return { ok: true, team: toPublicTeam(updated) };
+  },
+
   async 'teams.subteams'({ teamId }) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
