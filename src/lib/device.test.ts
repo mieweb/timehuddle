@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   getMobileOS,
+  getStoreOS,
   isMobileBrowser,
   openPulseAppOrStore,
   PULSE_STORE_URLS,
@@ -52,6 +53,23 @@ describe('isMobileBrowser', () => {
   it('is false for a desktop UA', () => {
     setUserAgent(MAC_UA, 0);
     expect(isMobileBrowser()).toBe(false);
+  });
+});
+
+describe('getStoreOS', () => {
+  it('falls back to UA sniffing in a browser context (iOS)', () => {
+    setUserAgent(IPHONE_UA);
+    expect(getStoreOS()).toBe('ios');
+  });
+
+  it('falls back to UA sniffing in a browser context (Android)', () => {
+    setUserAgent(ANDROID_UA);
+    expect(getStoreOS()).toBe('android');
+  });
+
+  it('returns null on desktop (QR flow used instead)', () => {
+    setUserAgent(MAC_UA, 0);
+    expect(getStoreOS()).toBeNull();
   });
 });
 

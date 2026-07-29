@@ -22,9 +22,12 @@ So a mobile browser user gets a QR code they can't scan with the same phone.
 
 | Context        | Action                                                        |
 | -------------- | ------------------------------------------------------------- |
-| Native app     | Open `pulsecam://` via `window.open(link, '_system')` (unchanged) |
+| Native app     | Open `pulsecam://` via `window.open(link, '_system')`; if not installed after ~1.5s, redirect to App Store / Play Store (via `_system`) |
 | Mobile browser | Set `location.href = pulsecam://` → app opens; if not installed after ~1.5s, redirect to App Store / Play Store |
 | Desktop        | Show QR modal + "Upload from this device" (unchanged)         |
+
+Both native and mobile-browser paths resolve the store via `getStoreOS()`
+(`Capacitor.getPlatform()` in the native shell, UA sniffing in a browser).
 
 ## Milestones
 

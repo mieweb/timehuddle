@@ -71,6 +71,13 @@ const ALLOWED_ORIGINS = _rawCorsOrigins
 // This guarantees CORS works for PR previews even if env vars are not injected.
 const PREVIEW_BASE_DOMAINS = ['os.mieweb.org'];
 
+// Capacitor / Ionic native app WebView origins. The iOS shell serves the app
+// from `capacitor://localhost`, Android from `http://localhost`, and legacy
+// Ionic builds from `ionic://localhost`. These are real cross-origin requests
+// (the API lives on a different host), so they must be explicitly allowed —
+// they have no routable DNS host to match against the base-domain rules below.
+const NATIVE_APP_ORIGINS = ['capacitor://localhost', 'ionic://localhost', 'http://localhost'];
+
 // Optionally derive an additional base domain from ROOT_URL
 const _rootUrl = process.env.ROOT_URL || '';
 const _rootHostname = (() => {
@@ -86,6 +93,8 @@ function isOriginAllowed(origin) {
   if (!origin) return false;
   if (CORS_ALLOW_ALL) return true;
   if (ALLOWED_ORIGINS.includes(origin)) return true;
+  // Native app WebView origins (Capacitor iOS/Android, Ionic).
+  if (NATIVE_APP_ORIGINS.includes(origin)) return true;
   try {
     const h = new URL(origin).hostname;
     // Allow hardcoded preview base domains

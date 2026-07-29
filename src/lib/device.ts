@@ -51,13 +51,44 @@ export function isMobileBrowser(): boolean {
 }
 
 /**
- * Attempt to open a `pulsecam://` deep link on a mobile browser, falling back to
- * the platform app store if Pulse Cam isn't installed.
+ * Resolve the store OS to use for a Pulse Cam install fallback across *both*
+ * the native app and mobile browsers. Returns `null` on desktop (where the QR
+ * flow is used instead).
+ *
+ * In the native shell `Capacitor.getPlatform()` is authoritative (`'ios'` /
+ * `'android'`); in a browser we fall back to UA sniffing via {@link getMobileOS}.
+ */
+export function getStoreOS(): MobileOS | null {
+  if (isNativeApp()) {
+    const platform = Capacitor.getPlatform();
+    return platform === 'ios' || platform === 'android' ? platform : null;
+  }
+  return getMobileOS();
+}
+
+/**
+ * Open a URL the right way for the current runtime: in the native shell a
+ * custom scheme / external link must go through `window.open(url, '_system')`
+ * (WKWebView won't navigate to `pulsecam://` or an App Store link itself);
+ * in a browser a normal `location.href` assignment is correct.
+ */
+function navigateExternal(url: string): void {
+  if (isNativeApp()) {
+    window.open(url, '_system');
+  } else {
+    window.location.href = url;
+  }
+}
+
+/**
+ * Attempt to open a `pulsecam://` deep link, falling back to the platform app
+ * store if Pulse Cam isn't installed. Works in both the native app and a mobile
+ * browser.
  *
  * Detection is heuristic: opening a registered custom scheme backgrounds the
  * page (the OS switches to the app), which fires `visibilitychange` /
- * `pagehide`. If the page is still visible after {@link fallbackDelayMs}, the
- * app almost certainly didn't open, so we redirect to the store.
+ * `pagehide` / `blur`. If the page is still visible after {@link fallbackDelayMs},
+ * the app almost certainly didn't open, so we send the user to the store.
  *
  * @returns a cleanup function that cancels the pending store-fallback timer.
  */
@@ -90,13 +121,13 @@ export function openPulseAppOrStore(
   timer = setTimeout(() => {
     cancel();
     if (!document.hidden) {
-      window.location.href = PULSE_STORE_URLS[os];
+      navigateExternal(PULSE_STORE_URLS[os]);
     }
   }, fallbackDelayMs);
 
   // Trigger the deep link. If Pulse Cam is installed the OS switches to it and
   // the listeners above cancel the fallback.
-  window.location.href = deepLink;
+  navigateExternal(deepLink);
 
   return cancel;
 }
