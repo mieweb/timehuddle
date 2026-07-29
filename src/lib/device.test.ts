@@ -1,14 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { Capacitor } from '@capacitor/core';
+
+// Mocked so `openNativePulseOrStore`'s dynamic `import('@capacitor/app-launcher')`
+// resolves to a controllable stub instead of the real native bridge.
+const canOpenUrl = vi.fn();
+const openUrl = vi.fn();
+vi.mock('@capacitor/app-launcher', () => ({
+  AppLauncher: {
+    canOpenUrl: (...args: unknown[]) => canOpenUrl(...args),
+    openUrl: (...args: unknown[]) => openUrl(...args),
+  },
+}));
+
 import {
   getMobileOS,
   getStoreOS,
   isMobileBrowser,
+  openNativePulseOrStore,
   openPulseAppOrStore,
   PULSE_STORE_URLS,
 } from './device';
 
-// Capacitor is not native under jsdom, so isNativeApp() is false in these tests.
+// Capacitor is not native under jsdom, so isNativeApp() is false in these tests
+// unless `Capacitor.isNativePlatform`/`getPlatform` are stubbed for a specific test.
 
 const IPHONE_UA =
   'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
@@ -71,12 +86,68 @@ describe('getStoreOS', () => {
     setUserAgent(MAC_UA, 0);
     expect(getStoreOS()).toBeNull();
   });
+
+  it('is authoritative from Capacitor.getPlatform() in the native shell (ios)', () => {
+    vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
+    vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios');
+    // UA says Android, but native platform must win.
+    setUserAgent(ANDROID_UA);
+    expect(getStoreOS()).toBe('ios');
+  });
+
+  it('is authoritative from Capacitor.getPlatform() in the native shell (android)', () => {
+    vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
+    vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('android');
+    setUserAgent(IPHONE_UA);
+    expect(getStoreOS()).toBe('android');
+  });
 });
 
-// openNativePulseOrStore relies on @capacitor/app's App.addListener bridging
-// native iOS/Android lifecycle events — unit testing it in jsdom requires
-// mocking the Capacitor bridge, which adds no signal beyond "the timer runs".
-// Integration-test this on a real device instead.
+describe('openNativePulseOrStore (Capacitor native shell)', () => {
+  beforeEach(() => {
+    canOpenUrl.mockReset();
+    openUrl.mockReset();
+  });
+
+  it('opens the pulsecam:// deep link when Pulse Cam is installed', async () => {
+    canOpenUrl.mockResolvedValue({ value: true });
+    openUrl.mockResolvedValue(undefined);
+
+    await openNativePulseOrStore('pulsecam://open?ticket=123', 'ios');
+
+    expect(canOpenUrl).toHaveBeenCalledWith({ url: 'pulsecam://' });
+    expect(openUrl).toHaveBeenCalledWith({ url: 'pulsecam://open?ticket=123' });
+    expect(openUrl).not.toHaveBeenCalledWith({ url: PULSE_STORE_URLS.ios });
+  });
+
+  it('opens the App Store when Pulse Cam is not installed (iOS)', async () => {
+    canOpenUrl.mockResolvedValue({ value: false });
+    openUrl.mockResolvedValue(undefined);
+
+    await openNativePulseOrStore('pulsecam://open?ticket=123', 'ios');
+
+    expect(openUrl).toHaveBeenCalledWith({ url: PULSE_STORE_URLS.ios });
+    expect(openUrl).not.toHaveBeenCalledWith({ url: 'pulsecam://open?ticket=123' });
+  });
+
+  it('opens the Play Store when Pulse Cam is not installed (Android)', async () => {
+    canOpenUrl.mockResolvedValue({ value: false });
+    openUrl.mockResolvedValue(undefined);
+
+    await openNativePulseOrStore('pulsecam://open?ticket=123', 'android');
+
+    expect(openUrl).toHaveBeenCalledWith({ url: PULSE_STORE_URLS.android });
+  });
+
+  it('falls back to the store when canOpenUrl itself rejects (query scheme not declared / OS error)', async () => {
+    canOpenUrl.mockRejectedValue(new Error('LSApplicationQueriesSchemes missing'));
+    openUrl.mockResolvedValue(undefined);
+
+    await openNativePulseOrStore('pulsecam://open?ticket=123', 'ios');
+
+    expect(openUrl).toHaveBeenCalledWith({ url: PULSE_STORE_URLS.ios });
+  });
+});
 
 describe('openPulseAppOrStore (browser)', () => {
   beforeEach(() => {
