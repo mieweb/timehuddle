@@ -51,7 +51,7 @@ _log(`window.Capacitor=${JSON.stringify(Object.keys((window as any).Capacitor ||
 
 import { InboxPage } from './features/inbox/InboxPage';
 import { enterpriseApi } from './lib/api';
-import { subscribeNewNotifications } from './lib/ddp';
+import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { MESSAGES_PENDING_THREAD_KEY } from './lib/constants';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
@@ -70,6 +70,12 @@ import { UsernameClaimModal } from './ui/UsernameClaimModal';
 
 let _deepLinkToken: string | null = null;
 
+// Pending team/org join context from an OAuth deep link (?join=/?invite=/
+// ?org_invite= carried through the native redirect-away-and-back flow, since
+// the URL bar isn't available to read query params from on native). Applied
+// once the App component sees an authenticated session.
+let _pendingOAuthJoin: { join?: string; invite?: string; orgInvite?: string } | null = null;
+
 if (Capacitor.isNativePlatform()) {
   void CapApp.addListener('appUrlOpen', ({ url }) => {
     try {
@@ -78,6 +84,16 @@ if (Capacitor.isNativePlatform()) {
       // OAuth callback: timehuddle://auth?meteor_token=...&meteor_resume=...
       if (parsed.host === 'auth') {
         const meteorResume = parsed.searchParams.get('meteor_resume');
+        const join = parsed.searchParams.get('join');
+        const invite = parsed.searchParams.get('invite');
+        const orgInvite = parsed.searchParams.get('org_invite');
+        if (join || invite || orgInvite) {
+          _pendingOAuthJoin = {
+            join: join ?? undefined,
+            invite: invite ?? undefined,
+            orgInvite: orgInvite ?? undefined,
+          };
+        }
         // Close the in-app browser and return to the app.
         void Browser.close();
         if (meteorResume) {
@@ -124,7 +140,7 @@ if (Capacitor.isNativePlatform()) {
 _log('App component defined — modules loaded');
 
 const App: React.FC = () => {
-  const { user, loading, needsUsernameClaim } = useSession();
+  const { user, loading, needsUsernameClaim, refetch } = useSession();
   const [ownershipChecked, setOwnershipChecked] = React.useState(false);
   const [showTakeOwnershipModal, setShowTakeOwnershipModal] = React.useState(false);
 
@@ -132,6 +148,38 @@ const App: React.FC = () => {
   React.useEffect(() => {
     if (user) void autoRegisterPush(user.id);
   }, [user]);
+
+  // Apply a pending team/org join from a social sign-in (?join=/?invite=/
+  // ?org_invite=). Social sign-in redirects away to the IdP and back, so it
+  // never runs LoginForm's password-flow `acceptInvitation()` — this is the
+  // equivalent for OAuth, reading the params from the URL (web) or the
+  // `timehuddle://auth` deep link (native).
+  React.useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    const join = params.get('join') ?? _pendingOAuthJoin?.join ?? null;
+    const invite = params.get('invite') ?? _pendingOAuthJoin?.invite ?? null;
+    const orgInvite = params.get('org_invite') ?? _pendingOAuthJoin?.orgInvite ?? null;
+    if (!join && !invite && !orgInvite) return;
+    _pendingOAuthJoin = null;
+
+    void (async () => {
+      const ddp = getDdpClient();
+      try {
+        if (invite) await ddp.acceptTeamInvitation(invite);
+        if (orgInvite) await ddp.acceptOrgInvitation(orgInvite);
+        if (join) await ddp.joinTeamByQrCode(join);
+      } catch (err) {
+        console.error('[oauth] pending team/org join failed:', err);
+      }
+      const url = new URL(window.location.href);
+      url.searchParams.delete('join');
+      url.searchParams.delete('invite');
+      url.searchParams.delete('org_invite');
+      window.history.replaceState(null, '', url.toString());
+      await refetch();
+    })();
+  }, [user, refetch]);
 
   // SSE fallback: show a browser Notification for every incoming SSE event.
   // This fires even when FCM/VAPID push delivery is unreliable (e.g. localhost).
