@@ -46,6 +46,7 @@ const isReload = (() => {
 })();
 
 import { useSidebar } from './AppLayout';
+import { Logo } from './Logo';
 import { useRouter } from './router';
 
 // ─── Nav data ─────────────────────────────────────────────────────────────────
@@ -172,9 +173,7 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
         {' '}
         <span className="flex min-w-0 items-center gap-3 rounded-md" aria-label="Huddle">
           {/* Icon mark */}
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-(--mieweb-primary-500) to-primary-700 text-sm font-bold text-white shadow-sm">
-            TH
-          </div>
+          <Logo />
           {/* Wordmark */}
           <AnimatePresence initial={false}>
             {expanded && (
