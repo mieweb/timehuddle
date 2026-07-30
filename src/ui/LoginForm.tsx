@@ -382,12 +382,23 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setSocialLoadingId(provider.id);
     setSocialError(null);
     try {
+      // Pending team/org join context (from ?join=/?invite=/?org_invite= links)
+      // must survive the full redirect-away-and-back OAuth round trip, since
+      // sign-in via social providers never runs the password-flow
+      // `acceptInvitation()` logic below.
+      const pendingJoinParams: Record<string, string> = {};
+      if (joinTeamCode) pendingJoinParams.join = joinTeamCode;
+      if (invitationToken) pendingJoinParams.invite = invitationToken;
+      if (orgInvitationToken) pendingJoinParams.org_invite = orgInvitationToken;
+
       if (provider.kind === 'meteor-oauth') {
-        const oauthUrl = `${METEOR_BASE_URL}${provider.meteorPath}`;
+        const oauthParams = new URLSearchParams(pendingJoinParams);
+        if (Capacitor.isNativePlatform()) oauthParams.set('native', '1');
+        const oauthUrl = `${METEOR_BASE_URL}${provider.meteorPath}?${oauthParams.toString()}`;
         if (Capacitor.isNativePlatform()) {
           // On native, open in an in-app browser with ?native=1 so the backend
           // redirects to the timehuddle://auth deep link instead of the web URL.
-          await Browser.open({ url: `${oauthUrl}?native=1`, presentationStyle: 'popover' });
+          await Browser.open({ url: oauthUrl, presentationStyle: 'popover' });
         } else {
           window.location.href = oauthUrl;
         }
@@ -395,7 +406,11 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       }
 
       // Existing oauth2 and social handling
-      const callbackURL = `${window.location.origin}/app/dashboard`;
+      const callbackUrl = new URL(`${window.location.origin}/app/dashboard`);
+      for (const [key, value] of Object.entries(pendingJoinParams)) {
+        callbackUrl.searchParams.set(key, value);
+      }
+      const callbackURL = callbackUrl.toString();
       const url =
         provider.kind === 'oauth2'
           ? await authApi.signInWithOAuth2(provider.id, callbackURL)

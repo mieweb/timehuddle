@@ -275,10 +275,12 @@ WebApp.connectHandlers.use('/api/whoami', proxyWhoamiHandler);
 // fail with "not connected to the internet"). An HTML page that performs a
 // page-level navigation to the deep link — plus a tap-link fallback — is
 // honored consistently across iOS and Android WebViews.
-function sendNativeAuthRedirect(res, token, resumeToken) {
-  const deepLink =
-    `timehuddle://auth?meteor_token=${encodeURIComponent(token)}&` +
-    `meteor_resume=${encodeURIComponent(resumeToken)}`;
+function sendNativeAuthRedirect(res, token, resumeToken, extraParams = {}) {
+  const params = new URLSearchParams({ meteor_token: token, meteor_resume: resumeToken });
+  for (const [key, value] of Object.entries(extraParams)) {
+    if (value) params.set(key, value);
+  }
+  const deepLink = `timehuddle://auth?${params.toString()}`;
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(
     `<!DOCTYPE html><html><head><meta charset="utf-8">` +
@@ -295,6 +297,32 @@ function sendNativeAuthRedirect(res, token, resumeToken) {
   );
 }
 
+// OAuth `state` round-trips through the third-party IdP unmodified, so it's
+// the only place to smuggle context (native flag + pending team/org join
+// links) through the redirect-away-and-back flow. Encoded as base64url JSON.
+function encodeOAuthState({ isNative, join, invite, orgInvite } = {}) {
+  const payload = { n: !!isNative, r: Random.secret() };
+  if (join) payload.j = join;
+  if (invite) payload.i = invite;
+  if (orgInvite) payload.o = orgInvite;
+  return Buffer.from(JSON.stringify(payload)).toString('base64url');
+}
+
+function decodeOAuthState(state) {
+  try {
+    const payload = JSON.parse(Buffer.from(state || '', 'base64url').toString('utf8'));
+    return {
+      isNative: !!payload.n,
+      join: payload.j || null,
+      invite: payload.i || null,
+      orgInvite: payload.o || null,
+    };
+  } catch {
+    // Legacy format (plain 'native_' prefix) — no join/invite context available.
+    return { isNative: state?.startsWith('native_') ?? false, join: null, invite: null, orgInvite: null };
+  }
+}
+
 // ============================================================================
 // GitHub OAuth Endpoints
 // ============================================================================
@@ -304,8 +332,14 @@ WebApp.connectHandlers.use('/auth/github', (req, res, next) => {
   // Strip the query string so ?native=1 doesn't break the path match.
   const pathname = req.url.split('?')[0];
   if (pathname !== '/' && pathname !== '') { next(); return; }
-  const isNative = new URL(req.url, process.env.ROOT_URL).searchParams.get('native') === '1';
-  const credentialToken = (isNative ? 'native_' : '') + Random.secret();
+  const reqParams = new URL(req.url, process.env.ROOT_URL).searchParams;
+  const isNative = reqParams.get('native') === '1';
+  const credentialToken = encodeOAuthState({
+    isNative,
+    join: reqParams.get('join'),
+    invite: reqParams.get('invite'),
+    orgInvite: reqParams.get('org_invite'),
+  });
   const callbackUrl = `${process.env.ROOT_URL}/auth/github/callback`;
   
   console.log('[github-oauth] Initiating OAuth flow, native=' + isNative);
@@ -413,17 +447,25 @@ WebApp.connectHandlers.use('/auth/github/callback', async (req, res) => {
       .sign(secret);
     
     // Redirect back — native apps get a deep link, browsers get the frontend URL
-    const isNative = state?.startsWith('native_');
+    const { isNative, join, invite, orgInvite } = decodeOAuthState(state);
     if (isNative) {
-      sendNativeAuthRedirect(res, token, stampedToken.token);
+      sendNativeAuthRedirect(res, token, stampedToken.token, {
+        join,
+        invite,
+        org_invite: orgInvite,
+      });
     } else {
       const frontendUrl =
         process.env.CORS_ORIGINS?.split(',')[0] || 'http://localhost:3000';
+      const redirectParams = new URLSearchParams({
+        meteor_token: token,
+        meteor_resume: stampedToken.token,
+      });
+      if (join) redirectParams.set('join', join);
+      if (invite) redirectParams.set('invite', invite);
+      if (orgInvite) redirectParams.set('org_invite', orgInvite);
       res.writeHead(302, {
-        Location:
-          `${frontendUrl}/app/dashboard` +
-          `?meteor_token=${token}&` +
-          `meteor_resume=${stampedToken.token}`,
+        Location: `${frontendUrl}/app/dashboard?${redirectParams.toString()}`,
       });
       res.end();
     }
@@ -443,8 +485,14 @@ WebApp.connectHandlers.use('/auth/google', (req, res, next) => {
   // Strip the query string so ?native=1 doesn't break the path match.
   const pathname = req.url.split('?')[0];
   if (pathname !== '/' && pathname !== '') { next(); return; }
-  const isNative = new URL(req.url, process.env.ROOT_URL).searchParams.get('native') === '1';
-  const state = (isNative ? 'native_' : '') + Random.secret();
+  const reqParams = new URL(req.url, process.env.ROOT_URL).searchParams;
+  const isNative = reqParams.get('native') === '1';
+  const state = encodeOAuthState({
+    isNative,
+    join: reqParams.get('join'),
+    invite: reqParams.get('invite'),
+    orgInvite: reqParams.get('org_invite'),
+  });
   const callbackUrl = 
     `${process.env.ROOT_URL}/auth/google/callback`
   
@@ -472,7 +520,7 @@ WebApp.connectHandlers.use('/auth/google/callback',
       new URL(req.url, process.env.ROOT_URL).searchParams
     )
     const { code } = callbackParams
-    const isNative = callbackParams.state?.startsWith('native_')
+    const { isNative, join, invite, orgInvite } = decodeOAuthState(callbackParams.state)
     
     if (!code) {
       res.writeHead(400)
@@ -556,16 +604,24 @@ WebApp.connectHandlers.use('/auth/google/callback',
       
       // Redirect back — native apps get a deep link, browsers get the frontend URL
       if (isNative) {
-        sendNativeAuthRedirect(res, token, stampedToken.token)
+        sendNativeAuthRedirect(res, token, stampedToken.token, {
+          join,
+          invite,
+          org_invite: orgInvite,
+        })
       } else {
         const frontendUrl =
           process.env.CORS_ORIGINS?.split(',')[0] || 
           'http://localhost:3000'
+        const redirectParams = new URLSearchParams({
+          meteor_token: token,
+          meteor_resume: stampedToken.token,
+        })
+        if (join) redirectParams.set('join', join)
+        if (invite) redirectParams.set('invite', invite)
+        if (orgInvite) redirectParams.set('org_invite', orgInvite)
         res.writeHead(302, {
-          Location:
-            `${frontendUrl}/app/dashboard` +
-            `?meteor_token=${token}&` +
-            `meteor_resume=${stampedToken.token}`
+          Location: `${frontendUrl}/app/dashboard?${redirectParams.toString()}`
         })
         res.end()
       }
@@ -587,8 +643,14 @@ WebApp.connectHandlers.use('/auth/apple', (req, res, next) => {
   // Strip the query string so ?native=1 doesn't break the path match.
   const pathname = req.url.split('?')[0];
   if (pathname !== '/' && pathname !== '') { next(); return; }
-  const isNative = new URL(req.url, process.env.ROOT_URL).searchParams.get('native') === '1';
-  const state = (isNative ? 'native_' : '') + Random.secret();
+  const reqParams = new URL(req.url, process.env.ROOT_URL).searchParams;
+  const isNative = reqParams.get('native') === '1';
+  const state = encodeOAuthState({
+    isNative,
+    join: reqParams.get('join'),
+    invite: reqParams.get('invite'),
+    orgInvite: reqParams.get('org_invite'),
+  });
   const callbackUrl = 
     `${process.env.ROOT_URL}/auth/apple/callback`
   
@@ -617,7 +679,7 @@ WebApp.connectHandlers.use('/auth/apple/callback',
       const code = params.get('code')
       const idToken = params.get('id_token')
       const userParam = params.get('user')
-      const isNative = params.get('state')?.startsWith('native_') ?? false
+      const { isNative, join, invite, orgInvite } = decodeOAuthState(params.get('state'))
       
       if (!code && !idToken) {
         res.writeHead(400)
@@ -693,16 +755,25 @@ WebApp.connectHandlers.use('/auth/apple/callback',
       
       // Redirect back — native apps get a deep link, browsers get the frontend URL.
       if (isNative) {
-        sendNativeAuthRedirect(res, token, stampedToken.token);
+        sendNativeAuthRedirect(res, token, stampedToken.token, {
+          join,
+          invite,
+          org_invite: orgInvite,
+        });
       } else {
         const frontendUrl =
           process.env.CORS_ORIGINS?.split(',')[0] || 
           'http://localhost:3000'
         
-        const redirectUrl = 
-          `${frontendUrl}/app/dashboard` +
-          `?meteor_token=${token}&` +
-          `meteor_resume=${stampedToken.token}`
+        const redirectParams = new URLSearchParams({
+          meteor_token: token,
+          meteor_resume: stampedToken.token,
+        })
+        if (join) redirectParams.set('join', join)
+        if (invite) redirectParams.set('invite', invite)
+        if (orgInvite) redirectParams.set('org_invite', orgInvite)
+        
+        const redirectUrl = `${frontendUrl}/app/dashboard?${redirectParams.toString()}`
         
         // Use HTML redirect since Apple uses POST
         res.writeHead(200, { 
