@@ -37,8 +37,8 @@ self.addEventListener('push', function (event) {
 
     const options = {
       body: formattedBody,
-      icon: data.icon || '/timehuddle-icon.svg',
-      badge: data.badge || '/timehuddle-icon.svg',
+      icon: data.icon || '/logo.png',
+      badge: data.badge || '/logo.png',
       tag: data.tag || 'default',
       data: notificationData,
       requireInteraction: false,
