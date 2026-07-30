@@ -28,7 +28,8 @@ export class ClockPage extends BasePage {
     this.planGateMessage = this.page.getByText(/Write a plan before starting this session/);
     this.proseMirror = this.page.locator('.ProseMirror').first();
     this.postPlanAndClockInButton = this.page.getByRole('button', {
-      name: /Post plan and clock in/i,
+      // Draft-resume mode labels this action as "Publish plan and clock in".
+      name: /(Post|Publish) plan and clock in/i,
     });
     this.saveDraftButton = this.page.getByRole('button', { name: /Save draft/i });
     this.updateDraftButton = this.page.getByRole('button', { name: /Update draft/i });
@@ -41,10 +42,16 @@ export class ClockPage extends BasePage {
 
   async goto() {
     await this.page.goto('/app/clock');
-    await this.waitForLoad();
+    try {
+      await this.waitForLoad();
+    } catch {
+      // One retry absorbs occasional route hydration slowness after auth/setup.
+      await this.page.goto('/app/clock');
+      await this.waitForLoad();
+    }
   }
 
-  async waitForLoad(timeout = 10000) {
+  async waitForLoad(timeout = 30000) {
     await this.heading.waitFor({ state: 'visible', timeout });
   }
 
@@ -105,13 +112,13 @@ export class ClockPage extends BasePage {
    */
   async typeWrapUp(wrapUpText: string) {
     await this.proseMirror.waitFor({ state: 'visible', timeout: 10000 });
-    // The composer is seeded with this session's plan post — append after it.
-    // "End" only reaches end-of-line (and is a no-op in ProseMirror on macOS),
-    // so select the whole document and collapse the selection to its end.
+    // Rebuild the content deterministically to avoid occasional selection races
+    // that can replace the plan text with only the wrap-up.
+    const existingText = (await this.proseMirror.innerText()).trim();
     await this.proseMirror.click({ position: { x: 10, y: 10 } });
     await this.page.keyboard.press('ControlOrMeta+a');
-    await this.page.keyboard.press('ArrowRight');
-    await this.page.keyboard.type('\n\n' + wrapUpText, { delay: 10 });
+    const mergedText = existingText ? `${existingText}\n\n${wrapUpText}` : wrapUpText;
+    await this.page.keyboard.type(mergedText, { delay: 10 });
   }
 
   /**

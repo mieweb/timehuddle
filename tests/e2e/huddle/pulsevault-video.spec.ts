@@ -40,12 +40,18 @@ async function goToHuddle(page: import('@playwright/test').Page) {
  * view, so switch there before asserting on it.
  */
 async function switchToCardView(page: import('@playwright/test').Page) {
-  await page.getByRole('button', { name: 'Switch to card view' }).click();
+  const toCardButton = page.getByRole('button', { name: 'Switch to card view' });
+  if (await toCardButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await toCardButton.click();
+    await page.getByRole('button', { name: 'Switch to chat view' }).waitFor({ timeout: 5000 });
+  }
+  // Feed items stream via DDP/WebSocket, so wait briefly after any view state.
+  await page.waitForTimeout(1500);
 }
 
 /** Locates a post's root container by the unique text in its body. */
 function postContainer(page: import('@playwright/test').Page, uniqueText: string) {
-  return page.locator('div.border-b.px-5.pt-4').filter({ hasText: uniqueText });
+  return page.locator('[data-testid="post-card"]').filter({ hasText: uniqueText });
 }
 
 test.describe('Huddle — direct video upload', () => {

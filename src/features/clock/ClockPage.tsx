@@ -124,6 +124,10 @@ export const ClockPage: React.FC = () => {
         ? (sessionPost?.content.text ?? '')
         : '';
 
+  // Caches the plan post ID immediately after creation so postWrapUpAndClockOut
+  // can update the right post even if the DDP subscription hasn't synced yet.
+  const cachedPlanPostIdRef = useRef<string | null>(null);
+
   // Apply the seed once it becomes available (draft / session post load async),
   // unless the user has already started typing. Remount the uncontrolled editor
   // via `editorKey` so it picks up the seeded value.
@@ -185,6 +189,9 @@ export const ClockPage: React.FC = () => {
         })) as { id: string };
         planPostId = created.id;
       }
+      // Cache the plan post ID so postWrapUpAndClockOut can find it even if
+      // the DDP subscription hasn't synced the new post back to this client yet.
+      cachedPlanPostIdRef.current = planPostId;
       setText('');
       // Link this plan to the new session so the per-session gate finds it.
       await clockIn({ planJustPosted: true, planPostId });
@@ -201,21 +208,23 @@ export const ClockPage: React.FC = () => {
     setPosting(true);
     setPostError(null);
     try {
-      if (sessionPost) {
-        // The editor was seeded with this session's plan post, so `trimmed` is
-        // the full continued content — save it as-is and stamp the wrap-up.
+      // Use sessionPost from DDP if available, otherwise fall back to the
+      // cached post ID (handles the race where the plan post was just created
+      // but hasn't arrived via DDP subscription yet).
+      const effectivePostId = sessionPost?.id ?? cachedPlanPostIdRef.current;
+      if (effectivePostId) {
+        // Normal flow: update the plan post with the wrap-up.
         await huddleApi.updatePost(
-          sessionPost.id,
+          effectivePostId,
           {
             text: trimmed,
-            mentions: sessionPost.content.mentions,
+            mentions: sessionPost?.content.mentions ?? [],
           },
           { wrapUp: true },
         );
       } else {
-        // Recovery: this session has no plan post (e.g. gate was enabled
-        // mid-shift). Create one that doubles as the wrap-up, linked to the
-        // session so the gate is satisfied.
+        // Recovery: no plan post exists (gate enabled mid-shift). Create one
+        // that doubles as the wrap-up, linked to the session.
         await getDdpClient().call('huddle.createPost', {
           teamId: gateTeamId,
           content: { text: `**Wrap-up:** ${trimmed}`, mentions: [] },
@@ -225,6 +234,7 @@ export const ClockPage: React.FC = () => {
         });
       }
       setText('');
+      cachedPlanPostIdRef.current = null;
       await clockOut();
     } catch (e) {
       setPostError(e instanceof Error ? e.message : 'Failed to post. Please try again.');

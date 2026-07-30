@@ -1125,6 +1125,7 @@ export interface Team {
   isPersonal: boolean;
   settings?: {
     requirePlanForClock?: boolean;
+    autoAcceptJoins?: boolean;
   };
   createdAt: string;
   updatedAt: string | null;
@@ -1205,7 +1206,10 @@ export const teamApi = {
   renameTeam: (id: string, newName: string) =>
     wormholeCall<{ team: Team }>('teams.rename', { teamId: id, newName }).then((r) => r.team),
 
-  updateSettings: (id: string, settings: { requirePlanForClock: boolean }) =>
+  updateSettings: (
+    id: string,
+    settings: { requirePlanForClock?: boolean; autoAcceptJoins?: boolean },
+  ) =>
     wormholeCall<{ team: Team }>('teams.updateSettings', { teamId: id, ...settings }).then(
       (r) => r.team,
     ),

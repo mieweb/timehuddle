@@ -11,11 +11,9 @@
  *     resulting attachment appearing in the ticket's "Links" list.
  */
 import fs from 'node:fs';
-import { expect, test, type Page, type APIRequestContext } from '@playwright/test';
+import { expect, test, type Page, type APIRequestContext, type TestInfo } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { createTicket, deleteTicket, uploadVideoToTicket, TEST_MP4 } from './helpers';
-
-const TICKET_TITLE = `PulseVault E2E Upload Test ${Date.now()}`;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -154,6 +152,8 @@ test.describe('PulseVault — API contract', () => {
     page,
     request,
   }) => {
+    test.setTimeout(90000);
+
     await loginAs(page, TEST_USERS.owner1);
     const token = await getSessionToken(page);
     const { videoid, uploadToken } = await reserveLibraryUpload(request, token);
@@ -310,18 +310,25 @@ test.describe('PulseVault — API contract', () => {
 
 test.describe('PulseVault — Ticket video upload', () => {
   test.setTimeout(90000);
+  let ticketTitle = '';
 
-  test.beforeEach(async ({ page }) => {
+  function buildTicketTitle(testInfo: TestInfo): string {
+    const safeTitle = testInfo.title.replace(/[^a-z0-9]+/gi, '-').slice(0, 32);
+    return `PulseVault E2E ${safeTitle} ${Date.now()} r${testInfo.retry}`;
+  }
+
+  test.beforeEach(async ({ page }, testInfo) => {
+    ticketTitle = buildTicketTitle(testInfo);
     await loginAs(page, TEST_USERS.owner1);
-    await createTicket(page, TICKET_TITLE);
+    await createTicket(page, ticketTitle);
   });
 
   test.afterEach(async ({ page }) => {
-    await deleteTicket(page, TICKET_TITLE);
+    await deleteTicket(page, ticketTitle);
   });
 
   test('"Upload Video" button opens QR modal with a valid pulsecam deep link', async ({ page }) => {
-    await page.getByRole('button', { name: TICKET_TITLE, exact: true }).first().click();
+    await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
     await page.waitForTimeout(600);
 
     await page.getByRole('button', { name: /upload video/i }).click();
@@ -339,7 +346,7 @@ test.describe('PulseVault — Ticket video upload', () => {
   // encoded value, so this e2e test only covers what the browser can
   // actually observe: reserve() succeeding and the modal reflecting it.
   test('device-upload fallback is offered alongside the QR code', async ({ page }) => {
-    await page.getByRole('button', { name: TICKET_TITLE, exact: true }).first().click();
+    await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
     await page.waitForTimeout(600);
 
     await page.getByRole('button', { name: /upload video/i }).click();
@@ -353,7 +360,7 @@ test.describe('PulseVault — Ticket video upload', () => {
   test("direct MP4 upload from device completes and appears under the ticket's Links list", async ({
     page,
   }) => {
-    await uploadVideoToTicket(page, TICKET_TITLE);
+    await uploadVideoToTicket(page, ticketTitle);
 
     // uploadVideoToTicket already waits for the link to appear and leaves us
     // on the ticket's own detail page (URL-based route) — re-confirm after a

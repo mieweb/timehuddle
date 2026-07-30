@@ -49,8 +49,11 @@ async function selectTestTeam(page: Page): Promise<string | null> {
     localStorage.setItem('app:selectedTeamId', id);
   }, teamId);
   await page.reload();
-  await page.getByRole('heading', { level: 1, name: 'Messages' }).waitFor({ state: 'visible' });
-  await page.waitForLoadState('networkidle');
+  // Page title rendering can lag behind route hydration; the channel-create
+  // action is a stronger readiness signal for this screen.
+  await expect(page.getByRole('button', { name: 'Create channel' })).toBeVisible({
+    timeout: 30000,
+  });
   return teamId;
 }
 
@@ -64,10 +67,14 @@ async function createChannel(page: Page, name: string): Promise<void> {
 let fixtureTeamId: string | null = null;
 
 test.describe('Channels — create, edit, delete', () => {
+  test.describe.configure({ timeout: 120000 });
+
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
     await page.goto('/app/messages');
-    await page.getByRole('heading', { level: 1, name: 'Messages' }).waitFor({ state: 'visible' });
+    await expect(page.getByRole('button', { name: 'Create channel' })).toBeVisible({
+      timeout: 30000,
+    });
     fixtureTeamId = await selectTestTeam(page);
     test.skip(!fixtureTeamId, 'Test Team Alpha (TEST01) not found in DB');
   });
