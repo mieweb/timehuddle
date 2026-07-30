@@ -45,7 +45,12 @@ async function selectTestTeam(page: import('@playwright/test').Page): Promise<bo
 async function gotoTeamsPage(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/app/teams');
 
-  if (await page.getByRole('heading', { name: 'Sign in to your account' }).isVisible().catch(() => false)) {
+  if (
+    await page
+      .getByRole('heading', { name: 'Sign in to your account' })
+      .isVisible()
+      .catch(() => false)
+  ) {
     await loginAs(page, TEST_USERS.owner1);
     await page.goto('/app/teams');
   }

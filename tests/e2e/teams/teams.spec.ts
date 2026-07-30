@@ -27,7 +27,12 @@ async function gotoTeamsPage(page: import('@playwright/test').Page): Promise<voi
   await page.goto('/app/teams');
 
   // Rarely, a stale session bounces this navigation back to login.
-  if (await page.getByRole('heading', { name: 'Sign in to your account' }).isVisible().catch(() => false)) {
+  if (
+    await page
+      .getByRole('heading', { name: 'Sign in to your account' })
+      .isVisible()
+      .catch(() => false)
+  ) {
     await loginAs(page, TEST_USERS.owner1);
     await page.goto('/app/teams');
   }
@@ -109,7 +114,9 @@ test.describe('Teams', () => {
     // Try a direct navigation with deep-link query param.
     if (!(await timesheetTab.isVisible({ timeout: 5000 }).catch(() => false))) {
       await page.goto(`/app/teams?teamId=${teamId}`);
-      await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({ timeout: 20000 });
+      await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({
+        timeout: 20000,
+      });
     }
 
     // If Timesheet tab still not visible, skip — Test Team Alpha may not be available for this user
@@ -152,7 +159,9 @@ test.describe('Teams', () => {
         localStorage.setItem('app:selectedTeamId', id);
       }, teamId);
       await page.reload();
-      await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({ timeout: 20000 });
+      await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({
+        timeout: 20000,
+      });
       await page.waitForTimeout(1500);
     }
 
