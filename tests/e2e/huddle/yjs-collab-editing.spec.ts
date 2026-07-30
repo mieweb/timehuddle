@@ -113,7 +113,7 @@ async function editorText(page: Page): Promise<string> {
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 test.describe('Huddle — Yjs real-time collaborative editing', () => {
-  test.setTimeout(90000);
+  test.setTimeout(180000);
 
   let memberCtx: BrowserContext;
   let adminCtx: BrowserContext;

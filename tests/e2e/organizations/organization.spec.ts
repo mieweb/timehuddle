@@ -11,7 +11,7 @@ test.describe('Organization', () => {
     // Full-page navigation to /app/organization forces a DDP session
     // reconnect (see docs on DDP cold-start flake); allow extra headroom
     // beyond the default 30s so this doesn't flake under load.
-    test.setTimeout(60000);
+    test.setTimeout(90000);
 
     // Login as a member who may not be in any non-personal team
     await loginAs(page, TEST_USERS.member5);

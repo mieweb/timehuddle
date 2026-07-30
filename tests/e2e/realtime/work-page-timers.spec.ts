@@ -4,11 +4,19 @@
  * Verifies that work item timer changes sync across sessions.
  */
 import { test, expect, type Page } from '@playwright/test';
-import { LoginPage } from '../pages/LoginPage';
+import { TEST_USERS, loginAs } from '../fixtures/users';
+import { selectSharedTestTeam } from '../fixtures/team';
 
 test.describe('Real-time Work Page Timers', () => {
   let session1: Page;
   let session2: Page;
+
+  async function waitForWorkPageReady(page: Page): Promise<void> {
+    await page.goto('http://localhost:3002/app/work');
+    await expect(page.getByRole('button', { name: /Add work item/i })).toBeVisible({
+      timeout: 20000,
+    });
+  }
 
   test.beforeEach(async ({ browser }) => {
     const context1 = await browser.newContext();
@@ -17,23 +25,15 @@ test.describe('Real-time Work Page Timers', () => {
     session1 = await context1.newPage();
     session2 = await context2.newPage();
 
-    const loginPage1 = new LoginPage(session1);
-    const loginPage2 = new LoginPage(session2);
+    await loginAs(session1, TEST_USERS.admin1);
+    await loginAs(session2, TEST_USERS.admin2);
 
-    await loginPage1.goto();
-    await loginPage1.login('admin1@test.local', 'TestPass1!');
-    await expect(session1).toHaveURL(/\/app\//);
+    // Both sessions must be on the same team so they observe the same entries.
+    await selectSharedTestTeam(session1);
+    await selectSharedTestTeam(session2);
 
-    await loginPage2.goto();
-    await loginPage2.login('admin2@test.local', 'TestPass1!');
-    await expect(session2).toHaveURL(/\/app\//);
-
-    // Navigate to Work page
-    await session1.goto('http://localhost:3002/app/work');
-    await session2.goto('http://localhost:3002/app/work');
-
-    await session1.waitForLoadState('networkidle');
-    await session2.waitForLoadState('networkidle');
+    await waitForWorkPageReady(session1);
+    await waitForWorkPageReady(session2);
   });
 
   test.afterEach(async () => {
@@ -43,33 +43,25 @@ test.describe('Real-time Work Page Timers', () => {
 
   test('should sync work item timer start across sessions', async () => {
     // Both sessions should see the Work page
-    await expect(session1.getByRole('heading', { level: 1, name: /Work/i })).toBeVisible({
-      timeout: 5000,
-    });
-    await expect(session2.getByRole('heading', { level: 1, name: /Work/i })).toBeVisible({
-      timeout: 5000,
-    });
+    await expect(session1.getByRole('button', { name: /Add work item/i })).toBeVisible();
+    await expect(session2.getByRole('button', { name: /Add work item/i })).toBeVisible();
 
     // Verify both sessions show the same Work page state
-    const heading1 = await session1.getByRole('heading', { level: 1 }).textContent();
-    const heading2 = await session2.getByRole('heading', { level: 1 }).textContent();
-    expect(heading1).toBe(heading2);
+    const rows1 = await session1.locator('tbody tr').count();
+    const rows2 = await session2.locator('tbody tr').count();
+    expect(rows1).toBe(rows2);
   });
 
   test('should sync work item creation across sessions', async () => {
     // Both sessions should see the same Work page
-    await expect(session1.getByRole('heading', { level: 1, name: /Work/i })).toBeVisible({
-      timeout: 5000,
-    });
-    await expect(session2.getByRole('heading', { level: 1, name: /Work/i })).toBeVisible({
-      timeout: 5000,
-    });
+    await expect(session1.getByRole('button', { name: /Add work item/i })).toBeVisible();
+    await expect(session2.getByRole('button', { name: /Add work item/i })).toBeVisible();
   });
 
   test('should sync timer duration updates', async () => {
-    // Both sessions should see the same Work page heading
-    const heading1 = await session1.getByRole('heading', { level: 1 }).textContent();
-    const heading2 = await session2.getByRole('heading', { level: 1 }).textContent();
-    expect(heading1).toBe(heading2);
+    // Both sessions should show the same number of day entries.
+    const rows1 = await session1.locator('tbody tr').count();
+    const rows2 = await session2.locator('tbody tr').count();
+    expect(rows1).toBe(rows2);
   });
 });

@@ -23,27 +23,37 @@ async function getTestTeamId(): Promise<string | null> {
   return team ? team._id.toHexString() : null;
 }
 
+async function gotoTeamsPage(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('/app/teams');
+
+  // Rarely, a stale session bounces this navigation back to login.
+  if (await page.getByRole('heading', { name: 'Sign in to your account' }).isVisible().catch(() => false)) {
+    await loginAs(page, TEST_USERS.owner1);
+    await page.goto('/app/teams');
+  }
+
+  await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({ timeout: 20000 });
+}
+
 test.describe('Teams', () => {
   test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
   });
 
   test('should navigate to teams page with correct URL', async ({ page }) => {
-    await page.goto('/app/teams');
-    await page.getByRole('heading', { level: 1, name: 'Teams' }).waitFor({ state: 'visible' });
+    await gotoTeamsPage(page);
 
     // Verify correct URL
     expect(page.url()).toContain('/app/teams');
 
     // Verify page components
-    await expect(page.getByRole('heading', { level: 1, name: 'Teams' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: /Teams/i })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Join Team' })).toBeVisible();
   });
 
   test('should create a team with a generated team code', async ({ page }) => {
-    await page.goto('/app/teams');
-    await page.getByRole('heading', { level: 1, name: 'Teams' }).waitFor({ state: 'visible' });
+    await gotoTeamsPage(page);
 
     // Click Create Team button
     await page.getByRole('button', { name: 'Create Team' }).click();
@@ -55,7 +65,7 @@ test.describe('Teams', () => {
 
     // Click Create
     await page.getByRole('button', { name: 'Create', exact: true }).click();
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(1500);
 
     // Verify the team appears in the list. Scoped to <main> because the new
     // team also becomes the selected scope, so its name appears in the header
@@ -65,7 +75,7 @@ test.describe('Teams', () => {
     // Verify team code badge exists (it's a short code like ABC123)
     // The team code is shown as a Badge below the team name with a "Copy" button
     await expect(page.getByRole('button', { name: 'Copy', exact: true })).toBeVisible({
-      timeout: 5000,
+      timeout: 10000,
     });
   });
 
@@ -79,8 +89,7 @@ test.describe('Teams', () => {
       return;
     }
 
-    await page.goto('/app/teams');
-    await page.getByRole('heading', { level: 1, name: 'Teams' }).waitFor({ state: 'visible' });
+    await gotoTeamsPage(page);
 
     // Set Test Team Alpha as selected team via localStorage and reload
     await page.evaluate((id) => {
@@ -90,8 +99,7 @@ test.describe('Teams', () => {
       localStorage.setItem('app:selectedTeamId', id);
     }, teamId);
     await page.reload();
-    await page.getByRole('heading', { level: 1, name: 'Teams' }).waitFor({ state: 'visible' });
-    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({ timeout: 20000 });
 
     // Wait for the team to load — the Timesheet tab only appears for non-personal teams
     const timesheetTab = page.getByRole('tab', { name: 'Timesheet' });
@@ -101,8 +109,7 @@ test.describe('Teams', () => {
     // Try a direct navigation with deep-link query param.
     if (!(await timesheetTab.isVisible({ timeout: 5000 }).catch(() => false))) {
       await page.goto(`/app/teams?teamId=${teamId}`);
-      await page.getByRole('heading', { level: 1, name: 'Teams' }).waitFor({ state: 'visible' });
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({ timeout: 20000 });
     }
 
     // If Timesheet tab still not visible, skip — Test Team Alpha may not be available for this user
@@ -132,9 +139,8 @@ test.describe('Teams', () => {
   });
 
   test('team members are shown correctly', async ({ page }) => {
-    await page.goto('/app/teams');
-    await page.getByRole('heading', { level: 1, name: 'Teams' }).waitFor({ state: 'visible' });
-    await page.waitForTimeout(2000);
+    await gotoTeamsPage(page);
+    await page.waitForTimeout(1000);
 
     // Ensure Test Team Alpha is selected via localStorage
     const teamId = await getTestTeamId();
@@ -146,8 +152,8 @@ test.describe('Teams', () => {
         localStorage.setItem('app:selectedTeamId', id);
       }, teamId);
       await page.reload();
-      await page.getByRole('heading', { level: 1, name: 'Teams' }).waitFor({ state: 'visible' });
-      await page.waitForTimeout(3000);
+      await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({ timeout: 20000 });
+      await page.waitForTimeout(1500);
     }
 
     // Click Members tab

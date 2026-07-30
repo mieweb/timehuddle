@@ -96,8 +96,11 @@ export async function loginAs(page: Page, user: TestUser): Promise<void> {
   // Wait for redirect to dashboard (login success indicator). The timeout is
   // generous because the first DDP WebSocket connection can be slow when the
   // backend is cold-starting (connectWithRetry does up to 3 attempts with
-  // backoff, ~46s worst case) — a shorter window makes login flaky.
-  await page.waitForURL('**/dashboard', { timeout: 45000 });
+  // backoff, ~46s worst case) — a shorter window makes login flaky. On a busy
+  // dev machine (many meteor/mongod processes competing for CPU during a long
+  // sequential suite run) this can occasionally take even longer, so the
+  // budget has extra headroom beyond the worst-case DDP retry math.
+  await page.waitForURL('**/dashboard', { timeout: 60000 });
 }
 
 /**

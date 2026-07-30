@@ -1,7 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { LoginPage } from '../pages/LoginPage';
-import { DashboardPage } from '../pages/DashboardPage';
-import { TEST_USERS } from '../fixtures/users';
+import { TEST_USERS, loginAs } from '../fixtures/users';
 
 /**
  * E2E Test: Organization Member Blocking Feature
@@ -11,27 +9,26 @@ import { TEST_USERS } from '../fixtures/users';
  * no dependency on a developer-created account.
  */
 test.describe('Organization Member Blocking Feature', () => {
-  let _loginPage: LoginPage;
-  let _dashboardPage: DashboardPage;
-
   const owner = TEST_USERS.owner1;
 
-  test.beforeEach(async ({ page }) => {
-    _loginPage = new LoginPage(page);
-    _dashboardPage = new DashboardPage(page);
+  async function gotoMembersPage(page: import('@playwright/test').Page) {
+    await page.goto('/app/org/members');
+    const noOrg = page.getByText(/No organization is selected/i);
+    if (await noOrg.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await expect(noOrg).toBeHidden({ timeout: 30000 });
+    }
+    await expect(page.getByRole('table')).toBeVisible({ timeout: 20000 });
+  }
 
+  test.beforeEach(async ({ page }) => {
     // Login as owner
-    await _loginPage.goto();
-    await _loginPage.loginAs(owner);
-    await page.waitForURL('**/dashboard', { timeout: 15000 });
+    await loginAs(page, owner);
   });
 
   test('should display members page with block buttons', async ({ page }) => {
     // Navigate to members page. Wait for orgs/teams sub to hydrate first —
     // "No organization is selected" is the pre-selection empty state.
-    await page.goto('/app/org/members');
-    await expect(page.getByText(/No organization is selected/i)).toBeHidden({ timeout: 30000 });
-    await expect(page.getByRole('table')).toBeVisible({ timeout: 20000 });
+    await gotoMembersPage(page);
 
     // Verify there's at least one member row (the owner)
     const memberRows = page.getByRole('row');
@@ -51,8 +48,7 @@ test.describe('Organization Member Blocking Feature', () => {
 
   test('should allow blocking and unblocking workflow', async ({ page }) => {
     // Navigate to members page
-    await page.goto('/app/org/members');
-    await expect(page.getByRole('table')).toBeVisible({ timeout: 20000 });
+    await gotoMembersPage(page);
 
     // Buttons on the members page use aria-labels like "Block Poonam Doe from
     // organization" so we match by their visible text instead.
@@ -96,8 +92,7 @@ test.describe('Organization Member Blocking Feature', () => {
 
   test('should show blocked badge for blocked members', async ({ page }) => {
     // Navigate to members page
-    await page.goto('/app/org/members');
-    await expect(page.getByRole('table')).toBeVisible({ timeout: 20000 });
+    await gotoMembersPage(page);
 
     // Check if any members are currently blocked
     const blockedBadges = page.getByText(/blocked/i);

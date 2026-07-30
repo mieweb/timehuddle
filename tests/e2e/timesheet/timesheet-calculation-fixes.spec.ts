@@ -149,6 +149,11 @@ test.describe('Timesheet calculation fixes', () => {
       page,
       browser,
     }) => {
+      // Two logins plus DB setup/teardown in one test — the global 30s test
+      // timeout is shorter than the fixture's own login wait, so it can kill
+      // the test mid-login on a slow/busy backend before that ever surfaces.
+      test.setTimeout(90000);
+
       const { client, db } = await connectDb();
       const clockEventIds: string[] = [];
 

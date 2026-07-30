@@ -179,6 +179,7 @@ test.describe('Plan-First Clock Flow', () => {
   test('complete plan-first flow: post plan → clock in → post wrap-up → clock out', async ({
     page,
   }) => {
+    test.slow();
     // Create team
     await teamsPage.goto();
     const teamName = `FlowTest-${Date.now()}`;
@@ -228,16 +229,20 @@ test.describe('Plan-First Clock Flow', () => {
     // Navigate to huddle to verify post and wrap-up are there
     await huddlePage.goto();
 
-    // Wait for posts to load
-    await page.waitForTimeout(2000);
+    // DDP/WebSocket feed updates can arrive a bit after navigation.
+    await expect
+      .poll(async () => huddlePage.hasPost(planText), {
+        timeout: 15000,
+        message: 'Expected plan text to appear in huddle feed',
+      })
+      .toBe(true);
 
-    // Verify plan is in huddle feed
-    const hasPlan = await huddlePage.hasPost(planText);
-    expect(hasPlan).toBe(true);
-
-    // Verify wrap-up is also visible (should be in the same post)
-    const hasWrapUp = await huddlePage.hasPost(wrapUpText);
-    expect(hasWrapUp).toBe(true);
+    await expect
+      .poll(async () => huddlePage.hasPost(wrapUpText), {
+        timeout: 15000,
+        message: 'Expected wrap-up text to appear in huddle feed',
+      })
+      .toBe(true);
   });
 
   test('should save draft plan and then clock in with it', async ({ page }) => {
@@ -347,6 +352,7 @@ test.describe('Plan-First Clock Flow', () => {
   });
 
   test('should verify wrap-up is appended to same post (not create new post)', async ({ page }) => {
+    test.slow();
     // Create team
     await teamsPage.goto();
     const teamName = `AppendTest-${Date.now()}`;
@@ -387,23 +393,24 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Navigate to huddle
     await huddlePage.goto();
-    await page.waitForTimeout(2000);
 
-    // Verify both plan and wrap-up are in the same post (by checking they appear together)
+    await expect
+      .poll(
+        async () => {
+          const posts = await huddlePage.getVisiblePosts();
+          return posts.find((post) => post.includes(uniqueMarker)) ?? '';
+        },
+        {
+          timeout: 15000,
+          message: 'Expected a huddle post containing the unique session marker',
+        },
+      )
+      .not.toBe('');
+
+    // `expect.poll` above ensures the post exists; fetch once for deterministic assertions.
     const posts = await huddlePage.getVisiblePosts();
-
-    // Look for a post that contains the unique marker
-    let foundPost = false;
-    for (const post of posts) {
-      if (post.includes(uniqueMarker)) {
-        foundPost = true;
-        // Verify both plan and wrap-up content are in the same post
-        expect(post).toContain(planText);
-        expect(post).toContain(wrapUpText);
-        break;
-      }
-    }
-
-    expect(foundPost).toBe(true);
+    const postWithMarker = posts.find((post) => post.includes(uniqueMarker)) ?? '';
+    expect(postWithMarker).toContain(planText);
+    expect(postWithMarker).toContain(wrapUpText);
   });
 });

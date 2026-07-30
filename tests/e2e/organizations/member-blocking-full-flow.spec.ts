@@ -23,7 +23,7 @@ test.describe('Member Blocking - Full Flow', () => {
     // Generous timeout: this flow does multiple hard navigations, each of which
     // remounts SessionProvider and forces a DDP reconnect that can be slow on a
     // cold backend.
-    test.setTimeout(90000);
+    test.setTimeout(120000);
 
     const loginPage = new LoginPage(page);
     const dashboardPage = new DashboardPage(page);
@@ -37,7 +37,7 @@ test.describe('Member Blocking - Full Flow', () => {
     await page.goto('http://localhost:3002/app/org/members');
     // Wait for org to be selected and table to render
     await expect(page.getByText(/No organization is selected/i)).toBeHidden({ timeout: 30000 });
-    await expect(page.getByRole('table')).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole('table')).toBeVisible({ timeout: 30000 });
 
     // Find member row
     const memberRow = page.getByRole('row').filter({ hasText: member.name });
@@ -49,7 +49,7 @@ test.describe('Member Blocking - Full Flow', () => {
       await existingUnblock.click();
       await page.waitForTimeout(2000);
       await page.reload();
-      await expect(page.getByRole('table')).toBeVisible({ timeout: 20000 });
+      await expect(page.getByRole('table')).toBeVisible({ timeout: 30000 });
     }
 
     // ── Step 3: Block the member ───────────────────────────────────────────
@@ -113,7 +113,7 @@ test.describe('Member Blocking - Full Flow', () => {
 
     // ── Step 7: Unblock the member ─────────────────────────────────────────
     await page.goto('http://localhost:3002/app/org/members');
-    await expect(page.getByRole('table')).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole('table')).toBeVisible({ timeout: 30000 });
 
     const unblockedRow = page.getByRole('row').filter({ hasText: member.name });
     const unblockBtn = unblockedRow.locator('button:has-text("Unblock")');

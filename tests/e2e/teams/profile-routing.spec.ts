@@ -42,6 +42,17 @@ async function selectTestTeam(page: import('@playwright/test').Page): Promise<bo
   return true;
 }
 
+async function gotoTeamsPage(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('/app/teams');
+
+  if (await page.getByRole('heading', { name: 'Sign in to your account' }).isVisible().catch(() => false)) {
+    await loginAs(page, TEST_USERS.owner1);
+    await page.goto('/app/teams');
+  }
+
+  await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({ timeout: 30000 });
+}
+
 test.describe('Profile Routing', () => {
   test.setTimeout(60000);
 
@@ -52,8 +63,7 @@ test.describe('Profile Routing', () => {
   // ── 1. Teams page: click member → /app/profile/:username ──────────────────
 
   test('clicking a team member navigates to /app/profile/:username', async ({ page }) => {
-    await page.goto('/app/teams');
-    await page.getByRole('heading', { level: 1, name: 'Teams' }).waitFor({ state: 'visible' });
+    await gotoTeamsPage(page);
 
     const selected = await selectTestTeam(page);
     if (!selected) {
@@ -89,8 +99,7 @@ test.describe('Profile Routing', () => {
   // ── 2. Teams page: click member1 specifically → /app/profile/member1 ──────
 
   test('clicking member1 navigates to /app/profile/member1', async ({ page }) => {
-    await page.goto('/app/teams');
-    await page.getByRole('heading', { level: 1, name: 'Teams' }).waitFor({ state: 'visible' });
+    await gotoTeamsPage(page);
 
     const selected = await selectTestTeam(page);
     if (!selected) {
