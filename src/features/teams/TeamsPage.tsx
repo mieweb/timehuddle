@@ -455,9 +455,13 @@ export const TeamsPage: React.FC = () => {
   const [linkCopied, setLinkCopied] = useState(false);
   const copyJoinLink = useCallback(() => {
     if (!joinUrl) return;
-    void navigator.clipboard.writeText(joinUrl);
-    setLinkCopied(true);
-    window.setTimeout(() => setLinkCopied(false), 2000);
+    navigator.clipboard
+      .writeText(joinUrl)
+      .then(() => {
+        setLinkCopied(true);
+        window.setTimeout(() => setLinkCopied(false), 2000);
+      })
+      .catch((err) => console.error('[TeamsPage] failed to copy join link:', err));
   }, [joinUrl]);
 
   const shareJoinLink = useCallback(() => {

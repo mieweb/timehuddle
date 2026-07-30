@@ -284,6 +284,13 @@ Meteor.methods({
           await addOrgMember(team.orgId, identity.userId, 'member', true);
         }
       }
+      // Clear any stale pending request for this user/team now that they're a
+      // full member — otherwise it lingers in the admin approval queue.
+      await TeamJoinRequests.rawCollection().deleteMany({
+        teamId,
+        userId: identity.userId,
+        status: 'pending',
+      });
       const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
       return { status: 'joined', team: toPublicTeam(updatedTeam) };
     }
@@ -355,7 +362,7 @@ Meteor.methods({
   /**
    * Public (unauthenticated) preview of a team by its join code.
    * Used by the QR-share signup flow so the login page can show which
-   * team the visitor is about to join. Exposes only the team name.
+   * team the visitor is about to join. Exposes only the team name and code.
    */
   async 'teams.previewByCode'({ teamCode }) {
     if (typeof teamCode !== 'string' || !teamCode.trim()) {
@@ -401,6 +408,15 @@ Meteor.methods({
     if (org?.allowAutoJoin !== false) {
       await addOrgMember(team.orgId, identity.userId, 'member', true);
     }
+
+    // Clear any stale pending request for this user/team now that they're a
+    // full member — otherwise it lingers in the admin approval queue.
+    const teamIdStr = team._id.toHexString ? team._id.toHexString() : String(team._id);
+    await TeamJoinRequests.rawCollection().deleteMany({
+      teamId: teamIdStr,
+      userId: identity.userId,
+      status: 'pending',
+    });
 
     const updated = await Teams.findOneAsync(team._id);
     return { ok: true, team: toPublicTeam(updated) };
