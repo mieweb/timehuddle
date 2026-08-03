@@ -20,7 +20,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
 
 **Phase 1 — Mobile**
 
-1. Confirm/adjust [BottomNav.tsx](../src/ui/BottomNav.tsx) tab set: Dashboard,
+1. [x] Confirm/adjust [BottomNav.tsx](../src/ui/BottomNav.tsx) tab set: Dashboard,
    Huddle, Clock (center FAB), Tickets, Teams. Move Settings behind the
    profile/overflow menu. Validate: `npm run typecheck` + manual tap-through
    at a 390×844 viewport.

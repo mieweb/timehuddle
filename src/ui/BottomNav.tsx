@@ -2,7 +2,8 @@
  * BottomNav — Mobile-only bottom navigation bar.
  *
  * Visible only on small screens (md:hidden).
- * Five tabs: Dashboard, Tickets, Clock In/Out (center FAB), Teams, Settings.
+ * Five tabs: Dashboard, Huddle, Clock In/Out (center FAB), Tickets, Teams.
+ * Settings is available via the profile/avatar dropdown in the header.
  * Active tab indicator is an animated bubble that glides between positions.
  * FAB uses CSS brand tokens so it follows brand/theme changes automatically.
  * The FAB navigates to the clock page (rather than toggling directly) so the
@@ -11,8 +12,8 @@
 import {
   faCircleStop,
   faClock,
+  faComments,
   faGauge,
-  faGear,
   faListCheck,
   faUsers,
 } from '@fortawesome/free-solid-svg-icons';
@@ -32,10 +33,10 @@ interface NavTab {
 
 const TABS: NavTab[] = [
   { icon: faGauge, label: 'Home', href: '/app/dashboard' },
-  { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
+  { icon: faComments, label: 'Huddle', href: '/app/huddle' },
   { icon: faClock, label: 'Clock In', href: '/app/clock', isFab: true },
+  { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
   { icon: faUsers, label: 'Teams', href: '/app/teams' },
-  { icon: faGear, label: 'Settings', href: '/app/settings' },
 ];
 
 export const BottomNav: React.FC = () => {
