@@ -119,9 +119,12 @@ html[data-theme='dark'] {
   }
 
   /* Convert @mieweb/ui Modal to a bottom-sheet on mobile:
-   *   - slides up from bottom, full-width, rounded top only, capped at 88dvh
+   *   - docked to the bottom, full-width, rounded top only, capped at 88dvh
    *   - internal scroll (Modal's own overflow rules keep body scrollable)
-   *   - overrides the library's default zoom-in animation with a slide-up
+   *   - a quiet fade + 4px settle (matches the redesign prototype's Modal —
+   *     it has no real slide distance either, just `fadeIn`) replaces the
+   *     library's default center zoom-in, which read as a "jump" once the
+   *     panel was already docked to the bottom edge.
    * Targets the Modal content element via its `data-slot="modal"` marker
    * (added by @mieweb/ui Modal). `align-self:end` pushes it to the bottom of
    * the library's centering flex container without forking the component.
@@ -132,34 +135,35 @@ html[data-theme='dark'] {
     max-height: 88dvh !important;
     width: 100% !important;
     border-radius: 1rem 1rem 0 0 !important;
-    /* Kill zoom-in animation utilities and use a slide-up instead. */
+    /* Kill the library's zoom-in animation utilities and use the prototype's
+       fade + 4px settle instead. */
     animation: none !important;
   }
   [data-slot='modal'][data-state='open'] {
-    animation: mieweb-modal-slide-up 220ms ease-out both !important;
+    animation: mieweb-modal-fade-in 150ms ease-out both !important;
   }
   [data-slot='modal'][data-state='closed'] {
-    animation: mieweb-modal-slide-down 180ms ease-in both !important;
+    animation: mieweb-modal-fade-out 120ms ease-in both !important;
   }
 }
 
-@keyframes mieweb-modal-slide-up {
+@keyframes mieweb-modal-fade-in {
   from {
-    transform: translateY(100%);
-    opacity: 0.6;
+    transform: translateY(4px);
+    opacity: 0;
   }
   to {
     transform: translateY(0);
     opacity: 1;
   }
 }
-@keyframes mieweb-modal-slide-down {
+@keyframes mieweb-modal-fade-out {
   from {
     transform: translateY(0);
     opacity: 1;
   }
   to {
-    transform: translateY(100%);
+    transform: translateY(4px);
     opacity: 0;
   }
 }

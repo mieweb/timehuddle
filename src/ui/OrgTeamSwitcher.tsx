@@ -11,7 +11,7 @@
  * Switching is client-side only: TeamContext persists the selection and
  * re-scopes `teams` to the selected org, auto-picking a valid team.
  */
-import { faChevronDown, faChevronRight, faClock } from '@fortawesome/free-solid-svg-icons';
+import { faChevronDown, faClock } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
@@ -25,6 +25,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useTeam } from '../lib/TeamContext';
+import { Logo } from './Logo';
 import { useRouter } from './router';
 
 type OrganizationRole = 'owner' | 'admin' | 'member';
@@ -103,23 +104,22 @@ export const OrgTeamSwitcher: React.FC = () => {
         /* Names the action *and* the current scope — the visible text is
            truncated, so it can't be relied on to announce context. */
         aria-label={`Switch organization and team. Current: ${scopeLabel}`}
-        className="flex min-w-0 items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+        className="flex min-w-0 items-center gap-2"
       >
-        {selectedOrg && (
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span
-              className="min-w-0 max-w-[4.5rem] truncate md:max-w-[9rem]"
-              title={selectedOrg.name}
-            >
-              {selectedOrg.name}
-            </span>
-            <FontAwesomeIcon icon={faChevronRight} className="shrink-0 text-[9px] text-neutral-400" />
+        <Logo size={28} />
+        <span className="min-w-0 text-left">
+          <span className="block max-w-[45vw] truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100 md:max-w-[12rem]">
+            {teamLabel}
           </span>
-        )}
-        <span className="min-w-0 max-w-[4.5rem] truncate md:max-w-[9rem]" title={teamLabel}>
-          {teamLabel}
+          {selectedOrg && (
+            <span className="flex min-w-0 items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+              <span className="max-w-[45vw] truncate md:max-w-[12rem]" title={selectedOrg.name}>
+                {selectedOrg.name}
+              </span>
+              <FontAwesomeIcon icon={faChevronDown} className="shrink-0 text-[9px]" />
+            </span>
+          )}
         </span>
-        <FontAwesomeIcon icon={faChevronDown} className="shrink-0 text-[10px] text-neutral-400" />
       </button>
 
       {createPortal(
