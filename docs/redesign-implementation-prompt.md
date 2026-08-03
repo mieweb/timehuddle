@@ -85,7 +85,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
     page renders the full-bleed pannable org **chart** so it stays `flush`
     per AppPage's canvas convention — its settings live in the
     Overview/Members pages which already use centered columns.)
-15. Confirm toasts shrink-to-content and center at desktop widths.
+15. [x] Confirm toasts shrink-to-content and center at desktop widths.
     → **Phase 2 done. Run `npm run lint && npm run typecheck && npm run test:all`.**
 
 **Final Verification**

@@ -389,7 +389,7 @@ const AppLayoutContent: React.FC = () => {
                             setForegroundNotif(null);
                             if (dismissTimer.current) clearTimeout(dismissTimer.current);
                           }}
-                          className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm
+                          className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm md:w-auto md:max-w-md
                                    bg-neutral-900 dark:bg-neutral-800 text-white rounded-2xl
                                    shadow-xl px-4 py-3 cursor-pointer flex flex-col gap-0.5
                                    border border-white/10"
