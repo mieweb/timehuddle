@@ -45,6 +45,7 @@ import {
   type Ticket,
   teamApi,
   type TeamMember,
+  type TimecoreUser,
   teamDashboardApi,
   type TeamMemberClockStatus,
   type TeamRunningTimer,
@@ -60,6 +61,14 @@ import { AdminTimesheetPanel } from '../teams/AdminTimesheetPanel';
 
 const profilePath = (member: TeamMemberClockStatus) =>
   `/app/profile/${member.username ?? member.userId}`;
+
+const userToTeamMember = (user: TimecoreUser): TeamMember => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  username: user.username,
+  image: user.image ?? null,
+});
 
 // ─── DashboardPage ────────────────────────────────────────────────────────────
 
@@ -81,6 +90,9 @@ export const DashboardPage: React.FC = () => {
   // immediately, and can switch to "Team" to see everyone (even if that's
   // still just themselves on a personal team; the tab is never hidden).
   const [tab, setTab] = useState<'me' | 'team'>('me');
+
+  // "Overview" vs "Timesheet" sub-view for the "Me" tab.
+  const [meView, setMeView] = useState<'overview' | 'timesheet'>('overview');
 
   // "Overview" vs "Timesheet" — only relevant on the "Team" tab for admins.
   // The admin timesheet lives here (moved from the Teams page) so Teams can
@@ -256,6 +268,46 @@ export const DashboardPage: React.FC = () => {
         </div>
       }
     >
+      {/* ── Me / Timesheet toggle ─────────────────────────────────────── */}
+      {tab === 'me' && (
+        <div className="inline-flex rounded-full bg-neutral-100 p-1 dark:bg-neutral-800">
+          <button
+            type="button"
+            onClick={() => setMeView('overview')}
+            aria-pressed={meView === 'overview'}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+              meView === 'overview'
+                ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+                : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+            }`}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            onClick={() => setMeView('timesheet')}
+            aria-pressed={meView === 'timesheet'}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+              meView === 'timesheet'
+                ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+                : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+            }`}
+          >
+            Timesheet
+          </button>
+        </div>
+      )}
+
+      {/* ── Me Timesheet view ────────────────────────────────────────────── */}
+      {tab === 'me' && meView === 'timesheet' && user && selectedTeamId && (
+        <AdminTimesheetPanel
+          members={[userToTeamMember(user)]}
+          selectedTeamId={selectedTeamId}
+          teams={teams}
+          initialMemberId={user.id}
+        />
+      )}
+
       {/* ── Team / Timesheet toggle (admins, non-personal teams only) ───── */}
       {tab === 'team' && canViewTimesheet && (
         <div className="inline-flex rounded-full bg-neutral-100 p-1 dark:bg-neutral-800">
@@ -296,7 +348,7 @@ export const DashboardPage: React.FC = () => {
         />
       )}
 
-      {(tab === 'me' || teamView === 'overview') && (
+      {(tab === 'me' ? meView === 'overview' : teamView === 'overview') && (
         <>
           {/* ── First-time welcome ──────────────────────────────────────────── */}
           {isFirstTime && (
