@@ -369,7 +369,7 @@ export const ClockPage: React.FC = () => {
 
   return (
     <AppPage fill>
-      <div className="clock-screen flex h-full min-h-0 flex-col gap-6 overflow-y-auto md:mx-auto md:w-full md:max-w-2xl">
+      <div className="clock-screen flex h-full min-h-0 flex-col gap-6 overflow-y-auto md:mx-auto md:w-full md:max-w-4xl">
         {/* ── Status — eyebrow + big bold session timer ── */}
         <div
           className="clock-status shrink-0 rounded-2xl border-b-4 border-red-600 bg-neutral-900 px-5 py-6 text-center text-white dark:bg-neutral-950"

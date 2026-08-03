@@ -43,9 +43,9 @@ export const BottomNav: React.FC = () => {
   const { pathname, navigate } = useRouter();
   const { isClockedIn, planGate } = useClockToggle();
 
-  // Plan-first gate: the FAB still navigates to the clock page (where the
-  // inline composer lives), but shows a dimmed "blocked" state so it's clear
-  // clocking in/out needs today's plan or wrap-up first.
+  // Plan-first gate: the FAB always navigates to the clock page (where the
+  // inline composer lives) in full color — it's a link, not a disabled
+  // control, so it never dims even when today's plan/wrap-up is still needed.
   const planBlocked = planGate.planMissing || planGate.wrapUpMissing;
 
   return (
@@ -74,10 +74,7 @@ export const BottomNav: React.FC = () => {
                       : 'Clock In'
                 }
                 aria-pressed={isClockedIn}
-                className={[
-                  'relative -top-4 flex h-16 w-16 flex-col items-center justify-center rounded-full shadow-lg transition-transform active:scale-95 disabled:opacity-60',
-                  planBlocked ? 'opacity-50 saturate-50' : '',
-                ].join(' ')}
+                className="relative -top-4 flex h-16 w-16 flex-col items-center justify-center rounded-full shadow-lg transition-transform active:scale-95 disabled:opacity-60"
                 style={{
                   background: isClockedIn
                     ? 'linear-gradient(135deg, #f87171, #dc2626)'
