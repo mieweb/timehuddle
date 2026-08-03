@@ -21,6 +21,7 @@ import {
   faPlus,
   faQrcode,
   faRightToBracket,
+  faShareNodes,
   faShield,
   faTrash,
   faUserMinus,
@@ -562,13 +563,29 @@ export const TeamsPage: React.FC = () => {
                 </Text>
               )}
               {!selectedTeam.isPersonal && (
-                <div className="mt-1 flex items-center gap-2">
-                  <Badge variant="secondary" size="sm">
+                <div className="mt-2 flex items-center gap-1">
+                  <Badge variant="secondary" size="sm" className="font-mono tracking-widest">
                     {selectedTeam.code}
                   </Badge>
-                  <Button variant="link" size="sm" onClick={copyCode}>
-                    <FontAwesomeIcon icon={faCopy} className="mr-1" />
-                    Copy
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={copyCode}
+                    aria-label="Copy team code"
+                    title="Copy code"
+                    className="h-6 w-6 text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+                  >
+                    <FontAwesomeIcon icon={faCopy} className="text-[11px]" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setModal('share')}
+                    aria-label="Share team invite link"
+                    title="Share team"
+                    className="h-6 w-6 text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400"
+                  >
+                    <FontAwesomeIcon icon={faShareNodes} className="text-[11px]" />
                   </Button>
                 </div>
               )}
