@@ -60,7 +60,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
 
 **Phase 2 — Desktop/Browser**
 
-9. Confirm [Sidebar.tsx](../src/ui/Sidebar.tsx) `NAV` grouping matches:
+9. [x] Confirm [Sidebar.tsx](../src/ui/Sidebar.tsx) `NAV` grouping matches:
    Workspace (Dashboard, Huddle, Clock, Tickets, Timesheet, Work), Manage
    (Teams, Organization, Media, Messages, Notifications, Activity). Reorder
    only — no items removed. Validate: every sidebar link still routes

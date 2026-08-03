@@ -69,10 +69,10 @@ const NAV: NavSection[] = [
     items: [
       { icon: faGauge, label: 'Dashboard', href: '/app/dashboard' },
       { icon: faComments, label: 'Huddle', href: '/app/huddle' },
-      { icon: faStopwatch, label: 'Work', href: '/app/work' },
+      { icon: faClock, label: 'Clock', href: '/app/clock' },
       { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
       { icon: faTable, label: 'Timesheet', href: '/app/timesheet' },
-      { icon: faClock, label: 'Clock', href: '/app/clock' },
+      { icon: faStopwatch, label: 'Work', href: '/app/work' },
     ],
   },
   {
