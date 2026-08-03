@@ -52,7 +52,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
    [ProfilePage.tsx](../src/features/profile/ProfilePage.tsx) to single-column
    stacked layouts on mobile. Validate: edit/delete/invite actions on each
    still function.
-8. Confirm the app's toast/notification primitive renders full-width near the
+8. [x] Confirm the app's toast/notification primitive renders full-width near the
    top on mobile. Validate: trigger a clock-in, ticket edit, and post-create
    toast; all appear correctly.
    → **Phase 1 done. Run `npm run lint && npm run typecheck && npm run test:all`,
