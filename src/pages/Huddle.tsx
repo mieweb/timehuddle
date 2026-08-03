@@ -284,7 +284,7 @@ export default function Huddle() {
 
         {/* Composer stays put while the feed below it scrolls */}
         {selectedTeamId && feedTab === 'feed' && (
-          <div className="huddle-composer shrink-0 px-4 md:px-0">
+          <div className="huddle-composer shrink-0">
             <HuddleComposer
               onPost={addPost}
               userInitials={user ? getUserInitials(user.name) : 'U'}
