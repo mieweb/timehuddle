@@ -77,9 +77,14 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
     composer still fully functional.
 13. [x] In `ClockPage.tsx`, cap the layout to a centered `max-w-2xl` column at
     desktop widths. Validate: plan-first gate still enforced.
-14. Restyle Tickets/Teams/Organization/Profile pages to centered
+14. [x] Restyle Tickets/Teams/Organization/Profile pages to centered
     `max-w-3xl`/`max-w-4xl` columns with filters in a single horizontal row
     at desktop widths. Validate: all CRUD actions still function.
+    (Teams/Profile already use the default centered `max-w-4xl` column;
+    Tickets narrowed from `wide`→`content` (`max-w-4xl`); the Organization
+    page renders the full-bleed pannable org **chart** so it stays `flush`
+    per AppPage's canvas convention — its settings live in the
+    Overview/Members pages which already use centered columns.)
 15. Confirm toasts shrink-to-content and center at desktop widths.
     → **Phase 2 done. Run `npm run lint && npm run typecheck && npm run test:all`.**
 
