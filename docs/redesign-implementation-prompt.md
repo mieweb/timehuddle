@@ -65,7 +65,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
    (Teams, Organization, Media, Messages, Notifications, Activity). Reorder
    only — no items removed. Validate: every sidebar link still routes
    correctly.
-10. Add the desktop centered-dialog variant to the same `Modal` primitive
+10. [x] Add the desktop centered-dialog variant to the same `Modal` primitive
     touched in step 2 (rounded on all corners, `max-w-md`/`max-w-lg`,
     click-outside-to-dismiss). Validate: same modals as step 2, now at full
     desktop width.
