@@ -36,7 +36,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
    cards, no side margins/radius, thin divider borders, composer pinned above
    the feed. Validate: create a post, confirm it still saves/renders via
    existing `HuddleComposer.tsx` + `api.ts` logic (no logic changes).
-4. In [DashboardPage.tsx](../src/features/dashboard/DashboardPage.tsx), make
+4. [x] In [DashboardPage.tsx](../src/features/dashboard/DashboardPage.tsx), make
    the stat card grid 2-column on mobile below the existing Me/Team toggle
    (toggle itself unchanged). Validate: numbers still populate correctly for
    both Me and Team modes.
