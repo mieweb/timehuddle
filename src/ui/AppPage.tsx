@@ -32,6 +32,9 @@ interface AppPageProps {
   width?: PageWidth;
   /** Optional supporting line rendered under the page title. */
   subtitle?: string;
+  /** Optional controls rendered on the same row as the title, right-aligned
+   *  (e.g. a Me/Team segmented toggle). Only rendered when there's a title. */
+  titleActions?: React.ReactNode;
   /** Content fills the remaining height and manages its own scrolling. */
   fill?: boolean;
   /** Content sits flush to the edges. Only for canvases (chat, org chart). */
@@ -44,6 +47,7 @@ interface AppPageProps {
 export const AppPage: React.FC<AppPageProps> = ({
   width = 'content',
   subtitle,
+  titleActions,
   fill,
   flush,
   className,
@@ -59,7 +63,10 @@ export const AppPage: React.FC<AppPageProps> = ({
     <div className={cn('app-page flex w-full flex-col', fill && 'h-full min-h-0', className)}>
       {hasHeader && (
         <div className={cn('shrink-0 px-4 pt-4 md:px-6 md:pt-6', !flush && column)}>
-          <PageTitle subtitle={subtitle} />
+          <div className="flex items-center justify-between gap-3">
+            <PageTitle subtitle={subtitle} />
+            {titleActions && <div className="shrink-0">{titleActions}</div>}
+          </div>
         </div>
       )}
 
