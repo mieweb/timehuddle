@@ -3,6 +3,8 @@
   "private": true,
   "scripts": {
     "start": "METEOR_AGENDA_ENABLED=\"${METEOR_AGENDA_ENABLED:-true}\" SMTP_HOST=\"${SMTP_HOST:-localhost}\" SMTP_PORT=\"${SMTP_PORT:-1025}\" SMTP_SECURE=\"${SMTP_SECURE:-false}\" EMAIL_FROM=\"${EMAIL_FROM:-TimeHuddle <noreply@timehuddle.local>}\" APP_URL=\"${APP_URL:-http://localhost:3000}\" METEOR_PACKAGE_DIRS=../vendor/meteor-wormhole/packages meteor run --port \"${PORT:-3100}\"",
+    "build:prod": "TOOL_NODE_FLAGS=\"--max-old-space-size=8192\" METEOR_PACKAGE_DIRS=../vendor/meteor-wormhole/packages meteor build --directory prod-build --server-only --architecture os.linux.x86_64 --allow-incompatible-update",
+    "build:prod:highmem": "TOOL_NODE_FLAGS=\"--max-old-space-size=12288\" METEOR_PACKAGE_DIRS=../vendor/meteor-wormhole/packages meteor build --directory prod-build --server-only --architecture os.linux.x86_64 --allow-incompatible-update",
     "test": "meteor test --once --driver-package meteortesting:mocha",
     "test:integration": "vitest run --config vitest.config.ts",
     "lint": "eslint .",

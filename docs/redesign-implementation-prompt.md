@@ -44,7 +44,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
    single mobile column: status/timer → plan editor → clock button (full
    width). Validate: plan-first gate still blocks clock in/out without a
    plan/wrap-up (`useClockToggle.test.ts` must still pass).
-6. Restyle [TicketsPage.tsx](../src/features/tickets/TicketsPage.tsx) filters
+6. [x] Restyle [TicketsPage.tsx](../src/features/tickets/TicketsPage.tsx) filters
    as a horizontally scrollable chip row on mobile. Validate: filtering still
    returns correct results; GitHub/Redmine source badges still visible.
 7. Restyle [TeamsPage.tsx](../src/features/teams/TeamsPage.tsx),

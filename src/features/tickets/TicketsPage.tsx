@@ -1195,123 +1195,133 @@ export const TicketsPage: React.FC = () => {
                 </button>
               </div>
 
-              {/* Right: filter dropdowns */}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:pl-0">
+              {/* Right: filter dropdowns — horizontally scrollable chip row on mobile */}
+              <div className="ticket-filter-chips -mx-4 flex items-center gap-4 overflow-x-auto px-4 pb-1 md:mx-0 md:flex-wrap md:gap-x-4 md:gap-y-2 md:overflow-visible md:px-0 md:pb-0 md:pl-0">
                 {teams.length > 1 && (
+                  <div className="shrink-0">
+                    <FilterDropdown
+                      label="Team"
+                      activeLabel={activeTeamLabel}
+                      menuId="team"
+                      activeMenuId={openFilterMenu}
+                      onOpenChange={(open) => setOpenFilterMenu(open ? 'team' : null)}
+                    >
+                      <DropdownItem
+                        onClick={() => setTeamFilter(null)}
+                        className={!teamFilter ? 'font-semibold' : ''}
+                      >
+                        All teams
+                      </DropdownItem>
+                      <DropdownSeparator />
+                      {teams.map((t: Team) => (
+                        <DropdownItem
+                          key={t.id}
+                          onClick={() => setTeamFilter(t.id)}
+                          className={teamFilter === t.id ? 'font-semibold' : ''}
+                        >
+                          {t.name}
+                        </DropdownItem>
+                      ))}
+                    </FilterDropdown>
+                  </div>
+                )}
+                <div className="shrink-0">
                   <FilterDropdown
-                    label="Team"
-                    activeLabel={activeTeamLabel}
-                    menuId="team"
+                    label="Priority"
+                    activeLabel={activePriorityLabel}
+                    menuId="priority"
                     activeMenuId={openFilterMenu}
-                    onOpenChange={(open) => setOpenFilterMenu(open ? 'team' : null)}
+                    onOpenChange={(open) => setOpenFilterMenu(open ? 'priority' : null)}
                   >
                     <DropdownItem
-                      onClick={() => setTeamFilter(null)}
-                      className={!teamFilter ? 'font-semibold' : ''}
+                      onClick={() => setPriorityFilter(null)}
+                      className={!priorityFilter ? 'font-semibold' : ''}
                     >
-                      All teams
+                      Any priority
                     </DropdownItem>
                     <DropdownSeparator />
-                    {teams.map((t: Team) => (
+                    {PRIORITY_OPTIONS.map((p) => (
                       <DropdownItem
-                        key={t.id}
-                        onClick={() => setTeamFilter(t.id)}
-                        className={teamFilter === t.id ? 'font-semibold' : ''}
+                        key={p.value}
+                        onClick={() =>
+                          setPriorityFilter(priorityFilter === p.value ? null : p.value)
+                        }
+                        className={priorityFilter === p.value ? 'font-semibold' : ''}
                       >
-                        {t.name}
+                        {p.label}
                       </DropdownItem>
                     ))}
                   </FilterDropdown>
-                )}
-                <FilterDropdown
-                  label="Priority"
-                  activeLabel={activePriorityLabel}
-                  menuId="priority"
-                  activeMenuId={openFilterMenu}
-                  onOpenChange={(open) => setOpenFilterMenu(open ? 'priority' : null)}
-                >
-                  <DropdownItem
-                    onClick={() => setPriorityFilter(null)}
-                    className={!priorityFilter ? 'font-semibold' : ''}
+                </div>
+                <div className="shrink-0">
+                  <FilterDropdown
+                    label="Status"
+                    activeLabel={activeStatusDetailLabel}
+                    placement="bottom-end"
+                    menuId="status"
+                    activeMenuId={openFilterMenu}
+                    onOpenChange={(open) => setOpenFilterMenu(open ? 'status' : null)}
                   >
-                    Any priority
-                  </DropdownItem>
-                  <DropdownSeparator />
-                  {PRIORITY_OPTIONS.map((p) => (
                     <DropdownItem
-                      key={p.value}
-                      onClick={() => setPriorityFilter(priorityFilter === p.value ? null : p.value)}
-                      className={priorityFilter === p.value ? 'font-semibold' : ''}
+                      onClick={() => setStatusDetailFilter(null)}
+                      className={!statusDetailFilter ? 'font-semibold' : ''}
                     >
-                      {p.label}
+                      Any status
                     </DropdownItem>
-                  ))}
-                </FilterDropdown>
-                <FilterDropdown
-                  label="Status"
-                  activeLabel={activeStatusDetailLabel}
-                  placement="bottom-end"
-                  menuId="status"
-                  activeMenuId={openFilterMenu}
-                  onOpenChange={(open) => setOpenFilterMenu(open ? 'status' : null)}
-                >
-                  <DropdownItem
-                    onClick={() => setStatusDetailFilter(null)}
-                    className={!statusDetailFilter ? 'font-semibold' : ''}
+                    <DropdownSeparator />
+                    {STATUS_OPTIONS.filter(
+                      (s) => s.value !== 'open' && s.value !== 'closed' && s.value !== 'reviewed',
+                    ).map((s) => (
+                      <DropdownItem
+                        key={s.value}
+                        onClick={() =>
+                          setStatusDetailFilter(statusDetailFilter === s.value ? null : s.value)
+                        }
+                        className={statusDetailFilter === s.value ? 'font-semibold' : ''}
+                      >
+                        {s.label}
+                      </DropdownItem>
+                    ))}
+                  </FilterDropdown>
+                </div>
+                <div className="shrink-0">
+                  <FilterDropdown
+                    label="Assignee"
+                    activeLabel={activeAssigneeLabel}
+                    placement="bottom-end"
+                    menuId="assignee"
+                    activeMenuId={openFilterMenu}
+                    onOpenChange={(open) => setOpenFilterMenu(open ? 'assignee' : null)}
                   >
-                    Any status
-                  </DropdownItem>
-                  <DropdownSeparator />
-                  {STATUS_OPTIONS.filter(
-                    (s) => s.value !== 'open' && s.value !== 'closed' && s.value !== 'reviewed',
-                  ).map((s) => (
                     <DropdownItem
-                      key={s.value}
+                      onClick={() => setAssigneeFilter(null)}
+                      className={assigneeFilter === null ? 'font-semibold' : ''}
+                    >
+                      Any
+                    </DropdownItem>
+                    <DropdownSeparator />
+                    <DropdownItem
                       onClick={() =>
-                        setStatusDetailFilter(statusDetailFilter === s.value ? null : s.value)
+                        setAssigneeFilter(
+                          assigneeFilter === '__unassigned__' ? null : '__unassigned__',
+                        )
                       }
-                      className={statusDetailFilter === s.value ? 'font-semibold' : ''}
+                      className={assigneeFilter === '__unassigned__' ? 'font-semibold' : ''}
                     >
-                      {s.label}
+                      Unassigned
                     </DropdownItem>
-                  ))}
-                </FilterDropdown>
-                <FilterDropdown
-                  label="Assignee"
-                  activeLabel={activeAssigneeLabel}
-                  placement="bottom-end"
-                  menuId="assignee"
-                  activeMenuId={openFilterMenu}
-                  onOpenChange={(open) => setOpenFilterMenu(open ? 'assignee' : null)}
-                >
-                  <DropdownItem
-                    onClick={() => setAssigneeFilter(null)}
-                    className={assigneeFilter === null ? 'font-semibold' : ''}
-                  >
-                    Any
-                  </DropdownItem>
-                  <DropdownSeparator />
-                  <DropdownItem
-                    onClick={() =>
-                      setAssigneeFilter(
-                        assigneeFilter === '__unassigned__' ? null : '__unassigned__',
-                      )
-                    }
-                    className={assigneeFilter === '__unassigned__' ? 'font-semibold' : ''}
-                  >
-                    Unassigned
-                  </DropdownItem>
-                  {sortedMembers.length > 0 && <DropdownSeparator />}
-                  {sortedMembers.map((m) => (
-                    <DropdownItem
-                      key={m.id}
-                      onClick={() => setAssigneeFilter(assigneeFilter === m.id ? null : m.id)}
-                      className={assigneeFilter === m.id ? 'font-semibold' : ''}
-                    >
-                      {m.id === userId ? `${m.name || m.email} (you)` : m.name || m.email}
-                    </DropdownItem>
-                  ))}
-                </FilterDropdown>
+                    {sortedMembers.length > 0 && <DropdownSeparator />}
+                    {sortedMembers.map((m) => (
+                      <DropdownItem
+                        key={m.id}
+                        onClick={() => setAssigneeFilter(assigneeFilter === m.id ? null : m.id)}
+                        className={assigneeFilter === m.id ? 'font-semibold' : ''}
+                      >
+                        {m.id === userId ? `${m.name || m.email} (you)` : m.name || m.email}
+                      </DropdownItem>
+                    ))}
+                  </FilterDropdown>
+                </div>
               </div>
             </div>
           </div>
