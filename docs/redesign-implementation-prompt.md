@@ -69,7 +69,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
     touched in step 2 (rounded on all corners, `max-w-md`/`max-w-lg`,
     click-outside-to-dismiss). Validate: same modals as step 2, now at full
     desktop width.
-11. In `DashboardPage.tsx`, expand stat cards to a 4-column row inside a
+11. [x] In `DashboardPage.tsx`, expand stat cards to a 4-column row inside a
     centered `max-w-4xl` column at desktop widths. Validate: layout doesn't
     break at 1280px/1440px/1920px.
 12. Restyle the Huddle feed to a centered `max-w-2xl` column with visible

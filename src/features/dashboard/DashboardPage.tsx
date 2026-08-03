@@ -203,7 +203,7 @@ export const DashboardPage: React.FC = () => {
       )}
 
       {/* ── Quick stats ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {/* Hours today */}
         <Card padding="sm">
           <CardContent className="flex items-start gap-3">
