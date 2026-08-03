@@ -72,7 +72,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
 11. [x] In `DashboardPage.tsx`, expand stat cards to a 4-column row inside a
     centered `max-w-4xl` column at desktop widths. Validate: layout doesn't
     break at 1280px/1440px/1920px.
-12. Restyle the Huddle feed to a centered `max-w-2xl` column with visible
+12. [x] Restyle the Huddle feed to a centered `max-w-2xl` column with visible
     card borders/radius and spacing at desktop widths. Validate: feed and
     composer still fully functional.
 13. In `ClockPage.tsx`, cap the layout to a centered `max-w-2xl` column at

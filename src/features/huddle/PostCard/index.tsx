@@ -170,7 +170,7 @@ export function PostCard({
   return (
     <div
       data-testid="post-card"
-      className="border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800"
+      className="border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800 md:mb-4 md:rounded-xl md:border md:border-gray-200 dark:md:border-neutral-700"
     >
       {/* ── Author header ── */}
       <div className="flex items-center gap-2.5 mb-3">
