@@ -75,7 +75,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
 12. [x] Restyle the Huddle feed to a centered `max-w-2xl` column with visible
     card borders/radius and spacing at desktop widths. Validate: feed and
     composer still fully functional.
-13. In `ClockPage.tsx`, cap the layout to a centered `max-w-2xl` column at
+13. [x] In `ClockPage.tsx`, cap the layout to a centered `max-w-2xl` column at
     desktop widths. Validate: plan-first gate still enforced.
 14. Restyle Tickets/Teams/Organization/Profile pages to centered
     `max-w-3xl`/`max-w-4xl` columns with filters in a single horizontal row

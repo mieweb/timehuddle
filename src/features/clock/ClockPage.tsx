@@ -291,7 +291,7 @@ export const ClockPage: React.FC = () => {
 
   return (
     <AppPage fill>
-      <div className="clock-screen flex h-full min-h-0 flex-col gap-6">
+      <div className="clock-screen flex h-full min-h-0 flex-col gap-6 md:mx-auto md:w-full md:max-w-2xl">
         {/* ── Banner — the gate, in one sentence ── */}
         <div
           className="clock-banner shrink-0 rounded-2xl border-b-4 border-red-600 bg-neutral-900 px-5 py-4 text-white dark:bg-neutral-950"
