@@ -40,7 +40,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
    the stat card grid 2-column on mobile below the existing Me/Team toggle
    (toggle itself unchanged). Validate: numbers still populate correctly for
    both Me and Team modes.
-5. In [ClockPage.tsx](../src/features/clock/ClockPage.tsx), reorder to a
+5. [x] In [ClockPage.tsx](../src/features/clock/ClockPage.tsx), reorder to a
    single mobile column: status/timer → plan editor → clock button (full
    width). Validate: plan-first gate still blocks clock in/out without a
    plan/wrap-up (`useClockToggle.test.ts` must still pass).

@@ -323,7 +323,7 @@ export const ClockPage: React.FC = () => {
                 void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
               }
             />
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <Button
                 variant="primary"
                 onClick={() =>
@@ -331,6 +331,7 @@ export const ClockPage: React.FC = () => {
                 }
                 isLoading={posting || clockInLoading || clockOutLoading}
                 disabled={!text.trim()}
+                className="w-full sm:w-auto"
               >
                 {composerMode === 'plan'
                   ? draft
@@ -344,6 +345,7 @@ export const ClockPage: React.FC = () => {
                   onClick={() => void saveDraft()}
                   isLoading={savingDraft}
                   disabled={!text.trim()}
+                  className="w-full sm:w-auto"
                 >
                   {draft ? 'Update draft' : 'Save draft'}
                 </Button>
@@ -369,7 +371,7 @@ export const ClockPage: React.FC = () => {
 
         {/* ── Plain actions when the gate is satisfied (or off) ── */}
         {!composerMode && (
-          <div className="clock-actions flex shrink-0 flex-wrap items-center gap-3">
+          <div className="clock-actions flex shrink-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
             {!isClockedIn ? (
               <Button
                 variant="primary"
@@ -377,6 +379,7 @@ export const ClockPage: React.FC = () => {
                 isLoading={clockInLoading}
                 disabled={!selectedTeamId}
                 aria-label="Clock in"
+                className="w-full sm:w-auto"
               >
                 Clock in
               </Button>
@@ -387,6 +390,7 @@ export const ClockPage: React.FC = () => {
                   onClick={() => void clockOut()}
                   isLoading={clockOutLoading}
                   aria-label="Clock out"
+                  className="w-full sm:w-auto"
                 >
                   Clock out
                 </Button>
@@ -395,6 +399,7 @@ export const ClockPage: React.FC = () => {
                   onClick={() => void (isPaused ? resumeClock() : pauseClock())}
                   isLoading={clockPauseLoading}
                   aria-label={isPaused ? 'Resume work' : 'Start break'}
+                  className="w-full sm:w-auto"
                 >
                   {isPaused ? 'Resume' : 'Break'}
                 </Button>
