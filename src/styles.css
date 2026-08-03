@@ -118,7 +118,10 @@ html[data-theme='dark'] {
     padding-bottom: 0.625rem !important;
   }
 
-  /* Convert @mieweb/ui Modal to a bottom-sheet on mobile:
+  /* Convert the org/team switcher's @mieweb/ui Modal to a bottom-sheet on
+   * mobile — this is the only Modal in the app that opts into the treatment
+   * (via the `org-switcher-modal` className on its <Modal>), every other
+   * Modal keeps the library's default centered dialog:
    *   - docked to the bottom, full-width, rounded top only, capped at 88dvh
    *   - internal scroll (Modal's own overflow rules keep body scrollable)
    *   - a quiet fade + 4px settle (matches the redesign prototype's Modal —
@@ -129,7 +132,7 @@ html[data-theme='dark'] {
    * (added by @mieweb/ui Modal). `align-self:end` pushes it to the bottom of
    * the library's centering flex container without forking the component.
    */
-  [data-slot='modal'] {
+  [data-slot='modal'].org-switcher-modal {
     align-self: end !important;
     min-height: auto !important;
     max-height: 88dvh !important;
@@ -139,10 +142,10 @@ html[data-theme='dark'] {
        fade + 4px settle instead. */
     animation: none !important;
   }
-  [data-slot='modal'][data-state='open'] {
+  [data-slot='modal'].org-switcher-modal[data-state='open'] {
     animation: mieweb-modal-fade-in 150ms ease-out both !important;
   }
-  [data-slot='modal'][data-state='closed'] {
+  [data-slot='modal'].org-switcher-modal[data-state='closed'] {
     animation: mieweb-modal-fade-out 120ms ease-in both !important;
   }
 }

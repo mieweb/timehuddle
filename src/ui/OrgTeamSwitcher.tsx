@@ -123,7 +123,7 @@ export const OrgTeamSwitcher: React.FC = () => {
       </button>
 
       {createPortal(
-        <Modal open={open} onOpenChange={setOpen} size="sm">
+        <Modal open={open} onOpenChange={setOpen} size="sm" className="org-switcher-modal">
           <ModalHeader>Switch organization / team</ModalHeader>
           <ModalBody className="space-y-1">
           {organizations.length > 0 && (

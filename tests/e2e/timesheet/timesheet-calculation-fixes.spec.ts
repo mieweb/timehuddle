@@ -219,23 +219,24 @@ test.describe('Timesheet calculation fixes', () => {
         // ── Admin's view of the same member: same 1-day grouping ──
         // Uses the app's documented deep-link support
         // (?tab=timesheet&teamId=&memberId=) to land straight on the admin
-        // timesheet panel with this member pre-selected.
+        // Timesheet view on the Dashboard's "Team" tab, member pre-selected.
         const adminContext = await browser.newContext({ timezoneId: 'America/New_York' });
         const adminPage = await adminContext.newPage();
         try {
           await loginAs(adminPage, TEST_USERS.admin1);
           await adminPage.goto(
-            `/app/teams?tab=timesheet&teamId=${teamId}&memberId=${memberUserId}`,
+            `/app/dashboard?tab=timesheet&teamId=${teamId}&memberId=${memberUserId}`,
           );
           // The deep-link's `tab` and `memberId` are applied unconditionally,
           // but `teamId` is matched against the loaded team list — so when
           // teams arrive after the handler runs (routinely, late in a suite
           // run) the team selection is dropped and Personal stays selected,
-          // which renders no Timesheet tab at all. Select the team explicitly,
-          // same as the member's own view above.
+          // which renders no Timesheet toggle at all. Select the team
+          // explicitly, same as the member's own view above.
           await adminPage.getByRole('button', { name: /Switch organization and team/i }).click();
           await adminPage.getByRole('menuitem', { name: 'Test Team Alpha' }).click();
-          await adminPage.getByRole('tab', { name: 'Timesheet' }).click();
+          await adminPage.getByRole('button', { name: 'Team', exact: true }).click();
+          await adminPage.getByRole('button', { name: 'Timesheet', exact: true }).click();
 
           // Wait for the admin timesheet panel itself to mount.
           await adminPage

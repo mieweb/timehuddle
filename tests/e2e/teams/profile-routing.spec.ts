@@ -76,11 +76,7 @@ test.describe('Profile Routing', () => {
       return;
     }
 
-    // Switch to Members tab
-    const membersTab = page.getByRole('tab', { name: 'Members' });
-    await membersTab.waitFor({ state: 'visible', timeout: 15000 });
-    await membersTab.click();
-
+    // Members are always visible on the Teams page — no tab to switch to.
     // Click the first member button (View … profile)
     const memberButton = page.getByRole('button', { name: /view .+'s profile/i }).first();
     await memberButton.waitFor({ state: 'visible', timeout: 10000 });
@@ -112,11 +108,7 @@ test.describe('Profile Routing', () => {
       return;
     }
 
-    // Switch to Members tab
-    const membersTab = page.getByRole('tab', { name: 'Members' });
-    await membersTab.waitFor({ state: 'visible', timeout: 15000 });
-    await membersTab.click();
-
+    // Members are always visible on the Teams page — no tab to switch to.
     // Click Test Member One specifically
     const memberButton = page.getByRole('button', {
       name: /view test member one's profile/i,

@@ -7,7 +7,10 @@
  *   • Copy team code, rename, delete team
  *   • Promote/demote admins, remove members, invite by email
  *   • Set member passwords (admin only)
- *   • Deep-link support: ?tab=timesheet&teamId=XXX&memberId=YYY
+ *   • Deep-link support: ?teamId=XXX
+ *
+ * The admin Timesheet view has moved to the Dashboard page's "Team" tab —
+ * see AdminTimesheetPanel usage in DashboardPage.tsx.
  */
 import {
   faCopy,
@@ -15,7 +18,6 @@ import {
   faEllipsisV,
   faGear,
   faKey,
-  faPen,
   faPlus,
   faQrcode,
   faRightToBracket,
@@ -48,10 +50,6 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
   Text,
   Textarea,
 } from '@mieweb/ui';
@@ -64,7 +62,6 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { usePresence } from '../../lib/usePresence';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
-import { AdminTimesheetPanel } from './AdminTimesheetPanel';
 import { PendingJoinRequests } from './PendingJoinRequests';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { getDdpClient } from '../../lib/ddp';
@@ -105,9 +102,8 @@ export const TeamsPage: React.FC = () => {
     refetchTeams,
   } = useTeam();
 
-  // Controlled tab value so deep-links can set the initial tab
-  const [activeTab, setActiveTab] = useState<string>('members');
-  const [initialMemberId, setInitialMemberId] = useState<string>('');
+  // Controlled via deep-link query params (?teamId=) — Members/Pending are
+  // always visible together now, no tabs to switch between.
   const [urlCheckCounter, setUrlCheckCounter] = useState(0);
 
   // ── Parse deep-link query params whenever URL changes ──
@@ -121,16 +117,13 @@ export const TeamsPage: React.FC = () => {
     if (!teamsReady) return;
 
     const params = new URLSearchParams(window.location.search);
-    const tab = params.get('tab');
-    const memberId = params.get('memberId');
     const teamId = params.get('teamId');
+    const hasQuery = window.location.search.length > 0;
 
-    if (tab === 'timesheet') setActiveTab('timesheet');
-    if (memberId) setInitialMemberId(memberId);
     if (teamId && teams.some((t) => t.id === teamId)) setSelectedTeamId(teamId);
 
     // Clean up query params from URL without triggering a navigation
-    if (tab || memberId || teamId) {
+    if (hasQuery) {
       const cleanUrl = window.location.pathname;
       window.history.replaceState(null, '', cleanUrl);
     }
@@ -196,6 +189,15 @@ export const TeamsPage: React.FC = () => {
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId) ?? null;
 
+  // Team-switcher pill order: Personal always leads, the currently selected
+  // team comes right after it (so switching teams never requires scrolling
+  // back to find "where you are"), everything else keeps its original order.
+  const orderedTeams = useMemo(() => {
+    const rank = (t: (typeof teams)[number]) =>
+      t.isPersonal ? 0 : t.id === selectedTeamId ? 1 : 2;
+    return [...teams].sort((a, b) => rank(a) - rank(b));
+  }, [teams, selectedTeamId]);
+
   // Count of pending join requests for the selected team (admin only)
   const pendingRequestCount = useMemo(
     () => (selectedTeamId ? pendingRequests.filter((r) => r.teamId === selectedTeamId).length : 0),
@@ -245,7 +247,6 @@ export const TeamsPage: React.FC = () => {
     | null
     | 'create'
     | 'join'
-    | 'rename'
     | 'delete'
     | 'invite'
     | 'settings'
@@ -256,6 +257,13 @@ export const TeamsPage: React.FC = () => {
     | { type: 'created'; code: string }
     | { type: 'pending-request'; teamCode: string }
   >(null);
+
+  // Inline team-name draft used by the "Team Settings" modal's rename field
+  // (kept separate from `formValue`, which drives the create/join/invite forms).
+  const [teamNameDraft, setTeamNameDraft] = useState('');
+  useEffect(() => {
+    if (modal === 'settings' && selectedTeam) setTeamNameDraft(selectedTeam.name);
+  }, [modal, selectedTeam]);
   const inviteSentEmail =
     typeof modal === 'object' && modal?.type === 'invite-sent' ? modal.email : null;
 
@@ -321,19 +329,20 @@ export const TeamsPage: React.FC = () => {
     }
   }, [formValue, setSelectedTeamId, refetchTeams]);
 
-  const handleRename = useCallback(async () => {
-    if (!formValue.trim() || !selectedTeamId) return;
+  const handleRenameTeam = useCallback(async () => {
+    const trimmed = teamNameDraft.trim();
+    if (!trimmed || !selectedTeamId || trimmed === selectedTeam?.name) return;
     setRenameLoading(true);
+    setFormError(null);
     try {
-      await teamApi.renameTeam(selectedTeamId, formValue.trim());
-      closeModal();
+      await teamApi.renameTeam(selectedTeamId, trimmed);
       refetchTeams();
     } catch (e: any) {
       setFormError(e.message || 'Failed to rename');
     } finally {
       setRenameLoading(false);
     }
-  }, [formValue, selectedTeamId, refetchTeams]);
+  }, [teamNameDraft, selectedTeamId, selectedTeam?.name, refetchTeams]);
 
   const handleDelete = useCallback(async () => {
     if (!selectedTeamId) return;
@@ -484,35 +493,66 @@ export const TeamsPage: React.FC = () => {
   }
 
   return (
-    <AppPage>
-      {/* Header actions */}
-      <div className="space-y-3">
-        <div className="flex gap-3">
+    <AppPage
+      titleActions={
+        <div className="flex gap-2">
           <Button
             variant="primary"
-            fullWidth
-            leftIcon={<FontAwesomeIcon icon={faPlus} />}
+            size="icon"
             onClick={() => setModal('create')}
+            aria-label="Create Team"
           >
-            Create Team
+            <FontAwesomeIcon icon={faPlus} />
           </Button>
           <Button
             variant="outline"
-            fullWidth
-            leftIcon={<FontAwesomeIcon icon={faRightToBracket} />}
+            size="icon"
             onClick={() => setModal('join')}
+            aria-label="Join Team"
           >
-            Join Team
+            <FontAwesomeIcon icon={faRightToBracket} />
           </Button>
         </div>
-      </div>
+      }
+    >
+      {/* ── Team switcher (horizontal-scroll pills) ─────────────────────── */}
+      {/* Personal always leads; the currently selected team comes right
+          after it so switching teams doesn't require scrolling back to find
+          "where you are" — the rest keep their original order. */}
+      {teams.length > 1 && (
+        <div
+          className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+          role="tablist"
+          aria-label="Teams"
+        >
+          {orderedTeams.map((t) => {
+            const isSelected = t.id === selectedTeamId;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={isSelected}
+                onClick={() => setSelectedTeamId(t.id)}
+                className={`shrink-0 whitespace-nowrap rounded-full border px-4 py-2 text-sm font-medium transition-colors ${
+                  isSelected
+                    ? 'border-primary-600 bg-primary-600 text-primary-foreground'
+                    : 'border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800'
+                }`}
+              >
+                {t.isPersonal ? 'Personal' : t.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Current team card */}
       {selectedTeam && (
         <div>
           {/* Team header */}
           <div className="flex flex-row items-center justify-between py-2">
-            <div>
+            <div className="min-w-0">
               <CardTitle>
                 {selectedTeam.isPersonal ? 'Personal Workspace' : selectedTeam.name}
               </CardTitle>
@@ -530,203 +570,165 @@ export const TeamsPage: React.FC = () => {
                     <FontAwesomeIcon icon={faCopy} className="mr-1" />
                     Copy
                   </Button>
-                  <Button
-                    variant="link"
-                    size="sm"
-                    onClick={() => setModal('share')}
-                    aria-label="Share team QR code"
-                  >
-                    <FontAwesomeIcon icon={faQrcode} className="mr-1" />
-                    Share
-                  </Button>
                 </div>
               )}
             </div>
-            <div className="flex gap-2">
-              {canManageTeamSettings && (
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setModal('settings')}
-                  aria-label="Team Settings"
-                >
-                  <FontAwesomeIcon icon={faGear} className="text-xs" />
-                </Button>
-              )}
-              {isAdmin && !selectedTeam.isPersonal && (
-                <>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() => {
-                      setFormValue(selectedTeam.name);
-                      setModal('rename');
-                    }}
-                    aria-label="Rename"
-                  >
-                    <FontAwesomeIcon icon={faPen} className="text-xs" />
-                  </Button>
-                  <Button
-                    variant="danger"
-                    size="icon"
-                    onClick={() => setModal('delete')}
-                    aria-label="Delete"
-                  >
-                    <FontAwesomeIcon icon={faTrash} className="text-xs" />
-                  </Button>
-                </>
-              )}
-            </div>
+            {!selectedTeam.isPersonal && (
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setModal('settings')}
+                aria-label="Team Settings"
+              >
+                <FontAwesomeIcon icon={faGear} className="text-xs" />
+              </Button>
+            )}
           </div>
 
-          {/* Tabs: Members | Pending | Timesheet — controlled so deep-links can set initial tab */}
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
-            <TabsList className="w-full">
-              <TabsTrigger value="members" className="flex-1">
-                Members
-              </TabsTrigger>
-              {!selectedTeam.isPersonal && isAdmin && pendingRequestCount > 0 && (
-                <TabsTrigger value="pending" className="flex-1">
-                  Pending ({pendingRequestCount})
-                </TabsTrigger>
-              )}
-              {!selectedTeam.isPersonal && isAdmin && (
-                <TabsTrigger value="timesheet" className="flex-1">
-                  Timesheet
-                </TabsTrigger>
-              )}
-            </TabsList>
+          {/* ── Pending join requests (admins only, when there are any) ─── */}
+          {!selectedTeam.isPersonal && isAdmin && pendingRequestCount > 0 && selectedTeamId && (
+            <div className="mt-4 rounded-lg border border-neutral-100 p-4 dark:border-neutral-800">
+              <Text
+                variant="muted"
+                size="xs"
+                weight="semibold"
+                className="mb-3 uppercase tracking-widest"
+              >
+                Pending requests ({pendingRequestCount})
+              </Text>
+              <PendingJoinRequests teamId={selectedTeamId} />
+            </div>
+          )}
 
-            <TabsContent value="members">
-              <div className="py-1">
-                <div className="mb-3 flex items-center justify-between">
-                  <Text
-                    variant="muted"
-                    size="xs"
-                    weight="semibold"
-                    className="uppercase tracking-widest"
-                  >
-                    Members ({selectedTeam.members.length})
-                  </Text>
-                  {isAdmin && !selectedTeam.isPersonal && (
-                    <Button variant="link" size="sm" onClick={() => setModal('invite')}>
-                      <FontAwesomeIcon icon={faUserPlus} className="mr-1" />
-                      Invite
-                    </Button>
-                  )}
-                </div>
-                {membersLoading ? (
-                  <div className="flex justify-center py-6">
-                    <Spinner size="sm" label="Loading members…" />
-                  </div>
-                ) : null}
-                <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                  {!membersLoading &&
-                    selectedTeam.members.map((memberId) => {
-                      const m = membersById.get(memberId);
-                      const name = m?.name ?? memberId;
-                      const username = m?.username ?? null;
-                      const email = m?.email ?? '';
-                      const image = m?.image ?? null;
-                      const isMemberAdmin = selectedTeam.admins.includes(memberId);
-                      const isMe = memberId === userId;
+          {/* ── Members ───────────────────────────────────────────────────── */}
+          <div className="mt-4 rounded-lg border border-neutral-100 p-4 dark:border-neutral-800">
+            <div className="mb-3 flex items-center justify-between">
+              <Text
+                variant="muted"
+                size="xs"
+                weight="semibold"
+                className="uppercase tracking-widest"
+              >
+                Members ({selectedTeam.members.length})
+              </Text>
+              {isAdmin && !selectedTeam.isPersonal && (
+                <Button variant="link" size="sm" onClick={() => setModal('invite')}>
+                  <FontAwesomeIcon icon={faUserPlus} className="mr-1" />
+                  Invite
+                </Button>
+              )}
+            </div>
+            {membersLoading ? (
+              <div className="flex justify-center py-6">
+                <Spinner size="sm" label="Loading members…" />
+              </div>
+            ) : null}
+            <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+              {!membersLoading &&
+                selectedTeam.members.map((memberId) => {
+                  const m = membersById.get(memberId);
+                  const name = m?.name ?? memberId;
+                  const username = m?.username ?? null;
+                  const email = m?.email ?? '';
+                  const image = m?.image ?? null;
+                  const isMemberAdmin = selectedTeam.admins.includes(memberId);
+                  const isMe = memberId === userId;
 
-                      return (
-                        <li key={memberId} className="flex items-center gap-3 py-2.5">
-                          <Button
-                            variant="ghost"
-                            onClick={() =>
-                              navigate(
-                                username ? `/app/profile/${username}` : `/app/profile/${memberId}`,
-                              )
-                            }
-                            className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
-                            aria-label={`View ${name}'s profile`}
-                          >
-                            <div className="relative shrink-0">
-                              <UserAvatar name={name} size="sm" src={image} />
-                              {onlineUsers.has(memberId) && (
-                                <span
-                                  className="absolute right-0 bottom-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
-                                  aria-label={`${name} is online`}
-                                />
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <Text size="sm" weight="medium">
-                                {name}
-                                {isMe && (
-                                  <Text as="span" variant="muted" size="xs">
-                                    {' '}
-                                    (you)
-                                  </Text>
-                                )}
-                              </Text>
-                              {username && (
-                                <Text variant="muted" size="xs">
-                                  @{username}
-                                </Text>
-                              )}
-                              {email && (
-                                <Text variant="muted" size="xs">
-                                  {email}
-                                </Text>
-                              )}
-                            </div>
-                          </Button>
-                          {isMemberAdmin && (
-                            <Badge
-                              variant="warning"
-                              size="sm"
-                              icon={<FontAwesomeIcon icon={faCrown} />}
-                            >
-                              Admin
-                            </Badge>
+                  return (
+                    <li key={memberId} className="flex items-center gap-3 py-2.5">
+                      <Button
+                        variant="ghost"
+                        onClick={() =>
+                          navigate(
+                            username ? `/app/profile/${username}` : `/app/profile/${memberId}`,
+                          )
+                        }
+                        className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                        aria-label={`View ${name}'s profile`}
+                      >
+                        <div className="relative shrink-0">
+                          <UserAvatar name={name} size="sm" src={image} />
+                          {onlineUsers.has(memberId) && (
+                            <span
+                              className="absolute right-0 bottom-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-neutral-900"
+                              aria-label={`${name} is online`}
+                            />
                           )}
-                          {isAdmin && !isMe && !selectedTeam.isPersonal && (
-                            <Dropdown
-                              trigger={
-                                <Button variant="ghost" size="icon" aria-label="Member actions">
-                                  <FontAwesomeIcon icon={faEllipsisV} className="text-xs" />
-                                </Button>
-                              }
-                              placement="bottom-end"
-                            >
-                              {!isMemberAdmin ? (
-                                <DropdownItem
-                                  icon={<FontAwesomeIcon icon={faShield} />}
-                                  onClick={() => {
-                                    void teamApi
-                                      .setMemberRole(selectedTeamId!, memberId, 'admin')
-                                      .then(() => {
-                                        refetchTeams();
-                                        void fetchMembers(selectedTeamId);
-                                      });
-                                  }}
-                                >
-                                  Make Admin
-                                </DropdownItem>
-                              ) : (
-                                <DropdownItem
-                                  icon={<FontAwesomeIcon icon={faShield} />}
-                                  onClick={() => {
-                                    void teamApi
-                                      .setMemberRole(selectedTeamId!, memberId, 'member')
-                                      .then(() => {
-                                        refetchTeams();
-                                        void fetchMembers(selectedTeamId);
-                                      });
-                                  }}
-                                >
-                                  Remove Admin
-                                </DropdownItem>
-                              )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <Text size="sm" weight="medium">
+                            {name}
+                            {isMe && (
+                              <Text as="span" variant="muted" size="xs">
+                                {' '}
+                                (you)
+                              </Text>
+                            )}
+                          </Text>
+                          {username && (
+                            <Text variant="muted" size="xs">
+                              @{username}
+                            </Text>
+                          )}
+                          {email && (
+                            <Text variant="muted" size="xs">
+                              {email}
+                            </Text>
+                          )}
+                        </div>
+                      </Button>
+                      {isMemberAdmin && (
+                        <Badge variant="warning" size="sm" icon={<FontAwesomeIcon icon={faCrown} />}>
+                          Admin
+                        </Badge>
+                      )}
+                      {isAdmin && !selectedTeam.isPersonal && (
+                        <Dropdown
+                          trigger={
+                            <Button variant="ghost" size="icon" aria-label="Member actions">
+                              <FontAwesomeIcon icon={faEllipsisV} className="text-xs" />
+                            </Button>
+                          }
+                          placement="bottom-end"
+                        >
+                          {!isMe &&
+                            (!isMemberAdmin ? (
                               <DropdownItem
-                                icon={<FontAwesomeIcon icon={faKey} />}
-                                onClick={() => setModal({ type: 'password', memberId })}
+                                icon={<FontAwesomeIcon icon={faShield} />}
+                                onClick={() => {
+                                  void teamApi
+                                    .setMemberRole(selectedTeamId!, memberId, 'admin')
+                                    .then(() => {
+                                      refetchTeams();
+                                      void fetchMembers(selectedTeamId);
+                                    });
+                                }}
                               >
-                                Set Password
+                                Make Admin
                               </DropdownItem>
+                            ) : (
+                              <DropdownItem
+                                icon={<FontAwesomeIcon icon={faShield} />}
+                                onClick={() => {
+                                  void teamApi
+                                    .setMemberRole(selectedTeamId!, memberId, 'member')
+                                    .then(() => {
+                                      refetchTeams();
+                                      void fetchMembers(selectedTeamId);
+                                    });
+                                }}
+                              >
+                                Remove Admin
+                              </DropdownItem>
+                            ))}
+                          <DropdownItem
+                            icon={<FontAwesomeIcon icon={faKey} />}
+                            onClick={() => setModal({ type: 'password', memberId })}
+                          >
+                            Set Password
+                          </DropdownItem>
+                          {!isMe && (
+                            <>
                               <DropdownSeparator />
                               <DropdownItem
                                 icon={<FontAwesomeIcon icon={faUserMinus} />}
@@ -735,32 +737,16 @@ export const TeamsPage: React.FC = () => {
                               >
                                 Remove Member
                               </DropdownItem>
-                            </Dropdown>
+                            </>
                           )}
-                        </li>
-                      );
-                    })}
-                </ul>
-              </div>
-            </TabsContent>
+                        </Dropdown>
+                      )}
+                    </li>
+                  );
+                })}
+            </ul>
+          </div>
 
-            {!selectedTeam.isPersonal && isAdmin && selectedTeamId && (
-              <TabsContent value="pending">
-                <PendingJoinRequests teamId={selectedTeamId} />
-              </TabsContent>
-            )}
-
-            {!selectedTeam.isPersonal && isAdmin && (
-              <TabsContent value="timesheet">
-                <AdminTimesheetPanel
-                  members={members}
-                  selectedTeamId={selectedTeamId}
-                  teams={teams}
-                  initialMemberId={initialMemberId}
-                />
-              </TabsContent>
-            )}
-          </Tabs>
         </div>
       )}
 
@@ -834,29 +820,6 @@ export const TeamsPage: React.FC = () => {
             loadingText="Joining…"
           >
             Join
-          </Button>
-        </ModalFooter>
-      </Modal>
-
-      <Modal open={modal === 'rename'} onOpenChange={(open) => !open && closeModal()} size="md">
-        <ModalHeader>
-          <ModalTitle>Rename Team</ModalTitle>
-          <ModalClose />
-        </ModalHeader>
-        <ModalBody>
-          <Input
-            label="New name"
-            hideLabel
-            value={formValue}
-            onChange={(e) => setFormValue(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleRename()}
-            error={formError ?? undefined}
-            autoFocus
-          />
-        </ModalBody>
-        <ModalFooter>
-          <Button variant="primary" fullWidth onClick={handleRename} isLoading={renameLoading}>
-            Save
           </Button>
         </ModalFooter>
       </Modal>
@@ -951,8 +914,50 @@ export const TeamsPage: React.FC = () => {
             weight="semibold"
             className="mb-3 uppercase tracking-widest"
           >
-            Clock
+            Team
           </Text>
+          <div className="mb-3 flex items-center gap-2">
+            <Button
+              variant="link"
+              size="sm"
+              onClick={() => setModal('share')}
+              aria-label="Share team QR code"
+            >
+              <FontAwesomeIcon icon={faQrcode} className="mr-1" />
+              Share
+            </Button>
+          </div>
+          {canManageTeamSettings && (
+            <div className="mb-6 flex items-end gap-2">
+              <Input
+                label="Team name"
+                value={teamNameDraft}
+                onChange={(e) => setTeamNameDraft(e.target.value)}
+                onBlur={handleRenameTeam}
+                onKeyDown={(e) => e.key === 'Enter' && handleRenameTeam()}
+                className="flex-1"
+              />
+              <Button
+                variant="danger"
+                size="icon"
+                onClick={() => setModal('delete')}
+                aria-label="Delete team"
+              >
+                <FontAwesomeIcon icon={faTrash} className="text-xs" />
+              </Button>
+            </div>
+          )}
+          {!canManageTeamSettings && <div className="mb-6" />}
+          {canManageTeamSettings && (
+            <>
+              <Text
+                variant="muted"
+                size="xs"
+                weight="semibold"
+                className="mb-3 uppercase tracking-widest"
+              >
+                Clock
+              </Text>
           <div className="team-setting-plan-for-clock mb-6 flex items-center justify-between gap-4">
             <div>
               <Text size="sm" weight="medium">
@@ -1089,6 +1094,8 @@ export const TeamsPage: React.FC = () => {
                 )}
               </TableBody>
             </Table>
+          )}
+            </>
           )}
         </ModalBody>
       </Modal>

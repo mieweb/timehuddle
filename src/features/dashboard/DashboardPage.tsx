@@ -6,6 +6,12 @@
  *   2. Team members: Online/offline, clocked-in status, today's hours
  *   3. Active tickets: Only tickets with running timers, with the person who started each
  *   4. Time logged today: Per-member bar with hours
+ *
+ * The "Team" tab also offers a "Timesheet" view (admins only) — the
+ * admin timesheet moved here from the Teams page to keep Teams focused on
+ * membership/settings and keep time-tracking data alongside the rest of the
+ * team's activity.
+ *   • Deep-link support: ?tab=timesheet&teamId=XXX&memberId=YYY
  */
 import {
   faClock,
@@ -37,6 +43,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ticketApi,
   type Ticket,
+  teamApi,
+  type TeamMember,
   teamDashboardApi,
   type TeamMemberClockStatus,
   type TeamRunningTimer,
@@ -48,6 +56,7 @@ import { formatDuration, formatTimer } from '../../lib/timeUtils';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
+import { AdminTimesheetPanel } from '../teams/AdminTimesheetPanel';
 
 const profilePath = (member: TeamMemberClockStatus) =>
   `/app/profile/${member.username ?? member.userId}`;
@@ -57,10 +66,12 @@ const profilePath = (member: TeamMemberClockStatus) =>
 export const DashboardPage: React.FC = () => {
   const { user } = useSession();
   const { navigate } = useRouter();
-  const { teams, teamsReady, activeClockEvent, currentTime, selectedTeamId } = useTeam();
+  const { teams, teamsReady, activeClockEvent, currentTime, selectedTeamId, setSelectedTeamId, isAdmin } =
+    useTeam();
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId) ?? null;
   const teamAdminIds = new Set(selectedTeam?.admins ?? []);
+  const canViewTimesheet = isAdmin && !selectedTeam?.isPersonal;
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [memberStatuses, setMemberStatuses] = useState<TeamMemberClockStatus[]>([]);
@@ -70,6 +81,60 @@ export const DashboardPage: React.FC = () => {
   // immediately, and can switch to "Team" to see everyone (even if that's
   // still just themselves on a personal team; the tab is never hidden).
   const [tab, setTab] = useState<'me' | 'team'>('me');
+
+  // "Overview" vs "Timesheet" — only relevant on the "Team" tab for admins.
+  // The admin timesheet lives here (moved from the Teams page) so Teams can
+  // stay focused on membership/settings.
+  const [teamView, setTeamView] = useState<'overview' | 'timesheet'>('overview');
+  const [initialMemberId, setInitialMemberId] = useState<string>('');
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+
+  // ── Deep-link support: ?tab=timesheet&teamId=&memberId= ──
+  useEffect(() => {
+    if (!teamsReady) return;
+    const params = new URLSearchParams(window.location.search);
+    const deepTab = params.get('tab');
+    const memberId = params.get('memberId');
+    const teamId = params.get('teamId');
+
+    if (deepTab === 'timesheet') {
+      setTab('team');
+      setTeamView('timesheet');
+    }
+    if (memberId) setInitialMemberId(memberId);
+    if (teamId && teams.some((t) => t.id === teamId)) setSelectedTeamId(teamId);
+
+    if (deepTab || memberId || teamId) {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, [teamsReady, teams, setSelectedTeamId]);
+
+  // Members list (needed by the admin Timesheet view only)
+  useEffect(() => {
+    if (!selectedTeamId || !canViewTimesheet) {
+      setTeamMembers([]);
+      return;
+    }
+    let cancelled = false;
+    teamApi
+      .getMembers(selectedTeamId)
+      .then((data) => {
+        if (!cancelled) setTeamMembers(data);
+      })
+      .catch(() => {
+        if (!cancelled) setTeamMembers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTeamId, canViewTimesheet]);
+
+  // Fall back to "overview" if the user loses admin access or timesheet
+  // isn't applicable to the currently selected team (e.g. switched to a
+  // personal workspace).
+  useEffect(() => {
+    if (!canViewTimesheet && teamView === 'timesheet') setTeamView('overview');
+  }, [canViewTimesheet, teamView]);
 
   const fetchData = useCallback(async () => {
     if (!user || !selectedTeamId) return;
@@ -191,48 +256,90 @@ export const DashboardPage: React.FC = () => {
         </div>
       }
     >
-      {/* ── First-time welcome ──────────────────────────────────────────── */}
-      {isFirstTime && (
-        <Card variant="outlined" padding="lg" className="text-center">
-          <CardContent>
-            <Text as="h2" size="lg" weight="semibold">
-              Welcome to TimeHuddle
-            </Text>
-            <Text variant="muted" size="sm" className="mt-2">
-              Get started by creating or joining a team, then clock in to start tracking time.
-            </Text>
-            <div className="mt-6 flex flex-wrap justify-center gap-3">
-              <Button
-                variant="primary"
-                leftIcon={<FontAwesomeIcon icon={faPlus} />}
-                onClick={() => navigate('/app/teams')}
-              >
-                Create Team
-              </Button>
-              <Button
-                variant="outline"
-                leftIcon={<FontAwesomeIcon icon={faRightToBracket} />}
-                onClick={() => navigate('/app/teams')}
-              >
-                Join Team
-              </Button>
-              <Button
-                variant="outline"
-                leftIcon={<FontAwesomeIcon icon={faClock} />}
-                onClick={() => navigate('/app/clock')}
-              >
-                Track Solo
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+      {/* ── Team / Timesheet toggle (admins, non-personal teams only) ───── */}
+      {tab === 'team' && canViewTimesheet && (
+        <div className="inline-flex rounded-full bg-neutral-100 p-1 dark:bg-neutral-800">
+          <button
+            type="button"
+            onClick={() => setTeamView('overview')}
+            aria-pressed={teamView === 'overview'}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+              teamView === 'overview'
+                ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+                : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+            }`}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            onClick={() => setTeamView('timesheet')}
+            aria-pressed={teamView === 'timesheet'}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+              teamView === 'timesheet'
+                ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+                : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+            }`}
+          >
+            Timesheet
+          </button>
+        </div>
       )}
 
-      {/* ── Active session banner ───────────────────────────────────────── */}
-      {activeClockEvent && (
-        <Alert variant="success">
-          <AlertTitle>
-            <span className="flex items-center gap-2">
+      {/* ── Timesheet view (admins only) — replaces the overview below ──── */}
+      {tab === 'team' && canViewTimesheet && teamView === 'timesheet' && selectedTeamId && (
+        <AdminTimesheetPanel
+          members={teamMembers}
+          selectedTeamId={selectedTeamId}
+          teams={teams}
+          initialMemberId={initialMemberId}
+        />
+      )}
+
+      {(tab === 'me' || teamView === 'overview') && (
+        <>
+          {/* ── First-time welcome ──────────────────────────────────────────── */}
+          {isFirstTime && (
+            <Card variant="outlined" padding="lg" className="text-center">
+              <CardContent>
+                <Text as="h2" size="lg" weight="semibold">
+                  Welcome to TimeHuddle
+                </Text>
+                <Text variant="muted" size="sm" className="mt-2">
+                  Get started by creating or joining a team, then clock in to start tracking time.
+                </Text>
+                <div className="mt-6 flex flex-wrap justify-center gap-3">
+                  <Button
+                    variant="primary"
+                    leftIcon={<FontAwesomeIcon icon={faPlus} />}
+                    onClick={() => navigate('/app/teams')}
+                  >
+                    Create Team
+                  </Button>
+                  <Button
+                    variant="outline"
+                    leftIcon={<FontAwesomeIcon icon={faRightToBracket} />}
+                    onClick={() => navigate('/app/teams')}
+                  >
+                    Join Team
+                  </Button>
+                  <Button
+                    variant="outline"
+                    leftIcon={<FontAwesomeIcon icon={faClock} />}
+                    onClick={() => navigate('/app/clock')}
+                  >
+                    Track Solo
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── Active session banner ───────────────────────────────────────── */}
+          {activeClockEvent && (
+            <Alert variant="success">
+              <AlertTitle>
+                <span className="flex items-center gap-2">
               <span className="h-3 w-3 animate-pulse rounded-full bg-green-500 shrink-0" />
               Session Active
             </span>
@@ -576,6 +683,8 @@ export const DashboardPage: React.FC = () => {
             </div>
           </CardContent>
         </Card>
+      )}
+        </>
       )}
     </AppPage>
   );

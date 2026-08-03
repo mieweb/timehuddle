@@ -66,7 +66,7 @@ export async function notifyClockAdmins(actorUserId, teamId, startTime, action) 
           teamId,
           date,
           userId: actorUserId,
-          url: `/app/teams?tab=timesheet&memberId=${actorUserId}&teamId=${teamId}`,
+          url: `/app/dashboard?tab=timesheet&memberId=${actorUserId}&teamId=${teamId}`,
         },
       }).catch(() => {})
     )
