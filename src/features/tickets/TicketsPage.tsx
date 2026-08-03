@@ -31,7 +31,6 @@ import {
   Button,
   Card,
   CardContent,
-  Dropdown,
   DropdownContent,
   DropdownItem,
   DropdownSeparator,
@@ -48,7 +47,7 @@ import {
   type DropdownPlacement,
 } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import {
@@ -177,6 +176,9 @@ const TicketRow: React.FC<TicketRowProps> = ({
 }) => {
   const { navigate } = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
   const { icon, className: iconClass } = statusIconFor(ticket.status);
   const showStatusLabel =
     ticket.status &&
@@ -184,6 +186,56 @@ const TicketRow: React.FC<TicketRowProps> = ({
     ticket.status !== 'closed' &&
     ticket.status !== 'reviewed';
   const statusLabel = STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label;
+
+  // The options menu is portaled to <body> and positioned with `fixed`
+  // coordinates computed from the trigger's own rect — the row list's
+  // `overflow-y-scroll` clips an absolutely-positioned menu the same way
+  // FilterDropdown's mobile chip row does (see its comment below): once one
+  // axis is non-"visible", the CSS overflow spec forces the other axis to
+  // clip too, silently hiding the menu when a row sits near the bottom of
+  // the scrollable list.
+  const updateMenuPosition = useCallback(() => {
+    const trigger = menuTriggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const gutter = 8;
+    setMenuStyle({
+      position: 'fixed',
+      top: rect.bottom + 8,
+      right: Math.max(gutter, window.innerWidth - rect.right),
+      left: 'auto',
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    updateMenuPosition();
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
+  }, [menuOpen, updateMenuPosition]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (menuTriggerRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [menuOpen]);
 
   return (
     <li
@@ -293,73 +345,83 @@ const TicketRow: React.FC<TicketRowProps> = ({
             )}
           </div>
         )}
-        <Dropdown
-          className="z-[99999]"
-          open={menuOpen}
-          onOpenChange={setMenuOpen}
-          trigger={
-            <Button variant="ghost" size="icon" aria-label="Ticket options">
-              <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-            </Button>
-          }
-          placement="bottom-end"
+        <Button
+          ref={menuTriggerRef}
+          variant="ghost"
+          size="icon"
+          aria-label="Ticket options"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((o) => !o)}
         >
-          <DropdownContent className="max-md:max-w-[calc(100vw-2rem)] md:max-w-xs bg-white dark:bg-neutral-800 shadow-lg border border-neutral-200 dark:border-neutral-700">
-            <DropdownItem
-              icon={<FontAwesomeIcon icon={faEye} />}
-              onClick={() => {
-                setMenuOpen(false);
-                navigate(`/app/tickets/${ticket.id}`);
-              }}
+          <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
+        </Button>
+        {menuOpen &&
+          createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              style={menuStyle}
+              className="z-[99999] max-md:max-w-[calc(100vw-2rem)] md:max-w-xs rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
             >
-              Ticket Details
-            </DropdownItem>
-            {isCreator && (
-              <DropdownItem
-                icon={<FontAwesomeIcon icon={faPen} />}
-                onClick={() => {
-                  setMenuOpen(false);
-                  onEditRequest(ticket);
-                }}
-              >
-                Edit Ticket
-              </DropdownItem>
-            )}
-            <DropdownItem
-              icon={<FontAwesomeIcon icon={faRightLeft} />}
-              onClick={() => {
-                setMenuOpen(false);
-                onChangeStatusRequest(ticket);
-              }}
-            >
-              Change Status
-            </DropdownItem>
-            <DropdownItem
-              icon={<FontAwesomeIcon icon={faShareFromSquare} />}
-              onClick={() => {
-                setMenuOpen(false);
-                onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor);
-              }}
-            >
-              {ticket.sharedWithTimeharbor ? 'Remove from TimeHarbor' : 'Send to TimeHarbor'}
-            </DropdownItem>
-            {isCreator && (
-              <>
-                <DropdownSeparator />
+              <DropdownContent className="bg-white dark:bg-neutral-800">
                 <DropdownItem
-                  icon={<FontAwesomeIcon icon={faTrash} />}
-                  variant="danger"
+                  icon={<FontAwesomeIcon icon={faEye} />}
                   onClick={() => {
                     setMenuOpen(false);
-                    onDeleteRequest(ticket.id);
+                    navigate(`/app/tickets/${ticket.id}`);
                   }}
                 >
-                  Delete Ticket
+                  Ticket Details
                 </DropdownItem>
-              </>
-            )}
-          </DropdownContent>
-        </Dropdown>
+                {isCreator && (
+                  <DropdownItem
+                    icon={<FontAwesomeIcon icon={faPen} />}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onEditRequest(ticket);
+                    }}
+                  >
+                    Edit Ticket
+                  </DropdownItem>
+                )}
+                <DropdownItem
+                  icon={<FontAwesomeIcon icon={faRightLeft} />}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onChangeStatusRequest(ticket);
+                  }}
+                >
+                  Change Status
+                </DropdownItem>
+                <DropdownItem
+                  icon={<FontAwesomeIcon icon={faShareFromSquare} />}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor);
+                  }}
+                >
+                  {ticket.sharedWithTimeharbor ? 'Remove from TimeHarbor' : 'Send to TimeHarbor'}
+                </DropdownItem>
+                {isCreator && (
+                  <>
+                    <DropdownSeparator />
+                    <DropdownItem
+                      icon={<FontAwesomeIcon icon={faTrash} />}
+                      variant="danger"
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onDeleteRequest(ticket.id);
+                      }}
+                    >
+                      Delete Ticket
+                    </DropdownItem>
+                  </>
+                )}
+              </DropdownContent>
+            </div>,
+            document.body,
+          )}
       </div>
     </li>
   );
