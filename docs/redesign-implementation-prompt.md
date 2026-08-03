@@ -21,72 +21,72 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
 **Phase 1 — Mobile**
 
 1. [x] Confirm/adjust [BottomNav.tsx](../src/ui/BottomNav.tsx) tab set: Dashboard,
-   Huddle, Clock (center FAB), Tickets, Teams. Move Settings behind the
-   profile/overflow menu. Validate: `npm run typecheck` + manual tap-through
-   at a 390×844 viewport.
+       Huddle, Clock (center FAB), Tickets, Teams. Move Settings behind the
+       profile/overflow menu. Validate: `npm run typecheck` + manual tap-through
+       at a 390×844 viewport.
 2. [x] Locate the shared `Modal` primitive used across the app (`@mieweb/ui`
-   `Modal`, or the app's own wrapper if one exists) and add/confirm a mobile
-   bottom-sheet variant (slide up, full width, rounded top corners only,
-   `max-h-[88vh]` with internal scroll). Apply it to: ticket create/detail
-   modals, team edit modal, org edit modal, invite modal, confirm-delete
-   modal. Validate: open each modal at mobile width, confirm slide-up behavior
-   and that all existing buttons in them still work.
+       `Modal`, or the app's own wrapper if one exists) and add/confirm a mobile
+       bottom-sheet variant (slide up, full width, rounded top corners only,
+       `max-h-[88vh]` with internal scroll). Apply it to: ticket create/detail
+       modals, team edit modal, org edit modal, invite modal, confirm-delete
+       modal. Validate: open each modal at mobile width, confirm slide-up behavior
+       and that all existing buttons in them still work.
 3. [x] Restyle [Huddle.tsx](../src/pages/Huddle.tsx) +
-   [PostCard/](../src/features/huddle/PostCard/) for mobile: edge-to-edge
-   cards, no side margins/radius, thin divider borders, composer pinned above
-   the feed. Validate: create a post, confirm it still saves/renders via
-   existing `HuddleComposer.tsx` + `api.ts` logic (no logic changes).
+       [PostCard/](../src/features/huddle/PostCard/) for mobile: edge-to-edge
+       cards, no side margins/radius, thin divider borders, composer pinned above
+       the feed. Validate: create a post, confirm it still saves/renders via
+       existing `HuddleComposer.tsx` + `api.ts` logic (no logic changes).
 4. [x] In [DashboardPage.tsx](../src/features/dashboard/DashboardPage.tsx), make
-   the stat card grid 2-column on mobile below the existing Me/Team toggle
-   (toggle itself unchanged). Validate: numbers still populate correctly for
-   both Me and Team modes.
+       the stat card grid 2-column on mobile below the existing Me/Team toggle
+       (toggle itself unchanged). Validate: numbers still populate correctly for
+       both Me and Team modes.
 5. [x] In [ClockPage.tsx](../src/features/clock/ClockPage.tsx), reorder to a
-   single mobile column: status/timer → plan editor → clock button (full
-   width). Validate: plan-first gate still blocks clock in/out without a
-   plan/wrap-up (`useClockToggle.test.ts` must still pass).
+       single mobile column: status/timer → plan editor → clock button (full
+       width). Validate: plan-first gate still blocks clock in/out without a
+       plan/wrap-up (`useClockToggle.test.ts` must still pass).
 6. [x] Restyle [TicketsPage.tsx](../src/features/tickets/TicketsPage.tsx) filters
-   as a horizontally scrollable chip row on mobile. Validate: filtering still
-   returns correct results; GitHub/Redmine source badges still visible.
+       as a horizontally scrollable chip row on mobile. Validate: filtering still
+       returns correct results; GitHub/Redmine source badges still visible.
 7. [x] Restyle [TeamsPage.tsx](../src/features/teams/TeamsPage.tsx),
-   [OrganizationPage.tsx](../src/features/org/OrganizationPage.tsx), and
-   [ProfilePage.tsx](../src/features/profile/ProfilePage.tsx) to single-column
-   stacked layouts on mobile. Validate: edit/delete/invite actions on each
-   still function.
+       [OrganizationPage.tsx](../src/features/org/OrganizationPage.tsx), and
+       [ProfilePage.tsx](../src/features/profile/ProfilePage.tsx) to single-column
+       stacked layouts on mobile. Validate: edit/delete/invite actions on each
+       still function.
 8. [x] Confirm the app's toast/notification primitive renders full-width near the
-   top on mobile. Validate: trigger a clock-in, ticket edit, and post-create
-   toast; all appear correctly.
-   → **Phase 1 done. Run `npm run lint && npm run typecheck && npm run test:all`,
-   fix anything red, then stop and get sign-off before Phase 2.**
+       top on mobile. Validate: trigger a clock-in, ticket edit, and post-create
+       toast; all appear correctly.
+       → **Phase 1 done. Run `npm run lint && npm run typecheck && npm run test:all`,
+       fix anything red, then stop and get sign-off before Phase 2.**
 
 **Phase 2 — Desktop/Browser**
 
 9. [x] Confirm [Sidebar.tsx](../src/ui/Sidebar.tsx) `NAV` grouping matches:
-   Workspace (Dashboard, Huddle, Clock, Tickets, Timesheet, Work), Manage
-   (Teams, Organization, Media, Messages, Notifications, Activity). Reorder
-   only — no items removed. Validate: every sidebar link still routes
-   correctly.
+       Workspace (Dashboard, Huddle, Clock, Tickets, Timesheet, Work), Manage
+       (Teams, Organization, Media, Messages, Notifications, Activity). Reorder
+       only — no items removed. Validate: every sidebar link still routes
+       correctly.
 10. [x] Add the desktop centered-dialog variant to the same `Modal` primitive
-    touched in step 2 (rounded on all corners, `max-w-md`/`max-w-lg`,
-    click-outside-to-dismiss). Validate: same modals as step 2, now at full
-    desktop width.
+        touched in step 2 (rounded on all corners, `max-w-md`/`max-w-lg`,
+        click-outside-to-dismiss). Validate: same modals as step 2, now at full
+        desktop width.
 11. [x] In `DashboardPage.tsx`, expand stat cards to a 4-column row inside a
-    centered `max-w-4xl` column at desktop widths. Validate: layout doesn't
-    break at 1280px/1440px/1920px.
+        centered `max-w-4xl` column at desktop widths. Validate: layout doesn't
+        break at 1280px/1440px/1920px.
 12. [x] Restyle the Huddle feed to a centered `max-w-2xl` column with visible
-    card borders/radius and spacing at desktop widths. Validate: feed and
-    composer still fully functional.
+        card borders/radius and spacing at desktop widths. Validate: feed and
+        composer still fully functional.
 13. [x] In `ClockPage.tsx`, cap the layout to a centered `max-w-2xl` column at
-    desktop widths. Validate: plan-first gate still enforced.
+        desktop widths. Validate: plan-first gate still enforced.
 14. [x] Restyle Tickets/Teams/Organization/Profile pages to centered
-    `max-w-3xl`/`max-w-4xl` columns with filters in a single horizontal row
-    at desktop widths. Validate: all CRUD actions still function.
-    (Teams/Profile already use the default centered `max-w-4xl` column;
-    Tickets narrowed from `wide`→`content` (`max-w-4xl`); the Organization
-    page renders the full-bleed pannable org **chart** so it stays `flush`
-    per AppPage's canvas convention — its settings live in the
-    Overview/Members pages which already use centered columns.)
+        `max-w-3xl`/`max-w-4xl` columns with filters in a single horizontal row
+        at desktop widths. Validate: all CRUD actions still function.
+        (Teams/Profile already use the default centered `max-w-4xl` column;
+        Tickets narrowed from `wide`→`content` (`max-w-4xl`); the Organization
+        page renders the full-bleed pannable org **chart** so it stays `flush`
+        per AppPage's canvas convention — its settings live in the
+        Overview/Members pages which already use centered columns.)
 15. [x] Confirm toasts shrink-to-content and center at desktop widths.
-    → **Phase 2 done. Run `npm run lint && npm run typecheck && npm run test:all`.**
+        → **Phase 2 done. Run `npm run lint && npm run typecheck && npm run test:all`.**
 
 **Final Verification**
 
@@ -105,7 +105,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
   literal duplicate after merging (confirm with the user first either way).
 - Do not remove any route in [src/ui/router.ts](../src/ui/router.ts) or any page
   currently reachable from [src/ui/Sidebar.tsx](../src/ui/Sidebar.tsx) /
-  [src/ui/BottomNav.tsx](../src/ui/BottomNav.tsx). If a page's *content* moves
+  [src/ui/BottomNav.tsx](../src/ui/BottomNav.tsx). If a page's _content_ moves
   inside another page (e.g. tabs), the route can redirect/alias — it must not 404.
   keep all existing lower level components
 - Every existing `@mieweb/ui` usage stays `@mieweb/ui`. Do not introduce raw
@@ -122,34 +122,34 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
 
 ## Existing Component Inventory (do not lose these)
 
-| Area | Existing files (keep & reposition) |
-|---|---|
-| Shell/Nav | [AppLayout.tsx](../src/ui/AppLayout.tsx), [Sidebar.tsx](../src/ui/Sidebar.tsx), [BottomNav.tsx](../src/ui/BottomNav.tsx), [AppHeader.tsx](../src/ui/AppHeader.tsx), [OrgTeamSwitcher.tsx](../src/ui/OrgTeamSwitcher.tsx), [UserDropdown.tsx](../src/ui/UserDropdown.tsx), [CommandPalette.tsx](../src/ui/CommandPalette.tsx), [ThemeToggle.tsx](../src/ui/ThemeToggle.tsx) |
-| Dashboard | [DashboardPage.tsx](../src/features/dashboard/DashboardPage.tsx) |
-| Clock/Time | [ClockPage.tsx](../src/features/clock/ClockPage.tsx), [TimesheetPage.tsx](../src/features/clock/TimesheetPage.tsx), [TimesheetRow.tsx](../src/features/clock/TimesheetRow.tsx), [AttachmentsPanel.tsx](../src/features/clock/AttachmentsPanel.tsx), [ClockInHeaderTimer.tsx](../src/ui/ClockInHeaderTimer.tsx), [Timer.tsx](../src/ui/Timer.tsx), [TimerToggleButton.tsx](../src/ui/TimerToggleButton.tsx), [TodayStatusCard.tsx](../src/features/timers/TodayStatusCard.tsx), [WorkPage.tsx](../src/features/timers/WorkPage.tsx) |
-| Huddle (feed) | [Huddle.tsx](../src/pages/Huddle.tsx), [HuddleComposer.tsx](../src/features/huddle/HuddleComposer.tsx), [MarkdownEditor.tsx](../src/features/huddle/MarkdownEditor.tsx), [MarkdownContent.tsx](../src/features/huddle/MarkdownContent.tsx) & [ui/MarkdownContent.tsx](../src/ui/MarkdownContent.tsx), [MentionMenu.tsx](../src/features/huddle/MentionMenu.tsx), [PostCard/](../src/features/huddle/PostCard/), [DraftsPanel.tsx](../src/features/huddle/DraftsPanel.tsx), [AttachmentBar.tsx](../src/features/huddle/AttachmentBar.tsx), [PulseAttachButton.tsx](../src/features/huddle/PulseAttachButton.tsx), [TicketPicker.tsx](../src/features/huddle/TicketPicker.tsx), [HuddleComments/](../src/features/huddle/HuddleComments/) |
-| Tickets | [TicketsPage.tsx](../src/features/tickets/TicketsPage.tsx), [TicketDetailPage.tsx](../src/features/tickets/TicketDetailPage.tsx), [githubIssue.ts](../src/features/tickets/githubIssue.ts) (GitHub sync), [CompactTicketList.tsx](../src/features/profile/CompactTicketList.tsx) |
-| Teams | [TeamsPage.tsx](../src/features/teams/TeamsPage.tsx), [TeamChart.tsx](../src/features/teams/TeamChart.tsx), [AdminTimesheetPanel.tsx](../src/features/teams/AdminTimesheetPanel.tsx), [AdminDayGroup.tsx](../src/features/teams/AdminDayGroup.tsx), [PendingJoinRequests.tsx](../src/features/teams/PendingJoinRequests.tsx) |
-| Organization | [OrganizationPage.tsx](../src/features/org/OrganizationPage.tsx), [OrganizationOverviewPage.tsx](../src/features/org/OrganizationOverviewPage.tsx), [OrganizationMembersPage.tsx](../src/features/org/OrganizationMembersPage.tsx), [OrganizationChart.tsx](../src/features/org/OrganizationChart.tsx), [TeamMembersView.tsx](../src/features/org/TeamMembersView.tsx), [EnterprisePage.tsx](../src/features/enterprise/EnterprisePage.tsx) |
-| Profile | [ProfilePage.tsx](../src/features/profile/ProfilePage.tsx), [ProfileWorkSnapshot.tsx](../src/features/profile/ProfileWorkSnapshot.tsx), [ProfileFeed.tsx](../src/features/profile/ProfileFeed.tsx), [ProfileActivityFeed.tsx](../src/features/profile/ProfileActivityFeed.tsx), [ProfileNotices.tsx](../src/features/profile/ProfileNotices.tsx), [ProfileAvatarCropModal.tsx](../src/features/profile/ProfileAvatarCropModal.tsx), [WorkSummaryTags.tsx](../src/features/profile/WorkSummaryTags.tsx), [UsernameBadge.tsx](../src/features/profile/UsernameBadge.tsx) |
-| Inbox/Messages/Notifications | [InboxPage.tsx](../src/features/inbox/InboxPage.tsx), [MessagesPage.tsx](../src/features/messages/MessagesPage.tsx), [NotificationsPage.tsx](../src/features/notifications/NotificationsPage.tsx), [ShiftReminderContext.tsx](../src/features/notifications/ShiftReminderContext.tsx) |
-| Media | [MediaPage.tsx](../src/features/media/MediaPage.tsx), [PulseUploadButton.tsx](../src/features/media/PulseUploadButton.tsx), [PulseUploadModal.tsx](../src/features/media/PulseUploadModal.tsx) |
-| Activity/Settings/Auth | [ActivityLogPage.tsx](../src/features/activity/ActivityLogPage.tsx), [SettingsPage.tsx](../src/ui/SettingsPage.tsx), [LoginForm.tsx](../src/ui/LoginForm.tsx), [LandingPage.tsx](../src/ui/LandingPage.tsx) |
-| Feedback/Seeder (internal tools, keep as-is, low priority for redesign) | [FeedbackModal.tsx](../src/features/feedback/FeedbackModal.tsx), [ReportIssueModal.tsx](../src/features/feedback/ReportIssueModal.tsx), [SeederPage.tsx](../src/features/seeder/SeederPage.tsx) |
+| Area                                                                    | Existing files (keep & reposition)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shell/Nav                                                               | [AppLayout.tsx](../src/ui/AppLayout.tsx), [Sidebar.tsx](../src/ui/Sidebar.tsx), [BottomNav.tsx](../src/ui/BottomNav.tsx), [AppHeader.tsx](../src/ui/AppHeader.tsx), [OrgTeamSwitcher.tsx](../src/ui/OrgTeamSwitcher.tsx), [UserDropdown.tsx](../src/ui/UserDropdown.tsx), [CommandPalette.tsx](../src/ui/CommandPalette.tsx), [ThemeToggle.tsx](../src/ui/ThemeToggle.tsx)                                                                                                                                                                                                                                                                                                                                                              |
+| Dashboard                                                               | [DashboardPage.tsx](../src/features/dashboard/DashboardPage.tsx)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Clock/Time                                                              | [ClockPage.tsx](../src/features/clock/ClockPage.tsx), [TimesheetPage.tsx](../src/features/clock/TimesheetPage.tsx), [TimesheetRow.tsx](../src/features/clock/TimesheetRow.tsx), [AttachmentsPanel.tsx](../src/features/clock/AttachmentsPanel.tsx), [ClockInHeaderTimer.tsx](../src/ui/ClockInHeaderTimer.tsx), [Timer.tsx](../src/ui/Timer.tsx), [TimerToggleButton.tsx](../src/ui/TimerToggleButton.tsx), [TodayStatusCard.tsx](../src/features/timers/TodayStatusCard.tsx), [WorkPage.tsx](../src/features/timers/WorkPage.tsx)                                                                                                                                                                                                      |
+| Huddle (feed)                                                           | [Huddle.tsx](../src/pages/Huddle.tsx), [HuddleComposer.tsx](../src/features/huddle/HuddleComposer.tsx), [MarkdownEditor.tsx](../src/features/huddle/MarkdownEditor.tsx), [MarkdownContent.tsx](../src/features/huddle/MarkdownContent.tsx) & [ui/MarkdownContent.tsx](../src/ui/MarkdownContent.tsx), [MentionMenu.tsx](../src/features/huddle/MentionMenu.tsx), [PostCard/](../src/features/huddle/PostCard/), [DraftsPanel.tsx](../src/features/huddle/DraftsPanel.tsx), [AttachmentBar.tsx](../src/features/huddle/AttachmentBar.tsx), [PulseAttachButton.tsx](../src/features/huddle/PulseAttachButton.tsx), [TicketPicker.tsx](../src/features/huddle/TicketPicker.tsx), [HuddleComments/](../src/features/huddle/HuddleComments/) |
+| Tickets                                                                 | [TicketsPage.tsx](../src/features/tickets/TicketsPage.tsx), [TicketDetailPage.tsx](../src/features/tickets/TicketDetailPage.tsx), [githubIssue.ts](../src/features/tickets/githubIssue.ts) (GitHub sync), [CompactTicketList.tsx](../src/features/profile/CompactTicketList.tsx)                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Teams                                                                   | [TeamsPage.tsx](../src/features/teams/TeamsPage.tsx), [TeamChart.tsx](../src/features/teams/TeamChart.tsx), [AdminTimesheetPanel.tsx](../src/features/teams/AdminTimesheetPanel.tsx), [AdminDayGroup.tsx](../src/features/teams/AdminDayGroup.tsx), [PendingJoinRequests.tsx](../src/features/teams/PendingJoinRequests.tsx)                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Organization                                                            | [OrganizationPage.tsx](../src/features/org/OrganizationPage.tsx), [OrganizationOverviewPage.tsx](../src/features/org/OrganizationOverviewPage.tsx), [OrganizationMembersPage.tsx](../src/features/org/OrganizationMembersPage.tsx), [OrganizationChart.tsx](../src/features/org/OrganizationChart.tsx), [TeamMembersView.tsx](../src/features/org/TeamMembersView.tsx), [EnterprisePage.tsx](../src/features/enterprise/EnterprisePage.tsx)                                                                                                                                                                                                                                                                                             |
+| Profile                                                                 | [ProfilePage.tsx](../src/features/profile/ProfilePage.tsx), [ProfileWorkSnapshot.tsx](../src/features/profile/ProfileWorkSnapshot.tsx), [ProfileFeed.tsx](../src/features/profile/ProfileFeed.tsx), [ProfileActivityFeed.tsx](../src/features/profile/ProfileActivityFeed.tsx), [ProfileNotices.tsx](../src/features/profile/ProfileNotices.tsx), [ProfileAvatarCropModal.tsx](../src/features/profile/ProfileAvatarCropModal.tsx), [WorkSummaryTags.tsx](../src/features/profile/WorkSummaryTags.tsx), [UsernameBadge.tsx](../src/features/profile/UsernameBadge.tsx)                                                                                                                                                                  |
+| Inbox/Messages/Notifications                                            | [InboxPage.tsx](../src/features/inbox/InboxPage.tsx), [MessagesPage.tsx](../src/features/messages/MessagesPage.tsx), [NotificationsPage.tsx](../src/features/notifications/NotificationsPage.tsx), [ShiftReminderContext.tsx](../src/features/notifications/ShiftReminderContext.tsx)                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Media                                                                   | [MediaPage.tsx](../src/features/media/MediaPage.tsx), [PulseUploadButton.tsx](../src/features/media/PulseUploadButton.tsx), [PulseUploadModal.tsx](../src/features/media/PulseUploadModal.tsx)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Activity/Settings/Auth                                                  | [ActivityLogPage.tsx](../src/features/activity/ActivityLogPage.tsx), [SettingsPage.tsx](../src/ui/SettingsPage.tsx), [LoginForm.tsx](../src/ui/LoginForm.tsx), [LandingPage.tsx](../src/ui/LandingPage.tsx)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Feedback/Seeder (internal tools, keep as-is, low priority for redesign) | [FeedbackModal.tsx](../src/features/feedback/FeedbackModal.tsx), [ReportIssueModal.tsx](../src/features/feedback/ReportIssueModal.tsx), [SeederPage.tsx](../src/features/seeder/SeederPage.tsx)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ## Mapping: Prototype Concept → Real Component To Reuse
 
-| Prototype screen | Real component(s) to slot in (do not recreate) |
-|---|---|
-| `MyDashboard` / `TeamDashboard` toggle | [DashboardPage.tsx](../src/features/dashboard/DashboardPage.tsx) — add a personal/team tab inside this existing page instead of building a new one |
-| `ClockPage` plan-gated clock in/out | [ClockPage.tsx](../src/features/clock/ClockPage.tsx) + [useClockToggle.ts](../src/lib/useClockToggle.ts) (logic untouched) + [TodayStatusCard.tsx](../src/features/timers/TodayStatusCard.tsx) for the at-a-glance status |
-| `Huddle` Instagram-style feed | [Huddle.tsx](../src/pages/Huddle.tsx) page shell + [PostCard/](../src/features/huddle/PostCard/) + [HuddleComposer.tsx](../src/features/huddle/HuddleComposer.tsx) + [MarkdownEditor.tsx](../src/features/huddle/MarkdownEditor.tsx) (this *is* your Kerberon-style editor already) |
-| `Tickets` list + filters + GitHub/Redmine badges | [TicketsPage.tsx](../src/features/tickets/TicketsPage.tsx), [TicketDetailPage.tsx](../src/features/tickets/TicketDetailPage.tsx), [githubIssue.ts](../src/features/tickets/githubIssue.ts) |
-| `Teams` list + detail + roles | [TeamsPage.tsx](../src/features/teams/TeamsPage.tsx), [PendingJoinRequests.tsx](../src/features/teams/PendingJoinRequests.tsx), [TeamChart.tsx](../src/features/teams/TeamChart.tsx) |
-| `OrgSettings` | [OrganizationPage.tsx](../src/features/org/OrganizationPage.tsx), [OrganizationMembersPage.tsx](../src/features/org/OrganizationMembersPage.tsx), [OrganizationOverviewPage.tsx](../src/features/org/OrganizationOverviewPage.tsx) |
-| `ProfilePage` | [ProfilePage.tsx](../src/features/profile/ProfilePage.tsx) + its sub-widgets |
-| Nav shell (bottom tabs / sidebar) | [BottomNav.tsx](../src/ui/BottomNav.tsx) (mobile) + [Sidebar.tsx](../src/ui/Sidebar.tsx) (desktop) — **already split this way**; redesign only changes tab set, ordering, and visual density, not the mobile/desktop split mechanism |
-| Toasts | check for existing toast/notification primitive in `@mieweb/ui` first; reuse it instead of introducing a new one |
+| Prototype screen                                 | Real component(s) to slot in (do not recreate)                                                                                                                                                                                                                                      |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MyDashboard` / `TeamDashboard` toggle           | [DashboardPage.tsx](../src/features/dashboard/DashboardPage.tsx) — add a personal/team tab inside this existing page instead of building a new one                                                                                                                                  |
+| `ClockPage` plan-gated clock in/out              | [ClockPage.tsx](../src/features/clock/ClockPage.tsx) + [useClockToggle.ts](../src/lib/useClockToggle.ts) (logic untouched) + [TodayStatusCard.tsx](../src/features/timers/TodayStatusCard.tsx) for the at-a-glance status                                                           |
+| `Huddle` Instagram-style feed                    | [Huddle.tsx](../src/pages/Huddle.tsx) page shell + [PostCard/](../src/features/huddle/PostCard/) + [HuddleComposer.tsx](../src/features/huddle/HuddleComposer.tsx) + [MarkdownEditor.tsx](../src/features/huddle/MarkdownEditor.tsx) (this _is_ your Kerberon-style editor already) |
+| `Tickets` list + filters + GitHub/Redmine badges | [TicketsPage.tsx](../src/features/tickets/TicketsPage.tsx), [TicketDetailPage.tsx](../src/features/tickets/TicketDetailPage.tsx), [githubIssue.ts](../src/features/tickets/githubIssue.ts)                                                                                          |
+| `Teams` list + detail + roles                    | [TeamsPage.tsx](../src/features/teams/TeamsPage.tsx), [PendingJoinRequests.tsx](../src/features/teams/PendingJoinRequests.tsx), [TeamChart.tsx](../src/features/teams/TeamChart.tsx)                                                                                                |
+| `OrgSettings`                                    | [OrganizationPage.tsx](../src/features/org/OrganizationPage.tsx), [OrganizationMembersPage.tsx](../src/features/org/OrganizationMembersPage.tsx), [OrganizationOverviewPage.tsx](../src/features/org/OrganizationOverviewPage.tsx)                                                  |
+| `ProfilePage`                                    | [ProfilePage.tsx](../src/features/profile/ProfilePage.tsx) + its sub-widgets                                                                                                                                                                                                        |
+| Nav shell (bottom tabs / sidebar)                | [BottomNav.tsx](../src/ui/BottomNav.tsx) (mobile) + [Sidebar.tsx](../src/ui/Sidebar.tsx) (desktop) — **already split this way**; redesign only changes tab set, ordering, and visual density, not the mobile/desktop split mechanism                                                |
+| Toasts                                           | check for existing toast/notification primitive in `@mieweb/ui` first; reuse it instead of introducing a new one                                                                                                                                                                    |
 
 Pages that exist in the real app but had no prototype equivalent (Timesheet,
 Work, Inbox, Messages, Notifications, Activity Log, Media Library, Enterprise,

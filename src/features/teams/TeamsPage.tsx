@@ -695,7 +695,11 @@ export const TeamsPage: React.FC = () => {
                         </div>
                       </Button>
                       {isMemberAdmin && (
-                        <Badge variant="warning" size="sm" icon={<FontAwesomeIcon icon={faCrown} />}>
+                        <Badge
+                          variant="warning"
+                          size="sm"
+                          icon={<FontAwesomeIcon icon={faCrown} />}
+                        >
                           Admin
                         </Badge>
                       )}
@@ -763,7 +767,6 @@ export const TeamsPage: React.FC = () => {
                 })}
             </ul>
           </div>
-
         </div>
       )}
 
@@ -976,143 +979,145 @@ export const TeamsPage: React.FC = () => {
               >
                 Clock
               </Text>
-          <div className="team-setting-plan-for-clock mb-6 flex items-center justify-between gap-4">
-            <div>
-              <Text size="sm" weight="medium">
-                Require a plan for every clock-in/out
+              <div className="team-setting-plan-for-clock mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <Text size="sm" weight="medium">
+                    Require a plan for every clock-in/out
+                  </Text>
+                  <Text variant="muted" size="xs">
+                    Members post a plan to start each session, and add a wrap-up to it before
+                    clocking out — one Huddle post per session.
+                  </Text>
+                </div>
+                <Switch
+                  checked={requirePlanForClock}
+                  disabled={savingPlanSetting || !selectedTeamId}
+                  aria-label="Toggle requiring a plan for every clock-in and out"
+                  onCheckedChange={async (checked) => {
+                    if (!selectedTeamId) return;
+                    const previous = requirePlanForClock;
+                    setRequirePlanForClock(checked);
+                    setSavingPlanSetting(true);
+                    setFormError(null);
+                    try {
+                      await teamApi.updateSettings(selectedTeamId, {
+                        requirePlanForClock: checked,
+                      });
+                      refetchTeams();
+                    } catch (e: any) {
+                      setRequirePlanForClock(previous);
+                      setFormError(e.message || 'Failed to update setting');
+                    } finally {
+                      setSavingPlanSetting(false);
+                    }
+                  }}
+                />
+              </div>
+              {formError && (
+                <Text variant="destructive" size="xs" className="mb-4">
+                  {formError}
+                </Text>
+              )}
+              <Text
+                variant="muted"
+                size="xs"
+                weight="semibold"
+                className="mb-3 uppercase tracking-widest"
+              >
+                Membership
               </Text>
-              <Text variant="muted" size="xs">
-                Members post a plan to start each session, and add a wrap-up to it before clocking
-                out — one Huddle post per session.
+              <div className="team-setting-auto-accept mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <Text size="sm" weight="medium">
+                    Auto-accept join requests
+                  </Text>
+                  <Text variant="muted" size="xs">
+                    Anyone joining with the team code is added immediately — no pending approval
+                    from an admin.
+                  </Text>
+                </div>
+                <Switch
+                  checked={autoAcceptJoins}
+                  disabled={savingAutoAccept || !selectedTeamId}
+                  aria-label="Toggle auto-accepting join requests"
+                  onCheckedChange={async (checked) => {
+                    if (!selectedTeamId) return;
+                    const previous = autoAcceptJoins;
+                    setAutoAcceptJoins(checked);
+                    setSavingAutoAccept(true);
+                    setFormError(null);
+                    try {
+                      await teamApi.updateSettings(selectedTeamId, { autoAcceptJoins: checked });
+                      refetchTeams();
+                    } catch (e: any) {
+                      setAutoAcceptJoins(previous);
+                      setFormError(e.message || 'Failed to update setting');
+                    } finally {
+                      setSavingAutoAccept(false);
+                    }
+                  }}
+                />
+              </div>
+              <Text
+                variant="muted"
+                size="xs"
+                weight="semibold"
+                className="mb-3 uppercase tracking-widest"
+              >
+                Invitations
               </Text>
-            </div>
-            <Switch
-              checked={requirePlanForClock}
-              disabled={savingPlanSetting || !selectedTeamId}
-              aria-label="Toggle requiring a plan for every clock-in and out"
-              onCheckedChange={async (checked) => {
-                if (!selectedTeamId) return;
-                const previous = requirePlanForClock;
-                setRequirePlanForClock(checked);
-                setSavingPlanSetting(true);
-                setFormError(null);
-                try {
-                  await teamApi.updateSettings(selectedTeamId, { requirePlanForClock: checked });
-                  refetchTeams();
-                } catch (e: any) {
-                  setRequirePlanForClock(previous);
-                  setFormError(e.message || 'Failed to update setting');
-                } finally {
-                  setSavingPlanSetting(false);
-                }
-              }}
-            />
-          </div>
-          {formError && (
-            <Text variant="destructive" size="xs" className="mb-4">
-              {formError}
-            </Text>
-          )}
-          <Text
-            variant="muted"
-            size="xs"
-            weight="semibold"
-            className="mb-3 uppercase tracking-widest"
-          >
-            Membership
-          </Text>
-          <div className="team-setting-auto-accept mb-6 flex items-center justify-between gap-4">
-            <div>
-              <Text size="sm" weight="medium">
-                Auto-accept join requests
-              </Text>
-              <Text variant="muted" size="xs">
-                Anyone joining with the team code is added immediately — no pending approval from an
-                admin.
-              </Text>
-            </div>
-            <Switch
-              checked={autoAcceptJoins}
-              disabled={savingAutoAccept || !selectedTeamId}
-              aria-label="Toggle auto-accepting join requests"
-              onCheckedChange={async (checked) => {
-                if (!selectedTeamId) return;
-                const previous = autoAcceptJoins;
-                setAutoAcceptJoins(checked);
-                setSavingAutoAccept(true);
-                setFormError(null);
-                try {
-                  await teamApi.updateSettings(selectedTeamId, { autoAcceptJoins: checked });
-                  refetchTeams();
-                } catch (e: any) {
-                  setAutoAcceptJoins(previous);
-                  setFormError(e.message || 'Failed to update setting');
-                } finally {
-                  setSavingAutoAccept(false);
-                }
-              }}
-            />
-          </div>
-          <Text
-            variant="muted"
-            size="xs"
-            weight="semibold"
-            className="mb-3 uppercase tracking-widest"
-          >
-            Invitations
-          </Text>
-          {invitationsLoading ? (
-            <div className="flex justify-center py-6">
-              <Spinner size="sm" label="Loading invitations…" />
-            </div>
-          ) : (
-            <Table responsive>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Sent</TableHead>
-                  <TableHead>Expires</TableHead>
-                  <TableHead className="w-32">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {invitations.map((inv) => (
-                  <TableRow key={inv.id}>
-                    <TableCell>{inv.email}</TableCell>
-                    <TableCell>
-                      <Badge variant={invitationStatusVariant(inv.status)}>{inv.status}</Badge>
-                    </TableCell>
-                    <TableCell>{new Date(inv.createdAt).toLocaleDateString()}</TableCell>
-                    <TableCell>{new Date(inv.expiresAt).toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      {inv.status === 'pending' && (
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => void handleRevokeInvitation(inv.id)}
-                          disabled={revokeLoadingId === inv.id}
-                          isLoading={revokeLoadingId === inv.id}
-                          aria-label={`Revoke invitation for ${inv.email}`}
-                        >
-                          Revoke
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {invitations.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={5}>
-                      <Text size="sm" variant="muted" className="py-2">
-                        No invitations have been sent for this team.
-                      </Text>
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          )}
+              {invitationsLoading ? (
+                <div className="flex justify-center py-6">
+                  <Spinner size="sm" label="Loading invitations…" />
+                </div>
+              ) : (
+                <Table responsive>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Sent</TableHead>
+                      <TableHead>Expires</TableHead>
+                      <TableHead className="w-32">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invitations.map((inv) => (
+                      <TableRow key={inv.id}>
+                        <TableCell>{inv.email}</TableCell>
+                        <TableCell>
+                          <Badge variant={invitationStatusVariant(inv.status)}>{inv.status}</Badge>
+                        </TableCell>
+                        <TableCell>{new Date(inv.createdAt).toLocaleDateString()}</TableCell>
+                        <TableCell>{new Date(inv.expiresAt).toLocaleDateString()}</TableCell>
+                        <TableCell>
+                          {inv.status === 'pending' && (
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              onClick={() => void handleRevokeInvitation(inv.id)}
+                              disabled={revokeLoadingId === inv.id}
+                              isLoading={revokeLoadingId === inv.id}
+                              aria-label={`Revoke invitation for ${inv.email}`}
+                            >
+                              Revoke
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {invitations.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5}>
+                          <Text size="sm" variant="muted" className="py-2">
+                            No invitations have been sent for this team.
+                          </Text>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
             </>
           )}
         </ModalBody>

@@ -13,14 +13,7 @@
  */
 import { faChevronDown, faClock } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  Badge,
-  Modal,
-  ModalHeader,
-  ModalBody,
-  Select,
-  Text,
-} from '@mieweb/ui';
+import { Badge, Modal, ModalHeader, ModalBody, Select, Text } from '@mieweb/ui';
 import React, { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -126,119 +119,119 @@ export const OrgTeamSwitcher: React.FC = () => {
         <Modal open={open} onOpenChange={setOpen} size="sm" className="org-switcher-modal">
           <ModalHeader>Switch organization / team</ModalHeader>
           <ModalBody className="space-y-1">
-          {organizations.length > 0 && (
-            <div className="mb-3">
-              <Text
-                as="span"
-                variant="muted"
-                size="xs"
-                className="mb-1 block font-semibold uppercase tracking-wide"
-              >
-                Organization
-              </Text>
-              <Select
-                aria-label="Organization"
-                value={selectedOrgId ?? ''}
-                onValueChange={(id: string) => setSelectedOrgId(id)}
-                options={organizations.map((organization) => ({
-                  value: organization.id,
-                  label: organization.role
-                    ? `${organization.name} — ${ROLE_LABEL[organization.role]}`
-                    : organization.name,
-                }))}
-              />
-            </div>
-          )}
-
-          <Text
-            as="span"
-            variant="muted"
-            size="xs"
-            className="mb-1 block font-semibold uppercase tracking-wide"
-          >
-            Team
-          </Text>
-
-          {teamsReady && teams.length === 0 && (
-            <div className="px-1 py-2">
-              <Text as="span" variant="muted" size="sm">
-                No teams in this organization
-              </Text>
-            </div>
-          )}
-
-          <div className="max-h-52 space-y-1 overflow-y-auto">
-            {teams.map((team) => {
-              const pendingCount = pendingCountByTeam.get(team.id) ?? 0;
-              const selected = team.id === selectedTeam?.id;
-              return (
-                <button
-                  key={team.id}
-                  type="button"
-                  onClick={() => handleSelectTeam(team.id)}
-                  aria-current={selected ? 'true' : undefined}
-                  className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                    selected
-                      ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/10 dark:text-primary-300'
-                      : 'text-neutral-700 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:bg-neutral-800'
-                  }`}
+            {organizations.length > 0 && (
+              <div className="mb-3">
+                <Text
+                  as="span"
+                  variant="muted"
+                  size="xs"
+                  className="mb-1 block font-semibold uppercase tracking-wide"
                 >
-                  <span className="min-w-0 truncate" title={team.name}>
-                    {team.name}
-                  </span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    {pendingCount > 0 && (
-                      <Badge variant="default" size="sm">
-                        {pendingCount}
-                      </Badge>
-                    )}
-                    <span className="text-xs text-neutral-400 dark:text-neutral-500">
-                      {team.members.length} member{team.members.length === 1 ? '' : 's'}
+                  Organization
+                </Text>
+                <Select
+                  aria-label="Organization"
+                  value={selectedOrgId ?? ''}
+                  onValueChange={(id: string) => setSelectedOrgId(id)}
+                  options={organizations.map((organization) => ({
+                    value: organization.id,
+                    label: organization.role
+                      ? `${organization.name} — ${ROLE_LABEL[organization.role]}`
+                      : organization.name,
+                  }))}
+                />
+              </div>
+            )}
+
+            <Text
+              as="span"
+              variant="muted"
+              size="xs"
+              className="mb-1 block font-semibold uppercase tracking-wide"
+            >
+              Team
+            </Text>
+
+            {teamsReady && teams.length === 0 && (
+              <div className="px-1 py-2">
+                <Text as="span" variant="muted" size="sm">
+                  No teams in this organization
+                </Text>
+              </div>
+            )}
+
+            <div className="max-h-52 space-y-1 overflow-y-auto">
+              {teams.map((team) => {
+                const pendingCount = pendingCountByTeam.get(team.id) ?? 0;
+                const selected = team.id === selectedTeam?.id;
+                return (
+                  <button
+                    key={team.id}
+                    type="button"
+                    onClick={() => handleSelectTeam(team.id)}
+                    aria-current={selected ? 'true' : undefined}
+                    className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                      selected
+                        ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/10 dark:text-primary-300'
+                        : 'text-neutral-700 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:bg-neutral-800'
+                    }`}
+                  >
+                    <span className="min-w-0 truncate" title={team.name}>
+                      {team.name}
                     </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {ownPendingRequests.length > 0 && (
-            <div className="mt-3">
-              <Text
-                as="span"
-                variant="muted"
-                size="xs"
-                className="mb-1 block font-semibold uppercase tracking-wide"
-              >
-                Awaiting approval
-              </Text>
-              {ownPendingRequests.map((req) => (
-                <div
-                  key={req.id}
-                  className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm text-neutral-400 opacity-60"
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <FontAwesomeIcon icon={faClock} className="shrink-0 text-xs" />
-                    <span className="truncate">{req.teamCode}</span>
-                  </span>
-                  <Badge variant="warning" size="sm">
-                    Pending
-                  </Badge>
-                </div>
-              ))}
+                    <span className="flex shrink-0 items-center gap-2">
+                      {pendingCount > 0 && (
+                        <Badge variant="default" size="sm">
+                          {pendingCount}
+                        </Badge>
+                      )}
+                      <span className="text-xs text-neutral-400 dark:text-neutral-500">
+                        {team.members.length} member{team.members.length === 1 ? '' : 's'}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-          )}
 
-          <button
-            type="button"
-            onClick={handleNewTeam}
-            className="mt-3 text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
-          >
-            + New team
-          </button>
-        </ModalBody>
-      </Modal>,
-      document.body,
-    )}
+            {ownPendingRequests.length > 0 && (
+              <div className="mt-3">
+                <Text
+                  as="span"
+                  variant="muted"
+                  size="xs"
+                  className="mb-1 block font-semibold uppercase tracking-wide"
+                >
+                  Awaiting approval
+                </Text>
+                {ownPendingRequests.map((req) => (
+                  <div
+                    key={req.id}
+                    className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm text-neutral-400 opacity-60"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <FontAwesomeIcon icon={faClock} className="shrink-0 text-xs" />
+                      <span className="truncate">{req.teamCode}</span>
+                    </span>
+                    <Badge variant="warning" size="sm">
+                      Pending
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={handleNewTeam}
+              className="mt-3 text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
+            >
+              + New team
+            </button>
+          </ModalBody>
+        </Modal>,
+        document.body,
+      )}
     </div>
   );
 };
