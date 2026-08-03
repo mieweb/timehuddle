@@ -118,14 +118,49 @@ html[data-theme='dark'] {
     padding-bottom: 0.625rem !important;
   }
 
-  /* Convert @mieweb/ui Modal from full-screen to centered modal on mobile */
-  [role='dialog']:not([aria-label='Navigation']) {
+  /* Convert @mieweb/ui Modal to a bottom-sheet on mobile:
+   *   - slides up from bottom, full-width, rounded top only, capped at 88dvh
+   *   - internal scroll (Modal's own overflow rules keep body scrollable)
+   *   - overrides the library's default zoom-in animation with a slide-up
+   * Targets the Modal content element via its `data-slot="modal"` marker
+   * (added by @mieweb/ui Modal). `align-self:end` pushes it to the bottom of
+   * the library's centering flex container without forking the component.
+   */
+  [data-slot='modal'] {
+    align-self: end !important;
     min-height: auto !important;
-    max-height: 85dvh !important;
-    border-radius: 0.75rem !important;
-    width: calc(100% - 2rem) !important;
-    margin: auto !important;
-    overflow-y: auto !important;
+    max-height: 88dvh !important;
+    width: 100% !important;
+    border-radius: 1rem 1rem 0 0 !important;
+    /* Kill zoom-in animation utilities and use a slide-up instead. */
+    animation: none !important;
+  }
+  [data-slot='modal'][data-state='open'] {
+    animation: mieweb-modal-slide-up 220ms ease-out both !important;
+  }
+  [data-slot='modal'][data-state='closed'] {
+    animation: mieweb-modal-slide-down 180ms ease-in both !important;
+  }
+}
+
+@keyframes mieweb-modal-slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes mieweb-modal-slide-down {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(100%);
+    opacity: 0;
   }
 }
 @source "../node_modules/@mieweb/ui/dist";

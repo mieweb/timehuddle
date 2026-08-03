@@ -24,7 +24,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
    Huddle, Clock (center FAB), Tickets, Teams. Move Settings behind the
    profile/overflow menu. Validate: `npm run typecheck` + manual tap-through
    at a 390×844 viewport.
-2. Locate the shared `Modal` primitive used across the app (`@mieweb/ui`
+2. [x] Locate the shared `Modal` primitive used across the app (`@mieweb/ui`
    `Modal`, or the app's own wrapper if one exists) and add/confirm a mobile
    bottom-sheet variant (slide up, full width, rounded top corners only,
    `max-h-[88vh]` with internal scroll). Apply it to: ticket create/detail
