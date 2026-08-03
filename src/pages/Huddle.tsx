@@ -190,10 +190,10 @@ export default function Huddle() {
   }
 
   return (
-    <AppPage fill>
-      <div className="huddle flex h-full min-h-0 flex-col gap-4">
+    <AppPage fill flush>
+      <div className="huddle flex h-full min-h-0 flex-col gap-4 md:mx-auto md:w-full md:max-w-4xl md:px-6 md:pb-6">
         {/* Feed / Drafts tabs + actions */}
-        <div className="huddle-actions flex shrink-0 items-center gap-2">
+        <div className="huddle-actions flex shrink-0 items-center gap-2 px-4 md:px-0">
           <div className="flex items-center gap-1 rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800">
             <button
               type="button"
@@ -266,23 +266,25 @@ export default function Huddle() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search posts…"
-            className="shrink-0"
+            className="shrink-0 mx-4 md:mx-0"
             autoFocus
           />
         )}
 
         {/* Drafts tab — private, multiple drafts */}
         {selectedTeamId && feedTab === 'drafts' && user && (
-          <DraftsPanel
-            teamId={selectedTeamId}
-            userInitials={getUserInitials(user.name)}
-            userColor={getUserColor(user.id)}
-          />
+          <div className="px-4 md:px-0">
+            <DraftsPanel
+              teamId={selectedTeamId}
+              userInitials={getUserInitials(user.name)}
+              userColor={getUserColor(user.id)}
+            />
+          </div>
         )}
 
         {/* Composer stays put while the feed below it scrolls */}
         {selectedTeamId && feedTab === 'feed' && (
-          <div className="huddle-composer shrink-0">
+          <div className="huddle-composer shrink-0 px-4 md:px-0">
             <HuddleComposer
               onPost={addPost}
               userInitials={user ? getUserInitials(user.name) : 'U'}

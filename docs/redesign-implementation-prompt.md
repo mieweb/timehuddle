@@ -31,7 +31,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
    modals, team edit modal, org edit modal, invite modal, confirm-delete
    modal. Validate: open each modal at mobile width, confirm slide-up behavior
    and that all existing buttons in them still work.
-3. Restyle [Huddle.tsx](../src/pages/Huddle.tsx) +
+3. [x] Restyle [Huddle.tsx](../src/pages/Huddle.tsx) +
    [PostCard/](../src/features/huddle/PostCard/) for mobile: edge-to-edge
    cards, no side margins/radius, thin divider borders, composer pinned above
    the feed. Validate: create a post, confirm it still saves/renders via
