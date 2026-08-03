@@ -47,7 +47,7 @@ Steps 9–15 are Phase 2 (desktop). Steps 16–17 are final verification.
 6. [x] Restyle [TicketsPage.tsx](../src/features/tickets/TicketsPage.tsx) filters
    as a horizontally scrollable chip row on mobile. Validate: filtering still
    returns correct results; GitHub/Redmine source badges still visible.
-7. Restyle [TeamsPage.tsx](../src/features/teams/TeamsPage.tsx),
+7. [x] Restyle [TeamsPage.tsx](../src/features/teams/TeamsPage.tsx),
    [OrganizationPage.tsx](../src/features/org/OrganizationPage.tsx), and
    [ProfilePage.tsx](../src/features/profile/ProfilePage.tsx) to single-column
    stacked layouts on mobile. Validate: edit/delete/invite actions on each
