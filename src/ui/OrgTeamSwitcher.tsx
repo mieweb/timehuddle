@@ -1,21 +1,26 @@
 /**
  * OrgTeamSwitcher — Header control showing and switching the current scope.
  *
- * Mobile: a header pill that opens the shared switching panel as a
- * full-width bottom sheet (`Modal`), matching the redesign prototype's
- * "Switch organization / team" sheet.
- *
- * Desktop: the prototype embeds the switcher inline in the sidebar instead
- * of behind a header button — see `OrgTeamSwitcherPanel` (rendered directly
- * by `Sidebar.tsx`) and `SidebarOrgTeamSwitcher` below. This component's own
- * trigger button is mobile-only (`md:hidden`).
+ * Renders `Org ▸ Team` so the active scope is legible without opening
+ * anything, and opens a single panel holding both lists — a full-width
+ * bottom sheet on mobile, a centered dialog on desktop (shared `Modal`
+ * primitive), matching the redesign prototype's "Switch organization / team"
+ * sheet: an Organization select, a Team list with member counts, and a
+ * "+ New team" action.
  *
  * Switching is client-side only: TeamContext persists the selection and
  * re-scopes `teams` to the selected org, auto-picking a valid team.
  */
 import { faChevronDown, faClock } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Badge, Modal, ModalHeader, ModalBody, Select, Text } from '@mieweb/ui';
+import {
+  Badge,
+  Modal,
+  ModalHeader,
+  ModalBody,
+  Select,
+  Text,
+} from '@mieweb/ui';
 import React, { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -31,24 +36,25 @@ const ROLE_LABEL: Record<OrganizationRole, string> = {
   member: 'Member',
 };
 
-/**
- * OrgTeamSwitcherPanel — the Organization select + Team list + "+ New team"
- * content shared by the mobile bottom sheet and the desktop sidebar's inline
- * panel. `onDone` fires after a team is picked (closes the mobile sheet;
- * omitted on desktop, where the panel never closes).
- */
-export const OrgTeamSwitcherPanel: React.FC<{ onDone?: () => void }> = ({ onDone }) => {
+export const OrgTeamSwitcher: React.FC = () => {
   const {
     organizations,
     selectedOrgId,
     setSelectedOrgId,
     teams,
     selectedTeam,
-    teamsReady,
     setSelectedTeamId,
+    teamsReady,
     pendingRequests,
   } = useTeam();
   const { navigate } = useRouter();
+
+  const [open, setOpen] = useState(false);
+
+  const selectedOrg = useMemo(
+    () => organizations.find((org) => org.id === selectedOrgId) ?? null,
+    [organizations, selectedOrgId],
+  );
 
   // Requests for teams the user already belongs to are incoming ones they
   // administer — surfaced as a count on the team row. Anything else is the
@@ -69,140 +75,15 @@ export const OrgTeamSwitcherPanel: React.FC<{ onDone?: () => void }> = ({ onDone
   const handleSelectTeam = useCallback(
     (teamId: string) => {
       setSelectedTeamId(teamId);
-      onDone?.();
+      setOpen(false);
     },
-    [setSelectedTeamId, onDone],
+    [setSelectedTeamId],
   );
 
   const handleNewTeam = useCallback(() => {
-    onDone?.();
+    setOpen(false);
     navigate('/app/teams');
-  }, [navigate, onDone]);
-
-  return (
-    <div>
-      {organizations.length > 0 && (
-        <div className="mb-3">
-          <Text
-            as="span"
-            variant="muted"
-            size="xs"
-            className="mb-1 block font-semibold uppercase tracking-wide"
-          >
-            Organization
-          </Text>
-          <Select
-            aria-label="Organization"
-            value={selectedOrgId ?? ''}
-            onValueChange={(id: string) => setSelectedOrgId(id)}
-            options={organizations.map((organization) => ({
-              value: organization.id,
-              label: organization.role
-                ? `${organization.name} — ${ROLE_LABEL[organization.role]}`
-                : organization.name,
-            }))}
-          />
-        </div>
-      )}
-
-      <Text
-        as="span"
-        variant="muted"
-        size="xs"
-        className="mb-1 block font-semibold uppercase tracking-wide"
-      >
-        Team
-      </Text>
-
-      {teamsReady && teams.length === 0 && (
-        <div className="px-1 py-2">
-          <Text as="span" variant="muted" size="sm">
-            No teams in this organization
-          </Text>
-        </div>
-      )}
-
-      <div className="max-h-52 space-y-1 overflow-y-auto">
-        {teams.map((team) => {
-          const pendingCount = pendingCountByTeam.get(team.id) ?? 0;
-          const selected = team.id === selectedTeam?.id;
-          return (
-            <button
-              key={team.id}
-              type="button"
-              onClick={() => handleSelectTeam(team.id)}
-              aria-current={selected ? 'true' : undefined}
-              className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                selected
-                  ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/10 dark:text-primary-300'
-                  : 'text-neutral-700 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:bg-neutral-800'
-              }`}
-            >
-              <span className="min-w-0 truncate" title={team.name}>
-                {team.name}
-              </span>
-              <span className="flex shrink-0 items-center gap-2">
-                {pendingCount > 0 && (
-                  <Badge variant="default" size="sm">
-                    {pendingCount}
-                  </Badge>
-                )}
-                <span className="text-xs text-neutral-400 dark:text-neutral-500">
-                  {team.members.length} member{team.members.length === 1 ? '' : 's'}
-                </span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {ownPendingRequests.length > 0 && (
-        <div className="mt-3">
-          <Text
-            as="span"
-            variant="muted"
-            size="xs"
-            className="mb-1 block font-semibold uppercase tracking-wide"
-          >
-            Awaiting approval
-          </Text>
-          {ownPendingRequests.map((req) => (
-            <div
-              key={req.id}
-              className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm text-neutral-400 opacity-60"
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <FontAwesomeIcon icon={faClock} className="shrink-0 text-xs" />
-                <span className="truncate">{req.teamCode}</span>
-              </span>
-              <Badge variant="warning" size="sm">
-                Pending
-              </Badge>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <button
-        type="button"
-        onClick={handleNewTeam}
-        className="mt-3 text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
-      >
-        + New team
-      </button>
-    </div>
-  );
-};
-
-export const OrgTeamSwitcher: React.FC = () => {
-  const { organizations, selectedOrgId, teams, selectedTeam, teamsReady } = useTeam();
-
-  const [open, setOpen] = useState(false);
-
-  const selectedOrg = useMemo(
-    () => organizations.find((org) => org.id === selectedOrgId) ?? null,
-    [organizations, selectedOrgId],
-  );
+  }, [navigate]);
 
   if (organizations.length === 0 && teams.length === 0) return null;
 
@@ -215,10 +96,8 @@ export const OrgTeamSwitcher: React.FC = () => {
 
   return (
     /* Shares the header squeeze with the page title rather than forcing the
-       title to absorb all of it — both ellipse instead of one vanishing.
-       Desktop renders the switcher inline in the sidebar instead (see
-       `Sidebar.tsx`), so this trigger only appears below `md`. */
-    <div className="org-team-switcher min-w-0 shrink md:hidden">
+       title to absorb all of it — both ellipse instead of one vanishing. */
+    <div className="org-team-switcher min-w-0 shrink">
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -229,12 +108,12 @@ export const OrgTeamSwitcher: React.FC = () => {
       >
         <Logo size={28} />
         <span className="min-w-0 text-left">
-          <span className="block max-w-[45vw] truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+          <span className="block max-w-[45vw] truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100 md:max-w-[12rem]">
             {teamLabel}
           </span>
           {selectedOrg && (
             <span className="flex min-w-0 items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-              <span className="max-w-[45vw] truncate" title={selectedOrg.name}>
+              <span className="max-w-[45vw] truncate md:max-w-[12rem]" title={selectedOrg.name}>
                 {selectedOrg.name}
               </span>
               <FontAwesomeIcon icon={faChevronDown} className="shrink-0 text-[9px]" />
@@ -247,11 +126,119 @@ export const OrgTeamSwitcher: React.FC = () => {
         <Modal open={open} onOpenChange={setOpen} size="sm">
           <ModalHeader>Switch organization / team</ModalHeader>
           <ModalBody className="space-y-1">
-            <OrgTeamSwitcherPanel onDone={() => setOpen(false)} />
-          </ModalBody>
-        </Modal>,
-        document.body,
-      )}
+          {organizations.length > 0 && (
+            <div className="mb-3">
+              <Text
+                as="span"
+                variant="muted"
+                size="xs"
+                className="mb-1 block font-semibold uppercase tracking-wide"
+              >
+                Organization
+              </Text>
+              <Select
+                aria-label="Organization"
+                value={selectedOrgId ?? ''}
+                onValueChange={(id: string) => setSelectedOrgId(id)}
+                options={organizations.map((organization) => ({
+                  value: organization.id,
+                  label: organization.role
+                    ? `${organization.name} — ${ROLE_LABEL[organization.role]}`
+                    : organization.name,
+                }))}
+              />
+            </div>
+          )}
+
+          <Text
+            as="span"
+            variant="muted"
+            size="xs"
+            className="mb-1 block font-semibold uppercase tracking-wide"
+          >
+            Team
+          </Text>
+
+          {teamsReady && teams.length === 0 && (
+            <div className="px-1 py-2">
+              <Text as="span" variant="muted" size="sm">
+                No teams in this organization
+              </Text>
+            </div>
+          )}
+
+          <div className="max-h-52 space-y-1 overflow-y-auto">
+            {teams.map((team) => {
+              const pendingCount = pendingCountByTeam.get(team.id) ?? 0;
+              const selected = team.id === selectedTeam?.id;
+              return (
+                <button
+                  key={team.id}
+                  type="button"
+                  onClick={() => handleSelectTeam(team.id)}
+                  aria-current={selected ? 'true' : undefined}
+                  className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+                    selected
+                      ? 'bg-primary-50 text-primary-700 dark:bg-primary-500/10 dark:text-primary-300'
+                      : 'text-neutral-700 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:bg-neutral-800'
+                  }`}
+                >
+                  <span className="min-w-0 truncate" title={team.name}>
+                    {team.name}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    {pendingCount > 0 && (
+                      <Badge variant="default" size="sm">
+                        {pendingCount}
+                      </Badge>
+                    )}
+                    <span className="text-xs text-neutral-400 dark:text-neutral-500">
+                      {team.members.length} member{team.members.length === 1 ? '' : 's'}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {ownPendingRequests.length > 0 && (
+            <div className="mt-3">
+              <Text
+                as="span"
+                variant="muted"
+                size="xs"
+                className="mb-1 block font-semibold uppercase tracking-wide"
+              >
+                Awaiting approval
+              </Text>
+              {ownPendingRequests.map((req) => (
+                <div
+                  key={req.id}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm text-neutral-400 opacity-60"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <FontAwesomeIcon icon={faClock} className="shrink-0 text-xs" />
+                    <span className="truncate">{req.teamCode}</span>
+                  </span>
+                  <Badge variant="warning" size="sm">
+                    Pending
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={handleNewTeam}
+            className="mt-3 text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
+          >
+            + New team
+          </button>
+        </ModalBody>
+      </Modal>,
+      document.body,
+    )}
     </div>
   );
 };

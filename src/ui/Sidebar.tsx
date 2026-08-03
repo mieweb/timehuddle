@@ -47,7 +47,6 @@ const isReload = (() => {
 
 import { useSidebar } from './AppLayout';
 import { Logo } from './Logo';
-import { OrgTeamSwitcherPanel } from './OrgTeamSwitcher';
 import { useRouter } from './router';
 
 // ─── Nav data ─────────────────────────────────────────────────────────────────
@@ -197,15 +196,6 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
           </AnimatePresence>
         </span>
       </div>
-
-      {/* Org/team switcher — inline in the desktop sidebar, matching the
-          redesign prototype (mobile keeps the header pill + bottom sheet
-          from OrgTeamSwitcher instead; collapsed rail has no room for it). */}
-      {variant === 'rail' && expanded && (
-        <div className="shrink-0 border-b border-neutral-200 px-3 py-3 dark:border-neutral-800">
-          <OrgTeamSwitcherPanel />
-        </div>
-      )}
 
       {/* Nav */}
       <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-4" aria-label="Main navigation">
