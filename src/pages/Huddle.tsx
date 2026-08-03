@@ -191,7 +191,7 @@ export default function Huddle() {
 
   return (
     <AppPage fill flush>
-      <div className="huddle flex h-full min-h-0 flex-col gap-4 md:mx-auto md:w-full md:max-w-2xl md:px-6 md:pb-6">
+      <div className="huddle flex h-full min-h-0 flex-col gap-4 md:mx-auto md:w-full md:max-w-4xl md:px-6 md:pb-6">
         {/* Feed / Drafts tabs + actions */}
         <div className="huddle-actions flex shrink-0 items-center gap-2 px-4 md:px-0">
           <div className="flex items-center gap-1 rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800">
