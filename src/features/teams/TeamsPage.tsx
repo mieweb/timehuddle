@@ -935,6 +935,7 @@ export const TeamsPage: React.FC = () => {
                 onChange={(e) => setTeamNameDraft(e.target.value)}
                 onBlur={handleRenameTeam}
                 onKeyDown={(e) => e.key === 'Enter' && handleRenameTeam()}
+                disabled={renameLoading}
                 className="flex-1"
               />
               <Button

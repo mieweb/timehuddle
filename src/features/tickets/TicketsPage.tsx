@@ -49,6 +49,7 @@ import {
 } from '@mieweb/ui';
 import { Capacitor } from '@capacitor/core';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import {
   teamApi,
@@ -297,12 +298,7 @@ const TicketRow: React.FC<TicketRowProps> = ({
           open={menuOpen}
           onOpenChange={setMenuOpen}
           trigger={
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Ticket options"
-              className="opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
-            >
+            <Button variant="ghost" size="icon" aria-label="Ticket options">
               <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
             </Button>
           }
@@ -394,6 +390,9 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
   children,
 }) => {
   const [open, setOpen] = React.useState(false);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+  const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({});
 
   // On narrow/native screens the filter bar wraps, so filters that prefer
   // bottom-end (right-aligned) can end up on the left side of the screen.
@@ -417,32 +416,100 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
     [onOpenChange],
   );
 
+  // The menu is portaled to <body> and positioned with `fixed` coordinates
+  // computed from the trigger's own rect — this lets it escape the mobile
+  // filter-chip row's `overflow-x-auto`, which (per the CSS overflow spec)
+  // also clips the *vertical* axis once any non-"visible" overflow is set,
+  // silently cutting off an absolutely-positioned menu docked below it.
+  const updatePosition = React.useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const gutter = 8;
+    if (effectivePlacement === 'bottom-end') {
+      setMenuStyle({
+        position: 'fixed',
+        top: rect.bottom + 8,
+        right: Math.max(gutter, window.innerWidth - rect.right),
+        left: 'auto',
+      });
+    } else {
+      setMenuStyle({
+        position: 'fixed',
+        top: rect.bottom + 8,
+        left: Math.max(gutter, rect.left),
+        right: 'auto',
+      });
+    }
+  }, [effectivePlacement]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open, updatePosition]);
+
+  // Close on outside click / Escape — the library's Dropdown handles this
+  // internally, but we're no longer using it for the menu itself since it
+  // needs to live in a portal.
+  React.useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      handleOpenChange(false);
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleOpenChange(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open, handleOpenChange]);
+
   return (
-    <Dropdown
-      open={open}
-      onOpenChange={handleOpenChange}
-      trigger={
-        <button
-          className={`flex items-center gap-1 text-xs font-medium transition-colors ${
-            activeLabel
-              ? 'text-neutral-900 dark:text-neutral-100'
-              : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-          }`}
-        >
-          {activeLabel ? `${label}: ${activeLabel}` : label}
-          <FontAwesomeIcon icon={faChevronDown} className="text-[10px]" />
-        </button>
-      }
-      placement={effectivePlacement}
-      className="z-[9999] max-w-[calc(100vw-1rem)] bg-white dark:bg-neutral-800"
-    >
-      {/* Clicking any item bubbles up to this div and closes the dropdown */}
-      <div onClick={() => handleOpenChange(false)}>
-        <DropdownContent className="max-h-[60vh] overflow-y-auto bg-white dark:bg-neutral-800 shadow-lg">
-          {children}
-        </DropdownContent>
-      </div>
-    </Dropdown>
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => handleOpenChange(!open)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`flex items-center gap-1 text-xs font-medium transition-colors ${
+          activeLabel
+            ? 'text-neutral-900 dark:text-neutral-100'
+            : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+        }`}
+      >
+        {activeLabel ? `${label}: ${activeLabel}` : label}
+        <FontAwesomeIcon icon={faChevronDown} className="text-[10px]" />
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            style={menuStyle}
+            className="z-9999 max-w-[calc(100vw-1rem)] min-w-48 rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
+            /* Clicking any item bubbles up here and closes the dropdown */
+            onClick={() => handleOpenChange(false)}
+          >
+            <DropdownContent className="max-h-[60vh] overflow-y-auto bg-white dark:bg-neutral-800 shadow-lg">
+              {children}
+            </DropdownContent>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 };
 
