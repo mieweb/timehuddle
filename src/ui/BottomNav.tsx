@@ -176,12 +176,11 @@ export const BottomNav: React.FC = () => {
     },
   ];
 
-  const SECTION_CONFIG: Record<Exclude<MoreSection, 'root'>, { label: string; rows: MoreRow[] }> =
-    {
-      admin: { label: 'Admin', rows: adminRows },
-      developers: { label: 'Developers', rows: developerRows },
-      help: { label: 'Help', rows: helpRows },
-    };
+  const SECTION_CONFIG: Record<Exclude<MoreSection, 'root'>, { label: string; rows: MoreRow[] }> = {
+    admin: { label: 'Admin', rows: adminRows },
+    developers: { label: 'Developers', rows: developerRows },
+    help: { label: 'Help', rows: helpRows },
+  };
 
   // Plan-first gate: the FAB always navigates to the clock page (where the
   // inline composer lives) in full color — it's a link, not a disabled

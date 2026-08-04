@@ -844,7 +844,9 @@ export const DashboardPage: React.FC = () => {
                               variant="muted"
                               className="mt-0.5 leading-snug text-neutral-500 dark:text-neutral-400"
                             >
-                              {post.clockEventId ? 'Posted their plan & clocked in' : 'Shared an update'}
+                              {post.clockEventId
+                                ? 'Posted their plan & clocked in'
+                                : 'Shared an update'}
                             </Text>
                             {post.content.text && (
                               <Text
@@ -855,7 +857,11 @@ export const DashboardPage: React.FC = () => {
                               </Text>
                             )}
                           </div>
-                          <Text variant="muted" size="xs" className="mt-0.5 shrink-0 whitespace-nowrap">
+                          <Text
+                            variant="muted"
+                            size="xs"
+                            className="mt-0.5 shrink-0 whitespace-nowrap"
+                          >
                             {formatPostTimestamp(post.createdAt)}
                           </Text>
                         </button>
