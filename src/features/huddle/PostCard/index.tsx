@@ -6,6 +6,7 @@ import { HuddleComments } from '../HuddleComments';
 import { HuddleComposer } from '../HuddleComposer';
 import { toPostAttachment } from '../api';
 import type { ComposerContent, MediaItem } from '../types';
+import { useRouter } from '../../../ui/router';
 import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
 
@@ -170,6 +171,8 @@ export function PostCard({
   const authorName = (post as any).userName || 'Unknown User';
   const authorInitials = (post as any).userInitials || getUserInitials(authorName);
   const avatarColor = getUserColor(post.userId);
+  const { navigate } = useRouter();
+  const goToAuthorProfile = () => navigate(`/app/profile/${post.userId}`);
 
   return (
     <div
@@ -181,10 +184,23 @@ export function PostCard({
     >
       {/* ── Author header ── */}
       <div className="flex items-center gap-2.5 mb-3">
-        <Avatar initials={authorInitials} color={avatarColor} />
+        <button
+          type="button"
+          onClick={goToAuthorProfile}
+          aria-label={`View ${authorName}'s profile`}
+          className="shrink-0 rounded-full transition-opacity hover:opacity-80"
+        >
+          <Avatar initials={authorInitials} color={avatarColor} />
+        </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-sm text-gray-900 dark:text-white">{authorName}</span>
+            <button
+              type="button"
+              onClick={goToAuthorProfile}
+              className="font-medium text-sm text-gray-900 dark:text-white hover:underline"
+            >
+              {authorName}
+            </button>
             <span className="text-xs text-gray-500 dark:text-neutral-400">
               {formatTimestamp(post.createdAt)}
             </span>
@@ -358,7 +374,7 @@ export function PostCard({
       )}
 
       {/* ── Actions ── */}
-      <div className="flex items-center gap-0.5 py-2 border-t border-gray-100 dark:border-neutral-700 -mx-1">
+      <div className="flex items-center gap-0.5 py-2 border-t border-gray-100 dark:border-neutral-700 -mx-5 px-5">
         <button
           onClick={async () => {
             try {
