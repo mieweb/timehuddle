@@ -140,23 +140,26 @@ html[data-theme='dark'] {
   }
 }
 
-/* Org/team switcher Modal — always a bottom sheet on all screen sizes.
- * `align-self:end` pushes it to the bottom of the library's centering flex
- * container without forking the Modal component.
+/* Org/team switcher Modal — a bottom sheet on mobile only; desktop keeps the
+ * Modal's normal centered-dialog layout (per the component's own doc comment
+ * and the redesign spec). `align-self:end` pushes it to the bottom of the
+ * library's centering flex container without forking the Modal component.
  */
-[data-slot='modal'].org-switcher-modal {
-  align-self: end !important;
-  min-height: auto !important;
-  max-height: 88dvh !important;
-  width: 100% !important;
-  border-radius: 1rem 1rem 0 0 !important;
-  animation: none !important;
-}
-[data-slot='modal'].org-switcher-modal[data-state='open'] {
-  animation: mieweb-modal-fade-in 150ms ease-out both !important;
-}
-[data-slot='modal'].org-switcher-modal[data-state='closed'] {
-  animation: mieweb-modal-fade-out 120ms ease-in both !important;
+@media (max-width: 767px) {
+  [data-slot='modal'].org-switcher-modal {
+    align-self: end !important;
+    min-height: auto !important;
+    max-height: 88dvh !important;
+    width: 100% !important;
+    border-radius: 1rem 1rem 0 0 !important;
+    animation: none !important;
+  }
+  [data-slot='modal'].org-switcher-modal[data-state='open'] {
+    animation: mieweb-modal-fade-in 150ms ease-out both !important;
+  }
+  [data-slot='modal'].org-switcher-modal[data-state='closed'] {
+    animation: mieweb-modal-fade-out 120ms ease-in both !important;
+  }
 }
 
 @keyframes mieweb-modal-fade-in {
