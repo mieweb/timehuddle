@@ -184,7 +184,7 @@ export const DashboardPage: React.FC = () => {
         .filter((p) => p.teamId === selectedTeamId && p.status !== 'draft')
         .map((p) => ({ ...p, id: (p.id ?? p._id) as string }) as unknown as HuddlePost)
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        .slice(0, 6);
+        .slice(0, 10);
       setRecentPosts(teamPosts);
     };
     syncPosts();
