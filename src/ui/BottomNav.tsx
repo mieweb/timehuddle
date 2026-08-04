@@ -14,6 +14,9 @@
  */
 import {
   faBell,
+  faBug,
+  faBuilding,
+  faChevronLeft,
   faCircleStop,
   faCircleUser,
   faClock,
@@ -23,21 +26,30 @@ import {
   faEnvelope,
   faGauge,
   faGear,
+  faCircleQuestion,
   faListCheck,
   faPhotoFilm,
   faSitemap,
   faStopwatch,
   faTable,
   faUsers,
+  faWrench,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons';
+import { faApple } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import React, { useState } from 'react';
 
+import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
+import { useTeam } from '../lib/TeamContext';
 import { useClockToggle } from '../lib/useClockToggle';
 import { useSession } from '../lib/useSession';
+import { useAppFeedback } from './AppLayout';
 import { useRouter } from './router';
+
+// Update this URL once the TestFlight build is published in App Store Connect.
+const TESTFLIGHT_URL = 'https://testflight.apple.com/join/45w2knYf';
 
 interface NavTab {
   icon: typeof faGauge;
@@ -74,11 +86,25 @@ const MORE_ITEMS: MoreItem[] = [
   { icon: faGear, label: 'Settings', href: '/app/settings' },
 ];
 
+/** Sub-sections of the More sheet — grouped destinations from the desktop
+ *  account menu (Admin/Developers/Help) that drill down into a row list
+ *  instead of navigating away immediately. */
+type MoreSection = 'root' | 'admin' | 'developers' | 'help';
+
+interface MoreRow {
+  icon: typeof faGauge;
+  label: string;
+  onClick: () => void;
+}
+
 export const BottomNav: React.FC = () => {
   const { pathname, navigate } = useRouter();
   const { isClockedIn, planGate } = useClockToggle();
   const { user } = useSession();
+  const { enterprises } = useTeam();
+  const { openFeedback, openReportIssue } = useAppFeedback();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [moreSection, setMoreSection] = useState<MoreSection>('root');
 
   React.useEffect(() => {
     if (!moreOpen) return undefined;
@@ -94,15 +120,68 @@ export const BottomNav: React.FC = () => {
     };
   }, [moreOpen]);
 
-  const openMore = () => setMoreOpen(true);
-  const goToMoreItem = (href: string) => {
+  const openMore = () => {
+    setMoreSection('root');
+    setMoreOpen(true);
+  };
+  const closeMore = () => {
     setMoreOpen(false);
+    setMoreSection('root');
+  };
+  const goToMoreItem = (href: string) => {
+    closeMore();
     navigate(href);
   };
   const goToProfile = () => {
-    setMoreOpen(false);
+    closeMore();
     navigate(user?.username ? `/app/profile/${user.username}` : '/app/settings');
   };
+
+  const showAdmin = hasDefaultOrganizationAdminAccess(user) || enterprises.length > 0;
+  const showDevelopers = import.meta.env.MODE !== 'production';
+
+  const adminRows: MoreRow[] = [
+    ...(enterprises.length > 0
+      ? [{ icon: faBuilding, label: 'Enterprise', onClick: () => goToMoreItem('/app/enterprise') }]
+      : []),
+    { icon: faUsers, label: 'Members', onClick: () => goToMoreItem('/app/org/members') },
+  ];
+  const developerRows: MoreRow[] = [
+    { icon: faWrench, label: 'Seeder', onClick: () => goToMoreItem('/app/seeder') },
+  ];
+  const helpRows: MoreRow[] = [
+    {
+      icon: faBug,
+      label: 'Report an Issue',
+      onClick: () => {
+        closeMore();
+        openReportIssue();
+      },
+    },
+    {
+      icon: faComments,
+      label: 'Share Your Feedback',
+      onClick: () => {
+        closeMore();
+        openFeedback();
+      },
+    },
+    {
+      icon: faApple,
+      label: 'TestFlight',
+      onClick: () => {
+        closeMore();
+        window.open(TESTFLIGHT_URL, '_blank', 'noopener,noreferrer');
+      },
+    },
+  ];
+
+  const SECTION_CONFIG: Record<Exclude<MoreSection, 'root'>, { label: string; rows: MoreRow[] }> =
+    {
+      admin: { label: 'Admin', rows: adminRows },
+      developers: { label: 'Developers', rows: developerRows },
+      help: { label: 'Help', rows: helpRows },
+    };
 
   // Plan-first gate: the FAB always navigates to the clock page (where the
   // inline composer lives) in full color — it's a link, not a disabled
@@ -198,7 +277,7 @@ export const BottomNav: React.FC = () => {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
               className="absolute inset-0 bg-black/40"
-              onClick={() => setMoreOpen(false)}
+              onClick={closeMore}
             />
             <motion.div
               initial={{ y: '100%' }}
@@ -207,11 +286,23 @@ export const BottomNav: React.FC = () => {
               transition={{ type: 'spring', damping: 30, stiffness: 300 }}
               className="absolute inset-x-0 bottom-0 flex max-h-[88vh] flex-col rounded-t-2xl bg-white pb-[env(safe-area-inset-bottom)] shadow-xl dark:bg-neutral-900"
             >
-              <div className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-5 py-4 dark:border-neutral-800">
-                <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">More</h2>
+              <div className="flex shrink-0 items-center gap-2 border-b border-neutral-100 px-5 py-4 dark:border-neutral-800">
+                {moreSection !== 'root' && (
+                  <button
+                    type="button"
+                    onClick={() => setMoreSection('root')}
+                    aria-label="Back"
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                  >
+                    <FontAwesomeIcon icon={faChevronLeft} />
+                  </button>
+                )}
+                <h2 className="flex-1 font-semibold text-neutral-900 dark:text-neutral-100">
+                  {moreSection === 'root' ? 'More' : SECTION_CONFIG[moreSection].label}
+                </h2>
                 <button
                   type="button"
-                  onClick={() => setMoreOpen(false)}
+                  onClick={closeMore}
                   aria-label="Close"
                   className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 >
@@ -219,21 +310,65 @@ export const BottomNav: React.FC = () => {
                 </button>
               </div>
               <div className="overflow-y-auto px-5 py-4">
-                <div className="grid grid-cols-3 gap-3">
-                  {MORE_ITEMS.map((item) => (
+                {moreSection === 'root' ? (
+                  <div className="grid grid-cols-3 gap-3">
+                    {MORE_ITEMS.map((item) => (
+                      <button
+                        key={item.label}
+                        type="button"
+                        onClick={
+                          item.label === 'Profile' ? goToProfile : () => goToMoreItem(item.href)
+                        }
+                        className="flex flex-col items-center gap-1.5 rounded-xl bg-neutral-50 py-4 text-neutral-700 transition-colors hover:bg-neutral-100 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                      >
+                        <FontAwesomeIcon icon={item.icon} className="text-xl" />
+                        <span className="text-xs font-medium">{item.label}</span>
+                      </button>
+                    ))}
+                    {showAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setMoreSection('admin')}
+                        className="flex flex-col items-center gap-1.5 rounded-xl bg-neutral-50 py-4 text-neutral-700 transition-colors hover:bg-neutral-100 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                      >
+                        <FontAwesomeIcon icon={faBuilding} className="text-xl" />
+                        <span className="text-xs font-medium">Admin</span>
+                      </button>
+                    )}
+                    {showDevelopers && (
+                      <button
+                        type="button"
+                        onClick={() => setMoreSection('developers')}
+                        className="flex flex-col items-center gap-1.5 rounded-xl bg-neutral-50 py-4 text-neutral-700 transition-colors hover:bg-neutral-100 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                      >
+                        <FontAwesomeIcon icon={faWrench} className="text-xl" />
+                        <span className="text-xs font-medium">Developers</span>
+                      </button>
+                    )}
                     <button
-                      key={item.label}
                       type="button"
-                      onClick={
-                        item.label === 'Profile' ? goToProfile : () => goToMoreItem(item.href)
-                      }
+                      onClick={() => setMoreSection('help')}
                       className="flex flex-col items-center gap-1.5 rounded-xl bg-neutral-50 py-4 text-neutral-700 transition-colors hover:bg-neutral-100 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
                     >
-                      <FontAwesomeIcon icon={item.icon} className="text-xl" />
-                      <span className="text-xs font-medium">{item.label}</span>
+                      <FontAwesomeIcon icon={faCircleQuestion} className="text-xl" />
+                      <span className="text-xs font-medium">Help</span>
                     </button>
-                  ))}
-                </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {SECTION_CONFIG[moreSection].rows.map((row) => (
+                      <button
+                        key={row.label}
+                        type="button"
+                        onClick={row.onClick}
+                        className="flex items-center gap-3 rounded-lg px-3 py-3 text-left text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                      >
+                        <FontAwesomeIcon icon={row.icon} className="w-5 text-base" />
+                        <span className="text-sm font-medium">{row.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </motion.div>
           </div>
