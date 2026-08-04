@@ -45,6 +45,34 @@ export default function Huddle() {
   const { user } = useSession();
   const { selectedTeamId } = useTeam();
 
+  // Deep-link support: /app/huddle?postId=XXX (e.g. from the dashboard's
+  // Recent Activity feed) — scroll to and briefly highlight that post once
+  // it's loaded, then strip the query param.
+  const [targetPostId, setTargetPostId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return new URLSearchParams(window.location.search).get('postId');
+  });
+  const [highlightedPostId, setHighlightedPostId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!targetPostId) return;
+    setFeedTab('feed');
+    setFeedView('cards');
+  }, [targetPostId]);
+
+  useEffect(() => {
+    if (!targetPostId || loading) return;
+    if (!posts.some((p) => p.id === targetPostId)) return;
+    document
+      .getElementById(`huddle-post-${targetPostId}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedPostId(targetPostId);
+    window.history.replaceState(null, '', window.location.pathname);
+    setTargetPostId(null);
+    const timer = setTimeout(() => setHighlightedPostId(null), 2500);
+    return () => clearTimeout(timer);
+  }, [targetPostId, loading, posts]);
+
   // Load team data for permission checks
   useEffect(() => {
     async function loadTeam() {
@@ -353,6 +381,7 @@ export default function Huddle() {
                       currentUserId={user?.id ?? ''}
                       canEdit={canEditPost(post)}
                       canDelete={canDeletePost(post)}
+                      highlighted={post.id === highlightedPostId}
                     />
                   ))}
               </>

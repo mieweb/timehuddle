@@ -66,6 +66,9 @@ interface PostCardProps {
   canEdit: boolean;
   canDelete: boolean;
   onPostUpdated?: () => void;
+  /** Briefly highlighted when navigated to directly (e.g. from the dashboard's
+   *  Recent Activity feed via `/app/huddle?postId=`). */
+  highlighted?: boolean;
 }
 
 export function PostCard({
@@ -74,6 +77,7 @@ export function PostCard({
   canEdit,
   canDelete,
   onPostUpdated,
+  highlighted,
 }: PostCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -169,8 +173,11 @@ export function PostCard({
 
   return (
     <div
+      id={`huddle-post-${post.id}`}
       data-testid="post-card"
-      className="border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800 md:mb-4 md:rounded-xl md:border md:border-gray-200 dark:md:border-neutral-700"
+      className={`border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800 md:mb-4 md:rounded-xl md:border md:border-gray-200 dark:md:border-neutral-700 transition-shadow ${
+        highlighted ? 'ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-neutral-900' : ''
+      }`}
     >
       {/* ── Author header ── */}
       <div className="flex items-center gap-2.5 mb-3">

@@ -23,6 +23,7 @@ import {
   faArrowRight,
   faPlus,
   faRightToBracket,
+  faComments,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -49,10 +50,12 @@ import {
   teamDashboardApi,
   type TeamMemberClockStatus,
   type TeamRunningTimer,
+  type HuddlePost,
 } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
+import { getDdpClient } from '../../lib/ddp';
 import { formatDuration, formatTimer } from '../../lib/timeUtils';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
@@ -96,7 +99,16 @@ export const DashboardPage: React.FC = () => {
   // "Me" is the default — a personal-team user sees their own numbers
   // immediately, and can switch to "Team" to see everyone (even if that's
   // still just themselves on a personal team; the tab is never hidden).
-  const [tab, setTab] = useState<'me' | 'team'>('me');
+  // Persisted so navigating away and back to the dashboard doesn't silently
+  // reset the user back to "Me" after they've chosen "Team".
+  const [tab, _setTab] = useState<'me' | 'team'>(() => {
+    if (typeof window === 'undefined') return 'me';
+    return localStorage.getItem('app:dashboardTab') === 'team' ? 'team' : 'me';
+  });
+  const setTab = useCallback((next: 'me' | 'team') => {
+    _setTab(next);
+    if (typeof window !== 'undefined') localStorage.setItem('app:dashboardTab', next);
+  }, []);
 
   // "Overview" vs "Timesheet" sub-view for the "Me" tab.
   const [meView, setMeView] = useState<'overview' | 'timesheet'>('overview');
@@ -154,6 +166,49 @@ export const DashboardPage: React.FC = () => {
   useEffect(() => {
     if (!canViewTimesheet && teamView === 'timesheet') setTeamView('overview');
   }, [canViewTimesheet, teamView]);
+
+  // ── Recent activity — everyone's published plan/wrap-up posts for this
+  // team, live via the same DDP publication the Huddle feed uses. Clicking
+  // one jumps straight to that post in the feed.
+  const [recentPosts, setRecentPosts] = useState<HuddlePost[]>([]);
+  useEffect(() => {
+    if (!selectedTeamId) {
+      setRecentPosts([]);
+      return;
+    }
+    const ddp = getDdpClient();
+    const syncPosts = () => {
+      const docs = ddp.docs('huddlePosts');
+      const teamPosts = docs
+        .filter((p) => p.teamId === selectedTeamId && p.status !== 'draft')
+        .map((p) => ({ ...p, id: (p.id ?? p._id) as string }) as unknown as HuddlePost)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, 6);
+      setRecentPosts(teamPosts);
+    };
+    syncPosts();
+    const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
+    const unsubscribe = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId], syncPosts);
+    return () => {
+      offChange();
+      unsubscribe();
+      setRecentPosts([]);
+    };
+  }, [selectedTeamId]);
+
+  const goToPost = (postId: string) => navigate(`/app/huddle?postId=${postId}`);
+
+  const formatPostTimestamp = (date: string) => {
+    const diffMs = Date.now() - new Date(date).getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return new Date(date).toLocaleDateString();
+  };
 
   const fetchData = useCallback(async () => {
     if (!user || !selectedTeamId) return;
@@ -745,6 +800,59 @@ export const DashboardPage: React.FC = () => {
               </CardContent>
             </Card>
           )}
+
+          {/* ── Recent activity — everyone's plan/wrap-up posts ──────────────── */}
+          <Card padding="none">
+            <CardHeader className="flex flex-row items-center justify-between px-5 py-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <FontAwesomeIcon icon={faComments} className="text-neutral-400" />
+                Recent activity
+              </CardTitle>
+              <Button variant="link" size="sm" onClick={() => navigate('/app/huddle')}>
+                View all →
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              {recentPosts.length === 0 ? (
+                <div className="px-5 py-6 text-center">
+                  <Text variant="muted" size="sm">
+                    No plan posts or clock-ins yet
+                  </Text>
+                </div>
+              ) : (
+                <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                  {recentPosts.map((post) => (
+                    <li key={post.id}>
+                      <Button
+                        variant="ghost"
+                        onClick={() => goToPost(post.id)}
+                        className="flex w-full items-start gap-3 rounded-none px-5 py-3 text-left hover:opacity-80"
+                        aria-label={`View ${post.userName}'s post`}
+                      >
+                        <UserAvatar name={post.userName} size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <Text size="sm" weight="medium">
+                            {post.userName}{' '}
+                            <span className="font-normal text-neutral-500 dark:text-neutral-400">
+                              {post.clockEventId ? 'posted their plan & clocked in' : 'shared an update'}
+                            </span>
+                          </Text>
+                          {post.content.text && (
+                            <Text variant="muted" size="xs" className="mt-0.5 line-clamp-1">
+                              {post.content.text}
+                            </Text>
+                          )}
+                        </div>
+                        <Text variant="muted" size="xs" className="shrink-0 whitespace-nowrap">
+                          {formatPostTimestamp(post.createdAt)}
+                        </Text>
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
         </>
       )}
     </AppPage>
