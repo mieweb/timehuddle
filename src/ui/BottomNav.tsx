@@ -2,26 +2,41 @@
  * BottomNav — Mobile-only bottom navigation bar.
  *
  * Visible only on small screens (md:hidden).
- * Five tabs: Dashboard, Huddle, Clock In/Out (center FAB), Tickets, Teams.
- * Settings is available via the profile/avatar dropdown in the header.
+ * Five tabs: Dashboard, Huddle, Clock In/Out (center FAB), Tickets, More.
+ * "More" opens a sheet with the remaining sidebar destinations (Teams,
+ * Organization, Timesheet, Work, Media Library, Messages, Notifications,
+ * Activity Log, Profile, Settings) so every sidebar link stays reachable
+ * on mobile without a hamburger drawer.
  * Active tab indicator is an animated bubble that glides between positions.
  * FAB uses CSS brand tokens so it follows brand/theme changes automatically.
  * The FAB navigates to the clock page (rather than toggling directly) so the
  * plan-first gates and their inline composer are always visible.
  */
 import {
+  faBell,
   faCircleStop,
+  faCircleUser,
   faClock,
+  faClockRotateLeft,
   faComments,
+  faEllipsis,
+  faEnvelope,
   faGauge,
+  faGear,
   faListCheck,
+  faPhotoFilm,
+  faSitemap,
+  faStopwatch,
+  faTable,
   faUsers,
+  faXmark,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { motion, MotionConfig } from 'motion/react';
-import React from 'react';
+import { AnimatePresence, motion, MotionConfig } from 'motion/react';
+import React, { useState } from 'react';
 
 import { useClockToggle } from '../lib/useClockToggle';
+import { useSession } from '../lib/useSession';
 import { useRouter } from './router';
 
 interface NavTab {
@@ -29,6 +44,7 @@ interface NavTab {
   label: string;
   href: string;
   isFab?: boolean;
+  isMore?: boolean;
 }
 
 const TABS: NavTab[] = [
@@ -36,12 +52,57 @@ const TABS: NavTab[] = [
   { icon: faComments, label: 'Huddle', href: '/app/huddle' },
   { icon: faClock, label: 'Clock In', href: '/app/clock', isFab: true },
   { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
+  { icon: faEllipsis, label: 'More', href: '', isMore: true },
+];
+
+interface MoreItem {
+  icon: typeof faGauge;
+  label: string;
+  href: string;
+}
+
+const MORE_ITEMS: MoreItem[] = [
   { icon: faUsers, label: 'Teams', href: '/app/teams' },
+  { icon: faSitemap, label: 'Organization', href: '/app/organization' },
+  { icon: faCircleUser, label: 'Profile', href: '/app/settings' },
+  { icon: faTable, label: 'Timesheet', href: '/app/timesheet' },
+  { icon: faStopwatch, label: 'Work', href: '/app/work' },
+  { icon: faPhotoFilm, label: 'Media Library', href: '/app/media' },
+  { icon: faEnvelope, label: 'Messages', href: '/app/messages' },
+  { icon: faBell, label: 'Notifications', href: '/app/notifications' },
+  { icon: faClockRotateLeft, label: 'Activity Log', href: '/app/activity' },
+  { icon: faGear, label: 'Settings', href: '/app/settings' },
 ];
 
 export const BottomNav: React.FC = () => {
   const { pathname, navigate } = useRouter();
   const { isClockedIn, planGate } = useClockToggle();
+  const { user } = useSession();
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  React.useEffect(() => {
+    if (!moreOpen) return undefined;
+    const original = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMoreOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = original;
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [moreOpen]);
+
+  const openMore = () => setMoreOpen(true);
+  const goToMoreItem = (href: string) => {
+    setMoreOpen(false);
+    navigate(href);
+  };
+  const goToProfile = () => {
+    setMoreOpen(false);
+    navigate(user?.username ? `/app/profile/${user.username}` : '/app/settings');
+  };
 
   // Plan-first gate: the FAB always navigates to the clock page (where the
   // inline composer lives) in full color — it's a link, not a disabled
@@ -97,11 +158,12 @@ export const BottomNav: React.FC = () => {
 
           return (
             <button
-              key={tab.href}
+              key={tab.href || tab.label}
               type="button"
-              onClick={() => navigate(tab.href)}
+              onClick={tab.isMore ? openMore : () => navigate(tab.href)}
               aria-label={tab.label}
               aria-current={isActive ? 'page' : undefined}
+              aria-haspopup={tab.isMore ? 'dialog' : undefined}
               className={[
                 'relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-xs transition-colors',
                 isActive
@@ -126,6 +188,57 @@ export const BottomNav: React.FC = () => {
           );
         })}
       </nav>
+
+      <AnimatePresence>
+        {moreOpen && (
+          <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="More">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="absolute inset-0 bg-black/40"
+              onClick={() => setMoreOpen(false)}
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+              className="absolute inset-x-0 bottom-0 flex max-h-[88vh] flex-col rounded-t-2xl bg-white pb-[env(safe-area-inset-bottom)] shadow-xl dark:bg-neutral-900"
+            >
+              <div className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-5 py-4 dark:border-neutral-800">
+                <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">More</h2>
+                <button
+                  type="button"
+                  onClick={() => setMoreOpen(false)}
+                  aria-label="Close"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                >
+                  <FontAwesomeIcon icon={faXmark} />
+                </button>
+              </div>
+              <div className="overflow-y-auto px-5 py-4">
+                <div className="grid grid-cols-3 gap-3">
+                  {MORE_ITEMS.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={
+                        item.label === 'Profile' ? goToProfile : () => goToMoreItem(item.href)
+                      }
+                      className="flex flex-col items-center gap-1.5 rounded-xl bg-neutral-50 py-4 text-neutral-700 transition-colors hover:bg-neutral-100 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                    >
+                      <FontAwesomeIcon icon={item.icon} className="text-xl" />
+                      <span className="text-xs font-medium">{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </MotionConfig>
   );
 };

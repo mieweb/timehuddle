@@ -5,9 +5,8 @@
  * 64 px (collapsed / icon-only) using a spring. Collapse control lives in the
  * rail footer.
  *
- * Mobile drawer (< md): slides in from the left when isMobileOpen is true.
- * The drawer always shows icons with labels (never icon-only) and does not
- * show the rail collapse control — the hamburger/drawer is the primary pattern.
+ * On mobile (< md) the rail is hidden entirely — every sidebar destination is
+ * reachable via the bottom nav's More sheet instead of a hamburger drawer.
  *
  * Labels fade in/out with AnimatePresence on the rail so they never clip during resize.
  */
@@ -30,10 +29,8 @@ import {
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
-import { Button } from '@mieweb/ui';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import React, { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 
 import { notificationApi } from '../lib/api';
 
@@ -106,17 +103,14 @@ const NavLink: React.FC<{ item: NavItem; active: boolean; expanded: boolean }> =
   expanded,
 }) => {
   const { navigate } = useRouter();
-  const { closeMobile } = useSidebar();
   return (
     <button
       type="button"
       onClick={() => {
         if (item.external) {
           window.open(item.href, '_blank', 'noopener,noreferrer');
-          closeMobile();
         } else {
           navigate(item.href);
-          closeMobile();
         }
       }}
       className={[
@@ -337,51 +331,19 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 export const Sidebar: React.FC = () => {
-  const { isExpanded, isMobileOpen, closeMobile } = useSidebar();
+  const { isExpanded } = useSidebar();
 
   return (
     <MotionConfig transition={isReload ? { duration: 0 } : undefined}>
-      <>
-        {/* ── Desktop: animated-width panel ─────────────────────────────── */}
-        <motion.aside
-          className="hidden h-full shrink-0 flex-col overflow-hidden border-r border-neutral-200 bg-white md:flex dark:border-neutral-800 dark:bg-neutral-900"
-          animate={{ width: isExpanded ? 240 : 64 }}
-          transition={isReload ? { duration: 0 } : { type: 'spring', damping: 28, stiffness: 280 }}
-        >
-          <SidebarContent variant="rail" />
-        </motion.aside>
-
-        {/* ── Mobile: slide-in drawer ────────────────────────────────────── */}
-        {createPortal(
-          <AnimatePresence>
-            {isMobileOpen && (
-              <motion.aside
-                className="fixed bottom-0 left-0 top-0 z-50 flex w-[70vw] max-w-65 flex-col overflow-hidden border-r border-neutral-200 bg-white shadow-xl md:hidden dark:border-neutral-800 dark:bg-neutral-900"
-                initial={{ x: '-100%' }}
-                animate={{ x: 0 }}
-                exit={{ x: '-100%' }}
-                transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-                aria-modal
-                role="dialog"
-                aria-label="Navigation"
-              >
-                {/* Close button for a11y */}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={closeMobile}
-                  className="absolute right-3 top-3"
-                  aria-label="Close navigation"
-                >
-                  ✕
-                </Button>
-                <SidebarContent variant="drawer" />
-              </motion.aside>
-            )}
-          </AnimatePresence>,
-          document.body,
-        )}
-      </>
+      {/* Desktop: animated-width panel. The mobile drawer was removed — all
+          sidebar destinations are reachable via the bottom nav's More sheet. */}
+      <motion.aside
+        className="hidden h-full shrink-0 flex-col overflow-hidden border-r border-neutral-200 bg-white md:flex dark:border-neutral-800 dark:bg-neutral-900"
+        animate={{ width: isExpanded ? 240 : 64 }}
+        transition={isReload ? { duration: 0 } : { type: 'spring', damping: 28, stiffness: 280 }}
+      >
+        <SidebarContent variant="rail" />
+      </motion.aside>
     </MotionConfig>
   );
 };

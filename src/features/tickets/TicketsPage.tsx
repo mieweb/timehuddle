@@ -438,6 +438,9 @@ interface FilterDropdownProps {
   activeMenuId?: string | null;
   /** This dropdown's own id — used to decide whether to self-close. */
   menuId?: string;
+  /** Container the menu must stay within (e.g. the ticket list card) — the
+   *  menu is clamped to this element's bounds in addition to the viewport. */
+  boundaryRef?: React.RefObject<HTMLElement | null>;
   onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
 }
@@ -448,6 +451,7 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
   placement = 'bottom-start',
   activeMenuId,
   menuId,
+  boundaryRef,
   onOpenChange,
   children,
 }) => {
@@ -488,6 +492,7 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
     const gutter = 8;
+    shiftAppliedRef.current = false;
     if (effectivePlacement === 'bottom-end') {
       setMenuStyle({
         position: 'fixed',
@@ -515,6 +520,47 @@ const FilterDropdown: React.FC<FilterDropdownProps> = ({
       window.removeEventListener('scroll', updatePosition, true);
     };
   }, [open, updatePosition]);
+
+  // `updatePosition` anchors the menu to the trigger before its actual
+  // (content-dependent) width is known, so a menu docked near a screen edge
+  // — e.g. "Assignee" wrapping to bottom-start on mobile — can still render
+  // partly off-screen or spill outside the ticket list card. Once mounted,
+  // measure the real box and nudge it back within the viewport (and the
+  // card, if `boundaryRef` is given). Guarded by a ref (reset each time it
+  // opens) so the resulting `setMenuStyle` call doesn't re-trigger itself.
+  const shiftAppliedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!open) shiftAppliedRef.current = false;
+  }, [open]);
+
+  React.useLayoutEffect(() => {
+    if (!open || shiftAppliedRef.current) return;
+    const menu = menuRef.current;
+    if (!menu) return;
+    shiftAppliedRef.current = true;
+    const rect = menu.getBoundingClientRect();
+    const gutter = 8;
+    const boundaryRect = boundaryRef?.current?.getBoundingClientRect();
+    const maxRight = boundaryRect
+      ? Math.min(window.innerWidth - gutter, boundaryRect.right - gutter)
+      : window.innerWidth - gutter;
+    const minLeft = boundaryRect ? Math.max(gutter, boundaryRect.left + gutter) : gutter;
+    const overflowRight = rect.right - maxRight;
+    const overflowLeft = minLeft - rect.left;
+    if (overflowRight > 0) {
+      setMenuStyle((prev) =>
+        typeof prev.left === 'number'
+          ? { ...prev, left: Math.max(minLeft, prev.left - overflowRight) }
+          : typeof prev.right === 'number'
+            ? { ...prev, right: Math.max(gutter, prev.right + overflowRight) }
+            : prev,
+      );
+    } else if (overflowLeft > 0) {
+      setMenuStyle((prev) =>
+        typeof prev.left === 'number' ? { ...prev, left: prev.left + overflowLeft } : prev,
+      );
+    }
+  }, [open, menuStyle, boundaryRef]);
 
   // Close on outside click / Escape — the library's Dropdown handles this
   // internally, but we're no longer using it for the menu itself since it
@@ -950,6 +996,7 @@ export const TicketsPage: React.FC = () => {
   }, [membersByTeam, selectedTeamId, teams]);
 
   // Active filter label helpers
+  const ticketCardRef = React.useRef<HTMLDivElement>(null);
   const activeTeamLabel = useMemo(
     () => (teamFilter ? (teams.find((t: Team) => t.id === teamFilter)?.name ?? null) : null),
     [teamFilter, teams],
@@ -1288,7 +1335,11 @@ export const TicketsPage: React.FC = () => {
         )}
 
         {/* ── Unified ticket list (GitHub style) ── */}
-        <Card padding="none" className="flex min-h-0 flex-1 flex-col overflow-visible">
+        <Card
+          ref={ticketCardRef}
+          padding="none"
+          className="flex min-h-0 flex-1 flex-col overflow-visible"
+        >
           {/* GitHub-style header: Open / Closed tabs + filter dropdowns */}
           <div
             className={`sticky top-0 z-30 rounded-t-xl border-b border-neutral-200 bg-neutral-50/95 px-4 py-4 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 md:relative md:top-auto md:z-30 ${Capacitor.isNativePlatform() ? 'dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80' : 'dark:bg-neutral-800/70 dark:supports-backdrop-filter:bg-neutral-800/50'}`}
@@ -1331,6 +1382,7 @@ export const TicketsPage: React.FC = () => {
                     <FilterDropdown
                       label="Team"
                       activeLabel={activeTeamLabel}
+                      boundaryRef={ticketCardRef}
                       menuId="team"
                       activeMenuId={openFilterMenu}
                       onOpenChange={(open) => setOpenFilterMenu(open ? 'team' : null)}
@@ -1358,6 +1410,7 @@ export const TicketsPage: React.FC = () => {
                   <FilterDropdown
                     label="Priority"
                     activeLabel={activePriorityLabel}
+                    boundaryRef={ticketCardRef}
                     menuId="priority"
                     activeMenuId={openFilterMenu}
                     onOpenChange={(open) => setOpenFilterMenu(open ? 'priority' : null)}
@@ -1387,6 +1440,7 @@ export const TicketsPage: React.FC = () => {
                     label="Status"
                     activeLabel={activeStatusDetailLabel}
                     placement="bottom-end"
+                    boundaryRef={ticketCardRef}
                     menuId="status"
                     activeMenuId={openFilterMenu}
                     onOpenChange={(open) => setOpenFilterMenu(open ? 'status' : null)}
@@ -1418,6 +1472,7 @@ export const TicketsPage: React.FC = () => {
                     label="Assignee"
                     activeLabel={activeAssigneeLabel}
                     placement="bottom-end"
+                    boundaryRef={ticketCardRef}
                     menuId="assignee"
                     activeMenuId={openFilterMenu}
                     onOpenChange={(open) => setOpenFilterMenu(open ? 'assignee' : null)}

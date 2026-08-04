@@ -1,24 +1,22 @@
 /**
  * AppHeader — Sticky top bar.
  *
- * Left  : hamburger (mobile), org/team switcher
+ * Left  : org/team switcher
  * Right : clock-in timer (if active), notifications bell, UserDropdown
  *
  * The page title lives in the body, not here — see ui/pageTitle.tsx.
  */
-import { faBars, faBell } from '@fortawesome/free-solid-svg-icons';
+import { faBell } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button } from '@mieweb/ui';
 import React from 'react';
 
-import { useSidebar } from './AppLayout';
 import { ClockInHeaderTimer } from './ClockInHeaderTimer';
 import { OrgTeamSwitcher } from './OrgTeamSwitcher';
 import { useRouter } from './router';
 import { UserDropdown } from './UserDropdown';
 
 export const AppHeader: React.FC = () => {
-  const { openMobile } = useSidebar();
   const { navigate } = useRouter();
 
   return (
@@ -26,17 +24,6 @@ export const AppHeader: React.FC = () => {
       <div className="flex h-16 items-center justify-between gap-4 px-4">
         {/* ── Left ── */}
         <div className="flex min-w-0 items-center gap-3">
-          {/* Mobile hamburger */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={openMobile}
-            aria-label="Open navigation"
-            className="shrink-0 md:hidden"
-          >
-            <FontAwesomeIcon icon={faBars} />
-          </Button>
-
           {/* Current org/team scope */}
           <OrgTeamSwitcher />
         </div>
