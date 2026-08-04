@@ -280,13 +280,19 @@ const AppLayoutContent: React.FC = () => {
   }, [navigate]);
 
   // ── Parameterized routes ──────────────────────────────────────────────────
-  // /app/profile/:id  — numeric/ObjectId user ID
-  // /app/profile/:username — alphanumeric username (falls through from ID check)
+  // /app/profile/:id  — Mongo ObjectId (24-char hex), numeric ID, or Meteor's
+  //   default Accounts user _id (17-char Random.id() string — no idGeneration
+  //   override is configured for Meteor.users, unlike the ObjectId-based
+  //   collections, so plain userIds like those on huddle posts/tickets don't
+  //   match the hex regex and would otherwise be misread as a username below).
+  // /app/profile/:username — anything else (falls through from the ID check)
   const profileSegment = pathname.startsWith('/app/profile/')
     ? pathname.slice('/app/profile/'.length)
     : null;
   const profileUserId =
-    profileSegment && /^[a-f0-9]{24}$|^\d+$/.test(profileSegment) ? profileSegment : null;
+    profileSegment && /^[a-f0-9]{24}$|^\d+$|^[A-Za-z0-9]{17}$/.test(profileSegment)
+      ? profileSegment
+      : null;
   const profileUsername = profileSegment && !profileUserId ? profileSegment : null;
 
   const ticketDetailId =
