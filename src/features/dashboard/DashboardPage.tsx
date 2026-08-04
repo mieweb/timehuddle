@@ -169,10 +169,11 @@ export const DashboardPage: React.FC = () => {
 
   // ── Recent activity — everyone's published plan/wrap-up posts for this
   // team, live via the same DDP publication the Huddle feed uses. Clicking
-  // one jumps straight to that post in the feed.
+  // one jumps straight to that post in the feed. Teams only — a personal
+  // workspace has no "everyone" to show activity for.
   const [recentPosts, setRecentPosts] = useState<HuddlePost[]>([]);
   useEffect(() => {
-    if (!selectedTeamId) {
+    if (!selectedTeamId || selectedTeam?.isPersonal) {
       setRecentPosts([]);
       return;
     }
@@ -194,7 +195,7 @@ export const DashboardPage: React.FC = () => {
       unsubscribe();
       setRecentPosts([]);
     };
-  }, [selectedTeamId]);
+  }, [selectedTeamId, selectedTeam?.isPersonal]);
 
   const goToPost = (postId: string) => navigate(`/app/huddle?postId=${postId}`);
 
@@ -801,58 +802,70 @@ export const DashboardPage: React.FC = () => {
             </Card>
           )}
 
-          {/* ── Recent activity — everyone's plan/wrap-up posts ──────────────── */}
-          <Card padding="none">
-            <CardHeader className="flex flex-row items-center justify-between px-5 py-3">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <FontAwesomeIcon icon={faComments} className="text-neutral-400" />
-                Recent activity
-              </CardTitle>
-              <Button variant="link" size="sm" onClick={() => navigate('/app/huddle')}>
-                View all →
-              </Button>
-            </CardHeader>
-            <CardContent className="p-0">
-              {recentPosts.length === 0 ? (
-                <div className="px-5 py-6 text-center">
-                  <Text variant="muted" size="sm">
-                    No plan posts or clock-ins yet
-                  </Text>
-                </div>
-              ) : (
-                <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                  {recentPosts.map((post) => (
-                    <li key={post.id}>
-                      <Button
-                        variant="ghost"
-                        onClick={() => goToPost(post.id)}
-                        className="flex w-full items-start gap-3 rounded-none px-5 py-3 text-left hover:opacity-80"
-                        aria-label={`View ${post.userName}'s post`}
-                      >
-                        <UserAvatar name={post.userName} size="sm" />
-                        <div className="min-w-0 flex-1">
-                          <Text size="sm" weight="medium">
-                            {post.userName}{' '}
-                            <span className="font-normal text-neutral-500 dark:text-neutral-400">
-                              {post.clockEventId ? 'posted their plan & clocked in' : 'shared an update'}
-                            </span>
-                          </Text>
-                          {post.content.text && (
-                            <Text variant="muted" size="xs" className="mt-0.5 line-clamp-1">
-                              {post.content.text}
+          {/* ── Recent activity — everyone's plan/wrap-up posts (teams only,
+               not the personal workspace, which has no "everyone") ──────── */}
+          {!selectedTeam?.isPersonal && (
+            <Card padding="none">
+              <CardHeader className="flex flex-row items-center justify-between px-5 py-4">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <FontAwesomeIcon icon={faComments} className="text-neutral-400" />
+                  Recent activity
+                </CardTitle>
+                <Button variant="link" size="sm" onClick={() => navigate('/app/huddle')}>
+                  View all →
+                </Button>
+              </CardHeader>
+              <CardContent className="p-0">
+                {recentPosts.length === 0 ? (
+                  <div className="px-5 py-8 text-center">
+                    <Text variant="muted" size="sm">
+                      No plan posts or clock-ins yet
+                    </Text>
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+                    {recentPosts.map((post) => (
+                      <li key={post.id}>
+                        <button
+                          type="button"
+                          onClick={() => goToPost(post.id)}
+                          aria-label={`View ${post.userName}'s post`}
+                          className="flex w-full items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                        >
+                          <div className="mt-0.5 shrink-0">
+                            <UserAvatar name={post.userName} size="md" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <Text size="sm" weight="semibold" className="leading-snug">
+                              {post.userName}
                             </Text>
-                          )}
-                        </div>
-                        <Text variant="muted" size="xs" className="shrink-0 whitespace-nowrap">
-                          {formatPostTimestamp(post.createdAt)}
-                        </Text>
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
+                            <Text
+                              size="sm"
+                              variant="muted"
+                              className="mt-0.5 leading-snug text-neutral-500 dark:text-neutral-400"
+                            >
+                              {post.clockEventId ? 'Posted their plan & clocked in' : 'Shared an update'}
+                            </Text>
+                            {post.content.text && (
+                              <Text
+                                size="sm"
+                                className="mt-1.5 line-clamp-2 leading-snug text-neutral-700 dark:text-neutral-300"
+                              >
+                                {post.content.text}
+                              </Text>
+                            )}
+                          </div>
+                          <Text variant="muted" size="xs" className="mt-0.5 shrink-0 whitespace-nowrap">
+                            {formatPostTimestamp(post.createdAt)}
+                          </Text>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </AppPage>
