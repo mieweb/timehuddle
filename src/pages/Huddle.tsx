@@ -73,6 +73,15 @@ export default function Huddle() {
     return () => clearTimeout(timer);
   }, [targetPostId, loading, posts]);
 
+  // Dismiss the highlight ring as soon as the user clicks/taps anywhere,
+  // rather than waiting out the full timeout.
+  useEffect(() => {
+    if (!highlightedPostId) return;
+    const clear = () => setHighlightedPostId(null);
+    document.addEventListener('pointerdown', clear);
+    return () => document.removeEventListener('pointerdown', clear);
+  }, [highlightedPostId]);
+
   // Load team data for permission checks
   useEffect(() => {
     async function loadTeam() {
