@@ -723,6 +723,11 @@ export const TicketsPage: React.FC = () => {
     void fetchRunningTimer();
   }, [refetch, fetchRunningTimer]);
 
+  // When the user switches team in the header, follow the new team in the filter.
+  useEffect(() => {
+    if (selectedTeamId) setTeamFilter(selectedTeamId);
+  }, [selectedTeamId]);
+
   // Pull-to-refresh handler
   useRefresh(refetch);
 
@@ -847,7 +852,7 @@ export const TicketsPage: React.FC = () => {
 
   // Search + filter
   const [searchQuery, setSearchQuery] = useState('');
-  const [teamFilter, setTeamFilter] = useState<string | null>(null);
+  const [teamFilter, setTeamFilter] = useState<string | null>(() => selectedTeamId ?? null);
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
   const [statusDetailFilter, setStatusDetailFilter] = useState<string | null>(null);
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
