@@ -371,3 +371,27 @@ html[data-theme='dark'] .scrollbar-mieweb::-webkit-scrollbar-thumb:hover {
     transform: translateY(-2px);
   }
 }
+
+/* ClockStrand — the running-shift strand.
+   The path spans twice the viewBox width, so travelling it by exactly 96
+   (four full periods) lands on an identical phase and loops with no seam. */
+@keyframes clock-strand-travel {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-96px);
+  }
+}
+
+.clock-strand-travel {
+  animation: clock-strand-travel 6s linear infinite;
+}
+
+/* A shift that's running is also announced in text, so dropping the motion
+   costs nothing for people who've asked for less of it. */
+@media (prefers-reduced-motion: reduce) {
+  .clock-strand-travel {
+    animation: none;
+  }
+}
