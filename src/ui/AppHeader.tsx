@@ -54,11 +54,7 @@ export const AppHeader: React.FC = () => {
                 )
               }
             >
-              {activeClockEvent ? (
-                <FontAwesomeIcon icon={faClock} />
-              ) : (
-                'Clock In'
-              )}
+              {activeClockEvent ? <FontAwesomeIcon icon={faClock} /> : 'Clock In'}
             </Button>
           )}
           <Button
