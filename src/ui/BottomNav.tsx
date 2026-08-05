@@ -4,16 +4,16 @@
  * Visible only on small screens (md:hidden).
  * Five tabs: Dashboard, Huddle, Clock In/Out (center FAB), Tickets, More.
  * "More" opens a sheet with the remaining sidebar destinations (Teams,
- * Organization, Timesheet, Work, Media Library, Messages, Notifications,
- * Activity Log, Profile, Settings) so every sidebar link stays reachable
- * on mobile without a hamburger drawer.
+ * Organization, Work, Media Library, Messages, Activity Log, Profile,
+ * Settings) so every sidebar link stays reachable on mobile without a
+ * hamburger drawer. Notifications is not among them — the header's bell
+ * icon is present at every width.
  * Active tab indicator is an animated bubble that glides between positions.
  * FAB uses CSS brand tokens so it follows brand/theme changes automatically.
  * The FAB navigates to the clock page (rather than toggling directly) so the
  * plan-first gates and their inline composer are always visible.
  */
 import {
-  faBell,
   faBug,
   faBuilding,
   faChevronLeft,
@@ -31,7 +31,6 @@ import {
   faPhotoFilm,
   faSitemap,
   faStopwatch,
-  faTable,
   faUsers,
   faWrench,
   faXmark,
@@ -77,11 +76,9 @@ const MORE_ITEMS: MoreItem[] = [
   { icon: faUsers, label: 'Teams', href: '/app/teams' },
   { icon: faSitemap, label: 'Organization', href: '/app/organization' },
   { icon: faCircleUser, label: 'Profile', href: '/app/settings' },
-  { icon: faTable, label: 'Timesheet', href: '/app/timesheet' },
   { icon: faStopwatch, label: 'Work', href: '/app/work' },
   { icon: faPhotoFilm, label: 'Media Library', href: '/app/media' },
   { icon: faEnvelope, label: 'Messages', href: '/app/messages' },
-  { icon: faBell, label: 'Notifications', href: '/app/notifications' },
   { icon: faClockRotateLeft, label: 'Activity Log', href: '/app/activity' },
   { icon: faGear, label: 'Settings', href: '/app/settings' },
 ];

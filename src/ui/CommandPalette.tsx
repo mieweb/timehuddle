@@ -24,7 +24,6 @@ import {
   faSpinner,
   faStopwatch,
   faSun,
-  faTable,
   faTicket,
   faTriangleExclamation,
   faUser,
@@ -67,7 +66,6 @@ const NAV_ITEMS: NavSection[] = [
       { icon: faGauge, label: 'Dashboard', href: '/app/dashboard', keywords: ['home', 'overview'] },
       { icon: faStopwatch, label: 'Work', href: '/app/work', keywords: ['timer', 'tracking'] },
       { icon: faListCheck, label: 'Tickets', href: '/app/tickets', keywords: ['tasks', 'issues'] },
-      { icon: faTable, label: 'Timesheet', href: '/app/timesheet', keywords: ['hours', 'log'] },
     ],
   },
   {

@@ -7,11 +7,16 @@
  *   3. Active tickets: Only tickets with running timers, with the person who started each
  *   4. Time logged today: Per-member bar with hours
  *
- * The "Team" tab also offers a "Timesheet" view (admins only) — the
- * admin timesheet moved here from the Teams page to keep Teams focused on
- * membership/settings and keep time-tracking data alongside the rest of the
- * team's activity.
- *   • Deep-link support: ?tab=timesheet&teamId=XXX&memberId=YYY
+ * A Me/Team toggle scopes the stats. It is hidden on a personal workspace,
+ * where both tabs would show the same numbers.
+ *
+ * Both tabs offer a "Timesheet" view. "Me" holds the personal timesheet — the
+ * app's only one since the standalone /app/timesheet route was retired. "Team"
+ * holds the admin timesheet (admins only), which moved here from the Teams page
+ * to keep Teams focused on membership/settings and keep time-tracking data
+ * alongside the rest of the team's activity.
+ *   • Deep-link support: ?tab=timesheet&teamId=XXX&memberId=YYY  (Team)
+ *                        ?view=timesheet                          (Me)
  */
 import {
   faClock,
@@ -26,19 +31,7 @@ import {
   faComments,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Spinner,
-  Text,
-} from '@mieweb/ui';
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Spinner, Text } from '@mieweb/ui';
 import React, { useCallback, useEffect, useState } from 'react';
 
 import {
@@ -46,7 +39,6 @@ import {
   type Ticket,
   teamApi,
   type TeamMember,
-  type TimecoreUser,
   teamDashboardApi,
   type TeamMemberClockStatus,
   type TeamRunningTimer,
@@ -56,22 +48,18 @@ import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient } from '../../lib/ddp';
-import { formatDuration, formatTimer } from '../../lib/timeUtils';
+import { formatDuration, formatTimer, getActiveClockSeconds } from '../../lib/timeUtils';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
+import { ClockStrand } from '../../ui/ClockStrand';
+import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
+import { PersonalTimesheetPanel } from '../clock/PersonalTimesheetPanel';
+import { roundDurationSecondsForDisplay } from '../clock/timesheetUtils';
 import { AdminTimesheetPanel } from '../teams/AdminTimesheetPanel';
 
 const profilePath = (member: TeamMemberClockStatus) =>
   `/app/profile/${member.username ?? member.userId}`;
-
-const userToTeamMember = (user: TimecoreUser): TeamMember => ({
-  id: user.id,
-  name: user.name,
-  email: user.email,
-  username: user.username,
-  image: user.image ?? null,
-});
 
 // ─── DashboardPage ────────────────────────────────────────────────────────────
 
@@ -90,18 +78,17 @@ export const DashboardPage: React.FC = () => {
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId) ?? null;
   const teamAdminIds = new Set(selectedTeam?.admins ?? []);
-  const canViewTimesheet = isAdmin && !selectedTeam?.isPersonal;
+  const isPersonalWorkspace = Boolean(selectedTeam?.isPersonal);
+  const canViewTimesheet = isAdmin && !isPersonalWorkspace;
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [memberStatuses, setMemberStatuses] = useState<TeamMemberClockStatus[]>([]);
   const [runningTimers, setRunningTimers] = useState<TeamRunningTimer[]>([]);
   const [loading, setLoading] = useState(false);
-  // "Me" is the default — a personal-team user sees their own numbers
-  // immediately, and can switch to "Team" to see everyone (even if that's
-  // still just themselves on a personal team; the tab is never hidden).
-  // Persisted so navigating away and back to the dashboard doesn't silently
-  // reset the user back to "Me" after they've chosen "Team".
-  const [tab, _setTab] = useState<'me' | 'team'>(() => {
+  // "Me" is the default. Persisted so navigating away and back to the
+  // dashboard doesn't silently reset the user to "Me" after they've chosen
+  // "Team".
+  const [storedTab, _setTab] = useState<'me' | 'team'>(() => {
     if (typeof window === 'undefined') return 'me';
     return localStorage.getItem('app:dashboardTab') === 'team' ? 'team' : 'me';
   });
@@ -109,6 +96,14 @@ export const DashboardPage: React.FC = () => {
     _setTab(next);
     if (typeof window !== 'undefined') localStorage.setItem('app:dashboardTab', next);
   }, []);
+
+  // A personal workspace has no one in it but you, so "Me" and "Team" would
+  // show the same numbers — the toggle is hidden there rather than offering a
+  // choice that changes nothing. The stored preference is left untouched so
+  // switching back to a real team restores whichever tab was last chosen; it
+  // just doesn't apply here, or a "team" carried over from a real team would
+  // strand the user on a tab with no visible way back.
+  const tab = isPersonalWorkspace ? 'me' : storedTab;
 
   // "Overview" vs "Timesheet" sub-view for the "Me" tab.
   const [meView, setMeView] = useState<'overview' | 'timesheet'>('overview');
@@ -120,11 +115,14 @@ export const DashboardPage: React.FC = () => {
   const [initialMemberId, setInitialMemberId] = useState<string>('');
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
 
-  // ── Deep-link support: ?tab=timesheet&teamId=&memberId= ──
+  // ── Deep-link support ──
+  //   ?tab=timesheet&teamId=&memberId=  → Team → Timesheet (admin, from notifications)
+  //   ?view=timesheet                   → Me → Timesheet (the retired /app/timesheet URL)
   useEffect(() => {
     if (!teamsReady) return;
     const params = new URLSearchParams(window.location.search);
     const deepTab = params.get('tab');
+    const deepView = params.get('view');
     const memberId = params.get('memberId');
     const teamId = params.get('teamId');
 
@@ -132,10 +130,14 @@ export const DashboardPage: React.FC = () => {
       setTab('team');
       setTeamView('timesheet');
     }
+    if (deepView === 'timesheet') {
+      setTab('me');
+      setMeView('timesheet');
+    }
     if (memberId) setInitialMemberId(memberId);
     if (teamId && teams.some((t) => t.id === teamId)) setSelectedTeamId(teamId);
 
-    if (deepTab || memberId || teamId) {
+    if (deepTab || deepView || memberId || teamId) {
       window.history.replaceState(null, '', window.location.pathname);
     }
   }, [teamsReady, teams, setSelectedTeamId]);
@@ -173,7 +175,7 @@ export const DashboardPage: React.FC = () => {
   // workspace has no "everyone" to show activity for.
   const [recentPosts, setRecentPosts] = useState<HuddlePost[]>([]);
   useEffect(() => {
-    if (!selectedTeamId || selectedTeam?.isPersonal) {
+    if (!selectedTeamId || isPersonalWorkspace) {
       setRecentPosts([]);
       return;
     }
@@ -195,7 +197,7 @@ export const DashboardPage: React.FC = () => {
       unsubscribe();
       setRecentPosts([]);
     };
-  }, [selectedTeamId, selectedTeam?.isPersonal]);
+  }, [selectedTeamId, isPersonalWorkspace]);
 
   const goToPost = (postId: string) => navigate(`/app/huddle?postId=${postId}`);
 
@@ -303,34 +305,71 @@ export const DashboardPage: React.FC = () => {
   return (
     <AppPage
       titleActions={
-        <div className="inline-flex rounded-full bg-neutral-100 p-1 dark:bg-neutral-800">
-          <button
-            type="button"
-            onClick={() => setTab('me')}
-            aria-pressed={tab === 'me'}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              tab === 'me'
-                ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-            }`}
-          >
-            Me
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('team')}
-            aria-pressed={tab === 'team'}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              tab === 'team'
-                ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-            }`}
-          >
-            Team
-          </button>
-        </div>
+        isPersonalWorkspace ? undefined : (
+          <div className="inline-flex rounded-full bg-neutral-100 p-1 dark:bg-neutral-800">
+            <button
+              type="button"
+              onClick={() => setTab('me')}
+              aria-pressed={tab === 'me'}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                tab === 'me'
+                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+              }`}
+            >
+              Me
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('team')}
+              aria-pressed={tab === 'team'}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                tab === 'team'
+                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+              }`}
+            >
+              Team
+            </button>
+          </div>
+        )
       }
     >
+      <WorkspaceGreeting
+        note={
+          isPersonalWorkspace
+            ? 'Everything below is just your own time and tickets.'
+            : "Everything below is this team's — switch to Me for just your own."
+        }
+        trailing={
+          activeClockEvent && (
+            /* Folded in here rather than given its own card: a running shift is
+               a status, not a section, and a full-width alert pushed the actual
+               dashboard below the fold. */
+            <div className="flex items-center gap-3 rounded-xl bg-white/70 px-3 py-2 shadow-sm dark:bg-white/5">
+              <ClockStrand active={!activeClockEvent.isPaused} className="h-7 w-12 shrink-0" />
+              <div className="min-w-0">
+                <Text variant="muted" size="xs">
+                  {activeClockEvent.isPaused ? 'On break' : 'Session active'}
+                </Text>
+                <Text size="sm" weight="semibold" className="font-mono tabular-nums">
+                  {formatTimer(getActiveClockSeconds(activeClockEvent, currentTime))}
+                </Text>
+              </div>
+              <Button
+                variant="primary"
+                size="sm"
+                className="shrink-0 rounded-full"
+                rightIcon={<FontAwesomeIcon icon={faArrowRight} />}
+                onClick={() => navigate('/app/clock')}
+              >
+                View
+              </Button>
+            </div>
+          )
+        }
+      />
+
       {/* ── Me / Timesheet toggle ─────────────────────────────────────── */}
       {tab === 'me' && (
         <div className="inline-flex rounded-full bg-neutral-100 p-1 dark:bg-neutral-800">
@@ -361,15 +400,9 @@ export const DashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* ── Me Timesheet view ────────────────────────────────────────────── */}
-      {tab === 'me' && meView === 'timesheet' && user && selectedTeamId && (
-        <AdminTimesheetPanel
-          members={[userToTeamMember(user)]}
-          selectedTeamId={selectedTeamId}
-          teams={teams}
-          initialMemberId={user.id}
-        />
-      )}
+      {/* ── Me Timesheet view — the app's only personal timesheet since the
+           standalone /app/timesheet route was retired. ──────────────────── */}
+      {tab === 'me' && meView === 'timesheet' && <PersonalTimesheetPanel />}
 
       {/* ── Team / Timesheet toggle (admins, non-personal teams only) ───── */}
       {tab === 'team' && canViewTimesheet && (
@@ -450,30 +483,6 @@ export const DashboardPage: React.FC = () => {
             </Card>
           )}
 
-          {/* ── Active session banner ───────────────────────────────────────── */}
-          {activeClockEvent && (
-            <Alert variant="success">
-              <AlertTitle>
-                <span className="flex items-center gap-2">
-                  <span className="h-3 w-3 animate-pulse rounded-full bg-green-500 shrink-0" />
-                  Session Active
-                </span>
-              </AlertTitle>
-              <AlertDescription>
-                {formatTimer(Math.floor((currentTime - activeClockEvent.startTime) / 1000))} elapsed
-              </AlertDescription>
-              <Button
-                variant="primary"
-                size="sm"
-                className="mt-2"
-                rightIcon={<FontAwesomeIcon icon={faArrowRight} />}
-                onClick={() => navigate('/app/clock')}
-              >
-                View
-              </Button>
-            </Alert>
-          )}
-
           {/* ── Quick stats ─────────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {/* Hours today */}
@@ -487,9 +496,11 @@ export const DashboardPage: React.FC = () => {
                     Hours today
                   </Text>
                   <Text size="lg" weight="semibold">
-                    {(
-                      (tab === 'me' ? (myStatus?.todaySeconds ?? 0) : todayTotalSeconds) / 3600
-                    ).toFixed(1)}
+                    {formatDuration(
+                      roundDurationSecondsForDisplay(
+                        tab === 'me' ? (myStatus?.todaySeconds ?? 0) : todayTotalSeconds,
+                      ),
+                    )}
                   </Text>
                   {tab === 'me' ? (
                     myStatus?.isClockedIn && (
@@ -748,7 +759,7 @@ export const DashboardPage: React.FC = () => {
                   <FontAwesomeIcon icon={faClock} className="text-neutral-400" />
                   Time logged today
                   <span className="ml-1 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-                    {(todayTotalSeconds / 3600).toFixed(1)}h total
+                    {formatDuration(roundDurationSecondsForDisplay(todayTotalSeconds))} total
                   </span>
                 </CardTitle>
               </CardHeader>
@@ -804,7 +815,7 @@ export const DashboardPage: React.FC = () => {
 
           {/* ── Recent activity — everyone's plan/wrap-up posts (teams only,
                not the personal workspace, which has no "everyone") ──────── */}
-          {!selectedTeam?.isPersonal && (
+          {!isPersonalWorkspace && (
             <Card padding="none">
               <CardHeader className="flex flex-row items-center justify-between px-5 py-4">
                 <CardTitle className="flex items-center gap-2 text-base">

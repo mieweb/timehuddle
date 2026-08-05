@@ -10,6 +10,7 @@
 import { useCallback, useState } from 'react';
 
 import { ApiError, clockApi } from './api';
+import { useClockBreak } from './useClockBreak';
 import { useSessionPost } from './useSessionPost';
 import { useTeam } from './TeamContext';
 
@@ -18,7 +19,8 @@ export function useClockToggle() {
 
   const [clockInLoading, setClockInLoading] = useState(false);
   const [clockOutLoading, setClockOutLoading] = useState(false);
-  const [clockPauseLoading, setClockPauseLoading] = useState(false);
+  // Break handling lives in its own hook so lighter surfaces can use it alone.
+  const { pauseClock, resumeClock, clockPauseLoading } = useClockBreak();
   // Set when clock-out is refused by the plan-first gate ('plan-required');
   // pages render it inline with a link to Huddle instead of an alert.
   const [clockOutBlockedReason, setClockOutBlockedReason] = useState<string | null>(null);
@@ -85,42 +87,6 @@ export function useClockToggle() {
       return false;
     } finally {
       setClockOutLoading(false);
-    }
-  }, [activeClockEvent, selectedTeamId, refetchClock]);
-
-  const pauseClock = useCallback(async () => {
-    const teamId = activeClockEvent?.teamId ?? selectedTeamId;
-    if (!teamId) return;
-    setClockPauseLoading(true);
-    try {
-      await clockApi.pause(teamId);
-      await refetchClock();
-      // Notify all timer-displaying pages to refetch immediately
-      window.dispatchEvent(new CustomEvent('work:refetch'));
-      window.dispatchEvent(new CustomEvent('tickets:refetch'));
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Failed to pause clock. Please try again.');
-    } finally {
-      setClockPauseLoading(false);
-    }
-  }, [activeClockEvent, selectedTeamId, refetchClock]);
-
-  const resumeClock = useCallback(async () => {
-    const teamId = activeClockEvent?.teamId ?? selectedTeamId;
-    if (!teamId) return;
-    setClockPauseLoading(true);
-    try {
-      await clockApi.resume(teamId);
-      await refetchClock();
-      // Notify all timer-displaying pages to refetch immediately
-      window.dispatchEvent(new CustomEvent('work:refetch'));
-      window.dispatchEvent(new CustomEvent('tickets:refetch'));
-    } catch (err) {
-      window.alert(
-        err instanceof Error ? err.message : 'Failed to resume clock. Please try again.',
-      );
-    } finally {
-      setClockPauseLoading(false);
     }
   }, [activeClockEvent, selectedTeamId, refetchClock]);
 

@@ -22,7 +22,6 @@ import {
   faPhotoFilm,
   faSitemap,
   faStopwatch,
-  faTable,
   faUsers,
   faClockRotateLeft,
 } from '@fortawesome/free-solid-svg-icons';
@@ -72,7 +71,6 @@ const NAV: NavSection[] = [
       { icon: faComments, label: 'Huddle', href: '/app/huddle' },
       { icon: faClock, label: 'Clock', href: '/app/clock' },
       { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
-      { icon: faTable, label: 'Timesheet', href: '/app/timesheet' },
       { icon: faStopwatch, label: 'Work', href: '/app/work' },
     ],
   },
@@ -83,7 +81,6 @@ const NAV: NavSection[] = [
       { icon: faSitemap, label: 'Organization', href: '/app/organization' },
       { icon: faPhotoFilm, label: 'Media Library', href: '/app/media' },
       { icon: faEnvelope, label: 'Messages', href: '/app/messages' },
-      { icon: faBell, label: 'Notifications', href: '/app/notifications' },
       { icon: faClockRotateLeft, label: 'Activity Log', href: '/app/activity' },
     ],
   },
