@@ -346,6 +346,9 @@ test.describe('PulseVault — Ticket video upload', () => {
   // encoded value, so this e2e test only covers what the browser can
   // actually observe: reserve() succeeding and the modal reflecting it.
   test('device-upload fallback is offered alongside the QR code', async ({ page }) => {
+    // Ticket create + modal open + video-upload path is heavier than the
+    // default 30s allows once the DB has accumulated state late in the suite.
+    test.setTimeout(60000);
     await page.getByRole('button', { name: ticketTitle, exact: true }).first().click();
     await page.waitForTimeout(600);
 

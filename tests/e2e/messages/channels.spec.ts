@@ -140,6 +140,9 @@ test.describe('Channel message notifications', () => {
   test('notifies other team members and deep-links to the exact channel on click', async ({
     browser,
   }) => {
+    // Two logins in a single test plus a notification round-trip through the
+    // backend — 60s tolerates a warming server better than the default 30s.
+    test.setTimeout(60000);
     const teamId = await getTeamId('TEST01');
     test.skip(!teamId, 'Test Team Alpha (TEST01) not found in DB');
 

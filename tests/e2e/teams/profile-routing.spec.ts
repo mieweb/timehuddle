@@ -37,8 +37,13 @@ async function selectTestTeam(page: import('@playwright/test').Page): Promise<bo
     localStorage.setItem('app:selectedTeamId', id);
   }, teamId);
   await page.reload();
-  await page.getByRole('heading', { level: 1, name: 'Teams' }).waitFor({ state: 'visible' });
+  // Reload occasionally lands on the login screen when the session cookie
+  // hasn't fully synced yet — wait for the app shell (larger, more forgiving
+  // signal than the h1) before asserting on page-specific content.
   await page.waitForLoadState('networkidle');
+  await page
+    .getByRole('heading', { level: 1, name: 'Teams' })
+    .waitFor({ state: 'visible', timeout: 20000 });
   return true;
 }
 

@@ -101,6 +101,13 @@ export async function loginAs(page: Page, user: TestUser): Promise<void> {
   // sequential suite run) this can occasionally take even longer, so the
   // budget has extra headroom beyond the worst-case DDP retry math.
   await page.waitForURL('**/dashboard', { timeout: 60000 });
+
+  // Let the initial data fetches settle before the test starts navigating —
+  // otherwise the very next `page.goto()` can race the session-cookie handshake
+  // and bounce back to the login screen. `networkidle` waits until there are
+  // no in-flight requests for 500ms, which reliably covers the post-login
+  // fanout (session, orgs, teams, clock, etc.).
+  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {});
 }
 
 /**
