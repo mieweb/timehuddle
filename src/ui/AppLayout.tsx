@@ -18,7 +18,6 @@ import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
 import { ClockPage } from '../features/clock/ClockPage';
-import { TimesheetPage } from '../features/clock/TimesheetPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { MessagesPage } from '../features/messages/MessagesPage';
 import { NotificationsPage } from '../features/notifications/NotificationsPage';
@@ -84,7 +83,6 @@ const ROUTES: Record<string, RouteConfig> = {
     : {}),
   '/app/teams': { title: 'Teams', component: TeamsPage },
   '/app/tickets': { title: 'Tickets', component: TicketsPage },
-  '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
   '/app/work': { title: 'Work', component: WorkPage },
 
   '/app/org/members': { title: 'Members', component: OrganizationMembersPage },
@@ -95,6 +93,17 @@ function match(pathname: string): RouteConfig | null {
   if (pathname.startsWith('/app/tickets/')) return null;
   return ROUTES[pathname] ?? ROUTES['/app/dashboard'];
 }
+
+/**
+ * Routes that no longer exist, and where their traffic goes now. Without this
+ * an old bookmark or push notification would fall through `match()` onto the
+ * dashboard's default view, silently losing what the link was pointing at.
+ *
+ *   /app/timesheet → the personal timesheet, now Dashboard → Me → Timesheet
+ */
+const RETIRED_ROUTES: Record<string, string> = {
+  '/app/timesheet': '/app/dashboard?view=timesheet',
+};
 
 // ─── Context ─────────────────────────────────────────────────────────────────
 
@@ -143,23 +152,37 @@ const AppLayoutContent: React.FC = () => {
 
   useBrand();
 
-  const normalizePath = (p: string) => (p === '/app' || p === '/' ? '/app/dashboard' : p);
+  // Maps a URL onto where it actually lives now: `/app` and `/` mean the
+  // dashboard, and a RETIRED_ROUTES path is rewritten to its replacement.
+  // Everything else passes through untouched, query string intact.
+  const resolveUrl = (url: string) => {
+    const path = url.split('?')[0];
+    if (path === '/app' || path === '/') return '/app/dashboard';
+    return RETIRED_ROUTES[path] ?? url;
+  };
 
   const [pathname, setPathname] = useState(() => {
     if (typeof window === 'undefined') return '/app/dashboard';
-    const p = window.location.pathname;
-    if (p === '/app' || p === '/') window.history.replaceState(null, '', '/app/dashboard');
-    return normalizePath(p);
+    const current = window.location.pathname + window.location.search;
+    const resolved = resolveUrl(current);
+    if (resolved !== current) window.history.replaceState(null, '', resolved);
+    return resolved.split('?')[0];
   });
 
   const navigate = useCallback((path: string) => {
-    window.history.pushState(null, '', path);
-    setPathname(path.split('?')[0]);
-    window.dispatchEvent(new CustomEvent('timehuddle:navigate', { detail: { path } }));
+    const target = resolveUrl(path);
+    window.history.pushState(null, '', target);
+    setPathname(target.split('?')[0]);
+    window.dispatchEvent(new CustomEvent('timehuddle:navigate', { detail: { path: target } }));
   }, []);
 
   useEffect(() => {
-    const onPop = () => setPathname(normalizePath(window.location.pathname));
+    const onPop = () => {
+      const current = window.location.pathname + window.location.search;
+      const resolved = resolveUrl(current);
+      if (resolved !== current) window.history.replaceState(null, '', resolved);
+      setPathname(resolved.split('?')[0]);
+    };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
