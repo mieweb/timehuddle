@@ -4,7 +4,8 @@
  * Reads top-to-bottom as a gate rather than a dashboard:
  *   1. Status — eyebrow + a big bold session timer (elapsed time this
  *      shift, not the wall clock) + a "plan required" badge when the team
- *      gate is on.
+ *      gate is on. Break/Resume lives here, beside the timer, so it stays
+ *      on screen whichever composer is open below.
  *   2. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
  *      same Photo/Video/Doc/Pulse/Ticket/@Mention bar as the Huddle composer
  *      (⌘/Ctrl+↵ submits).
@@ -14,7 +15,19 @@
  * page never needs a reload. With the team setting off, it's a plain
  * clock-in/out screen.
  */
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Spinner, Text } from '@mieweb/ui';
+import { faMugHot, faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  cn,
+  Spinner,
+  Text,
+} from '@mieweb/ui';
 import React, { useEffect, useRef, useState } from 'react';
 
 import { clockApi, huddleApi, type ClockEvent, type HuddlePost } from '../../lib/api';
@@ -38,7 +51,9 @@ import {
 } from '../huddle/ComposerAttachments';
 import type { MediaItem } from '../huddle/types';
 import { AppPage } from '../../ui/AppPage';
+import { ClockStrand } from '../../ui/ClockStrand';
 import { useRouter } from '../../ui/router';
+import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
@@ -369,28 +384,81 @@ export const ClockPage: React.FC = () => {
 
   return (
     <AppPage fill>
-      <div className="clock-screen flex h-full min-h-0 flex-col gap-6 overflow-y-auto md:mx-auto md:w-full md:max-w-4xl">
-        {/* ── Status — eyebrow + big bold session timer ── */}
+      <div className="clock-screen flex h-full min-h-0 flex-col gap-3 overflow-y-auto md:gap-6 md:mx-auto md:w-full md:max-w-4xl">
+        {/* Names the workspace before you act, not after: hours logged against
+            the wrong team are tedious to unpick. */}
+        <WorkspaceGreeting
+          className="py-3 md:py-4"
+          note={
+            isClockedIn
+              ? 'Your shift is running — the time is being logged here.'
+              : 'Any time you track here gets logged to this workspace.'
+          }
+        />
+
+        {/* ── Status — eyebrow + big bold session timer ──
+             The surface is tinted by state rather than being a fixed dark slab
+             with a red underline: that read as an error banner on a light page
+             and, in dark mode, sank into the background so only the red line
+             showed. Tinting carries the state in both themes and gives the
+             Break button a surface it contrasts against. Text colour is
+             inherited (`opacity-*`, not `text-white/*`) so it follows. */}
         <div
-          className="clock-status shrink-0 rounded-2xl border-b-4 border-red-600 bg-neutral-900 px-5 py-6 text-center text-white dark:bg-neutral-950"
+          className={cn(
+            'clock-status shrink-0 rounded-2xl border px-4 py-3 text-center transition-colors md:px-5 md:py-6',
+            isClockedIn
+              ? isPaused
+                ? 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-50'
+                : 'border-green-300 bg-green-50 text-green-950 dark:border-green-900/60 dark:bg-green-950/40 dark:text-green-50'
+              : 'border-neutral-200 bg-white text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-50',
+          )}
           aria-live="polite"
         >
-          <div className="flex items-center justify-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-white/60">
+          <div className="flex items-center justify-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] opacity-70">
             <span
-              className={[
+              className={cn(
                 'h-2.5 w-2.5 shrink-0 rounded-full',
-                isClockedIn ? (isPaused ? 'bg-amber-400' : 'bg-green-500') : 'bg-red-500',
-              ].join(' ')}
+                isClockedIn
+                  ? isPaused
+                    ? 'bg-amber-500'
+                    : 'animate-pulse bg-green-500'
+                  : 'bg-neutral-400',
+              )}
             />
             {eyebrow}
           </div>
-          <div className="mt-1 font-mono text-3xl font-bold tabular-nums">
+          <div className="mt-1 font-mono text-3xl font-bold tabular-nums md:text-4xl">
             {formatTimer(sessionSeconds)}
           </div>
+          {/* Snakes across while the clock counts, flat the moment it stops
+              — the same signal as the header strand, at hero size. */}
+          <ClockStrand
+            active={isClockedIn && !isPaused}
+            className="mx-auto mt-2 hidden h-8 w-full max-w-sm md:block"
+          />
           {activeClockEvent && (
-            <p className="mt-1 text-sm text-white/60">
+            <p className="mt-2 text-sm opacity-70">
               since {formatTime(new Date(activeClockEvent.startTime))}
             </p>
+          )}
+          {/* Break/Resume lives with the timer so it stays visible in every
+              state — plain actions, plan composer, wrap-up composer — instead
+              of scrolling away below whichever composer happens to be open.
+              Filled and full-size on its own line: as a small outline button
+              tucked beside the timer it was easy to miss entirely. */}
+          {isClockedIn && (
+            <div className="mt-4">
+              <Button
+                variant="primary"
+                onClick={() => void (isPaused ? resumeClock() : pauseClock())}
+                isLoading={clockPauseLoading}
+                aria-label={isPaused ? 'Resume work' : 'Start break'}
+                leftIcon={<FontAwesomeIcon icon={isPaused ? faPlay : faMugHot} />}
+                className="gap-2 rounded-full px-6 font-semibold shadow-md transition-transform hover:scale-105 active:scale-95"
+              >
+                {isPaused ? 'Resume work' : 'Take a break'}
+              </Button>
+            </div>
           )}
           {requirePlan && (
             <Badge variant="default" size="sm" className="mt-3">
@@ -401,9 +469,9 @@ export const ClockPage: React.FC = () => {
 
         {/* ── Composer — plan before clock-in / wrap-up before clock-out ── */}
         {composerMode && (
-          <div className="clock-plan-composer flex shrink-0 flex-col gap-3">
+          <div className="clock-plan-composer flex shrink-0 flex-col gap-2 md:gap-3">
             <div>
-              <Text as="h2" size="lg" weight="semibold">
+              <Text as="h2" size="base" weight="semibold" className="md:text-lg">
                 {composerTitle}
               </Text>
               {composerDescription && (
@@ -489,57 +557,37 @@ export const ClockPage: React.FC = () => {
           </div>
         )}
 
-        {/* ── Plain actions when the gate is satisfied (or off) ── */}
+        {/* ── Plain actions when the gate is satisfied (or off) ──
+             The one thing you came to this page to do, so it's a large pill
+             with an icon rather than a default-sized button in a row of them. */}
         {!composerMode && (
-          <div className="clock-actions flex shrink-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="clock-actions flex shrink-0 flex-col items-center gap-3">
             {!isClockedIn ? (
               <Button
                 variant="primary"
+                size="lg"
                 onClick={() => void clockIn()}
                 isLoading={clockInLoading}
                 disabled={!selectedTeamId}
                 aria-label="Clock in"
-                className="w-full sm:w-auto"
+                leftIcon={<FontAwesomeIcon icon={faPlay} />}
+                className="w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72"
               >
                 Clock in
               </Button>
             ) : (
-              <>
-                <Button
-                  variant="danger"
-                  onClick={() => void clockOut()}
-                  isLoading={clockOutLoading}
-                  aria-label="Clock out"
-                  className="w-full sm:w-auto"
-                >
-                  Clock out
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => void (isPaused ? resumeClock() : pauseClock())}
-                  isLoading={clockPauseLoading}
-                  aria-label={isPaused ? 'Resume work' : 'Start break'}
-                  className="w-full sm:w-auto"
-                >
-                  {isPaused ? 'Resume' : 'Break'}
-                </Button>
-              </>
+              <Button
+                variant="danger"
+                size="lg"
+                onClick={() => void clockOut()}
+                isLoading={clockOutLoading}
+                aria-label="Clock out"
+                leftIcon={<FontAwesomeIcon icon={faStop} />}
+                className="w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72"
+              >
+                Clock out
+              </Button>
             )}
-          </div>
-        )}
-
-        {/* Break/Resume stays reachable while the wrap-up composer is up */}
-        {composerMode === 'wrapup' && (
-          <div className="shrink-0">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void (isPaused ? resumeClock() : pauseClock())}
-              isLoading={clockPauseLoading}
-              aria-label={isPaused ? 'Resume work' : 'Start break'}
-            >
-              {isPaused ? 'Resume' : 'Break'}
-            </Button>
           </div>
         )}
 
