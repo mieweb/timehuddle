@@ -1,16 +1,18 @@
 /**
  * ClockInHeaderTimer — Compact elapsed timer for the app header.
  *
- * Displays only when the user has an active clock event. Uses the Timer
- * component with an animated clock icon and live HH:MM:SS display.
- * Tapping opens the clock in/out page.
+ * Displays only when the user has an active clock event. A compact gradient
+ * strand sits beside the live HH:MM:SS display, so a glance tells you the clock
+ * is actually counting; on break the count freezes and the strand flattens.
+ * Above md the header runs a full-width strand of its own, so this one steps
+ * aside there. Tapping opens the clock in/out page.
  */
 import React, { useCallback } from 'react';
 
 import { useTeam } from '../lib/TeamContext';
 import { formatTimer, getActiveClockSeconds } from '../lib/timeUtils';
 import { useRouter } from './router';
-import { TimerRoot, TimerIcon, TimerDisplay } from './Timer';
+import { TimerRoot, TimerDisplay } from './Timer';
 
 export const ClockInHeaderTimer: React.FC = () => {
   const { navigate } = useRouter();
@@ -24,16 +26,25 @@ export const ClockInHeaderTimer: React.FC = () => {
 
   const elapsedSeconds = getActiveClockSeconds(activeClockEvent, currentTime);
   const display = formatTimer(elapsedSeconds);
+  // getActiveClockSeconds freezes the count while paused, so the pill must not
+  // keep animating as though it were running — the strand goes flat, which is
+  // what marks "on break" here. The pill itself stays neutral in both states:
+  // the green "success" fill fought the gradient beside it.
+  const isPaused = !!activeClockEvent.isPaused;
 
   return (
     <TimerRoot
-      variant="success"
+      variant="outline"
       size="md"
       role="button"
       tabIndex={0}
       aria-live="polite"
-      aria-label={`Clocked in, elapsed time ${display}. Open clock page.`}
-      className="cursor-pointer hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-500"
+      aria-label={
+        isPaused
+          ? `On break, elapsed time ${display}. Open clock page.`
+          : `Clocked in, elapsed time ${display}. Open clock page.`
+      }
+      className="cursor-pointer hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2"
       onClick={goToClock}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -42,12 +53,7 @@ export const ClockInHeaderTimer: React.FC = () => {
         }
       }}
     >
-      <TimerIcon size="md" loading />
-      {/* Below sm the header also carries the page title and the org/team
-          switcher; the elapsed digits yield so those stay legible. The icon
-          still signals "clocked in", the aria-label above still announces the
-          time, and the tab title carries it too (useClockDocumentTitle). */}
-      <TimerDisplay time={display} size="md" className="hidden sm:block" />
+      <TimerDisplay time={display} size="md" />
     </TimerRoot>
   );
 };
