@@ -1,8 +1,12 @@
 # Dependabot: PR-based notifications when dependencies advance.
 #
-# - npm: watches the root package.json/lock (includes @kerebron/* pins).
-#   @kerebron packages are grouped into a single PR so a release train of
-#   editor + kits + extensions lands together instead of as 10 PRs.
+# - npm: watches the root package.json/lock (includes @kerebron/* pins and
+#   @mieweb/ui). @kerebron packages are grouped into a single PR so a release
+#   train of editor + kits + extensions lands together instead of as 10 PRs.
+#   Note: @mieweb/ui is pinned to a `next` prerelease (0.7.1-dev.x) because the
+#   RichEditor collab work (mieweb/ui#344) merged after v0.7.1 was cut.
+#   Dependabot will not advance a prerelease pin — move to a caret range once
+#   mieweb/ui publishes a stable release containing it.
 # - gitsubmodule: bumps the vendor/ui (and vendor/meteor-wormhole) submodule
 #   pointers when their upstream default branches advance. Kerebron bumps
 #   *inside* vendor/ui must be configured in the mieweb/ui repo itself —
