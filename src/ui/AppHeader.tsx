@@ -45,7 +45,7 @@ export const AppHeader: React.FC = () => {
           <OrgTeamSwitcher />
         </div>
 
-        {/* ── Right ── */}}
+        {/* ── Right ── */}
         <div className="flex shrink-0 items-center gap-2">
           {/* Clock-in timer (visible when clocked in) — tapping opens the
               clock page, so no separate shortcut button is needed here. */}
