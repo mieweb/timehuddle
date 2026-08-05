@@ -19,6 +19,8 @@ export default [
       'backend/data/videos',
       'backend/data/videos/**',
       'node_modules',
+      // pnpm's local content-addressable store — third-party package sources
+      '.pnpm-store',
       '**/scheduler.worker.js',
       '_build',
       'build',

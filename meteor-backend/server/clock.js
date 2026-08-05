@@ -627,8 +627,11 @@ Meteor.methods({
     return { ok: true };
   },
 
-  /** Team-wide clock status: all member clock states + today's hours. */
-  async 'clock.teamStatus'({ teamId } = {}) {
+  /**
+   * Team-wide clock status: all member clock states + today's hours.
+   * `dayStartMs` is the caller's local midnight — see the boundary note below.
+   */
+  async 'clock.teamStatus'({ teamId, dayStartMs } = {}) {
     try {
       console.log('[clock.teamStatus] called with teamId:', teamId);
       const identity = await requireIdentity(this);
@@ -645,11 +648,25 @@ Meteor.methods({
       throw new Meteor.Error('forbidden', 'Forbidden');
     }
 
-    // Get today's start (UTC midnight)
-    const todayStart = new Date();
-    todayStart.setUTCHours(0, 0, 0, 0);
-    const todayStartMs = todayStart.getTime();
     const now = Date.now();
+
+    // "Today" means the caller's local day, not the server's UTC day. The
+    // timesheet builds its ranges from local midnight (see getDateRange in
+    // features/clock/timesheetUtils), so a UTC boundary here made the two
+    // disagree for every client west of UTC: at UTC-4, UTC midnight is 8pm the
+    // previous evening, and last night's sessions got counted as today's hours.
+    // The client sends its own local midnight; ignore an absent or implausible
+    // value and fall back to the old UTC behaviour.
+    const utcMidnight = new Date();
+    utcMidnight.setUTCHours(0, 0, 0, 0);
+    const oldestAcceptedDayStart = now - 48 * 60 * 60 * 1000;
+    const todayStartMs =
+      typeof dayStartMs === 'number' &&
+      Number.isFinite(dayStartMs) &&
+      dayStartMs <= now &&
+      dayStartMs >= oldestAcceptedDayStart
+        ? dayStartMs
+        : utcMidnight.getTime();
 
     // Get today's clock events for all members
     const clockEvents = await ClockEvents.find({

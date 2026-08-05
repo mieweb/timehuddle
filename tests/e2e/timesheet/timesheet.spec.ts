@@ -17,10 +17,11 @@ test.describe('Timesheet', () => {
 
   test('should display all summary grids', async ({ page }) => {
     await page.goto('/app/timesheet');
-    await page.getByRole('heading', { level: 1, name: 'Timesheet' }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: 'Add Entry' }).waitFor({ state: 'visible' });
 
-    // Verify correct URL
-    expect(page.url()).toContain('/app/timesheet');
+    // The standalone route was retired — the old URL redirects to the
+    // dashboard's Me -> Timesheet view.
+    expect(page.url()).toContain('/app/dashboard');
 
     // Verify all summary stat cards are visible
     await expect(page.getByText('Total Hours')).toBeVisible();
@@ -32,7 +33,7 @@ test.describe('Timesheet', () => {
 
   test('all date filter presets work', async ({ page }) => {
     await page.goto('/app/timesheet');
-    await page.getByRole('heading', { level: 1, name: 'Timesheet' }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: 'Add Entry' }).waitFor({ state: 'visible' });
 
     // Verify all preset buttons exist
     const presets = ['Today', 'Yesterday', 'Last Week', 'This Week', '14 Days', 'Custom'];
@@ -57,7 +58,7 @@ test.describe('Timesheet', () => {
 
   test('Add Entry button should be enabled when user has teams', async ({ page }) => {
     await page.goto('/app/timesheet');
-    await page.getByRole('heading', { level: 1, name: 'Timesheet' }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: 'Add Entry' }).waitFor({ state: 'visible' });
     await page.waitForTimeout(2000);
 
     // Verify Add Entry button exists and is enabled
@@ -68,7 +69,7 @@ test.describe('Timesheet', () => {
 
   test('should be able to add an entry from timesheet', async ({ page }) => {
     await page.goto('/app/timesheet');
-    await page.getByRole('heading', { level: 1, name: 'Timesheet' }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: 'Add Entry' }).waitFor({ state: 'visible' });
     await page.waitForTimeout(2000);
 
     // Click Add Entry
@@ -133,7 +134,7 @@ test.describe('Timesheet', () => {
 
     // Navigate to timesheet
     await page.goto('/app/timesheet');
-    await page.getByRole('heading', { level: 1, name: 'Timesheet' }).waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: 'Add Entry' }).waitFor({ state: 'visible' });
     await page.waitForTimeout(2000);
 
     // Select "Today" to see the session

@@ -2,7 +2,11 @@ import { type Page, type Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 /**
- * TimesheetPage - Page object for the personal timesheet
+ * TimesheetPage - Page object for the personal timesheet.
+ *
+ * The standalone /app/timesheet route was retired; the personal timesheet now
+ * lives at Dashboard -> Me -> Timesheet. The old URL still redirects there, so
+ * goto() keeps using it as a check that the redirect holds.
  */
 export class TimesheetPage extends BasePage {
   readonly heading: Locator;
@@ -15,7 +19,9 @@ export class TimesheetPage extends BasePage {
 
   constructor(page: Page) {
     super(page);
-    this.heading = this.page.getByRole('heading', { level: 1, name: /Timesheet/i });
+    // The page heading is the dashboard's now, so the panel is identified by
+    // its Add Entry button — unique to the personal timesheet.
+    this.heading = this.page.getByRole('heading', { level: 1, name: /Dashboard/i });
     this.addEntryButton = this.page.getByRole('button', { name: 'Add Entry' });
     this.totalHours = this.page.getByText('Total Hours').locator('..');
     this.breakHours = this.page.getByText('Break Hours').locator('..');
@@ -30,11 +36,14 @@ export class TimesheetPage extends BasePage {
   }
 
   async waitForLoad(timeout = 10000) {
-    await this.heading.waitFor({ state: 'visible', timeout });
+    await this.addEntryButton.waitFor({ state: 'visible', timeout });
   }
 
-  async navigateFromSidebar() {
-    await this.page.getByRole('button', { name: /^Timesheet$/i }).click();
+  /** Open the timesheet from the dashboard's own Me -> Timesheet toggle. */
+  async navigateFromDashboard() {
+    await this.page.goto('/app/dashboard');
+    await this.heading.waitFor({ state: 'visible', timeout: 10000 });
+    await this.page.locator('main').getByRole('button', { name: 'Timesheet', exact: true }).click();
     await this.waitForLoad();
   }
 

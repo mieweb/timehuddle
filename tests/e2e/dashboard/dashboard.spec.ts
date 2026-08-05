@@ -36,16 +36,17 @@ test.describe('Dashboard', () => {
 
     // 7. All sidebar navigation items exist (scope to the sidebar nav —
     //    the dashboard body also has Timesheet/Team-view tab buttons which
-    //    otherwise create strict-mode selector collisions).
+    //    otherwise create strict-mode selector collisions). Timesheet and
+    //    Notifications are no longer among them: Timesheet lives in the
+    //    dashboard body, Notifications is the header's bell icon.
     const nav = page.getByRole('navigation', { name: 'Main navigation' });
     await expect(nav.getByRole('button', { name: /^Dashboard$/i })).toBeVisible();
     await expect(nav.getByRole('button', { name: /^Tickets$/i })).toBeVisible();
-    await expect(nav.getByRole('button', { name: /^Timesheet$/i })).toBeVisible();
     await expect(nav.getByRole('button', { name: /^Teams$/i })).toBeVisible();
     await expect(nav.getByRole('button', { name: /^Organization$/i })).toBeVisible();
-    await expect(nav.getByRole('button', { name: /^Notifications$/i })).toBeVisible();
     await expect(nav.getByRole('button', { name: /^Activity Log$/i })).toBeVisible();
     await expect(nav.getByRole('button', { name: /^Clock$/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Notifications' })).toBeVisible();
   });
 
   test('active session button navigates to clock page', async ({ page }) => {
@@ -63,9 +64,12 @@ test.describe('Dashboard', () => {
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
 
-    // The dashboard shows "Session Active" alert with a "View" button.
+    // The running shift now shows inside the greeting banner rather than as a
+    // standalone alert: a "Session active" label, the elapsed time, and "View".
     // Allow extra time — the dashboard polls for clock state which can be slow.
-    await expect(page.getByText('Session Active')).toBeVisible({ timeout: 20000 });
+    await expect(page.getByText('Session active', { exact: true })).toBeVisible({
+      timeout: 20000,
+    });
     const viewButton = page.getByRole('button', { name: 'View', exact: true });
     await expect(viewButton).toBeVisible();
 
