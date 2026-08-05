@@ -19,8 +19,9 @@ import { useRouter } from './router';
 import { UserDropdown } from './UserDropdown';
 
 export const AppHeader: React.FC = () => {
-  const { navigate } = useRouter();
+  const { navigate, pathname } = useRouter();
   const { activeClockEvent } = useTeam();
+  const onClockPage = pathname.startsWith('/app/clock');
 
   return (
     <header className="app-header sticky top-0 z-40 flex shrink-0 flex-col justify-end border-b border-neutral-200 bg-white/85 backdrop-blur-md dark:border-neutral-800 dark:bg-neutral-900/85">
@@ -36,28 +37,30 @@ export const AppHeader: React.FC = () => {
           {/* Clock-in timer (visible when clocked in) */}
           <ClockInHeaderTimer />
           {/* Direct shortcut to the clock page — desktop only; mobile already
-              has the Clock In tab/FAB in BottomNav. Always shown, independent
-              of the timer above, so there's a way back to /app/clock from any
-              page whether clocked in or out. */}
-          <Button
-            variant={activeClockEvent ? 'ghost' : 'secondary'}
-            size={activeClockEvent ? 'icon' : 'sm'}
-            onClick={() => navigate('/app/clock')}
-            aria-label={activeClockEvent ? 'Go to clock page' : 'Clock in'}
-            title={activeClockEvent ? 'Go to clock page' : 'Clock in'}
-            className="hidden sm:inline-flex"
-            leftIcon={
-              activeClockEvent ? undefined : (
-                <FontAwesomeIcon icon={faClock} className="text-xs" />
-              )
-            }
-          >
-            {activeClockEvent ? (
-              <FontAwesomeIcon icon={faClock} />
-            ) : (
-              'Clock In'
-            )}
-          </Button>
+              has the Clock In tab/FAB in BottomNav. Hidden while already on
+              the clock page (its own Clock In/Out button covers that, and
+              duplicating the accessible name breaks role-based selectors). */}
+          {!onClockPage && (
+            <Button
+              variant={activeClockEvent ? 'ghost' : 'secondary'}
+              size={activeClockEvent ? 'icon' : 'sm'}
+              onClick={() => navigate('/app/clock')}
+              aria-label={activeClockEvent ? 'Go to clock page' : 'Clock in'}
+              title={activeClockEvent ? 'Go to clock page' : 'Clock in'}
+              className="hidden sm:inline-flex"
+              leftIcon={
+                activeClockEvent ? undefined : (
+                  <FontAwesomeIcon icon={faClock} className="text-xs" />
+                )
+              }
+            >
+              {activeClockEvent ? (
+                <FontAwesomeIcon icon={faClock} />
+              ) : (
+                'Clock In'
+              )}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"

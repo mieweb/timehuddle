@@ -115,7 +115,7 @@ test.describe('Timesheet calculation fixes', () => {
       // defaults to the user's personal workspace (sorted first), not
       // necessarily "Test Team Alpha".
       await page.getByRole('button', { name: /Switch organization and team/i }).click();
-      await page.getByRole('menuitem', { name: 'Test Team Alpha' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Test Team Alpha' }).click();
 
       // Custom range tightly bounding just this seeded session, so no other
       // test's "now"-relative clock in/out data can leak into the totals.
@@ -208,7 +208,7 @@ test.describe('Timesheet calculation fixes', () => {
         // (e.g. a personal team auto-created by an earlier login) across the
         // suite.
         await page.getByRole('button', { name: /Switch organization and team/i }).click();
-        await page.getByRole('menuitem', { name: 'Test Team Alpha' }).click();
+        await page.getByRole('dialog').getByRole('button', { name: 'Test Team Alpha' }).click();
 
         await applyCustomRange(page, '2026-01-14', '2026-01-17');
 
@@ -234,9 +234,17 @@ test.describe('Timesheet calculation fixes', () => {
           // which renders no Timesheet toggle at all. Select the team
           // explicitly, same as the member's own view above.
           await adminPage.getByRole('button', { name: /Switch organization and team/i }).click();
-          await adminPage.getByRole('menuitem', { name: 'Test Team Alpha' }).click();
+          await adminPage
+            .getByRole('dialog')
+            .getByRole('button', { name: 'Test Team Alpha' })
+            .click();
           await adminPage.getByRole('button', { name: 'Team', exact: true }).click();
-          await adminPage.getByRole('button', { name: 'Timesheet', exact: true }).click();
+          // "Timesheet" tab in the dashboard body — scope to <main> because
+          // the sidebar also has a Timesheet nav button with the same name.
+          await adminPage
+            .getByRole('main')
+            .getByRole('button', { name: 'Timesheet', exact: true })
+            .click();
 
           // Wait for the admin timesheet panel itself to mount.
           await adminPage

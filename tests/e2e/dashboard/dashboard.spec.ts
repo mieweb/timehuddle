@@ -34,15 +34,18 @@ test.describe('Dashboard', () => {
     // 6. Active tickets section is visible
     await expect(page.getByRole('heading', { name: /Active tickets/i })).toBeVisible();
 
-    // 7. All sidebar navigation items exist
-    await expect(page.getByRole('button', { name: /^Dashboard$/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Tickets$/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Timesheet$/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Teams$/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Organization$/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Notifications$/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Activity Log$/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /^Clock$/i })).toBeVisible();
+    // 7. All sidebar navigation items exist (scope to the sidebar nav —
+    //    the dashboard body also has Timesheet/Team-view tab buttons which
+    //    otherwise create strict-mode selector collisions).
+    const nav = page.getByRole('navigation', { name: 'Main navigation' });
+    await expect(nav.getByRole('button', { name: /^Dashboard$/i })).toBeVisible();
+    await expect(nav.getByRole('button', { name: /^Tickets$/i })).toBeVisible();
+    await expect(nav.getByRole('button', { name: /^Timesheet$/i })).toBeVisible();
+    await expect(nav.getByRole('button', { name: /^Teams$/i })).toBeVisible();
+    await expect(nav.getByRole('button', { name: /^Organization$/i })).toBeVisible();
+    await expect(nav.getByRole('button', { name: /^Notifications$/i })).toBeVisible();
+    await expect(nav.getByRole('button', { name: /^Activity Log$/i })).toBeVisible();
+    await expect(nav.getByRole('button', { name: /^Clock$/i })).toBeVisible();
   });
 
   test('active session button navigates to clock page', async ({ page }) => {

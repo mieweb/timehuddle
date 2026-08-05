@@ -24,8 +24,8 @@ export class ClockPage extends BasePage {
     // clock in" / "Post wrap-up and clock out" buttons.
     this.clockInButton = this.page.getByRole('button', { name: 'Clock in', exact: true });
     this.clockOutButton = this.page.getByRole('button', { name: 'Clock out', exact: true });
-    this.banner = this.page.locator('.clock-banner');
-    this.planGateMessage = this.page.getByText(/Write a plan before starting this session/);
+    this.banner = this.page.locator('.clock-status');
+    this.planGateMessage = this.page.getByText(/Plan before you clock in/i);
     this.proseMirror = this.page.locator('.ProseMirror').first();
     this.postPlanAndClockInButton = this.page.getByRole('button', {
       // Draft-resume mode labels this action as "Publish plan and clock in".
@@ -155,13 +155,13 @@ export class ClockPage extends BasePage {
   }
 
   /**
-   * Check if currently clocked in. Reads the status banner rather than the
+   * Check if currently clocked in. Reads the status card rather than the
    * "Clock out" button, which the plan gate replaces with the wrap-up composer
    * — the button's absence does not mean the session ended.
    */
   async isClockedIn(): Promise<boolean> {
     await this.banner.waitFor({ state: 'visible', timeout: 10000 });
-    return /On shift|On break/i.test(await this.banner.innerText());
+    return /Clocked in|On break/i.test(await this.banner.innerText());
   }
 
   /**

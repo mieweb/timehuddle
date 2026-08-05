@@ -26,7 +26,10 @@ const TEAM_CODE = `AA${STAMP.toString(36).toUpperCase().slice(-6)}`;
 /** Select the shared test team via the org/team switcher (deep links are racy). */
 async function selectTeam(page: Page, teamName: string) {
   await page.getByRole('button', { name: /Switch organization and team/i }).click();
-  await page.getByRole('menuitem', { name: teamName }).click();
+  // The switcher renders team items as plain <button>s inside its dialog
+  // (not menuitems). Their accessible name is "<Team Name> <N> members",
+  // so match by substring (not exact) and scope by dialog.
+  await page.getByRole('dialog').getByRole('button', { name: teamName }).click();
 }
 
 async function openTeamsPage(page: Page) {

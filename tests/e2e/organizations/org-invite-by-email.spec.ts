@@ -283,8 +283,11 @@ test.describe('Org Owner Team Authority', () => {
 
       // Select the new team via the org/team switcher — more reliable than the
       // `?teamId=` deep link, which can race with the initial teams fetch.
+      // The switcher renders team items as plain <button>s inside its dialog
+      // (not menuitems). Their accessible name is "<Team Name> <N> members",
+      // so match by substring (not exact) and scope by dialog.
       await page.getByRole('button', { name: /Switch organization and team/i }).click();
-      await page.getByRole('menuitem', { name: teamName }).click();
+      await page.getByRole('dialog').getByRole('button', { name: teamName }).click();
 
       await expect(page.getByRole('heading', { name: teamName, level: 3 })).toBeVisible({
         timeout: 15000,
