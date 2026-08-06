@@ -87,11 +87,19 @@ export const DashboardPage: React.FC = () => {
   const [memberStatuses, setMemberStatuses] = useState<TeamMemberClockStatus[]>([]);
   const [runningTimers, setRunningTimers] = useState<TeamRunningTimer[]>([]);
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState<'overview' | 'timesheet'>('overview');
-  const [statsScope, setStatsScope] = useState<'me' | 'team'>(() => {
-    if (typeof window === 'undefined') return 'team';
-    return localStorage.getItem('app:dashboardScope') === 'me' ? 'me' : 'team';
+
+  const [storedTab, _setTab] = useState<'me' | 'team'>(() => {
+    if (typeof window === 'undefined') return 'me';
+    return localStorage.getItem('app:dashboardTab') === 'team' ? 'team' : 'me';
   });
+  const setTab = useCallback((next: 'me' | 'team') => {
+    _setTab(next);
+    if (typeof window !== 'undefined') localStorage.setItem('app:dashboardTab', next);
+  }, []);
+  // Personal workspaces hide the Me/Team toggle — both views would be identical.
+  const tab = isPersonalWorkspace ? 'me' : storedTab;
+
+  const [view, setView] = useState<'overview' | 'timesheet'>('overview');
   const [initialMemberId, setInitialMemberId] = useState<string>('');
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
 
@@ -106,7 +114,11 @@ export const DashboardPage: React.FC = () => {
     const memberId = params.get('memberId');
     const teamId = params.get('teamId');
 
-    if (deepTab === 'timesheet' || deepView === 'timesheet') {
+    if (deepTab === 'timesheet') {
+      setTab('team');
+      setView('timesheet');
+    }
+    if (deepView === 'timesheet') {
       setView('timesheet');
     }
     if (memberId) setInitialMemberId(memberId);
@@ -253,8 +265,8 @@ export const DashboardPage: React.FC = () => {
   });
   const myHighPriority = myTickets.filter((t) => t.priority === 'high' || t.priority === 'urgent');
   const myOverdue = myHighPriority.filter((t) => t.status !== 'closed' && t.status !== 'done');
-  const visibleRunningTimers =
-    statsScope === 'me' ? runningTimers.filter((t) => t.userId === user?.id) : runningTimers;
+  const myRunningTimers = runningTimers.filter((t) => t.userId === user?.id);
+  const visibleRunningTimers = tab === 'me' ? myRunningTimers : runningTimers;
 
   // Sort members: admins first, then clocked-in, then by hours
   const sortedMembers = [...memberStatuses].sort((a, b) => {
@@ -281,13 +293,44 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <AppPage
-
+      titleActions={
+        isPersonalWorkspace ? undefined : (
+          <div className="inline-flex rounded-full bg-neutral-100 p-1 dark:bg-neutral-800">
+            <button
+              type="button"
+              onClick={() => setTab('me')}
+              aria-pressed={tab === 'me'}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                tab === 'me'
+                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+              }`}
+            >
+              Me
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('team')}
+              aria-pressed={tab === 'team'}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                tab === 'team'
+                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+              }`}
+            >
+              Team
+            </button>
+          </div>
+        )
+      }
     >
       <WorkspaceGreeting
         note={
           isPersonalWorkspace
-            ? 'Everything below is just your own activity.'
-            : "Everything below is this team's activity."
+            ? 'Everything below is just your own time and tickets.'
+            : tab === 'me'
+              ? 'Showing your own stats — switch to Team for the full picture.'
+              : "Everything below is this team's — switch to Me for just your own."
         }
         trailing={
           activeClockEvent && (
@@ -399,40 +442,8 @@ export const DashboardPage: React.FC = () => {
             </Card>
           )}
 
-          {/* ── Quick stats ─────────────────────────────────────────────────── */}          {!isPersonalWorkspace && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setStatsScope('me');
-                  localStorage.setItem('app:dashboardScope', 'me');
-                }}
-                aria-pressed={statsScope === 'me'}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  statsScope === 'me'
-                    ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
-                    : 'bg-neutral-100 text-neutral-500 hover:text-neutral-700 dark:bg-neutral-800 dark:hover:text-neutral-300'
-                }`}
-              >
-                Me
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setStatsScope('team');
-                  localStorage.setItem('app:dashboardScope', 'team');
-                }}
-                aria-pressed={statsScope === 'team'}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                  statsScope === 'team'
-                    ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
-                    : 'bg-neutral-100 text-neutral-500 hover:text-neutral-700 dark:bg-neutral-800 dark:hover:text-neutral-300'
-                }`}
-              >
-                Team
-              </button>
-            </div>
-          )}          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {/* ── Quick stats ─────────────────────────────────────────────────── */}
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {/* Hours today */}
             <Card padding="sm">
               <CardContent className="flex items-start gap-3">
@@ -446,11 +457,11 @@ export const DashboardPage: React.FC = () => {
                   <Text size="lg" weight="semibold">
                     {formatDuration(
                       roundDurationSecondsForDisplay(
-                        statsScope === 'me' ? (myStatus?.todaySeconds ?? 0) : todayTotalSeconds,
+                        tab === 'me' ? (myStatus?.todaySeconds ?? 0) : todayTotalSeconds,
                       ),
                     )}
                   </Text>
-                  {statsScope === 'me' ? (
+                  {tab === 'me' ? (
                     myStatus?.isClockedIn && (
                       <Text variant="muted" size="xs" className="mt-0.5 text-green-600 dark:text-green-400">
                         ↑ clocked in
@@ -478,9 +489,9 @@ export const DashboardPage: React.FC = () => {
                     Open tickets
                   </Text>
                   <Text size="lg" weight="semibold">
-                    {String(statsScope === 'me' ? myOpenTickets.length : openTickets.length)}
+                    {String(tab === 'me' ? myOpenTickets.length : openTickets.length)}
                   </Text>
-                  {statsScope === 'team' && unassignedOpen.length > 0 && (
+                  {tab === 'team' && unassignedOpen.length > 0 && (
                     <Text variant="muted" size="xs" className="mt-0.5">
                       {unassignedOpen.length} unassigned
                     </Text>
@@ -500,7 +511,7 @@ export const DashboardPage: React.FC = () => {
                     Closed today
                   </Text>
                   <Text size="lg" weight="semibold">
-                    {String(statsScope === 'me' ? myClosedToday.length : closedToday.length)}
+                    {String(tab === 'me' ? myClosedToday.length : closedToday.length)}
                   </Text>
                 </div>
               </CardContent>
@@ -518,14 +529,14 @@ export const DashboardPage: React.FC = () => {
                   </Text>
                   <Text size="lg" weight="semibold" className="text-red-600 dark:text-red-400">
                     {String(
-                      (statsScope === 'me' ? myHighPriority : highPriority).filter(
+                      (tab === 'me' ? myHighPriority : highPriority).filter(
                         (t) => t.status !== 'closed' && t.status !== 'done',
                       ).length,
                     )}
                   </Text>
-                  {(statsScope === 'me' ? myOverdue : overdue).length > 0 && (
+                  {(tab === 'me' ? myOverdue : overdue).length > 0 && (
                     <Text variant="muted" size="xs" className="mt-0.5">
-                      {(statsScope === 'me' ? myOverdue : overdue).length} overdue
+                      {(tab === 'me' ? myOverdue : overdue).length} overdue
                     </Text>
                   )}
                 </div>
@@ -534,7 +545,7 @@ export const DashboardPage: React.FC = () => {
           </div>
 
           {/* ── Team members ─────────────────────────────────────────────────── */}
-          {!isPersonalWorkspace && (
+          {tab === 'team' && (
             <Card padding="none">
               <CardHeader className="flex flex-row items-center justify-between px-5 py-3">
                 <CardTitle className="flex items-center gap-2 text-sm">
@@ -695,7 +706,7 @@ export const DashboardPage: React.FC = () => {
           </Card>
 
           {/* ── Time logged today ────────────────────────────────────────────── */}
-          {!isPersonalWorkspace && memberStatuses.some((m) => m.todaySeconds > 0) && (
+          {tab === 'team' && memberStatuses.some((m) => m.todaySeconds > 0) && (
             <Card padding="none">
               <CardHeader className="flex flex-row items-center justify-between px-5 py-3">
                 <CardTitle className="flex items-center gap-2 text-sm">
