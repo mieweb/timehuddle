@@ -390,8 +390,8 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* ── Timesheet view: admin panel for admins, personal panel for everyone else ── */}
-      {view === 'timesheet' && (
-        canViewTimesheet && selectedTeamId ? (
+      {view === 'timesheet' &&
+        (canViewTimesheet && selectedTeamId ? (
           <AdminTimesheetPanel
             members={teamMembers}
             selectedTeamId={selectedTeamId}
@@ -400,8 +400,7 @@ export const DashboardPage: React.FC = () => {
           />
         ) : (
           <PersonalTimesheetPanel />
-        )
-      )}
+        ))}
 
       {view === 'overview' && (
         <>
@@ -461,19 +460,25 @@ export const DashboardPage: React.FC = () => {
                       ),
                     )}
                   </Text>
-                  {tab === 'me' ? (
-                    myStatus?.isClockedIn && (
-                      <Text variant="muted" size="xs" className="mt-0.5 text-green-600 dark:text-green-400">
-                        ↑ clocked in
-                      </Text>
-                    )
-                  ) : (
-                    membersClocked.length > 0 && (
-                      <Text variant="muted" size="xs" className="mt-0.5 text-green-600 dark:text-green-400">
-                        ↑ {membersClocked.length} active
-                      </Text>
-                    )
-                  )}
+                  {tab === 'me'
+                    ? myStatus?.isClockedIn && (
+                        <Text
+                          variant="muted"
+                          size="xs"
+                          className="mt-0.5 text-green-600 dark:text-green-400"
+                        >
+                          ↑ clocked in
+                        </Text>
+                      )
+                    : membersClocked.length > 0 && (
+                        <Text
+                          variant="muted"
+                          size="xs"
+                          className="mt-0.5 text-green-600 dark:text-green-400"
+                        >
+                          ↑ {membersClocked.length} active
+                        </Text>
+                      )}
                 </div>
               </CardContent>
             </Card>
@@ -673,7 +678,8 @@ export const DashboardPage: React.FC = () => {
                             >
                               {ticket.priority === 'urgent'
                                 ? 'High'
-                                : ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1)}
+                                : ticket.priority.charAt(0).toUpperCase() +
+                                  ticket.priority.slice(1)}
                             </span>
                           )}
                           <div className="min-w-0 flex-1">
