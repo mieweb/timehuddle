@@ -88,6 +88,10 @@ export const DashboardPage: React.FC = () => {
   const [runningTimers, setRunningTimers] = useState<TeamRunningTimer[]>([]);
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<'overview' | 'timesheet'>('overview');
+  const [statsScope, setStatsScope] = useState<'me' | 'team'>(() => {
+    if (typeof window === 'undefined') return 'team';
+    return localStorage.getItem('app:dashboardScope') === 'me' ? 'me' : 'team';
+  });
   const [initialMemberId, setInitialMemberId] = useState<string>('');
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
 
@@ -233,6 +237,25 @@ export const DashboardPage: React.FC = () => {
   const todayTotalSeconds = memberStatuses.reduce((sum, m) => sum + m.todaySeconds, 0);
   const membersClocked = memberStatuses.filter((m) => m.isClockedIn);
 
+  const myStatus = memberStatuses.find((m) => m.userId === user?.id) ?? null;
+  const myTickets = tickets.filter((t) => user && t.assignedTo.includes(user.id));
+  const myOpenTickets = myTickets.filter((t) => t.status !== 'closed' && t.status !== 'done');
+  const myClosedToday = myTickets.filter((t) => {
+    if (t.status !== 'closed' && t.status !== 'done') return false;
+    if (!t.updatedAt) return false;
+    const updated = new Date(t.updatedAt);
+    const today = new Date();
+    return (
+      updated.getFullYear() === today.getFullYear() &&
+      updated.getMonth() === today.getMonth() &&
+      updated.getDate() === today.getDate()
+    );
+  });
+  const myHighPriority = myTickets.filter((t) => t.priority === 'high' || t.priority === 'urgent');
+  const myOverdue = myHighPriority.filter((t) => t.status !== 'closed' && t.status !== 'done');
+  const visibleRunningTimers =
+    statsScope === 'me' ? runningTimers.filter((t) => t.userId === user?.id) : runningTimers;
+
   // Sort members: admins first, then clocked-in, then by hours
   const sortedMembers = [...memberStatuses].sort((a, b) => {
     const aIsAdmin = teamAdminIds.has(a.userId);
@@ -376,8 +399,40 @@ export const DashboardPage: React.FC = () => {
             </Card>
           )}
 
-          {/* ── Quick stats ─────────────────────────────────────────────────── */}
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {/* ── Quick stats ─────────────────────────────────────────────────── */}          {!isPersonalWorkspace && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setStatsScope('me');
+                  localStorage.setItem('app:dashboardScope', 'me');
+                }}
+                aria-pressed={statsScope === 'me'}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  statsScope === 'me'
+                    ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
+                    : 'bg-neutral-100 text-neutral-500 hover:text-neutral-700 dark:bg-neutral-800 dark:hover:text-neutral-300'
+                }`}
+              >
+                Me
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatsScope('team');
+                  localStorage.setItem('app:dashboardScope', 'team');
+                }}
+                aria-pressed={statsScope === 'team'}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  statsScope === 'team'
+                    ? 'bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900'
+                    : 'bg-neutral-100 text-neutral-500 hover:text-neutral-700 dark:bg-neutral-800 dark:hover:text-neutral-300'
+                }`}
+              >
+                Team
+              </button>
+            </div>
+          )}          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {/* Hours today */}
             <Card padding="sm">
               <CardContent className="flex items-start gap-3">
@@ -389,16 +444,24 @@ export const DashboardPage: React.FC = () => {
                     Hours today
                   </Text>
                   <Text size="lg" weight="semibold">
-                    {formatDuration(roundDurationSecondsForDisplay(todayTotalSeconds))}
+                    {formatDuration(
+                      roundDurationSecondsForDisplay(
+                        statsScope === 'me' ? (myStatus?.todaySeconds ?? 0) : todayTotalSeconds,
+                      ),
+                    )}
                   </Text>
-                  {membersClocked.length > 0 && (
-                    <Text
-                      variant="muted"
-                      size="xs"
-                      className="mt-0.5 text-green-600 dark:text-green-400"
-                    >
-                      ↑ {membersClocked.length} active
-                    </Text>
+                  {statsScope === 'me' ? (
+                    myStatus?.isClockedIn && (
+                      <Text variant="muted" size="xs" className="mt-0.5 text-green-600 dark:text-green-400">
+                        ↑ clocked in
+                      </Text>
+                    )
+                  ) : (
+                    membersClocked.length > 0 && (
+                      <Text variant="muted" size="xs" className="mt-0.5 text-green-600 dark:text-green-400">
+                        ↑ {membersClocked.length} active
+                      </Text>
+                    )
                   )}
                 </div>
               </CardContent>
@@ -415,9 +478,9 @@ export const DashboardPage: React.FC = () => {
                     Open tickets
                   </Text>
                   <Text size="lg" weight="semibold">
-                    {String(openTickets.length)}
+                    {String(statsScope === 'me' ? myOpenTickets.length : openTickets.length)}
                   </Text>
-                  {unassignedOpen.length > 0 && (
+                  {statsScope === 'team' && unassignedOpen.length > 0 && (
                     <Text variant="muted" size="xs" className="mt-0.5">
                       {unassignedOpen.length} unassigned
                     </Text>
@@ -437,7 +500,7 @@ export const DashboardPage: React.FC = () => {
                     Closed today
                   </Text>
                   <Text size="lg" weight="semibold">
-                    {String(closedToday.length)}
+                    {String(statsScope === 'me' ? myClosedToday.length : closedToday.length)}
                   </Text>
                 </div>
               </CardContent>
@@ -454,11 +517,15 @@ export const DashboardPage: React.FC = () => {
                     High priority
                   </Text>
                   <Text size="lg" weight="semibold" className="text-red-600 dark:text-red-400">
-                    {String(highPriority.filter((t) => t.status !== 'closed' && t.status !== 'done').length)}
+                    {String(
+                      (statsScope === 'me' ? myHighPriority : highPriority).filter(
+                        (t) => t.status !== 'closed' && t.status !== 'done',
+                      ).length,
+                    )}
                   </Text>
-                  {overdue.length > 0 && (
+                  {(statsScope === 'me' ? myOverdue : overdue).length > 0 && (
                     <Text variant="muted" size="xs" className="mt-0.5">
-                      {overdue.length} overdue
+                      {(statsScope === 'me' ? myOverdue : overdue).length} overdue
                     </Text>
                   )}
                 </div>
@@ -549,9 +616,9 @@ export const DashboardPage: React.FC = () => {
               <CardTitle className="flex items-center gap-2 text-sm">
                 <FontAwesomeIcon icon={faPlay} className="text-green-500" />
                 Active tickets
-                {runningTimers.length > 0 && (
+                {visibleRunningTimers.length > 0 && (
                   <Badge variant="secondary" size="sm">
-                    {runningTimers.length} running
+                    {visibleRunningTimers.length} running
                   </Badge>
                 )}
               </CardTitle>
@@ -564,7 +631,7 @@ export const DashboardPage: React.FC = () => {
                 <div className="flex justify-center py-6">
                   <Spinner size="sm" />
                 </div>
-              ) : runningTimers.length === 0 ? (
+              ) : visibleRunningTimers.length === 0 ? (
                 <div className="px-5 py-6 text-center">
                   <Text variant="muted" size="sm">
                     No active timers right now
@@ -572,7 +639,7 @@ export const DashboardPage: React.FC = () => {
                 </div>
               ) : (
                 <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                  {runningTimers.map((timer) => {
+                  {visibleRunningTimers.map((timer) => {
                     const ticket = tickets.find((t) => t.id === timer.ticketId);
                     const elapsedSec = Math.floor((currentTime - timer.startTime) / 1000);
                     const priorityColor =
