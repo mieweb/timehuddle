@@ -87,33 +87,7 @@ export const DashboardPage: React.FC = () => {
   const [memberStatuses, setMemberStatuses] = useState<TeamMemberClockStatus[]>([]);
   const [runningTimers, setRunningTimers] = useState<TeamRunningTimer[]>([]);
   const [loading, setLoading] = useState(false);
-  // "Me" is the default. Persisted so navigating away and back to the
-  // dashboard doesn't silently reset the user to "Me" after they've chosen
-  // "Team".
-  const [storedTab, _setTab] = useState<'me' | 'team'>(() => {
-    if (typeof window === 'undefined') return 'me';
-    return localStorage.getItem('app:dashboardTab') === 'team' ? 'team' : 'me';
-  });
-  const setTab = useCallback((next: 'me' | 'team') => {
-    _setTab(next);
-    if (typeof window !== 'undefined') localStorage.setItem('app:dashboardTab', next);
-  }, []);
-
-  // A personal workspace has no one in it but you, so "Me" and "Team" would
-  // show the same numbers — the toggle is hidden there rather than offering a
-  // choice that changes nothing. The stored preference is left untouched so
-  // switching back to a real team restores whichever tab was last chosen; it
-  // just doesn't apply here, or a "team" carried over from a real team would
-  // strand the user on a tab with no visible way back.
-  const tab = isPersonalWorkspace ? 'me' : storedTab;
-
-  // "Overview" vs "Timesheet" sub-view for the "Me" tab.
-  const [meView, setMeView] = useState<'overview' | 'timesheet'>('overview');
-
-  // "Overview" vs "Timesheet" — only relevant on the "Team" tab for admins.
-  // The admin timesheet lives here (moved from the Teams page) so Teams can
-  // stay focused on membership/settings.
-  const [teamView, setTeamView] = useState<'overview' | 'timesheet'>('overview');
+  const [view, setView] = useState<'overview' | 'timesheet'>('overview');
   const [initialMemberId, setInitialMemberId] = useState<string>('');
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
 
@@ -128,13 +102,8 @@ export const DashboardPage: React.FC = () => {
     const memberId = params.get('memberId');
     const teamId = params.get('teamId');
 
-    if (deepTab === 'timesheet') {
-      setTab('team');
-      setTeamView('timesheet');
-    }
-    if (deepView === 'timesheet') {
-      setTab('me');
-      setMeView('timesheet');
+    if (deepTab === 'timesheet' || deepView === 'timesheet') {
+      setView('timesheet');
     }
     if (memberId) setInitialMemberId(memberId);
     if (teamId) {
@@ -173,13 +142,6 @@ export const DashboardPage: React.FC = () => {
       cancelled = true;
     };
   }, [selectedTeamId, canViewTimesheet]);
-
-  // Fall back to "overview" if the user loses admin access or timesheet
-  // isn't applicable to the currently selected team (e.g. switched to a
-  // personal workspace).
-  useEffect(() => {
-    if (!canViewTimesheet && teamView === 'timesheet') setTeamView('overview');
-  }, [canViewTimesheet, teamView]);
 
   // ── Recent activity — everyone's published plan/wrap-up posts for this
   // team, live via the same DDP publication the Huddle feed uses. Clicking
@@ -271,26 +233,6 @@ export const DashboardPage: React.FC = () => {
   const todayTotalSeconds = memberStatuses.reduce((sum, m) => sum + m.todaySeconds, 0);
   const membersClocked = memberStatuses.filter((m) => m.isClockedIn);
 
-  // ── "Me" tab: the same shapes, scoped to the signed-in user only ──────────
-  const myStatus = memberStatuses.find((m) => m.userId === user?.id) ?? null;
-  const myTickets = tickets.filter((t) => user && t.assignedTo.includes(user.id));
-  const myOpenTickets = myTickets.filter((t) => t.status !== 'closed' && t.status !== 'done');
-  const myClosedToday = myTickets.filter((t) => {
-    if (t.status !== 'closed' && t.status !== 'done') return false;
-    if (!t.updatedAt) return false;
-    const updated = new Date(t.updatedAt);
-    const today = new Date();
-    return (
-      updated.getFullYear() === today.getFullYear() &&
-      updated.getMonth() === today.getMonth() &&
-      updated.getDate() === today.getDate()
-    );
-  });
-  const myHighPriority = myTickets.filter((t) => t.priority === 'high' || t.priority === 'urgent');
-  const myOverdue = myHighPriority.filter((t) => t.status !== 'closed' && t.status !== 'done');
-  const myRunningTimers = runningTimers.filter((t) => t.userId === user?.id);
-  const visibleRunningTimers = tab === 'me' ? myRunningTimers : runningTimers;
-
   // Sort members: admins first, then clocked-in, then by hours
   const sortedMembers = [...memberStatuses].sort((a, b) => {
     const aIsAdmin = teamAdminIds.has(a.userId);
@@ -316,42 +258,13 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <AppPage
-      titleActions={
-        isPersonalWorkspace ? undefined : (
-          <div className="inline-flex rounded-full bg-neutral-100 p-1 dark:bg-neutral-800">
-            <button
-              type="button"
-              onClick={() => setTab('me')}
-              aria-pressed={tab === 'me'}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                tab === 'me'
-                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-              }`}
-            >
-              Me
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('team')}
-              aria-pressed={tab === 'team'}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                tab === 'team'
-                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-              }`}
-            >
-              Team
-            </button>
-          </div>
-        )
-      }
+
     >
       <WorkspaceGreeting
         note={
           isPersonalWorkspace
-            ? 'Everything below is just your own time and tickets.'
-            : "Everything below is this team's — switch to Me for just your own."
+            ? 'Everything below is just your own activity.'
+            : "Everything below is this team's activity."
         }
         trailing={
           activeClockEvent && (
@@ -382,81 +295,49 @@ export const DashboardPage: React.FC = () => {
         }
       />
 
-      {/* ── Me / Timesheet toggle ─────────────────────────────────────── */}
-      {tab === 'me' && (
-        <div className="inline-flex rounded-full bg-neutral-100 p-1 dark:bg-neutral-800">
-          <button
-            type="button"
-            onClick={() => setMeView('overview')}
-            aria-pressed={meView === 'overview'}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              meView === 'overview'
-                ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-            }`}
-          >
-            Overview
-          </button>
-          <button
-            type="button"
-            onClick={() => setMeView('timesheet')}
-            aria-pressed={meView === 'timesheet'}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              meView === 'timesheet'
-                ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-            }`}
-          >
-            Timesheet
-          </button>
-        </div>
+      {/* ── Overview / Timesheet toggle ──────────────────────────────── */}
+      <div className="inline-flex rounded-full bg-neutral-100 p-1 dark:bg-neutral-800">
+        <button
+          type="button"
+          onClick={() => setView('overview')}
+          aria-pressed={view === 'overview'}
+          className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+            view === 'overview'
+              ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+              : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+          }`}
+        >
+          Overview
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('timesheet')}
+          aria-pressed={view === 'timesheet'}
+          className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+            view === 'timesheet'
+              ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
+              : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
+          }`}
+        >
+          Timesheet
+        </button>
+      </div>
+
+      {/* ── Timesheet view: admin panel for admins, personal panel for everyone else ── */}
+      {view === 'timesheet' && (
+        canViewTimesheet && selectedTeamId ? (
+          <AdminTimesheetPanel
+            members={teamMembers}
+            selectedTeamId={selectedTeamId}
+            teams={teams}
+            initialMemberId={initialMemberId}
+          />
+        ) : (
+          <PersonalTimesheetPanel />
+        )
       )}
 
-      {/* ── Me Timesheet view — the app's only personal timesheet since the
-           standalone /app/timesheet route was retired. ──────────────────── */}
-      {tab === 'me' && meView === 'timesheet' && <PersonalTimesheetPanel />}
-
-      {/* ── Team / Timesheet toggle (admins, non-personal teams only) ───── */}
-      {tab === 'team' && canViewTimesheet && (
-        <div className="inline-flex rounded-full bg-neutral-100 p-1 dark:bg-neutral-800">
-          <button
-            type="button"
-            onClick={() => setTeamView('overview')}
-            aria-pressed={teamView === 'overview'}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              teamView === 'overview'
-                ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-            }`}
-          >
-            Overview
-          </button>
-          <button
-            type="button"
-            onClick={() => setTeamView('timesheet')}
-            aria-pressed={teamView === 'timesheet'}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              teamView === 'timesheet'
-                ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-            }`}
-          >
-            Timesheet
-          </button>
-        </div>
-      )}
-
-      {/* ── Timesheet view (admins only) — replaces the overview below ──── */}
-      {tab === 'team' && canViewTimesheet && teamView === 'timesheet' && selectedTeamId && (
-        <AdminTimesheetPanel
-          members={teamMembers}
-          selectedTeamId={selectedTeamId}
-          teams={teams}
-          initialMemberId={initialMemberId}
-        />
-      )}
-
-      {(tab === 'me' ? meView === 'overview' : teamView === 'overview') && (
+      {view === 'overview' && (
         <>
           {/* ── First-time welcome ──────────────────────────────────────────── */}
           {isFirstTime && (
@@ -508,34 +389,16 @@ export const DashboardPage: React.FC = () => {
                     Hours today
                   </Text>
                   <Text size="lg" weight="semibold">
-                    {formatDuration(
-                      roundDurationSecondsForDisplay(
-                        tab === 'me' ? (myStatus?.todaySeconds ?? 0) : todayTotalSeconds,
-                      ),
-                    )}
+                    {formatDuration(roundDurationSecondsForDisplay(todayTotalSeconds))}
                   </Text>
-                  {tab === 'me' ? (
-                    myStatus?.isClockedIn && (
-                      <Text
-                        variant="muted"
-                        size="xs"
-                        className="mt-0.5 text-green-600 dark:text-green-400"
-                      >
-                        ↑ clocked in
-                      </Text>
-                    )
-                  ) : (
-                    <>
-                      {membersClocked.length > 0 && (
-                        <Text
-                          variant="muted"
-                          size="xs"
-                          className="mt-0.5 text-green-600 dark:text-green-400"
-                        >
-                          ↑ {membersClocked.length} active
-                        </Text>
-                      )}
-                    </>
+                  {membersClocked.length > 0 && (
+                    <Text
+                      variant="muted"
+                      size="xs"
+                      className="mt-0.5 text-green-600 dark:text-green-400"
+                    >
+                      ↑ {membersClocked.length} active
+                    </Text>
                   )}
                 </div>
               </CardContent>
@@ -552,9 +415,9 @@ export const DashboardPage: React.FC = () => {
                     Open tickets
                   </Text>
                   <Text size="lg" weight="semibold">
-                    {String(tab === 'me' ? myOpenTickets.length : openTickets.length)}
+                    {String(openTickets.length)}
                   </Text>
-                  {tab === 'team' && unassignedOpen.length > 0 && (
+                  {unassignedOpen.length > 0 && (
                     <Text variant="muted" size="xs" className="mt-0.5">
                       {unassignedOpen.length} unassigned
                     </Text>
@@ -574,7 +437,7 @@ export const DashboardPage: React.FC = () => {
                     Closed today
                   </Text>
                   <Text size="lg" weight="semibold">
-                    {String(tab === 'me' ? myClosedToday.length : closedToday.length)}
+                    {String(closedToday.length)}
                   </Text>
                 </div>
               </CardContent>
@@ -591,17 +454,11 @@ export const DashboardPage: React.FC = () => {
                     High priority
                   </Text>
                   <Text size="lg" weight="semibold" className="text-red-600 dark:text-red-400">
-                    {String(
-                      tab === 'me'
-                        ? myHighPriority.filter((t) => t.status !== 'closed' && t.status !== 'done')
-                            .length
-                        : highPriority.filter((t) => t.status !== 'closed' && t.status !== 'done')
-                            .length,
-                    )}
+                    {String(highPriority.filter((t) => t.status !== 'closed' && t.status !== 'done').length)}
                   </Text>
-                  {(tab === 'me' ? myOverdue.length : overdue.length) > 0 && (
+                  {overdue.length > 0 && (
                     <Text variant="muted" size="xs" className="mt-0.5">
-                      {tab === 'me' ? myOverdue.length : overdue.length} overdue
+                      {overdue.length} overdue
                     </Text>
                   )}
                 </div>
@@ -610,7 +467,7 @@ export const DashboardPage: React.FC = () => {
           </div>
 
           {/* ── Team members ─────────────────────────────────────────────────── */}
-          {tab === 'team' && (
+          {!isPersonalWorkspace && (
             <Card padding="none">
               <CardHeader className="flex flex-row items-center justify-between px-5 py-3">
                 <CardTitle className="flex items-center gap-2 text-sm">
@@ -692,9 +549,9 @@ export const DashboardPage: React.FC = () => {
               <CardTitle className="flex items-center gap-2 text-sm">
                 <FontAwesomeIcon icon={faPlay} className="text-green-500" />
                 Active tickets
-                {visibleRunningTimers.length > 0 && (
+                {runningTimers.length > 0 && (
                   <Badge variant="secondary" size="sm">
-                    {visibleRunningTimers.length} running
+                    {runningTimers.length} running
                   </Badge>
                 )}
               </CardTitle>
@@ -707,7 +564,7 @@ export const DashboardPage: React.FC = () => {
                 <div className="flex justify-center py-6">
                   <Spinner size="sm" />
                 </div>
-              ) : visibleRunningTimers.length === 0 ? (
+              ) : runningTimers.length === 0 ? (
                 <div className="px-5 py-6 text-center">
                   <Text variant="muted" size="sm">
                     No active timers right now
@@ -715,7 +572,7 @@ export const DashboardPage: React.FC = () => {
                 </div>
               ) : (
                 <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                  {visibleRunningTimers.map((timer) => {
+                  {runningTimers.map((timer) => {
                     const ticket = tickets.find((t) => t.id === timer.ticketId);
                     const elapsedSec = Math.floor((currentTime - timer.startTime) / 1000);
                     const priorityColor =
@@ -725,36 +582,43 @@ export const DashboardPage: React.FC = () => {
                           ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'
                           : 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400';
                     return (
-                      <li key={timer.timerId} className="flex items-center gap-3 px-5 py-3">
-                        {ticket?.priority && (
-                          <span
-                            className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium capitalize ${priorityColor}`}
-                          >
-                            {ticket.priority === 'urgent'
-                              ? 'High'
-                              : ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1)}
-                          </span>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <Text size="sm" weight="medium" className="truncate">
-                            {timer.ticketTitle}
-                          </Text>
-                          <div className="mt-0.5 flex items-center gap-1.5">
-                            <UserAvatar name={timer.userName} src={timer.userImage} size="xs" />
-                            <Text variant="muted" size="xs">
-                              {timer.userName}
+                      <li key={timer.timerId}>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/app/tickets/${timer.ticketId}`)}
+                          className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
+                          aria-label={`View ticket: ${timer.ticketTitle}`}
+                        >
+                          {ticket?.priority && (
+                            <span
+                              className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium capitalize ${priorityColor}`}
+                            >
+                              {ticket.priority === 'urgent'
+                                ? 'High'
+                                : ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1)}
+                            </span>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <Text size="sm" weight="medium" className="truncate">
+                              {timer.ticketTitle}
+                            </Text>
+                            <div className="mt-0.5 flex items-center gap-1.5">
+                              <UserAvatar name={timer.userName} src={timer.userImage} size="xs" />
+                              <Text variant="muted" size="xs">
+                                {timer.userName}
+                              </Text>
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <Text
+                              size="xs"
+                              weight="medium"
+                              className="font-mono text-green-600 dark:text-green-400"
+                            >
+                              {formatTimer(elapsedSec)}
                             </Text>
                           </div>
-                        </div>
-                        <div className="shrink-0 text-right">
-                          <Text
-                            size="xs"
-                            weight="medium"
-                            className="font-mono text-green-600 dark:text-green-400"
-                          >
-                            {formatTimer(elapsedSec)}
-                          </Text>
-                        </div>
+                        </button>
                       </li>
                     );
                   })}
@@ -764,7 +628,7 @@ export const DashboardPage: React.FC = () => {
           </Card>
 
           {/* ── Time logged today ────────────────────────────────────────────── */}
-          {tab === 'team' && memberStatuses.some((m) => m.todaySeconds > 0) && (
+          {!isPersonalWorkspace && memberStatuses.some((m) => m.todaySeconds > 0) && (
             <Card padding="none">
               <CardHeader className="flex flex-row items-center justify-between px-5 py-3">
                 <CardTitle className="flex items-center gap-2 text-sm">
