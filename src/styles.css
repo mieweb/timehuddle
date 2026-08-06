@@ -105,7 +105,10 @@ html[data-theme='dark'] {
 /* All modals: centered popup on every screen size (override the library's
  * full-screen-on-mobile defaults: `min-h-dvh`, `rounded-none`, `max-h-dvh`).
  * The org-switcher bottom-sheet overrides below keep higher specificity and
- * continue to win inside the 767px media query. */
+ * continue to win inside the 767px media query.
+ * NOTE: These selectors target @mieweb/ui internals (data-slot, data-state).
+ * A library upgrade that renames those attributes will break all modals.
+ * TODO: Replace with a proper Modal size/variant prop in @mieweb/ui instead. */
 [data-slot='modal'] {
   min-height: 0 !important;
   border-radius: 0.75rem !important;

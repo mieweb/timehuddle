@@ -45,6 +45,7 @@ function setupTeam(
 ) {
   mockUseTeam.mockReturnValue({
     teams: [],
+    allTeams: [],
     pendingRequests: [],
     enterprises: [],
     organizations: [],

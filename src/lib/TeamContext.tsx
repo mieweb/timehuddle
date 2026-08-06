@@ -60,6 +60,8 @@ type EnterpriseSummary = {
 
 export interface TeamContextValue {
   teams: Team[];
+  /** All teams the user belongs to, across every org (not scoped to selectedOrgId). */
+  allTeams: Team[];
   pendingRequests: TeamJoinRequest[];
   enterprises: EnterpriseSummary[];
   organizations: Array<{
@@ -91,6 +93,7 @@ export interface TeamContextValue {
 const TeamCtx = createContext<TeamContextValue>({
   pendingRequests: [],
   teams: [],
+  allTeams: [],
   enterprises: [],
   organizations: [],
   teamsReady: false,
@@ -454,6 +457,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value = useMemo<TeamContextValue>(
     () => ({
       teams: scopedTeams,
+      allTeams: teams,
       pendingRequests,
       enterprises,
       organizations,
@@ -476,6 +480,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }),
     [
       scopedTeams,
+      teams,
       pendingRequests,
       enterprises,
       organizations,

@@ -68,11 +68,13 @@ export const DashboardPage: React.FC = () => {
   const { navigate } = useRouter();
   const {
     teams,
+    allTeams,
     teamsReady,
     activeClockEvent,
     currentTime,
     selectedTeamId,
     setSelectedTeamId,
+    setSelectedOrgId,
     isAdmin,
   } = useTeam();
 
@@ -135,12 +137,22 @@ export const DashboardPage: React.FC = () => {
       setMeView('timesheet');
     }
     if (memberId) setInitialMemberId(memberId);
-    if (teamId && teams.some((t) => t.id === teamId)) setSelectedTeamId(teamId);
+    if (teamId) {
+      const inScope = teams.find((t) => t.id === teamId);
+      const crossOrg = !inScope && allTeams.find((t) => t.id === teamId);
+      if (inScope) {
+        setSelectedTeamId(teamId);
+      } else if (crossOrg) {
+        // Team is in a different org — switch org first so the team becomes visible
+        setSelectedOrgId(crossOrg.orgId);
+        setSelectedTeamId(teamId);
+      }
+    }
 
     if (deepTab || deepView || memberId || teamId) {
       window.history.replaceState(null, '', window.location.pathname);
     }
-  }, [teamsReady, teams, setSelectedTeamId]);
+  }, [teamsReady, teams, allTeams, setSelectedTeamId, setSelectedOrgId]);
 
   // Members list (needed by the admin Timesheet view only)
   useEffect(() => {

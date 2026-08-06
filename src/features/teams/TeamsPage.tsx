@@ -121,6 +121,19 @@ export const TeamsPage: React.FC = () => {
     const teamId = params.get('teamId');
     const hasQuery = window.location.search.length > 0;
 
+    // Old notification URLs pointed here with tab=timesheet; the timesheet
+    // view has moved to the Dashboard. Forward so those links still work.
+    if (params.get('tab') === 'timesheet') {
+      const fwd = new URLSearchParams();
+      fwd.set('tab', 'timesheet');
+      const memberId = params.get('memberId');
+      const fwdTeamId = params.get('teamId');
+      if (memberId) fwd.set('memberId', memberId);
+      if (fwdTeamId) fwd.set('teamId', fwdTeamId);
+      navigate(`/app/dashboard?${fwd.toString()}`);
+      return;
+    }
+
     if (teamId && teams.some((t) => t.id === teamId)) setSelectedTeamId(teamId);
 
     // Clean up query params from URL without triggering a navigation
@@ -128,7 +141,7 @@ export const TeamsPage: React.FC = () => {
       const cleanUrl = window.location.pathname;
       window.history.replaceState(null, '', cleanUrl);
     }
-  }, [pathname, urlCheckCounter, setSelectedTeamId, teams, teamsReady]);
+  }, [pathname, urlCheckCounter, setSelectedTeamId, navigate, teams, teamsReady]);
 
   // ── Listen for navigation events (from navigate()) ──
   useEffect(() => {

@@ -102,13 +102,44 @@ export const BottomNav: React.FC = () => {
   const { openFeedback, openReportIssue } = useAppFeedback();
   const [moreOpen, setMoreOpen] = useState(false);
   const [moreSection, setMoreSection] = useState<MoreSection>('root');
+  const moreButtonRef = React.useRef<HTMLButtonElement>(null);
+  const moreDialogRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     if (!moreOpen) return undefined;
     const original = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+
+    // Move focus into the first interactive element in the sheet
+    const dialog = moreDialogRef.current;
+    const firstFocusable = dialog?.querySelector<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled])',
+    );
+    firstFocusable?.focus();
+
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMoreOpen(false);
+      if (e.key === 'Escape') {
+        setMoreOpen(false);
+        setMoreSection('root');
+        moreButtonRef.current?.focus();
+        return;
+      }
+      if (e.key !== 'Tab' || !dialog) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => {
@@ -124,6 +155,7 @@ export const BottomNav: React.FC = () => {
   const closeMore = () => {
     setMoreOpen(false);
     setMoreSection('root');
+    moreButtonRef.current?.focus();
   };
   const goToMoreItem = (href: string) => {
     closeMore();
@@ -234,6 +266,7 @@ export const BottomNav: React.FC = () => {
           return (
             <button
               key={tab.href || tab.label}
+              ref={tab.isMore ? moreButtonRef : null}
               type="button"
               onClick={tab.isMore ? openMore : () => navigate(tab.href)}
               aria-label={tab.label}
@@ -276,6 +309,7 @@ export const BottomNav: React.FC = () => {
               onClick={closeMore}
             />
             <motion.div
+              ref={moreDialogRef}
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
