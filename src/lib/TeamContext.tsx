@@ -60,6 +60,8 @@ type EnterpriseSummary = {
 
 export interface TeamContextValue {
   teams: Team[];
+  /** All teams the user belongs to, across every org (not scoped to selectedOrgId). */
+  allTeams: Team[];
   pendingRequests: TeamJoinRequest[];
   enterprises: EnterpriseSummary[];
   organizations: Array<{
@@ -91,6 +93,7 @@ export interface TeamContextValue {
 const TeamCtx = createContext<TeamContextValue>({
   pendingRequests: [],
   teams: [],
+  allTeams: [],
   enterprises: [],
   organizations: [],
   teamsReady: false,
@@ -209,6 +212,13 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // and the "pick first available" effects below would treat the still-absent
     // selected team as gone and silently reset the selection. Hold updates
     // until the subscription signals ready, then track changes live.
+    //
+    // The same race happens again after a reconnect (e.g. an idle websocket
+    // timing out): the client drops all cached docs and re-streams them one
+    // by one, so `subReady` must be reset the instant the socket drops and
+    // only flip back on once the re-subscription's `ready` arrives — otherwise
+    // a stray partial list (often just the personal team) briefly overwrites
+    // `teams` and silently switches the user's selection back to Personal.
     let subReady = false;
 
     const applyLiveDocs = () => {
@@ -222,6 +232,9 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       );
     };
 
+    const offDisconnect = ddp.onDisconnect(() => {
+      subReady = false;
+    });
     const offChange = ddp.onCollectionChange('teams', applyLiveDocs);
     const unsubscribe = ddp.subscribe('teams.byUser', [], () => {
       subReady = true;
@@ -230,6 +243,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return () => {
+      offDisconnect();
       offChange();
       unsubscribe();
     };
@@ -443,6 +457,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value = useMemo<TeamContextValue>(
     () => ({
       teams: scopedTeams,
+      allTeams: teams,
       pendingRequests,
       enterprises,
       organizations,
@@ -465,6 +480,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }),
     [
       scopedTeams,
+      teams,
       pendingRequests,
       enterprises,
       organizations,

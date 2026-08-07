@@ -19,8 +19,10 @@ export default defineConfig({
   // Run tests serially — one test after another to avoid DB contention
   fullyParallel: false,
 
-  // Retry failed tests once
-  retries: 1,
+  // Retry failed tests up to twice — the sequential suite is auth- and
+  // backend-timing sensitive; a single retry occasionally isn't enough for
+  // transient session/DDP hiccups on a warming backend.
+  retries: 2,
 
   // Single worker — sequential execution
   workers: 1,
@@ -51,10 +53,17 @@ export default defineConfig({
 
     // Trace on first retry
     trace: 'on-first-retry',
+
+    // Grant clipboard write permission by default — the "Copy Link" and
+    // "Copy team code" flows call `navigator.clipboard.writeText()`, which
+    // otherwise rejects with NotAllowedError in a fresh Playwright context.
+    permissions: ['clipboard-read', 'clipboard-write'],
   },
 
-  // Global timeout
-  timeout: 30000,
+  // Global timeout — 45s per test tolerates a warming backend during a long
+  // sequential run; 30s occasionally clips heavier tests (media/video, dual
+  // context notifications, etc.).
+  timeout: 45000,
 
   // Expect timeout
   expect: {

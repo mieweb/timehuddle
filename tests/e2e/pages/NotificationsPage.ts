@@ -23,8 +23,9 @@ export class NotificationsPage extends BasePage {
     await this.heading.waitFor({ state: 'visible', timeout });
   }
 
-  async navigateFromSidebar() {
-    await this.page.getByRole('button', { name: /^Notifications$/i }).click();
+  /** The sidebar entry was removed — the header bell is the only nav path now. */
+  async navigateFromHeader() {
+    await this.page.getByRole('button', { name: 'Notifications' }).click();
     await this.waitForLoad();
   }
 

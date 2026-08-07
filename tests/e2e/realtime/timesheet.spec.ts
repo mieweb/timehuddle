@@ -27,11 +27,13 @@ test.describe('Timesheet Real-time Sync', () => {
 
     await loginPage1.goto();
     await loginPage1.login('admin1@test.local', 'TestPass1!');
-    await expect(page1).toHaveURL(/\/app\//);
+    // 15s tolerates a warming backend; default 5s occasionally times out and
+    // subsequent navigations bounce back to the login screen.
+    await loginPage1.waitForLoginSuccess();
 
     await loginPage2.goto();
     await loginPage2.login('admin2@test.local', 'TestPass1!');
-    await expect(page2).toHaveURL(/\/app\//);
+    await loginPage2.waitForLoginSuccess();
   });
 
   test.afterEach(async () => {
@@ -46,9 +48,10 @@ test.describe('Timesheet Real-time Sync', () => {
     await page1.waitForLoadState('networkidle');
     await page2.waitForLoadState('networkidle');
 
-    // Both sessions should show the Timesheet heading
-    await expect(page1.getByRole('heading', { level: 1, name: /Timesheet/i })).toBeVisible();
-    await expect(page2.getByRole('heading', { level: 1, name: /Timesheet/i })).toBeVisible();
+    // /app/timesheet redirects to Dashboard -> Me -> Timesheet, so both
+    // sessions land on the dashboard showing the personal timesheet panel.
+    await expect(page1.getByRole('button', { name: 'Add Entry' })).toBeVisible();
+    await expect(page2.getByRole('button', { name: 'Add Entry' })).toBeVisible();
   });
 
   test('clock page shows same state in both sessions', async () => {

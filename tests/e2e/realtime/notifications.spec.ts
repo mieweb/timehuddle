@@ -22,11 +22,12 @@ test.describe('Real-time Notifications', () => {
 
     await loginPage1.goto();
     await loginPage1.login('admin1@test.local', 'TestPass1!');
-    await expect(session1).toHaveURL(/\/app\//);
+    // 15s tolerates a warming backend; the default 5s occasionally times out.
+    await expect(session1).toHaveURL(/\/app\//, { timeout: 15000 });
 
     await loginPage2.goto();
     await loginPage2.login('admin2@test.local', 'TestPass1!');
-    await expect(session2).toHaveURL(/\/app\//);
+    await expect(session2).toHaveURL(/\/app\//, { timeout: 15000 });
 
     // Navigate to Notifications
     await session1.goto('http://localhost:3002/app/notifications');

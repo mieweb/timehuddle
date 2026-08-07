@@ -32,7 +32,10 @@ const TEAM_CODE = `QR${STAMP.toString(36).toUpperCase().slice(-6)}`;
 /** Select the shared test team via the org/team switcher (deep links are racy). */
 async function selectTeam(page: Page, teamName: string) {
   await page.getByRole('button', { name: /Switch organization and team/i }).click();
-  await page.getByRole('menuitem', { name: teamName }).click();
+  // The switcher renders team items as plain <button>s inside its dialog
+  // (not menuitems). Their accessible name is "<Team Name> <N> members",
+  // so match by substring (not exact) and scope by dialog.
+  await page.getByRole('dialog').getByRole('button', { name: teamName }).click();
 }
 
 /** Open the Teams page with the test team selected and return the Share button. */
@@ -133,7 +136,10 @@ test.describe('Team QR Share & Join', () => {
     await loginAs(page, admin);
     await openTeamsPage(page);
 
-    await page.getByRole('button', { name: 'Share team QR code' }).click();
+    // The main teams page exposes the share modal via the "Share team invite
+    // link" icon button next to the team code (the "Share team QR code"
+    // button lives inside the Team Settings modal, which isn't open here).
+    await page.getByRole('button', { name: 'Share team invite link' }).click();
 
     const dialog = page.getByRole('dialog').filter({ hasText: 'Share Team' });
     await expect(dialog).toBeVisible();

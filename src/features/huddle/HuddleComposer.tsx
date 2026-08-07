@@ -14,15 +14,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTeam } from '@lib/TeamContext';
 import { attachmentApi } from '@lib/api';
-import { TicketPicker } from './TicketPicker';
-import { AttachmentBar } from './AttachmentBar';
-import { PulseAttachButton } from './PulseAttachButton';
 import { MarkdownEditor } from './MarkdownEditor';
-import { MentionMenu } from './MentionMenu';
+import { ComposerAttachButtons, ComposerChips, type MentionRef } from './ComposerAttachments';
 import { huddlePostCollab } from './collab';
 import type { ComposerContent, MediaItem } from './types';
-
-type MentionRef = { userId: string; name: string };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface HuddleComposerProps {
@@ -220,7 +215,7 @@ export function HuddleComposer({
   if (!expanded) {
     return (
       <div
-        className="flex items-center gap-3 px-5 py-3 bg-white dark:bg-neutral-800 cursor-pointer"
+        className="flex items-center gap-3 px-3 py-2 bg-white dark:bg-neutral-800 cursor-pointer"
         onClick={() => setExpanded(true)}
       >
         <div
@@ -239,170 +234,79 @@ export function HuddleComposer({
   return (
     <div
       ref={composerRef}
-      className="px-5 py-3 border-b border-gray-100 dark:border-neutral-700 bg-white dark:bg-neutral-800"
+      className="px-3 py-2 border-b border-gray-100 dark:border-neutral-700 bg-white dark:bg-neutral-800"
     >
-      <div className="flex gap-3">
-        <div
-          className={`w-9 h-9 rounded-full flex items-center justify-center font-semibold shrink-0 ${avatarColorClasses[userColor]}`}
-        >
-          {userInitials}
-        </div>
+      {/* ── Rich editor (Kerebron — markdown in/out, working toolbar) ── */}
+      <MarkdownEditor
+        value={text}
+        onChange={setText}
+        onSubmit={handleSubmit}
+        collab={huddlePostCollab(collabRoom)}
+        placeholder="What's on your mind?"
+      />
 
-        <div className="flex-1 min-w-0">
-          {/* ── Rich editor (Kerebron — markdown in/out, working toolbar) ── */}
-          <MarkdownEditor
-            value={text}
-            onChange={setText}
-            onSubmit={handleSubmit}
-            collab={huddlePostCollab(collabRoom)}
-            placeholder="What's on your mind?"
-          />
+      {/* ── Ticket / mention / attachment chips ── */}
+      <ComposerChips
+        selectedTicketId={selectedTicketId}
+        onTicketRemove={() => setSelectedTicketId(undefined)}
+        mentions={mentions}
+        onMentionRemove={handleMentionRemove}
+        attachments={attachments}
+        onAttachmentRemove={handleAttachmentRemove}
+      />
 
-          {/* ── Ticket chip ── */}
-          {selectedTicketId && (
-            <div className="mt-2 inline-flex items-center gap-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-full px-3 py-1.5 text-xs text-amber-700 dark:text-amber-300">
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      {/* ── Ticket videos (auto-attached from the selected ticket) ── */}
+      {ticketVideos.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {ticketVideos.map((video) => (
+            <div
+              key={video.id}
+              className="relative bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/50 rounded-lg p-2 text-xs text-indigo-700 dark:text-indigo-300 flex items-center gap-2"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2}
-                  d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
+                  d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
                 />
               </svg>
-              Ticket #{selectedTicketId}
-              <button
-                onClick={() => setSelectedTicketId(undefined)}
-                className="hover:text-amber-900 dark:hover:text-amber-200 transition-colors"
-                aria-label="Remove ticket"
-              >
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
+              {video.filename}
+              <span className="text-indigo-400 dark:text-indigo-600 text-xs">(from ticket)</span>
             </div>
-          )}
-
-          {/* ── Mention chips ── */}
-          {mentions.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {mentions.map((m) => (
-                <div
-                  key={m.userId}
-                  className="inline-flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/50 rounded-full px-3 py-1 text-xs text-indigo-700 dark:text-indigo-300"
-                >
-                  @{m.name}
-                  <button
-                    onClick={() => handleMentionRemove(m.userId)}
-                    className="hover:text-indigo-900 dark:hover:text-indigo-200 transition-colors"
-                    aria-label={`Remove mention of ${m.name}`}
-                  >
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* ── Attachments ── */}
-          {(attachments.length > 0 || ticketVideos.length > 0) && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {attachments.map((media) => (
-                <div
-                  key={media.id}
-                  className="relative bg-gray-100 dark:bg-neutral-700 border border-gray-200 dark:border-neutral-600 rounded-lg p-2 text-xs text-gray-600 dark:text-neutral-300 flex items-center gap-2"
-                >
-                  {media.filename}
-                  <button
-                    onClick={() => handleAttachmentRemove(media.id)}
-                    className="text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 transition-colors"
-                    aria-label={`Remove attachment ${media.filename}`}
-                  >
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-              {ticketVideos.map((video) => (
-                <div
-                  key={video.id}
-                  className="relative bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/50 rounded-lg p-2 text-xs text-indigo-700 dark:text-indigo-300 flex items-center gap-2"
-                >
-                  <svg
-                    className="w-3.5 h-3.5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-                    />
-                  </svg>
-                  {video.filename}
-                  <span className="text-indigo-400 dark:text-indigo-600 text-xs">
-                    (from ticket)
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* ── Button bar ── */}
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            <AttachmentBar onAttachmentAdd={handleAttachmentAdd} />
-            <PulseAttachButton onAttach={handleAttachmentAdd} />
-            {selectedTeamId && (
-              <TicketPicker
-                teamId={selectedTeamId}
-                onSelect={setSelectedTicketId}
-                selectedId={selectedTicketId}
-              />
-            )}
-            {selectedTeamId && (
-              <MentionMenu teamId={selectedTeamId} onSelect={handleMentionSelect} />
-            )}
-            <button
-              onClick={handleCancel}
-              className="text-xs text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 transition-colors ml-1"
-            >
-              Cancel
-            </button>
-            <span className="text-xs text-gray-300 dark:text-neutral-600 ml-auto mr-2 hidden sm:block">
-              ⌘↵ to post
-            </span>
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleSubmit();
-              }}
-              disabled={!text.trim() && attachments.length === 0 && ticketVideos.length === 0}
-              className="text-xs font-semibold px-4 py-1.5 rounded-full bg-indigo-500 dark:bg-indigo-600 text-white hover:bg-indigo-600 dark:hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              {submitLabel}
-            </button>
-          </div>
+          ))}
         </div>
+      )}
+
+      {/* ── Button bar ── */}
+      <div className="flex items-center gap-2 mt-2 flex-wrap">
+        <ComposerAttachButtons
+          teamId={selectedTeamId}
+          onAttachmentAdd={handleAttachmentAdd}
+          selectedTicketId={selectedTicketId}
+          onTicketSelect={setSelectedTicketId}
+          onMentionSelect={handleMentionSelect}
+        />
+        <button
+          onClick={handleCancel}
+          className="text-xs text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 transition-colors ml-1"
+        >
+          Cancel
+        </button>
+        <span className="text-xs text-gray-300 dark:text-neutral-600 ml-auto mr-2 hidden sm:block">
+          ⌘↵ to post
+        </span>
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleSubmit();
+          }}
+          disabled={!text.trim() && attachments.length === 0 && ticketVideos.length === 0}
+          className="text-xs font-semibold px-4 py-1.5 rounded-full bg-indigo-500 dark:bg-indigo-600 text-white hover:bg-indigo-600 dark:hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          {submitLabel}
+        </button>
       </div>
     </div>
   );

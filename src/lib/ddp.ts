@@ -77,6 +77,7 @@ class DdpClient {
   private backgroundAttempt = 0;
   private backgroundTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectListeners = new Set<Listener>();
+  private disconnectListeners = new Set<Listener>();
   status: 'idle' | 'connecting' | 'connected' | 'failed' = 'idle';
 
   /**
@@ -87,6 +88,18 @@ class DdpClient {
   public onReconnect(fn: Listener): () => void {
     this.reconnectListeners.add(fn);
     return () => this.reconnectListeners.delete(fn);
+  }
+
+  /**
+   * Notified the moment a previously-connected socket drops, before any
+   * reconnect/resubscribe attempt starts. Lets callers that hold their own
+   * "subscription is ready" flag reset it, so the transient empty/partial
+   * collection state produced while docs re-stream in after a reconnect
+   * can't be mistaken for a real, complete update. Returns an unsubscribe fn.
+   */
+  public onDisconnect(fn: Listener): () => void {
+    this.disconnectListeners.add(fn);
+    return () => this.disconnectListeners.delete(fn);
   }
 
   /** Connect (once) and authenticate the connection via auth.bridge. */
@@ -213,6 +226,7 @@ class DdpClient {
     this.connectPromise = null;
     this.authPromise = null;
     this.ws = null;
+    for (const fn of this.disconnectListeners) fn();
 
     if (this.activeSubs.size === 0 || this.reconnectTimer) return;
     const delay = Math.min(30_000, 1000 * 2 ** this.reconnectAttempt++);

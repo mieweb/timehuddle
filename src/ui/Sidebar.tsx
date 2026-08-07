@@ -5,9 +5,8 @@
  * 64 px (collapsed / icon-only) using a spring. Collapse control lives in the
  * rail footer.
  *
- * Mobile drawer (< md): slides in from the left when isMobileOpen is true.
- * The drawer always shows icons with labels (never icon-only) and does not
- * show the rail collapse control — the hamburger/drawer is the primary pattern.
+ * On mobile (< md) the rail is hidden entirely — every sidebar destination is
+ * reachable via the bottom nav's More sheet instead of a hamburger drawer.
  *
  * Labels fade in/out with AnimatePresence on the rail so they never clip during resize.
  */
@@ -23,15 +22,16 @@ import {
   faPhotoFilm,
   faSitemap,
   faStopwatch,
-  faTable,
   faUsers,
   faClockRotateLeft,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button } from '@mieweb/ui';
+import { App } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
-import React from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useState } from 'react';
+
+import { notificationApi } from '../lib/api';
 
 // Detect page reload once at module load time (before React mounts).
 // Only suppresses animations during the initial reload render — normal
@@ -69,10 +69,9 @@ const NAV: NavSection[] = [
     items: [
       { icon: faGauge, label: 'Dashboard', href: '/app/dashboard' },
       { icon: faComments, label: 'Huddle', href: '/app/huddle' },
-      { icon: faStopwatch, label: 'Work', href: '/app/work' },
-      { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
-      { icon: faTable, label: 'Timesheet', href: '/app/timesheet' },
       { icon: faClock, label: 'Clock', href: '/app/clock' },
+      { icon: faListCheck, label: 'Tickets', href: '/app/tickets' },
+      { icon: faStopwatch, label: 'Work', href: '/app/work' },
     ],
   },
   {
@@ -82,7 +81,6 @@ const NAV: NavSection[] = [
       { icon: faSitemap, label: 'Organization', href: '/app/organization' },
       { icon: faPhotoFilm, label: 'Media Library', href: '/app/media' },
       { icon: faEnvelope, label: 'Messages', href: '/app/messages' },
-      { icon: faBell, label: 'Notifications', href: '/app/notifications' },
       { icon: faClockRotateLeft, label: 'Activity Log', href: '/app/activity' },
     ],
   },
@@ -102,17 +100,14 @@ const NavLink: React.FC<{ item: NavItem; active: boolean; expanded: boolean }> =
   expanded,
 }) => {
   const { navigate } = useRouter();
-  const { closeMobile } = useSidebar();
   return (
     <button
       type="button"
       onClick={() => {
         if (item.external) {
           window.open(item.href, '_blank', 'noopener,noreferrer');
-          closeMobile();
         } else {
           navigate(item.href);
-          closeMobile();
         }
       }}
       className={[
@@ -159,6 +154,37 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
   const { isExpanded, toggle } = useSidebar();
   const { pathname } = useRouter();
   const expanded = variant === 'drawer' ? true : isExpanded;
+
+  // Native build/version (what TestFlight shows) via App.getInfo(). Falls
+  // back to the web build's version (baked in at build time) when not
+  // running natively, so the row always has something to show.
+  const [appInfo, setAppInfo] = useState<{ version: string; build: string } | null>(null);
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    App.getInfo()
+      .then(({ version, build }) => setAppInfo({ version, build }))
+      .catch(() => {});
+  }, []);
+  const versionLabel = appInfo
+    ? `v${appInfo.version} (${appInfo.build})`
+    : `v${import.meta.env.VITE_APP_VERSION || '1.0.0'}`;
+
+  const [testPushLoading, setTestPushLoading] = useState(false);
+  const handleTestPush = async () => {
+    setTestPushLoading(true);
+    try {
+      await notificationApi.testPush();
+      window.alert(
+        Capacitor.isNativePlatform()
+          ? 'Test push sent! You should receive a notification on this device.'
+          : 'Test push sent! You should see a browser notification within a few seconds.',
+      );
+    } catch (err) {
+      window.alert(`Failed to send test push: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setTestPushLoading(false);
+    }
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -227,6 +253,41 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
         ))}
       </nav>
 
+      {/* App info + test push — bottom of sidebar */}
+      <div className="shrink-0 space-y-2 border-t border-neutral-200 px-2 py-3 dark:border-neutral-800">
+        {expanded && (
+          <p className="px-2.5 text-[10px] text-neutral-400 dark:text-neutral-500">
+            {versionLabel}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={handleTestPush}
+          disabled={testPushLoading}
+          title={!expanded ? 'Send test push notification' : undefined}
+          className={[
+            'flex h-9 w-full items-center rounded-lg text-sm text-neutral-500 transition-colors hover:bg-neutral-100 disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-800',
+            expanded ? 'gap-3 px-2.5' : 'justify-center px-0',
+          ].join(' ')}
+        >
+          <FontAwesomeIcon icon={faBell} className="w-4 shrink-0 text-sm" />
+          <AnimatePresence initial={false}>
+            {expanded && (
+              <motion.span
+                key="test-push-label"
+                initial={{ opacity: 0, width: 0 }}
+                animate={{ opacity: 1, width: 'auto' }}
+                exit={{ opacity: 0, width: 0 }}
+                transition={{ duration: 0.15, ease: 'easeInOut' }}
+                className="overflow-hidden whitespace-nowrap"
+              >
+                {testPushLoading ? 'Sending…' : 'Test push notification'}
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </button>
+      </div>
+
       {variant === 'rail' && (
         <div className="shrink-0 space-y-0.5 border-t border-neutral-200 px-2 py-3 dark:border-neutral-800">
           <button
@@ -267,51 +328,19 @@ const SidebarContent: React.FC<SidebarContentProps> = ({ variant = 'rail' }) => 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 
 export const Sidebar: React.FC = () => {
-  const { isExpanded, isMobileOpen, closeMobile } = useSidebar();
+  const { isExpanded } = useSidebar();
 
   return (
     <MotionConfig transition={isReload ? { duration: 0 } : undefined}>
-      <>
-        {/* ── Desktop: animated-width panel ─────────────────────────────── */}
-        <motion.aside
-          className="hidden h-full shrink-0 flex-col overflow-hidden border-r border-neutral-200 bg-white md:flex dark:border-neutral-800 dark:bg-neutral-900"
-          animate={{ width: isExpanded ? 240 : 64 }}
-          transition={isReload ? { duration: 0 } : { type: 'spring', damping: 28, stiffness: 280 }}
-        >
-          <SidebarContent variant="rail" />
-        </motion.aside>
-
-        {/* ── Mobile: slide-in drawer ────────────────────────────────────── */}
-        {createPortal(
-          <AnimatePresence>
-            {isMobileOpen && (
-              <motion.aside
-                className="fixed bottom-0 left-0 top-0 z-50 flex w-[70vw] max-w-65 flex-col overflow-hidden border-r border-neutral-200 bg-white shadow-xl md:hidden dark:border-neutral-800 dark:bg-neutral-900"
-                initial={{ x: '-100%' }}
-                animate={{ x: 0 }}
-                exit={{ x: '-100%' }}
-                transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-                aria-modal
-                role="dialog"
-                aria-label="Navigation"
-              >
-                {/* Close button for a11y */}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={closeMobile}
-                  className="absolute right-3 top-3"
-                  aria-label="Close navigation"
-                >
-                  ✕
-                </Button>
-                <SidebarContent variant="drawer" />
-              </motion.aside>
-            )}
-          </AnimatePresence>,
-          document.body,
-        )}
-      </>
+      {/* Desktop: animated-width panel. The mobile drawer was removed — all
+          sidebar destinations are reachable via the bottom nav's More sheet. */}
+      <motion.aside
+        className="hidden h-full shrink-0 flex-col overflow-hidden border-r border-neutral-200 bg-white md:flex dark:border-neutral-800 dark:bg-neutral-900"
+        animate={{ width: isExpanded ? 240 : 64 }}
+        transition={isReload ? { duration: 0 } : { type: 'spring', damping: 28, stiffness: 280 }}
+      >
+        <SidebarContent variant="rail" />
+      </motion.aside>
     </MotionConfig>
   );
 };

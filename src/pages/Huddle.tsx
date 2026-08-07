@@ -45,6 +45,43 @@ export default function Huddle() {
   const { user } = useSession();
   const { selectedTeamId } = useTeam();
 
+  // Deep-link support: /app/huddle?postId=XXX (e.g. from the dashboard's
+  // Recent Activity feed) — scroll to and briefly highlight that post once
+  // it's loaded, then strip the query param.
+  const [targetPostId, setTargetPostId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return new URLSearchParams(window.location.search).get('postId');
+  });
+  const [highlightedPostId, setHighlightedPostId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!targetPostId) return;
+    setFeedTab('feed');
+    setFeedView('cards');
+  }, [targetPostId]);
+
+  useEffect(() => {
+    if (!targetPostId || loading) return;
+    if (!posts.some((p) => p.id === targetPostId)) return;
+    document
+      .getElementById(`huddle-post-${targetPostId}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedPostId(targetPostId);
+    window.history.replaceState(null, '', window.location.pathname);
+    setTargetPostId(null);
+    const timer = setTimeout(() => setHighlightedPostId(null), 2500);
+    return () => clearTimeout(timer);
+  }, [targetPostId, loading, posts]);
+
+  // Dismiss the highlight ring as soon as the user clicks/taps anywhere,
+  // rather than waiting out the full timeout.
+  useEffect(() => {
+    if (!highlightedPostId) return;
+    const clear = () => setHighlightedPostId(null);
+    document.addEventListener('pointerdown', clear);
+    return () => document.removeEventListener('pointerdown', clear);
+  }, [highlightedPostId]);
+
   // Load team data for permission checks
   useEffect(() => {
     async function loadTeam() {
@@ -190,10 +227,10 @@ export default function Huddle() {
   }
 
   return (
-    <AppPage fill>
-      <div className="huddle flex h-full min-h-0 flex-col gap-4">
+    <AppPage fill flush>
+      <div className="huddle flex h-full min-h-0 flex-col gap-4 md:mx-auto md:w-full md:max-w-4xl md:px-6 md:pb-6">
         {/* Feed / Drafts tabs + actions */}
-        <div className="huddle-actions flex shrink-0 items-center gap-2">
+        <div className="huddle-actions flex shrink-0 items-center gap-2 px-4 md:px-0">
           <div className="flex items-center gap-1 rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800">
             <button
               type="button"
@@ -266,18 +303,20 @@ export default function Huddle() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search posts…"
-            className="shrink-0"
+            className="shrink-0 mx-4 md:mx-0"
             autoFocus
           />
         )}
 
         {/* Drafts tab — private, multiple drafts */}
         {selectedTeamId && feedTab === 'drafts' && user && (
-          <DraftsPanel
-            teamId={selectedTeamId}
-            userInitials={getUserInitials(user.name)}
-            userColor={getUserColor(user.id)}
-          />
+          <div className="px-4 md:px-0">
+            <DraftsPanel
+              teamId={selectedTeamId}
+              userInitials={getUserInitials(user.name)}
+              userColor={getUserColor(user.id)}
+            />
+          </div>
         )}
 
         {/* Composer stays put while the feed below it scrolls */}
@@ -351,6 +390,7 @@ export default function Huddle() {
                       currentUserId={user?.id ?? ''}
                       canEdit={canEditPost(post)}
                       canDelete={canDeletePost(post)}
+                      highlighted={post.id === highlightedPostId}
                     />
                   ))}
               </>

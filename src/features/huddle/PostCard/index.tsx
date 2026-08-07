@@ -6,6 +6,7 @@ import { HuddleComments } from '../HuddleComments';
 import { HuddleComposer } from '../HuddleComposer';
 import { toPostAttachment } from '../api';
 import type { ComposerContent, MediaItem } from '../types';
+import { useRouter } from '../../../ui/router';
 import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
 
@@ -66,6 +67,9 @@ interface PostCardProps {
   canEdit: boolean;
   canDelete: boolean;
   onPostUpdated?: () => void;
+  /** Briefly highlighted when navigated to directly (e.g. from the dashboard's
+   *  Recent Activity feed via `/app/huddle?postId=`). */
+  highlighted?: boolean;
 }
 
 export function PostCard({
@@ -74,6 +78,7 @@ export function PostCard({
   canEdit,
   canDelete,
   onPostUpdated,
+  highlighted,
 }: PostCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -166,18 +171,36 @@ export function PostCard({
   const authorName = (post as any).userName || 'Unknown User';
   const authorInitials = (post as any).userInitials || getUserInitials(authorName);
   const avatarColor = getUserColor(post.userId);
+  const { navigate } = useRouter();
+  const goToAuthorProfile = () => navigate(`/app/profile/${post.userId}`);
 
   return (
     <div
+      id={`huddle-post-${post.id}`}
       data-testid="post-card"
-      className="border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800"
+      className={`border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800 md:mb-4 md:rounded-xl md:border md:border-gray-200 dark:md:border-neutral-700 transition-shadow ${
+        highlighted ? 'ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-neutral-900' : ''
+      }`}
     >
       {/* ── Author header ── */}
       <div className="flex items-center gap-2.5 mb-3">
-        <Avatar initials={authorInitials} color={avatarColor} />
+        <button
+          type="button"
+          onClick={goToAuthorProfile}
+          aria-label={`View ${authorName}'s profile`}
+          className="shrink-0 rounded-full transition-opacity hover:opacity-80"
+        >
+          <Avatar initials={authorInitials} color={avatarColor} />
+        </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-sm text-gray-900 dark:text-white">{authorName}</span>
+            <button
+              type="button"
+              onClick={goToAuthorProfile}
+              className="font-medium text-sm text-gray-900 dark:text-white hover:underline"
+            >
+              {authorName}
+            </button>
             <span className="text-xs text-gray-500 dark:text-neutral-400">
               {formatTimestamp(post.createdAt)}
             </span>
@@ -351,7 +374,7 @@ export function PostCard({
       )}
 
       {/* ── Actions ── */}
-      <div className="flex items-center gap-0.5 py-2 border-t border-gray-100 dark:border-neutral-700 -mx-1">
+      <div className="flex items-center gap-0.5 py-2 border-t border-gray-100 dark:border-neutral-700 -mx-5 px-5">
         <button
           onClick={async () => {
             try {

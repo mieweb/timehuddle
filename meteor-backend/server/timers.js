@@ -83,7 +83,7 @@ async function notifyTimesheetAdmins(actorUserId, ticketId, date, action) {
             date,
             teamId: ticket.teamId,
             userId: actorUserId,
-            url: `/app/teams?tab=timesheet&memberId=${actorUserId}&teamId=${ticket.teamId}`,
+            url: `/app/dashboard?tab=timesheet&memberId=${actorUserId}&teamId=${ticket.teamId}`,
           },
         }).catch(() => {})
       )

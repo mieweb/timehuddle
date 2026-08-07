@@ -478,6 +478,25 @@ Meteor.methods({
     if (autoAcceptJoins !== undefined) $set['settings.autoAcceptJoins'] = autoAcceptJoins;
     await Teams.updateAsync(team._id, { $set });
     const updated = await Teams.findOneAsync(team._id);
+
+    // Notify all members (except the admin making the change) when plan-gate is enabled
+    if (requirePlanForClock === true && !team.settings?.requirePlanForClock) {
+      const memberIds = Array.from(new Set([...team.members, ...team.admins])).filter(
+        (id) => id !== userId,
+      );
+      const teamLabel = team.name ?? 'Your team';
+      await Promise.allSettled(
+        memberIds.map((memberId) =>
+          createNotification({
+            userId: memberId,
+            title: `${teamLabel} now requires a plan before clocking in`,
+            body: 'Write a short plan on the Clock In/Out page before starting your next shift.',
+            data: { type: 'team-setting-change', url: '/app/clock', teamId: String(team._id) },
+          }),
+        ),
+      );
+    }
+
     return { team: toPublicTeam(updated) };
   },
 

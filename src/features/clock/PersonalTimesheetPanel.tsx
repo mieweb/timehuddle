@@ -1,10 +1,15 @@
 /**
- * TimesheetPage — Clock event history with date range filter.
+ * PersonalTimesheetPanel — The signed-in user's own clock history.
  *
  * Features:
  *   • Date range presets (Today, Yesterday, 7d, This Week, 14d, Custom)
  *   • Session list with date, times, duration, team name, tickets
- *   • Summary stats (total hours, sessions, avg, working days)
+ *   • Summary stats (total hours, break hours, sessions, avg, working days)
+ *   • Add Entry (manual past session) and per-session edit/delete with breaks
+ *
+ * Rendered by the Dashboard's Me → Timesheet view. There is no member picker
+ * here by design: this panel is always scoped to the current user. Admins
+ * viewing someone else use `features/teams/AdminTimesheetPanel`.
  */
 import { faCalendar, faPlus } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -16,6 +21,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  cn,
   Input,
   Modal,
   ModalBody,
@@ -35,7 +41,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration } from '../../lib/timeUtils';
 import { ApiError, clockApi, type ClockEvent } from '../../lib/api';
-import { AppPage } from '../../ui/AppPage';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient } from '../../lib/ddp';
@@ -69,6 +74,16 @@ interface EditableBreak {
   end: string;
 }
 
+interface Props {
+  /**
+   * The panel owns the remaining page height and scrolls the session list
+   * internally, for a host that gives it the whole screen. Embedded uses (the
+   * Dashboard) leave this off and stack normally, with the list capped so it
+   * doesn't run away down the page.
+   */
+  fill?: boolean;
+}
+
 function getSessionWorkSeconds(session: ClockEvent, now: number): number {
   if (session.endTime === null) {
     if (typeof session.workSeconds === 'number') return Math.max(0, session.workSeconds);
@@ -96,7 +111,7 @@ function getSessionBreakSeconds(session: ClockEvent, now: number): number {
   }, 0);
 }
 
-export const TimesheetPage: React.FC = () => {
+export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   const { user } = useSession();
   const { teamsReady, teams, selectedTeamId, currentTime } = useTeam();
 
@@ -460,7 +475,12 @@ export const TimesheetPage: React.FC = () => {
   }
 
   return (
-    <AppPage width="wide" fill>
+    <div
+      className={cn(
+        'personal-timesheet',
+        fill ? 'flex min-h-0 flex-1 flex-col gap-6' : 'flex flex-col gap-6',
+      )}
+    >
       {/* Fixed top: filters + summary stats */}
       <div className="flex shrink-0 flex-col gap-3">
         {/* Date range filter + Add Entry */}
@@ -596,16 +616,27 @@ export const TimesheetPage: React.FC = () => {
       </div>
 
       {/* Flexible bottom: sessions list / empty state */}
-      <div className="flex min-h-0 flex-1 flex-col">
+      <div className={cn('flex flex-col', fill && 'min-h-0 flex-1')}>
         {data && filteredSessions.length > 0 && (
-          <Card padding="none" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <Card
+            padding="none"
+            className={cn('flex flex-col overflow-hidden', fill && 'min-h-0 flex-1')}
+          >
             <CardHeader className="flex flex-row shrink-0 items-center gap-2 px-5 py-3">
               <CardTitle className="text-sm">Sessions</CardTitle>
               <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
                 {filteredSessions.length}
               </span>
             </CardHeader>
-            <div className="scrollbar-mieweb scrollbar-mieweb-visible min-h-0 flex-1 overflow-x-auto overflow-y-scroll">
+            <div
+              className={cn(
+                'scrollbar-mieweb scrollbar-mieweb-visible overflow-x-auto',
+                // Filling: the card owns the leftover page height. Embedded:
+                // cap the list so a long range can't push the rest of the
+                // dashboard off the bottom of the page.
+                fill ? 'min-h-0 flex-1 overflow-y-scroll' : 'max-h-[32rem] overflow-y-auto',
+              )}
+            >
               <Table responsive={false}>
                 <TableHeader className="sticky top-0 z-10 [&_th]:bg-card">
                   <TableRow>
@@ -878,6 +909,6 @@ export const TimesheetPage: React.FC = () => {
           </div>
         </ModalFooter>
       </Modal>
-    </AppPage>
+    </div>
   );
 };

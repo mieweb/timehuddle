@@ -18,7 +18,6 @@ import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
 import { ClockPage } from '../features/clock/ClockPage';
-import { TimesheetPage } from '../features/clock/TimesheetPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { MessagesPage } from '../features/messages/MessagesPage';
 import { NotificationsPage } from '../features/notifications/NotificationsPage';
@@ -84,7 +83,6 @@ const ROUTES: Record<string, RouteConfig> = {
     : {}),
   '/app/teams': { title: 'Teams', component: TeamsPage },
   '/app/tickets': { title: 'Tickets', component: TicketsPage },
-  '/app/timesheet': { title: 'Timesheet', component: TimesheetPage },
   '/app/work': { title: 'Work', component: WorkPage },
 
   '/app/org/members': { title: 'Members', component: OrganizationMembersPage },
@@ -95,6 +93,17 @@ function match(pathname: string): RouteConfig | null {
   if (pathname.startsWith('/app/tickets/')) return null;
   return ROUTES[pathname] ?? ROUTES['/app/dashboard'];
 }
+
+/**
+ * Routes that no longer exist, and where their traffic goes now. Without this
+ * an old bookmark or push notification would fall through `match()` onto the
+ * dashboard's default view, silently losing what the link was pointing at.
+ *
+ *   /app/timesheet → the personal timesheet, now Dashboard → Me → Timesheet
+ */
+const RETIRED_ROUTES: Record<string, string> = {
+  '/app/timesheet': '/app/dashboard?view=timesheet',
+};
 
 // ─── Context ─────────────────────────────────────────────────────────────────
 
@@ -143,23 +152,37 @@ const AppLayoutContent: React.FC = () => {
 
   useBrand();
 
-  const normalizePath = (p: string) => (p === '/app' || p === '/' ? '/app/dashboard' : p);
+  // Maps a URL onto where it actually lives now: `/app` and `/` mean the
+  // dashboard, and a RETIRED_ROUTES path is rewritten to its replacement.
+  // Everything else passes through untouched, query string intact.
+  const resolveUrl = (url: string) => {
+    const path = url.split('?')[0];
+    if (path === '/app' || path === '/') return '/app/dashboard';
+    return RETIRED_ROUTES[path] ?? url;
+  };
 
   const [pathname, setPathname] = useState(() => {
     if (typeof window === 'undefined') return '/app/dashboard';
-    const p = window.location.pathname;
-    if (p === '/app' || p === '/') window.history.replaceState(null, '', '/app/dashboard');
-    return normalizePath(p);
+    const current = window.location.pathname + window.location.search;
+    const resolved = resolveUrl(current);
+    if (resolved !== current) window.history.replaceState(null, '', resolved);
+    return resolved.split('?')[0];
   });
 
   const navigate = useCallback((path: string) => {
-    window.history.pushState(null, '', path);
-    setPathname(path.split('?')[0]);
-    window.dispatchEvent(new CustomEvent('timehuddle:navigate', { detail: { path } }));
+    const target = resolveUrl(path);
+    window.history.pushState(null, '', target);
+    setPathname(target.split('?')[0]);
+    window.dispatchEvent(new CustomEvent('timehuddle:navigate', { detail: { path: target } }));
   }, []);
 
   useEffect(() => {
-    const onPop = () => setPathname(normalizePath(window.location.pathname));
+    const onPop = () => {
+      const current = window.location.pathname + window.location.search;
+      const resolved = resolveUrl(current);
+      if (resolved !== current) window.history.replaceState(null, '', resolved);
+      setPathname(resolved.split('?')[0]);
+    };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
@@ -280,13 +303,19 @@ const AppLayoutContent: React.FC = () => {
   }, [navigate]);
 
   // ── Parameterized routes ──────────────────────────────────────────────────
-  // /app/profile/:id  — numeric/ObjectId user ID
-  // /app/profile/:username — alphanumeric username (falls through from ID check)
+  // /app/profile/:id  — Mongo ObjectId (24-char hex), numeric ID, or Meteor's
+  //   default Accounts user _id (17-char Random.id() string — no idGeneration
+  //   override is configured for Meteor.users, unlike the ObjectId-based
+  //   collections, so plain userIds like those on huddle posts/tickets don't
+  //   match the hex regex and would otherwise be misread as a username below).
+  // /app/profile/:username — anything else (falls through from the ID check)
   const profileSegment = pathname.startsWith('/app/profile/')
     ? pathname.slice('/app/profile/'.length)
     : null;
   const profileUserId =
-    profileSegment && /^[a-f0-9]{24}$|^\d+$/.test(profileSegment) ? profileSegment : null;
+    profileSegment && /^[a-f0-9]{24}$|^\d+$|^[A-Za-z0-9]{17}$/.test(profileSegment)
+      ? profileSegment
+      : null;
   const profileUsername = profileSegment && !profileUserId ? profileSegment : null;
 
   const ticketDetailId =
@@ -389,7 +418,7 @@ const AppLayoutContent: React.FC = () => {
                             setForegroundNotif(null);
                             if (dismissTimer.current) clearTimeout(dismissTimer.current);
                           }}
-                          className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm
+                          className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm md:w-auto md:max-w-md
                                    bg-neutral-900 dark:bg-neutral-800 text-white rounded-2xl
                                    shadow-xl px-4 py-3 cursor-pointer flex flex-col gap-0.5
                                    border border-white/10"

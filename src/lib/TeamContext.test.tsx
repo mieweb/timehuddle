@@ -41,6 +41,7 @@ vi.mock('./ddp', () => ({
   getDdpClient: () => ({
     docs: () => [],
     onCollectionChange: () => () => {},
+    onDisconnect: () => () => {},
     subscribe: (_name: string, _params: unknown[], cb: () => void) => {
       cb();
       return () => {};

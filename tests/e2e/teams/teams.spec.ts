@@ -4,9 +4,8 @@
  * 1. Join team (already tested elsewhere, so skip here)
  * 2. Create team - verify team code generated
  * 3. Teams page has correct URL
- * 4. Admin: Teams page has Timesheet and Members tabs
- * 5. Team timesheet filters work
- * 6. Team members are shown correctly
+ * 4. Team members are shown correctly (no tabs — Members is always visible)
+ * 5. Admin: Dashboard's Team tab has a Timesheet view with working filters
  */
 import { test, expect } from '@playwright/test';
 import { MongoClient } from 'mongodb';
@@ -72,77 +71,20 @@ test.describe('Teams', () => {
     await page.getByRole('button', { name: 'Create', exact: true }).click();
     await page.waitForTimeout(1500);
 
-    // Verify the team appears in the list. Scoped to <main> because the new
-    // team also becomes the selected scope, so its name appears in the header
-    // switcher too — an unscoped getByText would match both.
-    await expect(page.locator('main').getByText(teamName)).toBeVisible({ timeout: 10000 });
-
-    // Verify team code badge exists (it's a short code like ABC123)
-    // The team code is shown as a Badge below the team name with a "Copy" button
-    await expect(page.getByRole('button', { name: 'Copy', exact: true })).toBeVisible({
+    // Verify the team appears in the list. Scoped to the CardTitle heading
+    // because the new team also becomes the selected scope, so its name
+    // appears in both the tabs row and the team header — an unscoped
+    // getByText would match both.
+    await expect(page.getByRole('heading', { name: teamName, level: 3 })).toBeVisible({
       timeout: 10000,
     });
-  });
 
-  test('admin should see Members and Timesheet tabs with working filters', async ({ page }) => {
-    test.setTimeout(60000);
-
-    // Ensure Test Team Alpha is selected
-    const teamId = await getTestTeamId();
-    if (!teamId) {
-      test.skip(true, 'Test Team Alpha not found');
-      return;
-    }
-
-    await gotoTeamsPage(page);
-
-    // Set Test Team Alpha as selected team via localStorage and reload
-    await page.evaluate((id) => {
-      Object.keys(localStorage)
-        .filter((k) => k.startsWith('app:selectedTeamId'))
-        .forEach((k) => localStorage.setItem(k, id));
-      localStorage.setItem('app:selectedTeamId', id);
-    }, teamId);
-    await page.reload();
-    await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({ timeout: 20000 });
-
-    // Wait for the team to load — the Timesheet tab only appears for non-personal teams
-    const timesheetTab = page.getByRole('tab', { name: 'Timesheet' });
-    const membersTab = page.getByRole('tab', { name: 'Members' });
-
-    // If Personal Workspace is still showing, the localStorage didn't take effect.
-    // Try a direct navigation with deep-link query param.
-    if (!(await timesheetTab.isVisible({ timeout: 5000 }).catch(() => false))) {
-      await page.goto(`/app/teams?teamId=${teamId}`);
-      await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({
-        timeout: 20000,
-      });
-    }
-
-    // If Timesheet tab still not visible, skip — Test Team Alpha may not be available for this user
-    if (!(await timesheetTab.isVisible({ timeout: 10000 }).catch(() => false))) {
-      test.skip(true, 'Timesheet tab not available — team may not have loaded');
-      return;
-    }
-
-    // Verify tabs are visible
-    await expect(membersTab).toBeVisible();
-
-    // Click Timesheet tab
-    await timesheetTab.click();
-    await page.waitForTimeout(3000);
-
-    // Verify the admin timesheet panel loaded with date range buttons
-    await expect(page.getByRole('button', { name: 'Today', exact: true })).toBeVisible({
-      timeout: 15000,
+    // Verify team code badge exists (it's a short code like ABC123)
+    // The team code is shown as a Badge below the team name with a "Copy team
+    // code" button next to it.
+    await expect(page.getByRole('button', { name: 'Copy team code' })).toBeVisible({
+      timeout: 10000,
     });
-    await expect(page.getByRole('button', { name: 'This Week', exact: true })).toBeVisible();
-
-    // Click different presets to verify they work
-    await page.getByRole('button', { name: 'Today', exact: true }).click();
-    await page.waitForTimeout(500);
-    await page.getByRole('button', { name: 'This Week', exact: true }).click();
-    await page.waitForTimeout(500);
   });
 
   test('team members are shown correctly', async ({ page }) => {
@@ -165,10 +107,7 @@ test.describe('Teams', () => {
       await page.waitForTimeout(1500);
     }
 
-    // Click Members tab
-    await page.getByRole('tab', { name: 'Members' }).click();
-    await page.waitForTimeout(1000);
-
+    // Members are always visible — no tab to click.
     // Verify at least the current user is shown (use the profile button to be specific)
     await expect(page.getByRole('button', { name: /View Test Owner One/ })).toBeVisible({
       timeout: 5000,
@@ -176,5 +115,45 @@ test.describe('Teams', () => {
 
     // Verify members count is shown
     await expect(page.getByText(/Members \(\d+\)/)).toBeVisible();
+  });
+
+  test('admin should see a Timesheet view on the Dashboard Team tab with working filters', async ({
+    page,
+  }) => {
+    test.setTimeout(60000);
+
+    const teamId = await getTestTeamId();
+    if (!teamId) {
+      test.skip(true, 'Test Team Alpha not found');
+      return;
+    }
+
+    await page.goto(`/app/dashboard?teamId=${teamId}`);
+    await expect(page.getByRole('button', { name: 'Team', exact: true })).toBeVisible({
+      timeout: 20000,
+    });
+
+    await page.getByRole('button', { name: 'Team', exact: true }).click();
+
+    const timesheetToggle = page.getByRole('button', { name: 'Timesheet', exact: true });
+    if (!(await timesheetToggle.isVisible({ timeout: 10000 }).catch(() => false))) {
+      test.skip(true, 'Timesheet view not available — team may not have loaded');
+      return;
+    }
+
+    await timesheetToggle.click();
+    await page.waitForTimeout(3000);
+
+    // Verify the admin timesheet panel loaded with date range buttons
+    await expect(page.getByRole('button', { name: 'Today', exact: true })).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.getByRole('button', { name: 'This Week', exact: true })).toBeVisible();
+
+    // Click different presets to verify they work
+    await page.getByRole('button', { name: 'Today', exact: true }).click();
+    await page.waitForTimeout(500);
+    await page.getByRole('button', { name: 'This Week', exact: true }).click();
+    await page.waitForTimeout(500);
   });
 });

@@ -37,8 +37,13 @@ async function selectTestTeam(page: import('@playwright/test').Page): Promise<bo
     localStorage.setItem('app:selectedTeamId', id);
   }, teamId);
   await page.reload();
-  await page.getByRole('heading', { level: 1, name: 'Teams' }).waitFor({ state: 'visible' });
+  // Reload occasionally lands on the login screen when the session cookie
+  // hasn't fully synced yet — wait for the app shell (larger, more forgiving
+  // signal than the h1) before asserting on page-specific content.
   await page.waitForLoadState('networkidle');
+  await page
+    .getByRole('heading', { level: 1, name: 'Teams' })
+    .waitFor({ state: 'visible', timeout: 20000 });
   return true;
 }
 
@@ -76,11 +81,7 @@ test.describe('Profile Routing', () => {
       return;
     }
 
-    // Switch to Members tab
-    const membersTab = page.getByRole('tab', { name: 'Members' });
-    await membersTab.waitFor({ state: 'visible', timeout: 15000 });
-    await membersTab.click();
-
+    // Members are always visible on the Teams page — no tab to switch to.
     // Click the first member button (View … profile)
     const memberButton = page.getByRole('button', { name: /view .+'s profile/i }).first();
     await memberButton.waitFor({ state: 'visible', timeout: 10000 });
@@ -112,11 +113,7 @@ test.describe('Profile Routing', () => {
       return;
     }
 
-    // Switch to Members tab
-    const membersTab = page.getByRole('tab', { name: 'Members' });
-    await membersTab.waitFor({ state: 'visible', timeout: 15000 });
-    await membersTab.click();
-
+    // Members are always visible on the Teams page — no tab to switch to.
     // Click Test Member One specifically
     const memberButton = page.getByRole('button', {
       name: /view test member one's profile/i,

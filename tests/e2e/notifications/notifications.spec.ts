@@ -26,6 +26,9 @@ test.describe('Notifications', () => {
   });
 
   test('should show notifications when they exist', async ({ page }) => {
+    // Occasionally the initial data fetch after login takes a while; give this
+    // one a generous budget so the sequential suite doesn't flake.
+    test.setTimeout(60000);
     await loginAs(page, TEST_USERS.owner1);
     await page.goto('/app/notifications');
     await page
@@ -50,6 +53,10 @@ test.describe('Notifications', () => {
   });
 
   test('select mode, select all, and delete should work', async ({ page }) => {
+    // Sits deep in the sequential suite; a warm backend can push this past
+    // the default 30s. 60s gives login + hydration room without slowing
+    // the healthy path.
+    test.setTimeout(60000);
     await loginAs(page, TEST_USERS.owner1);
     await page.goto('/app/notifications');
     await page

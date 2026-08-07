@@ -2,45 +2,58 @@
  * ClockPage — plan-first shift screen.
  *
  * Reads top-to-bottom as a gate rather than a dashboard:
- *   1. Banner — status lamp + one plain sentence that always says what's
- *      blocking you (Ready to work → Plan posted → On shift).
- *   2. Composer — plain textarea with a single combined action: "Post plan
- *      and clock in" / "Post wrap-up and clock out" (⌘/Ctrl+↵ submits).
- *   3. Clock module — compact seven-segment punch clock pinned near the
- *      bottom with a live status readout line.
+ *   1. Status — eyebrow + a big bold session timer (elapsed time this
+ *      shift, not the wall clock) + a "plan required" badge when the team
+ *      gate is on. Break/Resume lives here, beside the timer, so it stays
+ *      on screen whichever composer is open below.
+ *   2. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
+ *      same Photo/Video/Doc/Pulse/Ticket/@Mention bar as the Huddle composer
+ *      (⌘/Ctrl+↵ submits).
+ *   3. Recent sessions — the user's last completed sessions on this team.
  *
  * Gate state comes from useClockToggle.planGate (realtime via DDP), so this
  * page never needs a reload. With the team setting off, it's a plain
  * clock-in/out screen.
  */
-import { Button, Spinner, Text } from '@mieweb/ui';
+import { faMugHot, faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  cn,
+  Spinner,
+  Text,
+} from '@mieweb/ui';
 import React, { useEffect, useRef, useState } from 'react';
 
-import { huddleApi, type HuddlePost } from '../../lib/api';
+import { clockApi, huddleApi, type ClockEvent, type HuddlePost } from '../../lib/api';
 import { getDdpClient } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
-import { formatTimer, getActiveClockSeconds, toDateString } from '../../lib/timeUtils';
+import {
+  formatDate,
+  formatDuration,
+  formatTime,
+  formatTimer,
+  getActiveClockSeconds,
+  toDateString,
+} from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { MarkdownEditor } from '../huddle/MarkdownEditor';
+import { toPostAttachment } from '../huddle/api';
+import {
+  ComposerAttachButtons,
+  ComposerChips,
+  type MentionRef,
+} from '../huddle/ComposerAttachments';
+import type { MediaItem } from '../huddle/types';
 import { AppPage } from '../../ui/AppPage';
+import { ClockStrand } from '../../ui/ClockStrand';
 import { useRouter } from '../../ui/router';
-
-// Figure space keeps single-digit hours aligned against the 88:88:88 backdrop.
-const FIGURE_SPACE = '\u2007';
-
-function clockParts(now: number) {
-  const d = new Date(now);
-  let hours = d.getHours() % 12;
-  if (hours === 0) hours = 12;
-  const hh = String(hours).padStart(2, FIGURE_SPACE);
-  const mm = String(d.getMinutes()).padStart(2, '0');
-  const ss = String(d.getSeconds()).padStart(2, '0');
-  const meridiem = d.getHours() >= 12 ? 'PM' : 'AM';
-  const date = d
-    .toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
-    .toUpperCase();
-  return { time: `${hh}:${mm}:${ss}`, meridiem, date };
-}
+import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 
 // ─── ClockPage ────────────────────────────────────────────────────────────────
 
@@ -86,6 +99,55 @@ export const ClockPage: React.FC = () => {
   const [draft, setDraft] = useState<DraftRef | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
   const [draftSaved, setDraftSaved] = useState(false);
+
+  // ── Attach/ticket/mention controls — same action bar as the Huddle composer ──
+  const [attachments, setAttachments] = useState<MediaItem[]>([]);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(undefined);
+  const [mentions, setMentions] = useState<MentionRef[]>([]);
+  const handleAttachmentAdd = (media: MediaItem) => setAttachments((prev) => [...prev, media]);
+  const handleAttachmentRemove = (mediaId: string) =>
+    setAttachments((prev) => prev.filter((m) => m.id !== mediaId));
+  const handleMentionSelect = (userId: string, name: string) =>
+    setMentions((prev) =>
+      prev.some((m) => m.userId === userId) ? prev : [...prev, { userId, name }],
+    );
+  const handleMentionRemove = (userId: string) =>
+    setMentions((prev) => prev.filter((m) => m.userId !== userId));
+
+  // ── Recent sessions — the user's last completed sessions on this team ──
+  const recentSessionsTeamId = gateTeamId ?? selectedTeamId;
+  const [recentSessions, setRecentSessions] = useState<ClockEvent[]>([]);
+  const [recentSessionsLoading, setRecentSessionsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!recentSessionsTeamId) {
+      setRecentSessions([]);
+      setRecentSessionsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setRecentSessionsLoading(true);
+    clockApi
+      .getEvents()
+      .then((events) => {
+        if (cancelled) return;
+        const completed = events
+          .filter((e) => e.teamId === recentSessionsTeamId && e.endTime != null)
+          .sort((a, b) => b.startTime - a.startTime)
+          .slice(0, 8);
+        setRecentSessions(completed);
+      })
+      .catch(() => {
+        if (!cancelled) setRecentSessions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setRecentSessionsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Re-fetch whenever a session finishes so the list stays current.
+  }, [recentSessionsTeamId, isClockedIn]);
 
   const composerMode: 'plan' | 'wrapup' | null = !isClockedIn
     ? planMissing
@@ -141,21 +203,41 @@ export const ClockPage: React.FC = () => {
     setEditorKey((k) => k + 1);
   }, [composerMode, seedText]);
 
+  // Clear attach/ticket/mention selections whenever the composer opens fresh
+  // (mode switches between plan/wrap-up/hidden, e.g. after a successful post).
+  useEffect(() => {
+    setAttachments([]);
+    setSelectedTicketId(undefined);
+    setMentions([]);
+  }, [composerMode]);
+
   async function saveDraft() {
     const trimmed = text.trim();
     if (!gateTeamId || !trimmed || savingDraft || posting) return;
     setSavingDraft(true);
     setPostError(null);
     try {
+      const mentionUserIds = mentions.length ? mentions.map((m) => m.userId) : undefined;
+      const postAttachments = attachments.map(toPostAttachment);
       if (draft) {
-        await huddleApi.updatePost(draft.id, {
-          text: trimmed,
-          mentions: draft.content.mentions,
-        });
+        await huddleApi.updatePost(
+          draft.id,
+          { text: trimmed, mentions: mentionUserIds ?? draft.content.mentions },
+          {
+            attachments: postAttachments.length ? postAttachments : undefined,
+            ticketId: selectedTicketId,
+          },
+        );
         setDraft({ ...draft, content: { ...draft.content, text: trimmed } });
       } else {
-        const created = await huddleApi.saveDraft(gateTeamId, { text: trimmed, mentions: [] });
-        setDraft({ id: created.id, content: { text: trimmed, mentions: [] } });
+        const created = (await getDdpClient().call('huddle.createPost', {
+          teamId: gateTeamId,
+          content: { text: trimmed, mentions: mentionUserIds ?? [] },
+          ticketId: selectedTicketId,
+          attachments: postAttachments,
+          draft: true,
+        })) as { id: string };
+        setDraft({ id: created.id, content: { text: trimmed, mentions: mentionUserIds ?? [] } });
       }
       setDraftSaved(true);
       setTimeout(() => setDraftSaved(false), 2500);
@@ -173,18 +255,33 @@ export const ClockPage: React.FC = () => {
     setPostError(null);
     try {
       let planPostId: string;
+      const mentionUserIds = mentions.length ? mentions.map((m) => m.userId) : undefined;
+      const postAttachments = attachments.map(toPostAttachment);
       if (draft) {
         // Publishing the draft (with any edits) is this session's plan post.
+        const publishedMentions = mentionUserIds ?? draft.content.mentions;
         await huddleApi.publishPost(draft.id, toDateString(new Date()), {
           text: trimmed,
-          mentions: draft.content.mentions,
+          mentions: publishedMentions,
         });
         planPostId = draft.id;
+        if (postAttachments.length > 0 || selectedTicketId) {
+          await huddleApi.updatePost(
+            planPostId,
+            { text: trimmed, mentions: publishedMentions },
+            {
+              attachments: postAttachments.length ? postAttachments : undefined,
+              ticketId: selectedTicketId,
+            },
+          );
+        }
         setDraft(null);
       } else {
         const created = (await getDdpClient().call('huddle.createPost', {
           teamId: gateTeamId,
-          content: { text: trimmed, mentions: [] },
+          content: { text: trimmed, mentions: mentionUserIds ?? [] },
+          ticketId: selectedTicketId,
+          attachments: postAttachments,
           postDate: toDateString(new Date()),
         })) as { id: string };
         planPostId = created.id;
@@ -212,25 +309,33 @@ export const ClockPage: React.FC = () => {
       // cached post ID (handles the race where the plan post was just created
       // but hasn't arrived via DDP subscription yet).
       const effectivePostId = sessionPost?.id ?? cachedPlanPostIdRef.current;
+      const mentionUserIds = mentions.length ? mentions.map((m) => m.userId) : undefined;
+      const postAttachments = attachments.map(toPostAttachment);
       if (effectivePostId) {
         // Normal flow: update the plan post with the wrap-up.
         await huddleApi.updatePost(
           effectivePostId,
           {
             text: trimmed,
-            mentions: sessionPost?.content.mentions ?? [],
+            mentions: mentionUserIds ?? sessionPost?.content.mentions ?? [],
           },
-          { wrapUp: true },
+          {
+            wrapUp: true,
+            attachments: postAttachments.length ? postAttachments : undefined,
+            ticketId: selectedTicketId,
+          },
         );
       } else {
         // Recovery: no plan post exists (gate enabled mid-shift). Create one
         // that doubles as the wrap-up, linked to the session.
         await getDdpClient().call('huddle.createPost', {
           teamId: gateTeamId,
-          content: { text: `**Wrap-up:** ${trimmed}`, mentions: [] },
+          content: { text: `**Wrap-up:** ${trimmed}`, mentions: mentionUserIds ?? [] },
           postDate: toDateString(new Date()),
           clockEventId: activeClockEvent.id,
           wrapUp: true,
+          ticketId: selectedTicketId,
+          attachments: postAttachments,
         });
       }
       setText('');
@@ -243,43 +348,31 @@ export const ClockPage: React.FC = () => {
     }
   }
 
-  // ── Banner copy — always says what's blocking you ──
-  const teamSuffix = teamName && gateTeamId !== selectedTeamId ? ` in “${teamName}”` : '';
-  let eyebrow: string;
-  let headline: string;
-  let subline: React.ReactNode = null;
-  if (!isClockedIn) {
-    eyebrow = 'Ready to work';
-    if (composerMode === 'plan') {
-      headline = 'Write a plan before starting this session.';
-      subline = (
-        <>
-          Posting starts your shift.{' '}
-          <button
-            type="button"
-            onClick={() => navigate('/app/huddle')}
-            className="underline underline-offset-2 hover:text-white"
-          >
-            Open huddle
-          </button>
-        </>
-      );
-    } else if (requirePlan) {
-      headline = 'Plan posted — you’re set to clock in.';
-    } else {
-      headline = 'You’re set to clock in.';
-    }
-  } else {
-    eyebrow = isPaused ? 'On break' : 'On shift';
-    if (composerMode === 'wrapup') {
-      headline = `Add a wrap-up to this session’s post${teamSuffix} before clocking out.`;
-      subline = 'Posting ends your shift.';
-    } else {
-      headline = `Clocked in — ${formatTimer(sessionSeconds)} this shift.`;
-    }
-  }
+  // ── Status card copy ──
+  const eyebrow = !isClockedIn ? 'Clocked out' : isPaused ? 'On break' : 'Clocked in';
 
-  const { time, meridiem, date } = clockParts(currentTime);
+  // ── Composer card copy — always says what's blocking you ──
+  const teamSuffix = teamName && gateTeamId !== selectedTeamId ? ` in “${teamName}”` : '';
+  const composerTitle =
+    composerMode === 'plan' ? 'Plan before you clock in' : 'Wrap up before you clock out';
+  let composerDescription: React.ReactNode = null;
+  if (composerMode === 'plan') {
+    composerDescription = (
+      <>
+        This team requires a short plan before clocking in. It's posted to Huddle so your team can
+        see what you're working on.{' '}
+        <button
+          type="button"
+          onClick={() => navigate('/app/huddle')}
+          className="underline underline-offset-2"
+        >
+          Open huddle
+        </button>
+      </>
+    );
+  } else if (composerMode === 'wrapup') {
+    composerDescription = `Add a quick wrap-up of what you did this session${teamSuffix} before clocking out.`;
+  }
 
   if (!teamsReady) {
     return (
@@ -291,30 +384,103 @@ export const ClockPage: React.FC = () => {
 
   return (
     <AppPage fill>
-      <div className="clock-screen flex h-full min-h-0 flex-col gap-6">
-        {/* ── Banner — the gate, in one sentence ── */}
+      <div className="clock-screen flex h-full min-h-0 flex-col gap-3 overflow-y-auto md:gap-6 md:mx-auto md:w-full md:max-w-4xl">
+        {/* Names the workspace before you act, not after: hours logged against
+            the wrong team are tedious to unpick. */}
+        <WorkspaceGreeting
+          className="py-3 md:py-4"
+          note={
+            isClockedIn
+              ? 'Your shift is running — the time is being logged here.'
+              : 'Any time you track here gets logged to this workspace.'
+          }
+        />
+
+        {/* ── Status — eyebrow + big bold session timer ──
+             The surface is tinted by state rather than being a fixed dark slab
+             with a red underline: that read as an error banner on a light page
+             and, in dark mode, sank into the background so only the red line
+             showed. Tinting carries the state in both themes and gives the
+             Break button a surface it contrasts against. Text colour is
+             inherited (`opacity-*`, not `text-white/*`) so it follows. */}
         <div
-          className="clock-banner shrink-0 rounded-2xl border-b-4 border-red-600 bg-neutral-900 px-5 py-4 text-white dark:bg-neutral-950"
+          className={cn(
+            'clock-status shrink-0 rounded-2xl border px-4 py-3 text-center transition-colors md:px-5 md:py-6',
+            isClockedIn
+              ? isPaused
+                ? 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-50'
+                : 'border-green-300 bg-green-50 text-green-950 dark:border-green-900/60 dark:bg-green-950/40 dark:text-green-50'
+              : 'border-neutral-200 bg-white text-neutral-900 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-50',
+          )}
           aria-live="polite"
         >
-          <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-white/60">
+          <div className="flex items-center justify-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] opacity-70">
             <span
-              className={[
+              className={cn(
                 'h-2.5 w-2.5 shrink-0 rounded-full',
-                isClockedIn ? (isPaused ? 'bg-amber-400' : 'bg-green-500') : 'bg-red-500',
-              ].join(' ')}
+                isClockedIn
+                  ? isPaused
+                    ? 'bg-amber-500'
+                    : 'animate-pulse bg-green-500'
+                  : 'bg-neutral-400',
+              )}
             />
             {eyebrow}
           </div>
-          <Text as="h2" size="xl" weight="semibold" className="mt-1 text-white">
-            {headline}
-          </Text>
-          {subline && <p className="mt-1 text-sm text-white/60">{subline}</p>}
+          <div className="mt-1 font-mono text-3xl font-bold tabular-nums md:text-4xl">
+            {formatTimer(sessionSeconds)}
+          </div>
+          {/* Snakes across while the clock counts, flat the moment it stops
+              — the same signal as the header strand, at hero size. */}
+          <ClockStrand
+            active={isClockedIn && !isPaused}
+            className="mx-auto mt-2 hidden h-8 w-full max-w-sm md:block"
+          />
+          {activeClockEvent && (
+            <p className="mt-2 text-sm opacity-70">
+              since {formatTime(new Date(activeClockEvent.startTime))}
+            </p>
+          )}
+          {/* Break/Resume lives with the timer so it stays visible in every
+              state — plain actions, plan composer, wrap-up composer — instead
+              of scrolling away below whichever composer happens to be open.
+              Filled and full-size on its own line: as a small outline button
+              tucked beside the timer it was easy to miss entirely. */}
+          {isClockedIn && (
+            <div className="mt-4">
+              <Button
+                variant="primary"
+                onClick={() => void (isPaused ? resumeClock() : pauseClock())}
+                isLoading={clockPauseLoading}
+                aria-label={isPaused ? 'Resume work' : 'Start break'}
+                leftIcon={<FontAwesomeIcon icon={isPaused ? faPlay : faMugHot} />}
+                className="gap-2 rounded-full px-6 font-semibold shadow-md transition-transform hover:scale-105 active:scale-95"
+              >
+                {isPaused ? 'Resume work' : 'Take a break'}
+              </Button>
+            </div>
+          )}
+          {requirePlan && (
+            <Badge variant="default" size="sm" className="mt-3">
+              Plan required for this team
+            </Badge>
+          )}
         </div>
 
-        {/* ── Composer — one box, one combined action ── */}
+        {/* ── Composer — plan before clock-in / wrap-up before clock-out ── */}
         {composerMode && (
-          <div className="clock-plan-composer flex shrink-0 flex-col gap-3">
+          <div className="clock-plan-composer flex shrink-0 flex-col gap-2 md:gap-3">
+            <div>
+              <Text as="h2" size="base" weight="semibold" className="md:text-lg">
+                {composerTitle}
+              </Text>
+              {composerDescription && (
+                <Text variant="muted" size="sm" className="mt-1">
+                  {composerDescription}
+                </Text>
+              )}
+            </div>
+
             <MarkdownEditor
               key={`${composerMode}-${editorKey}`}
               value={seedText}
@@ -323,7 +489,29 @@ export const ClockPage: React.FC = () => {
                 void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
               }
             />
-            <div className="flex flex-wrap items-center gap-3">
+
+            {/* ── Ticket / mention / attachment chips ── */}
+            <ComposerChips
+              selectedTicketId={selectedTicketId}
+              onTicketRemove={() => setSelectedTicketId(undefined)}
+              mentions={mentions}
+              onMentionRemove={handleMentionRemove}
+              attachments={attachments}
+              onAttachmentRemove={handleAttachmentRemove}
+            />
+
+            {/* ── Attach bar — same Photo/Video/Doc/Pulse/Ticket/@Mention controls as Huddle ── */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <ComposerAttachButtons
+                teamId={gateTeamId}
+                onAttachmentAdd={handleAttachmentAdd}
+                selectedTicketId={selectedTicketId}
+                onTicketSelect={setSelectedTicketId}
+                onMentionSelect={handleMentionSelect}
+              />
+            </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <Button
                 variant="primary"
                 onClick={() =>
@@ -331,6 +519,7 @@ export const ClockPage: React.FC = () => {
                 }
                 isLoading={posting || clockInLoading || clockOutLoading}
                 disabled={!text.trim()}
+                className="w-full sm:w-auto"
               >
                 {composerMode === 'plan'
                   ? draft
@@ -344,6 +533,7 @@ export const ClockPage: React.FC = () => {
                   onClick={() => void saveDraft()}
                   isLoading={savingDraft}
                   disabled={!text.trim()}
+                  className="w-full sm:w-auto"
                 >
                   {draft ? 'Update draft' : 'Save draft'}
                 </Button>
@@ -367,54 +557,37 @@ export const ClockPage: React.FC = () => {
           </div>
         )}
 
-        {/* ── Plain actions when the gate is satisfied (or off) ── */}
+        {/* ── Plain actions when the gate is satisfied (or off) ──
+             The one thing you came to this page to do, so it's a large pill
+             with an icon rather than a default-sized button in a row of them. */}
         {!composerMode && (
-          <div className="clock-actions flex shrink-0 flex-wrap items-center gap-3">
+          <div className="clock-actions flex shrink-0 flex-col items-center gap-3">
             {!isClockedIn ? (
               <Button
                 variant="primary"
+                size="lg"
                 onClick={() => void clockIn()}
                 isLoading={clockInLoading}
                 disabled={!selectedTeamId}
                 aria-label="Clock in"
+                leftIcon={<FontAwesomeIcon icon={faPlay} />}
+                className="w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72"
               >
                 Clock in
               </Button>
             ) : (
-              <>
-                <Button
-                  variant="danger"
-                  onClick={() => void clockOut()}
-                  isLoading={clockOutLoading}
-                  aria-label="Clock out"
-                >
-                  Clock out
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => void (isPaused ? resumeClock() : pauseClock())}
-                  isLoading={clockPauseLoading}
-                  aria-label={isPaused ? 'Resume work' : 'Start break'}
-                >
-                  {isPaused ? 'Resume' : 'Break'}
-                </Button>
-              </>
+              <Button
+                variant="danger"
+                size="lg"
+                onClick={() => void clockOut()}
+                isLoading={clockOutLoading}
+                aria-label="Clock out"
+                leftIcon={<FontAwesomeIcon icon={faStop} />}
+                className="w-full gap-3 rounded-full py-4 text-base font-semibold shadow-lg transition-transform hover:scale-[1.02] active:scale-95 sm:w-auto sm:min-w-72"
+              >
+                Clock out
+              </Button>
             )}
-          </div>
-        )}
-
-        {/* Break/Resume stays reachable while the wrap-up composer is up */}
-        {composerMode === 'wrapup' && (
-          <div className="shrink-0">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void (isPaused ? resumeClock() : pauseClock())}
-              isLoading={clockPauseLoading}
-              aria-label={isPaused ? 'Resume work' : 'Start break'}
-            >
-              {isPaused ? 'Resume' : 'Break'}
-            </Button>
           </div>
         )}
 
@@ -424,37 +597,43 @@ export const ClockPage: React.FC = () => {
           </Text>
         )}
 
-        {/* ── Clock module — compact punch clock near the bottom ── */}
-        <div className="clock-module mx-auto mb-4 mt-auto w-fit shrink-0 rounded-2xl bg-neutral-900 px-8 py-5 text-white shadow-xl dark:bg-black">
-          <div className="relative font-mono text-4xl font-bold leading-none tabular-nums">
-            <span aria-hidden className="absolute inset-0 select-none text-white/10">
-              88:88:88
-            </span>
-            <span className="relative">{time}</span>
-            <span className="relative ml-2 align-top text-xs font-semibold text-white/70">
-              {meridiem}
-            </span>
-          </div>
-          <div className="mt-3 flex items-center justify-center gap-2 font-mono text-[11px] uppercase tracking-[0.2em] text-white/60">
-            <span
-              className={[
-                'h-2 w-2 shrink-0 rounded-full',
-                isClockedIn
-                  ? isPaused
-                    ? 'bg-amber-400'
-                    : 'animate-pulse bg-green-500'
-                  : 'bg-red-500',
-              ].join(' ')}
-            />
-            <span>
-              {isClockedIn
-                ? `${isPaused ? 'On break' : 'On shift'} ${formatTimer(sessionSeconds)}`
-                : 'Not clocked in'}
-              {' · '}
-              {date}
-            </span>
-          </div>
-        </div>
+        {/* ── Recent sessions ── */}
+        <Card padding="lg" className="clock-recent-sessions mb-4 shrink-0">
+          <CardHeader>
+            <CardTitle>Recent sessions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {recentSessionsLoading ? (
+              <Spinner size="sm" label="Loading sessions…" />
+            ) : recentSessions.length === 0 ? (
+              <Text variant="muted" size="sm">
+                No sessions yet.
+              </Text>
+            ) : (
+              <div className="divide-y divide-gray-100 dark:divide-neutral-800">
+                {recentSessions.map((session) => (
+                  <div key={session.id} className="flex items-center justify-between gap-3 py-2">
+                    <div>
+                      <Text size="sm" weight="medium">
+                        {formatDate(new Date(session.startTime))}
+                      </Text>
+                      <Text variant="muted" size="xs">
+                        {formatTime(new Date(session.startTime))} –{' '}
+                        {formatTime(new Date(session.endTime as number))}
+                      </Text>
+                    </div>
+                    <Badge variant="secondary" size="sm" className="font-mono">
+                      {formatDuration(
+                        Math.round((session.endTime! - session.startTime) / 1000) -
+                          (session.totalBreakSeconds ?? 0),
+                      )}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </AppPage>
   );

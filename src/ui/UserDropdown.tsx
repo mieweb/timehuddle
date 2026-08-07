@@ -136,51 +136,54 @@ export const UserDropdown: React.FC = () => {
         </DropdownItem>
 
         {(showOrganizationAdmin || enterprises.length > 0) && (
-          <>
+          <div className="hidden md:contents">
             <DropdownSeparator />
             <DropdownLabel>Admin</DropdownLabel>
-          </>
-        )}
 
-        {enterprises.length > 0 && (
-          <DropdownItem icon={<FontAwesomeIcon icon={faBuilding} />} onClick={handleEnterprisePage}>
-            <span className="font-normal">Enterprise</span>
-          </DropdownItem>
-        )}
+            {enterprises.length > 0 && (
+              <DropdownItem
+                icon={<FontAwesomeIcon icon={faBuilding} />}
+                onClick={handleEnterprisePage}
+              >
+                <span className="font-normal">Enterprise</span>
+              </DropdownItem>
+            )}
 
-        {(showOrganizationAdmin || enterprises.length > 0) && (
-          <DropdownItem
-            icon={<FontAwesomeIcon icon={faUsers} />}
-            onClick={handleOrganizationMembers}
-          >
-            <span className="font-normal">Members</span>
-          </DropdownItem>
+            <DropdownItem
+              icon={<FontAwesomeIcon icon={faUsers} />}
+              onClick={handleOrganizationMembers}
+            >
+              <span className="font-normal">Members</span>
+            </DropdownItem>
+          </div>
         )}
 
         {import.meta.env.MODE !== 'production' && (
-          <>
+          <div className="hidden md:contents">
             <DropdownSeparator />
             <DropdownLabel>Developers</DropdownLabel>
             <DropdownItem icon={<FontAwesomeIcon icon={faWrench} />} onClick={handleSeeder}>
               <span className="font-normal">Seeder</span>
             </DropdownItem>
-          </>
+          </div>
         )}
 
-        <DropdownSeparator />
-        <DropdownLabel>Help</DropdownLabel>
+        <div className="hidden md:contents">
+          <DropdownSeparator />
+          <DropdownLabel>Help</DropdownLabel>
 
-        <DropdownItem icon={<FontAwesomeIcon icon={faBug} />} onClick={handleReportIssue}>
-          <span className="font-normal">Report an Issue</span>
-        </DropdownItem>
+          <DropdownItem icon={<FontAwesomeIcon icon={faBug} />} onClick={handleReportIssue}>
+            <span className="font-normal">Report an Issue</span>
+          </DropdownItem>
 
-        <DropdownItem icon={<FontAwesomeIcon icon={faComments} />} onClick={handleFeedback}>
-          <span className="font-normal">Share Your Feedback</span>
-        </DropdownItem>
+          <DropdownItem icon={<FontAwesomeIcon icon={faComments} />} onClick={handleFeedback}>
+            <span className="font-normal">Share Your Feedback</span>
+          </DropdownItem>
 
-        <DropdownItem icon={<FontAwesomeIcon icon={faApple} />} onClick={handleTestFlight}>
-          <span className="font-normal">TestFlight</span>
-        </DropdownItem>
+          <DropdownItem icon={<FontAwesomeIcon icon={faApple} />} onClick={handleTestFlight}>
+            <span className="font-normal">TestFlight</span>
+          </DropdownItem>
+        </div>
 
         <DropdownSeparator />
 
