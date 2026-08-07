@@ -55,9 +55,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Only init meteor-wormhole — vendor/ui is on a branch not pushed to
-          # the public mieweb/ui repo, so a full submodules: true would fail.
-          # The app installs @mieweb/ui from the committed vendor/mieweb-ui.tgz.
+          # Only init meteor-wormhole — vendor/ui is a source checkout kept for
+          # local development against the library; the app installs @mieweb/ui
+          # from the npm registry, so CI has no reason to clone it.
           submodules: false
 
       - name: Init meteor-wormhole submodule
