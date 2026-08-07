@@ -98,6 +98,9 @@ export const DashboardPage: React.FC = () => {
   }, []);
   // Personal workspaces hide the Me/Team toggle — both views would be identical.
   const tab = isPersonalWorkspace ? 'me' : storedTab;
+  // The admin timesheet (member picker, everyone's entries) belongs to the Team
+  // tab only. Me → Timesheet is always the signed-in user's own timesheet.
+  const showAdminTimesheet = canViewTimesheet && tab === 'team';
 
   const [view, setView] = useState<'overview' | 'timesheet'>('overview');
   const [initialMemberId, setInitialMemberId] = useState<string>('');
@@ -141,7 +144,7 @@ export const DashboardPage: React.FC = () => {
 
   // Members list (needed by the admin Timesheet view only)
   useEffect(() => {
-    if (!selectedTeamId || !canViewTimesheet) {
+    if (!selectedTeamId || !showAdminTimesheet) {
       setTeamMembers([]);
       return;
     }
@@ -157,7 +160,7 @@ export const DashboardPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedTeamId, canViewTimesheet]);
+  }, [selectedTeamId, showAdminTimesheet]);
 
   // ── Recent activity — everyone's published plan/wrap-up posts for this
   // team, live via the same DDP publication the Huddle feed uses. Clicking
@@ -389,9 +392,9 @@ export const DashboardPage: React.FC = () => {
         </button>
       </div>
 
-      {/* ── Timesheet view: admin panel for admins, personal panel for everyone else ── */}
+      {/* ── Timesheet view: Team → admin panel (admins only), Me → personal panel ── */}
       {view === 'timesheet' &&
-        (canViewTimesheet && selectedTeamId ? (
+        (showAdminTimesheet && selectedTeamId ? (
           <AdminTimesheetPanel
             members={teamMembers}
             selectedTeamId={selectedTeamId}
