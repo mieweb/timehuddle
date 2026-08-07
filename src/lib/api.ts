@@ -1371,24 +1371,9 @@ export interface TeamRunningTimer {
   startTime: number;
 }
 
-/**
- * Midnight this morning in the viewer's own timezone. The dashboard's "today"
- * has to line up with the timesheet's, which builds its ranges locally, so the
- * boundary is decided here and sent to the server rather than derived from the
- * server's clock.
- */
-function localDayStartMs(): number {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
 export const teamDashboardApi = {
   getTeamClockStatus: (teamId: string) =>
-    wormholeCall<{ members: TeamMemberClockStatus[] }>('clock.teamStatus', {
-      teamId,
-      dayStartMs: localDayStartMs(),
-    }).then((r) =>
+    wormholeCall<{ members: TeamMemberClockStatus[] }>('clock.teamStatus', { teamId }).then((r) =>
       r.members.map((m) =>
         m.image && !/^https?:\/\//i.test(m.image)
           ? { ...m, image: `${TIMECORE_BASE_URL}${m.image.startsWith('/') ? '' : '/'}${m.image}` }
