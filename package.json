@@ -111,7 +111,7 @@
     "@types/tus-js-client": "^1.8.0",
     "@typescript-eslint/eslint-plugin": "^8.42.0",
     "@typescript-eslint/parser": "^8.42.0",
-    "@vitejs/plugin-react": "^6.0.1",
+    "@vitejs/plugin-react": "^6.0.4",
     "autoprefixer": "^10.4.19",
     "bcrypt": "^6.0.0",
     "datavis-ace": "^4.1.0",
