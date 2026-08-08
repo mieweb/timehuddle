@@ -41,6 +41,21 @@ html[data-theme='dark'] {
   color-scheme: dark;
 }
 
+/* Kerebron 0.8.9 added `.kb-editor { all: initial }` to its base.css, which
+   resets the editable area's colour to black and font to serif. That sheet is
+   imported unlayered (top of this file), so it outranks Tailwind's layered
+   utilities regardless of specificity — the fix has to be unlayered too. */
+.kb-component .kb-editor {
+  color: var(--kb-color-text);
+  font-family: inherit;
+}
+
+/* Same reset zeroes the editor's height, so `min-h-*` utilities on the wrapper
+   no longer reach it. Owned here rather than in MarkdownEditor's className. */
+.markdown-editor .kb-editor {
+  min-height: 13rem;
+}
+
 /* Kerebron RichEditor dark mode — the editor themes via `.kb-component--dark`
    or `prefers-color-scheme`, but the app drives theme with `data-theme`, so map
    its CSS variables here. Without this the editor stays light while the app is
