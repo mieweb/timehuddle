@@ -175,6 +175,30 @@ export const ClockPage: React.FC = () => {
     };
   }, [composerMode, gateTeamId]);
 
+  // The wrap-up seed normally comes from `sessionPost` (DDP-backed, realtime).
+  // Its initial subscription sync is slow over a mobile/LAN connection, so the
+  // wrap-up editor visibly loads its plan text late in Capacitor. Fetch the same
+  // post directly (one-shot wormhole call) so it seeds immediately; the DDP copy
+  // still takes over for realtime once it arrives.
+  const [sessionPostFetch, setSessionPostFetch] = useState<DraftRef | null>(null);
+  useEffect(() => {
+    if (composerMode !== 'wrapup' || !gateTeamId || !activeClockEvent?.id) {
+      setSessionPostFetch(null);
+      return;
+    }
+    let cancelled = false;
+    setSessionPostFetch(null);
+    huddleApi
+      .getMyPostForSession(gateTeamId, activeClockEvent.id)
+      .then((post) => {
+        if (!cancelled) setSessionPostFetch(post);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [composerMode, gateTeamId, activeClockEvent?.id]);
+
   // Content pre-loaded into the (uncontrolled) editor for the current composer:
   //   • plan   → the latest saved draft, so you keep editing it.
   //   • wrapup → THIS session's plan post, so clocking out continues the same
@@ -183,7 +207,7 @@ export const ClockPage: React.FC = () => {
     composerMode === 'plan'
       ? (draft?.content.text ?? '')
       : composerMode === 'wrapup'
-        ? (sessionPost?.content.text ?? '')
+        ? (sessionPost?.content.text ?? sessionPostFetch?.content.text ?? '')
         : '';
 
   // Caches the plan post ID immediately after creation so postWrapUpAndClockOut

@@ -56,6 +56,27 @@ html[data-theme='dark'] {
   min-height: 13rem;
 }
 
+/* iOS WKWebView (Capacitor) can fail to invoke the software keyboard on a tap
+   inside a contenteditable when `-webkit-user-select`/`-webkit-touch-callout`
+   isn't explicitly set to an editable-friendly value — desktop/mobile Safari
+   tolerate the inherited default, WKWebView does not always. Force it here so
+   tapping the editor reliably places the caret and shows the keyboard. */
+.kb-editor,
+.kb-editor * {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Kerebron 0.8.9's `.kb-editor { all: initial }` also resets
+   `-webkit-user-modify` to its initial `read-only`. Desktop browsers ignore
+   that for a contenteditable, but iOS WKWebView honours it and refuses to show
+   the keyboard on tap (editor appears completely inert on device). Restore the
+   read-write mode the contenteditable needs so the keyboard opens on iOS. */
+.kb-editor {
+  -webkit-user-modify: read-write;
+}
+
 /* Kerebron RichEditor dark mode — the editor themes via `.kb-component--dark`
    or `prefers-color-scheme`, but the app drives theme with `data-theme`, so map
    its CSS variables here. Without this the editor stays light while the app is

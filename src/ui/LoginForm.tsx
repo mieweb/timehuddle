@@ -377,6 +377,16 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   const [socialLoadingId, setSocialLoadingId] = useState<string | null>(null);
   const [socialError, setSocialError] = useState<string | null>(null);
 
+  // Dismissing the in-app OAuth browser never resolves the sign-in, so without
+  // this the provider button stays stuck in its loading state for good.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const handle = Browser.addListener('browserFinished', () => setSocialLoadingId(null));
+    return () => {
+      void handle.then((h) => h.remove());
+    };
+  }, []);
+
   const handleSocialSignIn = async (provider: SocialProvider) => {
     if (socialLoadingId) return;
     setSocialLoadingId(provider.id);
@@ -398,7 +408,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
         if (Capacitor.isNativePlatform()) {
           // On native, open in an in-app browser with ?native=1 so the backend
           // redirects to the timehuddle://auth deep link instead of the web URL.
-          await Browser.open({ url: oauthUrl, presentationStyle: 'popover' });
+          // Must be fullscreen: `popover` only adapts to fullscreen on iPhone —
+          // on iPad it renders the IdP page in a small floating box that any
+          // stray outside tap silently dismisses mid-sign-in.
+          await Browser.open({ url: oauthUrl, presentationStyle: 'fullscreen' });
         } else {
           window.location.href = oauthUrl;
         }

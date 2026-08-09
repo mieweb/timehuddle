@@ -38,7 +38,11 @@ const INTERACTIVE_SELECTORS =
   'button, a, input, textarea, select, ' +
   '[role="button"], [role="combobox"], [role="option"], ' +
   '[role="menuitem"], [role="tab"], [role="switch"], ' +
-  '[role="checkbox"], [role="radio"], [role="dialog"]';
+  '[role="checkbox"], [role="radio"], [role="dialog"], ' +
+  // Rich-text editors (Kerebron/ProseMirror): a slight finger drift while
+  // tapping to place the caret must not be hijacked as a pull gesture, or
+  // the WKWebView never gets a clean touch sequence to focus the editor.
+  '[contenteditable="true"], .kb-custom-menu__editor';
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
