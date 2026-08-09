@@ -306,6 +306,12 @@ test.describe('Plan-First Clock Flow', () => {
   });
 
   test('should handle disabling/re-enabling requirement during session', async ({ page }) => {
+    // Heaviest flow in this file (full clock cycle + settings toggle + repeated
+    // hard navigations) on top of a beforeEach login that can hit the ~46s DDP
+    // cold-start retry path — triple the default budget so a warming backend
+    // doesn't clip the test at 45s mid-hook.
+    test.slow();
+
     // Create team
     await teamsPage.goto();
     const teamName = `ToggleTest-${Date.now()}`;
