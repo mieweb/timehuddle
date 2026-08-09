@@ -187,10 +187,11 @@ export const ClockPage: React.FC = () => {
       return;
     }
     let cancelled = false;
+    setSessionPostFetch(null);
     huddleApi
       .getMyPostForSession(gateTeamId, activeClockEvent.id)
       .then((post) => {
-        if (!cancelled && post) setSessionPostFetch(post);
+        if (!cancelled) setSessionPostFetch(post);
       })
       .catch(() => {});
     return () => {
