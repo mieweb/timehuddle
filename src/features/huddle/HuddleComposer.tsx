@@ -238,6 +238,10 @@ export function HuddleComposer({
     >
       {/* ── Rich editor (Kerebron — markdown in/out, working toolbar) ── */}
       <MarkdownEditor
+        // RichEditor is uncontrolled and reads `collab`/`value` only at mount.
+        // Key it on the editing target so switching into an edit composer always
+        // mounts a fresh editor that seeds from the post's existing text.
+        key={editing ? `edit-${collabRoom ?? 'new'}` : 'compose'}
         value={text}
         onChange={setText}
         onSubmit={handleSubmit}
