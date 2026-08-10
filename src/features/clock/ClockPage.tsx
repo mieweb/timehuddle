@@ -51,7 +51,6 @@ import {
 } from '../huddle/ComposerAttachments';
 import type { MediaItem } from '../huddle/types';
 import { AppPage } from '../../ui/AppPage';
-import { ClockStrand } from '../../ui/ClockStrand';
 import { useRouter } from '../../ui/router';
 import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 
@@ -454,12 +453,6 @@ export const ClockPage: React.FC = () => {
           <div className="mt-1 font-mono text-3xl font-bold tabular-nums md:text-4xl">
             {formatTimer(sessionSeconds)}
           </div>
-          {/* Snakes across while the clock counts, flat the moment it stops
-              — the same signal as the header strand, at hero size. */}
-          <ClockStrand
-            active={isClockedIn && !isPaused}
-            className="mx-auto mt-2 hidden h-8 w-full max-w-sm md:block"
-          />
           {activeClockEvent && (
             <p className="mt-2 text-sm opacity-70">
               since {formatTime(new Date(activeClockEvent.startTime))}

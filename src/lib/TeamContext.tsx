@@ -138,6 +138,9 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   >([]);
   const [teamsReady, setTeamsReady] = useState(false);
 
+  // True once the authoritative org fetch resolves; gates the session seed.
+  const orgsLoadedRef = useRef(false);
+
   const refetchTeams = useCallback(() => {
     teamApi
       .getTeams()
@@ -163,13 +166,27 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refetchOrganizations = useCallback(() => {
     if (!userId) {
       setOrganizations([]);
+      orgsLoadedRef.current = false;
       return Promise.resolve();
     }
     return orgApi
       .listOrganizations()
-      .then(setOrganizations)
+      .then((orgs) => {
+        orgsLoadedRef.current = true;
+        setOrganizations(orgs);
+      })
       .catch(() => {});
   }, [userId]);
+
+  // Seed from the session's already-loaded org list so the header scope shows
+  // the organization immediately, and still shows it if the independent fetch
+  // is slow or fails. Only applies until the independent fetch resolves, so it
+  // never masks a genuine "removed from all orgs" result.
+  const sessionOrgs = user?.organizations;
+  useEffect(() => {
+    if (orgsLoadedRef.current || !sessionOrgs?.length) return;
+    setOrganizations((prev) => (prev.length > 0 ? prev : sessionOrgs));
+  }, [sessionOrgs]);
 
   useEffect(() => {
     if (!userId) return;

@@ -5,6 +5,8 @@
  * falling back to localhost:4000 for local development.
  */
 // autoReconnectWs removed - no longer needed after migrating tickets to wormhole
+import { CapacitorHttp } from '@capacitor/core';
+
 import { getDdpClient } from './ddp.js';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -845,45 +847,65 @@ async function wormholeCall<T = unknown>(
 
   console.log(`[wormholeCall] ${method}: fetching ${url}`, { hasToken: !!token });
 
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify(params),
-    });
-  } catch (fetchError) {
-    console.error(`[wormholeCall] ${method}: fetch failed:`, fetchError);
-    throw fetchError;
-  }
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
 
-  console.log(`[wormholeCall] ${method}: got response, status=${res.status}`);
-
-  const data = (await res.json().catch(() => ({}))) as {
+  let status: number;
+  let data: {
     result?: T;
     error?: string;
     reason?: string;
     message?: string;
   };
 
-  // Temporary debug logging for clock.teamStatus and orgs.list
-  if (method === 'clock.teamStatus' || method === 'orgs.list') {
-    console.log(`[wormholeCall] ${method} response:`, {
-      ok: res.ok,
-      status: res.status,
-      data,
-      hasResult: 'result' in data,
-      resultKeys: data.result ? Object.keys(data.result) : null,
-    });
+  // In the Capacitor WebView the app is served from a different origin than
+  // the API (dev live-reload host, or capacitor://localhost in production), so
+  // a plain cross-origin `fetch` is blocked by WebKit CORS and fails with an
+  // opaque "Load failed". Route through the native HTTP bridge, which is not
+  // subject to WebView CORS. Web keeps using `fetch` (Vite proxy / same-origin).
+  if (_isNativeWebView) {
+    let response: { status: number; data: unknown };
+    try {
+      response = await CapacitorHttp.request({ url, method: 'POST', headers, data: params });
+    } catch (httpError) {
+      console.error(`[wormholeCall] ${method}: native request failed:`, httpError);
+      throw httpError;
+    }
+    status = response.status;
+    data =
+      typeof response.data === 'string'
+        ? ((() => {
+            try {
+              return JSON.parse(response.data as string);
+            } catch {
+              return {};
+            }
+          })() as typeof data)
+        : ((response.data as typeof data) ?? {});
+  } else {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(params),
+      });
+    } catch (fetchError) {
+      console.error(`[wormholeCall] ${method}: fetch failed:`, fetchError);
+      throw fetchError;
+    }
+    status = res.status;
+    data = (await res.json().catch(() => ({}))) as typeof data;
   }
 
-  if (!res.ok) {
+  console.log(`[wormholeCall] ${method}: got response, status=${status}`);
+
+  if (status < 200 || status >= 300) {
     throw new ApiError(
-      data.reason || data.message || `Request failed (${res.status})`,
-      res.status,
+      data.reason || data.message || `Request failed (${status})`,
+      status,
       data.error,
     );
   }

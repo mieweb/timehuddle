@@ -52,7 +52,6 @@ import { formatDuration, formatTimer, getActiveClockSeconds } from '../../lib/ti
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { UserAvatar } from '../../ui/UserAvatar';
-import { ClockStrand } from '../../ui/ClockStrand';
 import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 import { PersonalTimesheetPanel } from '../clock/PersonalTimesheetPanel';
 import { roundDurationSecondsForDisplay } from '../clock/timesheetUtils';
@@ -341,7 +340,6 @@ export const DashboardPage: React.FC = () => {
                a status, not a section, and a full-width alert pushed the actual
                dashboard below the fold. */
             <div className="flex items-center gap-3 rounded-xl bg-white/70 px-3 py-2 shadow-sm dark:bg-white/5">
-              <ClockStrand active={!activeClockEvent.isPaused} className="h-7 w-12 shrink-0" />
               <div className="min-w-0">
                 <Text variant="muted" size="xs">
                   {activeClockEvent.isPaused ? 'On break' : 'Session active'}

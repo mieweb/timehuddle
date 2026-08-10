@@ -101,12 +101,12 @@ export const OrgTeamSwitcher: React.FC = () => {
       >
         <Logo size={28} />
         <span className="min-w-0 text-left">
-          <span className="block max-w-[45vw] truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100 md:max-w-[12rem]">
+          <span className="block max-w-[30vw] truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100 md:max-w-48">
             {teamLabel}
           </span>
           {selectedOrg && (
             <span className="flex min-w-0 items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-              <span className="max-w-[45vw] truncate md:max-w-[12rem]" title={selectedOrg.name}>
+              <span className="max-w-[30vw] truncate md:max-w-48" title={selectedOrg.name}>
                 {selectedOrg.name}
               </span>
               <FontAwesomeIcon icon={faChevronDown} className="shrink-0 text-[9px]" />
