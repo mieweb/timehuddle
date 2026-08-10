@@ -13,6 +13,9 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // Horizontal offset (px) of the menu relative to the trigger, clamped so the
+  // menu never spills past either viewport edge.
+  const [offsetX, setOffsetX] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,6 +70,21 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
     setSearchQuery('');
   };
 
+  const handleToggle = () => {
+    if (!isOpen && dropdownRef.current) {
+      const rect = dropdownRef.current.getBoundingClientRect();
+      const margin = 8;
+      const menuWidth = Math.min(320, window.innerWidth - margin * 2); // w-80
+      let viewportLeft = rect.left;
+      if (viewportLeft + menuWidth > window.innerWidth - margin) {
+        viewportLeft = window.innerWidth - margin - menuWidth;
+      }
+      if (viewportLeft < margin) viewportLeft = margin;
+      setOffsetX(viewportLeft - rect.left);
+    }
+    setIsOpen((prev) => !prev);
+  };
+
   const filteredTickets = tickets.filter((ticket) =>
     ticket.title.toLowerCase().includes(searchQuery.toLowerCase()),
   );
@@ -74,7 +92,7 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
   return (
     <div className="relative" ref={dropdownRef}>
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleToggle}
         disabled={!teamId}
         className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-neutral-400 border border-gray-200 dark:border-neutral-700 px-3 py-1.5 rounded-full hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
@@ -90,7 +108,10 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 mt-2 w-80 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl shadow-lg overflow-hidden z-50">
+        <div
+          style={{ left: offsetX }}
+          className="absolute top-full mt-2 w-80 max-w-[calc(100vw-1rem)] bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl shadow-lg overflow-hidden z-50"
+        >
           {/* Search input */}
           <div className="p-3 border-b border-gray-100 dark:border-neutral-700">
             <input

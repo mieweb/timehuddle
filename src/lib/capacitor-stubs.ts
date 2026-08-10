@@ -11,6 +11,12 @@ export const Capacitor = {
   isPluginAvailable: () => false,
 };
 
+// CapacitorHttp stub — never called on web (guarded by isNativePlatform),
+// but the export must exist so imports resolve when the core is stubbed.
+export const CapacitorHttp = {
+  request: async () => ({ status: 0, data: {}, headers: {}, url: '' }),
+};
+
 // WebPlugin stub (used by Capacitor plugins)
 export class WebPlugin {
   constructor() {}
