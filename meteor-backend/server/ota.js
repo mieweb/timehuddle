@@ -2,6 +2,7 @@
  * OTA live updates for the Capacitor apps (@capgo/capacitor-updater, self-hosted).
  *
  *   POST /ota/check?channel=<channel>          → update descriptor for a device
+ *   GET  /ota/latest?channel=<channel>         → current bundle metadata (latest.json)
  *   GET  /ota/bundles/<channel>/<version>.zip  → bundle download
  *   POST /ota/publish?channel=&version=        → publish a bundle (Bearer token)
  *
@@ -158,6 +159,32 @@ WebApp.connectHandlers.use('/ota/check', async (req, res) => {
   });
 });
 
+// ── Latest bundle metadata ────────────────────────────────────────────────────
+
+WebApp.connectHandlers.use('/ota/latest', async (req, res) => {
+  if (req.method !== 'GET') {
+    sendJson(res, 405, { error: 'method_not_allowed', message: 'GET required' });
+    return;
+  }
+
+  const channel = channelOf(req);
+  if (!channel) {
+    sendJson(res, 400, { error: 'unknown_channel', message: 'Unknown update channel' });
+    return;
+  }
+
+  const latest = await readLatest(channel);
+  if (!latest) {
+    sendJson(res, 404, { error: 'no_bundle', message: 'No bundle published for this channel' });
+    return;
+  }
+
+  const url = PUBLIC_URL
+    ? `${PUBLIC_URL}/ota/bundles/${channel}/${encodeURIComponent(latest.file)}`
+    : undefined;
+  sendJson(res, 200, { ...latest, url });
+});
+
 // ── Bundle download ───────────────────────────────────────────────────────────
 
 WebApp.connectHandlers.use('/ota/bundles', (req, res, next) => {
@@ -166,7 +193,17 @@ WebApp.connectHandlers.use('/ota/bundles', (req, res, next) => {
     return;
   }
 
-  const [, channel, file] = decodeURIComponent(req.url.split('?')[0]).split('/');
+  // decodeURIComponent throws on malformed percent-encoding — treat as not found.
+  let decodedPath;
+  try {
+    decodedPath = decodeURIComponent(req.url.split('?')[0]);
+  } catch {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+
+  const [, channel, file] = decodedPath.split('/');
   if (!OTA_CHANNELS.includes(channel) || !/^[\w.-]+\.zip$/.test(file || '')) {
     res.writeHead(404);
     res.end();

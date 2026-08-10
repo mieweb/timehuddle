@@ -3,12 +3,19 @@ name: OTA Publish
 # Ships a web-only update to installed apps without an App Store review.
 # Native changes (plugins, permissions, icons) still require a TestFlight build.
 #
+# Triggers:
+#   - push to main      → auto-publish the production channel
+#   - workflow_dispatch → publish the chosen channel (testflight | production)
+#
 # The bundle version must be greater than the shipped native version
-# (iOS MARKETING_VERSION / Android versionName) or devices ignore it.
+# (iOS MARKETING_VERSION / Android versionName) or devices ignore it — bump
+# package.json before merging a bundle you want production devices to pick up.
 #
 # Required secrets: OTA_PUBLISH_TOKEN (must match the backend's env var).
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       channel:
@@ -22,14 +29,16 @@ on:
         type: string
 
 concurrency:
-  group: ota-publish-${{ github.event.inputs.channel }}
+  # push → production; manual → chosen channel. Always non-empty.
+  group: ota-publish-${{ github.event_name == 'push' && 'production' || github.event.inputs.channel }}
   cancel-in-progress: false
 
 jobs:
   publish:
-    name: Publish ${{ github.event.inputs.channel }} bundle
+    name: Publish ${{ github.event_name == 'push' && 'production' || github.event.inputs.channel }} bundle
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.channel == 'production' && 'production' || '' }}
+    # Always a non-empty environment name (production | testflight).
+    environment: ${{ github.event_name == 'push' && 'production' || github.event.inputs.channel }}
     steps:
       - uses: actions/checkout@v4
 
@@ -38,15 +47,24 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: Resolve channel
+        id: channel
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "name=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.event.inputs.channel }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install dependencies
         run: npm ci
 
       - name: Vite build
-        run: npx vite build --mode ${{ github.event.inputs.channel == 'production' && 'production' || 'testflight' }}
+        run: npx vite build --mode ${{ steps.channel.outputs.name }}
         env:
           CAPACITOR: '1'
 
       - name: Publish bundle
-        run: node scripts/publish-ota.mjs --channel ${{ github.event.inputs.channel }} ${{ github.event.inputs.version && format('--version {0}', github.event.inputs.version) || '' }}
+        run: node scripts/publish-ota.mjs --channel ${{ steps.channel.outputs.name }} ${{ github.event.inputs.version && format('--version {0}', github.event.inputs.version) || '' }}
         env:
           OTA_PUBLISH_TOKEN: ${{ secrets.OTA_PUBLISH_TOKEN }}
