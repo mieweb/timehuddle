@@ -137,6 +137,7 @@ echo ""
 # ── 4. Sync Capacitor ─────────────────────────────────────────────────────────
 echo "🔄  Syncing Capacitor (live-reload → http://$IP:$VITE_PORT)..."
 CAPACITOR_SERVER_URL="http://$IP:$VITE_PORT" npx cap sync ios
+python3 scripts/patch-ios-spm.py
 echo ""
 
 # ── 5. Open Xcode ─────────────────────────────────────────────────────────────

@@ -47,6 +47,8 @@ import './tokens';
 // M4 — HTTP-native surfaces
 import './attachments';
 import './uploads';
+// OTA live updates for the Capacitor apps
+import './ota';
 // M0.e foundations — built/validated now, consumed by M1 clock + notifications.
 import './email';
 import './push';

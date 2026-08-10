@@ -1,0 +1,90 @@
+name: OTA Publish
+
+# Ships a web-only update to installed apps without an App Store review.
+# Native changes (plugins, permissions, icons) still require a TestFlight build.
+#
+# Triggers:
+#   - push to main      → auto-publish the production channel
+#   - workflow_dispatch → publish the chosen channel (testflight | production)
+#
+# The bundle version must be greater than the shipped native version
+# (iOS MARKETING_VERSION / Android versionName) or devices ignore it — bump
+# package.json before merging a bundle you want production devices to pick up.
+#
+# Required secrets: OTA_PUBLISH_TOKEN (must match the backend's env var).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Update channel'
+        required: true
+        type: choice
+        options: [testflight, production]
+      version:
+        description: 'Bundle version (semver, defaults to package.json version)'
+        required: false
+        type: string
+
+concurrency:
+  # push → production; manual → chosen channel. Always non-empty.
+  group: ota-publish-${{ github.event_name == 'push' && 'production' || github.event.inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish ${{ github.event_name == 'push' && 'production' || github.event.inputs.channel }} bundle
+    runs-on: ubuntu-latest
+    # Always a non-empty environment name (production | testflight).
+    environment: ${{ github.event_name == 'push' && 'production' || github.event.inputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Resolve channel
+        id: channel
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            CHANNEL=production
+          else
+            CHANNEL="${{ github.event.inputs.channel }}"
+          fi
+          echo "name=$CHANNEL" >> "$GITHUB_OUTPUT"
+          # .env.<mode> is gitignored and therefore absent in CI, so the Vite
+          # build would silently fall back to localhost in src/lib/api.ts and
+          # ship a bundle that cannot reach any backend. Set it explicitly.
+          if [ "$CHANNEL" = "production" ]; then
+            echo "backend=https://timecore-prod.os.mieweb.org" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend=https://timecore-dev.os.mieweb.org" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Vite build
+        run: npx vite build --mode ${{ steps.channel.outputs.name }}
+        env:
+          CAPACITOR: '1'
+          VITE_TIMECORE_URL: ${{ steps.channel.outputs.backend }}
+
+      - name: Verify bundle points at the right backend
+        run: |
+          BACKEND="${{ steps.channel.outputs.backend }}"
+          # Without VITE_TIMECORE_URL the URL appears nowhere in dist/ and the app
+          # silently falls back to localhost in src/lib/api.ts, shipping a bundle
+          # that cannot reach any backend. Its presence proves the var was applied.
+          grep -rqF "$BACKEND" dist --include=*.js \
+            || { echo "FAIL: $BACKEND missing from dist/ - VITE_TIMECORE_URL was not applied"; exit 1; }
+          echo "PASS: bundle targets $BACKEND"
+
+      - name: Publish bundle
+        run: node scripts/publish-ota.mjs --channel ${{ steps.channel.outputs.name }} ${{ github.event.inputs.version && format('--version {0}', github.event.inputs.version) || '' }}
+        env:
+          OTA_PUBLISH_TOKEN: ${{ secrets.OTA_PUBLISH_TOKEN }}
