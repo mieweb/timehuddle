@@ -19,7 +19,14 @@ let package = Package(
         .package(name: "CapacitorHaptics", path: "../../../node_modules/@capacitor/haptics"),
         .package(name: "CapacitorPushNotifications", path: "../../../node_modules/@capacitor/push-notifications"),
         .package(name: "CapacitorShare", path: "../../../node_modules/@capacitor/share"),
-        .package(name: "CapgoCapacitorUpdater", path: "../../../node_modules/@capgo/capacitor-updater")
+        .package(name: "CapgoCapacitorUpdater", path: "../../../node_modules/@capgo/capacitor-updater"),
+        // Transitive remote deps of CapgoCapacitorUpdater.
+        // cap sync regenerates Package.swift without these — re-run this script if
+        // it's overwritten. See: https://github.com/mieweb/timehuddle/pull/492
+        .package(url: "https://github.com/Alamofire/Alamofire.git", .upToNextMajor(from: "5.12.0")),
+        .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.20"),
+        .package(url: "https://github.com/mrackwitz/Version.git", exact: "0.8.0"),
+        .package(url: "https://github.com/attaswift/BigInt.git", from: "5.7.0"),
     ],
     targets: [
         .target(
@@ -34,7 +41,13 @@ let package = Package(
                 .product(name: "CapacitorHaptics", package: "CapacitorHaptics"),
                 .product(name: "CapacitorPushNotifications", package: "CapacitorPushNotifications"),
                 .product(name: "CapacitorShare", package: "CapacitorShare"),
-                .product(name: "CapgoCapacitorUpdater", package: "CapgoCapacitorUpdater")
+                .product(name: "CapgoCapacitorUpdater", package: "CapgoCapacitorUpdater"),
+                // Explicit links pull transitive deps into the build graph so
+                // xcodebuild compiles them before CapgoCapacitorUpdater
+                .product(name: "Alamofire", package: "Alamofire"),
+                .product(name: "ZIPFoundation", package: "ZIPFoundation"),
+                .product(name: "Version", package: "Version"),
+                .product(name: "BigInt", package: "BigInt"),
             ]
         )
     ]

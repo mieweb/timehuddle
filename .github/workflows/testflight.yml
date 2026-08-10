@@ -47,6 +47,9 @@ jobs:
         env:
           OTA_CHANNEL: testflight
 
+      - name: Patch Package.swift for CapgoCapacitorUpdater transitive SPM deps
+        run: python3 scripts/patch-ios-spm.py
+
       - name: Sign, archive & upload to TestFlight
         uses: mieweb/actions/ios@v1
         with:
@@ -85,6 +88,9 @@ jobs:
         run: npx cap sync ios
         env:
           OTA_CHANNEL: production
+
+      - name: Patch Package.swift for CapgoCapacitorUpdater transitive SPM deps
+        run: python3 scripts/patch-ios-spm.py
 
       - name: Sign, archive & upload to TestFlight
         uses: mieweb/actions/ios@v1

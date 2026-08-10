@@ -199,6 +199,9 @@ jobs:
       - name: Capacitor sync
         run: npx cap sync ios
 
+      - name: Patch Package.swift for CapgoCapacitorUpdater transitive SPM deps
+        run: python3 scripts/patch-ios-spm.py
+
       - name: Build for simulator
         run: |
           xcodebuild \
