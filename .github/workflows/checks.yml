@@ -206,8 +206,9 @@ jobs:
         run: |
           xcodebuild \
             -project ios/App/App.xcodeproj \
-            -target App \
+            -scheme App \
             -sdk iphonesimulator \
             -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
             CODE_SIGNING_ALLOWED=NO \
             build
