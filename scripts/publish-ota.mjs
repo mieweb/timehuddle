@@ -33,10 +33,33 @@ function fail(message) {
   process.exit(1);
 }
 
+/** Load KEY=VALUE pairs from .env.<channel> and .env.local into process.env (no-op if absent). */
+function loadEnvFile(channel) {
+  const root = new URL('..', import.meta.url).pathname;
+  for (const name of [`.env.${channel}`, '.env.local']) {
+    const file = path.join(root, name);
+    if (!fs.existsSync(file)) continue;
+    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) continue;
+      const key = trimmed.slice(0, eq).trim();
+      const val = trimmed
+        .slice(eq + 1)
+        .trim()
+        .replace(/^["']|["']$/g, '');
+      if (!(key in process.env)) process.env[key] = val;
+    }
+  }
+}
+
 const channel = arg('channel');
 if (!Object.keys(DEFAULT_BACKENDS).includes(channel)) {
   fail(`--channel must be one of: ${Object.keys(DEFAULT_BACKENDS).join(', ')}`);
 }
+
+loadEnvFile(channel);
 
 const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const version = arg('version') || pkg.version;
@@ -45,7 +68,7 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version || '')) {
 }
 
 const token = process.env.OTA_PUBLISH_TOKEN;
-if (!token) fail('OTA_PUBLISH_TOKEN is not set');
+if (!token) fail('OTA_PUBLISH_TOKEN is not set — add it to .env.' + channel + ' or pass it inline');
 
 const backend = (process.env.OTA_BACKEND_URL || DEFAULT_BACKENDS[channel]).replace(/\/+$/, '');
 
