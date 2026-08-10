@@ -39,8 +39,15 @@ _log('main.tsx evaluated');
 import { App as CapApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
 import { Capacitor } from '@capacitor/core';
+import { CapacitorUpdater } from '@capgo/capacitor-updater';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+
+// Confirms the OTA bundle booted. Must run before any network call — if the
+// native layer doesn't hear this within appReadyTimeout it rolls back.
+if (Capacitor.isNativePlatform()) {
+  CapacitorUpdater.notifyAppReady().catch((err) => _log(`notifyAppReady failed: ${err}`));
+}
 
 // Debug: check Capacitor bridge detection
 _log(

@@ -68,4 +68,7 @@ backups/
 
 # PulseVault + general uploaded files — written at runtime, never commit
 uploads/
+
+# Published OTA bundles — written at runtime by /ota/publish
+ota-bundles/
 uploads-test/
