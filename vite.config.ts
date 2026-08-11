@@ -49,8 +49,14 @@ const capacitorStubs = isCapacitorBuild
       '@capacitor/share': path.resolve(__dirname, 'src/lib/capacitor-stubs.ts'),
     };
 
+const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')) as { version: string };
+
 export default defineConfig({
   plugins: [react(), kerebronWasmAssets()],
+
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
+  },
 
   resolve: {
     // Force a single React instance. @mieweb/ui is linked via `file:vendor/ui`,

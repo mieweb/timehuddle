@@ -399,6 +399,9 @@ export const BottomNav: React.FC = () => {
                     ))}
                   </div>
                 )}
+                <p className="mt-4 text-center font-mono text-[10px] text-neutral-400 dark:text-neutral-600">
+                  v{import.meta.env.VITE_APP_VERSION}
+                </p>
               </div>
             </motion.div>
           </div>
