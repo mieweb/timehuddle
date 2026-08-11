@@ -18,6 +18,11 @@ interface ComposerAttachButtonsProps {
   selectedTicketId?: string;
   onTicketSelect: (ticketId: string) => void;
   onMentionSelect: (userId: string, name: string) => void;
+  /**
+   * Stable id for this composer, so a Pulse recording started here resumes into
+   * *this* composer after the app is backgrounded — see {@link PulseAttachButton}.
+   */
+  pulseScope?: string;
 }
 
 /** The Photo / Video / Doc / Pulse / Ticket / @Mention button row. */
@@ -27,11 +32,12 @@ export function ComposerAttachButtons({
   selectedTicketId,
   onTicketSelect,
   onMentionSelect,
+  pulseScope,
 }: ComposerAttachButtonsProps) {
   return (
     <>
       <AttachmentBar onAttachmentAdd={onAttachmentAdd} />
-      <PulseAttachButton onAttach={onAttachmentAdd} />
+      <PulseAttachButton onAttach={onAttachmentAdd} scope={pulseScope} />
       {teamId && (
         <TicketPicker teamId={teamId} onSelect={onTicketSelect} selectedId={selectedTicketId} />
       )}

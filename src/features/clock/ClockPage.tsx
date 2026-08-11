@@ -521,6 +521,7 @@ export const ClockPage: React.FC = () => {
             <div className="flex items-center gap-2 flex-wrap">
               <ComposerAttachButtons
                 teamId={gateTeamId}
+                pulseScope={`clock-${composerMode}`}
                 onAttachmentAdd={handleAttachmentAdd}
                 selectedTicketId={selectedTicketId}
                 onTicketSelect={setSelectedTicketId}

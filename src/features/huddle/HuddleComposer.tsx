@@ -286,6 +286,7 @@ export function HuddleComposer({
       <div className="flex items-center gap-2 mt-2 flex-wrap">
         <ComposerAttachButtons
           teamId={selectedTeamId}
+          pulseScope={editing ? `huddle-edit-${collabRoom ?? 'post'}` : 'huddle-new'}
           onAttachmentAdd={handleAttachmentAdd}
           selectedTicketId={selectedTicketId}
           onTicketSelect={setSelectedTicketId}
