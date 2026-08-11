@@ -2,7 +2,7 @@
 /**
  * Publish the current dist/ as an OTA bundle to the self-hosted update endpoint.
  *
- *   node scripts/publish-ota.mjs --channel testflight [--version 1.0.1]
+ *   node scripts/publish-ota.mjs --channel testflight [--version 1.0.1] [--min-version 1.0.1]
  *
  * Env:
  *   OTA_BACKEND_URL    backend base URL (defaults per channel, see below)
@@ -10,6 +10,9 @@
  *
  * The bundle version must be greater than the native app version (iOS
  * MARKETING_VERSION / Android versionName) or devices will treat it as stale.
+ *
+ * --min-version gates clients: anything older is held at a blocking update
+ * screen until it downloads. Omit it to leave the existing gate untouched.
  */
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
@@ -70,6 +73,11 @@ if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version || '')) {
 const token = process.env.OTA_PUBLISH_TOKEN;
 if (!token) fail('OTA_PUBLISH_TOKEN is not set — add it to .env.' + channel + ' or pass it inline');
 
+const minVersion = arg('min-version');
+if (minVersion !== undefined && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(minVersion)) {
+  fail(`Invalid --min-version "${minVersion}" — expected semver like 1.0.1`);
+}
+
 const backend = (process.env.OTA_BACKEND_URL || DEFAULT_BACKENDS[channel]).replace(/\/+$/, '');
 
 const distDir = path.resolve(process.cwd(), 'dist');
@@ -84,7 +92,9 @@ execFileSync('zip', ['-r', '-q', '-X', zipPath, '.', '-x', '.*', '-x', '*/.*'], 
 const zip = await fsp.readFile(zipPath);
 const checksum = createHash('sha256').update(zip).digest('hex');
 
-const url = `${backend}/ota/publish?channel=${channel}&version=${encodeURIComponent(version)}`;
+const url =
+  `${backend}/ota/publish?channel=${channel}&version=${encodeURIComponent(version)}` +
+  (minVersion ? `&minVersion=${encodeURIComponent(minVersion)}` : '');
 const res = await fetch(url, {
   method: 'POST',
   headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/zip' },
@@ -101,3 +111,4 @@ if (published.checksum !== checksum) {
 
 console.log(`✔ Published ${channel} bundle ${version} (${zip.length} bytes)`);
 console.log(`  checksum ${checksum}`);
+if (published.minVersion) console.log(`  minVersion ${published.minVersion} (older clients gated)`);
