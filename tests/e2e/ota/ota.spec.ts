@@ -103,7 +103,10 @@ test.describe('OTA backend API', () => {
     const latestRes = await otaLatest(request, 'testflight');
     const latest = await latestRes.json();
     if (!latest.version || !latest.minVersion) {
-      test.skip(true, 'No bundle with minVersion on test backend — skipping minVersion propagation check');
+      test.skip(
+        true,
+        'No bundle with minVersion on test backend — skipping minVersion propagation check',
+      );
       return;
     }
 
@@ -113,19 +116,17 @@ test.describe('OTA backend API', () => {
   });
 
   test('POST /ota/publish is disabled without OTA_PUBLISH_TOKEN', async ({ request }) => {
-    const res = await request.post(
-      `${BACKEND}/ota/publish?channel=testflight&version=0.0.1`,
-      { headers: { Authorization: 'Bearer wrong-token', 'Content-Type': 'application/zip' } },
-    );
+    const res = await request.post(`${BACKEND}/ota/publish?channel=testflight&version=0.0.1`, {
+      headers: { Authorization: 'Bearer wrong-token', 'Content-Type': 'application/zip' },
+    });
     // 503 = token not set on server, 401 = wrong token — both mean "not happening".
     expect([401, 503]).toContain(res.status());
   });
 
   test('POST /ota/min-version is disabled or rejects bad auth', async ({ request }) => {
-    const res = await request.post(
-      `${BACKEND}/ota/min-version?channel=testflight&version=0.0.1`,
-      { headers: { Authorization: 'Bearer wrong-token' } },
-    );
+    const res = await request.post(`${BACKEND}/ota/min-version?channel=testflight&version=0.0.1`, {
+      headers: { Authorization: 'Bearer wrong-token' },
+    });
     expect([401, 503]).toContain(res.status());
   });
 
@@ -148,9 +149,7 @@ test.describe('OTA version labels', () => {
     await page.waitForURL('**/app/**');
 
     // The trigger button has aria-label starting with "Switch organization and team".
-    await page
-      .getByRole('button', { name: /switch organization and team/i })
-      .click();
+    await page.getByRole('button', { name: /switch organization and team/i }).click();
 
     // Wait for the modal to appear.
     await page.getByRole('dialog').waitFor({ state: 'visible' });
@@ -172,9 +171,12 @@ test.describe('OTA version labels', () => {
       await collapseBtn.click();
     }
 
-    const versionLabel = page.locator('.sidebar-brand ~ * p').filter({ hasText: /^v\d/ }).first();
-    // The version is inside the collapsed sidebar section; use a broader locator.
-    const anyVersionLabel = page.locator('p, span').filter({ hasText: /^v\d+\.\d+\.\d+/ }).first();
+    // The sidebar version label — use the broader locator since it can be in
+    // the collapsed or expanded state.
+    const anyVersionLabel = page
+      .locator('p, span')
+      .filter({ hasText: /^v\d+\.\d+\.\d+/ })
+      .first();
     await expect(anyVersionLabel).toBeVisible({ timeout: 5000 });
     await expect(anyVersionLabel).toHaveText(VERSION_RE);
   });

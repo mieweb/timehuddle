@@ -49,7 +49,9 @@ const capacitorStubs = isCapacitorBuild
       '@capacitor/share': path.resolve(__dirname, 'src/lib/capacitor-stubs.ts'),
     };
 
-const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')) as { version: string };
+const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')) as {
+  version: string;
+};
 
 export default defineConfig({
   plugins: [react(), kerebronWasmAssets()],

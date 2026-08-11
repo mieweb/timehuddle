@@ -149,5 +149,3 @@ export async function applyForcedUpdate(
     await listener?.remove();
   }
 }
-
-
