@@ -13,7 +13,7 @@
 import { Button, Spinner } from '@mieweb/ui';
 import React from 'react';
 
-import { applyForcedUpdate, checkPendingUpdate, type ForcedUpdate } from '../lib/ota';
+import { applyForcedUpdate, checkForcedUpdate, type ForcedUpdate } from '../lib/ota';
 
 type Phase = 'downloading' | 'failed';
 
@@ -24,7 +24,7 @@ export const OtaUpdateGate: React.FC<{ children: React.ReactNode }> = ({ childre
 
   React.useEffect(() => {
     let cancelled = false;
-    void checkPendingUpdate().then((pending) => {
+    void checkForcedUpdate().then((pending) => {
       if (!cancelled && pending) setUpdate(pending);
     });
     return () => {
@@ -57,7 +57,7 @@ export const OtaUpdateGate: React.FC<{ children: React.ReactNode }> = ({ childre
           aria-live="assertive"
           aria-labelledby="ota-gate-title"
           aria-describedby="ota-gate-description"
-          className="ota-update-gate fixed inset-0 z-100 flex items-center justify-center bg-white px-6 dark:bg-neutral-950"
+          className="ota-update-gate fixed inset-0 z-[100] flex items-center justify-center bg-white px-6 dark:bg-neutral-950"
         >
           <div className="ota-update-gate-panel flex w-full max-w-sm flex-col items-center gap-5 text-center">
             {phase === 'downloading' ? (

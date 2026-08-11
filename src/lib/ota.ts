@@ -73,9 +73,11 @@ export async function checkPendingUpdate(): Promise<ForcedUpdate | null> {
   if (!Capacitor.isNativePlatform() || !CHANNEL) return null;
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS);
     const res = await fetch(`${METEOR_BASE_URL}/ota/latest?channel=${CHANNEL}`, {
-      signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId));
     if (!res.ok) return null;
 
     const latest = (await res.json()) as Partial<ForcedUpdate> & { minVersion?: string };
@@ -104,9 +106,11 @@ export async function checkForcedUpdate(): Promise<ForcedUpdate | null> {
   if (!Capacitor.isNativePlatform() || !CHANNEL) return null;
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS);
     const res = await fetch(`${METEOR_BASE_URL}/ota/latest?channel=${CHANNEL}`, {
-      signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId));
     if (!res.ok) return null;
 
     const latest = (await res.json()) as Partial<ForcedUpdate> & { minVersion?: string };

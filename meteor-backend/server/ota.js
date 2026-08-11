@@ -18,7 +18,7 @@
  * Protocol: https://capgo.app/docs/plugin/self-hosted/auto-update/
  */
 import { WebApp } from 'meteor/webapp';
-import { createHash, timingSafeEqual } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
@@ -107,7 +107,7 @@ async function readLatest(channel) {
 async function writeLatest(channel, manifest) {
   const dir = path.join(OTA_DIR, channel);
   await fsp.mkdir(dir, { recursive: true });
-  const tmp = path.join(dir, `latest.json.${process.pid}.tmp`);
+  const tmp = path.join(dir, `latest.json.${randomBytes(8).toString('hex')}.tmp`);
   await fsp.writeFile(tmp, JSON.stringify(manifest, null, 2));
   await fsp.rename(tmp, path.join(dir, 'latest.json'));
 }
