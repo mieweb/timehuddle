@@ -1003,6 +1003,15 @@ export const ticketApi = {
 
 // ─── Huddle API ───────────────────────────────────────────────────────────────
 
+/** An image/video/file attached to a huddle post. */
+export interface HuddlePostAttachment {
+  mediaId: string;
+  type: 'image' | 'video' | 'file';
+  url: string;
+  thumbnailUrl?: string;
+  filename?: string;
+}
+
 export interface HuddlePost {
   id: string;
   teamId: string;
@@ -1015,13 +1024,7 @@ export interface HuddlePost {
   };
   ticketId?: string;
   ticketTitle?: string;
-  attachments: Array<{
-    mediaId: string;
-    type: 'image' | 'video' | 'file';
-    url: string;
-    thumbnailUrl?: string;
-    filename?: string;
-  }>;
+  attachments: HuddlePostAttachment[];
   likes: string[];
   commentCount: number;
   /** 'draft' = author-only, not in the feed, doesn't satisfy clock gates. */
@@ -1080,11 +1083,29 @@ export const huddleApi = {
   getMyDrafts: (teamId: string) =>
     wormholeCall<{ posts: HuddlePost[] }>('huddle.getMyDrafts', { teamId }).then((r) => r.posts),
 
+  /**
+   * Create a huddle post.
+   *
+   * Post authoring goes over wormhole REST (CapacitorHttp / fetch) rather than
+   * DDP: the WebView drops the DDP socket whenever the app is backgrounded —
+   * recording a Pulse video, for instance — and a DDP-only write then strands
+   * the post with no error until the socket reconnects. The feed itself still
+   * updates in realtime via the DDP subscription when one is live.
+   */
+  createPost: (params: {
+    teamId: string;
+    content: { text: string; mentions: string[] };
+    ticketId?: string;
+    attachments?: HuddlePostAttachment[];
+    postDate?: string;
+    draft?: boolean;
+    clockEventId?: string;
+    wrapUp?: boolean;
+  }) => wormholeCall<{ id: string }>('huddle.createPost', { ...params }),
+
   /** Save a plan as an author-only draft (not in the feed, no gate effect). */
   saveDraft: (teamId: string, content: { text: string; mentions: string[] }) =>
-    getDdpClient().call('huddle.createPost', { teamId, content, draft: true }) as Promise<{
-      id: string;
-    }>,
+    wormholeCall<{ id: string }>('huddle.createPost', { teamId, content, draft: true }),
 
   /** Publish a draft: optional content update + client-local postDate stamp;
    * optionally link it to a clock session. */
@@ -1093,7 +1114,13 @@ export const huddleApi = {
     postDate: string,
     content?: { text: string; mentions: string[] },
     clockEventId?: string,
-  ) => getDdpClient().call('huddle.publishPost', { postId, postDate, content, clockEventId }),
+  ) =>
+    wormholeCall<{ id: string }>('huddle.publishPost', {
+      postId,
+      postDate,
+      content,
+      clockEventId,
+    }),
 
   /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow).
    * Pass attachments/ticketId to edit them (omit to leave untouched). */
@@ -1102,16 +1129,10 @@ export const huddleApi = {
     content: { text: string; mentions: string[] },
     options?: {
       wrapUp?: boolean;
-      attachments?: Array<{
-        mediaId: string;
-        type: 'image' | 'video' | 'file';
-        url: string;
-        thumbnailUrl?: string;
-        filename?: string;
-      }>;
+      attachments?: HuddlePostAttachment[];
       ticketId?: string | null;
     },
-  ) => getDdpClient().call('huddle.updatePost', { postId, content, ...options }),
+  ) => wormholeCall<{ id: string }>('huddle.updatePost', { postId, content, ...options }),
 
   /** Delete a huddle post. */
   deletePost: (postId: string) => getDdpClient().call('huddle.deletePost', { postId }),

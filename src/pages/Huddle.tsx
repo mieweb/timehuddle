@@ -160,7 +160,7 @@ export default function Huddle() {
 
       // Always create a new post — session plan/wrap-up editing happens on the
       // Clock page (one post per session).
-      await getDdpClient().call('huddle.createPost', {
+      await huddleApi.createPost({
         teamId: selectedTeamId,
         content: { text: content.text, mentions: mentionUserIds },
         ticketId: content.ticketId,

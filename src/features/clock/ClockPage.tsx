@@ -31,7 +31,6 @@ import {
 import React, { useEffect, useRef, useState } from 'react';
 
 import { clockApi, huddleApi, type ClockEvent, type HuddlePost } from '../../lib/api';
-import { getDdpClient } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import {
   formatDate,
@@ -253,13 +252,13 @@ export const ClockPage: React.FC = () => {
         );
         setDraft({ ...draft, content: { ...draft.content, text: trimmed } });
       } else {
-        const created = (await getDdpClient().call('huddle.createPost', {
+        const created = await huddleApi.createPost({
           teamId: gateTeamId,
           content: { text: trimmed, mentions: mentionUserIds ?? [] },
           ticketId: selectedTicketId,
           attachments: postAttachments,
           draft: true,
-        })) as { id: string };
+        });
         setDraft({ id: created.id, content: { text: trimmed, mentions: mentionUserIds ?? [] } });
       }
       setDraftSaved(true);
@@ -300,13 +299,13 @@ export const ClockPage: React.FC = () => {
         }
         setDraft(null);
       } else {
-        const created = (await getDdpClient().call('huddle.createPost', {
+        const created = await huddleApi.createPost({
           teamId: gateTeamId,
           content: { text: trimmed, mentions: mentionUserIds ?? [] },
           ticketId: selectedTicketId,
           attachments: postAttachments,
           postDate: toDateString(new Date()),
-        })) as { id: string };
+        });
         planPostId = created.id;
       }
       // Cache the plan post ID so postWrapUpAndClockOut can find it even if
@@ -350,8 +349,11 @@ export const ClockPage: React.FC = () => {
         );
       } else {
         // Recovery: no plan post exists (gate enabled mid-shift). Create one
-        // that doubles as the wrap-up, linked to the session.
-        await getDdpClient().call('huddle.createPost', {
+        // that doubles as the wrap-up, linked to the session. Unlike the
+        // update path above this needs a team, and the wrap-up composer can
+        // open without one — surface that instead of posting a teamless post.
+        if (!gateTeamId) throw new Error('No team for this session — cannot post a wrap-up.');
+        await huddleApi.createPost({
           teamId: gateTeamId,
           content: { text: `**Wrap-up:** ${trimmed}`, mentions: mentionUserIds ?? [] },
           postDate: toDateString(new Date()),

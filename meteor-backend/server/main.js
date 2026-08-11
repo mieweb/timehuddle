@@ -1177,6 +1177,92 @@ Meteor.startup(async() => {
     },
   });
 
+  // Post authoring over REST as well as DDP. On mobile the WebView drops the
+  // DDP socket whenever the app is backgrounded (recording a Pulse video, for
+  // one), so these writes must not depend on a live socket.
+  const huddlePostAttachmentSchema = {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        mediaId: { type: 'string' },
+        type: { type: 'string', enum: ['image', 'video', 'file'] },
+        url: { type: 'string' },
+        thumbnailUrl: { type: 'string' },
+        filename: { type: 'string' },
+      },
+      required: ['mediaId', 'type', 'url'],
+    },
+  };
+
+  const huddlePostContentSchema = {
+    type: 'object',
+    properties: {
+      text: { type: 'string' },
+      mentions: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['text'],
+  };
+
+  Wormhole.expose('huddle.createPost', {
+    description: 'Create a huddle post (or an author-only draft)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        content: huddlePostContentSchema,
+        ticketId: { type: 'string' },
+        attachments: huddlePostAttachmentSchema,
+        postDate: { type: 'string' },
+        draft: { type: 'boolean' },
+        clockEventId: { type: 'string' },
+        wrapUp: { type: 'boolean' },
+      },
+      required: ['teamId', 'content'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+    },
+  });
+
+  Wormhole.expose('huddle.updatePost', {
+    description: 'Update a huddle post (author, team admin, or org owner)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        postId: { type: 'string' },
+        content: huddlePostContentSchema,
+        wrapUp: { type: 'boolean' },
+        attachments: huddlePostAttachmentSchema,
+        ticketId: { type: ['string', 'null'] },
+      },
+      required: ['postId', 'content'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+    },
+  });
+
+  Wormhole.expose('huddle.publishPost', {
+    description: 'Publish one of the caller\'s own drafts into the feed',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        postId: { type: 'string' },
+        postDate: { type: 'string' },
+        content: huddlePostContentSchema,
+        clockEventId: { type: 'string' },
+      },
+      required: ['postId', 'postDate'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+    },
+  });
+
   // ─── Timers ────────────────────────────────────────────────────────────────
   Wormhole.expose('timers.getDay', {
     description: 'List WorkItems with timers for a local calendar day',

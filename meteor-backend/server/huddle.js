@@ -255,9 +255,11 @@ Meteor.methods({
   },
   
   async 'huddle.createPost'({ teamId, content, ticketId, attachments, postDate, draft, clockEventId, wrapUp }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Authentication required');
-    }
+    // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
+    // REST matters on mobile — WKWebView tears down the DDP socket whenever the
+    // app is backgrounded (e.g. to record a Pulse video), so a DDP-only write
+    // silently strands the post until the socket reconnects.
+    const identity = await requireIdentity(this);
     if (!teamId || typeof teamId !== 'string') {
       throw new Meteor.Error('bad-request', 'teamId is required');
     }
@@ -273,11 +275,11 @@ Meteor.methods({
       throw new Meteor.Error('not-found', 'Team not found');
     }
     
-    const isMember = (team.members ?? []).includes(this.userId) || (team.admins ?? []).includes(this.userId);
+    const isMember = (team.members ?? []).includes(identity.userId) || (team.admins ?? []).includes(identity.userId);
     if (!isMember) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
-    
+
     // Validate ticketId if provided
     if (ticketId) {
       const ticket = await rawDb().collection('tickets').findOne({ _id: toId(ticketId) });
@@ -302,7 +304,7 @@ Meteor.methods({
     const doc = {
       _id: new ObjectId(),
       teamId,
-      userId: this.userId,
+      userId: identity.userId,
       content: {
         text: content.text,
         mentions: content.mentions ?? [],
@@ -328,9 +330,8 @@ Meteor.methods({
   },
   
   async 'huddle.updatePost'({ postId, content, wrapUp, attachments, ticketId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Authentication required');
-    }
+    // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
+    const identity = await requireIdentity(this);
     if (!postId || !isValidId(postId)) {
       throw new Meteor.Error('bad-request', 'Invalid postId');
     }
@@ -348,7 +349,7 @@ Meteor.methods({
       throw new Meteor.Error('not-found', 'Team not found');
     }
     
-    const canModify = await canModifyPost(this.userId, post, team);
+    const canModify = await canModifyPost(identity.userId, post, team);
     if (!canModify) {
       throw new Meteor.Error('forbidden', 'Cannot modify this post');
     }
@@ -495,9 +496,8 @@ Meteor.methods({
    * publication's change stream delivers it as an `added`).
    */
   async 'huddle.publishPost'({ postId, content, postDate, clockEventId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Authentication required');
-    }
+    // requireIdentity: reachable via wormhole REST (bearer) and DDP alike.
+    const identity = await requireIdentity(this);
     if (!postId || !isValidId(postId)) {
       throw new Meteor.Error('bad-request', 'Invalid postId');
     }
@@ -516,7 +516,7 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'Post is not a draft');
     }
     // Drafts are strictly author-only — admins can't see or publish them.
-    if (post.userId !== this.userId) {
+    if (post.userId !== identity.userId) {
       throw new Meteor.Error('forbidden', 'Only the author can publish a draft');
     }
 

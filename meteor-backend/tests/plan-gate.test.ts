@@ -62,8 +62,9 @@ beforeAll(async () => {
   await db.collection('teams').insertOne(teamDoc);
   teamId = teamDoc._id.toHexString();
 
-  // DDP session as the member — huddle.createPost/updatePost are DDP-only
-  // (they authenticate via this.userId).
+  // DDP session as the member. huddle.createPost/updatePost are reachable over
+  // REST too (see huddle-post-rest.test.ts); exercising them over DDP here
+  // keeps that transport covered.
   memberDdp = new DDPConnection(METEOR_URL.replace('http://', 'ws://') + '/websocket');
   await memberDdp.connect();
   await memberDdp.login(MEMBER.email, MEMBER.password);
