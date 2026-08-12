@@ -3,7 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import * as tus from 'tus-js-client';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { mediaApi, videoApi, METEOR_BASE_URL } from '../../lib/api';
+import { mediaApi, videoApi } from '../../lib/api';
 import {
   getStoreOS,
   isNativeApp,
@@ -13,6 +13,16 @@ import {
 import type { MediaItem } from './types';
 import { buildUploadDeepLink } from '../media/PulseUploadButton';
 import { PulseUploadModal } from '../media/PulseUploadModal';
+import {
+  PENDING_TTL_MS,
+  POLL_INTERVAL_MS,
+  persistDone,
+  readPending,
+  videoMediaItem,
+  writePending,
+  clearComposerPulseUpload,
+  type PendingUpload,
+} from './pulseComposerUpload';
 
 interface PulseAttachButtonProps {
   /** Called with the recorded/uploaded video as a composer attachment. */
@@ -24,74 +34,6 @@ interface PulseAttachButtonProps {
    * suffix, so it has to be stable across remounts/reloads of the same composer.
    */
   scope?: string;
-}
-
-// ─── Pending reservation persistence ─────────────────────────────────────────
-// A library reservation is only linked to the composer in client state, so
-// anything that tears that state down between "reserve" and "upload finished"
-// loses the video: on mobile the Pulse deep link backgrounds (and can reload)
-// the app, and on desktop closing the QR modal used to stop the watcher. Both
-// are the normal flow, so the pending videoid is persisted and watched until
-// the media-library item shows up.
-
-const PENDING_STORAGE_PREFIX = 'pulsevault:composer:';
-/** Give a recording session plenty of time, but don't poll forever. */
-const PENDING_TTL_MS = 30 * 60 * 1000;
-const POLL_INTERVAL_MS = 4000;
-
-interface PendingUpload {
-  videoid: string;
-  reservedAt: number;
-}
-
-function pendingKey(scope: string): string {
-  return `${PENDING_STORAGE_PREFIX}${scope}`;
-}
-
-function readPending(scope: string): PendingUpload | null {
-  try {
-    const raw = localStorage.getItem(pendingKey(scope));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as PendingUpload;
-    if (!parsed?.videoid || Date.now() - parsed.reservedAt > PENDING_TTL_MS) {
-      localStorage.removeItem(pendingKey(scope));
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function writePending(scope: string, videoid: string): PendingUpload {
-  const pending: PendingUpload = { videoid, reservedAt: Date.now() };
-  try {
-    localStorage.setItem(pendingKey(scope), JSON.stringify(pending));
-  } catch {
-    // localStorage may be unavailable in some native contexts — the in-memory
-    // watcher still covers the same-session case.
-  }
-  return pending;
-}
-
-function clearPending(scope: string): void {
-  try {
-    localStorage.removeItem(pendingKey(scope));
-  } catch {
-    // ignore
-  }
-}
-
-/** Build a composer MediaItem for a finished PulseVault video. */
-function videoMediaItem(videoid: string, filename: string, size: number): MediaItem {
-  return {
-    id: videoid,
-    type: 'video',
-    size,
-    mimeType: 'video/mp4',
-    url: `${METEOR_BASE_URL.replace(/\/$/, '')}/pulsevault/artifacts/${videoid}`,
-    filename,
-  };
 }
 
 /**
@@ -136,25 +78,41 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
     (id: string, filename: string, size: number) => {
       if (attachedRef.current === id) return;
       attachedRef.current = id;
-      clearPending(scope);
-      setPending(null);
+      const media = videoMediaItem(id, filename, size);
+      // Keep the finished video persisted (not cleared) so a reload-remount can
+      // restore it; the host clears it on post/cancel via clearComposerPulseUpload.
+      persistDone(scope, id, media);
+      setPending({ videoid: id, reservedAt: Date.now(), done: media });
       setModalOpen(false);
-      onAttachRef.current(videoMediaItem(id, filename, size));
+      setError(null);
+      onAttachRef.current(media);
     },
     [scope],
   );
+
+  // Re-attach a video that finished before a WebView reload wiped the composer
+  // state (returning from the Pulse app remounts this button with the persisted
+  // `done` record). attachedRef guards against a same-session double-emit.
+  const doneEmittedRef = useRef(false);
+  useEffect(() => {
+    if (doneEmittedRef.current || !pending?.done) return;
+    if (attachedRef.current === pending.videoid) return;
+    doneEmittedRef.current = true;
+    attachedRef.current = pending.videoid;
+    onAttachRef.current(pending.done);
+  }, [pending]);
 
   // Watch the media library for the reserved videoid until it appears. Runs
   // whether or not the QR modal is open, and survives the app being
   // backgrounded by the Pulse deep link (the reservation is in localStorage).
   useEffect(() => {
-    if (!pending) return;
+    if (!pending || pending.done) return;
     let cancelled = false;
 
     const check = async () => {
       if (cancelled || document.hidden) return;
       if (Date.now() - pending.reservedAt > PENDING_TTL_MS) {
-        clearPending(scope);
+        clearComposerPulseUpload(scope);
         setPending(null);
         return;
       }
@@ -225,7 +183,7 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
   };
 
   const handleCancelPending = () => {
-    clearPending(scope);
+    clearComposerPulseUpload(scope);
     setPending(null);
     setUploadToken(null);
     setUploadLink(null);
@@ -241,7 +199,8 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
 
     const upload = new tus.Upload(file, {
       endpoint: videoApi.uploadEndpoint(),
-      retryDelays: [0, 3000, 5000, 10000],
+      retryDelays: videoApi.uploadRetryDelays,
+      onShouldRetry: videoApi.shouldRetryUpload,
       metadata: { filename: file.name, filetype: file.type, videoid },
       headers: { Authorization: `Bearer ${uploadToken}` },
       onProgress(bytesUploaded, bytesTotal) {
@@ -252,9 +211,25 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
         setProgress(null);
         finishAttach(videoid, file.name, file.size);
       },
-      onError(err) {
-        setError(err instanceof Error ? err.message : 'Upload failed. Try again.');
+      async onError(err) {
+        // The backend finalizes the upload the moment the first PATCH completes,
+        // so a duplicate-PATCH 409 (or other late error) can fire even though the
+        // video already landed. Mirror the ticket flow's server-authoritative
+        // behavior: re-check the library before surfacing a failure. The pending
+        // watcher stays running as a second safety net.
         setProgress(null);
+        try {
+          const items = await mediaApi.list();
+          const match = items.find((m) => m.videoid === videoid || m.id === videoid);
+          if (match) {
+            setUploadToken(null);
+            finishAttach(videoid, match.filename ?? file.name, match.size ?? file.size);
+            return;
+          }
+        } catch {
+          // fall through to surfacing the original error
+        }
+        setError(err instanceof Error ? err.message : 'Upload failed. Try again.');
       },
     });
 
@@ -267,7 +242,7 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
   };
 
   const isUploading = progress !== null;
-  const isWaiting = !!pending && !isUploading && !modalOpen;
+  const isWaiting = !!pending && !pending.done && !isUploading && !modalOpen;
 
   return (
     <>

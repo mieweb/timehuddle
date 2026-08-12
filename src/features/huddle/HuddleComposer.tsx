@@ -16,6 +16,7 @@ import { useTeam } from '@lib/TeamContext';
 import { attachmentApi } from '@lib/api';
 import { MarkdownEditor } from './MarkdownEditor';
 import { ComposerAttachButtons, ComposerChips, type MentionRef } from './ComposerAttachments';
+import { clearComposerPulseUpload } from './pulseComposerUpload';
 import { huddlePostCollab } from './collab';
 import type { ComposerContent, MediaItem } from './types';
 
@@ -79,6 +80,11 @@ export function HuddleComposer({
   const [mentions, setMentions] = useState<MentionRef[]>(initialMentions ?? []);
   const { selectedTeamId } = useTeam();
   const composerRef = useRef<HTMLDivElement>(null);
+
+  // Stable localStorage scope for the Pulse upload button — also the key this
+  // composer clears once a post is submitted/cancelled so a finished video
+  // isn't re-attached to the next post.
+  const pulseScope = editing ? `huddle-edit-${collabRoom ?? 'post'}` : 'huddle-new';
 
   // Click-outside → collapse (only when empty, so in-progress writing is never
   // lost). Frees up feed space when you're not actively composing. Disabled in
@@ -151,7 +157,7 @@ export function HuddleComposer({
         .filter((m) => !base.includes(`@${m.name}`))
         .map((m) => `@${m.name}`)
         .join(' ');
-      const finalText = [base, mentionSuffix].filter(Boolean).join(' ') || '(Image post)';
+      const finalText = [base, mentionSuffix].filter(Boolean).join(' ');
 
       onPost({
         text: finalText,
@@ -163,6 +169,7 @@ export function HuddleComposer({
       // In edit mode the host closes the composer once the update resolves; keep
       // the fields intact so nothing flickers before it unmounts.
       if (editing) return;
+      clearComposerPulseUpload(pulseScope);
       setText(initialText);
       setExpanded(false);
       setSelectedTicketId(undefined);
@@ -180,6 +187,7 @@ export function HuddleComposer({
       onCancel?.();
       return;
     }
+    clearComposerPulseUpload(pulseScope);
     setText(initialText);
     setExpanded(false);
     setSelectedTicketId(undefined);
@@ -188,9 +196,15 @@ export function HuddleComposer({
     setMentions([]);
   };
 
-  const handleAttachmentAdd = (media: MediaItem) => setAttachments((prev) => [...prev, media]);
-  const handleAttachmentRemove = (mediaId: string) =>
+  const handleAttachmentAdd = (media: MediaItem) =>
+    setAttachments((prev) => (prev.some((m) => m.id === media.id) ? prev : [...prev, media]));
+  const handleAttachmentRemove = (mediaId: string) => {
+    // Removing the Pulse video chip also forgets its persisted upload, so it
+    // won't reappear when the composer remounts.
+    const removed = attachments.find((m) => m.id === mediaId);
+    if (removed?.type === 'video') clearComposerPulseUpload(pulseScope);
     setAttachments((prev) => prev.filter((m) => m.id !== mediaId));
+  };
 
   // RichEditor has no insert-at-cursor API, so mentions are tracked as chips
   // below the editor instead of injected inline.
@@ -286,7 +300,7 @@ export function HuddleComposer({
       <div className="flex items-center gap-2 mt-2 flex-wrap">
         <ComposerAttachButtons
           teamId={selectedTeamId}
-          pulseScope={editing ? `huddle-edit-${collabRoom ?? 'post'}` : 'huddle-new'}
+          pulseScope={pulseScope}
           onAttachmentAdd={handleAttachmentAdd}
           selectedTicketId={selectedTicketId}
           onTicketSelect={setSelectedTicketId}

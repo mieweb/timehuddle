@@ -57,6 +57,25 @@ const ISSUER = process.env.ROOT_URL;
 // retried create POST or a QR re-scan racing the original upload.
 const STALE_UPLOAD_IDLE_MS = 5 * 60 * 1000;
 
+/** artifactId -> Set<ServerResponse> — active SSE subscribers waiting for upload-complete. */
+const sseClients = new Map();
+
+function notifySseClients(artifactId, ready) {
+  const clients = sseClients.get(artifactId);
+  if (!clients?.size) return;
+  const payload = JSON.stringify({
+    artifactId,
+    url: `${ISSUER}/pulsevault/artifacts/${artifactId}`,
+    size: ready?.size ?? 0,
+  });
+  const event = `event: ready\ndata: ${payload}\n\n`;
+  for (const res of clients) {
+    try { res.write(event); } catch {}
+    try { res.end(); } catch {}
+  }
+  sseClients.delete(artifactId);
+}
+
 function lookupCapabilitySecret(kid) {
   return kid === CAPABILITY_KEY_ID ? CAPABILITY_SECRET : null;
 }
@@ -223,6 +242,7 @@ const core = createPulseVaultCore({
     }
     console.log('[pulsevault][hook] onUploadComplete: found reservation', JSON.stringify(reservation));
     await attachUploadedVideo(ctx.artifactId, reservation, ctx.size ?? 0);
+    notifySseClients(ctx.artifactId, ctx);
   },
 });
 
@@ -244,7 +264,7 @@ function decodeUploadMetadata(raw) {
 Wormhole.use({
   name: 'pulsevault',
   start(api) {
-    api.mount('/pulsevault', (req, res, next) => {
+    api.mount('/pulsevault', async (req, res, next) => {
       // Serve a hand-written Swagger page for this mount's raw TUS/artifact
       // routes — Wormhole's own /api/openapi.json only documents Meteor
       // methods, so these routes need their own doc page (see pulsevault-docs.js).
@@ -257,6 +277,33 @@ Wormhole.use({
       if (req.method === 'GET' && docsUrl === '/docs') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(pulsevaultSwaggerHtml('/pulsevault/openapi.json'));
+        return;
+      }
+
+      const eventsMatch = req.url.match(/^\/events\/([^/?]+)/);
+      if (req.method === 'GET' && eventsMatch) {
+        const artifactId = eventsMatch[1];
+        const token = new URL(req.url, 'http://x').searchParams.get('token') ?? '';
+        try {
+          await verifyUploadToken(req, { artifactId, phase: 'create', token });
+        } catch {
+          res.writeHead(403);
+          res.end();
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        });
+        res.write(':ok\n\n');
+        if (!sseClients.has(artifactId)) sseClients.set(artifactId, new Set());
+        sseClients.get(artifactId).add(res);
+        const heartbeat = setInterval(() => { try { res.write(':\n\n'); } catch {} }, 25_000);
+        req.on('close', () => {
+          clearInterval(heartbeat);
+          sseClients.get(artifactId)?.delete(res);
+        });
         return;
       }
 
@@ -361,7 +408,8 @@ Wormhole.use({
             // is also treated as "too new to clean up" — fail safe.
             const localPath = await storage.getLocalPath(artifactId);
             const stats = localPath ? await stat(localPath).catch(() => null) : null;
-            const idleMs = stats ? Date.now() - stats.mtimeMs : 0;
+            // No local path means no bytes were ever written — treat as past-idle so it gets cleared.
+            const idleMs = stats ? Date.now() - stats.mtimeMs : STALE_UPLOAD_IDLE_MS + 1;
             if (idleMs < STALE_UPLOAD_IDLE_MS) {
               console.log('[pulsevault] skipping stale cleanup, upload looks active:', artifactId, 'idleMs:', idleMs);
               return;
@@ -375,6 +423,7 @@ Wormhole.use({
             console.log('[pulsevault] finalizing orphaned ready upload:', artifactId);
             await attachUploadedVideo(artifactId, reservation);
           }
+          notifySseClients(artifactId, ready);
         } catch (err) {
           console.warn('[pulsevault] stale-upload cleanup failed (continuing):', artifactId, err.message);
         }

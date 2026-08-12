@@ -302,9 +302,11 @@ export function PostCard({
         </div>
       ) : (
         // ── Render markdown instead of plain text ──
-        <div className="mb-3">
-          <MarkdownContent content={post.content.text} />
-        </div>
+        post.content.text?.trim() ? (
+          <div className="mb-3">
+            <MarkdownContent content={post.content.text} />
+          </div>
+        ) : null
       )}
 
       {/* ── Attachments ── */}

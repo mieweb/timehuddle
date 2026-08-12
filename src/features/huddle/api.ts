@@ -73,7 +73,8 @@ export async function uploadMedia(file: File): Promise<MediaItem> {
     await new Promise<void>((resolve, reject) => {
       const upload = new tus.Upload(file, {
         endpoint: videoApi.uploadEndpoint(),
-        retryDelays: [0, 3000, 5000, 10000],
+        retryDelays: videoApi.uploadRetryDelays,
+        onShouldRetry: videoApi.shouldRetryUpload,
         metadata: {
           filename: file.name,
           filetype: file.type,

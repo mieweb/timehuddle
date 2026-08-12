@@ -12,7 +12,7 @@ import {
   createImagePlugin,
   createMermaidPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
-import { useMemo, useState, useEffect } from 'react';
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { HuddleComposer } from '../features/huddle/HuddleComposer';
 import { DraftsPanel } from '../features/huddle/DraftsPanel';
 import { PostCard } from '../features/huddle/PostCard';
@@ -26,6 +26,7 @@ import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { teamApi, huddleApi, type HuddlePost, type Team } from '@lib/api';
 import { getDdpClient } from '@lib/ddp';
+import { useRefresh } from '@lib/RefreshContext';
 import { toDateString } from '@lib/timeUtils';
 
 export default function Huddle() {
@@ -102,6 +103,49 @@ export default function Huddle() {
     loadTeam();
   }, [selectedTeamId]);
 
+  // Locally-created posts the live DDP cache hasn't delivered yet, overlaid
+  // onto the feed so a new post shows instantly. Each entry is dropped as soon
+  // as the subscription catches up (see syncPosts).
+  const pendingPostsRef = useRef<Map<string, HuddlePost>>(new Map());
+
+  // Build the feed from the DDP cache plus any pending overlay posts. Lifted to
+  // component scope so addPost can trigger an immediate re-sync after posting.
+  const syncPosts = useCallback(() => {
+    if (!selectedTeamId) return;
+    const ddp = getDdpClient();
+    const byId = new Map<string, HuddlePost>();
+    for (const p of ddp.docs('huddlePosts')) {
+      if (p.teamId !== selectedTeamId) continue;
+      const post = { ...p, id: (p.id ?? p._id) as string } as unknown as HuddlePost;
+      byId.set(post.id, post);
+    }
+    for (const [id, post] of pendingPostsRef.current) {
+      if (byId.has(id)) pendingPostsRef.current.delete(id);
+      else byId.set(id, post);
+    }
+    const teamPosts = [...byId.values()].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    setPosts(teamPosts);
+  }, [selectedTeamId]);
+
+  // Fetch the feed over REST and overlay it. Used by pull-to-refresh and as a
+  // fallback when the live DDP socket is down (dropped while backgrounded for a
+  // Pulse recording), so the feed still updates without a reconnect.
+  const refreshFeed = useCallback(async () => {
+    if (!selectedTeamId) return;
+    try {
+      const fresh = await huddleApi.getPosts(selectedTeamId);
+      for (const post of fresh) pendingPostsRef.current.set(post.id, post);
+      syncPosts();
+    } catch (err) {
+      console.error('[Huddle] refreshFeed failed:', err);
+    }
+  }, [selectedTeamId, syncPosts]);
+
+  // Wire pull-to-refresh (swipe down) to the REST refetch.
+  useRefresh(refreshFeed);
+
   // Subscribe to live DDP publication for huddle posts
   useEffect(() => {
     if (!selectedTeamId) {
@@ -116,21 +160,12 @@ export default function Huddle() {
     const ddp = getDdpClient();
     const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId], () => setLoading(false));
 
-    // Helper to sync collection → state
-    function syncPosts() {
-      const docs = ddp.docs('huddlePosts');
-      const teamPosts = docs
-        .filter((p) => p.teamId === selectedTeamId)
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt as string).getTime() - new Date(a.createdAt as string).getTime(),
-        )
-        .map((p) => ({ ...p, id: (p.id ?? p._id) as string })) as unknown as HuddlePost[];
-      setPosts(teamPosts);
-    }
-
     // Sync immediately in case data is already cached
     syncPosts();
+
+    // REST fallback: populate the feed even if the DDP socket is down (it's
+    // dropped while the app is backgrounded for a Pulse recording).
+    refreshFeed().finally(() => setLoading(false));
 
     // Then keep syncing on every change
     const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
@@ -142,8 +177,9 @@ export default function Huddle() {
       unsub();
       offChange();
       setPosts([]);
+      pendingPostsRef.current.clear();
     };
-  }, [selectedTeamId]);
+  }, [selectedTeamId, syncPosts, refreshFeed]);
 
   async function addPost(content: ComposerContent) {
     try {
@@ -168,7 +204,11 @@ export default function Huddle() {
         postDate: toDateString(new Date()),
       });
 
-      // The DDP subscription reflects the new post automatically.
+      // Reflect the new post immediately without waiting on the live DDP socket
+      // (it may be down — dropped while backgrounded for a Pulse recording), so
+      // refetch over REST and overlay the feed. The live subscription reconciles
+      // it (and drops the overlay) once it catches up.
+      await refreshFeed();
     } catch (error) {
       console.error('[Huddle] Error in addPost:', error);
       alert('Failed to create post. Please try again.');

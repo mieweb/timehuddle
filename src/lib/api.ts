@@ -6,6 +6,7 @@
  */
 // autoReconnectWs removed - no longer needed after migrating tickets to wormhole
 import { CapacitorHttp } from '@capacitor/core';
+import type { DetailedError } from 'tus-js-client';
 
 import { getDdpClient } from './ddp.js';
 
@@ -1059,6 +1060,15 @@ export const huddleApi = {
       (r) => r.posts,
     ),
 
+  /**
+   * Fetch all published huddle posts for a team over wormhole REST. Used to
+   * refresh the feed the moment a post is created, since the DDP socket can be
+   * down (the WebView drops it while backgrounded for a Pulse recording) and
+   * the live subscription would otherwise deliver the new post only later.
+   */
+  getPosts: (teamId: string) =>
+    wormholeCall<{ posts: HuddlePost[] }>('huddle.getPosts', { teamId }).then((r) => r.posts),
+
   /** The caller's own post for a calendar date (YYYY-MM-DD) in a team, or null. */
   getMyPostForDate: (teamId: string, postDate: string) =>
     wormholeCall<{ post: HuddlePost | null }>('huddle.getMyPostForDate', {
@@ -1706,6 +1716,21 @@ export const timerApi = {
 export const videoApi = {
   /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
   uploadEndpoint: () => `${METEOR_API_BASE}/pulsevault/upload`,
+
+  /**
+   * Shared TUS retry backoff for every PulseVault upload path. No leading `0`
+   * on purpose: an immediate retry can race the still-streaming PATCH (the
+   * proxy buffers and doesn't abort it), so the backend sees two concurrent
+   * PATCHes at the same offset and 409s the second one.
+   */
+  uploadRetryDelays: [3000, 5000, 10000] as number[],
+
+  /**
+   * Don't retry a `409 Upload-Offset conflict`: it means a concurrent/duplicate
+   * PATCH already advanced the offset, so retrying only conflicts again. Every
+   * upload path shares this so ticket and huddle behave identically.
+   */
+  shouldRetryUpload: (err: DetailedError): boolean => err.originalResponse?.getStatus() !== 409,
 
   /** Reserve a videoid for a ticket upload before starting TUS.
    *  Pass `existingVideoid` when resuming a recording session so the backend

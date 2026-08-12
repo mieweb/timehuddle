@@ -177,7 +177,8 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
 
     const upload = new tus.Upload(file, {
       endpoint: videoApi.uploadEndpoint(),
-      retryDelays: [0, 3000, 5000, 10000],
+      retryDelays: videoApi.uploadRetryDelays,
+      onShouldRetry: videoApi.shouldRetryUpload,
       metadata: { filename: file.name, filetype: file.type, videoid },
       headers: { Authorization: `Bearer ${uploadToken}` },
       onProgress(bytesUploaded, bytesTotal) {

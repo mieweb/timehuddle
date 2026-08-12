@@ -650,7 +650,7 @@ export const TicketsPage: React.FC = () => {
   const userId = user?.id ?? null;
   const { teams, selectedTeam, selectedTeamId, teamsReady } = useTeam();
   const { isClockedIn, clockIn } = useClockToggle();
-  const { navigate } = useRouter();
+  const { navigate, pathname } = useRouter();
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [ticketsLoading, setTicketsLoading] = useState(true);
@@ -728,8 +728,10 @@ export const TicketsPage: React.FC = () => {
     if (selectedTeamId) setTeamFilter(selectedTeamId);
   }, [selectedTeamId]);
 
-  // Pull-to-refresh handler
-  useRefresh(refetch);
+  // Pull-to-refresh handler — only while this page is the active route. It
+  // stays mounted (hidden) behind other routes, so registering unconditionally
+  // would hijack the visible page's refresh handler.
+  useRefresh(refetch, pathname === '/app/tickets');
 
   // Stable key derived from sorted team IDs — the WS only reconnects when the
   // actual set of teams changes, not on every new array reference from context.
