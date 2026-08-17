@@ -24,7 +24,7 @@
  */
 import { RichEditor } from '@mieweb/ui/kerebron';
 import type { CollabConfig } from '@mieweb/ui/kerebron';
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 
 interface MarkdownEditorProps {
   value?: string;
@@ -36,6 +36,12 @@ interface MarkdownEditorProps {
   collab?: CollabConfig;
   /** Prompt shown while the editor is empty. */
   placeholder?: string;
+  /**
+   * Called with image files pasted into the editor (e.g. a screenshot).
+   * When set, the paste is intercepted before the editor sees it — see the
+   * listener below for why.
+   */
+  onImagePaste?: (files: File[]) => void;
 }
 
 export function MarkdownEditor({
@@ -45,11 +51,41 @@ export function MarkdownEditor({
   className,
   collab,
   placeholder,
+  onImagePaste,
 }: MarkdownEditorProps) {
   const isEmpty = value.trim().length === 0;
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Kerebron's paste handler embeds a pasted screenshot inline as a base64
+  // `data:` URL, so a single screenshot adds hundreds of KB to the post
+  // document and never reaches the media store. Intercept it first and hand
+  // the file to the host, which uploads it like any other attachment.
+  //
+  // A native capture-phase listener on this wrapper (rather than React's
+  // onPasteCapture) is what guarantees ordering: it runs while the event is
+  // still descending, before ProseMirror's own listener on the contenteditable
+  // below can see it.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !onImagePaste) return;
+
+    const handlePaste = (event: ClipboardEvent) => {
+      const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
+        file.type.startsWith('image/'),
+      );
+      if (files.length === 0) return; // plain text, links, …— let the editor handle it
+      event.preventDefault();
+      event.stopPropagation();
+      onImagePaste(files);
+    };
+
+    container.addEventListener('paste', handlePaste, true);
+    return () => container.removeEventListener('paste', handlePaste, true);
+  }, [onImagePaste]);
 
   return (
     <div
+      ref={containerRef}
       className={[
         'markdown-editor rounded-lg border border-gray-200 dark:border-neutral-700',
         className ?? '',

@@ -23,6 +23,8 @@ interface ComposerAttachButtonsProps {
    * *this* composer after the app is backgrounded — see {@link PulseAttachButton}.
    */
   pulseScope?: string;
+  /** Fraction (0–1) of an in-flight attachment upload, or null when idle. */
+  onUploadProgress?: (fraction: number | null) => void;
 }
 
 /** The Photo / Video / Doc / Pulse / Ticket / @Mention button row. */
@@ -33,10 +35,11 @@ export function ComposerAttachButtons({
   onTicketSelect,
   onMentionSelect,
   pulseScope,
+  onUploadProgress,
 }: ComposerAttachButtonsProps) {
   return (
     <>
-      <AttachmentBar onAttachmentAdd={onAttachmentAdd} />
+      <AttachmentBar onAttachmentAdd={onAttachmentAdd} onUploadProgress={onUploadProgress} />
       <PulseAttachButton onAttach={onAttachmentAdd} scope={pulseScope} />
       {teamId && (
         <TicketPicker teamId={teamId} onSelect={onTicketSelect} selectedId={selectedTicketId} />

@@ -110,7 +110,7 @@ export function DraftsPanel({ teamId, userInitials, userColor }: DraftsPanelProp
               <div key={draft.id} className="mb-3">
                 <HuddleComposer
                   key={`edit-${draft.id}`}
-                  onPost={(content) => void updateDraft(draft.id, content)}
+                  onPost={(content) => updateDraft(draft.id, content)}
                   userInitials={userInitials}
                   userColor={userColor}
                   initialText={draft.content.text}

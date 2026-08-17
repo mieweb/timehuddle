@@ -28,7 +28,7 @@ import {
   Spinner,
   Text,
 } from '@mieweb/ui';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { clockApi, huddleApi, type ClockEvent, type HuddlePost } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
@@ -42,12 +42,14 @@ import {
 } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { MarkdownEditor } from '../huddle/MarkdownEditor';
+import { useAttachmentUpload } from '../huddle/useAttachmentUpload';
 import { toPostAttachment } from '../huddle/api';
 import {
   ComposerAttachButtons,
   ComposerChips,
   type MentionRef,
 } from '../huddle/ComposerAttachments';
+import { ComposerProgress } from '../huddle/ComposerProgress';
 import type { MediaItem } from '../huddle/types';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
@@ -102,9 +104,26 @@ export const ClockPage: React.FC = () => {
   const [attachments, setAttachments] = useState<MediaItem[]>([]);
   const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(undefined);
   const [mentions, setMentions] = useState<MentionRef[]>([]);
-  const handleAttachmentAdd = (media: MediaItem) => setAttachments((prev) => [...prev, media]);
+  // Completed fraction (0–1) of an attachment upload in flight, or null when
+  // none is — same single-bar treatment as the Huddle composer.
+  const [uploadFraction, setUploadFraction] = useState<number | null>(null);
+  // Posting mid-upload would drop the attachment still on the wire, so every
+  // submit path stays closed until it lands.
+  const uploadInFlight = uploadFraction !== null;
+  // useCallback: identity flows into the paste listener MarkdownEditor binds
+  // natively, which would otherwise re-register on every keystroke.
+  const handleAttachmentAdd = useCallback(
+    (media: MediaItem) => setAttachments((prev) => [...prev, media]),
+    [],
+  );
   const handleAttachmentRemove = (mediaId: string) =>
     setAttachments((prev) => prev.filter((m) => m.id !== mediaId));
+  // Same paste-a-screenshot handling as the Huddle composer — both share the
+  // editor, so both must keep base64 images out of the post text.
+  const { upload: uploadPastedImages } = useAttachmentUpload({
+    onAttachmentAdd: handleAttachmentAdd,
+    onUploadProgress: setUploadFraction,
+  });
   const handleMentionSelect = (userId: string, name: string) =>
     setMentions((prev) =>
       prev.some((m) => m.userId === userId) ? prev : [...prev, { userId, name }],
@@ -235,7 +254,7 @@ export const ClockPage: React.FC = () => {
 
   async function saveDraft() {
     const trimmed = text.trim();
-    if (!gateTeamId || !trimmed || savingDraft || posting) return;
+    if (!gateTeamId || !trimmed || savingDraft || posting || uploadInFlight) return;
     setSavingDraft(true);
     setPostError(null);
     try {
@@ -272,7 +291,7 @@ export const ClockPage: React.FC = () => {
 
   async function postPlanAndClockIn() {
     const trimmed = text.trim();
-    if (!gateTeamId || !trimmed || posting) return;
+    if (!gateTeamId || !trimmed || posting || uploadInFlight) return;
     setPosting(true);
     setPostError(null);
     try {
@@ -323,7 +342,7 @@ export const ClockPage: React.FC = () => {
 
   async function postWrapUpAndClockOut() {
     const trimmed = text.trim();
-    if (!activeClockEvent || !trimmed || posting) return;
+    if (!activeClockEvent || !trimmed || posting || uploadInFlight) return;
     setPosting(true);
     setPostError(null);
     try {
@@ -507,6 +526,7 @@ export const ClockPage: React.FC = () => {
               onSubmit={() =>
                 void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
               }
+              onImagePaste={uploadPastedImages}
             />
 
             {/* ── Ticket / mention / attachment chips ── */}
@@ -528,8 +548,11 @@ export const ClockPage: React.FC = () => {
                 selectedTicketId={selectedTicketId}
                 onTicketSelect={setSelectedTicketId}
                 onMentionSelect={handleMentionSelect}
+                onUploadProgress={setUploadFraction}
               />
             </div>
+
+            <ComposerProgress uploadFraction={uploadFraction} posting={posting} />
 
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <Button
@@ -538,7 +561,7 @@ export const ClockPage: React.FC = () => {
                   void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
                 }
                 isLoading={posting || clockInLoading || clockOutLoading}
-                disabled={!text.trim()}
+                disabled={!text.trim() || uploadInFlight}
                 className="w-full sm:w-auto"
               >
                 {composerMode === 'plan'
@@ -552,7 +575,7 @@ export const ClockPage: React.FC = () => {
                   variant="outline"
                   onClick={() => void saveDraft()}
                   isLoading={savingDraft}
-                  disabled={!text.trim()}
+                  disabled={!text.trim() || uploadInFlight}
                   className="w-full sm:w-auto"
                 >
                   {draft ? 'Update draft' : 'Save draft'}
