@@ -39,9 +39,9 @@ const config: CapacitorConfig = {
     App: {},
 
     CapacitorUpdater: {
-      // The OtaUpdateGate in the frontend handles all update checks and downloads.
-      // autoUpdate must be off so the plugin doesn't swap bundles behind the gate.
-      autoUpdate: 'off',
+      // Normal OTA updates still happen via the plugin; the OtaUpdateGate only blocks
+      // when the backend declares the running bundle below minVersion.
+      autoUpdate: liveReloadUrl ? 'off' : 'atBackground',
       updateUrl: otaUpdateUrl,
       // Self-hosted: no Capgo cloud, so no stats or channel endpoints.
       statsUrl: '',
