@@ -32,6 +32,13 @@ export async function getTeamIdByCode(code: string): Promise<string | null> {
  * Force the given page onto the shared "Test Team Alpha" (TEST01) team by
  * writing every `app:selectedTeamId*` localStorage key and reloading.
  *
+ * Retries, because writing the key is not by itself enough: TeamContext
+ * re-points the selection at `scopedTeams[0]` (the user's Personal team)
+ * whenever the stored id isn't in the team list *yet* — so a selection made
+ * while the team list is still loading gets silently reverted, and the test
+ * then runs against a one-member personal feed. Reading the key back after the
+ * app has settled is the only way to know the selection actually took.
+ *
  * Requires the page to already be on an in-app route so localStorage is
  * writable for the app origin.
  */
@@ -40,13 +47,33 @@ export async function selectSharedTestTeam(page: Page): Promise<string> {
   if (!teamId) {
     throw new Error('Shared seed team TEST01 not found — did global-setup run?');
   }
-  await page.evaluate((id) => {
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith('app:selectedTeamId'))
-      .forEach((k) => localStorage.setItem(k, id));
-    localStorage.setItem('app:selectedTeamId', id);
-  }, teamId);
-  await page.reload();
-  await page.waitForLoadState('networkidle');
-  return teamId;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.evaluate((id) => {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith('app:selectedTeamId'))
+        .forEach((k) => localStorage.setItem(k, id));
+      localStorage.setItem('app:selectedTeamId', id);
+    }, teamId);
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+
+    const settled = await page
+      .waitForFunction(
+        (id) =>
+          Object.keys(localStorage)
+            .filter((k) => k.startsWith('app:selectedTeamId'))
+            .every((k) => localStorage.getItem(k) === id),
+        teamId,
+        { timeout: 10000 },
+      )
+      .then(() => true)
+      .catch(() => false);
+
+    if (settled) return teamId;
+  }
+
+  throw new Error(
+    `Could not switch to shared team ${teamId} — TeamContext keeps reverting to the personal team.`,
+  );
 }
