@@ -228,19 +228,23 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
 // Methods
 Meteor.methods({
   async 'huddle.getPosts'({ teamId }) {
-    if (!this.userId) {
-      throw new Meteor.Error('not-authorized', 'Authentication required');
-    }
+    // requireIdentity, not this.userId: this is the REST feed refresh the
+    // composer runs right after creating a post (huddle.createPost is REST for
+    // the same reason — the WebView drops DDP while backgrounded). Over the
+    // wormhole bridge the caller is a bearer token and `this.userId` is always
+    // null, so a this.userId check rejected *every* REST refresh with
+    // "Authentication required".
+    const identity = await requireIdentity(this);
     if (!teamId || typeof teamId !== 'string') {
       throw new Meteor.Error('bad-request', 'teamId is required');
     }
-    
+
     const team = await getTeam(teamId);
     if (!team) {
       throw new Meteor.Error('not-found', 'Team not found');
     }
-    
-    const isMember = (team.members ?? []).includes(this.userId) || (team.admins ?? []).includes(this.userId);
+
+    const isMember = (team.members ?? []).includes(identity.userId) || (team.admins ?? []).includes(identity.userId);
     if (!isMember) {
       throw new Meteor.Error('forbidden', 'Not a team member');
     }
