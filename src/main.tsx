@@ -11,18 +11,20 @@ import { CapacitorUpdater } from '@capgo/capacitor-updater';
 // freshly-built native bundle is always used instead.
 if (Capacitor.isNativePlatform()) {
   if ((import.meta as { env?: Record<string, string> }).env?.VITE_LOCAL_BUILD === 'true') {
-    CapacitorUpdater.current().then(({ bundle }) => {
-      if (bundle.id !== 'builtin') {
-        // Reload to the built-in bundle; the WebView restarts and won't reach here.
-        CapacitorUpdater.reset({ toLastSuccessful: false }).catch(() => {});
-      } else {
-        CapacitorUpdater.notifyAppReady().catch((err) =>
-          console.error('[TimeHuddle] notifyAppReady failed:', err),
-        );
-      }
-    }).catch(() => {
-      CapacitorUpdater.notifyAppReady().catch(() => {});
-    });
+    CapacitorUpdater.current()
+      .then(({ bundle }) => {
+        if (bundle.id !== 'builtin') {
+          // Reload to the built-in bundle; the WebView restarts and won't reach here.
+          CapacitorUpdater.reset({ toLastSuccessful: false }).catch(() => {});
+        } else {
+          CapacitorUpdater.notifyAppReady().catch((err) =>
+            console.error('[TimeHuddle] notifyAppReady failed:', err),
+          );
+        }
+      })
+      .catch(() => {
+        CapacitorUpdater.notifyAppReady().catch(() => {});
+      });
   } else {
     CapacitorUpdater.notifyAppReady().catch((err) =>
       console.error('[TimeHuddle] notifyAppReady failed:', err),

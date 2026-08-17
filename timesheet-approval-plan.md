@@ -3,7 +3,7 @@
 Two related controls on recorded time:
 
 1. **Justified edits** — every manual timesheet entry and every edit to an existing one carries a short summary + a description, and lands in an approval queue. **Either the team admin or the org owner can approve it** — whoever gets there first. A team that wants a second pair of eyes turns on owner review and then needs both.
-2. **40h/week barrier** — a person is warned when they cross 40 recorded hours in a week, and cannot start a *new* shift past that line without an approved overtime request.
+2. **40h/week barrier** — a person is warned when they cross 40 recorded hours in a week, and cannot start a _new_ shift past that line without an approved overtime request.
 
 Both run through **one approval engine**. An overtime request is just a third `kind` of timesheet request, so the queue, the notifications, the publication, and the approve/reject methods are written once.
 
@@ -11,12 +11,12 @@ Both run through **one approval engine**. An overtime request is just a third `k
 
 ## Decisions taken
 
-| Question                                  | Decision                                                                                                          |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Do edits apply immediately?               | **No.** The clock event is untouched; proposed values live in a request doc and are written only on final approval. |
-| Who approves                              | **One approval, from either role.** Team admin *or* org owner resolves it. A team may switch on `requireOwnerApproval` to demand both. |
-| 40h enforcement                           | **Warn at 40h, block new clock-ins past it.** A running shift is never cut off.                                     |
-| Who counts toward 40h                     | **Per person, across all their teams** — not per team.                                                              |
+| Question                    | Decision                                                                                                                               |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Do edits apply immediately? | **No.** The clock event is untouched; proposed values live in a request doc and are written only on final approval.                    |
+| Who approves                | **One approval, from either role.** Team admin _or_ org owner resolves it. A team may switch on `requireOwnerApproval` to demand both. |
+| 40h enforcement             | **Warn at 40h, block new clock-ins past it.** A running shift is never cut off.                                                        |
+| Who counts toward 40h       | **Per person, across all their teams** — not per team.                                                                                 |
 
 The pending-request model means **zero migration**: existing `clockevents` documents are never reshaped, and with the feature toggle off the system behaves exactly as it does today.
 
@@ -102,12 +102,12 @@ Two deliberate omissions, per the **Core Model Data Discipline** rule in `CLAUDE
 - **No `orgId`.** It is derivable from `teamId` → `teams.orgId`; the owner queue resolves it at query time.
 - **No snapshot of the current event values.** The canonical values stay in `clockevents`; the approval UI reads both and renders the diff.
 
-`status` is *derived* from `decisions` after every action — never set by a client:
+`status` is _derived_ from `decisions` after every action — never set by a client:
 
-| `approvalMode` | Resolves to `approved` when…                                              | Resolves to `rejected` when…      |
-| -------------- | ------------------------------------------------------------------------- | --------------------------------- |
-| `single`       | **any one** eligible approver approves — team admin or org owner           | **any one** eligible approver rejects |
-| `dual`         | a team admin **and** an org owner have each approved (in any order)        | **any one** eligible approver rejects |
+| `approvalMode` | Resolves to `approved` when…                                        | Resolves to `rejected` when…          |
+| -------------- | ------------------------------------------------------------------- | ------------------------------------- |
+| `single`       | **any one** eligible approver approves — team admin or org owner    | **any one** eligible approver rejects |
+| `dual`         | a team admin **and** an org owner have each approved (in any order) | **any one** eligible approver rejects |
 
 A rejection is decisive in both modes: one "no" ends it, and the other role never has to weigh in. Approval is where the two modes differ.
 
@@ -155,12 +155,12 @@ Pending (unapproved) hours never count toward the total — consistent with the 
 
 All in [meteor-backend/server/clock.js](meteor-backend/server/clock.js).
 
-| Method                    | Change                                                                                                                                                                                                                                              |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `clock.createManual` (L459) | Requires `summary` + `description`. Keeps all existing validation (past-only, end-after-start, overlap) but **inserts a `manual` request instead of a clock event**. The event is created by `applyRequest`.                                       |
-| `clock.updateTimes` (L360)  | Requires `summary` + `description`. No longer mutates the event — files an `edit` request. The existing permission check (owner or team admin) becomes the check on *who may file*, not on who may apply.                                          |
-| `clock.deleteEvent` (L430)  | Cancels any pending request for that event, so the queue never shows orphans.                                                                                                                                                                     |
-| `clock.start` (L126)        | New weekly gate before the insert (below).                                                                                                                                                                                                        |
+| Method                      | Change                                                                                                                                                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `clock.createManual` (L459) | Requires `summary` + `description`. Keeps all existing validation (past-only, end-after-start, overlap) but **inserts a `manual` request instead of a clock event**. The event is created by `applyRequest`. |
+| `clock.updateTimes` (L360)  | Requires `summary` + `description`. No longer mutates the event — files an `edit` request. The existing permission check (owner or team admin) becomes the check on _who may file_, not on who may apply.    |
+| `clock.deleteEvent` (L430)  | Cancels any pending request for that event, so the queue never shows orphans.                                                                                                                                |
+| `clock.start` (L126)        | New weekly gate before the insert (below).                                                                                                                                                                   |
 
 ### The 40h gate in `clock.start`
 
@@ -170,7 +170,9 @@ const worked = await weeklyWorkSeconds(userId, start, end, now);
 const cap = await approvedCapSeconds(userId, start);
 if (worked >= cap) {
   throw new Meteor.Error('weekly-limit', 'Weekly hour limit reached', {
-    workedSeconds: worked, capSeconds: cap, weekStartMs: start,
+    workedSeconds: worked,
+    capSeconds: cap,
+    weekStartMs: start,
   });
 }
 ```
@@ -179,15 +181,15 @@ This mirrors the existing `plan-required` throw at [clock.js:216](meteor-backend
 
 ### New methods
 
-| Method                                | Purpose                                                                                       |
-| ------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `timesheet.myRequests({ status })`    | The author's own requests, for the "Pending review" badges.                                    |
-| `timesheet.approverQueue({ status })` | Everything awaiting the caller as team admin or org owner — one list, both roles.               |
-| `timesheet.approve({ requestId, note })` | Role recorded from the caller. Idempotent — a repeat approve is a no-op, not a second decision. |
-| `timesheet.reject({ requestId, note })`  | `note` **required** — a rejection without a reason is useless to the author.                  |
-| `timesheet.cancel({ requestId })`     | Author withdraws while pending.                                                                |
-| `clock.requestOvertime({ teamId, weekStartMs, requestedHours, summary, description })` | Files an `overtime` request.               |
-| `clock.weeklyStatus({ teamId })`      | `{ workedSeconds, capSeconds, weekStartMs, pendingOvertimeRequestId }` for the progress bar.   |
+| Method                                                                                 | Purpose                                                                                         |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `timesheet.myRequests({ status })`                                                     | The author's own requests, for the "Pending review" badges.                                     |
+| `timesheet.approverQueue({ status })`                                                  | Everything awaiting the caller as team admin or org owner — one list, both roles.               |
+| `timesheet.approve({ requestId, note })`                                               | Role recorded from the caller. Idempotent — a repeat approve is a no-op, not a second decision. |
+| `timesheet.reject({ requestId, note })`                                                | `note` **required** — a rejection without a reason is useless to the author.                    |
+| `timesheet.cancel({ requestId })`                                                      | Author withdraws while pending.                                                                 |
+| `clock.requestOvertime({ teamId, weekStartMs, requestedHours, summary, description })` | Files an `overtime` request.                                                                    |
+| `clock.weeklyStatus({ teamId })`                                                       | `{ workedSeconds, capSeconds, weekStartMs, pendingOvertimeRequestId }` for the progress bar.    |
 
 Every one needs a matching `Wormhole.expose(...)` block in [meteor-backend/server/main.js](meteor-backend/server/main.js#L964) — the frontend reaches methods only through `wormholeCall`.
 
@@ -213,11 +215,11 @@ Add `resolveTimesheetApprovalRoles(userId, teamId)` to [permissions.js](meteor-b
 
 Three rules that make approval mean something:
 
-1. **No self-approval.** A decision counts only from an approver who is *not* the subject (`request.userId`). This is the one rule that holds in both modes — in single mode it is the *only* thing stopping a team admin from rubber-stamping their own edits.
+1. **No self-approval.** A decision counts only from an approver who is _not_ the subject (`request.userId`). This is the one rule that holds in both modes — in single mode it is the _only_ thing stopping a team admin from rubber-stamping their own edits.
 2. **One person, both hats.** In dual mode, an approver who is both team admin and org owner of that team satisfies both roles with one click (recorded as two `decisions` entries with the same `by`). Making them click twice is theatre.
 3. **No eligible approver → auto-approve, with the reason recorded.** If no eligible non-subject approver exists in a required role, that requirement is satisfied automatically so requests can never hang forever.
 
-**Single mode makes rule 3 almost redundant, which is a real argument for it as the default.** `ensureDefaultOrganization` creates orgs with an empty `owners` array — under mandatory dual approval, *every* request on a default install would hang waiting for an owner who does not exist. In single mode the team admin simply approves and the org owner is irrelevant. The dual-mode escalation path is unchanged: org owners → enterprise owners/admins (`isEnterpriseElevatedForTeamOrg` already exists at [permissions.js:75](meteor-backend/server/permissions.js#L75)) → auto.
+**Single mode makes rule 3 almost redundant, which is a real argument for it as the default.** `ensureDefaultOrganization` creates orgs with an empty `owners` array — under mandatory dual approval, _every_ request on a default install would hang waiting for an owner who does not exist. In single mode the team admin simply approves and the org owner is irrelevant. The dual-mode escalation path is unchanged: org owners → enterprise owners/admins (`isEnterpriseElevatedForTeamOrg` already exists at [permissions.js:75](meteor-backend/server/permissions.js#L75)) → auto.
 
 **Guard the toggle against the empty-owner trap.** `requireOwnerApproval` must refuse to turn on when the team's org has no owner and no enterprise-elevated user above it — otherwise an admin enables it and quietly freezes their own queue. The error should say which is missing and how to fix it, not just "not allowed".
 
@@ -225,18 +227,18 @@ Three rules that make approval mean something:
 
 ## 5. Frontend
 
-| File                                                                       | Change                                                                                                                                                        |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [src/lib/api.ts](src/lib/api.ts#L1332)                                     | `timesheetApi` wrappers + `TimesheetRequest` type; `ClockEvent.pendingRequestId?`.                                                                              |
-| **new** `src/features/clock/TimesheetEntryForm.tsx`                        | Time fields + Summary (`Input`) + Description (`Textarea`), with required-field validation. **Replaces three near-identical modal bodies** that exist today.    |
-| [PersonalTimesheetPanel.tsx](src/features/clock/PersonalTimesheetPanel.tsx#L677-L911) | Both modals switch to the shared form; submit files a request and shows "Sent for approval".                                                        |
-| [AdminTimesheetPanel.tsx](src/features/teams/AdminTimesheetPanel.tsx#L274) | Same shared form; an admin's own edit is a request too (auto-satisfying their side).                                                                            |
-| [TimesheetRow.tsx](src/features/clock/TimesheetRow.tsx#L226-L240)          | `Pending review` / `Changes rejected` `Badge` with an `aria-label` naming which approvals are outstanding.                                                      |
-| **new** `src/features/clock/ApprovalsPanel.tsx`                            | Approver queue: request cards, current-vs-proposed diff, Approve / Decline `Button`s, decline-note `Modal`. One list for both roles; a dual-mode card states which role is still outstanding, a single-mode card says the approval applies immediately. |
-| [TeamsPage.tsx](src/features/teams/TeamsPage.tsx#L1048)                    | The two settings toggles, beside the existing auto-accept-joins switch; `requireOwnerApproval` nested under and disabled unless approvals are on.               |
-| **new** `src/features/clock/OvertimeRequestModal.tsx`                      | Opened from the blocked clock-in and from the 40h banner.                                                                                                       |
-| [ClockPage.tsx](src/features/clock/ClockPage.tsx#L266)                     | Catch `weekly-limit` from `clockApi.start` where `plan-required` is already handled; weekly progress bar (`worked / cap`).                                      |
-| [AppLayout.tsx](src/ui/AppLayout.tsx#L199-L229)                            | Route the five new notification types.                                                                                                                          |
+| File                                                                                  | Change                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [src/lib/api.ts](src/lib/api.ts#L1332)                                                | `timesheetApi` wrappers + `TimesheetRequest` type; `ClockEvent.pendingRequestId?`.                                                                                                                                                                      |
+| **new** `src/features/clock/TimesheetEntryForm.tsx`                                   | Time fields + Summary (`Input`) + Description (`Textarea`), with required-field validation. **Replaces three near-identical modal bodies** that exist today.                                                                                            |
+| [PersonalTimesheetPanel.tsx](src/features/clock/PersonalTimesheetPanel.tsx#L677-L911) | Both modals switch to the shared form; submit files a request and shows "Sent for approval".                                                                                                                                                            |
+| [AdminTimesheetPanel.tsx](src/features/teams/AdminTimesheetPanel.tsx#L274)            | Same shared form; an admin's own edit is a request too (auto-satisfying their side).                                                                                                                                                                    |
+| [TimesheetRow.tsx](src/features/clock/TimesheetRow.tsx#L226-L240)                     | `Pending review` / `Changes rejected` `Badge` with an `aria-label` naming which approvals are outstanding.                                                                                                                                              |
+| **new** `src/features/clock/ApprovalsPanel.tsx`                                       | Approver queue: request cards, current-vs-proposed diff, Approve / Decline `Button`s, decline-note `Modal`. One list for both roles; a dual-mode card states which role is still outstanding, a single-mode card says the approval applies immediately. |
+| [TeamsPage.tsx](src/features/teams/TeamsPage.tsx#L1048)                               | The two settings toggles, beside the existing auto-accept-joins switch; `requireOwnerApproval` nested under and disabled unless approvals are on.                                                                                                       |
+| **new** `src/features/clock/OvertimeRequestModal.tsx`                                 | Opened from the blocked clock-in and from the 40h banner.                                                                                                                                                                                               |
+| [ClockPage.tsx](src/features/clock/ClockPage.tsx#L266)                                | Catch `weekly-limit` from `clockApi.start` where `plan-required` is already handled; weekly progress bar (`worked / cap`).                                                                                                                              |
+| [AppLayout.tsx](src/ui/AppLayout.tsx#L199-L229)                                       | Route the five new notification types.                                                                                                                                                                                                                  |
 
 All controls from `@mieweb/ui`; all user-facing strings through the i18n layer; `aria-live` on the queue so approve/reject outcomes are announced.
 
@@ -281,7 +283,7 @@ Phase 1 and Phase 2 are separate PRs. Within Phase 1, the backend engine + metho
 
 1. **Week start & timezone** — plan assumes Monday 00:00 in the server's local zone. If members span timezones, the boundary needs to be the org's zone, and `weekBoundsFor` should take it as an argument from the start.
 2. **Ordinary clock-out** — not touched. A normal clock-in/out records no description; the plan-post wrap-up gate at [clock.js:208](meteor-backend/server/clock.js#L208) already covers "what did you do". Say so if you want a description on every clock-out too — it is a different, much noisier requirement.
-3. **Retroactive limit** — an approved edit can push a *past* week over 40h. The plan records it and notifies approvers; it does not retroactively invalidate. Worth confirming that is the intent for payroll.
+3. **Retroactive limit** — an approved edit can push a _past_ week over 40h. The plan records it and notifies approvers; it does not retroactively invalidate. Worth confirming that is the intent for payroll.
 4. **Cross-team 40h** — a person in two teams under two different orgs hits one shared 40h ceiling, but their overtime request is scoped to one team's approvers. Assumes teams share an org in practice; needs a rule if not.
 5. **Per-request escalation** — the team setting is a standing rule for everything. The adjacent idea is a per-request **"Send to org owner"** button, letting an admin escalate the one 6-hour correction while approving the routine ones alone. It is a small addition to the same engine (flip that request's `approvalMode` to `dual` before recording the decision), but it is a second mechanism doing a similar job, so it is deliberately left out of Phase 1. Say if you want it.
 6. **Should overtime always need the owner?** Overtime is the request kind that actually costs money, and there is a case for it requiring the org owner regardless of the team's toggle. Currently it follows the team setting like every other kind.
