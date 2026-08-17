@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import type { HuddlePost } from '@lib/api';
-import { huddleApi, METEOR_BASE_URL } from '@lib/api';
+import { huddleApi, resolveMediaUrl } from '@lib/api';
 import { MarkdownContent } from '../MarkdownContent';
 import { HuddleComments } from '../HuddleComments';
 import { HuddleComposer } from '../HuddleComposer';
@@ -11,11 +11,10 @@ import { Share } from '@capacitor/share';
 import { Capacitor } from '@capacitor/core';
 
 // ── URL Resolution ────────────────────────────────────────────────────────────
-function resolveAttachmentUrl(url: string | undefined): string {
-  if (!url) return '';
-  if (/^https?:\/\//i.test(url)) return url;
-  return `${METEOR_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
-}
+// Posts persist attachment URLs by path; `resolveMediaUrl` binds them to
+// whichever backend origin is serving this session (and repairs older posts
+// that stored an absolute URL against a host the backend has since left).
+const resolveAttachmentUrl = resolveMediaUrl;
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
 type AvatarColor = 'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green';
@@ -254,7 +253,10 @@ export function PostCard({
       {/* ── Ticket badge ── */}
       {post.ticketId && (
         <div
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 mb-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-lg cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+          // max-w-full keeps a long ticket title from widening the chip past the
+          // card and scrolling the whole feed sideways; the title's `truncate`
+          // only engages once the chip is bounded.
+          className="inline-flex max-w-full items-center gap-1.5 px-2.5 py-1 mb-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-lg cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
           onClick={handleTicketClick}
         >
           <div className="w-3.5 h-3.5 rounded bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center shrink-0">
@@ -272,7 +274,9 @@ export function PostCard({
               />
             </svg>
           </div>
-          <span className="text-xs font-medium text-amber-700 dark:text-amber-300 truncate">
+          {/* min-w-0: a flex item defaults to min-width:auto and would otherwise
+              refuse to shrink below its text, defeating `truncate`. */}
+          <span className="min-w-0 truncate text-xs font-medium text-amber-700 dark:text-amber-300">
             {post.ticketTitle || 'Linked Ticket'}
           </span>
         </div>
@@ -300,14 +304,12 @@ export function PostCard({
             onCancel={handleCancelEdit}
           />
         </div>
-      ) : (
-        // ── Render markdown instead of plain text ──
-        post.content.text?.trim() ? (
-          <div className="mb-3">
-            <MarkdownContent content={post.content.text} />
-          </div>
-        ) : null
-      )}
+      ) : // ── Render markdown instead of plain text ──
+      post.content.text?.trim() ? (
+        <div className="mb-3">
+          <MarkdownContent content={post.content.text} />
+        </div>
+      ) : null}
 
       {/* ── Attachments ── */}
       {!isEditing && post.attachments && post.attachments.length > 0 && (

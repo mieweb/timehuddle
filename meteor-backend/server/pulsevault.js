@@ -63,6 +63,9 @@ const sseClients = new Map();
 function notifySseClients(artifactId, ready) {
   const clients = sseClients.get(artifactId);
   if (!clients?.size) return;
+  // Absolute on purpose, unlike stored URLs: SSE subscribers are off-device
+  // (the Pulse app that scanned the QR code), so they have no "current backend
+  // origin" to resolve a path against.
   const payload = JSON.stringify({
     artifactId,
     url: `${ISSUER}/pulsevault/artifacts/${artifactId}`,
@@ -147,20 +150,69 @@ Meteor.startup(async () => {
   console.log('[pulsevault] rehydrated', reservationContext.size, 'reservation(s) from Mongo');
 });
 
+/**
+ * Playback path for an artifact — stored path-only, never host-qualified.
+ *
+ * ISSUER (ROOT_URL) is the address the backend answered on when the upload
+ * happened, which is not a property of the video: in dev the stack is served
+ * from the machine's LAN IP, so every DHCP lease change used to orphan every
+ * previously-uploaded clip. Clients re-attach their current backend origin at
+ * read time (`resolveMediaUrl` in src/lib/api.ts).
+ */
+function artifactPath(artifactId) {
+  return `/pulsevault/artifacts/${artifactId}`;
+}
+
+/**
+ * Extension → MIME for every video container PulseVault accepts.
+ *
+ * Single source for three things that must agree: which extensions the tus
+ * create POST allows, the `Content-Type` the GET route serves, and the
+ * `mimeType`/`filename` recorded on the media item.
+ *
+ * `.mov`/`.m4v` are what the iOS camera roll and the native video picker hand
+ * back — they're ISO-BMFF like `.mp4`, so `createMp4Sniffer` accepts them.
+ */
+const VIDEO_CONTENT_TYPES = {
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/mp4',
+};
+
+/** Fallback when an artifact's stored extension can't be read back. */
+const DEFAULT_VIDEO_EXT = '.mp4';
+
+/**
+ * The extension the bytes were actually stored under.
+ *
+ * Read from storage rather than assumed, so a `.mov` from an iPhone isn't
+ * recorded in the media library as an mp4 — which would both mislabel its
+ * `mimeType` and hand the user a `.mp4` filename for a QuickTime file.
+ * `getLocalPath` reads the sidecar, so this works before *and* after the
+ * artifact is marked ready (i.e. from both `onUploadComplete` and the
+ * orphaned-upload recovery path).
+ */
+async function artifactExt(artifactId) {
+  const localPath = await storage.getLocalPath(artifactId).catch(() => null);
+  const ext = localPath ? path.extname(localPath).toLowerCase() : '';
+  return VIDEO_CONTENT_TYPES[ext] ? ext : DEFAULT_VIDEO_EXT;
+}
+
 /** Create the mediaitems doc / ticket attachment for a finished upload. */
 async function attachUploadedVideo(artifactId, reservation, size = 0) {
-  const videoUrl = `${ISSUER}/pulsevault/artifacts/${artifactId}`;
+  const videoUrl = artifactPath(artifactId);
   const title = `Video ${artifactId.slice(0, 8)}`;
+  const ext = await artifactExt(artifactId);
 
   if (reservation.target === 'library') {
     await rawDb().collection('mediaitems').insertOne({
       _id: new ObjectId(),
       userId: reservation.userId,
       type: 'video',
-      mimeType: 'video/mp4',
+      mimeType: VIDEO_CONTENT_TYPES[ext],
       url: videoUrl,
       videoid: artifactId,
-      filename: `${artifactId}.mp4`,
+      filename: `${artifactId}${ext}`,
       size,
       title,
       caption: null,
@@ -181,7 +233,20 @@ async function attachUploadedVideo(artifactId, reservation, size = 0) {
   }
 }
 
-const storage = createLocalStorage({ workspaceDir: VIDEOS_DIR });
+const localStorage_ = createLocalStorage({ workspaceDir: VIDEOS_DIR });
+
+// The package's ext→MIME map only knows `.mp4`, so every other video container
+// resolves to `application/octet-stream` — which `<video>` refuses to play
+// inline (it downloads instead). Correct it on the way out.
+const storage = {
+  ...localStorage_,
+  resolve: async (artifactId) => {
+    const resolved = await localStorage_.resolve(artifactId);
+    if (resolved?.contentType !== 'application/octet-stream') return resolved;
+    const fixup = VIDEO_CONTENT_TYPES[path.extname(resolved.filename ?? '').toLowerCase()];
+    return fixup ? { ...resolved, contentType: fixup } : resolved;
+  },
+};
 
 const core = createPulseVaultCore({
   storage,
@@ -193,7 +258,10 @@ const core = createPulseVaultCore({
   // Pulse Cam and the web fallback both upload one pre-recorded MP4 per
   // session rather than per-clip "beats".
   uploadUnit: 'merged',
-  allowedExtensions: { video: ['.mp4'], captions: ['.vtt', '.srt'] },
+  // Derived from VIDEO_CONTENT_TYPES so the accepted extensions can't drift
+  // from the ones we know how to serve. Without an extension listed here the
+  // tus create POST 400s before any bytes move.
+  allowedExtensions: { video: Object.keys(VIDEO_CONTENT_TYPES), captions: ['.vtt', '.srt'] },
   authorize: async (request, ctx) => {
     console.log('[pulsevault][hook] authorize called', {
       phase: ctx.phase,
@@ -528,7 +596,7 @@ Meteor.methods({
     return {
       artifactId: doc.videoid,
       mediaId: String(doc._id),
-      url: doc.url ?? `${ISSUER}/pulsevault/artifacts/${doc.videoid}`,
+      url: doc.url ?? artifactPath(doc.videoid),
       title: doc.title ?? null,
       mimeType: doc.mimeType ?? 'video/mp4',
       size: doc.size ?? 0,
@@ -554,7 +622,7 @@ Meteor.methods({
       videos: docs.map((doc) => ({
         artifactId: doc.videoid,
         mediaId: String(doc._id),
-        url: doc.url ?? `${ISSUER}/pulsevault/artifacts/${doc.videoid}`,
+        url: doc.url ?? artifactPath(doc.videoid),
         title: doc.title ?? null,
         mimeType: doc.mimeType ?? 'video/mp4',
         size: doc.size ?? 0,

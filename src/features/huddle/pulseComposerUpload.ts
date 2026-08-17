@@ -11,7 +11,6 @@
 // component must export *only* components, or Vite's react plugin disables Fast
 // Refresh and forces a full page reload on every HMR update (which itself aborts
 // in-flight uploads). These are plain functions, so they live here.
-import { METEOR_BASE_URL } from '../../lib/api';
 import type { MediaItem } from './types';
 
 const PENDING_STORAGE_PREFIX = 'pulsevault:composer:';
@@ -88,14 +87,20 @@ export function clearComposerPulseUpload(scope: string): void {
   clearPending(scope);
 }
 
-/** Build a composer MediaItem for a finished PulseVault video. */
+/**
+ * Build a composer MediaItem for a finished PulseVault video.
+ *
+ * The URL is a path, not an absolute address: this item is persisted to
+ * localStorage and can be restored days later on a backend that has since
+ * moved hosts. Readers bind it to the current origin via `resolveMediaUrl`.
+ */
 export function videoMediaItem(videoid: string, filename: string, size: number): MediaItem {
   return {
     id: videoid,
     type: 'video',
     size,
     mimeType: 'video/mp4',
-    url: `${METEOR_BASE_URL.replace(/\/$/, '')}/pulsevault/artifacts/${videoid}`,
+    url: `/pulsevault/artifacts/${videoid}`,
     filename,
   };
 }

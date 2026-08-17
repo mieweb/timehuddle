@@ -106,10 +106,52 @@ export interface PublicUser {
   sharedTeams?: Array<{ id: string; name: string; isAdmin: boolean }>;
 }
 
+/**
+ * Backend-served media paths. Anything under these is addressed by path only —
+ * whichever host is serving the backend right now owns it.
+ */
+const MEDIA_PATH_PREFIXES = ['/uploads/', '/pulsevault/'];
+
+/**
+ * Resolve a media URL against the *current* backend origin.
+ *
+ * Media URLs were historically persisted absolute (baked from ROOT_URL /
+ * VITE_TIMECORE_URL at upload time), which breaks the moment the backend moves
+ * — most visibly in dev, where the stack is served from the machine's LAN IP
+ * and every DHCP lease change orphans every previously-posted image and video.
+ *
+ * So the host in a stored media URL is treated as advisory: any URL whose path
+ * is backend-owned ({@link MEDIA_PATH_PREFIXES}) is re-based onto the origin
+ * this session actually talks to, whether it arrived relative or
+ * absolute-with-a-stale-host. URLs pointing anywhere else (a real CDN, an
+ * external link) are left alone.
+ *
+ * Re-based onto METEOR_API_BASE, not METEOR_BASE_URL: on proxied web dev that
+ * is '' — a same-origin path served through Vite's /uploads and /pulsevault
+ * proxies, which works from any client on the network, not just the machine
+ * running the backend. Native and explicit-URL builds get the absolute backend
+ * URL, as before.
+ */
+export function resolveMediaUrl(url: string | undefined | null): string {
+  if (!url) return '';
+  let path = url;
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      const parsed = new URL(url);
+      if (!MEDIA_PATH_PREFIXES.some((p) => parsed.pathname.startsWith(p))) return url;
+      path = `${parsed.pathname}${parsed.search}`;
+    } catch {
+      return url;
+    }
+  }
+  return `${METEOR_API_BASE}${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
 function toAbsoluteUrl(url: string | null): string | null {
-  if (!url || /^https?:\/\//i.test(url)) return url;
-  const base = url.startsWith('/uploads/') ? METEOR_BASE_URL : TIMECORE_BASE_URL;
-  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+  if (!url) return url;
+  const isMediaPath = MEDIA_PATH_PREFIXES.some((p) => url.startsWith(p));
+  if (isMediaPath || /^https?:\/\//i.test(url)) return resolveMediaUrl(url);
+  return `${TIMECORE_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
 function withAbsoluteImage(user: PublicUser): PublicUser {
@@ -1775,21 +1817,45 @@ function withAbsoluteMediaItem(item: MediaItem): MediaItem {
 }
 
 export const mediaApi = {
-  uploadImage: async (file: File): Promise<MediaItem> => {
+  /**
+   * Upload an image or document to the media library.
+   *
+   * Uses XMLHttpRequest rather than `fetch` because only XHR exposes
+   * upload-side byte progress, which the composer needs to render one progress
+   * bar across image, document, and (TUS) video uploads alike.
+   */
+  uploadImage: async (file: File, onProgress?: (fraction: number) => void): Promise<MediaItem> => {
     const form = new FormData();
     form.append('file', file, file.name || 'image');
     const token = await getAccessToken();
-    const res = await fetch(`${METEOR_API_BASE}/api/media/upload`, {
-      method: 'POST',
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: form,
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new ApiError((body.error as string) ?? `HTTP ${res.status}`, res.status);
+
+    const { status, body } = await new Promise<{ status: number; body: string }>(
+      (resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${METEOR_API_BASE}/api/media/upload`);
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable && e.total > 0) onProgress?.(e.loaded / e.total);
+        };
+        xhr.onload = () => resolve({ status: xhr.status, body: xhr.responseText });
+        xhr.onerror = () => reject(new ApiError('Upload failed', 0));
+        xhr.onabort = () => reject(new ApiError('Upload cancelled', 0));
+        xhr.send(form);
+      },
+    );
+
+    const parsed = (() => {
+      try {
+        return JSON.parse(body) as { item?: MediaItem; error?: string };
+      } catch {
+        return {} as { item?: MediaItem; error?: string };
+      }
+    })();
+
+    if (status < 200 || status >= 300 || !parsed.item) {
+      throw new ApiError(parsed.error ?? `HTTP ${status}`, status);
     }
-    const data = (await res.json()) as { item: MediaItem };
-    return withAbsoluteMediaItem(data.item);
+    return withAbsoluteMediaItem(parsed.item);
   },
 
   list: () =>
