@@ -182,36 +182,41 @@ export default function Huddle() {
   }, [selectedTeamId, syncPosts, refreshFeed]);
 
   async function addPost(content: ComposerContent) {
-    try {
-      if (!user || !selectedTeamId) {
-        alert('Please select a team first');
-        return;
-      }
+    if (!user || !selectedTeamId) {
+      alert('Please select a team first');
+      return;
+    }
 
-      // Extract user IDs from mentions
-      const mentionUserIds = (content.mentions || []).map((m) => m.userId);
+    const mentionUserIds = (content.mentions || []).map((m) => m.userId);
+    const attachments = content.attachments.map(toPostAttachment);
 
-      // Prepare attachments for API
-      const attachments = content.attachments.map(toPostAttachment);
+    const { id } = await huddleApi.createPost({
+      teamId: selectedTeamId,
+      content: { text: content.text, mentions: mentionUserIds },
+      ticketId: content.ticketId,
+      attachments,
+      postDate: toDateString(new Date()),
+    });
 
-      // Always create a new post — session plan/wrap-up editing happens on the
-      // Clock page (one post per session).
-      await huddleApi.createPost({
-        teamId: selectedTeamId,
-        content: { text: content.text, mentions: mentionUserIds },
-        ticketId: content.ticketId,
-        attachments,
-        postDate: toDateString(new Date()),
-      });
+    // Show the new post without waiting on the live DDP socket, which may be
+    // down (dropped while the app was backgrounded for a Pulse recording):
+    // refreshFeed refetches over REST and overlays the result, and syncPosts
+    // drops the overlay once the subscription catches up.
+    //
+    // The retry condition is "not in the feed by *either* route". Waiting on
+    // the DDP cache specifically would stall the full backoff on every post
+    // whenever the socket is down — which is the exact case the REST overlay
+    // exists to cover, and where the post is already on screen after the first
+    // refresh.
+    const ddp = getDdpClient();
+    const inFeed = () =>
+      pendingPostsRef.current.has(id) ||
+      ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
 
-      // Reflect the new post immediately without waiting on the live DDP socket
-      // (it may be down — dropped while backgrounded for a Pulse recording), so
-      // refetch over REST and overlay the feed. The live subscription reconciles
-      // it (and drops the overlay) once it catches up.
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
       await refreshFeed();
-    } catch (error) {
-      console.error('[Huddle] Error in addPost:', error);
-      alert('Failed to create post. Please try again.');
+      if (inFeed()) return;
     }
   }
 
@@ -359,9 +364,15 @@ export default function Huddle() {
           </div>
         )}
 
-        {/* Composer stays put while the feed below it scrolls */}
+        {/* Composer stays put while the feed below it scrolls.
+            On a short viewport the expanded composer is taller than the space
+            between the header and the fixed bottom nav, so it must be able to
+            shrink and scroll its own overflow — otherwise its lower half (the
+            attach buttons, Cancel and Post) is clipped under the nav and
+            unreachable. min-h-0 is what lets a flex child shrink below its
+            content height. */}
         {selectedTeamId && feedTab === 'feed' && (
-          <div className="huddle-composer shrink-0">
+          <div className="huddle-composer min-h-0 max-h-[70vh] overflow-y-auto overscroll-contain">
             <HuddleComposer
               onPost={addPost}
               userInitials={user ? getUserInitials(user.name) : 'U'}

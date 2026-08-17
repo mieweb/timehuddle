@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { AnchoredMenu } from '@ui/AnchoredMenu';
 import { fetchTeamMembers } from './api';
 import type { TeamMember } from './types';
 
@@ -12,29 +13,13 @@ export function MentionMenu({ teamId, onSelect }: MentionMenuProps) {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
-  // Horizontal offset (px) of the menu relative to the trigger, clamped so the
-  // menu never spills past either viewport edge.
-  const [offsetX, setOffsetX] = useState(0);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (isOpen && members.length === 0 && teamId) {
       loadMembers();
     }
   }, [isOpen, teamId]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isOpen]);
 
   const loadMembers = async () => {
     if (!teamId) return;
@@ -56,30 +41,21 @@ export function MentionMenu({ teamId, onSelect }: MentionMenuProps) {
     setSearchQuery('');
   };
 
-  const handleToggle = () => {
-    if (!isOpen && dropdownRef.current) {
-      const rect = dropdownRef.current.getBoundingClientRect();
-      const margin = 8;
-      const menuWidth = Math.min(288, window.innerWidth - margin * 2); // w-72
-      let viewportLeft = rect.left;
-      if (viewportLeft + menuWidth > window.innerWidth - margin) {
-        viewportLeft = window.innerWidth - margin - menuWidth;
-      }
-      if (viewportLeft < margin) viewportLeft = margin;
-      setOffsetX(viewportLeft - rect.left);
-    }
-    setIsOpen((prev) => !prev);
-  };
+  const handleClose = useCallback(() => setIsOpen(false), []);
 
   const filteredMembers = members.filter((member) =>
     member.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <>
       <button
-        onClick={handleToggle}
+        ref={triggerRef}
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
         disabled={!teamId}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
         className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-neutral-400 border border-gray-200 dark:border-neutral-700 px-3 py-1.5 rounded-full hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -93,65 +69,71 @@ export function MentionMenu({ teamId, onSelect }: MentionMenuProps) {
         @Mention
       </button>
 
-      {isOpen && (
-        <div
-          style={{ left: offsetX }}
-          className="absolute top-full mt-2 w-72 max-w-[calc(100vw-1rem)] bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl shadow-lg overflow-hidden z-50"
-        >
-          {/* Search input */}
-          <div className="p-3 border-b border-gray-100 dark:border-neutral-700">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search members..."
-              autoFocus
-              className="w-full bg-gray-50 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-700 rounded-lg px-3 py-2 text-xs text-gray-700 dark:text-neutral-300 placeholder:text-gray-400 dark:placeholder:text-neutral-600 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors"
-            />
-          </div>
+      <AnchoredMenu
+        open={isOpen}
+        onClose={handleClose}
+        anchorRef={triggerRef}
+        width={288}
+        label="Mention a team member"
+        testId="mention-menu"
+      >
+        {/* Search input — deliberately not autofocused: stealing focus on open
+            scrolls the composer's scroll container to reveal the input, which
+            reads as the editor jumping upward (and pops the mobile keyboard
+            over the very list you're trying to pick from). */}
+        <div className="shrink-0 p-3 border-b border-gray-100 dark:border-neutral-700">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search members..."
+            className="w-full bg-gray-50 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-700 rounded-lg px-3 py-2 text-xs text-gray-700 dark:text-neutral-300 placeholder:text-gray-400 dark:placeholder:text-neutral-600 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors"
+          />
+        </div>
 
-          {/* Members list */}
-          <div className="max-h-64 overflow-y-auto">
-            {loading ? (
-              <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">
-                Loading members...
-              </div>
-            ) : filteredMembers.length === 0 ? (
-              <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">
-                No members found
-              </div>
-            ) : (
-              filteredMembers.map((member) => (
-                <button
-                  key={member.id}
-                  onClick={() => handleSelect(member.id, member.name)}
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors text-gray-700 dark:text-neutral-300"
-                >
-                  <div className="flex items-center gap-2">
-                    {member.image ? (
-                      <img
-                        src={member.image}
-                        alt={member.name}
-                        className="w-6 h-6 rounded-full shrink-0"
-                      />
-                    ) : (
-                      <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-[10px] font-semibold shrink-0">
-                        {member.name.substring(0, 2).toUpperCase()}
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{member.name}</div>
-                      <div className="text-[10px] text-gray-400 dark:text-neutral-500 truncate">
-                        {member.email}
-                      </div>
+        {/* Members list */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">
+              Loading members...
+            </div>
+          ) : filteredMembers.length === 0 ? (
+            <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">
+              No members found
+            </div>
+          ) : (
+            filteredMembers.map((member) => (
+              <button
+                key={member.id}
+                type="button"
+                role="menuitem"
+                onClick={() => handleSelect(member.id, member.name)}
+                className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors text-gray-700 dark:text-neutral-300"
+              >
+                <div className="flex items-center gap-2">
+                  {member.image ? (
+                    <img
+                      src={member.image}
+                      alt={member.name}
+                      className="w-6 h-6 rounded-full shrink-0"
+                    />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                      {member.name.substring(0, 2).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium truncate">{member.name}</div>
+                    <div className="text-[10px] text-gray-400 dark:text-neutral-500 truncate">
+                      {member.email}
                     </div>
                   </div>
-                </button>
-              ))
-            )}
-          </div>
+                </div>
+              </button>
+            ))
+          )}
         </div>
-      )}
-    </div>
+      </AnchoredMenu>
+    </>
   );
 }
