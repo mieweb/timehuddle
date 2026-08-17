@@ -95,6 +95,24 @@ const _baseDomain = _rootHostname.includes('.')
   ? _rootHostname.split('.').slice(-3).join('.')  // last 3 parts: os.mieweb.org
   : '';
 
+// RFC1918 private-LAN hostnames — dev live-reload serves the WebView from
+// the machine's LAN IP (e.g. http://10.3.95.139:3000), which changes with
+// DHCP/network and can't be pinned in ROOT_URL or CORS_ORIGINS. Without this,
+// `_baseDomain` (derived from ROOT_URL) is a meaningless string for a dotted
+// IPv4 host, so the origin never matches and CORS headers are skipped —
+// breaking raw XHR/fetch calls from the WebView (e.g. tus-js-client video
+// uploads) while native-bridge calls (CapacitorHttp) keep working, since
+// those aren't subject to CORS. See memories/repo/timehuddle-capacitor-rest-cors.md.
+function isPrivateLanHost(hostname) {
+  return (
+    hostname === 'localhost' ||
+    /^127\./.test(hostname) ||
+    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+  );
+}
+
 function isOriginAllowed(origin) {
   if (!origin) return false;
   if (CORS_ALLOW_ALL) return true;
@@ -111,6 +129,8 @@ function isOriginAllowed(origin) {
     if (_baseDomain && _baseDomain !== 'localhost') {
       if (h === _baseDomain || h.endsWith('.' + _baseDomain)) return true;
     }
+    // Dev only: allow any private-LAN origin (see isPrivateLanHost above).
+    if (!Meteor.isProduction && isPrivateLanHost(h)) return true;
   } catch { /* ignore */ }
   return false;
 }
