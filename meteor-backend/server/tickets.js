@@ -135,8 +135,10 @@ Meteor.methods({
     }
     await Tickets.updateAsync(new Mongo.ObjectID(ticketId), update);
     const updated = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
+    // Classify from what the caller supplied. Clearing uses 'none' in the
+    // activity payload (feeds treat null as missing) while the DB still $unsets.
     const action =
-      status && priority && !clearPriority
+      status && priority !== undefined
         ? 'status-priority-changed'
         : status
           ? 'status-changed'
@@ -147,8 +149,7 @@ Meteor.methods({
       teamId: updated.teamId,
       action,
       ...(status ? { status } : {}),
-      ...(priority && !clearPriority ? { priority } : {}),
-      ...(clearPriority ? { priority: null } : {}),
+      ...(priority !== undefined ? { priority: clearPriority ? 'none' : priority } : {}),
     });
     return toPublicTicket(updated);
   },
