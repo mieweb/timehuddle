@@ -85,6 +85,7 @@ const STATUS_OPTIONS = [
 ];
 
 const PRIORITY_OPTIONS = [
+  { value: 'none', label: 'None' },
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
@@ -908,8 +909,10 @@ export const TicketsPage: React.FC = () => {
     if (statusDetailFilter) {
       result = result.filter((t) => (t.status ?? 'open') === statusDetailFilter);
     }
-    if (priorityFilter) {
-      result = result.filter((t) => (t.priority ?? '') === priorityFilter);
+    if (priorityFilter === 'none') {
+      result = result.filter((t) => !t.priority);
+    } else if (priorityFilter) {
+      result = result.filter((t) => t.priority === priorityFilter);
     }
     return result;
   }, [tickets, searchQuery, teamFilter, assigneeFilter, statusDetailFilter, priorityFilter]);
@@ -1139,7 +1142,7 @@ export const TicketsPage: React.FC = () => {
     setEditDescription(ticket.description || '');
     setEditGithub(ticket.github || '');
     setEditAssignees(ticket.assignedTo ?? []);
-    setEditPriority(ticket.priority || '');
+    setEditPriority(ticket.priority || 'none');
   };
 
   const handleSaveEdit = useCallback(async () => {
@@ -1158,9 +1161,9 @@ export const TicketsPage: React.FC = () => {
       if (hasChanged) {
         await ticketApi.assignTicket(editTicket.id, editAssignees);
       }
-      if (editPriority !== (editTicket.priority || '')) {
+      if (editPriority !== (editTicket.priority || 'none')) {
         await ticketApi.updateStatusPriority(editTicket.id, {
-          priority: editPriority || undefined,
+          priority: editPriority,
         });
       }
       setEditTicket(null);
@@ -1666,8 +1669,8 @@ export const TicketsPage: React.FC = () => {
               </div>
               <Select
                 label="Priority"
-                options={[{ value: '', label: 'No Priority' }, ...PRIORITY_OPTIONS]}
-                value={editPriority}
+                options={PRIORITY_OPTIONS}
+                value={editPriority || 'none'}
                 onValueChange={setEditPriority}
               />
             </div>
