@@ -574,12 +574,14 @@ export const ClockPage: React.FC = () => {
           )}
           {/* Active ticket replaces the plan badge when a timer is running. */}
           {isClockedIn && runningTicket ? (
-            <div className="mt-3 flex justify-center px-2">
-              <button
+            <div className="active-ticket-badge mt-3 flex justify-center px-2">
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => navigate(`/app/tickets/${runningTicket.id}`)}
                 aria-label={`Open ticket: ${runningTicket.title}`}
-                className="max-w-full rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-600 dark:focus-visible:ring-green-400"
+                className="h-auto max-w-full rounded-full p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-600 dark:focus-visible:ring-green-400"
               >
                 <Badge
                   variant="default"
@@ -591,7 +593,7 @@ export const ClockPage: React.FC = () => {
                     {runningTicket.title}
                   </span>
                 </Badge>
-              </button>
+              </Button>
             </div>
           ) : (
             requirePlan &&
