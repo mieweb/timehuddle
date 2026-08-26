@@ -3,9 +3,10 @@
  *
  * Reads top-to-bottom as a gate rather than a dashboard:
  *   1. Status — eyebrow + a big bold session timer (elapsed time this
- *      shift, not the wall clock) + a "plan required" badge when the team
- *      gate is on. Break/Resume lives here, beside the timer, so it stays
- *      on screen whichever composer is open below.
+ *      shift, not the wall clock) + either the active ticket badge (when a
+ *      ticket timer is running) or a "plan required" badge when the team
+ *      gate is on and no ticket is running. Break/Resume lives here, beside
+ *      the timer, so it stays on screen whichever composer is open below.
  *   2. Composer — plan-before-clock-in / wrap-up-before-clock-out, with the
  *      same Photo/Video/Doc/Pulse/Ticket/@Mention bar as the Huddle composer
  *      (⌘/Ctrl+↵ submits).
@@ -15,7 +16,7 @@
  * page never needs a reload. With the team setting off, it's a plain
  * clock-in/out screen.
  */
-import { faMugHot, faPlay, faStop } from '@fortawesome/free-solid-svg-icons';
+import { faMugHot, faPlay, faStop, faTicket } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
@@ -30,7 +31,9 @@ import {
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { clockApi, huddleApi, type ClockEvent, type HuddlePost } from '../../lib/api';
+import { clockApi, huddleApi, timerApi, type ClockEvent, type HuddlePost } from '../../lib/api';
+import { getDdpClient } from '../../lib/ddp';
+
 import { useTeam } from '../../lib/TeamContext';
 import {
   formatDate,
@@ -86,6 +89,62 @@ export const ClockPage: React.FC = () => {
   const isClockedIn = !!activeClockEvent;
   const isPaused = !!activeClockEvent?.isPaused;
   const sessionSeconds = getActiveClockSeconds(activeClockEvent, currentTime);
+
+  // ── Active ticket timer (shown under the session timer when clocked in) ──
+  type RunningTicketRef = { id: string; title: string };
+  const [runningTicket, setRunningTicket] = useState<RunningTicketRef | null>(null);
+
+  const fetchRunningTicket = useCallback(async () => {
+    if (!localStorage.getItem('meteor_resume_token')) {
+      setRunningTicket(null);
+      return;
+    }
+    try {
+      const dayEntries = await timerApi.getToday();
+      const running = dayEntries.flatMap((de) => de.sessions).find((t) => !t.endTime);
+      if (!running) {
+        setRunningTicket(null);
+        return;
+      }
+      const dayEntry = dayEntries.find((de) => de.sessions.some((t) => t.id === running.id));
+      if (!dayEntry?.entry.ticketId) {
+        setRunningTicket(null);
+        return;
+      }
+      setRunningTicket({
+        id: dayEntry.entry.ticketId,
+        title: dayEntry.entry.displayTitle || dayEntry.entry.ticketId,
+      });
+    } catch {
+      setRunningTicket(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isClockedIn) {
+      setRunningTicket(null);
+      return;
+    }
+    void fetchRunningTicket();
+  }, [isClockedIn, fetchRunningTicket]);
+
+  useEffect(() => {
+    if (!isClockedIn) return;
+    const ddp = getDdpClient();
+    const offChange = ddp.onCollectionChange('timers', () => {
+      void fetchRunningTicket();
+    });
+    const unsubscribe = ddp.subscribe('timers.liveForUser', []);
+    const onWorkRefetch = () => void fetchRunningTicket();
+    window.addEventListener('work:refetch', onWorkRefetch);
+    window.addEventListener('tickets:refetch', onWorkRefetch);
+    return () => {
+      offChange();
+      unsubscribe();
+      window.removeEventListener('work:refetch', onWorkRefetch);
+      window.removeEventListener('tickets:refetch', onWorkRefetch);
+    };
+  }, [isClockedIn, fetchRunningTicket]);
 
   // ── Composer state (plan before clock-in, wrap-up before clock-out) ──
   const [text, setText] = useState('');
@@ -513,10 +572,34 @@ export const ClockPage: React.FC = () => {
               </Button>
             </div>
           )}
-          {requirePlan && (
-            <Badge variant="default" size="sm" className="mt-3">
-              Plan required for this team
-            </Badge>
+          {/* Active ticket replaces the plan badge when a timer is running. */}
+          {isClockedIn && runningTicket ? (
+            <div className="mt-3 flex justify-center px-2">
+              <button
+                type="button"
+                onClick={() => navigate(`/app/tickets/${runningTicket.id}`)}
+                aria-label={`Open ticket: ${runningTicket.title}`}
+                className="max-w-full rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-600 dark:focus-visible:ring-green-400"
+              >
+                <Badge
+                  variant="default"
+                  size="sm"
+                  className="inline-flex max-w-full cursor-pointer items-center gap-1.5 hover:opacity-90"
+                >
+                  <FontAwesomeIcon icon={faTicket} className="shrink-0" aria-hidden />
+                  <span className="min-w-0 max-w-[min(100%,20rem)] truncate sm:max-w-md md:max-w-lg">
+                    {runningTicket.title}
+                  </span>
+                </Badge>
+              </button>
+            </div>
+          ) : (
+            requirePlan &&
+            isClockedIn && (
+              <Badge variant="default" size="sm" className="mt-3">
+                Plan required for this team
+              </Badge>
+            )
           )}
         </div>
 
