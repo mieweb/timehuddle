@@ -44,6 +44,7 @@ import { useClockToggle } from '../../lib/useClockToggle';
 import { MarkdownEditor } from '../huddle/MarkdownEditor';
 import { useAttachmentUpload } from '../huddle/useAttachmentUpload';
 import { toPostAttachment } from '../huddle/api';
+import { clearComposerPulseUpload } from '../huddle/pulseComposerUpload';
 import {
   ComposerAttachButtons,
   ComposerChips,
@@ -116,8 +117,15 @@ export const ClockPage: React.FC = () => {
     (media: MediaItem) => setAttachments((prev) => [...prev, media]),
     [],
   );
-  const handleAttachmentRemove = (mediaId: string) =>
+  const handleAttachmentRemove = (mediaId: string) => {
+    // Removing the Pulse video chip also forgets its persisted upload, so a
+    // recording that finishes afterward doesn't reattach itself.
+    const removed = attachments.find((m) => m.id === mediaId);
+    if (removed?.type === 'video' && composerMode) {
+      clearComposerPulseUpload(`clock-${composerMode}`);
+    }
     setAttachments((prev) => prev.filter((m) => m.id !== mediaId));
+  };
   // Same paste-a-screenshot handling as the Huddle composer — both share the
   // editor, so both must keep base64 images out of the post text.
   const { upload: uploadPastedImages } = useAttachmentUpload({
@@ -330,6 +338,7 @@ export const ClockPage: React.FC = () => {
       // Cache the plan post ID so postWrapUpAndClockOut can find it even if
       // the DDP subscription hasn't synced the new post back to this client yet.
       cachedPlanPostIdRef.current = planPostId;
+      clearComposerPulseUpload('clock-plan');
       setText('');
       // Link this plan to the new session so the per-session gate finds it.
       await clockIn({ planJustPosted: true, planPostId });
@@ -384,6 +393,7 @@ export const ClockPage: React.FC = () => {
       }
       setText('');
       cachedPlanPostIdRef.current = null;
+      clearComposerPulseUpload('clock-wrapup');
       await clockOut();
     } catch (e) {
       setPostError(e instanceof Error ? e.message : 'Failed to post. Please try again.');

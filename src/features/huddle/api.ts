@@ -1,5 +1,5 @@
 // Huddle feature API helpers
-import { teamApi, ticketApi, mediaApi, videoApi } from '@lib/api';
+import { teamApi, ticketApi, mediaApi, videoApi, MEDIA_PATH_PREFIXES } from '@lib/api';
 import type { HuddlePost } from '@lib/api';
 import * as tus from 'tus-js-client';
 import type { TeamMember, MediaItem } from './types';
@@ -14,10 +14,15 @@ export type PostAttachment = HuddlePost['attachments'][number];
  * between hostnames. Persisting the origin freezes a post's media to whatever
  * address the backend happened to answer on that day. Readers re-attach the
  * current origin via `resolveMediaUrl`.
+ *
+ * Only backend-owned paths ({@link MEDIA_PATH_PREFIXES}) are rewritten —
+ * user-entered links (e.g. a Loom URL copied from a ticket attachment) are
+ * left absolute so they still resolve once the origin is stripped away.
  */
 function toMediaPath(url: string): string {
   try {
     const parsed = new URL(url, 'http://placeholder.invalid');
+    if (!MEDIA_PATH_PREFIXES.some((p) => parsed.pathname.startsWith(p))) return url;
     return `${parsed.pathname}${parsed.search}`;
   } catch {
     return url;

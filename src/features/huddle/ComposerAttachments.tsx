@@ -40,7 +40,10 @@ export function ComposerAttachButtons({
   return (
     <>
       <AttachmentBar onAttachmentAdd={onAttachmentAdd} onUploadProgress={onUploadProgress} />
-      <PulseAttachButton onAttach={onAttachmentAdd} scope={pulseScope} />
+      {/* Keyed by scope: PulseAttachButton reads its pending reservation from
+          the scope only on mount, so a scope change (e.g. clock plan → wrap-up)
+          must remount it rather than carry over the old reservation. */}
+      <PulseAttachButton key={pulseScope} onAttach={onAttachmentAdd} scope={pulseScope} />
       {teamId && (
         <TicketPicker teamId={teamId} onSelect={onTicketSelect} selectedId={selectedTicketId} />
       )}

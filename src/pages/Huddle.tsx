@@ -103,10 +103,10 @@ export default function Huddle() {
     loadTeam();
   }, [selectedTeamId]);
 
-  // Locally-created posts the live DDP cache hasn't delivered yet, overlaid
-  // onto the feed so a new post shows instantly. Each entry is dropped as soon
-  // as the subscription catches up (see syncPosts).
-  const pendingPostsRef = useRef<Map<string, HuddlePost>>(new Map());
+  // Last REST snapshot for the team, replaced wholesale on every refetch (not
+  // merged) so an edit or delete that happened while DDP was disconnected is
+  // reflected, and a post absent from a later snapshot doesn't linger forever.
+  const restPostsRef = useRef<Map<string, HuddlePost>>(new Map());
 
   // Build the feed from the DDP cache plus any pending overlay posts. Lifted to
   // component scope so addPost can trigger an immediate re-sync after posting.
@@ -119,9 +119,18 @@ export default function Huddle() {
       const post = { ...p, id: (p.id ?? p._id) as string } as unknown as HuddlePost;
       byId.set(post.id, post);
     }
-    for (const [id, post] of pendingPostsRef.current) {
-      if (byId.has(id)) pendingPostsRef.current.delete(id);
-      else byId.set(id, post);
+    // REST snapshot wins over the DDP cache when it's newer — DDP may be
+    // holding a stale copy while the socket is disconnected (e.g. backgrounded
+    // for a Pulse recording), so a plain "DDP always wins" merge would hide
+    // REST-only edits indefinitely.
+    for (const [id, restPost] of restPostsRef.current) {
+      const ddpPost = byId.get(id);
+      if (
+        !ddpPost ||
+        new Date(restPost.updatedAt).getTime() > new Date(ddpPost.updatedAt).getTime()
+      ) {
+        byId.set(id, restPost);
+      }
     }
     const teamPosts = [...byId.values()].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
@@ -136,7 +145,7 @@ export default function Huddle() {
     if (!selectedTeamId) return;
     try {
       const fresh = await huddleApi.getPosts(selectedTeamId);
-      for (const post of fresh) pendingPostsRef.current.set(post.id, post);
+      restPostsRef.current = new Map(fresh.map((post) => [post.id, post]));
       syncPosts();
     } catch (err) {
       console.error('[Huddle] refreshFeed failed:', err);
@@ -177,7 +186,7 @@ export default function Huddle() {
       unsub();
       offChange();
       setPosts([]);
-      pendingPostsRef.current.clear();
+      restPostsRef.current.clear();
     };
   }, [selectedTeamId, syncPosts, refreshFeed]);
 
@@ -210,8 +219,7 @@ export default function Huddle() {
     // refresh.
     const ddp = getDdpClient();
     const inFeed = () =>
-      pendingPostsRef.current.has(id) ||
-      ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
+      restPostsRef.current.has(id) || ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
 
     for (let attempt = 0; attempt < 4; attempt++) {
       if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
@@ -374,6 +382,7 @@ export default function Huddle() {
         {selectedTeamId && feedTab === 'feed' && (
           <div className="huddle-composer min-h-0 max-h-[70vh] overflow-y-auto overscroll-contain">
             <HuddleComposer
+              key={selectedTeamId}
               onPost={addPost}
               userInitials={user ? getUserInitials(user.name) : 'U'}
               userColor={user ? getUserColor(user.id) : 'indigo'}

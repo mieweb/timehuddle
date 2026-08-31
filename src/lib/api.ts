@@ -110,7 +110,7 @@ export interface PublicUser {
  * Backend-served media paths. Anything under these is addressed by path only —
  * whichever host is serving the backend right now owns it.
  */
-const MEDIA_PATH_PREFIXES = ['/uploads/', '/pulsevault/'];
+export const MEDIA_PATH_PREFIXES = ['/uploads/', '/pulsevault/'];
 
 /**
  * Resolve a media URL against the *current* backend origin.

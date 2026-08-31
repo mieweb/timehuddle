@@ -370,7 +370,12 @@ Wormhole.use({
         const heartbeat = setInterval(() => { try { res.write(':\n\n'); } catch {} }, 25_000);
         req.on('close', () => {
           clearInterval(heartbeat);
-          sseClients.get(artifactId)?.delete(res);
+          const clients = sseClients.get(artifactId);
+          clients?.delete(res);
+          // Drop the empty Set too — otherwise every abandoned subscription
+          // (client disconnects before the upload completes) leaks an entry
+          // in this process-global map forever, since artifactIds are unique.
+          if (clients && clients.size === 0) sseClients.delete(artifactId);
         });
         return;
       }

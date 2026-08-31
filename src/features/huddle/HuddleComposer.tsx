@@ -91,8 +91,11 @@ export function HuddleComposer({
 
   // Stable localStorage scope for the Pulse upload button — also the key this
   // composer clears once a post is submitted/cancelled so a finished video
-  // isn't re-attached to the next post.
-  const pulseScope = editing ? `huddle-edit-${collabRoom ?? 'post'}` : 'huddle-new';
+  // isn't re-attached to the next post. Scoped by team so switching teams
+  // while a recording is pending can't hand that video to the new team's post.
+  const pulseScope = editing
+    ? `huddle-edit-${collabRoom ?? 'post'}`
+    : `huddle-new-${selectedTeamId ?? 'none'}`;
 
   // Click-outside → collapse (only when empty, so in-progress writing is never
   // lost). Frees up feed space when you're not actively composing. Disabled in
@@ -101,8 +104,15 @@ export function HuddleComposer({
     if (!expanded || editing) return;
     const onDocMouseDown = (e: MouseEvent) => {
       if (composerRef.current?.contains(e.target as Node)) return;
-      // Kerebron popovers (toolbar dropdowns) can portal outside the composer.
-      if ((e.target as HTMLElement).closest?.('.kb-custom-menu__wrapper, [role="menu"]')) return;
+      // Kerebron popovers (toolbar dropdowns) and the Pulse upload modal
+      // (portaled outside composerRef) must not trigger a collapse — closing
+      // either one is not "clicking away" from the composer.
+      if (
+        (e.target as HTMLElement).closest?.(
+          '.kb-custom-menu__wrapper, [role="menu"], [role="dialog"]',
+        )
+      )
+        return;
       const hasContent = text.trim() || attachments.length > 0;
       if (!hasContent) handleCancel();
     };
@@ -177,11 +187,14 @@ export function HuddleComposer({
         mentions,
       });
       setPostDone(true);
+      // Clear the reservation for every successful submit, before branching on
+      // `editing` — otherwise reopening the same post within the TTL reattaches
+      // the video that was just submitted.
+      clearComposerPulseUpload(pulseScope);
       // Hold at 100% briefly so the user sees the bar complete
       await new Promise<void>((r) => setTimeout(r, 400));
       // In edit mode the host closes the composer once the update resolves
       if (!editing) {
-        clearComposerPulseUpload(pulseScope);
         setText(initialText);
         setExpanded(false);
         setSelectedTicketId(undefined);
@@ -199,11 +212,13 @@ export function HuddleComposer({
   };
 
   const handleCancel = () => {
+    // Clear before the editing early return — a recording that finishes after
+    // cancellation must not be restored the next time this post is edited.
+    clearComposerPulseUpload(pulseScope);
     if (editing) {
       onCancel?.();
       return;
     }
-    clearComposerPulseUpload(pulseScope);
     setText(initialText);
     setExpanded(false);
     setSelectedTicketId(undefined);
