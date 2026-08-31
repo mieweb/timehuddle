@@ -18,6 +18,7 @@
  * Protocol: https://capgo.app/docs/plugin/self-hosted/auto-update/
  */
 import { WebApp } from 'meteor/webapp';
+import { isNewer, VERSION_RE } from '@timehuddle/ota-version';
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -31,8 +32,6 @@ const MAX_DEVICE_INFO_BYTES = 64 * 1024;
 
 // Absolute base for download URLs — the plugin needs a fully-qualified URL.
 const PUBLIC_URL = (process.env.OTA_PUBLIC_URL || process.env.ROOT_URL || '').replace(/\/+$/, '');
-
-const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 function sendJson(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -55,25 +54,6 @@ function queryOf(req) {
 function channelOf(req) {
   const channel = queryOf(req).get('channel');
   return OTA_CHANNELS.includes(channel) ? channel : null;
-}
-
-/** Coerces "1.0" / "v1.2.3-beta.1" to a [major, minor, patch] tuple. */
-function versionTuple(value) {
-  const core = String(value || '')
-    .trim()
-    .replace(/^v/, '')
-    .split(/[-+]/)[0]
-    .split('.');
-  return [0, 1, 2].map((i) => Number.parseInt(core[i], 10) || 0);
-}
-
-function isNewer(candidate, current) {
-  const a = versionTuple(candidate);
-  const b = versionTuple(current);
-  for (let i = 0; i < 3; i += 1) {
-    if (a[i] !== b[i]) return a[i] > b[i];
-  }
-  return false;
 }
 
 function readBody(req, limit) {

@@ -17,6 +17,7 @@
     "@mieweb/pulsevault": "^0.1.2",
     "@parse/node-apn": "^8.1.0",
     "@swc/helpers": "^0.5.17",
+    "@timehuddle/ota-version": "file:../packages/ota-version",
     "agenda": "^6.2.5",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",

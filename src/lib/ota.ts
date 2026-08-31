@@ -11,7 +11,8 @@
  * the update either and blocking it would help nobody.
  */
 import { Capacitor } from '@capacitor/core';
-import { CapacitorUpdater } from '@capgo/capacitor-updater';
+import { CapacitorUpdater, type BundleInfo } from '@capgo/capacitor-updater';
+import { isOlder } from '@timehuddle/ota-version';
 
 import { METEOR_BASE_URL } from './api';
 
@@ -34,25 +35,6 @@ export interface ForcedUpdate {
   url: string;
   checksum?: string;
   running: string;
-}
-
-/** Coerces "1.0" / "v1.2.3-beta.1" to a [major, minor, patch] tuple. */
-function versionTuple(value: string): [number, number, number] {
-  const core = String(value || '')
-    .trim()
-    .replace(/^v/, '')
-    .split(/[-+]/)[0]
-    .split('.');
-  return [0, 1, 2].map((i) => Number.parseInt(core[i], 10) || 0) as [number, number, number];
-}
-
-function isOlder(candidate: string, than: string): boolean {
-  const a = versionTuple(candidate);
-  const b = versionTuple(than);
-  for (let i = 0; i < 3; i += 1) {
-    if (a[i] !== b[i]) return a[i] < b[i];
-  }
-  return false;
 }
 
 /** The bundle actually running — falls back to the native build after a store install. */
@@ -95,8 +77,37 @@ export async function checkForcedUpdate(): Promise<ForcedUpdate | null> {
 }
 
 /**
- * Downloads and activates the update. `set()` reloads the WebView, so on
- * success this never returns.
+ * Finds a copy of `version` the plugin has already pulled down.
+ *
+ * `autoUpdate: 'atBackground'` means the plugin fetches the same bundle on its
+ * own schedule, so by the time the gate runs the download may already be done
+ * or in flight. Re-downloading it would at best waste the user's bandwidth on
+ * the slow connection this gate exists to serve, and at worst collide with the
+ * plugin's own in-flight copy — leaving the user stuck at "Update failed" with
+ * a retry that keeps losing the same race.
+ *
+ * Best-effort only: a failure here just means we download normally.
+ */
+async function findDownloadedBundle(version: string): Promise<BundleInfo | null> {
+  try {
+    const { bundles } = await CapacitorUpdater.list();
+    return (
+      bundles.find(
+        (bundle) =>
+          bundle.version === version &&
+          (bundle.status === 'success' || bundle.status === 'pending'),
+      ) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Downloads and activates the update.
+ *
+ * `set()` reloads the WebView, so on success this normally never returns — the
+ * caller must not treat resolution as "done and still running".
  */
 export async function applyForcedUpdate(
   update: ForcedUpdate,
@@ -106,11 +117,13 @@ export async function applyForcedUpdate(
     ? await CapacitorUpdater.addListener('download', ({ percent }) => onProgress(percent))
     : null;
   try {
-    const bundle = await CapacitorUpdater.download({
-      url: update.url,
-      version: update.version,
-      checksum: update.checksum,
-    });
+    const bundle =
+      (await findDownloadedBundle(update.version)) ??
+      (await CapacitorUpdater.download({
+        url: update.url,
+        version: update.version,
+        checksum: update.checksum,
+      }));
     await CapacitorUpdater.set({ id: bundle.id });
   } finally {
     await listener?.remove();

@@ -8,12 +8,14 @@ const current = vi.fn();
 const download = vi.fn();
 const set = vi.fn();
 const addListener = vi.fn();
+const list = vi.fn();
 vi.mock('@capgo/capacitor-updater', () => ({
   CapacitorUpdater: {
     current: (...args: unknown[]) => current(...args),
     download: (...args: unknown[]) => download(...args),
     set: (...args: unknown[]) => set(...args),
     addListener: (...args: unknown[]) => addListener(...args),
+    list: (...args: unknown[]) => list(...args),
   },
 }));
 
@@ -53,6 +55,8 @@ function runningBundle(version: string, native = '1.0'): void {
 beforeEach(() => {
   vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
   addListener.mockResolvedValue({ remove: vi.fn() });
+  // Default: the plugin has nothing cached, so the gate downloads.
+  list.mockResolvedValue({ bundles: [] });
 });
 
 afterEach(() => {
@@ -187,6 +191,45 @@ describe('applyForcedUpdate', () => {
     await expect(applyForcedUpdate(update, vi.fn())).rejects.toThrow('network');
     expect(remove).toHaveBeenCalled();
     expect(set).not.toHaveBeenCalled();
+  });
+
+  // autoUpdate: 'atBackground' means the plugin may have already fetched this
+  // exact bundle. Racing it with a second download is what would strand the
+  // user on the failure screen.
+  it('reuses a bundle the plugin already downloaded instead of re-downloading', async () => {
+    const { applyForcedUpdate } = await loadOta('testflight');
+    list.mockResolvedValue({
+      bundles: [
+        { id: 'stale', version: '1.0.4', status: 'success' },
+        { id: 'already-here', version: '1.0.5', status: 'success' },
+      ],
+    });
+
+    await applyForcedUpdate(update);
+
+    expect(download).not.toHaveBeenCalled();
+    expect(set).toHaveBeenCalledWith({ id: 'already-here' });
+  });
+
+  it('ignores a cached bundle that failed to download', async () => {
+    const { applyForcedUpdate } = await loadOta('testflight');
+    list.mockResolvedValue({ bundles: [{ id: 'broken', version: '1.0.5', status: 'error' }] });
+    download.mockResolvedValue({ id: 'fresh' });
+
+    await applyForcedUpdate(update);
+
+    expect(download).toHaveBeenCalled();
+    expect(set).toHaveBeenCalledWith({ id: 'fresh' });
+  });
+
+  it('downloads normally when the bundle list cannot be read', async () => {
+    const { applyForcedUpdate } = await loadOta('testflight');
+    list.mockRejectedValue(new Error('not available'));
+    download.mockResolvedValue({ id: 'fresh' });
+
+    await applyForcedUpdate(update);
+
+    expect(set).toHaveBeenCalledWith({ id: 'fresh' });
   });
 
   it('reports download progress', async () => {
