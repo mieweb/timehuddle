@@ -1818,15 +1818,20 @@ function withAbsoluteMediaItem(item: MediaItem): MediaItem {
 
 export const mediaApi = {
   /**
-   * Upload an image or document to the media library.
+   * Upload an image or document to the media library. Images are downscaled
+   * and re-encoded first — a full-resolution camera photo is mostly pixels
+   * nothing in the app ever renders.
    *
    * Uses XMLHttpRequest rather than `fetch` because only XHR exposes
    * upload-side byte progress, which the composer needs to render one progress
    * bar across image, document, and (TUS) video uploads alike.
    */
   uploadImage: async (file: File, onProgress?: (fraction: number) => void): Promise<MediaItem> => {
+    const { compressImageForUpload } = await import('./imageCompress');
+    const upload = await compressImageForUpload(file);
+
     const form = new FormData();
-    form.append('file', file, file.name || 'image');
+    form.append('file', upload, upload.name || 'image');
     const token = await getAccessToken();
 
     const { status, body } = await new Promise<{ status: number; body: string }>(

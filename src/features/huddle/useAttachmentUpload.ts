@@ -22,22 +22,48 @@ export function useAttachmentUpload({
 }: UseAttachmentUploadOptions) {
   const [uploading, setUploading] = useState(false);
 
-  /** Uploads sequentially, so the shared progress bar tracks one file at a time. */
+  /**
+   * Uploads all files at once and reports one byte-weighted fraction across
+   * them, so a batch of photos costs about as long as its largest file rather
+   * than the sum of every file.
+   */
   const upload = useCallback(
     async (files: File[]) => {
-      for (const file of files) {
-        setUploading(true);
-        onUploadProgress?.(0);
-        try {
-          const media = await uploadMedia(file, (fraction) => onUploadProgress?.(fraction));
-          onAttachmentAdd(media);
-        } catch (error) {
-          console.error('[useAttachmentUpload] Upload failed:', error);
-          alert(error instanceof Error ? error.message : 'Upload failed. Please try again.');
-        } finally {
-          setUploading(false);
-          onUploadProgress?.(null);
-        }
+      if (files.length === 0) return;
+      setUploading(true);
+      onUploadProgress?.(0);
+
+      const totalBytes = files.reduce((sum, file) => sum + file.size, 0) || 1;
+      const sentBytes = new Array<number>(files.length).fill(0);
+      const reportProgress = () => {
+        const sent = sentBytes.reduce((sum, bytes) => sum + bytes, 0);
+        onUploadProgress?.(Math.min(1, sent / totalBytes));
+      };
+
+      const results = await Promise.allSettled(
+        files.map((file, index) =>
+          uploadMedia(file, (fraction) => {
+            sentBytes[index] = fraction * file.size;
+            reportProgress();
+          }),
+        ),
+      );
+
+      setUploading(false);
+      onUploadProgress?.(null);
+
+      // Added in pick order, not completion order, so the composer's attachment
+      // strip matches what the user selected.
+      const failures: unknown[] = [];
+      for (const result of results) {
+        if (result.status === 'fulfilled') onAttachmentAdd(result.value);
+        else failures.push(result.reason);
+      }
+
+      if (failures.length > 0) {
+        console.error('[useAttachmentUpload] Upload failed:', failures);
+        const first = failures[0];
+        alert(first instanceof Error ? first.message : 'Upload failed. Please try again.');
       }
     },
     [onAttachmentAdd, onUploadProgress],
