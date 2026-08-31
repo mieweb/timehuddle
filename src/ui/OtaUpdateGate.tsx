@@ -1,11 +1,13 @@
 /**
- * OtaUpdateGate — blocks the app on every launch until the device is running
- * the latest published OTA bundle.
+ * OtaUpdateGate — blocks the app when the running bundle is below the channel's
+ * published minVersion. Routine updates are left to the plugin's background
+ * swap; this is only the kill switch for a release that must not keep running.
  *
  * Children render immediately and the overlay mounts on top once the check
- * confirms a newer bundle exists. The user cannot dismiss it — they wait for
- * the download to finish and the WebView to reload with the new bundle.
- * Failed downloads offer a retry button.
+ * confirms the running bundle is too old. Blocking every cold start behind a
+ * network round-trip would add startup delay on exactly the slow connections
+ * this gate exists to serve. The user cannot dismiss it — they wait for the
+ * download to finish and the WebView to reload. Failed downloads offer a retry.
  *
  * Fails open: if the backend is unreachable the user gets straight through,
  * because a device that can't reach the server can't download the update either.

@@ -62,43 +62,6 @@ async function runningVersion(): Promise<string> {
 }
 
 /**
- * Resolves to a ForcedUpdate when ANY newer bundle is available (not just
- * when below minVersion). Used by OtaUpdateGate to block every launch until
- * the user is on the latest bundle.
- *
- * Fails open — if the backend can't be reached the user gets through, since
- * a device that can't talk to the server can't download the update either.
- */
-export async function checkPendingUpdate(): Promise<ForcedUpdate | null> {
-  if (!Capacitor.isNativePlatform() || !CHANNEL) return null;
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), CHECK_TIMEOUT_MS);
-    const res = await fetch(`${METEOR_BASE_URL}/ota/latest?channel=${CHANNEL}`, {
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeoutId));
-    if (!res.ok) return null;
-
-    const latest = (await res.json()) as Partial<ForcedUpdate> & { minVersion?: string };
-    if (!latest.version || !latest.url) return null;
-
-    const running = await runningVersion();
-    if (!isOlder(running, latest.version)) return null;
-
-    return {
-      minVersion: latest.minVersion ?? latest.version,
-      version: latest.version,
-      url: latest.url,
-      checksum: latest.checksum,
-      running,
-    };
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Resolves to a ForcedUpdate when the running bundle is below the channel's
  * minVersion, or null when the app is safe to use.
  */

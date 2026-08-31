@@ -17,6 +17,9 @@
  *    This is a regression guard: if the guard were accidentally removed the
  *    overlay would block every web user.
  */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
@@ -24,7 +27,15 @@ import { TEST_USERS, loginAs } from '../fixtures/users';
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 const BACKEND = process.env.API_TARGET ?? 'http://localhost:3101';
-const VERSION_RE = /^v\d+\.\d+\.\d+/;
+const PUBLISH_TOKEN = process.env.OTA_PUBLISH_TOKEN ?? '';
+
+// Assert the actual baked version, not just "looks like a version" — the
+// `|| '1.0.0'` fallback in the labels satisfies a loose regex even when the
+// Vite `define` regresses, which would make this guard useless.
+const APP_VERSION: string = JSON.parse(
+  readFileSync(path.resolve(__dirname, '../../../package.json'), 'utf8'),
+).version;
+const EXPECTED_LABEL = `v${APP_VERSION}`;
 
 async function otaLatest(request: APIRequestContext, channel: string) {
   return request.get(`${BACKEND}/ota/latest?channel=${channel}`);
@@ -130,14 +141,33 @@ test.describe('OTA backend API', () => {
     expect([401, 503]).toContain(res.status());
   });
 
-  test('POST /ota/min-version rejects version above latest', async ({ request }) => {
-    // Only testable when the backend has the token. When it doesn't, we get
-    // a 503 before the validation — which is still not a 200, so it's fine.
+  test('POST /ota/min-version rejects a version above the latest bundle', async ({ request }) => {
+    // Authorisation is checked before the version validation, so a bad token
+    // returns 401 and proves nothing about the gate. Only run this when the
+    // backend actually has a publish token to authenticate against.
+    test.skip(
+      !PUBLISH_TOKEN,
+      'OTA_PUBLISH_TOKEN not set for the test backend — cannot reach minVersion validation',
+    );
+
+    const latest = await (await otaLatest(request, 'testflight')).json();
+    test.skip(!latest.version, 'No bundle published on the test backend');
+
     const res = await request.post(
       `${BACKEND}/ota/min-version?channel=testflight&version=999.999.999`,
-      { headers: { Authorization: 'Bearer wrong-token' } },
+      { headers: { Authorization: `Bearer ${PUBLISH_TOKEN}` } },
     );
-    expect(res.status()).not.toBe(200);
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('invalid_min_version');
+  });
+
+  test('POST /ota/min-version rejects an unknown channel', async ({ request }) => {
+    const res = await request.post(`${BACKEND}/ota/min-version?channel=nope&version=1.0.0`, {
+      headers: { Authorization: `Bearer ${PUBLISH_TOKEN || 'wrong-token'}` },
+    });
+    // Unauthenticated backends reject at auth first; either way it is not a 200.
+    expect([400, 401, 503]).toContain(res.status());
   });
 });
 
@@ -157,7 +187,7 @@ test.describe('OTA version labels', () => {
     // The version line at the bottom of the modal body.
     const versionText = page.getByRole('dialog').locator('p').filter({ hasText: /^v\d/ });
     await expect(versionText).toBeVisible();
-    await expect(versionText).toHaveText(VERSION_RE);
+    await expect(versionText).toHaveText(EXPECTED_LABEL);
   });
 
   test('sidebar shows the app version when expanded', async ({ page }) => {
@@ -178,7 +208,7 @@ test.describe('OTA version labels', () => {
       .filter({ hasText: /^v\d+\.\d+\.\d+/ })
       .first();
     await expect(anyVersionLabel).toBeVisible({ timeout: 5000 });
-    await expect(anyVersionLabel).toHaveText(VERSION_RE);
+    await expect(anyVersionLabel).toContainText(EXPECTED_LABEL);
   });
 });
 
