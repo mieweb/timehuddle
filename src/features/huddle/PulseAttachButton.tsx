@@ -11,7 +11,7 @@ import {
   openPulseAppOrStore,
 } from '../../lib/device';
 import type { MediaItem } from './types';
-import { buildUploadDeepLink } from '../media/PulseUploadButton';
+import { buildScanLink, buildUploadDeepLink } from '../media/PulseUploadButton';
 import { PulseUploadModal } from '../media/PulseUploadModal';
 import {
   PENDING_TTL_MS,
@@ -64,7 +64,7 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
   const attachedRef = useRef<string | null>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [uploadLink, setUploadLink] = useState<string | null>(null);
+  const [scanLink, setScanLink] = useState<string | null>(null);
   const [uploadToken, setUploadToken] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -154,7 +154,7 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
       attachedRef.current = null;
       setPending(writePending(scope, videoid));
       setUploadToken(uploadToken);
-      setUploadLink(link);
+      setScanLink(buildScanLink(videoid, uploadToken));
       return { videoid, uploadLink: link };
     } catch {
       setError('Could not prepare upload. Try again.');
@@ -186,7 +186,7 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
     clearComposerPulseUpload(scope);
     setPending(null);
     setUploadToken(null);
-    setUploadLink(null);
+    setScanLink(null);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -294,7 +294,7 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
       <PulseUploadModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        uploadLink={uploadLink}
+        scanLink={scanLink}
         onUploadFromDevice={handleUploadFromDevice}
         onDone={() => setModalOpen(false)}
         doneLabel="Done"

@@ -16,8 +16,12 @@ import React from 'react';
 export interface PulseUploadModalProps {
   open: boolean;
   onClose: () => void;
-  /** The `pulsecam://` deep link to encode as a QR code, or null while reserving. */
-  uploadLink: string | null;
+  /**
+   * The https `/pulse/open` link to encode as a QR code, or null while
+   * reserving. It resolves to the `pulsecam://` deep link on a phone that has
+   * Pulse Cam, and to the App Store / Play Store listing on one that doesn't.
+   */
+  scanLink: string | null;
   /** Fallback: pick an MP4 from this device instead of the phone. */
   onUploadFromDevice: () => void;
   /** Confirm the phone upload finished (host refreshes / polls). */
@@ -35,7 +39,7 @@ export interface PulseUploadModalProps {
 export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
   open,
   onClose,
-  uploadLink,
+  scanLink,
   onUploadFromDevice,
   onDone,
   doneLabel = 'Done — Refresh',
@@ -58,10 +62,10 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
 
       <ModalBody>
         <div className="video-upload-modal-body flex flex-col items-center gap-4 py-2">
-          {uploadLink && (
+          {scanLink && (
             <div className="video-upload-qr-container rounded-lg border border-border bg-white p-4">
               <QRCodeSVG
-                value={uploadLink}
+                value={scanLink}
                 size={200}
                 aria-label="QR code to open the Pulse upload screen"
               />
@@ -69,8 +73,10 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
           )}
 
           <Text size="sm" className="max-w-xs text-center text-muted-foreground">
-            Scan with the <strong className="text-foreground">Pulse app</strong> on your phone. The
-            attachment will appear automatically once the upload completes.
+            Scan with your phone&rsquo;s camera to open the{' '}
+            <strong className="text-foreground">Pulse app</strong> — you&rsquo;ll be sent to the app
+            store if it isn&rsquo;t installed yet. The attachment will appear automatically once the
+            upload completes.
           </Text>
 
           <div className="video-upload-divider flex w-full items-center gap-3">

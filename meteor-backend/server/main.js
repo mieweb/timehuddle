@@ -35,6 +35,8 @@ import './team-join-requests';
 
 // PulseVault — video upload + serving
 import './pulsevault';
+// Pulse Cam QR scan interstitial (deep link + app-store fallback)
+import './pulse-link';
 import './messages';
 import './huddle';
 // M8 — Live collaborative editing relay (Yjs) on /yjs

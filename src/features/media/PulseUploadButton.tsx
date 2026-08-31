@@ -30,14 +30,29 @@ export function pulseServerBase(): string {
  * upload), and `uploadUnit=merged` (one pre-recorded file per session).
  */
 export function buildUploadDeepLink(videoid: string, uploadToken: string): string {
-  const params = new URLSearchParams({
+  return `pulsecam://?${uploadParams(videoid, uploadToken).toString()}`;
+}
+
+/**
+ * Build the https URL to encode in the QR code. Phone camera apps ignore a raw
+ * `pulsecam://` QR when Pulse Cam isn't installed — the scan simply does
+ * nothing. Pointing the QR at the backend's `/pulse/open` interstitial instead
+ * means the phone lands on a page that opens Pulse Cam when it is installed and
+ * offers the App Store / Play Store listing when it isn't.
+ */
+export function buildScanLink(videoid: string, uploadToken: string): string {
+  const base = TIMECORE_BASE_URL.replace(/\/$/, '');
+  return `${base}/pulse/open?${uploadParams(videoid, uploadToken).toString()}`;
+}
+
+function uploadParams(videoid: string, uploadToken: string): URLSearchParams {
+  return new URLSearchParams({
     v: '1',
     artifactId: videoid,
     server: pulseServerBase(),
     token: uploadToken,
     uploadUnit: 'merged',
   });
-  return `pulsecam://?${params.toString()}`;
 }
 
 // ─── Per-ticket videoid persistence ──────────────────────────────────────────
@@ -87,7 +102,7 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
   const knownAttachmentIds = useRef<Set<string>>(new Set());
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [uploadLink, setUploadLink] = useState<string | null>(null);
+  const [scanLink, setScanLink] = useState<string | null>(null);
   const [videoid, setVideoid] = useState<string | null>(null);
   const [uploadToken, setUploadToken] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
@@ -130,7 +145,7 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
       const link = buildUploadDeepLink(videoid, uploadToken);
       setVideoid(videoid);
       setUploadToken(uploadToken);
-      setUploadLink(link);
+      setScanLink(buildScanLink(videoid, uploadToken));
       return { videoid, uploadLink: link };
     } catch {
       setError('Could not prepare upload. Try again.');
@@ -258,7 +273,7 @@ export const PulseUploadButton: React.FC<PulseUploadButtonProps> = ({
       <PulseUploadModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        uploadLink={uploadLink}
+        scanLink={scanLink}
         onUploadFromDevice={handleUploadFromDevice}
         onDone={() => {
           setModalOpen(false);
