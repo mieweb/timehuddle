@@ -36,9 +36,14 @@ export const OtaUpdateGate: React.FC<{ children: React.ReactNode }> = ({ childre
 
   React.useEffect(() => {
     let cancelled = false;
-    void checkForcedUpdate().then((pending) => {
-      if (!cancelled && pending) setUpdate(pending);
-    });
+    void checkForcedUpdate()
+      .then((pending) => {
+        if (!cancelled && pending) setUpdate(pending);
+      })
+      // checkForcedUpdate resolves null rather than throwing, but failing open
+      // is the gate's contract — make that true at the call site too, instead
+      // of depending on the callee never rejecting.
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
