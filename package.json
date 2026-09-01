@@ -1,6 +1,6 @@
 {
   "name": "timehuddle",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "workspaces": [
     "packages/*"
@@ -40,7 +40,8 @@
     "testflight:android": "CAPACITOR=1 vite build --mode testflight && OTA_CHANNEL=testflight npx cap sync android && npx cap open android",
     "prod:android": "CAPACITOR=1 vite build --mode production && OTA_CHANNEL=production npx cap sync android && npx cap open android",
     "ota:testflight": "CAPACITOR=1 vite build --mode testflight && node scripts/publish-ota.mjs --channel testflight",
-    "ota:production": "CAPACITOR=1 vite build --mode production && node scripts/publish-ota.mjs --channel production"
+    "ota:production": "CAPACITOR=1 vite build --mode production && node scripts/publish-ota.mjs --channel production",
+    "ota:min-version": "node scripts/ota-min-version.mjs"
   },
   "dependencies": {
     "@babel/runtime": "^7.28.4",

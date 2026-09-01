@@ -26,6 +26,10 @@ WORKDIR /app
 # Copy package manifests first for layer caching
 COPY package.json package-lock.json ./
 COPY packages/youtube/package.json ./packages/youtube/
+# ota-version is copied whole, not just its manifest: meteor-backend takes it as
+# a file: dependency, so npm needs the real package present at install time —
+# and that install runs before the `COPY . .` below.
+COPY packages/ota-version ./packages/ota-version
 COPY packages/README.md ./packages/
 COPY meteor-backend/package.json meteor-backend/package-lock.json ./meteor-backend/
 COPY scripts ./scripts

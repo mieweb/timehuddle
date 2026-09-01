@@ -5,15 +5,21 @@
  *   GET  /ota/latest?channel=<channel>         → current bundle metadata (latest.json)
  *   GET  /ota/bundles/<channel>/<version>.zip  → bundle download
  *   POST /ota/publish?channel=&version=        → publish a bundle (Bearer token)
+ *   POST /ota/min-version?channel=&version=    → gate stale clients (Bearer token)
+ *
+ * minVersion is the kill switch: clients running older than it must update
+ * before they can be used, rather than picking the bundle up whenever they
+ * happen to background the app.
  *
  * Layout on disk (OTA_DIR, default data/ota):
- *   <channel>/latest.json   { version, file, checksum, size, publishedAt }
+ *   <channel>/latest.json   { version, file, checksum, size, publishedAt, minVersion }
  *   <channel>/<version>.zip
  *
  * Protocol: https://capgo.app/docs/plugin/self-hosted/auto-update/
  */
 import { WebApp } from 'meteor/webapp';
-import { createHash, timingSafeEqual } from 'crypto';
+import { isNewer, VERSION_RE } from '@timehuddle/ota-version';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
@@ -26,8 +32,6 @@ const MAX_DEVICE_INFO_BYTES = 64 * 1024;
 
 // Absolute base for download URLs — the plugin needs a fully-qualified URL.
 const PUBLIC_URL = (process.env.OTA_PUBLIC_URL || process.env.ROOT_URL || '').replace(/\/+$/, '');
-
-const VERSION_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 function sendJson(res, status, data) {
   res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -50,25 +54,6 @@ function queryOf(req) {
 function channelOf(req) {
   const channel = queryOf(req).get('channel');
   return OTA_CHANNELS.includes(channel) ? channel : null;
-}
-
-/** Coerces "1.0" / "v1.2.3-beta.1" to a [major, minor, patch] tuple. */
-function versionTuple(value) {
-  const core = String(value || '')
-    .trim()
-    .replace(/^v/, '')
-    .split(/[-+]/)[0]
-    .split('.');
-  return [0, 1, 2].map((i) => Number.parseInt(core[i], 10) || 0);
-}
-
-function isNewer(candidate, current) {
-  const a = versionTuple(candidate);
-  const b = versionTuple(current);
-  for (let i = 0; i < 3; i += 1) {
-    if (a[i] !== b[i]) return a[i] > b[i];
-  }
-  return false;
 }
 
 function readBody(req, limit) {
@@ -96,6 +81,15 @@ async function readLatest(channel) {
   } catch {
     return null;
   }
+}
+
+/** Rename-based write so a concurrent check never reads a half-written file. */
+async function writeLatest(channel, manifest) {
+  const dir = path.join(OTA_DIR, channel);
+  await fsp.mkdir(dir, { recursive: true });
+  const tmp = path.join(dir, `latest.json.${randomBytes(8).toString('hex')}.tmp`);
+  await fsp.writeFile(tmp, JSON.stringify(manifest, null, 2));
+  await fsp.rename(tmp, path.join(dir, 'latest.json'));
 }
 
 function isAuthorized(req) {
@@ -156,6 +150,7 @@ WebApp.connectHandlers.use('/ota/check', async (req, res) => {
     version: latest.version,
     url: `${PUBLIC_URL}/ota/bundles/${channel}/${encodeURIComponent(latest.file)}`,
     checksum: latest.checksum,
+    ...(latest.minVersion ? { minVersion: latest.minVersion } : {}),
   });
 });
 
@@ -272,18 +267,90 @@ WebApp.connectHandlers.use('/ota/publish', async (req, res) => {
     return;
   }
 
+  // Carried over unless this publish overrides it, so a routine release never
+  // silently un-gates clients an earlier min-version bump was holding back.
+  const requestedMin = queryOf(req).get('minVersion');
+  if (requestedMin !== null && !VERSION_RE.test(requestedMin)) {
+    sendJson(res, 400, { error: 'invalid_min_version', message: 'minVersion must be semver (1.2.3)' });
+    return;
+  }
+  if (requestedMin !== null && isNewer(requestedMin, version)) {
+    sendJson(res, 400, {
+      error: 'invalid_min_version',
+      message: 'minVersion cannot exceed the published version',
+    });
+    return;
+  }
+  const minVersion = requestedMin ?? (await readLatest(channel))?.minVersion;
+
   const checksum = createHash('sha256').update(zip).digest('hex');
   const file = `${version}.zip`;
   const dir = path.join(OTA_DIR, channel);
   await fsp.mkdir(dir, { recursive: true });
   await fsp.writeFile(path.join(dir, file), zip);
 
-  // Write the pointer atomically so a concurrent check never reads a half file.
-  const manifest = { version, file, checksum, size: zip.length, publishedAt: new Date().toISOString() };
-  const tmp = path.join(dir, `latest.json.${process.pid}.tmp`);
-  await fsp.writeFile(tmp, JSON.stringify(manifest, null, 2));
-  await fsp.rename(tmp, path.join(dir, 'latest.json'));
+  const manifest = {
+    version,
+    file,
+    checksum,
+    size: zip.length,
+    publishedAt: new Date().toISOString(),
+    ...(minVersion ? { minVersion } : {}),
+  };
+  await writeLatest(channel, manifest);
 
   console.log(`[ota] published ${channel} ${version} (${zip.length} bytes)`);
+  sendJson(res, 200, manifest);
+});
+
+// ── Minimum version gate ──────────────────────────────────────────────────────
+
+WebApp.connectHandlers.use('/ota/min-version', async (req, res) => {
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { error: 'method_not_allowed', message: 'POST required' });
+    return;
+  }
+  if (!PUBLISH_TOKEN) {
+    sendJson(res, 503, { error: 'publishing_disabled', message: 'OTA_PUBLISH_TOKEN is not set' });
+    return;
+  }
+  if (!isAuthorized(req)) {
+    sendJson(res, 401, { error: 'unauthorized', message: 'Invalid publish token' });
+    return;
+  }
+
+  const channel = channelOf(req);
+  if (!channel) {
+    sendJson(res, 400, { error: 'unknown_channel', message: 'Unknown update channel' });
+    return;
+  }
+
+  // Empty version clears the gate.
+  const version = queryOf(req).get('version') || '';
+  if (version && !VERSION_RE.test(version)) {
+    sendJson(res, 400, { error: 'invalid_version', message: 'version must be semver (1.2.3)' });
+    return;
+  }
+
+  const latest = await readLatest(channel);
+  if (!latest?.version) {
+    sendJson(res, 404, { error: 'no_bundle', message: 'No bundle published for this channel' });
+    return;
+  }
+  // Gating above the newest bundle would lock every client out with no way up.
+  if (version && isNewer(version, latest.version)) {
+    sendJson(res, 400, {
+      error: 'invalid_min_version',
+      message: `minVersion cannot exceed the latest published version (${latest.version})`,
+    });
+    return;
+  }
+
+  const manifest = { ...latest };
+  if (version) manifest.minVersion = version;
+  else delete manifest.minVersion;
+  await writeLatest(channel, manifest);
+
+  console.log(`[ota] ${channel} minVersion ${version || 'cleared'}`);
   sendJson(res, 200, manifest);
 });

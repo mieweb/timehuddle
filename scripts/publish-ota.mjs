@@ -2,7 +2,7 @@
 /**
  * Publish the current dist/ as an OTA bundle to the self-hosted update endpoint.
  *
- *   node scripts/publish-ota.mjs --channel testflight [--version 1.0.1]
+ *   node scripts/publish-ota.mjs --channel testflight [--version 1.0.1] [--min-version 1.0.1]
  *
  * Env:
  *   OTA_BACKEND_URL    backend base URL (defaults per channel, see below)
@@ -10,6 +10,9 @@
  *
  * The bundle version must be greater than the native app version (iOS
  * MARKETING_VERSION / Android versionName) or devices will treat it as stale.
+ *
+ * --min-version gates clients: anything older is held at a blocking update
+ * screen until it downloads. Omit it to leave the existing gate untouched.
  */
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
@@ -18,59 +21,22 @@ import fsp from 'fs/promises';
 import os from 'os';
 import path from 'path';
 
-const DEFAULT_BACKENDS = {
-  testflight: 'https://timecore-dev.os.mieweb.org',
-  production: 'https://timecore-prod.os.mieweb.org',
-};
+import { isValidVersion } from '@timehuddle/ota-version';
 
-function arg(name) {
-  const i = process.argv.indexOf(`--${name}`);
-  return i === -1 ? undefined : process.argv[i + 1];
-}
+import { arg, fail, resolveChannel } from './ota-cli.mjs';
 
-function fail(message) {
-  console.error(`✖ ${message}`);
-  process.exit(1);
-}
-
-/** Load KEY=VALUE pairs from .env.<channel> and .env.local into process.env (no-op if absent). */
-function loadEnvFile(channel) {
-  const root = new URL('..', import.meta.url).pathname;
-  for (const name of [`.env.${channel}`, '.env.local']) {
-    const file = path.join(root, name);
-    if (!fs.existsSync(file)) continue;
-    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const eq = trimmed.indexOf('=');
-      if (eq === -1) continue;
-      const key = trimmed.slice(0, eq).trim();
-      const val = trimmed
-        .slice(eq + 1)
-        .trim()
-        .replace(/^["']|["']$/g, '');
-      if (!(key in process.env)) process.env[key] = val;
-    }
-  }
-}
-
-const channel = arg('channel');
-if (!Object.keys(DEFAULT_BACKENDS).includes(channel)) {
-  fail(`--channel must be one of: ${Object.keys(DEFAULT_BACKENDS).join(', ')}`);
-}
-
-loadEnvFile(channel);
+const { channel, token, backend } = resolveChannel();
 
 const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const version = arg('version') || pkg.version;
-if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version || '')) {
+if (!isValidVersion(version)) {
   fail(`Invalid bundle version "${version}" — expected semver like 1.0.1`);
 }
 
-const token = process.env.OTA_PUBLISH_TOKEN;
-if (!token) fail('OTA_PUBLISH_TOKEN is not set — add it to .env.' + channel + ' or pass it inline');
-
-const backend = (process.env.OTA_BACKEND_URL || DEFAULT_BACKENDS[channel]).replace(/\/+$/, '');
+const minVersion = arg('min-version');
+if (minVersion !== undefined && !isValidVersion(minVersion)) {
+  fail(`Invalid --min-version "${minVersion}" — expected semver like 1.0.1`);
+}
 
 const distDir = path.resolve(process.cwd(), 'dist');
 if (!fs.existsSync(path.join(distDir, 'index.html'))) {
@@ -84,7 +50,9 @@ execFileSync('zip', ['-r', '-q', '-X', zipPath, '.', '-x', '.*', '-x', '*/.*'], 
 const zip = await fsp.readFile(zipPath);
 const checksum = createHash('sha256').update(zip).digest('hex');
 
-const url = `${backend}/ota/publish?channel=${channel}&version=${encodeURIComponent(version)}`;
+const url =
+  `${backend}/ota/publish?channel=${channel}&version=${encodeURIComponent(version)}` +
+  (minVersion ? `&minVersion=${encodeURIComponent(minVersion)}` : '');
 const res = await fetch(url, {
   method: 'POST',
   headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/zip' },
@@ -101,3 +69,4 @@ if (published.checksum !== checksum) {
 
 console.log(`✔ Published ${channel} bundle ${version} (${zip.length} bytes)`);
 console.log(`  checksum ${checksum}`);
+if (published.minVersion) console.log(`  minVersion ${published.minVersion} (older clients gated)`);

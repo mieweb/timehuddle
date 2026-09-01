@@ -39,8 +39,8 @@ const config: CapacitorConfig = {
     App: {},
 
     CapacitorUpdater: {
-      // Download in the background, swap bundles the next time the app is
-      // backgrounded. Disabled during live reload so Vite stays authoritative.
+      // Normal OTA updates still happen via the plugin; the OtaUpdateGate only blocks
+      // when the backend declares the running bundle below minVersion.
       autoUpdate: liveReloadUrl ? 'off' : 'atBackground',
       updateUrl: otaUpdateUrl,
       // Self-hosted: no Capgo cloud, so no stats or channel endpoints.

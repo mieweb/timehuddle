@@ -70,6 +70,7 @@ import { AppLayout } from './ui/AppLayout';
 import { InstallerModal } from './ui/InstallerModal';
 import { LandingPage } from './ui/LandingPage';
 import { LoginForm } from './ui/LoginForm';
+import { OtaUpdateGate } from './ui/OtaUpdateGate';
 import { UsernameClaimModal } from './ui/UsernameClaimModal';
 
 // ─── Deep link handling (Capacitor native only) ───────────────────────────────
@@ -367,9 +368,11 @@ function renderRoot() {
         _log('native platform detected — mounting SessionProvider + App');
         _root = createRoot(el);
         _root.render(
-          <SessionProvider>
-            <App />
-          </SessionProvider>,
+          <OtaUpdateGate>
+            <SessionProvider>
+              <App />
+            </SessionProvider>
+          </OtaUpdateGate>,
         );
         return;
       }
@@ -386,9 +389,11 @@ function renderRoot() {
   }
 
   _root.render(
-    <SessionProvider>
-      <App />
-    </SessionProvider>,
+    <OtaUpdateGate>
+      <SessionProvider>
+        <App />
+      </SessionProvider>
+    </OtaUpdateGate>,
   );
 }
 
