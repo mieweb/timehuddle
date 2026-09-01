@@ -34,7 +34,18 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>TimeHuddle uses the camera to update your profile photo.</string>
+	<string>TimeHuddle uses the camera to take photos and videos for messages and your profile photo.</string>
+	<!-- Required for the native HTTP bridge (CapacitorHttp) to reach a backend on
+	     a private LAN address, which is how local development is served. Native
+	     URLSession traffic to RFC1918 hosts is gated by iOS Local Network
+	     Privacy; without this key iOS never prompts and every wormholeCall fails
+	     with "unsatisfied (Local network prohibited)". NSAllowsLocalNetworking
+	     above does NOT cover this — it is an ATS key governing HTTPS only.
+	     Production builds talk to a public hostname, so no prompt is shown. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>TimeHuddle connects to a TimeHuddle server on your local network during development.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>TimeHuddle uses the microphone to record audio when capturing videos for messages.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TimeHuddle accesses your photo library to update your profile photo.</string>
 	<key>UIBackgroundModes</key>
