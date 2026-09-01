@@ -73,8 +73,10 @@ function notifySseClients(artifactId, ready) {
   });
   const event = `event: ready\ndata: ${payload}\n\n`;
   for (const res of clients) {
-    try { res.write(event); } catch {}
-    try { res.end(); } catch {}
+    // A subscriber that already hung up is not an error worth logging — the
+    // upload succeeded either way, and this Set is dropped immediately below.
+    try { res.write(event); } catch { /* subscriber gone */ }
+    try { res.end(); } catch { /* subscriber gone */ }
   }
   sseClients.delete(artifactId);
 }
@@ -83,7 +85,14 @@ function lookupCapabilitySecret(kid) {
   return kid === CAPABILITY_KEY_ID ? CAPABILITY_SECRET : null;
 }
 
-const verifyUploadToken = createCapabilityAuthorize(lookupCapabilitySecret, { issuer: ISSUER });
+/**
+ * Verify a PulseVault capability token. Exported so the `/pulse/open` scan
+ * interstitial can reject a made-up token before rendering a page that would
+ * otherwise hand Pulse Cam a live-looking upload session (see pulse-link.js).
+ */
+export const verifyUploadToken = createCapabilityAuthorize(lookupCapabilitySecret, {
+  issuer: ISSUER,
+});
 
 /**
  * artifactId -> { userId, ticketId } | { userId, target: 'library' }
@@ -367,7 +376,11 @@ Wormhole.use({
         res.write(':ok\n\n');
         if (!sseClients.has(artifactId)) sseClients.set(artifactId, new Set());
         sseClients.get(artifactId).add(res);
-        const heartbeat = setInterval(() => { try { res.write(':\n\n'); } catch {} }, 25_000);
+        const heartbeat = setInterval(() => {
+          // Write failures mean the subscriber vanished without a 'close'
+          // event; the interval is torn down by that handler below.
+          try { res.write(':\n\n'); } catch { /* subscriber gone */ }
+        }, 25_000);
         req.on('close', () => {
           clearInterval(heartbeat);
           const clients = sseClients.get(artifactId);

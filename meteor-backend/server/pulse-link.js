@@ -14,6 +14,8 @@
  */
 import { WebApp } from 'meteor/webapp';
 
+import { verifyUploadToken } from './pulsevault.js';
+
 const STORE_URLS = {
   ios: 'https://apps.apple.com/us/app/pulse-cam/id6748621024',
   android: 'https://play.google.com/store/apps/details?id=com.mieweb.pulse',
@@ -46,7 +48,38 @@ function androidIntentLink(deepLink) {
   );
 }
 
-function buildDeepLink(searchParams) {
+/** The `/pulsevault` mount on a given origin — the only place a clip may go. */
+function uploadServerFor(origin) {
+  return `${origin.replace(/\/$/, '')}/pulsevault`;
+}
+
+/**
+ * Upload targets this backend is willing to vouch for.
+ *
+ * `server` tells Pulse Cam where to send the finished recording, and it arrives
+ * as a query param on a public URL. Accepting any http(s) origin (as this did
+ * originally) turns the page into a link on *our* domain, carrying our TLS and
+ * branding, that uploads the user's video to somebody else's server — the URL
+ * looks legitimate right up to the query string nobody reads. So the value is
+ * pinned rather than merely shape-checked.
+ *
+ * Both ROOT_URL and the request's own origin count: dev serves the stack from a
+ * LAN IP that ROOT_URL can lag behind (see scripts/sync-lan-ip.sh), and the QR
+ * is built from the frontend's configured backend URL, which is not necessarily
+ * spelled the same way as ROOT_URL.
+ */
+function allowedUploadServers(req) {
+  const servers = new Set();
+  if (process.env.ROOT_URL) servers.add(uploadServerFor(process.env.ROOT_URL));
+  const host = req.headers.host;
+  if (host) {
+    const proto = (req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim() || 'http';
+    servers.add(uploadServerFor(`${proto}://${host}`));
+  }
+  return servers;
+}
+
+function buildDeepLink(searchParams, allowedServers) {
   const params = new URLSearchParams();
   for (const key of ALLOWED_PARAMS) {
     const value = searchParams.get(key);
@@ -56,11 +89,15 @@ function buildDeepLink(searchParams) {
   }
   if (!params.get('artifactId') || !params.get('token')) return null;
 
-  // `server` tells Pulse Cam where to upload — only ever an http(s) origin.
+  // Only our own PulseVault mount — see allowedUploadServers above.
   const server = params.get('server');
-  if (server && !/^https?:\/\//i.test(server)) return null;
+  if (server && !allowedServers.has(server.replace(/\/$/, ''))) return null;
 
-  return { deepLink: `pulsecam://?${params.toString()}`, artifactId: params.get('artifactId') };
+  return {
+    deepLink: `pulsecam://?${params.toString()}`,
+    artifactId: params.get('artifactId'),
+    token: params.get('token'),
+  };
 }
 
 function page(deepLink, artifactId) {
@@ -223,13 +260,29 @@ function page(deepLink, artifactId) {
 </html>`;
 }
 
-WebApp.connectHandlers.use('/pulse/open', (req, res) => {
+WebApp.connectHandlers.use('/pulse/open', async (req, res) => {
   const searchParams = new URL(req.url, 'http://placeholder').searchParams;
-  const link = buildDeepLink(searchParams);
+  const link = buildDeepLink(searchParams, allowedUploadServers(req));
 
   if (!link) {
     res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end('Invalid Pulse Cam link.');
+    return;
+  }
+
+  // Render only for a token that really authorizes this artifact. Without this
+  // the page renders for any made-up artifactId/token pair, so a scraped or
+  // guessed link still produces a convincing "Opening Pulse Cam…" page — the
+  // upload would fail later, but only after the user has recorded a clip.
+  try {
+    await verifyUploadToken(req, {
+      artifactId: link.artifactId,
+      phase: 'create',
+      token: link.token,
+    });
+  } catch {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end('This Pulse Cam link is invalid or has expired.');
     return;
   }
 
