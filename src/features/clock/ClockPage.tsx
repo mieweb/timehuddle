@@ -42,8 +42,7 @@ import {
 } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { MarkdownEditor } from '../huddle/MarkdownEditor';
-import { useAttachmentUpload } from '../huddle/useAttachmentUpload';
-import { useUploadProgress } from '../huddle/useUploadProgress';
+import { useAttachmentUpload, useUploadProgress } from '../huddle/useAttachmentUpload';
 import { toPostAttachment } from '../huddle/api';
 import { clearComposerPulseUpload } from '../huddle/pulseComposerUpload';
 import {
