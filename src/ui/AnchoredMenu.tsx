@@ -13,6 +13,13 @@
  * The menu also flips above the trigger when there isn't room below, and
  * exposes the space it has as `max-height` so long lists scroll inside it
  * instead of running off-screen.
+ *
+ * Because the menu is portaled to the end of <body>, a keyboard user left on
+ * the trigger would have to Tab through the rest of the page to reach it. So on
+ * open focus moves into the menu container (not into a search field — focusing
+ * one scrolls the composer and pops the mobile keyboard over the list being
+ * picked from), arrow keys walk the `role="menuitem"` children, and focus
+ * returns to the trigger on close.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, RefObject } from 'react';
@@ -22,6 +29,8 @@ import { createPortal } from 'react-dom';
 const GUTTER = 8;
 /** Below this much space under the trigger, the menu flips above it. */
 const FLIP_THRESHOLD = 200;
+/** Keys that move the roving focus between menu items. */
+const MOVEMENT_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Home', 'End']);
 
 interface AnchoredMenuProps {
   open: boolean;
@@ -114,7 +123,35 @@ export function AnchoredMenu({
       onClose();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (!MOVEMENT_KEYS.has(event.key)) return;
+      // Only steer the menu while focus is actually inside it, so arrow keys in
+      // the page behind an open menu still scroll normally.
+      const menu = menuRef.current;
+      if (!menu?.contains(document.activeElement)) return;
+
+      const items = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+      if (items.length === 0) return;
+      event.preventDefault();
+
+      const current = items.indexOf(document.activeElement as HTMLElement);
+      const next =
+        event.key === 'Home'
+          ? 0
+          : event.key === 'End'
+            ? items.length - 1
+            : event.key === 'ArrowDown'
+              ? // From the search field (not an item) ArrowDown enters at the top.
+                current < 0
+                ? 0
+                : (current + 1) % items.length
+              : current <= 0
+                ? items.length - 1
+                : current - 1;
+      items[next]?.focus();
     };
     document.addEventListener('mousedown', handlePointerDown);
     document.addEventListener('keydown', handleKeyDown);
@@ -124,16 +161,39 @@ export function AnchoredMenu({
     };
   }, [open, onClose, anchorRef]);
 
+  // Move focus into the menu on open and hand it back to the trigger on close —
+  // but only if focus is still inside the menu, so clicking elsewhere on the
+  // page doesn't get yanked back to the trigger. `preventScroll` keeps the
+  // composer's scroll container from jumping to reveal the portaled menu.
+  //
+  // Gated on `positioned`, not on `style`: nothing is rendered until the first
+  // measurement lands, so keying off `open` alone would run this before the
+  // portal exists — and keying off `style` would re-steal focus from the item
+  // the user arrowed to on every scroll reposition.
+  const positioned = style !== null;
+  useEffect(() => {
+    if (!open || !positioned) return;
+    const menu = menuRef.current;
+    menu?.focus({ preventScroll: true });
+    return () => {
+      if (menu?.contains(document.activeElement)) {
+        anchorRef.current?.focus({ preventScroll: true });
+      }
+    };
+  }, [open, positioned, anchorRef]);
+
   if (!open || !style || typeof document === 'undefined') return null;
 
   return createPortal(
     <div
       ref={menuRef}
       role="menu"
+      // Focusable so open can land focus here rather than on a text field.
+      tabIndex={-1}
       aria-label={label}
       data-testid={testId}
       style={style}
-      className="z-[99999] flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
+      className="z-[99999] flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg outline-none dark:border-neutral-700 dark:bg-neutral-800"
     >
       {children}
     </div>,

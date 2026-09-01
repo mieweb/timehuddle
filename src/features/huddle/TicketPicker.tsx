@@ -119,7 +119,7 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
                 type="button"
                 role="menuitem"
                 onClick={() => handleSelect(ticket.id)}
-                className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors ${
+                className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400 dark:focus-visible:ring-indigo-500 ${
                   selectedId === ticket.id
                     ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
                     : 'text-gray-700 dark:text-neutral-300'

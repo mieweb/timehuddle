@@ -28,6 +28,22 @@ function imageFile(name: string, type: string, bytes: number): File {
   return new File([new Uint8Array(bytes)], name, { type });
 }
 
+/**
+ * A WebP file whose header says whether it animates: "RIFF"…"WEBP" then either
+ * a plain "VP8 " chunk (a still) or "VP8X" with the animation bit set.
+ */
+function webpFile(name: string, bytes: number, { animated }: { animated: boolean }): File {
+  const buf = new Uint8Array(bytes);
+  const write = (offset: number, text: string) => {
+    for (let i = 0; i < text.length; i++) buf[offset + i] = text.charCodeAt(i);
+  };
+  write(0, 'RIFF');
+  write(8, 'WEBP');
+  write(12, animated ? 'VP8X' : 'VP8 ');
+  if (animated) buf[20] = 0x02;
+  return new File([buf], name, { type: 'image/webp' });
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -72,6 +88,23 @@ describe('compressImageForUpload', () => {
     expect(await compressImageForUpload(pdf)).toBe(pdf);
     expect(await compressImageForUpload(gif)).toBe(gif);
     expect(await compressImageForUpload(svg)).toBe(svg);
+  });
+
+  it('re-encodes a still WebP', async () => {
+    stubCanvas(400 * 1024);
+    const file = webpFile('still.webp', 4 * 1024 * 1024, { animated: false });
+
+    const out = await compressImageForUpload(file);
+
+    expect(out).not.toBe(file);
+    expect(out.type).toBe('image/webp');
+  });
+
+  it('leaves an animated WebP alone — a canvas round-trip keeps one frame', async () => {
+    stubCanvas(400 * 1024);
+    const file = webpFile('anim.webp', 4 * 1024 * 1024, { animated: true });
+
+    expect(await compressImageForUpload(file)).toBe(file);
   });
 
   it('leaves small images alone', async () => {

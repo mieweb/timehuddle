@@ -43,6 +43,7 @@ import {
 import { useClockToggle } from '../../lib/useClockToggle';
 import { MarkdownEditor } from '../huddle/MarkdownEditor';
 import { useAttachmentUpload } from '../huddle/useAttachmentUpload';
+import { useUploadProgress } from '../huddle/useUploadProgress';
 import { toPostAttachment } from '../huddle/api';
 import { clearComposerPulseUpload } from '../huddle/pulseComposerUpload';
 import {
@@ -106,11 +107,16 @@ export const ClockPage: React.FC = () => {
   const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(undefined);
   const [mentions, setMentions] = useState<MentionRef[]>([]);
   // Completed fraction (0–1) of an attachment upload in flight, or null when
-  // none is — same single-bar treatment as the Huddle composer.
-  const [uploadFraction, setUploadFraction] = useState<number | null>(null);
-  // Posting mid-upload would drop the attachment still on the wire, so every
-  // submit path stays closed until it lands.
-  const uploadInFlight = uploadFraction !== null;
+  // none is — same single-bar treatment as the Huddle composer, aggregated
+  // across the pickers and paste so an overlapping pair can't read as idle.
+  const { fraction: uploadFraction, reporterFor } = useUploadProgress();
+  // A Pulse recording reserved but not yet attached.
+  const [pulsePending, setPulsePending] = useState(false);
+  // Posting mid-upload would drop the attachment still on the wire, and posting
+  // with a Pulse recording outstanding would clear its reservation and change
+  // composer mode — unmounting the watcher before the clip lands. Every submit
+  // path stays closed until both have settled.
+  const uploadInFlight = uploadFraction !== null || pulsePending;
   // useCallback: identity flows into the paste listener MarkdownEditor binds
   // natively, which would otherwise re-register on every keystroke.
   const handleAttachmentAdd = useCallback(
@@ -130,7 +136,7 @@ export const ClockPage: React.FC = () => {
   // editor, so both must keep base64 images out of the post text.
   const { upload: uploadPastedImages } = useAttachmentUpload({
     onAttachmentAdd: handleAttachmentAdd,
-    onUploadProgress: setUploadFraction,
+    onUploadProgress: reporterFor('paste'),
   });
   const handleMentionSelect = (userId: string, name: string) =>
     setMentions((prev) =>
@@ -558,7 +564,8 @@ export const ClockPage: React.FC = () => {
                 selectedTicketId={selectedTicketId}
                 onTicketSelect={setSelectedTicketId}
                 onMentionSelect={handleMentionSelect}
-                onUploadProgress={setUploadFraction}
+                onUploadProgress={reporterFor('picker')}
+                onPulsePendingChange={setPulsePending}
               />
             </div>
 

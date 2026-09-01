@@ -23,9 +23,40 @@ const MIN_COMPRESSIBLE_BYTES = 300 * 1024;
 /**
  * Formats worth re-encoding. GIF (animation) and SVG (vector) are excluded —
  * a canvas round-trip would flatten them to a single raster frame. AVIF is
- * already smaller than anything we'd produce.
+ * already smaller than anything we'd produce. WebP is in, but only after
+ * {@link isAnimatedWebp} rules out an animation, which would flatten the same
+ * way a GIF does.
  */
 const COMPRESSIBLE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+/**
+ * Bytes of a WebP header needed to read the VP8X feature flags:
+ * "RIFF"(4) + size(4) + "WEBP"(4) + "VP8X"(4) + chunk size(4) + flags(1).
+ */
+const WEBP_HEADER_BYTES = 21;
+/** VP8X feature-flag bit marking an animated file. */
+const WEBP_ANIMATION_FLAG = 0x02;
+
+/**
+ * True when a WebP file is animated.
+ *
+ * Only the extended (VP8X) form of WebP can animate, and it advertises that in
+ * a flags byte right after the chunk header — so a 21-byte read settles it
+ * without decoding the image. Anything unreadable or malformed is treated as
+ * animated: skipping compression costs bandwidth, flattening an animation
+ * destroys the file the user picked.
+ */
+async function isAnimatedWebp(file: File): Promise<boolean> {
+  try {
+    const header = new Uint8Array(await file.slice(0, WEBP_HEADER_BYTES).arrayBuffer());
+    if (header.length < WEBP_HEADER_BYTES) return false;
+    const fourCC = String.fromCharCode(...header.subarray(12, 16));
+    if (fourCC !== 'VP8X') return false; // Simple lossy/lossless WebP — a still.
+    return (header[20] & WEBP_ANIMATION_FLAG) !== 0;
+  } catch {
+    return true;
+  }
+}
 
 /**
  * Photographs re-encode best as JPEG, but PNG/WebP sources may carry
@@ -54,6 +85,7 @@ function toBlob(canvas: HTMLCanvasElement, type: string): Promise<Blob | null> {
 export async function compressImageForUpload(file: File): Promise<File> {
   if (!COMPRESSIBLE_TYPES.has(file.type) || file.size < MIN_COMPRESSIBLE_BYTES) return file;
   if (typeof createImageBitmap !== 'function') return file;
+  if (file.type === 'image/webp' && (await isAnimatedWebp(file))) return file;
 
   let bitmap: ImageBitmap | undefined;
   try {

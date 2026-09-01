@@ -25,6 +25,12 @@ interface ComposerAttachButtonsProps {
   pulseScope?: string;
   /** Fraction (0–1) of an in-flight attachment upload, or null when idle. */
   onUploadProgress?: (fraction: number | null) => void;
+  /**
+   * Whether a Pulse recording is reserved but not yet attached. Hosts treat
+   * this as in-flight work and keep submit closed until it lands or is
+   * cancelled — see {@link PulseAttachButton}.
+   */
+  onPulsePendingChange?: (pending: boolean) => void;
 }
 
 /** The Photo / Video / Doc / Pulse / Ticket / @Mention button row. */
@@ -36,6 +42,7 @@ export function ComposerAttachButtons({
   onMentionSelect,
   pulseScope,
   onUploadProgress,
+  onPulsePendingChange,
 }: ComposerAttachButtonsProps) {
   return (
     <>
@@ -43,7 +50,12 @@ export function ComposerAttachButtons({
       {/* Keyed by scope: PulseAttachButton reads its pending reservation from
           the scope only on mount, so a scope change (e.g. clock plan → wrap-up)
           must remount it rather than carry over the old reservation. */}
-      <PulseAttachButton key={pulseScope} onAttach={onAttachmentAdd} scope={pulseScope} />
+      <PulseAttachButton
+        key={pulseScope}
+        onAttach={onAttachmentAdd}
+        scope={pulseScope}
+        onPendingChange={onPulsePendingChange}
+      />
       {teamId && (
         <TicketPicker teamId={teamId} onSelect={onTicketSelect} selectedId={selectedTicketId} />
       )}

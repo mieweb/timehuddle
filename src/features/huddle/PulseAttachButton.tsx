@@ -34,6 +34,12 @@ interface PulseAttachButtonProps {
    * suffix, so it has to be stable across remounts/reloads of the same composer.
    */
   scope?: string;
+  /**
+   * Reports whether a reservation is outstanding (recorded but not yet
+   * attached). The composer treats that as in-flight work — the same as an
+   * upload still on the wire — so submitting can't leave the clip orphaned.
+   */
+  onPendingChange?: (pending: boolean) => void;
 }
 
 /**
@@ -52,6 +58,7 @@ interface PulseAttachButtonProps {
 export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
   onAttach,
   scope = 'default',
+  onPendingChange,
 }) => {
   const isNative = isNativeApp();
 
@@ -72,6 +79,20 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
   const [pending, setPending] = useState<PendingUpload | null>(() => readPending(scope));
 
   const videoid = pending?.videoid ?? null;
+  // A reservation that hasn't resolved yet. Reported to the host (which blocks
+  // submit on it) and used here to stop a second reservation overwriting it.
+  const hasReservation = !!pending && !pending.done;
+
+  // Ref, not a dependency: the host redefines this callback on every render, so
+  // depending on it directly would re-run the effect in a loop.
+  const onPendingChangeRef = useRef(onPendingChange);
+  onPendingChangeRef.current = onPendingChange;
+  useEffect(() => {
+    onPendingChangeRef.current?.(hasReservation);
+  }, [hasReservation]);
+  // Unmounting with a reservation outstanding must not leave the host blocked
+  // on work no longer being watched.
+  useEffect(() => () => onPendingChangeRef.current?.(false), []);
 
   /** Hand the finished video to the composer exactly once. */
   const finishAttach = useCallback(
@@ -242,7 +263,7 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
   };
 
   const isUploading = progress !== null;
-  const isWaiting = !!pending && !pending.done && !isUploading && !modalOpen;
+  const isWaiting = hasReservation && !isUploading && !modalOpen;
 
   return (
     <>
@@ -259,7 +280,10 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
       <button
         type="button"
         onClick={handleClick}
-        disabled={isUploading || reserving}
+        // A second reservation would overwrite the first in state and in
+        // localStorage, orphaning the recording already in progress. The
+        // explicit Cancel beside the waiting status is the way out.
+        disabled={isUploading || reserving || isWaiting}
         aria-label="Record or upload a video with Pulse"
         className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-neutral-400 border border-gray-200 dark:border-neutral-700 px-3 py-1.5 rounded-full hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >

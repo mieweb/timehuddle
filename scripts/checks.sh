@@ -29,18 +29,8 @@ for arg in "$@"; do
 done
 set -- "${ARGS[@]+${ARGS[@]}}"
 
-# Activate the pinned Node version if nvm is available
-# nvm is usually a shell function, so source it in non-interactive shells.
-if [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
-  # shellcheck disable=SC1090
-  source "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
-fi
-
-if command -v nvm &>/dev/null; then
-  nvm use
-elif [ -f .nvmrc ]; then
-  echo "Warning: nvm not found. Ensure Node $(cat .nvmrc) is active." >&2
-fi
+# shellcheck source=scripts/use-node.sh
+source "$(dirname "$0")/use-node.sh"
 
 run_frontend() {
   echo ""

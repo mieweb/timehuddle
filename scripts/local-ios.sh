@@ -16,6 +16,13 @@ set -euo pipefail
 BACKEND_PORT="${BACKEND_PORT:-3100}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Activate the pinned Node before any npx below — Xcode and Finder launch this
+# with a bare environment that has never run `nvm use`. Read .nvmrc from the
+# repo root, not the caller's cwd.
+cd "$ROOT_DIR"
+# shellcheck source=scripts/use-node.sh
+source "$(dirname "$0")/use-node.sh"
+
 # ── 1. Detect LAN IP ──────────────────────────────────────────────────────────
 IP=""
 # Try common macOS interfaces (en0=Wi-Fi, en1/en2=Thunderbolt/USB, utun=VPN)
@@ -46,7 +53,6 @@ echo ""
 
 # ── 2. Production build pointing at local backend ─────────────────────────────
 echo "📦  Building production bundle (VITE_TIMECORE_URL=$BACKEND_URL)..."
-cd "$ROOT_DIR"
 CAPACITOR=1 VITE_TIMECORE_URL="$BACKEND_URL" VITE_LOCAL_BUILD=true npx vite build
 echo "✅  Build complete."
 echo ""

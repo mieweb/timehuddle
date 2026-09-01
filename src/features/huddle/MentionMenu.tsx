@@ -108,7 +108,7 @@ export function MentionMenu({ teamId, onSelect }: MentionMenuProps) {
                 type="button"
                 role="menuitem"
                 onClick={() => handleSelect(member.id, member.name)}
-                className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors text-gray-700 dark:text-neutral-300"
+                className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors text-gray-700 dark:text-neutral-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400 dark:focus-visible:ring-indigo-500"
               >
                 <div className="flex items-center gap-2">
                   {member.image ? (

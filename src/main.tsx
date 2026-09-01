@@ -14,8 +14,14 @@ if (Capacitor.isNativePlatform()) {
     CapacitorUpdater.current()
       .then(({ bundle }) => {
         if (bundle.id !== 'builtin') {
-          // Reload to the built-in bundle; the WebView restarts and won't reach here.
-          CapacitorUpdater.reset({ toLastSuccessful: false }).catch(() => {});
+          // Reload to the built-in bundle; the WebView restarts and won't reach
+          // here. If it doesn't, the app is running fine on the current bundle
+          // and still owes the native layer a readiness signal — without it the
+          // updater times out and rolls back a healthy app.
+          CapacitorUpdater.reset({ toLastSuccessful: false }).catch((err) => {
+            console.error('[TimeHuddle] OTA reset failed:', err);
+            CapacitorUpdater.notifyAppReady().catch(() => {});
+          });
         } else {
           CapacitorUpdater.notifyAppReady().catch((err) =>
             console.error('[TimeHuddle] notifyAppReady failed:', err),
