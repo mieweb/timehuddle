@@ -23,13 +23,7 @@ describe('roundDurationSecondsForDisplay', () => {
 
 describe('sumRoundedDurationsForDisplay', () => {
   it('matches issue #434: five 8h sessions with leftover seconds total 40h 0m', () => {
-    const durations = [
-      hms(8, 0, 12),
-      hms(8, 0, 12),
-      hms(8, 0, 12),
-      hms(8, 0, 12),
-      hms(8, 0, 12),
-    ];
+    const durations = [hms(8, 0, 12), hms(8, 0, 12), hms(8, 0, 12), hms(8, 0, 12), hms(8, 0, 12)];
     const roundThenSum = sumRoundedDurationsForDisplay(durations);
     const sumThenRound = roundDurationSecondsForDisplay(durations.reduce((a, b) => a + b, 0));
 
