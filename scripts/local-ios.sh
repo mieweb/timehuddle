@@ -17,11 +17,19 @@ BACKEND_PORT="${BACKEND_PORT:-3100}"
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Activate the pinned Node before any npx below — Xcode and Finder launch this
-# with a bare environment that has never run `nvm use`. Read .nvmrc from the
-# repo root, not the caller's cwd.
+# with a bare environment that has never run `nvm use`, and building on the
+# wrong version drifts package-lock.json. Read .nvmrc from the repo root, not
+# the caller's cwd. nvm is a shell function, so it must be sourced first.
 cd "$ROOT_DIR"
-# shellcheck source=scripts/use-node.sh
-source "$(dirname "$0")/use-node.sh"
+if [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
+  # shellcheck disable=SC1090
+  source "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+fi
+if command -v nvm &>/dev/null; then
+  nvm use
+elif [ -f .nvmrc ]; then
+  echo "Warning: nvm not found. Ensure Node $(cat .nvmrc) is active." >&2
+fi
 
 # ── 1. Detect LAN IP ──────────────────────────────────────────────────────────
 IP=""
