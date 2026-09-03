@@ -6,10 +6,36 @@ import { CapacitorUpdater } from '@capgo/capacitor-updater';
 // Confirms the OTA bundle booted — runs first, before any other bootstrap or
 // network/chunk fetch. If the native layer doesn't hear this within
 // appReadyTimeout it rolls back to the previous bundle.
+//
+// For local builds (VITE_LOCAL_BUILD=true): evict any cached OTA bundle so the
+// freshly-built native bundle is always used instead.
 if (Capacitor.isNativePlatform()) {
-  CapacitorUpdater.notifyAppReady().catch((err) =>
-    console.error('[TimeHuddle] notifyAppReady failed:', err),
-  );
+  if ((import.meta as { env?: Record<string, string> }).env?.VITE_LOCAL_BUILD === 'true') {
+    CapacitorUpdater.current()
+      .then(({ bundle }) => {
+        if (bundle.id !== 'builtin') {
+          // Reload to the built-in bundle; the WebView restarts and won't reach
+          // here. If it doesn't, the app is running fine on the current bundle
+          // and still owes the native layer a readiness signal — without it the
+          // updater times out and rolls back a healthy app.
+          CapacitorUpdater.reset({ toLastSuccessful: false }).catch((err) => {
+            console.error('[TimeHuddle] OTA reset failed:', err);
+            CapacitorUpdater.notifyAppReady().catch(() => {});
+          });
+        } else {
+          CapacitorUpdater.notifyAppReady().catch((err) =>
+            console.error('[TimeHuddle] notifyAppReady failed:', err),
+          );
+        }
+      })
+      .catch(() => {
+        CapacitorUpdater.notifyAppReady().catch(() => {});
+      });
+  } else {
+    CapacitorUpdater.notifyAppReady().catch((err) =>
+      console.error('[TimeHuddle] notifyAppReady failed:', err),
+    );
+  }
 }
 
 // ─── Eager theme + brand bootstrap ───────────────────────────────────────────

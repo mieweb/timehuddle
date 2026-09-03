@@ -39,9 +39,10 @@ const config: CapacitorConfig = {
     App: {},
 
     CapacitorUpdater: {
-      // Normal OTA updates still happen via the plugin; the OtaUpdateGate only blocks
+      // OTA off during live reload and for local builds (no OTA backend). Normal
+      // OTA updates otherwise happen via the plugin; the OtaUpdateGate only blocks
       // when the backend declares the running bundle below minVersion.
-      autoUpdate: liveReloadUrl ? 'off' : 'atBackground',
+      autoUpdate: liveReloadUrl || otaChannel === 'local' ? 'off' : 'atBackground',
       updateUrl: otaUpdateUrl,
       // Self-hosted: no Capgo cloud, so no stats or channel endpoints.
       statsUrl: '',
