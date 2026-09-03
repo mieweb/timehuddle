@@ -28,10 +28,9 @@ import {
   Spinner,
   Text,
 } from '@mieweb/ui';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { clockApi, huddleApi, type ClockEvent, type HuddlePost } from '../../lib/api';
-import { getDdpClient } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import {
   formatDate,
@@ -43,12 +42,15 @@ import {
 } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { MarkdownEditor } from '../huddle/MarkdownEditor';
+import { useAttachmentUpload, useUploadProgress } from '../huddle/useAttachmentUpload';
 import { toPostAttachment } from '../huddle/api';
+import { clearComposerPulseUpload } from '../huddle/pulseComposerUpload';
 import {
   ComposerAttachButtons,
   ComposerChips,
   type MentionRef,
 } from '../huddle/ComposerAttachments';
+import { ComposerProgress } from '../huddle/ComposerProgress';
 import type { MediaItem } from '../huddle/types';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
@@ -103,9 +105,38 @@ export const ClockPage: React.FC = () => {
   const [attachments, setAttachments] = useState<MediaItem[]>([]);
   const [selectedTicketId, setSelectedTicketId] = useState<string | undefined>(undefined);
   const [mentions, setMentions] = useState<MentionRef[]>([]);
-  const handleAttachmentAdd = (media: MediaItem) => setAttachments((prev) => [...prev, media]);
-  const handleAttachmentRemove = (mediaId: string) =>
+  // Completed fraction (0–1) of an attachment upload in flight, or null when
+  // none is — same single-bar treatment as the Huddle composer, aggregated
+  // across the pickers and paste so an overlapping pair can't read as idle.
+  const { fraction: uploadFraction, reporterFor } = useUploadProgress();
+  // A Pulse recording reserved but not yet attached.
+  const [pulsePending, setPulsePending] = useState(false);
+  // Posting mid-upload would drop the attachment still on the wire, and posting
+  // with a Pulse recording outstanding would clear its reservation and change
+  // composer mode — unmounting the watcher before the clip lands. Every submit
+  // path stays closed until both have settled.
+  const uploadInFlight = uploadFraction !== null || pulsePending;
+  // useCallback: identity flows into the paste listener MarkdownEditor binds
+  // natively, which would otherwise re-register on every keystroke.
+  const handleAttachmentAdd = useCallback(
+    (media: MediaItem) => setAttachments((prev) => [...prev, media]),
+    [],
+  );
+  const handleAttachmentRemove = (mediaId: string) => {
+    // Removing the Pulse video chip also forgets its persisted upload, so a
+    // recording that finishes afterward doesn't reattach itself.
+    const removed = attachments.find((m) => m.id === mediaId);
+    if (removed?.type === 'video' && composerMode) {
+      clearComposerPulseUpload(`clock-${composerMode}`);
+    }
     setAttachments((prev) => prev.filter((m) => m.id !== mediaId));
+  };
+  // Same paste-a-screenshot handling as the Huddle composer — both share the
+  // editor, so both must keep base64 images out of the post text.
+  const { upload: uploadPastedImages } = useAttachmentUpload({
+    onAttachmentAdd: handleAttachmentAdd,
+    onUploadProgress: reporterFor('paste'),
+  });
   const handleMentionSelect = (userId: string, name: string) =>
     setMentions((prev) =>
       prev.some((m) => m.userId === userId) ? prev : [...prev, { userId, name }],
@@ -236,7 +267,7 @@ export const ClockPage: React.FC = () => {
 
   async function saveDraft() {
     const trimmed = text.trim();
-    if (!gateTeamId || !trimmed || savingDraft || posting) return;
+    if (!gateTeamId || !trimmed || savingDraft || posting || uploadInFlight) return;
     setSavingDraft(true);
     setPostError(null);
     try {
@@ -253,13 +284,13 @@ export const ClockPage: React.FC = () => {
         );
         setDraft({ ...draft, content: { ...draft.content, text: trimmed } });
       } else {
-        const created = (await getDdpClient().call('huddle.createPost', {
+        const created = await huddleApi.createPost({
           teamId: gateTeamId,
           content: { text: trimmed, mentions: mentionUserIds ?? [] },
           ticketId: selectedTicketId,
           attachments: postAttachments,
           draft: true,
-        })) as { id: string };
+        });
         setDraft({ id: created.id, content: { text: trimmed, mentions: mentionUserIds ?? [] } });
       }
       setDraftSaved(true);
@@ -273,7 +304,7 @@ export const ClockPage: React.FC = () => {
 
   async function postPlanAndClockIn() {
     const trimmed = text.trim();
-    if (!gateTeamId || !trimmed || posting) return;
+    if (!gateTeamId || !trimmed || posting || uploadInFlight) return;
     setPosting(true);
     setPostError(null);
     try {
@@ -300,18 +331,19 @@ export const ClockPage: React.FC = () => {
         }
         setDraft(null);
       } else {
-        const created = (await getDdpClient().call('huddle.createPost', {
+        const created = await huddleApi.createPost({
           teamId: gateTeamId,
           content: { text: trimmed, mentions: mentionUserIds ?? [] },
           ticketId: selectedTicketId,
           attachments: postAttachments,
           postDate: toDateString(new Date()),
-        })) as { id: string };
+        });
         planPostId = created.id;
       }
       // Cache the plan post ID so postWrapUpAndClockOut can find it even if
       // the DDP subscription hasn't synced the new post back to this client yet.
       cachedPlanPostIdRef.current = planPostId;
+      clearComposerPulseUpload('clock-plan');
       setText('');
       // Link this plan to the new session so the per-session gate finds it.
       await clockIn({ planJustPosted: true, planPostId });
@@ -324,7 +356,7 @@ export const ClockPage: React.FC = () => {
 
   async function postWrapUpAndClockOut() {
     const trimmed = text.trim();
-    if (!activeClockEvent || !trimmed || posting) return;
+    if (!activeClockEvent || !trimmed || posting || uploadInFlight) return;
     setPosting(true);
     setPostError(null);
     try {
@@ -350,8 +382,11 @@ export const ClockPage: React.FC = () => {
         );
       } else {
         // Recovery: no plan post exists (gate enabled mid-shift). Create one
-        // that doubles as the wrap-up, linked to the session.
-        await getDdpClient().call('huddle.createPost', {
+        // that doubles as the wrap-up, linked to the session. Unlike the
+        // update path above this needs a team, and the wrap-up composer can
+        // open without one — surface that instead of posting a teamless post.
+        if (!gateTeamId) throw new Error('No team for this session — cannot post a wrap-up.');
+        await huddleApi.createPost({
           teamId: gateTeamId,
           content: { text: `**Wrap-up:** ${trimmed}`, mentions: mentionUserIds ?? [] },
           postDate: toDateString(new Date()),
@@ -363,6 +398,7 @@ export const ClockPage: React.FC = () => {
       }
       setText('');
       cachedPlanPostIdRef.current = null;
+      clearComposerPulseUpload('clock-wrapup');
       await clockOut();
     } catch (e) {
       setPostError(e instanceof Error ? e.message : 'Failed to post. Please try again.');
@@ -505,6 +541,7 @@ export const ClockPage: React.FC = () => {
               onSubmit={() =>
                 void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
               }
+              onImagePaste={uploadPastedImages}
             />
 
             {/* ── Ticket / mention / attachment chips ── */}
@@ -521,12 +558,17 @@ export const ClockPage: React.FC = () => {
             <div className="flex items-center gap-2 flex-wrap">
               <ComposerAttachButtons
                 teamId={gateTeamId}
+                pulseScope={`clock-${composerMode}`}
                 onAttachmentAdd={handleAttachmentAdd}
                 selectedTicketId={selectedTicketId}
                 onTicketSelect={setSelectedTicketId}
                 onMentionSelect={handleMentionSelect}
+                onUploadProgress={reporterFor('picker')}
+                onPulsePendingChange={setPulsePending}
               />
             </div>
+
+            <ComposerProgress uploadFraction={uploadFraction} posting={posting} />
 
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <Button
@@ -535,7 +577,7 @@ export const ClockPage: React.FC = () => {
                   void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
                 }
                 isLoading={posting || clockInLoading || clockOutLoading}
-                disabled={!text.trim()}
+                disabled={!text.trim() || uploadInFlight}
                 className="w-full sm:w-auto"
               >
                 {composerMode === 'plan'
@@ -549,7 +591,7 @@ export const ClockPage: React.FC = () => {
                   variant="outline"
                   onClick={() => void saveDraft()}
                   isLoading={savingDraft}
-                  disabled={!text.trim()}
+                  disabled={!text.trim() || uploadInFlight}
                   className="w-full sm:w-auto"
                 >
                   {draft ? 'Update draft' : 'Save draft'}

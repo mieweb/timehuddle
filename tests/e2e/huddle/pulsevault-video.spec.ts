@@ -16,43 +16,13 @@
 import { expect, test } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { createTicket, deleteTicket, uploadVideoToTicket, TEST_MP4 } from '../tickets/helpers';
-
-/**
- * The composer's editable surface. Kerebron's RichEditor renders a ProseMirror
- * contenteditable rather than a <textarea>, so there is no placeholder
- * attribute to select on — the visible prompt is a CSS `::before`.
- */
-function composerEditor(page: import('@playwright/test').Page) {
-  return page.locator('.markdown-editor .ProseMirror').first();
-}
-
-async function goToHuddle(page: import('@playwright/test').Page) {
-  await page.goto('/app/huddle');
-  // The composer starts collapsed (a "Share an update..." prompt) — click it
-  // to expand into the full editor + toolbar view.
-  await page.getByText('Share an update...').click();
-  await composerEditor(page).waitFor({ state: 'visible', timeout: 15000 });
-}
-
-/**
- * The feed defaults to chat view, where non-image attachments render as plain
- * links by design (see superChatFeed.ts). Inline <video> playback lives in card
- * view, so switch there before asserting on it.
- */
-async function switchToCardView(page: import('@playwright/test').Page) {
-  const toCardButton = page.getByRole('button', { name: 'Switch to card view' });
-  if (await toCardButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await toCardButton.click();
-    await page.getByRole('button', { name: 'Switch to chat view' }).waitFor({ timeout: 5000 });
-  }
-  // Feed items stream via DDP/WebSocket, so wait briefly after any view state.
-  await page.waitForTimeout(1500);
-}
-
-/** Locates a post's root container by the unique text in its body. */
-function postContainer(page: import('@playwright/test').Page, uniqueText: string) {
-  return page.locator('[data-testid="post-card"]').filter({ hasText: uniqueText });
-}
+import {
+  attachTicket,
+  composerEditor,
+  openComposer as goToHuddle,
+  postContainer,
+  switchToCardView,
+} from './helpers';
 
 test.describe('Huddle — direct video upload', () => {
   test.setTimeout(60000);
@@ -111,9 +81,7 @@ test.describe('Huddle — ticket video cross-posting', () => {
     const postText = `Huddle Cross-post Test ${Date.now()}`;
     await composerEditor(page).fill(postText);
 
-    await page.getByRole('button', { name: 'Ticket', exact: true }).click();
-    await page.getByPlaceholder('Search tickets...').fill(TICKET_TITLE);
-    await page.getByRole('button').filter({ hasText: TICKET_TITLE }).first().click();
+    await attachTicket(page, TICKET_TITLE);
 
     // The video is pulled in automatically the moment the ticket is picked —
     // this is the behavior under test, and it must be visible before posting.

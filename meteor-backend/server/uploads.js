@@ -17,7 +17,16 @@ const MEDIA_DIR = path.join(UPLOADS_DIR, 'media');
 const THUMBNAILS_DIR = path.join(UPLOADS_DIR, 'thumbnails');
 const VIDEOS_DIR = process.env.VIDEOS_DIR || path.resolve(process.cwd(), 'data/videos');
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+// Incoming files land here first, then get renamed into place. Same volume as
+// the destinations, so the rename is atomic and free. Never served: the
+// /uploads handler refuses this prefix.
+const TMP_DIR = path.join(UPLOADS_DIR, 'tmp');
+
+// Uploads stream straight to disk, so peak memory is one chunk regardless of
+// file size and this cap is about storage policy rather than heap safety.
+// Videos recorded in-app bypass this entirely via PulseVault's TUS endpoint.
+const MAX_FILE_MB = Number(process.env.MAX_UPLOAD_MB) || 100;
+const MAX_FILE_SIZE = MAX_FILE_MB * 1024 * 1024;
 
 const MIME_TO_EXT = {
   // Images
@@ -72,32 +81,82 @@ function sendJson(res, status, data) {
   res.end(JSON.stringify(data));
 }
 
-function parseMultipart(req, allowedMimes) {
+/**
+ * Stream the request's single multipart file to a temp file.
+ *
+ * Streaming rather than collecting chunks into a Buffer is what makes a large
+ * MAX_FILE_SIZE safe — a 100 MB upload costs one chunk of heap, not 100 MB,
+ * and concurrent uploads no longer multiply that.
+ *
+ * Resolves with `{ path, size, filename, mimeType }`; the caller owns the temp
+ * file and is expected to rename it into place. On any failure the temp file is
+ * removed before rejecting.
+ */
+async function parseMultipart(req, allowedMimes) {
+  await fsp.mkdir(TMP_DIR, { recursive: true });
+  const tmpPath = path.join(TMP_DIR, `${randomBytes(12).toString('hex')}.part`);
+
   return new Promise((resolve, reject) => {
     const busboy = Busboy({ headers: req.headers, limits: { fileSize: MAX_FILE_SIZE, files: 1 } });
-    let fileData = null;
 
-    busboy.on('file', (fieldname, stream, info) => {
-      const { filename, mimeType } = info;
-      if (!allowedMimes.includes(mimeType)) {
+    let fileInfo = null;
+    let size = 0;
+    let error = null;
+    let written = Promise.resolve();
+
+    const fail = (message, status = 400) => {
+      if (error) return;
+      error = new Error(message);
+      error.statusCode = status;
+    };
+
+    busboy.on('file', (_fieldname, stream, info) => {
+      if (!allowedMimes.includes(info.mimeType)) {
         stream.resume();
-        fileData = { error: 'Unsupported file type' };
+        fail('Unsupported file type');
         return;
       }
-      const chunks = [];
-      stream.on('data', (chunk) => chunks.push(chunk));
-      stream.on('end', () => {
-        fileData = { buffer: Buffer.concat(chunks), filename, mimeType };
+      fileInfo = info;
+
+      const out = fs.createWriteStream(tmpPath);
+      written = new Promise((done) => {
+        out.on('close', done);
+        out.on('error', (err) => {
+          fail(err.message);
+          done();
+        });
       });
+
+      stream.on('data', (chunk) => {
+        size += chunk.length;
+      });
+      // Busboy truncates at the size limit rather than failing, so without this
+      // an oversized upload is stored silently corrupt. Tearing the write
+      // stream down by hand matters too: a truncated file stream never ends on
+      // its own, so the pipe — and the request with it — would hang forever.
+      stream.on('limit', () => {
+        fail(`File is larger than ${MAX_FILE_MB} MB`, 413);
+        stream.unpipe(out);
+        out.destroy();
+        stream.resume();
+      });
+      stream.on('error', (err) => fail(err.message));
+      stream.pipe(out);
     });
 
-    busboy.on('finish', () => {
-      if (!fileData) return reject(new Error('No file uploaded'));
-      if (fileData.error) return reject(new Error(fileData.error));
-      resolve(fileData);
+    busboy.on('error', (err) => fail(err.message));
+
+    busboy.on('close', async () => {
+      await written;
+      if (!fileInfo) fail('No file uploaded');
+      if (error) {
+        unlinkSafe(tmpPath);
+        reject(error);
+        return;
+      }
+      resolve({ path: tmpPath, size, filename: fileInfo.filename, mimeType: fileInfo.mimeType });
     });
 
-    busboy.on('error', reject);
     req.pipe(busboy);
   });
 }
@@ -123,7 +182,8 @@ WebApp.connectHandlers.use('/uploads', (req, res, next) => {
   const safePath = path.normalize(req.url).replace(/^(\.\.(\/|\\|$))+/, '');
   const filePath = path.join(UPLOADS_DIR, safePath);
 
-  if (!filePath.startsWith(UPLOADS_DIR)) {
+  // In-flight uploads live under tmp/ until they're renamed into place.
+  if (!filePath.startsWith(UPLOADS_DIR) || filePath.startsWith(TMP_DIR)) {
     res.writeHead(403);
     res.end();
     return;
@@ -209,9 +269,10 @@ WebApp.connectHandlers.use('/api/me/avatar', async (req, res, next) => {
   if (!identity) return sendJson(res, 401, { error: 'Unauthorized' });
 
   if (req.method === 'POST') {
+    let file;
     try {
-      const file = await parseMultipart(req, ['image/png', 'image/jpeg']);
-      if (file.buffer.length === 0) return sendJson(res, 400, { error: 'Empty file' });
+      file = await parseMultipart(req, ['image/png', 'image/jpeg']);
+      if (file.size === 0) throw new Error('Empty file');
 
       await fsp.mkdir(PROFILE_DIR, { recursive: true });
       const ext = file.mimeType === 'image/png' ? 'png' : 'jpg';
@@ -223,7 +284,7 @@ WebApp.connectHandlers.use('/api/me/avatar', async (req, res, next) => {
       const existing = await db.collection('profiles').findOne({ userId: identity.userId, app: 'timeharbor' });
       unlinkSafe(resolveUploadPath(existing?.avatarUrl, '/uploads/profile/', PROFILE_DIR));
 
-      await fsp.writeFile(filepath, file.buffer);
+      await fsp.rename(file.path, filepath);
       const avatarUrl = `/uploads/profile/${filename}`;
 
       await db.collection('profiles').updateOne(
@@ -233,7 +294,8 @@ WebApp.connectHandlers.use('/api/me/avatar', async (req, res, next) => {
       );
       return sendJson(res, 200, { avatarUrl });
     } catch (err) {
-      return sendJson(res, 400, { error: err.message });
+      unlinkSafe(file?.path);
+      return sendJson(res, err.statusCode ?? 400, { error: err.message });
     }
   }
 
@@ -261,9 +323,10 @@ WebApp.connectHandlers.use('/api/me/background', async (req, res, next) => {
   if (!identity) return sendJson(res, 401, { error: 'Unauthorized' });
 
   if (req.method === 'POST') {
+    let file;
     try {
-      const file = await parseMultipart(req, ['image/png', 'image/jpeg']);
-      if (file.buffer.length === 0) return sendJson(res, 400, { error: 'Empty file' });
+      file = await parseMultipart(req, ['image/png', 'image/jpeg']);
+      if (file.size === 0) throw new Error('Empty file');
 
       await fsp.mkdir(PROFILE_DIR, { recursive: true });
       const ext = file.mimeType === 'image/png' ? 'png' : 'jpg';
@@ -275,7 +338,7 @@ WebApp.connectHandlers.use('/api/me/background', async (req, res, next) => {
       const existing = await db.collection('profiles').findOne({ userId: identity.userId, app: 'timeharbor' });
       unlinkSafe(resolveUploadPath(existing?.backgroundUrl, '/uploads/profile/', PROFILE_DIR));
 
-      await fsp.writeFile(filepath, file.buffer);
+      await fsp.rename(file.path, filepath);
       const backgroundUrl = `/uploads/profile/${filename}`;
 
       await db.collection('profiles').updateOne(
@@ -285,7 +348,8 @@ WebApp.connectHandlers.use('/api/me/background', async (req, res, next) => {
       );
       return sendJson(res, 200, { backgroundUrl });
     } catch (err) {
-      return sendJson(res, 400, { error: err.message });
+      unlinkSafe(file?.path);
+      return sendJson(res, err.statusCode ?? 400, { error: err.message });
     }
   }
 
@@ -313,16 +377,17 @@ WebApp.connectHandlers.use('/api/media/upload', async (req, res, next) => {
   const identity = await authenticateRequest(req);
   if (!identity) return sendJson(res, 401, { error: 'Unauthorized' });
 
+  let file;
   try {
     const allowedMimes = Object.keys(MIME_TO_EXT);
-    const file = await parseMultipart(req, allowedMimes);
-    if (file.buffer.length === 0) return sendJson(res, 400, { error: 'Empty file' });
+    file = await parseMultipart(req, allowedMimes);
+    if (file.size === 0) throw new Error('Empty file');
 
     const ext = MIME_TO_EXT[file.mimeType];
     await fsp.mkdir(MEDIA_DIR, { recursive: true });
     const hex = randomBytes(8).toString('hex');
     const filename = `${identity.userId}-${hex}.${ext}`;
-    await fsp.writeFile(path.join(MEDIA_DIR, filename), file.buffer);
+    await fsp.rename(file.path, path.join(MEDIA_DIR, filename));
 
     const url = `/uploads/media/${filename}`;
     
@@ -341,7 +406,7 @@ WebApp.connectHandlers.use('/api/media/upload', async (req, res, next) => {
       mimeType: file.mimeType,
       url,
       filename,
-      size: file.buffer.length,
+      size: file.size,
       ...(file.filename ? { title: file.filename } : {}),
       uploadedAt: new Date(),
     };
@@ -365,7 +430,8 @@ WebApp.connectHandlers.use('/api/media/upload', async (req, res, next) => {
       },
     });
   } catch (err) {
-    return sendJson(res, 400, { error: err.message });
+    unlinkSafe(file?.path);
+    return sendJson(res, err.statusCode ?? 400, { error: err.message });
   }
 });
 
@@ -387,14 +453,15 @@ WebApp.connectHandlers.use('/api/media-thumbnail/', async (req, res, next) => {
   if (!item) return sendJson(res, 404, { error: 'Not found' });
   if (item.userId !== identity.userId) return sendJson(res, 403, { error: 'Forbidden' });
 
+  let file;
   try {
-    const file = await parseMultipart(req, ['image/jpeg', 'image/png', 'image/webp']);
-    if (file.buffer.length === 0) return sendJson(res, 400, { error: 'Empty file' });
+    file = await parseMultipart(req, ['image/jpeg', 'image/png', 'image/webp']);
+    if (file.size === 0) throw new Error('Empty file');
 
     await fsp.mkdir(THUMBNAILS_DIR, { recursive: true });
     const hex = randomBytes(8).toString('hex');
     const filename = `${identity.userId}-${hex}.jpg`;
-    await fsp.writeFile(path.join(THUMBNAILS_DIR, filename), file.buffer);
+    await fsp.rename(file.path, path.join(THUMBNAILS_DIR, filename));
 
     const previousPath = resolveUploadPath(item.thumbnail, '/uploads/thumbnails/', THUMBNAILS_DIR);
     const thumbnailUrl = `/uploads/thumbnails/${filename}`;
@@ -427,7 +494,8 @@ WebApp.connectHandlers.use('/api/media-thumbnail/', async (req, res, next) => {
       },
     });
   } catch (err) {
-    return sendJson(res, 400, { error: err.message });
+    unlinkSafe(file?.path);
+    return sendJson(res, err.statusCode ?? 400, { error: err.message });
   }
 });
 

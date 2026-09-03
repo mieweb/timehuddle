@@ -57,11 +57,42 @@ const ISSUER = process.env.ROOT_URL;
 // retried create POST or a QR re-scan racing the original upload.
 const STALE_UPLOAD_IDLE_MS = 5 * 60 * 1000;
 
+/** artifactId -> Set<ServerResponse> — active SSE subscribers waiting for upload-complete. */
+const sseClients = new Map();
+
+function notifySseClients(artifactId, ready) {
+  const clients = sseClients.get(artifactId);
+  if (!clients?.size) return;
+  // Absolute on purpose, unlike stored URLs: SSE subscribers are off-device
+  // (the Pulse app that scanned the QR code), so they have no "current backend
+  // origin" to resolve a path against.
+  const payload = JSON.stringify({
+    artifactId,
+    url: `${ISSUER}/pulsevault/artifacts/${artifactId}`,
+    size: ready?.size ?? 0,
+  });
+  const event = `event: ready\ndata: ${payload}\n\n`;
+  for (const res of clients) {
+    // A subscriber that already hung up is not an error worth logging — the
+    // upload succeeded either way, and this Set is dropped immediately below.
+    try { res.write(event); } catch { /* subscriber gone */ }
+    try { res.end(); } catch { /* subscriber gone */ }
+  }
+  sseClients.delete(artifactId);
+}
+
 function lookupCapabilitySecret(kid) {
   return kid === CAPABILITY_KEY_ID ? CAPABILITY_SECRET : null;
 }
 
-const verifyUploadToken = createCapabilityAuthorize(lookupCapabilitySecret, { issuer: ISSUER });
+/**
+ * Verify a PulseVault capability token. Exported so the `/pulse/open` scan
+ * interstitial can reject a made-up token before rendering a page that would
+ * otherwise hand Pulse Cam a live-looking upload session (see pulse-link.js).
+ */
+export const verifyUploadToken = createCapabilityAuthorize(lookupCapabilitySecret, {
+  issuer: ISSUER,
+});
 
 /**
  * artifactId -> { userId, ticketId } | { userId, target: 'library' }
@@ -128,20 +159,69 @@ Meteor.startup(async () => {
   console.log('[pulsevault] rehydrated', reservationContext.size, 'reservation(s) from Mongo');
 });
 
+/**
+ * Playback path for an artifact — stored path-only, never host-qualified.
+ *
+ * ISSUER (ROOT_URL) is the address the backend answered on when the upload
+ * happened, which is not a property of the video: in dev the stack is served
+ * from the machine's LAN IP, so every DHCP lease change used to orphan every
+ * previously-uploaded clip. Clients re-attach their current backend origin at
+ * read time (`resolveMediaUrl` in src/lib/api.ts).
+ */
+function artifactPath(artifactId) {
+  return `/pulsevault/artifacts/${artifactId}`;
+}
+
+/**
+ * Extension → MIME for every video container PulseVault accepts.
+ *
+ * Single source for three things that must agree: which extensions the tus
+ * create POST allows, the `Content-Type` the GET route serves, and the
+ * `mimeType`/`filename` recorded on the media item.
+ *
+ * `.mov`/`.m4v` are what the iOS camera roll and the native video picker hand
+ * back — they're ISO-BMFF like `.mp4`, so `createMp4Sniffer` accepts them.
+ */
+const VIDEO_CONTENT_TYPES = {
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.m4v': 'video/mp4',
+};
+
+/** Fallback when an artifact's stored extension can't be read back. */
+const DEFAULT_VIDEO_EXT = '.mp4';
+
+/**
+ * The extension the bytes were actually stored under.
+ *
+ * Read from storage rather than assumed, so a `.mov` from an iPhone isn't
+ * recorded in the media library as an mp4 — which would both mislabel its
+ * `mimeType` and hand the user a `.mp4` filename for a QuickTime file.
+ * `getLocalPath` reads the sidecar, so this works before *and* after the
+ * artifact is marked ready (i.e. from both `onUploadComplete` and the
+ * orphaned-upload recovery path).
+ */
+async function artifactExt(artifactId) {
+  const localPath = await storage.getLocalPath(artifactId).catch(() => null);
+  const ext = localPath ? path.extname(localPath).toLowerCase() : '';
+  return VIDEO_CONTENT_TYPES[ext] ? ext : DEFAULT_VIDEO_EXT;
+}
+
 /** Create the mediaitems doc / ticket attachment for a finished upload. */
 async function attachUploadedVideo(artifactId, reservation, size = 0) {
-  const videoUrl = `${ISSUER}/pulsevault/artifacts/${artifactId}`;
+  const videoUrl = artifactPath(artifactId);
   const title = `Video ${artifactId.slice(0, 8)}`;
+  const ext = await artifactExt(artifactId);
 
   if (reservation.target === 'library') {
     await rawDb().collection('mediaitems').insertOne({
       _id: new ObjectId(),
       userId: reservation.userId,
       type: 'video',
-      mimeType: 'video/mp4',
+      mimeType: VIDEO_CONTENT_TYPES[ext],
       url: videoUrl,
       videoid: artifactId,
-      filename: `${artifactId}.mp4`,
+      filename: `${artifactId}${ext}`,
       size,
       title,
       caption: null,
@@ -162,7 +242,20 @@ async function attachUploadedVideo(artifactId, reservation, size = 0) {
   }
 }
 
-const storage = createLocalStorage({ workspaceDir: VIDEOS_DIR });
+const localStorage_ = createLocalStorage({ workspaceDir: VIDEOS_DIR });
+
+// The package's ext→MIME map only knows `.mp4`, so every other video container
+// resolves to `application/octet-stream` — which `<video>` refuses to play
+// inline (it downloads instead). Correct it on the way out.
+const storage = {
+  ...localStorage_,
+  resolve: async (artifactId) => {
+    const resolved = await localStorage_.resolve(artifactId);
+    if (resolved?.contentType !== 'application/octet-stream') return resolved;
+    const fixup = VIDEO_CONTENT_TYPES[path.extname(resolved.filename ?? '').toLowerCase()];
+    return fixup ? { ...resolved, contentType: fixup } : resolved;
+  },
+};
 
 const core = createPulseVaultCore({
   storage,
@@ -174,7 +267,10 @@ const core = createPulseVaultCore({
   // Pulse Cam and the web fallback both upload one pre-recorded MP4 per
   // session rather than per-clip "beats".
   uploadUnit: 'merged',
-  allowedExtensions: { video: ['.mp4'], captions: ['.vtt', '.srt'] },
+  // Derived from VIDEO_CONTENT_TYPES so the accepted extensions can't drift
+  // from the ones we know how to serve. Without an extension listed here the
+  // tus create POST 400s before any bytes move.
+  allowedExtensions: { video: Object.keys(VIDEO_CONTENT_TYPES), captions: ['.vtt', '.srt'] },
   authorize: async (request, ctx) => {
     console.log('[pulsevault][hook] authorize called', {
       phase: ctx.phase,
@@ -223,6 +319,7 @@ const core = createPulseVaultCore({
     }
     console.log('[pulsevault][hook] onUploadComplete: found reservation', JSON.stringify(reservation));
     await attachUploadedVideo(ctx.artifactId, reservation, ctx.size ?? 0);
+    notifySseClients(ctx.artifactId, ctx);
   },
 });
 
@@ -244,7 +341,7 @@ function decodeUploadMetadata(raw) {
 Wormhole.use({
   name: 'pulsevault',
   start(api) {
-    api.mount('/pulsevault', (req, res, next) => {
+    api.mount('/pulsevault', async (req, res, next) => {
       // Serve a hand-written Swagger page for this mount's raw TUS/artifact
       // routes — Wormhole's own /api/openapi.json only documents Meteor
       // methods, so these routes need their own doc page (see pulsevault-docs.js).
@@ -257,6 +354,42 @@ Wormhole.use({
       if (req.method === 'GET' && docsUrl === '/docs') {
         res.writeHead(200, { 'Content-Type': 'text/html' });
         res.end(pulsevaultSwaggerHtml('/pulsevault/openapi.json'));
+        return;
+      }
+
+      const eventsMatch = req.url.match(/^\/events\/([^/?]+)/);
+      if (req.method === 'GET' && eventsMatch) {
+        const artifactId = eventsMatch[1];
+        const token = new URL(req.url, 'http://x').searchParams.get('token') ?? '';
+        try {
+          await verifyUploadToken(req, { artifactId, phase: 'create', token });
+        } catch {
+          res.writeHead(403);
+          res.end();
+          return;
+        }
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        });
+        res.write(':ok\n\n');
+        if (!sseClients.has(artifactId)) sseClients.set(artifactId, new Set());
+        sseClients.get(artifactId).add(res);
+        const heartbeat = setInterval(() => {
+          // Write failures mean the subscriber vanished without a 'close'
+          // event; the interval is torn down by that handler below.
+          try { res.write(':\n\n'); } catch { /* subscriber gone */ }
+        }, 25_000);
+        req.on('close', () => {
+          clearInterval(heartbeat);
+          const clients = sseClients.get(artifactId);
+          clients?.delete(res);
+          // Drop the empty Set too — otherwise every abandoned subscription
+          // (client disconnects before the upload completes) leaks an entry
+          // in this process-global map forever, since artifactIds are unique.
+          if (clients && clients.size === 0) sseClients.delete(artifactId);
+        });
         return;
       }
 
@@ -361,7 +494,8 @@ Wormhole.use({
             // is also treated as "too new to clean up" — fail safe.
             const localPath = await storage.getLocalPath(artifactId);
             const stats = localPath ? await stat(localPath).catch(() => null) : null;
-            const idleMs = stats ? Date.now() - stats.mtimeMs : 0;
+            // No local path means no bytes were ever written — treat as past-idle so it gets cleared.
+            const idleMs = stats ? Date.now() - stats.mtimeMs : STALE_UPLOAD_IDLE_MS + 1;
             if (idleMs < STALE_UPLOAD_IDLE_MS) {
               console.log('[pulsevault] skipping stale cleanup, upload looks active:', artifactId, 'idleMs:', idleMs);
               return;
@@ -375,6 +509,7 @@ Wormhole.use({
             console.log('[pulsevault] finalizing orphaned ready upload:', artifactId);
             await attachUploadedVideo(artifactId, reservation);
           }
+          notifySseClients(artifactId, ready);
         } catch (err) {
           console.warn('[pulsevault] stale-upload cleanup failed (continuing):', artifactId, err.message);
         }
@@ -479,7 +614,7 @@ Meteor.methods({
     return {
       artifactId: doc.videoid,
       mediaId: String(doc._id),
-      url: doc.url ?? `${ISSUER}/pulsevault/artifacts/${doc.videoid}`,
+      url: doc.url ?? artifactPath(doc.videoid),
       title: doc.title ?? null,
       mimeType: doc.mimeType ?? 'video/mp4',
       size: doc.size ?? 0,
@@ -505,7 +640,7 @@ Meteor.methods({
       videos: docs.map((doc) => ({
         artifactId: doc.videoid,
         mediaId: String(doc._id),
-        url: doc.url ?? `${ISSUER}/pulsevault/artifacts/${doc.videoid}`,
+        url: doc.url ?? artifactPath(doc.videoid),
         title: doc.title ?? null,
         mimeType: doc.mimeType ?? 'video/mp4',
         size: doc.size ?? 0,

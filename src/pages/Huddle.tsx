@@ -12,7 +12,7 @@ import {
   createImagePlugin,
   createMermaidPlugin,
 } from '@mieweb/ui/components/SuperChat/plugins';
-import { useMemo, useState, useEffect } from 'react';
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { HuddleComposer } from '../features/huddle/HuddleComposer';
 import { DraftsPanel } from '../features/huddle/DraftsPanel';
 import { PostCard } from '../features/huddle/PostCard';
@@ -26,6 +26,7 @@ import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { teamApi, huddleApi, type HuddlePost, type Team } from '@lib/api';
 import { getDdpClient } from '@lib/ddp';
+import { useRefresh } from '@lib/RefreshContext';
 import { toDateString } from '@lib/timeUtils';
 
 export default function Huddle() {
@@ -102,6 +103,58 @@ export default function Huddle() {
     loadTeam();
   }, [selectedTeamId]);
 
+  // Last REST snapshot for the team, replaced wholesale on every refetch (not
+  // merged) so an edit or delete that happened while DDP was disconnected is
+  // reflected, and a post absent from a later snapshot doesn't linger forever.
+  const restPostsRef = useRef<Map<string, HuddlePost>>(new Map());
+
+  // Build the feed from the DDP cache plus any pending overlay posts. Lifted to
+  // component scope so addPost can trigger an immediate re-sync after posting.
+  const syncPosts = useCallback(() => {
+    if (!selectedTeamId) return;
+    const ddp = getDdpClient();
+    const byId = new Map<string, HuddlePost>();
+    for (const p of ddp.docs('huddlePosts')) {
+      if (p.teamId !== selectedTeamId) continue;
+      const post = { ...p, id: (p.id ?? p._id) as string } as unknown as HuddlePost;
+      byId.set(post.id, post);
+    }
+    // REST snapshot wins over the DDP cache when it's newer — DDP may be
+    // holding a stale copy while the socket is disconnected (e.g. backgrounded
+    // for a Pulse recording), so a plain "DDP always wins" merge would hide
+    // REST-only edits indefinitely.
+    for (const [id, restPost] of restPostsRef.current) {
+      const ddpPost = byId.get(id);
+      if (
+        !ddpPost ||
+        new Date(restPost.updatedAt).getTime() > new Date(ddpPost.updatedAt).getTime()
+      ) {
+        byId.set(id, restPost);
+      }
+    }
+    const teamPosts = [...byId.values()].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    setPosts(teamPosts);
+  }, [selectedTeamId]);
+
+  // Fetch the feed over REST and overlay it. Used by pull-to-refresh and as a
+  // fallback when the live DDP socket is down (dropped while backgrounded for a
+  // Pulse recording), so the feed still updates without a reconnect.
+  const refreshFeed = useCallback(async () => {
+    if (!selectedTeamId) return;
+    try {
+      const fresh = await huddleApi.getPosts(selectedTeamId);
+      restPostsRef.current = new Map(fresh.map((post) => [post.id, post]));
+      syncPosts();
+    } catch (err) {
+      console.error('[Huddle] refreshFeed failed:', err);
+    }
+  }, [selectedTeamId, syncPosts]);
+
+  // Wire pull-to-refresh (swipe down) to the REST refetch.
+  useRefresh(refreshFeed);
+
   // Subscribe to live DDP publication for huddle posts
   useEffect(() => {
     if (!selectedTeamId) {
@@ -116,21 +169,12 @@ export default function Huddle() {
     const ddp = getDdpClient();
     const unsub = ddp.subscribe('huddlePosts.byTeam', [selectedTeamId], () => setLoading(false));
 
-    // Helper to sync collection → state
-    function syncPosts() {
-      const docs = ddp.docs('huddlePosts');
-      const teamPosts = docs
-        .filter((p) => p.teamId === selectedTeamId)
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt as string).getTime() - new Date(a.createdAt as string).getTime(),
-        )
-        .map((p) => ({ ...p, id: (p.id ?? p._id) as string })) as unknown as HuddlePost[];
-      setPosts(teamPosts);
-    }
-
     // Sync immediately in case data is already cached
     syncPosts();
+
+    // REST fallback: populate the feed even if the DDP socket is down (it's
+    // dropped while the app is backgrounded for a Pulse recording).
+    refreshFeed().finally(() => setLoading(false));
 
     // Then keep syncing on every change
     const offChange = ddp.onCollectionChange('huddlePosts', syncPosts);
@@ -142,36 +186,45 @@ export default function Huddle() {
       unsub();
       offChange();
       setPosts([]);
+      restPostsRef.current.clear();
     };
-  }, [selectedTeamId]);
+  }, [selectedTeamId, syncPosts, refreshFeed]);
 
   async function addPost(content: ComposerContent) {
-    try {
-      if (!user || !selectedTeamId) {
-        alert('Please select a team first');
-        return;
-      }
+    if (!user || !selectedTeamId) {
+      alert('Please select a team first');
+      return;
+    }
 
-      // Extract user IDs from mentions
-      const mentionUserIds = (content.mentions || []).map((m) => m.userId);
+    const mentionUserIds = (content.mentions || []).map((m) => m.userId);
+    const attachments = content.attachments.map(toPostAttachment);
 
-      // Prepare attachments for API
-      const attachments = content.attachments.map(toPostAttachment);
+    const { id } = await huddleApi.createPost({
+      teamId: selectedTeamId,
+      content: { text: content.text, mentions: mentionUserIds },
+      ticketId: content.ticketId,
+      attachments,
+      postDate: toDateString(new Date()),
+    });
 
-      // Always create a new post — session plan/wrap-up editing happens on the
-      // Clock page (one post per session).
-      await getDdpClient().call('huddle.createPost', {
-        teamId: selectedTeamId,
-        content: { text: content.text, mentions: mentionUserIds },
-        ticketId: content.ticketId,
-        attachments,
-        postDate: toDateString(new Date()),
-      });
+    // Show the new post without waiting on the live DDP socket, which may be
+    // down (dropped while the app was backgrounded for a Pulse recording):
+    // refreshFeed refetches over REST and overlays the result, and syncPosts
+    // drops the overlay once the subscription catches up.
+    //
+    // The retry condition is "not in the feed by *either* route". Waiting on
+    // the DDP cache specifically would stall the full backoff on every post
+    // whenever the socket is down — which is the exact case the REST overlay
+    // exists to cover, and where the post is already on screen after the first
+    // refresh.
+    const ddp = getDdpClient();
+    const inFeed = () =>
+      restPostsRef.current.has(id) || ddp.docs('huddlePosts').some((p) => (p.id ?? p._id) === id);
 
-      // The DDP subscription reflects the new post automatically.
-    } catch (error) {
-      console.error('[Huddle] Error in addPost:', error);
-      alert('Failed to create post. Please try again.');
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt > 0) await new Promise<void>((r) => setTimeout(r, 1500));
+      await refreshFeed();
+      if (inFeed()) return;
     }
   }
 
@@ -319,10 +372,17 @@ export default function Huddle() {
           </div>
         )}
 
-        {/* Composer stays put while the feed below it scrolls */}
+        {/* Composer stays put while the feed below it scrolls.
+            On a short viewport the expanded composer is taller than the space
+            between the header and the fixed bottom nav, so it must be able to
+            shrink and scroll its own overflow — otherwise its lower half (the
+            attach buttons, Cancel and Post) is clipped under the nav and
+            unreachable. min-h-0 is what lets a flex child shrink below its
+            content height. */}
         {selectedTeamId && feedTab === 'feed' && (
-          <div className="huddle-composer shrink-0">
+          <div className="huddle-composer min-h-0 max-h-[70vh] overflow-y-auto overscroll-contain">
             <HuddleComposer
+              key={selectedTeamId}
               onPost={addPost}
               userInitials={user ? getUserInitials(user.name) : 'U'}
               userColor={user ? getUserColor(user.id) : 'indigo'}

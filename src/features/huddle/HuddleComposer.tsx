@@ -11,17 +11,20 @@
  * editing an existing post must remount the composer with
  * `key={editingPostId ?? 'new'}`.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTeam } from '@lib/TeamContext';
 import { attachmentApi } from '@lib/api';
 import { MarkdownEditor } from './MarkdownEditor';
 import { ComposerAttachButtons, ComposerChips, type MentionRef } from './ComposerAttachments';
+import { ComposerProgress } from './ComposerProgress';
+import { useAttachmentUpload, useUploadProgress } from './useAttachmentUpload';
+import { clearComposerPulseUpload } from './pulseComposerUpload';
 import { huddlePostCollab } from './collab';
 import type { ComposerContent, MediaItem } from './types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface HuddleComposerProps {
-  onPost: (content: ComposerContent) => void;
+  onPost: (content: ComposerContent) => Promise<void>;
   userInitials?: string;
   userColor?: 'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green';
   /**
@@ -54,6 +57,13 @@ interface HuddleComposerProps {
    * for an existing post (room = post id); leave unset for new posts.
    */
   collabRoom?: string;
+  /**
+   * Which composer this is, for hosts that mount more than one against the same
+   * team (the feed, the new-draft box, a draft being edited). It distinguishes
+   * their persisted Pulse reservations, so a recording started in one is never
+   * restored into another. Stable across remounts of the same composer.
+   */
+  composerId?: string;
 }
 
 // ─── HuddleComposer ───────────────────────────────────────────────────────────
@@ -70,6 +80,7 @@ export function HuddleComposer({
   initialTicketId,
   initialMentions,
   collabRoom,
+  composerId = 'feed',
 }: HuddleComposerProps) {
   const [expanded, setExpanded] = useState(editing);
   const [text, setText] = useState(initialText);
@@ -77,8 +88,28 @@ export function HuddleComposer({
   const [attachments, setAttachments] = useState<MediaItem[]>(initialAttachments ?? []);
   const [ticketVideos, setTicketVideos] = useState<MediaItem[]>([]);
   const [mentions, setMentions] = useState<MentionRef[]>(initialMentions ?? []);
+  const [posting, setPosting] = useState(false);
+  const [postDone, setPostDone] = useState(false);
+  // Completed fraction (0–1) of an attachment upload in flight, or null when
+  // none is. Drives the same bar as posting does, so uploading a video and
+  // submitting the post read as one continuous operation. Aggregated across the
+  // pickers and paste, which upload independently and can overlap.
+  const { fraction: uploadFraction, reporterFor } = useUploadProgress();
+  // A Pulse recording reserved but not yet attached — in-flight work too, even
+  // though no bytes are moving through this client.
+  const [pulsePending, setPulsePending] = useState(false);
   const { selectedTeamId } = useTeam();
   const composerRef = useRef<HTMLDivElement>(null);
+
+  // Stable localStorage scope for the Pulse upload button — also the key this
+  // composer clears once a post is submitted/cancelled so a finished video
+  // isn't re-attached to the next post. Scoped by team so switching teams while
+  // a recording is pending can't hand that video to the new team's post, and by
+  // `composerId` so the feed composer and the drafts composers (all non-editing,
+  // all on the same team) don't share one reservation.
+  const pulseScope = editing
+    ? `huddle-edit-${collabRoom ?? 'post'}`
+    : `huddle-${composerId}-${selectedTeamId ?? 'none'}`;
 
   // Click-outside → collapse (only when empty, so in-progress writing is never
   // lost). Frees up feed space when you're not actively composing. Disabled in
@@ -87,14 +118,23 @@ export function HuddleComposer({
     if (!expanded || editing) return;
     const onDocMouseDown = (e: MouseEvent) => {
       if (composerRef.current?.contains(e.target as Node)) return;
-      // Kerebron popovers (toolbar dropdowns) can portal outside the composer.
-      if ((e.target as HTMLElement).closest?.('.kb-custom-menu__wrapper, [role="menu"]')) return;
-      const hasContent = text.trim() || attachments.length > 0;
+      // Kerebron popovers (toolbar dropdowns) and the Pulse upload modal
+      // (portaled outside composerRef) must not trigger a collapse — closing
+      // either one is not "clicking away" from the composer.
+      if (
+        (e.target as HTMLElement).closest?.(
+          '.kb-custom-menu__wrapper, [role="menu"], [role="dialog"]',
+        )
+      )
+        return;
+      // A pending Pulse recording counts as content: collapsing would clear the
+      // reservation and unmount the watcher while the phone is still uploading.
+      const hasContent = text.trim() || attachments.length > 0 || pulsePending;
       if (!hasContent) handleCancel();
     };
     document.addEventListener('mousedown', onDocMouseDown);
     return () => document.removeEventListener('mousedown', onDocMouseDown);
-  }, [expanded, text, attachments.length]);
+  }, [expanded, text, attachments.length, pulsePending]);
 
   // Fetch videos attached to the selected ticket
   useEffect(() => {
@@ -136,46 +176,64 @@ export function HuddleComposer({
     };
   }, [selectedTicketId]);
 
-  const handleSubmit = () => {
+  const hasContent = !!text.trim() || attachments.length > 0 || ticketVideos.length > 0;
+  // Posting mid-upload would drop the attachment still on the wire — and
+  // posting with a Pulse recording outstanding would clear its reservation and
+  // orphan the clip — so the button stays closed until both have settled. The
+  // Cancel beside the "Waiting for your Pulse video…" status abandons the
+  // recording if the user would rather post without it.
+  const canSubmit = hasContent && !posting && uploadFraction === null && !pulsePending;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+
+    const allAttachments = [...attachments, ...ticketVideos];
+    const base = text.trim();
+    const mentionSuffix = mentions
+      .filter((m) => !base.includes(`@${m.name}`))
+      .map((m) => `@${m.name}`)
+      .join(' ');
+    const finalText = [base, mentionSuffix].filter(Boolean).join(' ');
+
+    setPosting(true);
+    setPostDone(false);
     try {
-      if (!text.trim() && attachments.length === 0 && ticketVideos.length === 0) return;
-
-      // Combine user attachments with ticket videos
-      const allAttachments = [...attachments, ...ticketVideos];
-
-      // RichEditor has no insert-at-cursor API, so append any selected mentions
-      // that aren't already written in the body as trailing @name tokens —
-      // otherwise they'd be tracked but never visible in the post.
-      const base = text.trim();
-      const mentionSuffix = mentions
-        .filter((m) => !base.includes(`@${m.name}`))
-        .map((m) => `@${m.name}`)
-        .join(' ');
-      const finalText = [base, mentionSuffix].filter(Boolean).join(' ') || '(Image post)';
-
-      onPost({
+      await onPost({
         text: finalText,
         json: { text: finalText },
         ticketId: selectedTicketId,
         attachments: allAttachments,
         mentions,
       });
-      // In edit mode the host closes the composer once the update resolves; keep
-      // the fields intact so nothing flickers before it unmounts.
-      if (editing) return;
-      setText(initialText);
-      setExpanded(false);
-      setSelectedTicketId(undefined);
-      setAttachments([]);
-      setTicketVideos([]);
-      setMentions([]);
+      setPostDone(true);
+      // Clear the reservation for every successful submit, before branching on
+      // `editing` — otherwise reopening the same post within the TTL reattaches
+      // the video that was just submitted.
+      clearComposerPulseUpload(pulseScope);
+      // Hold at 100% briefly so the user sees the bar complete
+      await new Promise<void>((r) => setTimeout(r, 400));
+      // In edit mode the host closes the composer once the update resolves
+      if (!editing) {
+        setText(initialText);
+        setExpanded(false);
+        setSelectedTicketId(undefined);
+        setAttachments([]);
+        setTicketVideos([]);
+        setMentions([]);
+      }
     } catch (error) {
       console.error('[HuddleComposer] Error in handleSubmit:', error);
       alert('Failed to post. Please try again.');
+    } finally {
+      setPosting(false);
+      setPostDone(false);
     }
   };
 
   const handleCancel = () => {
+    // Clear before the editing early return — a recording that finishes after
+    // cancellation must not be restored the next time this post is edited.
+    clearComposerPulseUpload(pulseScope);
     if (editing) {
       onCancel?.();
       return;
@@ -188,9 +246,29 @@ export function HuddleComposer({
     setMentions([]);
   };
 
-  const handleAttachmentAdd = (media: MediaItem) => setAttachments((prev) => [...prev, media]);
-  const handleAttachmentRemove = (mediaId: string) =>
+  // useCallback: this is the hook's dependency, and through it the identity of
+  // the paste handler MarkdownEditor binds a native listener to. Unmemoized it
+  // would tear down and re-register that listener on every keystroke.
+  const handleAttachmentAdd = useCallback(
+    (media: MediaItem) =>
+      setAttachments((prev) => (prev.some((m) => m.id === media.id) ? prev : [...prev, media])),
+    [],
+  );
+  const handleAttachmentRemove = (mediaId: string) => {
+    // Removing the Pulse video chip also forgets its persisted upload, so it
+    // won't reappear when the composer remounts.
+    const removed = attachments.find((m) => m.id === mediaId);
+    if (removed?.type === 'video') clearComposerPulseUpload(pulseScope);
     setAttachments((prev) => prev.filter((m) => m.id !== mediaId));
+  };
+
+  // Pasted screenshots go through the same upload as the Photo button, so they
+  // land in the media store and post as real attachments instead of being
+  // embedded in the post text as base64.
+  const { upload: uploadPastedImages } = useAttachmentUpload({
+    onAttachmentAdd: handleAttachmentAdd,
+    onUploadProgress: reporterFor('paste'),
+  });
 
   // RichEditor has no insert-at-cursor API, so mentions are tracked as chips
   // below the editor instead of injected inline.
@@ -245,6 +323,7 @@ export function HuddleComposer({
         value={text}
         onChange={setText}
         onSubmit={handleSubmit}
+        onImagePaste={uploadPastedImages}
         collab={huddlePostCollab(collabRoom)}
         placeholder="What's on your mind?"
       />
@@ -286,10 +365,13 @@ export function HuddleComposer({
       <div className="flex items-center gap-2 mt-2 flex-wrap">
         <ComposerAttachButtons
           teamId={selectedTeamId}
+          pulseScope={pulseScope}
           onAttachmentAdd={handleAttachmentAdd}
           selectedTicketId={selectedTicketId}
           onTicketSelect={setSelectedTicketId}
           onMentionSelect={handleMentionSelect}
+          onUploadProgress={reporterFor('picker')}
+          onPulsePendingChange={setPulsePending}
         />
         <button
           onClick={handleCancel}
@@ -306,12 +388,16 @@ export function HuddleComposer({
             e.stopPropagation();
             handleSubmit();
           }}
-          disabled={!text.trim() && attachments.length === 0 && ticketVideos.length === 0}
+          disabled={!canSubmit}
           className="text-xs font-semibold px-4 py-1.5 rounded-full bg-indigo-500 dark:bg-indigo-600 text-white hover:bg-indigo-600 dark:hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
-          {submitLabel}
+          {posting ? 'Posting…' : submitLabel}
         </button>
       </div>
+
+      {/* ── Progress bar — spans the composer for both phases: attachment
+           uploads (determinate, real bytes) and the post itself. ── */}
+      <ComposerProgress uploadFraction={uploadFraction} posting={posting} postDone={postDone} />
     </div>
   );
 }

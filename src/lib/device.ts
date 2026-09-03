@@ -13,6 +13,40 @@ export const PULSE_STORE_URLS: Record<MobileOS, string> = {
   android: 'https://play.google.com/store/apps/details?id=com.mieweb.pulse',
 };
 
+/** Android package id for Pulse Cam, used to target the `intent://` launch. */
+const PULSE_ANDROID_PACKAGE = 'com.mieweb.pulse';
+
+/**
+ * How far past its deadline the store-fallback timer may fire and still count as
+ * "ran on time". Anything later means the OS suspended the page, i.e. Pulse Cam
+ * was in the foreground.
+ */
+const TIMER_SUSPENSION_SLACK_MS = 500;
+
+/** How long to wait for Pulse Cam to take over before offering the store. */
+const STORE_FALLBACK_DELAY_MS = 2500;
+
+/**
+ * Longest trip away from the page that still counts as "the user dismissed
+ * Safari's address-invalid alert" rather than "the user was in Pulse Cam".
+ */
+const ALERT_DISMISS_WINDOW_MS = 5000;
+
+/**
+ * Rewrite a `pulsecam://…` deep link as an Android `intent://` URL. Chrome
+ * resolves it without any timers: it launches Pulse Cam when the package is
+ * installed and follows `browser_fallback_url` to Play Store when it isn't.
+ * The query string (and therefore the upload session) is carried through both
+ * ways, so a fresh install can open straight into the same upload.
+ */
+export function buildAndroidIntentLink(deepLink: string): string {
+  const query = deepLink.slice(deepLink.indexOf('://') + '://'.length);
+  return (
+    `intent://${query}#Intent;scheme=pulsecam;package=${PULSE_ANDROID_PACKAGE};` +
+    `S.browser_fallback_url=${encodeURIComponent(PULSE_STORE_URLS.android)};end`
+  );
+}
+
 /** True when running inside the Capacitor native shell (not a browser). */
 export function isNativeApp(): boolean {
   return Capacitor.isNativePlatform();
@@ -122,46 +156,65 @@ export async function openNativePulseOrStore(deepLink: string, os: MobileOS): Pr
  * **Browser-only.** Attempt to open a `pulsecam://` deep link in a mobile
  * browser, falling back to the platform app store if Pulse Cam isn't installed.
  *
- * The deep link is triggered via a **hidden iframe**, not a top-level
- * `location.href` assignment. Assigning `location.href` to an unhandled custom
- * scheme makes mobile Safari show a "Cannot open — address invalid" alert
- * *before* we can redirect; an iframe navigation to the same scheme fails
- * silently (no alert), so the user only ever sees the App Store. If Pulse Cam
- * is installed the OS still switches to it from the iframe navigation.
+ * **Android** resolves this itself: an `intent://` URL carrying
+ * `browser_fallback_url` launches Pulse Cam when installed and goes to Play
+ * Store when it isn't, in one navigation with no timer.
  *
- * Success is detected via a real background transition (`visibilitychange` with
- * `document.hidden === true`, or `pagehide`). `blur` is intentionally NOT used —
- * a native alert blurs the window without hiding the page and would wrongly
- * cancel the fallback. If the page is still visible after {@link fallbackDelayMs},
- * we do a top-level navigation to the store (which correctly opens the store app).
+ * **iOS** has no such mechanism, so the deep link is a *top-level* navigation
+ * (a hidden iframe is silently blocked by modern WebKit, so the installed app
+ * never opened and every user was dumped in the App Store) and the store is a
+ * fallback. Two things then look identical from JavaScript — Pulse Cam
+ * launching, and Safari's "address invalid" alert — and both merely *blur* the
+ * page. A deadline alone can't separate them, and firing it mid-launch is what
+ * stacked the App Store on top of an app that was already opening.
  *
- * @returns a cleanup function that cancels the pending store-fallback timer.
+ * So the deadline never decides while focus is elsewhere; it waits for the page
+ * to come back and measures how long the user was away:
+ *  - page hidden / unloaded → Pulse Cam took over. Stop.
+ *  - timer fired late (the OS suspended the page) → Pulse Cam took over. Stop.
+ *  - away, then back within {@link ALERT_DISMISS_WINDOW_MS} → that was the
+ *    alert, so go to the store.
+ *  - away longer than that → the user was in Pulse Cam. Stop.
+ *  - never left, still visible at the deadline → nothing happened at all, so go
+ *    to the store.
+ *
+ * @returns a cleanup function that cancels the pending store fallback.
  */
 export function openPulseAppOrStore(
   deepLink: string,
   os: MobileOS,
-  fallbackDelayMs = 1500,
+  fallbackDelayMs = STORE_FALLBACK_DELAY_MS,
 ): () => void {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let iframe: HTMLIFrameElement | undefined;
+  if (os === 'android') {
+    navigateExternal(buildAndroidIntentLink(deepLink));
+    return () => {};
+  }
 
-  const removeIframe = () => {
-    if (iframe?.parentNode) iframe.parentNode.removeChild(iframe);
-    iframe = undefined;
-  };
+  const startedAt = Date.now();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let deadlinePassed = false;
+  let leftAt: number | undefined;
+  let settled = false;
 
   const cancel = () => {
+    settled = true;
     if (timer !== undefined) {
       clearTimeout(timer);
       timer = undefined;
     }
     document.removeEventListener('visibilitychange', onVisibilityChange);
     window.removeEventListener('pagehide', onPageHide);
-    removeIframe();
+    window.removeEventListener('blur', onBlur);
+    window.removeEventListener('focus', onFocus);
+  };
+
+  const openStore = () => {
+    if (settled) return;
+    cancel();
+    navigateExternal(PULSE_STORE_URLS[os]);
   };
 
   function onVisibilityChange() {
-    // Only a real background transition (hidden) means the app opened.
     if (document.hidden) cancel();
   }
 
@@ -169,22 +222,38 @@ export function openPulseAppOrStore(
     cancel();
   }
 
+  function onBlur() {
+    if (leftAt === undefined) leftAt = Date.now();
+  }
+
+  function onFocus() {
+    const away = leftAt === undefined ? 0 : Date.now() - leftAt;
+    leftAt = undefined;
+    if (!deadlinePassed || settled) return;
+    if (away < ALERT_DISMISS_WINDOW_MS) openStore();
+    else cancel();
+  }
+
   document.addEventListener('visibilitychange', onVisibilityChange);
   window.addEventListener('pagehide', onPageHide);
+  window.addEventListener('blur', onBlur);
+  window.addEventListener('focus', onFocus);
 
   timer = setTimeout(() => {
-    cancel();
-    if (!document.hidden) {
-      // Top-level navigation to the https store URL opens the store app.
-      navigateExternal(PULSE_STORE_URLS[os]);
+    deadlinePassed = true;
+    timer = undefined;
+    const suspended = Date.now() - startedAt > fallbackDelayMs + TIMER_SUSPENSION_SLACK_MS;
+    if (suspended || document.hidden) {
+      cancel();
+      return;
     }
+    // Focus is elsewhere: Pulse Cam may still be launching, so leave the
+    // decision to onFocus rather than racing it.
+    if (leftAt !== undefined) return;
+    openStore();
   }, fallbackDelayMs);
 
-  // Trigger the deep link via a hidden iframe to avoid Safari's error alert.
-  iframe = document.createElement('iframe');
-  iframe.style.display = 'none';
-  iframe.src = deepLink;
-  document.body.appendChild(iframe);
+  navigateExternal(deepLink);
 
   return cancel;
 }

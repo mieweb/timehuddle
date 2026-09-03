@@ -81,6 +81,10 @@ export function DraftsPanel({ teamId, userInitials, userColor }: DraftsPanelProp
       <div className="shrink-0">
         <HuddleComposer
           key="new-draft"
+          // Distinct Pulse scope: this composer and the feed composer are both
+          // non-editing and on the same team, so without it a recording started
+          // in one would be restored into the other.
+          composerId="new-draft"
           onPost={createDraft}
           userInitials={userInitials}
           userColor={userColor}
@@ -110,7 +114,8 @@ export function DraftsPanel({ teamId, userInitials, userColor }: DraftsPanelProp
               <div key={draft.id} className="mb-3">
                 <HuddleComposer
                   key={`edit-${draft.id}`}
-                  onPost={(content) => void updateDraft(draft.id, content)}
+                  composerId={`draft-${draft.id}`}
+                  onPost={(content) => updateDraft(draft.id, content)}
                   userInitials={userInitials}
                   userColor={userColor}
                   initialText={draft.content.text}

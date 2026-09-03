@@ -6,6 +6,7 @@
  */
 // autoReconnectWs removed - no longer needed after migrating tickets to wormhole
 import { CapacitorHttp } from '@capacitor/core';
+import type { DetailedError } from 'tus-js-client';
 
 import { getDdpClient } from './ddp.js';
 
@@ -105,10 +106,52 @@ export interface PublicUser {
   sharedTeams?: Array<{ id: string; name: string; isAdmin: boolean }>;
 }
 
+/**
+ * Backend-served media paths. Anything under these is addressed by path only —
+ * whichever host is serving the backend right now owns it.
+ */
+export const MEDIA_PATH_PREFIXES = ['/uploads/', '/pulsevault/'];
+
+/**
+ * Resolve a media URL against the *current* backend origin.
+ *
+ * Media URLs were historically persisted absolute (baked from ROOT_URL /
+ * VITE_TIMECORE_URL at upload time), which breaks the moment the backend moves
+ * — most visibly in dev, where the stack is served from the machine's LAN IP
+ * and every DHCP lease change orphans every previously-posted image and video.
+ *
+ * So the host in a stored media URL is treated as advisory: any URL whose path
+ * is backend-owned ({@link MEDIA_PATH_PREFIXES}) is re-based onto the origin
+ * this session actually talks to, whether it arrived relative or
+ * absolute-with-a-stale-host. URLs pointing anywhere else (a real CDN, an
+ * external link) are left alone.
+ *
+ * Re-based onto METEOR_API_BASE, not METEOR_BASE_URL: on proxied web dev that
+ * is '' — a same-origin path served through Vite's /uploads and /pulsevault
+ * proxies, which works from any client on the network, not just the machine
+ * running the backend. Native and explicit-URL builds get the absolute backend
+ * URL, as before.
+ */
+export function resolveMediaUrl(url: string | undefined | null): string {
+  if (!url) return '';
+  let path = url;
+  if (/^https?:\/\//i.test(url)) {
+    try {
+      const parsed = new URL(url);
+      if (!MEDIA_PATH_PREFIXES.some((p) => parsed.pathname.startsWith(p))) return url;
+      path = `${parsed.pathname}${parsed.search}`;
+    } catch {
+      return url;
+    }
+  }
+  return `${METEOR_API_BASE}${path.startsWith('/') ? '' : '/'}${path}`;
+}
+
 function toAbsoluteUrl(url: string | null): string | null {
-  if (!url || /^https?:\/\//i.test(url)) return url;
-  const base = url.startsWith('/uploads/') ? METEOR_BASE_URL : TIMECORE_BASE_URL;
-  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+  if (!url) return url;
+  const isMediaPath = MEDIA_PATH_PREFIXES.some((p) => url.startsWith(p));
+  if (isMediaPath || /^https?:\/\//i.test(url)) return resolveMediaUrl(url);
+  return `${TIMECORE_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
 function withAbsoluteImage(user: PublicUser): PublicUser {
@@ -1003,6 +1046,15 @@ export const ticketApi = {
 
 // ─── Huddle API ───────────────────────────────────────────────────────────────
 
+/** An image/video/file attached to a huddle post. */
+export interface HuddlePostAttachment {
+  mediaId: string;
+  type: 'image' | 'video' | 'file';
+  url: string;
+  thumbnailUrl?: string;
+  filename?: string;
+}
+
 export interface HuddlePost {
   id: string;
   teamId: string;
@@ -1015,13 +1067,7 @@ export interface HuddlePost {
   };
   ticketId?: string;
   ticketTitle?: string;
-  attachments: Array<{
-    mediaId: string;
-    type: 'image' | 'video' | 'file';
-    url: string;
-    thumbnailUrl?: string;
-    filename?: string;
-  }>;
+  attachments: HuddlePostAttachment[];
   likes: string[];
   commentCount: number;
   /** 'draft' = author-only, not in the feed, doesn't satisfy clock gates. */
@@ -1056,6 +1102,15 @@ export const huddleApi = {
       (r) => r.posts,
     ),
 
+  /**
+   * Fetch all published huddle posts for a team over wormhole REST. Used to
+   * refresh the feed the moment a post is created, since the DDP socket can be
+   * down (the WebView drops it while backgrounded for a Pulse recording) and
+   * the live subscription would otherwise deliver the new post only later.
+   */
+  getPosts: (teamId: string) =>
+    wormholeCall<{ posts: HuddlePost[] }>('huddle.getPosts', { teamId }).then((r) => r.posts),
+
   /** The caller's own post for a calendar date (YYYY-MM-DD) in a team, or null. */
   getMyPostForDate: (teamId: string, postDate: string) =>
     wormholeCall<{ post: HuddlePost | null }>('huddle.getMyPostForDate', {
@@ -1080,11 +1135,29 @@ export const huddleApi = {
   getMyDrafts: (teamId: string) =>
     wormholeCall<{ posts: HuddlePost[] }>('huddle.getMyDrafts', { teamId }).then((r) => r.posts),
 
+  /**
+   * Create a huddle post.
+   *
+   * Post authoring goes over wormhole REST (CapacitorHttp / fetch) rather than
+   * DDP: the WebView drops the DDP socket whenever the app is backgrounded —
+   * recording a Pulse video, for instance — and a DDP-only write then strands
+   * the post with no error until the socket reconnects. The feed itself still
+   * updates in realtime via the DDP subscription when one is live.
+   */
+  createPost: (params: {
+    teamId: string;
+    content: { text: string; mentions: string[] };
+    ticketId?: string;
+    attachments?: HuddlePostAttachment[];
+    postDate?: string;
+    draft?: boolean;
+    clockEventId?: string;
+    wrapUp?: boolean;
+  }) => wormholeCall<{ id: string }>('huddle.createPost', { ...params }),
+
   /** Save a plan as an author-only draft (not in the feed, no gate effect). */
   saveDraft: (teamId: string, content: { text: string; mentions: string[] }) =>
-    getDdpClient().call('huddle.createPost', { teamId, content, draft: true }) as Promise<{
-      id: string;
-    }>,
+    wormholeCall<{ id: string }>('huddle.createPost', { teamId, content, draft: true }),
 
   /** Publish a draft: optional content update + client-local postDate stamp;
    * optionally link it to a clock session. */
@@ -1093,7 +1166,13 @@ export const huddleApi = {
     postDate: string,
     content?: { text: string; mentions: string[] },
     clockEventId?: string,
-  ) => getDdpClient().call('huddle.publishPost', { postId, postDate, content, clockEventId }),
+  ) =>
+    wormholeCall<{ id: string }>('huddle.publishPost', {
+      postId,
+      postDate,
+      content,
+      clockEventId,
+    }),
 
   /** Update a huddle post. Pass wrapUp to stamp wrapUpAt (plan-first clock flow).
    * Pass attachments/ticketId to edit them (omit to leave untouched). */
@@ -1102,16 +1181,10 @@ export const huddleApi = {
     content: { text: string; mentions: string[] },
     options?: {
       wrapUp?: boolean;
-      attachments?: Array<{
-        mediaId: string;
-        type: 'image' | 'video' | 'file';
-        url: string;
-        thumbnailUrl?: string;
-        filename?: string;
-      }>;
+      attachments?: HuddlePostAttachment[];
       ticketId?: string | null;
     },
-  ) => getDdpClient().call('huddle.updatePost', { postId, content, ...options }),
+  ) => wormholeCall<{ id: string }>('huddle.updatePost', { postId, content, ...options }),
 
   /** Delete a huddle post. */
   deletePost: (postId: string) => getDdpClient().call('huddle.deletePost', { postId }),
@@ -1686,6 +1759,21 @@ export const videoApi = {
   /** Shared authenticated TUS upload endpoint for ticket and media-library uploads. */
   uploadEndpoint: () => `${METEOR_API_BASE}/pulsevault/upload`,
 
+  /**
+   * Shared TUS retry backoff for every PulseVault upload path. No leading `0`
+   * on purpose: an immediate retry can race the still-streaming PATCH (the
+   * proxy buffers and doesn't abort it), so the backend sees two concurrent
+   * PATCHes at the same offset and 409s the second one.
+   */
+  uploadRetryDelays: [3000, 5000, 10000] as number[],
+
+  /**
+   * Don't retry a `409 Upload-Offset conflict`: it means a concurrent/duplicate
+   * PATCH already advanced the offset, so retrying only conflicts again. Every
+   * upload path shares this so ticket and huddle behave identically.
+   */
+  shouldRetryUpload: (err: DetailedError): boolean => err.originalResponse?.getStatus() !== 409,
+
   /** Reserve a videoid for a ticket upload before starting TUS.
    *  Pass `existingVideoid` when resuming a recording session so the backend
    *  re-registers the same id instead of creating a new one.
@@ -1729,21 +1817,50 @@ function withAbsoluteMediaItem(item: MediaItem): MediaItem {
 }
 
 export const mediaApi = {
-  uploadImage: async (file: File): Promise<MediaItem> => {
+  /**
+   * Upload an image or document to the media library. Images are downscaled
+   * and re-encoded first — a full-resolution camera photo is mostly pixels
+   * nothing in the app ever renders.
+   *
+   * Uses XMLHttpRequest rather than `fetch` because only XHR exposes
+   * upload-side byte progress, which the composer needs to render one progress
+   * bar across image, document, and (TUS) video uploads alike.
+   */
+  uploadImage: async (file: File, onProgress?: (fraction: number) => void): Promise<MediaItem> => {
+    const { compressImageForUpload } = await import('./imageCompress');
+    const upload = await compressImageForUpload(file);
+
     const form = new FormData();
-    form.append('file', file, file.name || 'image');
+    form.append('file', upload, upload.name || 'image');
     const token = await getAccessToken();
-    const res = await fetch(`${METEOR_API_BASE}/api/media/upload`, {
-      method: 'POST',
-      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: form,
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new ApiError((body.error as string) ?? `HTTP ${res.status}`, res.status);
+
+    const { status, body } = await new Promise<{ status: number; body: string }>(
+      (resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${METEOR_API_BASE}/api/media/upload`);
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable && e.total > 0) onProgress?.(e.loaded / e.total);
+        };
+        xhr.onload = () => resolve({ status: xhr.status, body: xhr.responseText });
+        xhr.onerror = () => reject(new ApiError('Upload failed', 0));
+        xhr.onabort = () => reject(new ApiError('Upload cancelled', 0));
+        xhr.send(form);
+      },
+    );
+
+    const parsed = (() => {
+      try {
+        return JSON.parse(body) as { item?: MediaItem; error?: string };
+      } catch {
+        return {} as { item?: MediaItem; error?: string };
+      }
+    })();
+
+    if (status < 200 || status >= 300 || !parsed.item) {
+      throw new ApiError(parsed.error ?? `HTTP ${status}`, status);
     }
-    const data = (await res.json()) as { item: MediaItem };
-    return withAbsoluteMediaItem(data.item);
+    return withAbsoluteMediaItem(parsed.item);
   },
 
   list: () =>

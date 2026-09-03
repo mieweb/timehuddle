@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import {
   attachmentApi,
+  resolveMediaUrl,
   type AttachmentKind,
   type AttachmentType,
   type Attachment,
@@ -190,8 +191,11 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({
             key={a.id}
             className="attachment-item flex items-center justify-between gap-2 text-sm"
           >
+            {/* Backend-hosted attachments (Pulse videos, uploads) are stored
+                by path and bound to the current origin here; user-entered
+                links pass through resolveMediaUrl untouched. */}
             <a
-              href={a.url}
+              href={resolveMediaUrl(a.url)}
               target="_blank"
               rel="noopener noreferrer"
               className="attachment-link truncate text-primary hover:underline"

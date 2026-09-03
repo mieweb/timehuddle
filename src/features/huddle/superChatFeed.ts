@@ -7,6 +7,7 @@
  * attachments become plain links. Comments deliberately stay in the classic
  * card view — SuperChat has no per-message thread concept.
  */
+import { resolveMediaUrl } from '@lib/api';
 import type { HuddlePost } from '@lib/api';
 import type {
   Participant,
@@ -16,8 +17,11 @@ import type {
 
 function attachmentMarkdown(att: HuddlePost['attachments'][number]): string {
   const name = att.filename ?? 'attachment';
-  if (att.type === 'image') return `![${name}](${att.url})`;
-  return `[📎 ${name}](${att.url})`;
+  // Posts store attachment URLs by path — bind them to the current backend
+  // origin, same as the card view does (see PostCard).
+  const url = resolveMediaUrl(att.url);
+  if (att.type === 'image') return `![${name}](${url})`;
+  return `[📎 ${name}](${url})`;
 }
 
 /** Message text = post markdown + ticket tag + attachment embeds/links. */

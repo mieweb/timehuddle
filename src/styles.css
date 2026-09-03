@@ -410,3 +410,16 @@ html[data-theme='dark'] .scrollbar-mieweb::-webkit-scrollbar-thumb:hover {
     transform: translateY(-2px);
   }
 }
+
+/* Composer progress bar — the indeterminate "publishing" phase.
+   Posting has no byte stream to measure, so the bar eases toward 83% and is
+   snapped to 100% by the component once the post resolves. Lives here rather
+   than in an inline <style> so it isn't re-injected per composer instance. */
+@keyframes huddle-progress {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 83%;
+  }
+}

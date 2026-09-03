@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { AnchoredMenu } from '@ui/AnchoredMenu';
 import { fetchTeamTickets } from './api';
 import type { Ticket } from './types';
 
@@ -13,10 +14,7 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  // Horizontal offset (px) of the menu relative to the trigger, clamped so the
-  // menu never spills past either viewport edge.
-  const [offsetX, setOffsetX] = useState(0);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     // Re-fetches on every open (and if teamId resolves/changes while open) —
@@ -27,19 +25,6 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
       loadTickets();
     }
   }, [isOpen, teamId]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isOpen]);
 
   const loadTickets = async () => {
     console.log('[TicketPicker] loadTickets called, teamId:', teamId);
@@ -70,30 +55,21 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
     setSearchQuery('');
   };
 
-  const handleToggle = () => {
-    if (!isOpen && dropdownRef.current) {
-      const rect = dropdownRef.current.getBoundingClientRect();
-      const margin = 8;
-      const menuWidth = Math.min(320, window.innerWidth - margin * 2); // w-80
-      let viewportLeft = rect.left;
-      if (viewportLeft + menuWidth > window.innerWidth - margin) {
-        viewportLeft = window.innerWidth - margin - menuWidth;
-      }
-      if (viewportLeft < margin) viewportLeft = margin;
-      setOffsetX(viewportLeft - rect.left);
-    }
-    setIsOpen((prev) => !prev);
-  };
+  const handleClose = useCallback(() => setIsOpen(false), []);
 
   const filteredTickets = tickets.filter((ticket) =>
     ticket.title.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <>
       <button
-        onClick={handleToggle}
+        ref={triggerRef}
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
         disabled={!teamId}
+        aria-haspopup="menu"
+        aria-expanded={isOpen}
         className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-neutral-400 border border-gray-200 dark:border-neutral-700 px-3 py-1.5 rounded-full hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -107,70 +83,74 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
         Ticket
       </button>
 
-      {isOpen && (
-        <div
-          style={{ left: offsetX }}
-          className="absolute top-full mt-2 w-80 max-w-[calc(100vw-1rem)] bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl shadow-lg overflow-hidden z-50"
-        >
-          {/* Search input */}
-          <div className="p-3 border-b border-gray-100 dark:border-neutral-700">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search tickets..."
-              className="w-full bg-gray-50 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-700 rounded-lg px-3 py-2 text-xs text-gray-700 dark:text-neutral-300 placeholder:text-gray-400 dark:placeholder:text-neutral-600 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors"
-            />
-          </div>
-
-          {/* Ticket list */}
-          <div className="max-h-64 overflow-y-auto overflow-x-hidden">
-            {loading ? (
-              <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">
-                Loading tickets...
-              </div>
-            ) : filteredTickets.length === 0 ? (
-              <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">
-                No tickets found
-              </div>
-            ) : (
-              filteredTickets.map((ticket) => (
-                <button
-                  key={ticket.id}
-                  onClick={() => handleSelect(ticket.id)}
-                  className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors ${
-                    selectedId === ticket.id
-                      ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
-                      : 'text-gray-700 dark:text-neutral-300'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <svg
-                      className="w-3.5 h-3.5 shrink-0"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
-                      />
-                    </svg>
-                    <span className="flex-1 truncate min-w-0">{ticket.title}</span>
-                    {ticket.status && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 shrink-0">
-                        {ticket.status}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
+      <AnchoredMenu
+        open={isOpen}
+        onClose={handleClose}
+        anchorRef={triggerRef}
+        width={320}
+        label="Attach a ticket"
+        testId="ticket-picker-menu"
+      >
+        {/* Search input */}
+        <div className="shrink-0 p-3 border-b border-gray-100 dark:border-neutral-700">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search tickets..."
+            className="w-full bg-gray-50 dark:bg-neutral-900 border border-gray-200 dark:border-neutral-700 rounded-lg px-3 py-2 text-xs text-gray-700 dark:text-neutral-300 placeholder:text-gray-400 dark:placeholder:text-neutral-600 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors"
+          />
         </div>
-      )}
-    </div>
+
+        {/* Ticket list */}
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+          {loading ? (
+            <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">
+              Loading tickets...
+            </div>
+          ) : filteredTickets.length === 0 ? (
+            <div className="p-4 text-center text-xs text-gray-400 dark:text-neutral-500">
+              No tickets found
+            </div>
+          ) : (
+            filteredTickets.map((ticket) => (
+              <button
+                key={ticket.id}
+                type="button"
+                role="menuitem"
+                onClick={() => handleSelect(ticket.id)}
+                className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400 dark:focus-visible:ring-indigo-500 ${
+                  selectedId === ticket.id
+                    ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
+                    : 'text-gray-700 dark:text-neutral-300'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <svg
+                    className="w-3.5 h-3.5 shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
+                    />
+                  </svg>
+                  <span className="flex-1 truncate min-w-0">{ticket.title}</span>
+                  {ticket.status && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 shrink-0">
+                      {ticket.status}
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      </AnchoredMenu>
+    </>
   );
 }

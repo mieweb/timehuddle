@@ -35,6 +35,8 @@ import './team-join-requests';
 
 // PulseVault — video upload + serving
 import './pulsevault';
+// Pulse Cam QR scan interstitial (deep link + app-store fallback)
+import './pulse-link';
 import './messages';
 import './huddle';
 // M8 — Live collaborative editing relay (Yjs) on /yjs
@@ -95,6 +97,24 @@ const _baseDomain = _rootHostname.includes('.')
   ? _rootHostname.split('.').slice(-3).join('.')  // last 3 parts: os.mieweb.org
   : '';
 
+// RFC1918 private-LAN hostnames — dev live-reload serves the WebView from
+// the machine's LAN IP (e.g. http://10.3.95.139:3000), which changes with
+// DHCP/network and can't be pinned in ROOT_URL or CORS_ORIGINS. Without this,
+// `_baseDomain` (derived from ROOT_URL) is a meaningless string for a dotted
+// IPv4 host, so the origin never matches and CORS headers are skipped —
+// breaking raw XHR/fetch calls from the WebView (e.g. tus-js-client video
+// uploads) while native-bridge calls (CapacitorHttp) keep working, since
+// those aren't subject to CORS. See memories/repo/timehuddle-capacitor-rest-cors.md.
+function isPrivateLanHost(hostname) {
+  return (
+    hostname === 'localhost' ||
+    /^127\./.test(hostname) ||
+    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+  );
+}
+
 function isOriginAllowed(origin) {
   if (!origin) return false;
   if (CORS_ALLOW_ALL) return true;
@@ -111,6 +131,8 @@ function isOriginAllowed(origin) {
     if (_baseDomain && _baseDomain !== 'localhost') {
       if (h === _baseDomain || h.endsWith('.' + _baseDomain)) return true;
     }
+    // Dev only: allow any private-LAN origin (see isPrivateLanHost above).
+    if (!Meteor.isProduction && isPrivateLanHost(h)) return true;
   } catch { /* ignore */ }
   return false;
 }
@@ -1174,6 +1196,101 @@ Meteor.startup(async() => {
       type: 'object',
       properties: { teamId: { type: 'string' }, clockEventId: { type: 'string' } },
       required: ['teamId', 'clockEventId'],
+    },
+  });
+
+  Wormhole.expose('huddle.getPosts', {
+    description: 'Fetch all published huddle posts for a team, newest first',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  // Post authoring over REST as well as DDP. On mobile the WebView drops the
+  // DDP socket whenever the app is backgrounded (recording a Pulse video, for
+  // one), so these writes must not depend on a live socket.
+  const huddlePostAttachmentSchema = {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        mediaId: { type: 'string' },
+        type: { type: 'string', enum: ['image', 'video', 'file'] },
+        url: { type: 'string' },
+        thumbnailUrl: { type: 'string' },
+        filename: { type: 'string' },
+      },
+      required: ['mediaId', 'type', 'url'],
+    },
+  };
+
+  const huddlePostContentSchema = {
+    type: 'object',
+    properties: {
+      text: { type: 'string' },
+      mentions: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['text'],
+  };
+
+  Wormhole.expose('huddle.createPost', {
+    description: 'Create a huddle post (or an author-only draft)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        content: huddlePostContentSchema,
+        ticketId: { type: 'string' },
+        attachments: huddlePostAttachmentSchema,
+        postDate: { type: 'string' },
+        draft: { type: 'boolean' },
+        clockEventId: { type: 'string' },
+        wrapUp: { type: 'boolean' },
+      },
+      required: ['teamId', 'content'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+    },
+  });
+
+  Wormhole.expose('huddle.updatePost', {
+    description: 'Update a huddle post (author, team admin, or org owner)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        postId: { type: 'string' },
+        content: huddlePostContentSchema,
+        wrapUp: { type: 'boolean' },
+        attachments: huddlePostAttachmentSchema,
+        ticketId: { type: ['string', 'null'] },
+      },
+      required: ['postId', 'content'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+    },
+  });
+
+  Wormhole.expose('huddle.publishPost', {
+    description: 'Publish one of the caller\'s own drafts into the feed',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        postId: { type: 'string' },
+        postDate: { type: 'string' },
+        content: huddlePostContentSchema,
+        clockEventId: { type: 'string' },
+      },
+      required: ['postId', 'postDate'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
     },
   });
 

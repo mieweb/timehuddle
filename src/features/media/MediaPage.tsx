@@ -56,7 +56,8 @@ async function uploadVideoToLibrary(file: File, onProgress: (pct: number) => voi
   await new Promise<void>((resolve, reject) => {
     const upload = new tus.Upload(file, {
       endpoint: videoApi.uploadEndpoint(),
-      retryDelays: [0, 3000, 5000],
+      retryDelays: videoApi.uploadRetryDelays,
+      onShouldRetry: videoApi.shouldRetryUpload,
       metadata: { videoid, filename: file.name, filetype: file.type },
       headers: { Authorization: `Bearer ${uploadToken}` },
       onProgress(bytesUploaded, bytesTotal) {

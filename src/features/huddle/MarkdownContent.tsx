@@ -1,5 +1,6 @@
 import { useEffect, useRef, memo } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
+import { resolveMediaUrl } from '@lib/api';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeHighlight from 'rehype-highlight';
@@ -54,6 +55,39 @@ const MermaidBlock = memo(function MermaidBlock({ code }: { code: string }) {
   );
 });
 
+// ─── Image URLs ───────────────────────────────────────────────────────────────
+/**
+ * Raster image data URLs, as produced by pasting a screenshot into the editor.
+ * SVG is deliberately excluded — it can carry markup, and there is no reason to
+ * paste one inline.
+ */
+const INLINE_IMAGE_URL = /^data:image\/(png|jpe?g|gif|webp|avif);base64,/i;
+
+/** Has a scheme (`https:`, `data:`) or is protocol-relative (`//host/…`). */
+const ABSOLUTE_URL = /^([a-z][a-z0-9+.-]*:|\/\/)/i;
+
+/**
+ * react-markdown's `defaultUrlTransform` blanks any URL whose protocol isn't
+ * http/https/mailto/xmpp, so a pasted screenshot (stored inline as a `data:`
+ * URL) renders as `<img src="">` — a broken icon showing its alt text. Allow
+ * inline raster images through, and re-base *relative* backend media paths, so
+ * `/uploads/...` also resolves from the native app, whose origin is
+ * capacitor:// rather than the backend host.
+ *
+ * Absolute URLs are deliberately left alone. `resolveMediaUrl` re-bases any URL
+ * whose path starts with a backend media prefix regardless of host — safe for
+ * attachment records, where every URL is backend-owned by construction, but not
+ * here: post markdown is user-authored, and an external image that merely
+ * happens to live under `/uploads/` (`https://raw.githubusercontent.com/o/r/uploads/x.png`)
+ * would be rewritten onto our own origin and break.
+ */
+function transformUrl(url: string, key: string): string {
+  if (key === 'src' && INLINE_IMAGE_URL.test(url)) return url;
+  const safe = defaultUrlTransform(url);
+  if (key !== 'src' || !safe || ABSOLUTE_URL.test(safe)) return safe;
+  return resolveMediaUrl(safe);
+}
+
 // ─── MarkdownContent ──────────────────────────────────────────────────────────
 // memo() — only re-renders if the markdown string actually changes.
 // This is the key fix: parent components (feed, composer) re-render all the
@@ -84,6 +118,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content }: { cont
       "
     >
       <ReactMarkdown
+        urlTransform={transformUrl}
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[
           // ignoreMissing: skip unknown langs (including mermaid) without erroring
@@ -93,6 +128,18 @@ export const MarkdownContent = memo(function MarkdownContent({ content }: { cont
           rehypeKatex,
         ]}
         components={{
+          // Screenshots are full-resolution (1290px+ wide), so bound them to the
+          // card instead of letting them widen the feed into a sideways scroll.
+          img({ src, alt }) {
+            return (
+              <img
+                src={typeof src === 'string' ? src : undefined}
+                alt={alt ?? ''}
+                loading="lazy"
+                className="my-2 max-h-[420px] w-auto max-w-full rounded-xl border border-gray-200 object-contain dark:border-neutral-700"
+              />
+            );
+          },
           code({ className, children, node, ...rest }) {
             const code = String(children).trim();
             const nodeClasses = (node?.properties?.className as string[]) ?? [];

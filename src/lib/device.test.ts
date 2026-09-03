@@ -14,6 +14,7 @@ vi.mock('@capacitor/app-launcher', () => ({
 }));
 
 import {
+  buildAndroidIntentLink,
   getMobileOS,
   getStoreOS,
   isMobileBrowser,
@@ -149,8 +150,24 @@ describe('openNativePulseOrStore (Capacitor native shell)', () => {
   });
 });
 
+describe('buildAndroidIntentLink', () => {
+  it('carries the upload session into the intent URL and the Play Store fallback', () => {
+    const link = buildAndroidIntentLink('pulsecam://?v=1&artifactId=abc&token=tok');
+
+    expect(link.startsWith('intent://?v=1&artifactId=abc&token=tok#Intent;')).toBe(true);
+    expect(link).toContain('scheme=pulsecam;');
+    expect(link).toContain('package=com.mieweb.pulse;');
+    expect(link).toContain(
+      `S.browser_fallback_url=${encodeURIComponent(PULSE_STORE_URLS.android)};end`,
+    );
+  });
+});
+
 describe('openPulseAppOrStore (browser)', () => {
   beforeEach(() => {
+    // Clears any Capacitor spy leaked by an earlier suite — a stale
+    // isNativePlatform()=true would route navigation through window.open.
+    vi.restoreAllMocks();
     vi.useFakeTimers();
   });
 
@@ -161,7 +178,7 @@ describe('openPulseAppOrStore (browser)', () => {
     document.querySelectorAll('iframe').forEach((f) => f.remove());
   });
 
-  it('triggers the deep link via a hidden iframe (no top-level navigation)', () => {
+  it('opens the deep link with a top-level navigation so an installed app wins', () => {
     const setHref = vi.fn();
     Object.defineProperty(window, 'location', {
       value: {
@@ -175,11 +192,9 @@ describe('openPulseAppOrStore (browser)', () => {
 
     openPulseAppOrStore('pulsecam://?v=1', 'ios', 1500);
 
-    const iframe = document.querySelector('iframe');
-    expect(iframe).not.toBeNull();
-    expect(iframe?.getAttribute('src')).toBe('pulsecam://?v=1');
-    // Must NOT navigate the top-level page to the scheme (that shows the alert).
-    expect(setHref).not.toHaveBeenCalledWith('pulsecam://?v=1');
+    expect(setHref).toHaveBeenCalledWith('pulsecam://?v=1');
+    // A hidden iframe is silently blocked by WebKit — it must not be used.
+    expect(document.querySelector('iframe')).toBeNull();
   });
 
   it('redirects to the store when the app does not open', () => {
@@ -194,10 +209,30 @@ describe('openPulseAppOrStore (browser)', () => {
     });
     Object.defineProperty(document, 'hidden', { value: false, configurable: true });
 
+    openPulseAppOrStore('pulsecam://?v=1', 'ios', 1500);
+    vi.advanceTimersByTime(1500);
+
+    expect(setHref).toHaveBeenLastCalledWith(PULSE_STORE_URLS.ios);
+  });
+
+  it('hands Android a single intent:// navigation with a Play Store fallback', () => {
+    const setHref = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: {
+        set href(v: string) {
+          setHref(v);
+        },
+      },
+      configurable: true,
+    });
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+
     openPulseAppOrStore('pulsecam://?v=1', 'android', 1500);
     vi.advanceTimersByTime(1500);
 
-    expect(setHref).toHaveBeenLastCalledWith(PULSE_STORE_URLS.android);
+    // Chrome resolves app-or-store itself, so there is no timed store redirect.
+    expect(setHref).toHaveBeenCalledTimes(1);
+    expect(setHref).toHaveBeenCalledWith(buildAndroidIntentLink('pulsecam://?v=1'));
   });
 
   it('does not redirect to the store when the app opened (page hidden)', () => {
@@ -218,7 +253,7 @@ describe('openPulseAppOrStore (browser)', () => {
     expect(setHref).not.toHaveBeenCalledWith(PULSE_STORE_URLS.ios);
   });
 
-  it('still redirects to the store after a window blur (Safari "address invalid" alert)', () => {
+  it('redirects to the store once Safari\'s "address invalid" alert is dismissed', () => {
     const setHref = vi.fn();
     Object.defineProperty(window, 'location', {
       value: {
@@ -231,12 +266,39 @@ describe('openPulseAppOrStore (browser)', () => {
     Object.defineProperty(document, 'hidden', { value: false, configurable: true });
 
     openPulseAppOrStore('pulsecam://?v=1', 'ios', 1500);
-    // Safari shows a native alert (blurs window) but the page stays visible —
-    // this must NOT cancel the fallback.
+    // The alert blurs the window but the page stays visible.
     window.dispatchEvent(new Event('blur'));
     vi.advanceTimersByTime(1500);
+    // Nothing yet — Pulse Cam could still be launching.
+    expect(setHref).not.toHaveBeenCalledWith(PULSE_STORE_URLS.ios);
+
+    vi.advanceTimersByTime(800);
+    window.dispatchEvent(new Event('focus'));
 
     expect(setHref).toHaveBeenLastCalledWith(PULSE_STORE_URLS.ios);
+  });
+
+  it('does not redirect when the user comes back from Pulse Cam (long trip away)', () => {
+    const setHref = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: {
+        set href(v: string) {
+          setHref(v);
+        },
+      },
+      configurable: true,
+    });
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+
+    openPulseAppOrStore('pulsecam://?v=1', 'ios', 1500);
+    // Pulse Cam launches: the page is blurred but iOS never marks it hidden.
+    window.dispatchEvent(new Event('blur'));
+    vi.advanceTimersByTime(1500);
+    // The user records a clip, then returns.
+    vi.advanceTimersByTime(20_000);
+    window.dispatchEvent(new Event('focus'));
+
+    expect(setHref).not.toHaveBeenCalledWith(PULSE_STORE_URLS.ios);
   });
 
   it('cancels the fallback when the page is truly hidden (visibilitychange)', () => {
@@ -255,6 +317,27 @@ describe('openPulseAppOrStore (browser)', () => {
     // App opened → page backgrounds.
     Object.defineProperty(document, 'hidden', { value: true, configurable: true });
     document.dispatchEvent(new Event('visibilitychange'));
+    vi.advanceTimersByTime(1500);
+
+    expect(setHref).not.toHaveBeenCalledWith(PULSE_STORE_URLS.ios);
+  });
+
+  it('does not open the store when the timer was suspended (Pulse Cam held the foreground)', () => {
+    const setHref = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: {
+        set href(v: string) {
+          setHref(v);
+        },
+      },
+      configurable: true,
+    });
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+
+    openPulseAppOrStore('pulsecam://?v=1', 'ios', 1500);
+    // iOS suspends a backgrounded page: the timer only runs once the user
+    // returns from Pulse Cam, long past its deadline.
+    vi.setSystemTime(Date.now() + 30_000);
     vi.advanceTimersByTime(1500);
 
     expect(setHref).not.toHaveBeenCalledWith(PULSE_STORE_URLS.ios);
