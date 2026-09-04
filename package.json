@@ -31,7 +31,7 @@
     "test:all": "npm run test:unit && npm run test",
     "test:watch": "vitest",
     "prepare": "node scripts/prepare-husky.cjs",
-    "setup:ui": "git submodule update --init vendor/ui && cd vendor/ui && npm install && npm run build && npm pack && mv mieweb-ui-*.tgz ../mieweb-ui.tgz",
+    "setup:ui": "node scripts/build-ui-tarball.mjs",
     "dev:mobile": "vite --host",
     "dev:ios": "bash scripts/dev-ios.sh",
     "local:ios": "bash scripts/local-ios.sh",
