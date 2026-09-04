@@ -170,15 +170,19 @@ export async function getAccessibleOrgIds(userId) {
 
 /**
  * True if `userId` has team-admin authority on `team` — either because they
- * are listed in `team.admins`, or because they own the organization the team
- * belongs to. Org owners get full team-admin authority on every team in
- * their org (rename, delete, invite, remove member, set role/password,
- * approve/decline join requests, manage invitations).
+ * are listed in `team.admins`, or because they are an owner/admin of the
+ * organization the team belongs to. Org owners and admins get full team-admin
+ * authority on every team in their org (rename, delete, invite, remove member,
+ * set role/password, approve/decline join requests, manage invitations).
  */
 export async function isTeamAdminOrOrgOwner(team, userId) {
   if (team.admins.includes(userId)) return true;
   if (!team.orgId || !isValidId(team.orgId)) return false;
+  // Check modern org_members collection first (owner or admin both qualify)
+  const membership = await rawDb().collection('org_members').findOne({ orgId: team.orgId, userId });
+  if (membership?.role === 'owner' || membership?.role === 'admin') return true;
+  // Fallback to legacy owners/admins arrays on the org document
   const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(team.orgId) });
-  return !!org?.owners?.includes(userId);
+  return !!org?.owners?.includes(userId) || !!org?.admins?.includes(userId);
 }
 

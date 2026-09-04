@@ -110,26 +110,52 @@ function toPublicTeam(team) {
   };
 }
 
-Meteor.publish('teams.byUser', function () {
+Meteor.publish('teams.byUser', async function () {
   if (!this.userId) return this.ready();
   const userId = this.userId;
-  return Teams.find({ members: userId });
+  // Also surface all teams in orgs where this user is an owner or admin
+  const elevatedMemberships = await rawDb()
+    .collection('org_members')
+    .find({ userId, role: { $in: ['owner', 'admin'] } })
+    .toArray();
+  const elevatedOrgIds = elevatedMemberships.map((m) => m.orgId);
+  const filter =
+    elevatedOrgIds.length > 0
+      ? { $or: [{ members: userId }, { orgId: { $in: elevatedOrgIds }, isPersonal: { $ne: true } }] }
+      : { members: userId };
+  return Teams.find(filter);
 });
 
 Meteor.methods({
   async 'teams.list'() {
     const identity = await requireIdentity(this);
-    const teams = await Teams.find({ members: identity.userId }).fetchAsync();
+    const userId = identity.userId;
+
+    // Include all teams in orgs where this user is an owner or admin
+    const elevatedMemberships = await rawDb()
+      .collection('org_members')
+      .find({ userId, role: { $in: ['owner', 'admin'] } })
+      .toArray();
+    const elevatedOrgIds = elevatedMemberships.map((m) => m.orgId);
+    const teamFilter =
+      elevatedOrgIds.length > 0
+        ? { $or: [{ members: userId }, { orgId: { $in: elevatedOrgIds }, isPersonal: { $ne: true } }] }
+        : { members: userId };
+    const teams = await Teams.find(teamFilter).fetchAsync();
 
     const userPending = await TeamJoinRequests.rawCollection()
-      .find({ userId: identity.userId, status: 'pending' })
+      .find({ userId, status: 'pending' })
       .sort({ requestedAt: -1 })
       .toArray();
 
-    const adminTeamIds = teams.filter((t) => t.admins?.includes(identity.userId)).map((t) => {
-      const id = t._id?.toHexString ? t._id.toHexString() : String(t._id);
-      return id;
-    });
+    // Org owners/admins see pending join requests for all their teams
+    const adminTeamIds = teams
+      .filter((t) => {
+        const id = t._id?.toHexString ? t._id.toHexString() : String(t._id);
+        if (t.admins?.includes(userId)) return true;
+        return elevatedOrgIds.includes(t.orgId);
+      })
+      .map((t) => (t._id?.toHexString ? t._id.toHexString() : String(t._id)));
 
     let adminPending = [];
     if (adminTeamIds.length > 0) {

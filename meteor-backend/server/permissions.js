@@ -68,6 +68,10 @@ async function resolveOrgRoleForTeam(userId, team) {
   const membership = await rawDb().collection('org_members').findOne({ orgId: team.orgId, userId });
   if (membership?.role === 'owner') return 'owner';
   if (membership?.role === 'admin') return 'admin';
+  // Fallback to legacy owners/admins arrays for data predating org_members migration
+  const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(team.orgId) });
+  if ((org?.owners ?? []).includes(userId)) return 'owner';
+  if ((org?.admins ?? []).includes(userId)) return 'admin';
   return 'member';
 }
 
@@ -118,7 +122,8 @@ export async function buildTeamAbility(userId, teamId) {
     orgIds: team.orgId ? [team.orgId] : [],
     enterpriseIds: enterpriseScope.enterpriseId ? [enterpriseScope.enterpriseId] : [],
     isEnterpriseElevated: enterpriseScope.elevated,
-    teamAdminIds: (team.admins ?? []).includes(userId) ? [teamId] : [],
+    // Org owners/admins have team-admin authority on all teams in their org
+    teamAdminIds: (team.admins ?? []).includes(userId) || isOrgElevated ? [teamId] : [],
   });
 
   return { team, scoped, ability };
