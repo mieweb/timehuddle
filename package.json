@@ -65,7 +65,7 @@
     "@fortawesome/free-brands-svg-icons": "^7.0.1",
     "@fortawesome/free-regular-svg-icons": "^7.0.1",
     "@fortawesome/free-solid-svg-icons": "^7.0.1",
-    "@fortawesome/react-fontawesome": "^3.0.2",
+    "@fortawesome/react-fontawesome": "^3.5.0",
     "@kerebron/editor": "^0.8.9",
     "@kerebron/editor-kits": "^0.8.9",
     "@kerebron/extension-automerge": "^0.2.1",
