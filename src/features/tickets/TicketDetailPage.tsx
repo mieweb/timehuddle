@@ -38,6 +38,7 @@ const STATUS_OPTIONS = [
 ];
 
 const PRIORITY_OPTIONS = [
+  { value: 'none', label: 'None' },
   { value: 'low', label: 'Low' },
   { value: 'medium', label: 'Medium' },
   { value: 'high', label: 'High' },
@@ -209,8 +210,13 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
 
   const handlePriorityChange = async (priority: string) => {
     if (!ticket) return;
-    const updated = await ticketApi.updateStatusPriority(ticket.id, { priority });
-    setTicket(updated);
+    setActionError(null);
+    try {
+      const updated = await ticketApi.updateStatusPriority(ticket.id, { priority });
+      setTicket(updated);
+    } catch {
+      setActionError('Failed to update priority.');
+    }
   };
 
   const handleAssigneesChange = async (assignedToUserIds: string | string[]) => {
@@ -520,8 +526,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                 <Select
                   id="ticket-priority"
                   aria-label="Ticket priority"
-                  options={[{ value: '', label: 'None' }, ...PRIORITY_OPTIONS]}
-                  value={ticket.priority ?? ''}
+                  options={PRIORITY_OPTIONS}
+                  value={ticket.priority ?? 'none'}
                   onValueChange={(val: string) => void handlePriorityChange(val)}
                 />
               </div>
