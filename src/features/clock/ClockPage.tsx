@@ -31,9 +31,7 @@ import {
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { clockApi, huddleApi, timerApi, type ClockEvent, type HuddlePost } from '../../lib/api';
-import { getDdpClient } from '../../lib/ddp';
-
+import { clockApi, huddleApi, type ClockEvent, type HuddlePost } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import {
   formatDate,
@@ -44,6 +42,7 @@ import {
   toDateString,
 } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
+import { useRunningTicket } from '../../lib/useRunningTicket';
 import { MarkdownEditor } from '../huddle/MarkdownEditor';
 import { useAttachmentUpload, useUploadProgress } from '../huddle/useAttachmentUpload';
 import { toPostAttachment } from '../huddle/api';
@@ -90,61 +89,8 @@ export const ClockPage: React.FC = () => {
   const isPaused = !!activeClockEvent?.isPaused;
   const sessionSeconds = getActiveClockSeconds(activeClockEvent, currentTime);
 
-  // ── Active ticket timer (shown under the session timer when clocked in) ──
-  type RunningTicketRef = { id: string; title: string };
-  const [runningTicket, setRunningTicket] = useState<RunningTicketRef | null>(null);
-
-  const fetchRunningTicket = useCallback(async () => {
-    if (!localStorage.getItem('meteor_resume_token')) {
-      setRunningTicket(null);
-      return;
-    }
-    try {
-      const dayEntries = await timerApi.getToday();
-      const running = dayEntries.flatMap((de) => de.sessions).find((t) => !t.endTime);
-      if (!running) {
-        setRunningTicket(null);
-        return;
-      }
-      const dayEntry = dayEntries.find((de) => de.sessions.some((t) => t.id === running.id));
-      if (!dayEntry?.entry.ticketId) {
-        setRunningTicket(null);
-        return;
-      }
-      setRunningTicket({
-        id: dayEntry.entry.ticketId,
-        title: dayEntry.entry.displayTitle || dayEntry.entry.ticketId,
-      });
-    } catch {
-      setRunningTicket(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!isClockedIn) {
-      setRunningTicket(null);
-      return;
-    }
-    void fetchRunningTicket();
-  }, [isClockedIn, fetchRunningTicket]);
-
-  useEffect(() => {
-    if (!isClockedIn) return;
-    const ddp = getDdpClient();
-    const offChange = ddp.onCollectionChange('timers', () => {
-      void fetchRunningTicket();
-    });
-    const unsubscribe = ddp.subscribe('timers.liveForUser', []);
-    const onWorkRefetch = () => void fetchRunningTicket();
-    window.addEventListener('work:refetch', onWorkRefetch);
-    window.addEventListener('tickets:refetch', onWorkRefetch);
-    return () => {
-      offChange();
-      unsubscribe();
-      window.removeEventListener('work:refetch', onWorkRefetch);
-      window.removeEventListener('tickets:refetch', onWorkRefetch);
-    };
-  }, [isClockedIn, fetchRunningTicket]);
+  // Active ticket under the session timer — shared hook (getRunning + getDay).
+  const runningTicket = useRunningTicket(isClockedIn);
 
   // ── Composer state (plan before clock-in, wrap-up before clock-out) ──
   const [text, setText] = useState('');
