@@ -12,3 +12,6 @@ backend/data/videos/**
 # Vendored submodules and Meteor PoC backend
 vendor
 meteor-backend
+
+# Generated Playwright reports
+playwright-report

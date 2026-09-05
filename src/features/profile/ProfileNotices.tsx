@@ -16,8 +16,7 @@ import React from 'react';
 export type UsernameState = 'pending' | 'blocked' | 'required';
 
 export type NoticeConfig =
-  | { type: 'coming-soon' }
-  | { type: 'username'; state: UsernameState; onAction?: () => void };
+  { type: 'coming-soon' } | { type: 'username'; state: UsernameState; onAction?: () => void };
 
 // ─── Individual banners (internal) ───────────────────────────────────────────
 
