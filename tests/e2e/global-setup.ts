@@ -183,11 +183,11 @@ export default async function globalSetup(): Promise<void> {
     if (doc) usersByEmail.set(u.email, String(doc._id));
   }
 
-  const owners = SEED_USERS.filter((u) => u.role === 'owner').map(
-    (u) => usersByEmail.get(u.email)!,
+  const owners = SEED_USERS.filter((u) => u.role === 'owner').map((u) =>
+    usersByEmail.get(u.email)!,
   );
-  const admins = SEED_USERS.filter((u) => u.role === 'admin').map(
-    (u) => usersByEmail.get(u.email)!,
+  const admins = SEED_USERS.filter((u) => u.role === 'admin').map((u) =>
+    usersByEmail.get(u.email)!,
   );
 
   await db.collection('organizations').updateOne(

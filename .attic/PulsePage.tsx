@@ -163,15 +163,13 @@ export const PulsePage: React.FC = () => {
             const attachments = await attachmentApi.list('ticket', ticket.id);
             return attachments
               .filter((a: Attachment) => a.type === 'video')
-              .map(
-                (a: Attachment): TicketVideo => ({
-                  id: a.id,
-                  url: a.url,
-                  title: a.title ?? 'Pulse Video',
-                  ticketTitle: ticket.title,
-                  date: a.addedAt,
-                }),
-              );
+              .map((a: Attachment): TicketVideo => ({
+                id: a.id,
+                url: a.url,
+                title: a.title ?? 'Pulse Video',
+                ticketTitle: ticket.title,
+                date: a.addedAt,
+              }));
           } catch {
             return [];
           }
