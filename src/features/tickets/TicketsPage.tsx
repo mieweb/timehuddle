@@ -64,6 +64,7 @@ import { getDdpClient, ddpDocToTicket } from '../../lib/ddp';
 import { toLocalDateStr } from '../../lib/date';
 import { useSession } from '../../lib/useSession';
 import { useClockToggle } from '../../lib/useClockToggle';
+import { useRunningTicket } from '../../lib/useRunningTicket';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
@@ -657,9 +658,8 @@ export const TicketsPage: React.FC = () => {
   // Map from teamId → members for cross-team member lookups
   const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
 
-  // Timer state — track the currently running timer by ticket ID
-  const [runningTicketId, setRunningTicketId] = useState<string | null>(null);
-  const [runningSessionId, setRunningSessionId] = useState<string | null>(null);
+  // Timer state — which ticket has the open timer (shared overnight-safe hook)
+  const runningTicket = useRunningTicket(true);
   const [timerLoading, setTimerLoading] = useState<string | null>(null); // ticketId currently toggling
   const [pendingStartTicketId, setPendingStartTicketId] = useState<string | null>(null);
   const [showClockInPrompt, setShowClockInPrompt] = useState(false);
@@ -696,32 +696,9 @@ export const TicketsPage: React.FC = () => {
     }
   }, [teams, teamsReady]);
 
-  // Fetch today's timer to determine if any ticket has a running timer
-  const fetchRunningTimer = useCallback(async () => {
-    // Wait for token to be available before fetching
-    if (!localStorage.getItem('meteor_resume_token')) return;
-    try {
-      const dayEntries = await timerApi.getToday();
-      const running = dayEntries.flatMap((de) => de.sessions).find((t) => !t.endTime);
-      if (running) {
-        const dayEntry = dayEntries.find((de) => de.sessions.some((t) => t.id === running.id));
-        if (dayEntry) {
-          setRunningTicketId(dayEntry.entry.ticketId);
-          setRunningSessionId(running.id);
-        }
-      } else {
-        setRunningTicketId(null);
-        setRunningSessionId(null);
-      }
-    } catch {
-      // Ignore errors
-    }
-  }, []);
-
   useEffect(() => {
     void refetch();
-    void fetchRunningTimer();
-  }, [refetch, fetchRunningTimer]);
+  }, [refetch]);
 
   // When the user switches team in the header, follow the new team in the filter.
   useEffect(() => {
@@ -773,31 +750,16 @@ export const TicketsPage: React.FC = () => {
     };
   }, [teamIdsKey, userId]);
 
-  // ── Real-time timer updates (Meteor DDP, oplog-backed) ──
-  useEffect(() => {
-    const ddp = getDdpClient();
-
-    // When any timer starts/stops, refetch to update which ticket has the running timer
-    const offChange = ddp.onCollectionChange('timers', () => {
-      void fetchRunningTimer();
-    });
-    const unsubscribe = ddp.subscribe('timers.liveForUser', []);
-
-    return () => {
-      offChange();
-      unsubscribe();
-    };
-  }, [fetchRunningTimer]);
+  // ── Real-time timer updates live inside useRunningTicket ──
 
   // Listen for external refetch requests (e.g., from CommandPalette or clock operations)
   useEffect(() => {
     const onRefetch = () => {
       void refetch();
-      void fetchRunningTimer();
     };
     window.addEventListener('tickets:refetch', onRefetch);
     return () => window.removeEventListener('tickets:refetch', onRefetch);
-  }, [refetch, fetchRunningTimer]);
+  }, [refetch]);
 
   // Fetch members for all teams
   useEffect(() => {
@@ -1050,8 +1012,8 @@ export const TicketsPage: React.FC = () => {
       });
 
       if (result.session) {
-        setRunningTicketId(ticketId);
-        setRunningSessionId(result.session.id);
+        // Hook refreshes via DDP / tickets:refetch once the open timer lands.
+        window.dispatchEvent(new CustomEvent('tickets:refetch'));
       }
     } catch (err) {
       console.error('Timer start failed:', err);
@@ -1062,13 +1024,12 @@ export const TicketsPage: React.FC = () => {
 
   const handleToggleTimer = useCallback(
     async (ticketId: string) => {
-      if (runningTicketId === ticketId && runningSessionId) {
+      if (runningTicket?.id === ticketId && runningTicket.sessionId) {
         // Stop the running timer
         setTimerLoading(ticketId);
         try {
-          await timerApi.stopSession(runningSessionId);
-          setRunningTicketId(null);
-          setRunningSessionId(null);
+          await timerApi.stopSession(runningTicket.sessionId);
+          window.dispatchEvent(new CustomEvent('tickets:refetch'));
         } catch (err) {
           console.error('Timer stop failed:', err);
         } finally {
@@ -1086,7 +1047,7 @@ export const TicketsPage: React.FC = () => {
         await startTimerForTicket(ticketId);
       }
     },
-    [runningTicketId, runningSessionId, isClockedIn, startTimerForTicket],
+    [runningTicket, isClockedIn, startTimerForTicket],
   );
 
   const handleClockInAndStart = useCallback(async () => {
@@ -1557,7 +1518,7 @@ export const TicketsPage: React.FC = () => {
                         // Silently ignore — user can retry
                       }
                     }}
-                    isTimerRunning={runningTicketId === t.id}
+                    isTimerRunning={runningTicket?.id === t.id}
                     timerLoading={timerLoading === t.id}
                     onToggleTimer={handleToggleTimer}
                   />
