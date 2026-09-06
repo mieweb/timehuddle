@@ -50,7 +50,9 @@ if (existsSync(TARBALL) && currentCommit === lastBuiltCommit) {
   process.exit(0);
 }
 
-console.log(`[build-ui-tarball] vendor/ui changed (${lastBuiltCommit?.slice(0, 8) ?? 'none'} -> ${currentCommit.slice(0, 8)}), rebuilding — this can take a few minutes...`);
+console.log(
+  `[build-ui-tarball] vendor/ui changed (${lastBuiltCommit?.slice(0, 8) ?? 'none'} -> ${currentCommit.slice(0, 8)}), rebuilding — this can take a few minutes...`,
+);
 sh('pnpm install', UI_DIR);
 sh('pnpm run build', UI_DIR);
 const packOutput = sh('npm pack', UI_DIR, true);
