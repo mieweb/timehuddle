@@ -1,5 +1,6 @@
 import { type Page, type Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
+import { TEST_USERS, loginAs } from '../fixtures/users';
 
 /**
  * TeamsPage - Page object for team management
@@ -17,10 +18,36 @@ export class TeamsPage extends BasePage {
   }
 
   /**
-   * Navigate to teams page
+   * Navigate to teams page.
+   *
+   * A slow DDP cold-start (backend just warmed up, resume-login retry loop
+   * still running) can occasionally bounce this navigation back to the login
+   * screen instead of rendering Teams. Mirrors the recovery already used in
+   * teams.spec.ts's gotoTeamsPage(): detect the bounce and re-authenticate.
+   * Retries a few times — the DDP client's own background reconnect uses
+   * capped exponential backoff up to ~46s, so a single retry isn't always
+   * enough to land after the resume token is actually usable.
+   *
+   * The bounce can also happen a beat *after* navigation settles (the app
+   * renders optimistically, then redirects once an auth check resolves), so
+   * a one-shot `isVisible()` right after `goto` can miss it. Race the two
+   * possible headings instead of checking either in isolation.
    */
   async goto() {
-    await this.page.goto('/app/teams');
+    const loginHeading = this.page.getByRole('heading', { name: 'Sign in to your account' });
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await this.page.goto('/app/teams');
+
+      const landedOnLogin = await Promise.race([
+        this.heading.waitFor({ state: 'visible', timeout: 20000 }).then(() => false),
+        loginHeading.waitFor({ state: 'visible', timeout: 20000 }).then(() => true),
+      ]).catch(() => false);
+
+      if (!landedOnLogin) return;
+      await loginAs(this.page, TEST_USERS.owner1);
+    }
+
     await this.waitForLoad();
   }
 
@@ -35,7 +62,7 @@ export class TeamsPage extends BasePage {
   /**
    * Wait for page to load
    */
-  async waitForLoad(timeout = 10000) {
+  async waitForLoad(timeout = 20000) {
     await this.heading.waitFor({ state: 'visible', timeout });
   }
 

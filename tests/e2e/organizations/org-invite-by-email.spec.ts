@@ -280,6 +280,11 @@ test.describe('Org Owner Team Authority', () => {
       await loginAs(page, owner);
       await page.goto('/app/teams');
       await page.waitForLoadState('networkidle');
+      // networkidle can fire before the switcher button hydrates — wait for
+      // a page-specific signal (same pattern used in profile-routing.spec.ts).
+      await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({
+        timeout: 30000,
+      });
 
       // Select the new team via the org/team switcher — more reliable than the
       // `?teamId=` deep link, which can race with the initial teams fetch.

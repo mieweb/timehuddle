@@ -72,7 +72,7 @@
     "@kerebron/extension-basic-editor": "^0.8.9",
     "@kerebron/extension-yjs": "^0.8.9",
     "@kerebron/wasm": "^0.8.6",
-    "@mieweb/ui": "file:vendor/mieweb-ui.tgz",
+    "@mieweb/ui": "^0.7.3",
     "@mieweb/ychart": "^1.1.0",
     "@swc/helpers": "^0.5.17",
     "cmdk": "^1.1.1",

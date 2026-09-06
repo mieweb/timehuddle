@@ -56,7 +56,7 @@ test.describe('Plan-First Clock Flow', () => {
     await page.getByRole('button', { name: 'Create', exact: true }).click();
 
     // Verify team appears in list
-    await expect(page.locator('main').getByText(teamName)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: teamName })).toBeVisible({ timeout: 10000 });
   });
 
   test('should toggle plan requirement in team settings', async ({ page }) => {
@@ -69,7 +69,6 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Wait for and close the "Team Created!" modal
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
-    await page.waitForTimeout(1000);
 
     // Open team settings by clicking the gear icon button
     const settingsButton = page.getByRole('button', { name: 'Team Settings' }).first();
@@ -113,7 +112,6 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Wait for and close the "Team Created!" modal
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
-    await page.waitForTimeout(1000);
 
     // Navigate to clock page
     await clockPage.goto();
@@ -151,7 +149,6 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Wait for and close the "Team Created!" modal
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
-    await page.waitForTimeout(1000);
 
     // Open team settings and enable plan requirement
     const settingsButton = page.getByRole('button', { name: 'Team Settings' }).first();
@@ -160,8 +157,6 @@ test.describe('Plan-First Clock Flow', () => {
     await teamSettingsPage.waitForModal();
     await teamSettingsPage.enableRequirePlan();
     await teamSettingsPage.close();
-    // Wait for team data to propagate from backend
-    await page.waitForTimeout(3000);
 
     // Navigate to clock page
     await clockPage.goto();
@@ -189,7 +184,6 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Wait for and close the "Team Created!" modal
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
-    await page.waitForTimeout(1000);
 
     // Open team settings and enable plan requirement
     const settingsButton = page.getByRole('button', { name: 'Team Settings' }).first();
@@ -198,8 +192,6 @@ test.describe('Plan-First Clock Flow', () => {
     await teamSettingsPage.waitForModal();
     await teamSettingsPage.enableRequirePlan();
     await teamSettingsPage.close();
-    // Wait for team data to propagate from backend
-    await page.waitForTimeout(3000);
 
     // Navigate to clock page
     await clockPage.goto();
@@ -255,7 +247,6 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Wait for and close the "Team Created!" modal
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
-    await page.waitForTimeout(1000);
 
     // Open team settings and enable plan requirement
     const settingsButton = page.getByRole('button', { name: 'Team Settings' }).first();
@@ -264,8 +255,6 @@ test.describe('Plan-First Clock Flow', () => {
     await teamSettingsPage.waitForModal();
     await teamSettingsPage.enableRequirePlan();
     await teamSettingsPage.close();
-    // Wait for team data to propagate from backend
-    await page.waitForTimeout(3000);
 
     // Navigate to clock page
     await clockPage.goto();
@@ -276,7 +265,6 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Save as draft
     await clockPage.saveDraft();
-    await page.waitForTimeout(1000);
 
     // Verify we can see the draft text is still there or there's feedback
     // Draft should be saved but not posted
@@ -321,7 +309,6 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Wait for and close the "Team Created!" modal
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
-    await page.waitForTimeout(1000);
 
     // Navigate to clock page (requirement disabled by default)
     await clockPage.goto();
@@ -340,14 +327,12 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Now enable the requirement in settings
     await teamsPage.goto();
-    await page.waitForTimeout(500);
     const settingsButton = page.getByRole('button', { name: 'Team Settings' }).first();
     await settingsButton.click({ timeout: 5000 });
 
     await teamSettingsPage.waitForModal();
     await teamSettingsPage.enableRequirePlan();
     await teamSettingsPage.close();
-    await page.waitForTimeout(1500);
 
     // Go back to clock page
     await clockPage.goto();
@@ -368,7 +353,6 @@ test.describe('Plan-First Clock Flow', () => {
 
     // Wait for and close the "Team Created!" modal
     await page.getByRole('button', { name: 'Done' }).click({ timeout: 10000 });
-    await page.waitForTimeout(1000);
 
     // Enable plan requirement
     const settingsButton = page.getByRole('button', { name: 'Team Settings' }).first();
@@ -377,8 +361,6 @@ test.describe('Plan-First Clock Flow', () => {
     await teamSettingsPage.waitForModal();
     await teamSettingsPage.enableRequirePlan();
     await teamSettingsPage.close();
-    // Wait for team data to propagate from backend
-    await page.waitForTimeout(3000);
 
     // Complete clock flow
     await clockPage.goto();
@@ -389,9 +371,6 @@ test.describe('Plan-First Clock Flow', () => {
 
     await clockPage.typePlan(planText);
     await clockPage.postPlanAndClockIn();
-
-    // Wait a bit to ensure clock in is recorded
-    await page.waitForTimeout(2000);
 
     // Add wrap-up
     await clockPage.typeWrapUp(wrapUpText);
