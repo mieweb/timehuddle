@@ -110,6 +110,16 @@ test.describe('Huddle composer — screenshot paste', () => {
   test('shows upload progress and blocks posting while a pasted image is in flight', async ({
     page,
   }) => {
+    // The fixture is a few KB over localhost — real uploads finish inside a
+    // single event-loop turn, before the assertions below get a chance to
+    // observe the "in flight" state. Delaying the response (not the request)
+    // holds the upload open long enough to inspect it without faking any
+    // behavior the real upload doesn't already have.
+    await page.route('**/api/media/upload', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await route.continue();
+    });
+
     await composerEditor(page).fill(`Paste progress ${Date.now()}`);
 
     const progressBar = page.locator('[data-testid="post-progress-bar"]');

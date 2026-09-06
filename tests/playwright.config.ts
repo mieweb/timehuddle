@@ -19,9 +19,12 @@ export default defineConfig({
   // Run tests serially — one test after another to avoid DB contention
   fullyParallel: false,
 
-  // Retry failed tests up to twice — the sequential suite is auth- and
-  // backend-timing sensitive; a single retry occasionally isn't enough for
-  // transient session/DDP hiccups on a warming backend.
+  // Retry failed tests up to twice — the sequential suite runs ~20 minutes
+  // against a shared dev machine (mongod + 2 Meteor instances + Vite +
+  // Chromium all competing for CPU), which occasionally trips a MongoDB
+  // replica-set monitor timeout (`PoolClearedOnNetworkError`) for whichever
+  // request happens to be in flight — a transient host-contention blip, not
+  // a product bug. A retry after the blip passes reliably.
   retries: 2,
 
   // Single worker — sequential execution

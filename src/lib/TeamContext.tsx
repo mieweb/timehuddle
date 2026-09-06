@@ -287,10 +287,21 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
+    // A `?teamId=` deep link (dashboard/teams notification links) takes
+    // priority over the persisted selection. Seeding it here — before teams
+    // finish loading — matters because the "pick first available" effect
+    // below runs on the same commit as any descendant page's own deep-link
+    // effect once `scopedTeams` first populates; whichever sets
+    // `selectedTeamId` last wins. Reading the URL directly here means this
+    // provider's own state already reflects the deep link, so once the team
+    // list arrives `hasSelected` is true and "pick first available" never
+    // fires — no race with DashboardPage/TeamsPage's own effects.
+    const deepLinkTeamId = new URLSearchParams(window.location.search).get('teamId');
+
     // Backward compatibility: fall back to the legacy global key once.
     const scoped = localStorage.getItem(getUserTeamKey(userId));
     const legacy = localStorage.getItem(TEAM_KEY);
-    _setSelectedTeamId(scoped ?? legacy);
+    _setSelectedTeamId(deepLinkTeamId ?? scoped ?? legacy);
 
     const scopedEnterprise = localStorage.getItem(getUserEnterpriseKey(userId));
     const legacyEnterprise = localStorage.getItem(ENTERPRISE_KEY);

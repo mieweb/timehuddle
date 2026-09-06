@@ -31,7 +31,6 @@ export function composerEditor(page: Page) {
 /** Navigate to the huddle feed and expand the (initially collapsed) composer. */
 export async function openComposer(page: Page): Promise<void> {
   await page.goto('/app/huddle');
-  await page.waitForLoadState('networkidle');
   await page.getByText('Share an update...').click();
   await composerEditor(page).waitFor({ state: 'visible', timeout: 20000 });
 }
