@@ -45,6 +45,7 @@ import {
   getDateRange,
   getLocalDateKey,
   PRESETS,
+  sumRoundedDurationsForDisplay,
   toLocalDateTimeInputValue,
   type Preset,
 } from '../clock/timesheetUtils';
@@ -224,9 +225,13 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   const filteredSummary = useMemo(() => {
     const now = Date.now();
     const completed = filteredSessions.filter((s) => s.endTime !== null);
-    const totalSeconds = filteredSessions.reduce(
+    const rawWorkSeconds = filteredSessions.reduce(
       (sum, s) => sum + getSessionWorkSeconds(s, now),
       0,
+    );
+    // Round each session first so Total Hours matches visible row minutes (#434).
+    const totalSeconds = sumRoundedDurationsForDisplay(
+      filteredSessions.map((s) => getSessionWorkSeconds(s, now)),
     );
     const workingDays = new Set(
       filteredSessions.map((s) => getLocalDateKey(s.originalStartTime ?? s.startTime)),
@@ -235,7 +240,8 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
       totalSeconds,
       totalSessions: filteredSessions.length,
       completedSessions: completed.length,
-      averageSessionSeconds: completed.length > 0 ? Math.floor(totalSeconds / completed.length) : 0,
+      averageSessionSeconds:
+        completed.length > 0 ? Math.floor(rawWorkSeconds / completed.length) : 0,
       workingDays,
     };
   }, [filteredSessions]);

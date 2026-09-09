@@ -85,6 +85,14 @@ export function roundDurationSecondsForDisplay(totalSeconds: number | null): num
   return Math.round(value / 60) * 60;
 }
 
+/** Round each duration to the nearest minute, then sum — matches visible row totals. */
+export function sumRoundedDurationsForDisplay(durationsSeconds: number[]): number {
+  return durationsSeconds.reduce(
+    (sum, seconds) => sum + roundDurationSecondsForDisplay(seconds),
+    0,
+  );
+}
+
 export const PRESETS: { key: Preset; label: string }[] = [
   { key: 'today', label: 'Today' },
   { key: 'yesterday', label: 'Yesterday' },

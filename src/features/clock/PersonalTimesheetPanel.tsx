@@ -52,6 +52,7 @@ import {
   getLocalDateKey,
   PRESETS,
   roundDurationSecondsForDisplay,
+  sumRoundedDurationsForDisplay,
   toLocalDateTimeInputValue,
   type Preset,
 } from './timesheetUtils';
@@ -445,9 +446,13 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   // Recompute summary from filtered sessions
   const filteredSummary = useMemo(() => {
     const completed = filteredSessions.filter((s) => s.endTime !== null);
-    const totalSeconds = filteredSessions.reduce(
+    const rawWorkSeconds = filteredSessions.reduce(
       (sum, s) => sum + getSessionWorkSeconds(s, currentTime),
       0,
+    );
+    // Round each session first so Total Hours matches visible row minutes (#434).
+    const totalSeconds = sumRoundedDurationsForDisplay(
+      filteredSessions.map((s) => getSessionWorkSeconds(s, currentTime)),
     );
     const totalBreakSeconds = filteredSessions.reduce(
       (sum, s) => sum + getSessionBreakSeconds(s, currentTime),
@@ -461,7 +466,8 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
       totalBreakSeconds,
       totalSessions: filteredSessions.length,
       completedSessions: completed.length,
-      averageSessionSeconds: completed.length > 0 ? Math.floor(totalSeconds / completed.length) : 0,
+      averageSessionSeconds:
+        completed.length > 0 ? Math.floor(rawWorkSeconds / completed.length) : 0,
       workingDays,
     };
   }, [filteredSessions, currentTime]);
@@ -549,7 +555,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
                   Total Hours
                 </Text>
                 <Text size="lg" weight="semibold" data-testid="stat-total-hours">
-                  {formatDuration(roundDurationSecondsForDisplay(filteredSummary.totalSeconds))}
+                  {formatDuration(filteredSummary.totalSeconds)}
                 </Text>
               </CardContent>
             </Card>
