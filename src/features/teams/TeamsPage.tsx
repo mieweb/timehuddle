@@ -666,14 +666,16 @@ export const TeamsPage: React.FC = () => {
 
                   return (
                     <li key={memberId} className="flex items-center gap-3 py-2.5">
-                      <Button
-                        variant="ghost"
+                      {/* @mieweb/ui Button wraps children in a non-growing label span that can't
+                          host a full-width multi-line row, so a plain button is used here. */}
+                      <button
+                        type="button"
                         onClick={() =>
                           navigate(
                             username ? `/app/profile/${username}` : `/app/profile/${memberId}`,
                           )
                         }
-                        className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                        className="flex min-w-0 flex-1 items-center gap-3 rounded p-1 -m-1 text-left transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                         aria-label={`View ${name}'s profile`}
                       >
                         <div className="relative shrink-0">
@@ -706,7 +708,7 @@ export const TeamsPage: React.FC = () => {
                             </Text>
                           )}
                         </div>
-                      </Button>
+                      </button>
                       {isMemberAdmin && (
                         <Badge
                           variant="warning"
