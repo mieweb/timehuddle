@@ -732,10 +732,12 @@ export const DashboardPage: React.FC = () => {
                       const barPct = Math.round((member.todaySeconds / maxMemberSeconds) * 100);
                       return (
                         <li key={member.userId} className="flex items-center gap-3 px-5 py-3">
-                          <Button
-                            variant="ghost"
+                          {/* @mieweb/ui Button wraps children in a non-growing label span that can't
+                              host a full-width multi-line row, so a plain button is used here. */}
+                          <button
+                            type="button"
                             onClick={() => navigate(profilePath(member))}
-                            className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+                            className="flex min-w-0 flex-1 items-center gap-3 rounded p-1 -m-1 text-left transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                             aria-label={`View ${member.name}'s profile`}
                           >
                             <UserAvatar name={member.name} src={member.image} size="sm" />
@@ -753,7 +755,7 @@ export const DashboardPage: React.FC = () => {
                                 />
                               </div>
                             </div>
-                          </Button>
+                          </button>
                           <Text size="sm" weight="medium" className="shrink-0 tabular-nums">
                             {formatDuration(member.todaySeconds)}
                           </Text>
@@ -867,10 +869,12 @@ const MemberRow: React.FC<MemberRowProps> = ({ member, currentTime, isAdmin, onN
 
   return (
     <li className="flex items-center gap-3 px-5 py-3">
-      <Button
-        variant="ghost"
+      {/* @mieweb/ui Button wraps children in a non-growing label span that can't
+          host a full-width multi-line row, so a plain button is used here. */}
+      <button
+        type="button"
         onClick={onNavigate}
-        className="flex min-w-0 flex-1 items-center gap-3 text-left hover:opacity-80 focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+        className="flex min-w-0 flex-1 items-center gap-3 rounded p-1 -m-1 text-left transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
         aria-label={`View ${member.name}'s profile`}
       >
         <div className="relative shrink-0">
@@ -908,7 +912,7 @@ const MemberRow: React.FC<MemberRowProps> = ({ member, currentTime, isAdmin, onN
                 : 'Not tracked today'}
           </Text>
         </div>
-      </Button>
+      </button>
       {sessionSeconds > 0 && (
         <Text size="sm" weight="medium" className="shrink-0 tabular-nums">
           {formatDuration(sessionSeconds)}
