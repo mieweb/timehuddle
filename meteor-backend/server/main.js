@@ -22,6 +22,7 @@ import { rawDb } from './collections';
 import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
+import './redmine';
 import './clock';
 import './timers';
 import './timers';
@@ -981,6 +982,27 @@ Meteor.startup(async() => {
       },
       required: ['ticketIds', 'teamId', 'status'],
     },
+  });
+
+  // ── Redmine ──────────────────────────────────────────────────────────────
+
+  Wormhole.expose('redmine.connect', {
+    description: "Link the caller's personal Redmine account by validating an API key",
+    inputSchema: {
+      type: 'object',
+      properties: { apiKey: { type: 'string', description: 'Personal Redmine API key' } },
+      required: ['apiKey'],
+    },
+  });
+
+  Wormhole.expose('redmine.disconnect', {
+    description: "Remove the caller's Redmine account link",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('redmine.status', {
+    description: "The caller's Redmine connection status (never returns the API key)",
+    inputSchema: { type: 'object', properties: {} },
   });
 
   Wormhole.expose('clock.active', {

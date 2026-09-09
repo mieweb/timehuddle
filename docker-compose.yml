@@ -111,6 +111,12 @@ services:
       - SMTP_PORT=1025
       - SMTP_SECURE=false
       - EMAIL_FROM=TimeHuddle <noreply@timehuddle.local>
+      # Redmine integration (Milestone 1: personal-key account linking).
+      # REDMINE_BASE_URL: the shared Redmine instance URL (no trailing slash).
+      #   The instance must have Administration -> Settings -> API -> Enable REST API on.
+      # REDMINE_ENCRYPTION_KEY: secret used to encrypt personal API keys at rest.
+      #   Set a strong value in meteor-backend/.env.local; do not commit real keys.
+      - REDMINE_BASE_URL=${REDMINE_BASE_URL:-http://redmine:3000}
     env_file:
       - path: ./meteor-backend/.env.local
         required: false
