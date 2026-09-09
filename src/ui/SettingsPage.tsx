@@ -790,7 +790,7 @@ const RedmineConnection: React.FC = () => {
           </Button>
         </div>
         {error && (
-          <Text size="xs" variant="destructive">
+          <Text size="xs" variant="destructive" role="alert">
             {error}
           </Text>
         )}
@@ -811,8 +811,11 @@ const RedmineConnection: React.FC = () => {
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') void handleConnect();
+            // Guard against key-repeat launching concurrent validate/upsert
+            // requests while one is already in flight.
+            if (e.key === 'Enter' && !busy) void handleConnect();
           }}
+          disabled={busy}
           className="flex-1 h-8 text-sm"
           size="sm"
           aria-label="Redmine API key"
@@ -829,7 +832,7 @@ const RedmineConnection: React.FC = () => {
         </Button>
       </div>
       {error && (
-        <Text size="xs" variant="destructive">
+        <Text size="xs" variant="destructive" role="alert">
           {error}
         </Text>
       )}
@@ -949,7 +952,7 @@ export const SettingsPage: React.FC = () => {
       <Section
         icon={faPlug}
         title="Redmine"
-        description="Link your personal Redmine account to sync tickets and time."
+        description="Link your personal Redmine account with your API key."
       >
         <RedmineConnection />
       </Section>
