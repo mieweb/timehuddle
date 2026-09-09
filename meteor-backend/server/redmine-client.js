@@ -32,6 +32,9 @@ async function redmineRequest(path, { apiKey, method = 'GET', body } = {}) {
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
+    // Bound the request so an unreachable/slow Redmine can't hang `redmine.connect`
+    // (and the Settings UI) for the full default socket timeout.
+    signal: AbortSignal.timeout(8000),
   });
 
   if (!res.ok) {

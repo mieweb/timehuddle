@@ -15,23 +15,32 @@ import { RedmineLinks } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { getCurrentUser, redmineBaseUrl } from './redmine-client';
 import { encryptSecret, envKey } from './redmine-crypto';
+import { toStatus } from './redmine-status';
+
+const DUPLICATE_KEY_ERROR_CODE = 11000;
+
+// Enforce the "one link per user" invariant at the storage layer so concurrent
+// first-time `redmine.connect` calls can't both insert (Mongo `_id` uniqueness
+// alone doesn't guard the `userId` upsert key). Mirrors the unique-index pattern
+// in org-helpers.js used for the same concurrent-upsert race.
+Meteor.startup(async () => {
+  try {
+    await RedmineLinks.createIndexAsync({ userId: 1 }, { unique: true, name: 'unique_redmine_link_user' });
+  } catch (error) {
+    console.error('[redmine] failed to create unique userId index:', error);
+  }
+});
 
 /**
- * Shape a `redmine_links` row into the client-safe status object. Never
- * includes the encrypted API key. `redmineName` is resolved here (read time)
- * from the persisted canonical name fields rather than being stored.
+ * Server-configured Redmine base URL, or null if unset. Used only to shape the
+ * status response; connect validates a real URL separately before writing.
  */
-function toStatus(link) {
-  if (!link) return { connected: false };
-  const fullName = `${link.firstname ?? ''} ${link.lastname ?? ''}`.trim();
-  return {
-    connected: true,
-    redmineUserId: link.redmineUserId,
-    redmineLogin: link.redmineLogin,
-    redmineName: fullName || link.redmineLogin,
-    baseUrl: link.baseUrl,
-    linkedAt: link.linkedAt instanceof Date ? link.linkedAt.toISOString() : (link.linkedAt ?? null),
-  };
+function configuredBaseUrl() {
+  try {
+    return redmineBaseUrl();
+  } catch {
+    return null;
+  }
 }
 
 Meteor.methods({
@@ -70,24 +79,33 @@ Meteor.methods({
       throw new Meteor.Error('invalid-key', 'That API key was rejected by Redmine.');
     }
 
-    await RedmineLinks.upsertAsync(
-      { userId },
-      {
-        $set: {
-          userId,
-          redmineUserId: user.id,
-          redmineLogin: user.login,
-          firstname: user.firstname ?? '',
-          lastname: user.lastname ?? '',
-          mail: user.mail ?? '',
-          apiKey: encryptSecret(key, envKey()),
-          baseUrl,
-          linkedAt: new Date(),
-        },
+    // `baseUrl` is intentionally NOT persisted: the configured instance is the
+    // single source of truth, derived at read time in `toStatus`.
+    const update = {
+      $set: {
+        userId,
+        redmineUserId: user.id,
+        redmineLogin: user.login,
+        firstname: user.firstname ?? '',
+        lastname: user.lastname ?? '',
+        mail: user.mail ?? '',
+        apiKey: encryptSecret(key, envKey()),
+        linkedAt: new Date(),
       },
-    );
+    };
+    try {
+      await RedmineLinks.upsertAsync({ userId }, update);
+    } catch (err) {
+      // Lost a concurrent first-insert race against the unique userId index;
+      // the row now exists, so retry as a plain update.
+      if (err?.code === DUPLICATE_KEY_ERROR_CODE) {
+        await RedmineLinks.updateAsync({ userId }, update);
+      } else {
+        throw err;
+      }
+    }
 
-    return toStatus(await RedmineLinks.findOneAsync({ userId }));
+    return toStatus(await RedmineLinks.findOneAsync({ userId }), baseUrl);
   },
 
   /** Remove the caller's Redmine link. */
@@ -100,6 +118,6 @@ Meteor.methods({
   /** Report the caller's Redmine connection status (never the key). */
   async 'redmine.status'() {
     const { userId } = await requireIdentity(this);
-    return toStatus(await RedmineLinks.findOneAsync({ userId }));
+    return toStatus(await RedmineLinks.findOneAsync({ userId }), configuredBaseUrl());
   },
 });
