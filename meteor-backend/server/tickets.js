@@ -86,8 +86,9 @@ Meteor.methods({
     if (typeof title !== 'string' || !title.trim()) {
       throw new Meteor.Error('validation-error', 'title is required');
     }
-    if (priority !== undefined && !ALL_PRIORITIES.includes(priority)) {
-      throw new Meteor.Error('validation-error', `priority must be one of ${ALL_PRIORITIES.join(', ')}`);
+    const clearPriority = priority === 'none' || priority === '' || priority === null;
+    if (priority !== undefined && !clearPriority && !ALL_PRIORITIES.includes(priority)) {
+      throw new Meteor.Error('validation-error', `priority must be one of ${ALL_PRIORITIES.join(', ')}, or none`);
     }
     const _id = await Tickets.insertAsync({
       teamId,
@@ -95,7 +96,7 @@ Meteor.methods({
       ...(typeof description === 'string' ? { description } : {}),
       github: typeof github === 'string' ? github : '',
       status: 'open',
-      ...(priority ? { priority } : {}),
+      ...(priority && !clearPriority ? { priority } : {}),
       createdBy: identity.userId,
       assignedTo: [identity.userId],
       createdAt: new Date(),
@@ -117,27 +118,38 @@ Meteor.methods({
     if (status !== undefined && !ALL_STATUSES.includes(status)) {
       throw new Meteor.Error('validation-error', `status must be one of ${ALL_STATUSES.join(', ')}`);
     }
-    if (priority !== undefined && !ALL_PRIORITIES.includes(priority)) {
-      throw new Meteor.Error('validation-error', `priority must be one of ${ALL_PRIORITIES.join(', ')}`);
+    const clearPriority = priority === 'none' || priority === '' || priority === null;
+    if (priority !== undefined && !clearPriority && !ALL_PRIORITIES.includes(priority)) {
+      throw new Meteor.Error('validation-error', `priority must be one of ${ALL_PRIORITIES.join(', ')}, or none`);
     }
     const $set = {
       ...(status !== undefined ? { status } : {}),
-      ...(priority !== undefined ? { priority } : {}),
+      ...(priority !== undefined && !clearPriority ? { priority } : {}),
       ...(status === 'reviewed' ? { reviewedBy: identity.userId, reviewedAt: new Date() } : {}),
       updatedBy: identity.userId,
       updatedAt: new Date(),
     };
-    await Tickets.updateAsync(new Mongo.ObjectID(ticketId), { $set });
+    const update = { $set };
+    if (clearPriority) {
+      update.$unset = { priority: 1 };
+    }
+    await Tickets.updateAsync(new Mongo.ObjectID(ticketId), update);
     const updated = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
+    // Classify from what the caller supplied. Clearing uses 'none' in the
+    // activity payload (feeds treat null as missing) while the DB still $unsets.
     const action =
-      status && priority ? 'status-priority-changed' : status ? 'status-changed' : 'priority-changed';
+      status && priority !== undefined
+        ? 'status-priority-changed'
+        : status
+          ? 'status-changed'
+          : 'priority-changed';
     await emitTicketActivity(identity.userId, updated.teamId, 'ticket.updated', {
       ticketId,
       ticketTitle: updated.title,
       teamId: updated.teamId,
       action,
       ...(status ? { status } : {}),
-      ...(priority ? { priority } : {}),
+      ...(priority !== undefined ? { priority: clearPriority ? 'none' : priority } : {}),
     });
     return toPublicTicket(updated);
   },

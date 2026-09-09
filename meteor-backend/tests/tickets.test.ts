@@ -113,6 +113,24 @@ describe('tickets (wormhole)', () => {
     expect(res.result.status).toBe('in-progress');
   });
 
+  it('clears ticket priority with none', async () => {
+    const setRes = await wormhole<{ id: string; priority?: string | null }>(
+      'tickets.updateStatus',
+      { ticketId, priority: 'high' },
+      ownerJwt,
+    );
+    expect(setRes.ok).toBe(true);
+    expect(setRes.result.priority).toBe('high');
+
+    const clearRes = await wormhole<{ id: string; priority?: string | null }>(
+      'tickets.updateStatus',
+      { ticketId, priority: 'none' },
+      ownerJwt,
+    );
+    expect(clearRes.ok).toBe(true);
+    expect(clearRes.result.priority == null).toBe(true);
+  });
+
   it('updates ticket title and description', async () => {
     const res = await wormhole<{ id: string; title: string; description: string }>(
       'tickets.update',
