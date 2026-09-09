@@ -13,6 +13,7 @@ import {
   faInfo,
   faKey,
   faPalette,
+  faPlug,
   faRotateLeft,
   faRightFromBracket,
   faTrash,
@@ -44,7 +45,15 @@ import {
   unsubscribeFromPush,
 } from '../lib/nativePush';
 import { useRefresh } from '../lib/RefreshContext';
-import { userApi, notificationApi, teamApi, tokenApi, type PersonalAccessToken } from '../lib/api';
+import {
+  userApi,
+  notificationApi,
+  teamApi,
+  tokenApi,
+  redmineApi,
+  type PersonalAccessToken,
+  type RedmineStatus,
+} from '../lib/api';
 import { getDdpClient } from '../lib/ddp';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
@@ -690,6 +699,147 @@ const ApiTokensManager: React.FC = () => {
   );
 };
 
+// ─── Redmine connection ─────────────────────────────────────────────────────
+
+const RedmineConnection: React.FC = () => {
+  const [status, setStatus] = useState<RedmineStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [apiKey, setApiKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setStatus(await redmineApi.status());
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load Redmine status');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const handleConnect = async () => {
+    const key = apiKey.trim();
+    if (!key) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await redmineApi.connect(key);
+      setStatus(next);
+      setApiKey('');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to connect to Redmine');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await redmineApi.disconnect());
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to disconnect');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="px-5 py-4">
+        <Text variant="muted" size="xs">
+          Loading…
+        </Text>
+      </div>
+    );
+  }
+
+  if (status?.connected) {
+    return (
+      <div className="flex flex-col gap-3 px-5 py-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <Badge variant="success">Connected</Badge>
+            <div className="min-w-0">
+              <Text size="sm" weight="medium" className="truncate">
+                {status.redmineName || status.redmineLogin}
+              </Text>
+              {status.redmineLogin && (
+                <Text variant="muted" size="xs" className="truncate">
+                  @{status.redmineLogin}
+                  {status.baseUrl ? ` · ${status.baseUrl}` : ''}
+                </Text>
+              )}
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleDisconnect()}
+            disabled={busy}
+            isLoading={busy}
+            loadingText="Disconnecting…"
+          >
+            Disconnect
+          </Button>
+        </div>
+        {error && (
+          <Text size="xs" variant="destructive" role="alert">
+            {error}
+          </Text>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3 px-5 py-4">
+      <Text variant="muted" size="xs">
+        Paste your personal Redmine API key (found on your Redmine account page under{' '}
+        <code className="text-xs">My account</code>) to link your account.
+      </Text>
+      <div className="flex gap-2">
+        <Input
+          type="password"
+          placeholder="Redmine API key"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          onKeyDown={(e) => {
+            // Guard against key-repeat launching concurrent validate/upsert
+            // requests while one is already in flight.
+            if (e.key === 'Enter' && !busy) void handleConnect();
+          }}
+          disabled={busy}
+          className="flex-1 h-8 text-sm"
+          size="sm"
+          aria-label="Redmine API key"
+        />
+        <Button
+          size="sm"
+          onClick={() => void handleConnect()}
+          disabled={!apiKey.trim() || busy}
+          isLoading={busy}
+          loadingText="Connecting…"
+          className="h-8"
+        >
+          Connect
+        </Button>
+      </div>
+      {error && (
+        <Text size="xs" variant="destructive" role="alert">
+          {error}
+        </Text>
+      )}
+    </div>
+  );
+};
+
 export const SettingsPage: React.FC = () => {
   const { user, signOut, refetch } = useSession();
   const { navigate } = useRouter();
@@ -796,6 +946,15 @@ export const SettingsPage: React.FC = () => {
         description="Generate tokens to connect external services like TimeHarbor."
       >
         <ApiTokensManager />
+      </Section>
+
+      {/* Redmine */}
+      <Section
+        icon={faPlug}
+        title="Redmine"
+        description="Link your personal Redmine account with your API key."
+      >
+        <RedmineConnection />
       </Section>
 
       {canManageOrganization && (

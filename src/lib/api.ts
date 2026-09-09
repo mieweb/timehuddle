@@ -2022,6 +2022,30 @@ export const tokenApi = {
     wormholeCall<{ success: boolean }>('tokens.revoke', { tokenId: id }).then(() => undefined),
 };
 
+// ─── Redmine account link ───────────────────────────────────────────────────
+
+/** Client-safe Redmine connection status. Never carries the API key. */
+export interface RedmineStatus {
+  connected: boolean;
+  redmineUserId?: number;
+  redmineLogin?: string;
+  redmineName?: string;
+  baseUrl?: string;
+  linkedAt?: string | null;
+}
+
+export const redmineApi = {
+  /** Current Redmine connection status for the signed-in user. */
+  status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
+
+  /** Validate and link a personal Redmine API key. */
+  connect: (apiKey: string): Promise<RedmineStatus> =>
+    wormholeCall<RedmineStatus>('redmine.connect', { apiKey }),
+
+  /** Remove the Redmine link. */
+  disconnect: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.disconnect', {}),
+};
+
 // ─── TimeHarbor Share ─────────────────────────────────────────────────────────
 
 /**

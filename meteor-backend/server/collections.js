@@ -23,6 +23,10 @@ export const WorkItems = new Mongo.Collection('workitems', { idGeneration: 'MONG
 export const MediaItems = new Mongo.Collection('mediaitems', { idGeneration: 'MONGO' });
 export const OrgMembers = new Mongo.Collection('org_members', { idGeneration: 'MONGO' });
 export const HuddlePosts = new Mongo.Collection('huddlePosts', { idGeneration: 'MONGO' });
+// One row per TimeHuddle user who has linked a personal Redmine account.
+// The personal API key is stored encrypted at rest (see redmine-crypto.js) and
+// is never returned to the client.
+export const RedmineLinks = new Mongo.Collection('redmine_links', { idGeneration: 'MONGO' });
 
 /** Raw native-driver handle for collections we only read ad hoc (sessions, users). */
 export function rawDb() {
