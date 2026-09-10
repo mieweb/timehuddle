@@ -40,7 +40,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration } from '../../lib/timeUtils';
-import { ApiError, clockApi, type ClockEvent } from '../../lib/api';
+import { ApiError, clockApi, userApi, clientTz, type ClockEvent } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { getDdpClient } from '../../lib/ddp';
@@ -131,6 +131,21 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   const [sessionDeleteLoading, setSessionDeleteLoading] = useState(false);
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null);
 
+  // The timezone this user's shifts are attributed to — their saved profile
+  // choice, or the browser's until they set one. Keeps this panel's "today"
+  // consistent with the Team Status dashboard, which resolves the same way.
+  const [timezone, setTimezone] = useState<string>(clientTz());
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    void userApi.getUser(user.id).then((p) => {
+      if (!cancelled) setTimezone(p.timezone || clientTz());
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
   // Add entry modal state
   const [addEntryOpen, setAddEntryOpen] = useState(false);
   const [newClockIn, setNewClockIn] = useState('');
@@ -157,7 +172,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
       startMs = new Date(`${customStart}T00:00:00`).getTime();
       endMs = new Date(`${customEnd}T23:59:59.999`).getTime();
     } else {
-      const [s, e] = getDateRange(preset);
+      const [s, e] = getDateRange(preset, timezone);
       startMs = s.getTime();
       endMs = e.getTime();
     }
@@ -166,7 +181,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     setLoading(true);
     setError(null);
     try {
-      const result = await clockApi.getTimesheet(user?.id ?? '', startMs, endMs);
+      const result = await clockApi.getTimesheet(user?.id ?? '', startMs, endMs, timezone);
       if (fetchRequestIdRef.current !== requestId) return;
       setData(result);
     } catch (e) {
@@ -175,11 +190,11 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     } finally {
       if (fetchRequestIdRef.current === requestId) setLoading(false);
     }
-  }, [user?.id, preset, customStart, customEnd]);
+  }, [user?.id, preset, customStart, customEnd, timezone]);
 
   useEffect(() => {
     void fetchData();
-  }, [preset]);
+  }, [preset, timezone]);
 
   // ── Real-time timesheet updates (Meteor DDP, oplog-backed) ──
   useEffect(() => {
@@ -459,7 +474,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
       0,
     );
     const workingDays = new Set(
-      filteredSessions.map((s) => getLocalDateKey(s.originalStartTime ?? s.startTime)),
+      filteredSessions.map((s) => getLocalDateKey(s.originalStartTime ?? s.startTime, timezone)),
     ).size;
     return {
       totalSeconds,
@@ -470,7 +485,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
         completed.length > 0 ? Math.floor(rawWorkSeconds / completed.length) : 0,
       workingDays,
     };
-  }, [filteredSessions, currentTime]);
+  }, [filteredSessions, currentTime, timezone]);
 
   if (!teamsReady) {
     return (

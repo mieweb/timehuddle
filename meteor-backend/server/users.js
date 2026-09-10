@@ -2,6 +2,7 @@ import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
 import { Teams, rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
+import { isValidTimeZone } from '@timehuddle/date-tz';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -23,6 +24,7 @@ async function findUserById(id) {
     bio: meteorUser.bio ?? '',
     website: meteorUser.website ?? '',
     reportsToUserId: meteorUser.reportsToUserId ?? null,
+    timezone: meteorUser.timezone ?? null,
   };
 }
 
@@ -78,6 +80,7 @@ async function toPublicUser(u, profileMap) {
     backgroundUrl: profile?.backgroundUrl ?? null,
     bio: u.bio ?? '',
     website: u.website ?? '',
+    timezone: u.timezone ?? null,
     reportsTo: await resolveReportsTo(u),
     teamMemberships: await resolveTeamMemberships(userId),
   };
@@ -159,9 +162,13 @@ Meteor.methods({
     return { users: await Promise.all(users.map((u) => toPublicUser(u, profileMap))) };
   },
 
-  async 'users.updateProfile'({ name, bio, website, reportsToUserId }) {
+  async 'users.updateProfile'({ name, bio, website, reportsToUserId, timezone }) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
+
+    if (timezone !== undefined && timezone !== null && !isValidTimeZone(timezone)) {
+      throw new Meteor.Error('bad-request', 'Invalid timezone');
+    }
 
     if (reportsToUserId !== undefined) {
       if (reportsToUserId === userId) {
@@ -184,6 +191,7 @@ Meteor.methods({
     if (bio !== undefined) $set.bio = bio;
     if (website !== undefined) $set.website = website;
     if (reportsToUserId !== undefined) $set.reportsToUserId = reportsToUserId;
+    if (timezone !== undefined) $set.timezone = timezone;
 
     await rawDb().collection('users').updateOne({ _id: String(userId) }, { $set });
     const updated = await findUserById(userId);

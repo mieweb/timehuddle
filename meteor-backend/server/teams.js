@@ -12,6 +12,7 @@ import {
 import { ensureDefaultChannel } from './channels';
 import { createNotification } from './notify-core';
 import { sendEmail } from './email';
+import { isValidTimeZone } from '@timehuddle/date-tz';
 import {
   INVITATION_LIFETIME_MS,
   APP_URL,
@@ -104,6 +105,7 @@ function toPublicTeam(team) {
     settings: {
       requirePlanForClock: team.settings?.requirePlanForClock ?? false,
       autoAcceptJoins: team.settings?.autoAcceptJoins ?? false,
+      timezone: team.settings?.timezone ?? null,
     },
     createdAt: team.createdAt instanceof Date ? team.createdAt.toISOString() : String(team.createdAt),
     updatedAt: team.updatedAt instanceof Date ? team.updatedAt.toISOString() : (team.updatedAt ?? null),
@@ -455,11 +457,11 @@ Meteor.methods({
     return { team: toPublicTeam(updated) };
   },
 
-  async 'teams.updateSettings'({ teamId, requirePlanForClock, autoAcceptJoins }) {
+  async 'teams.updateSettings'({ teamId, requirePlanForClock, autoAcceptJoins, timezone }) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
-    if (requirePlanForClock === undefined && autoAcceptJoins === undefined) {
+    if (requirePlanForClock === undefined && autoAcceptJoins === undefined && timezone === undefined) {
       throw new Meteor.Error('bad-request', 'No settings provided');
     }
     if (requirePlanForClock !== undefined && typeof requirePlanForClock !== 'boolean') {
@@ -467,6 +469,9 @@ Meteor.methods({
     }
     if (autoAcceptJoins !== undefined && typeof autoAcceptJoins !== 'boolean') {
       throw new Meteor.Error('bad-request', 'autoAcceptJoins must be a boolean');
+    }
+    if (timezone !== undefined && timezone !== null && !isValidTimeZone(timezone)) {
+      throw new Meteor.Error('bad-request', 'Invalid timezone');
     }
     const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
     if (!team) throw new Meteor.Error('not-found', 'Team not found');
@@ -476,6 +481,7 @@ Meteor.methods({
     const $set = { updatedAt: new Date() };
     if (requirePlanForClock !== undefined) $set['settings.requirePlanForClock'] = requirePlanForClock;
     if (autoAcceptJoins !== undefined) $set['settings.autoAcceptJoins'] = autoAcceptJoins;
+    if (timezone !== undefined) $set['settings.timezone'] = timezone;
     await Teams.updateAsync(team._id, { $set });
     const updated = await Teams.findOneAsync(team._id);
 

@@ -2,59 +2,74 @@
  * Shared utilities for timesheet date-range filtering and datetime input parsing.
  * Used by both TimesheetPage (personal) and AdminTimesheetPanel (admin view).
  */
+import { getLocalDayBoundary, getLocalDateKey as sharedGetLocalDateKey } from '@timehuddle/date-tz';
+import { clientTz } from '../../lib/api';
 
 export type Preset = 'today' | 'yesterday' | 'lastWeek' | 'week' | '14d' | 'custom';
 
-export function getDateRange(preset: Preset): [Date, Date] {
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * The day boundary `dayOffset` calendar days from the one containing
+ * `epochMs`, in `timeZone`. Steps by an approximate 24h multiple and snaps
+ * to the real boundary — safe even across a DST transition, since a
+ * transition shifts the clock by at most a couple of hours, nowhere near a
+ * full day, for the day ranges used here (at most ~3 weeks).
+ */
+function shiftedLocalDay(epochMs: number, dayOffset: number, timeZone: string) {
+  return getLocalDayBoundary(epochMs + dayOffset * DAY_MS, timeZone);
+}
+
+/** 0 (Sun) – 6 (Sat) for `epochMs`, as measured in `timeZone`. */
+function zonedDayOfWeek(epochMs: number, timeZone: string): number {
+  const short = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(epochMs);
+  return WEEKDAYS.indexOf(short);
+}
+
+/**
+ * Day boundaries are computed in `timeZone` — the viewer's own timezone by
+ * default, or an explicit one (e.g. the timesheet owner's saved timezone) —
+ * so a shift is never attributed to the wrong calendar day just because of
+ * where the browser happens to be. See packages/date-tz.
+ */
+export function getDateRange(preset: Preset, timeZone: string = clientTz()): [Date, Date] {
   const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const { startMs: todayStartMs } = getLocalDayBoundary(now.getTime(), timeZone);
+  const today = new Date(todayStartMs);
 
   switch (preset) {
     case 'today':
       return [today, now];
     case 'yesterday': {
-      const y = new Date(today);
-      y.setDate(y.getDate() - 1);
-      return [y, new Date(today.getTime() - 1)];
+      const { startMs, endMs } = shiftedLocalDay(todayStartMs, -1, timeZone);
+      return [new Date(startMs), new Date(endMs - 1)];
     }
     case 'lastWeek': {
-      // Calculate Monday of last week
-      const d = new Date(today);
-      const day = d.getDay();
-      const diff = (day === 0 ? -6 : 1) - day;
-      d.setDate(d.getDate() + diff - 7); // Go back one week from this Monday
-      const lastMonday = new Date(d);
-      // Calculate Sunday of last week (end of day)
-      const lastSunday = new Date(d);
-      lastSunday.setDate(lastSunday.getDate() + 6);
-      lastSunday.setHours(23, 59, 59, 999);
-      return [lastMonday, lastSunday];
+      const day = zonedDayOfWeek(todayStartMs, timeZone);
+      const diff = (day === 0 ? -6 : 1) - day; // offset back to this week's Monday
+      const monday = shiftedLocalDay(todayStartMs, diff - 7, timeZone);
+      const sunday = shiftedLocalDay(monday.startMs, 6, timeZone);
+      return [new Date(monday.startMs), new Date(sunday.endMs - 1)];
     }
     case 'week': {
-      const d = new Date(today);
-      // Calculate Monday (ISO week start)
-      const day = d.getDay();
+      const day = zonedDayOfWeek(todayStartMs, timeZone);
       const diff = (day === 0 ? -6 : 1) - day; // Sunday = -6, Monday = 0, Tuesday = -1, etc.
-      d.setDate(d.getDate() + diff);
-      return [d, now];
+      const monday = shiftedLocalDay(todayStartMs, diff, timeZone);
+      return [new Date(monday.startMs), now];
     }
     case '14d': {
-      const d = new Date(today);
-      d.setDate(d.getDate() - 14);
-      return [d, now];
+      const start = shiftedLocalDay(todayStartMs, -14, timeZone);
+      return [new Date(start.startMs), now];
     }
     default:
       return [today, now];
   }
 }
 
-/** Returns a "YYYY-MM-DD" key for the given timestamp based on the local calendar date. */
-export function getLocalDateKey(epochMs: number): string {
-  const d = new Date(epochMs);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+/** Returns a "YYYY-MM-DD" key for the given timestamp, measured in `timeZone`. */
+export function getLocalDateKey(epochMs: number, timeZone: string = clientTz()): string {
+  return sharedGetLocalDateKey(epochMs, timeZone);
 }
 
 export function toLocalDateTimeInputValue(epochMs: number): string {

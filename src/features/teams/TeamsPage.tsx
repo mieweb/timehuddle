@@ -43,6 +43,7 @@ import {
   ModalFooter,
   ModalHeader,
   ModalTitle,
+  Select,
   Spinner,
   Switch,
   Table,
@@ -58,6 +59,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { teamApi, type TeamMember, type TeamInvitation } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
+import { getTimezoneOptions } from '../../lib/timezoneOptions';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
 import { usePresence } from '../../lib/usePresence';
@@ -244,6 +246,14 @@ export const TeamsPage: React.FC = () => {
   const [autoAcceptJoins, setAutoAcceptJoins] = useState(false);
   const [savingAutoAccept, setSavingAutoAccept] = useState(false);
 
+  // Team setting: default timezone for members who haven't set their own
+  const [teamTimezone, setTeamTimezone] = useState('');
+  const [savingTeamTimezone, setSavingTeamTimezone] = useState(false);
+  const timezoneOptions = useMemo(
+    () => [{ value: '', label: 'No default (falls back to UTC)' }, ...getTimezoneOptions()],
+    [],
+  );
+
   useEffect(() => {
     setRequirePlanForClock(selectedTeam?.settings?.requirePlanForClock ?? false);
   }, [selectedTeam?.id, selectedTeam?.settings?.requirePlanForClock]);
@@ -251,6 +261,10 @@ export const TeamsPage: React.FC = () => {
   useEffect(() => {
     setAutoAcceptJoins(selectedTeam?.settings?.autoAcceptJoins ?? false);
   }, [selectedTeam?.id, selectedTeam?.settings?.autoAcceptJoins]);
+
+  useEffect(() => {
+    setTeamTimezone(selectedTeam?.settings?.timezone ?? '');
+  }, [selectedTeam?.id, selectedTeam?.settings?.timezone]);
 
   // Pending/sent team invitations shown in the Team Settings modal
   const [invitations, setInvitations] = useState<TeamInvitation[]>([]);
@@ -1069,6 +1083,48 @@ export const TeamsPage: React.FC = () => {
                       setFormError(e.message || 'Failed to update setting');
                     } finally {
                       setSavingAutoAccept(false);
+                    }
+                  }}
+                />
+              </div>
+              <Text
+                variant="muted"
+                size="xs"
+                weight="semibold"
+                className="mb-3 uppercase tracking-widest"
+              >
+                Default Timezone
+              </Text>
+              <div className="team-setting-timezone mb-6">
+                <Text size="sm" weight="medium" className="mb-1 block">
+                  Timezone for members who haven't set their own
+                </Text>
+                <Text variant="muted" size="xs" className="mb-2 block">
+                  Shifts are attributed to the day they fell on in each member's own timezone. This
+                  is only the fallback for anyone who hasn't set a personal timezone.
+                </Text>
+                <Select
+                  label="Default team timezone"
+                  hideLabel
+                  size="sm"
+                  value={teamTimezone}
+                  options={timezoneOptions}
+                  disabled={savingTeamTimezone || !selectedTeamId}
+                  aria-label="Select the team's default timezone"
+                  onValueChange={async (value) => {
+                    if (!selectedTeamId) return;
+                    const previous = teamTimezone;
+                    setTeamTimezone(value);
+                    setSavingTeamTimezone(true);
+                    setFormError(null);
+                    try {
+                      await teamApi.updateSettings(selectedTeamId, { timezone: value || null });
+                      refetchTeams();
+                    } catch (e: any) {
+                      setTeamTimezone(previous);
+                      setFormError(e.message || 'Failed to update setting');
+                    } finally {
+                      setSavingTeamTimezone(false);
                     }
                   }}
                 />
