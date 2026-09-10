@@ -96,6 +96,30 @@ describe('redmine (wormhole)', () => {
     expect(statusB.result.connected).toBe(false);
   });
 
+  it('rejects unauthenticated issues.list calls', async () => {
+    const res = await wormhole('redmine.issues.list', { scope: 'mine' }, 'invalid-jwt');
+    expect(res.ok).toBe(false);
+  });
+
+  it('reports not connected (empty issues) for a user with no link', async () => {
+    // USER_B never links; the method should short-circuit to a not-connected
+    // response instead of erroring, so the view can render its empty state.
+    const res = await wormhole<{ connected: boolean; issues: unknown[] }>(
+      'redmine.issues.list',
+      { scope: 'mine' },
+      jwtB,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.connected).toBe(false);
+    expect(res.result.issues).toEqual([]);
+  });
+
+  it('rejects an invalid scope', async () => {
+    const res = await wormhole('redmine.issues.list', { scope: 'bogus' }, jwtB);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/scope/i);
+  });
+
   it('disconnect clears the link and is idempotent', async () => {
     const first = await wormhole<{ connected: boolean }>('redmine.disconnect', {}, jwtA);
     expect(first.ok).toBe(true);

@@ -31,6 +31,7 @@ import {
   Button,
   Card,
   CardContent,
+  Dropdown,
   DropdownContent,
   DropdownItem,
   DropdownSeparator,
@@ -74,6 +75,17 @@ import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
 import { PulseUploadButton } from '../media/PulseUploadButton';
 import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
+import { RedmineTicketsView } from './RedmineTicketsView';
+
+// ─── View switcher ──────────────────────────────────────────────────────────
+
+/** Which tickets view is active: the native TimeHuddle list, or Redmine issues. */
+type TicketsView = 'v1' | 'redmine';
+
+const VIEW_LABELS: Record<TicketsView, string> = {
+  v1: 'Tickets v1',
+  redmine: 'Redmine Tickets',
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -807,6 +819,9 @@ export const TicketsPage: React.FC = () => {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
 
+  // Which view is showing: native TimeHuddle tickets ('v1') or Redmine issues.
+  const [view, setView] = useState<TicketsView>('v1');
+
   // Create state
   const [showCreate, setShowCreate] = useState(false);
   const [showNoTeamDialog, setShowNoTeamDialog] = useState(false);
@@ -1165,8 +1180,40 @@ export const TicketsPage: React.FC = () => {
 
   return (
     <AppPage fill>
+      {/* ── View switcher (replaces the page's h1) ── */}
+      <div className="tickets-view-switcher mb-3 shrink-0">
+        <Dropdown
+          placement="bottom-start"
+          trigger={
+            <button
+              type="button"
+              aria-label="Switch tickets view"
+              className="group inline-flex items-center gap-1.5 rounded-md text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100"
+            >
+              {VIEW_LABELS[view]}
+              <FontAwesomeIcon
+                icon={faChevronDown}
+                className="text-sm text-neutral-400 transition-transform group-aria-expanded:rotate-180"
+              />
+            </button>
+          }
+        >
+          {(Object.keys(VIEW_LABELS) as TicketsView[]).map((key) => (
+            <DropdownItem
+              key={key}
+              onClick={() => setView(key)}
+              className={view === key ? 'font-semibold' : ''}
+            >
+              {VIEW_LABELS[key]}
+            </DropdownItem>
+          ))}
+        </Dropdown>
+      </div>
+
+      {view === 'redmine' && <RedmineTicketsView />}
+
       {/* ── Header: New Ticket + Search ── */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className={view === 'redmine' ? 'hidden' : 'flex min-h-0 flex-1 flex-col gap-3'}>
         <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
           <div className="flex items-center gap-2">
             <Button

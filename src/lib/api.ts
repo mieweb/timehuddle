@@ -2034,6 +2034,31 @@ export interface RedmineStatus {
   linkedAt?: string | null;
 }
 
+/** Which issues to fetch: assigned to me, or everything the key can see. */
+export type RedmineScope = 'mine' | 'all';
+
+/** A Redmine `{ id, name }` reference (project, status, assignee). */
+export interface RedmineNamed {
+  id: number;
+  name: string;
+}
+
+/** Minimal, read-only Redmine issue shape rendered by the Redmine Tickets view. */
+export interface RedmineIssue {
+  id: number;
+  subject: string;
+  project: RedmineNamed | null;
+  status: RedmineNamed | null;
+  assignedTo: RedmineNamed | null;
+}
+
+/** Response for `redmine.issues.list`. `connected: false` → user has no link. */
+export interface RedmineIssueList {
+  connected: boolean;
+  baseUrl: string | null;
+  issues: RedmineIssue[];
+}
+
 export const redmineApi = {
   /** Current Redmine connection status for the signed-in user. */
   status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
@@ -2044,6 +2069,12 @@ export const redmineApi = {
 
   /** Remove the Redmine link. */
   disconnect: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.disconnect', {}),
+
+  issues: {
+    /** List the caller's Redmine issues (read-only) for the given scope. */
+    list: (scope: RedmineScope): Promise<RedmineIssueList> =>
+      wormholeCall<RedmineIssueList>('redmine.issues.list', { scope }),
+  },
 };
 
 // ─── TimeHarbor Share ─────────────────────────────────────────────────────────
