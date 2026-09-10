@@ -31,6 +31,7 @@ import {
   Button,
   Card,
   CardContent,
+  Dropdown,
   DropdownContent,
   DropdownItem,
   DropdownSeparator,
@@ -74,6 +75,17 @@ import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
 import { PulseUploadButton } from '../media/PulseUploadButton';
 import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
+import { RedmineTicketsView } from './RedmineTicketsView';
+
+// ─── View switcher ──────────────────────────────────────────────────────────
+
+/** Which tickets view is active: the native TimeHuddle list, or Redmine issues. */
+type TicketsView = 'v1' | 'redmine';
+
+const VIEW_LABELS: Record<TicketsView, string> = {
+  v1: 'Tickets v1',
+  redmine: 'Redmine Tickets',
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -659,6 +671,9 @@ export const TicketsPage: React.FC = () => {
   // Map from teamId → members for cross-team member lookups
   const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
 
+  // Which view is showing: native TimeHuddle tickets ('v1') or Redmine issues.
+  const [view, setView] = useState<TicketsView>('v1');
+
   // Timer state — which ticket has the open timer (shared overnight-safe hook)
   const runningTicket = useRunningTicket(true);
   const [timerLoading, setTimerLoading] = useState<string | null>(null); // ticketId currently toggling
@@ -708,8 +723,10 @@ export const TicketsPage: React.FC = () => {
 
   // Pull-to-refresh handler — only while this page is the active route. It
   // stays mounted (hidden) behind other routes, so registering unconditionally
-  // would hijack the visible page's refresh handler.
-  useRefresh(refetch, pathname === '/app/tickets');
+  // would hijack the visible page's refresh handler. Also gated on the active
+  // view, since every registered handler runs and the Redmine view registers
+  // its own.
+  useRefresh(refetch, pathname === '/app/tickets' && view === 'v1');
 
   // Stable key derived from sorted team IDs — the WS only reconnects when the
   // actual set of teams changes, not on every new array reference from context.
@@ -1165,8 +1182,42 @@ export const TicketsPage: React.FC = () => {
 
   return (
     <AppPage fill>
+      {/* ── View switcher: doubles as the page's h1 ── */}
+      <h1 className="tickets-view-switcher mb-3 shrink-0 text-2xl font-semibold tracking-tight">
+        <Dropdown
+          placement="bottom-start"
+          trigger={
+            <Button
+              variant="ghost"
+              aria-label={`${VIEW_LABELS[view]} — switch tickets view`}
+              className="group inline-flex items-center gap-1.5 px-0 text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100"
+              rightIcon={
+                <FontAwesomeIcon
+                  icon={faChevronDown}
+                  className="text-sm text-neutral-400 transition-transform group-aria-expanded:rotate-180"
+                />
+              }
+            >
+              {VIEW_LABELS[view]}
+            </Button>
+          }
+        >
+          {(Object.keys(VIEW_LABELS) as TicketsView[]).map((key) => (
+            <DropdownItem
+              key={key}
+              onClick={() => setView(key)}
+              className={view === key ? 'font-semibold' : ''}
+            >
+              {VIEW_LABELS[key]}
+            </DropdownItem>
+          ))}
+        </Dropdown>
+      </h1>
+
+      {view === 'redmine' && <RedmineTicketsView />}
+
       {/* ── Header: New Ticket + Search ── */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <div className={view === 'redmine' ? 'hidden' : 'flex min-h-0 flex-1 flex-col gap-3'}>
         <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
           <div className="flex items-center gap-2">
             <Button
