@@ -671,6 +671,9 @@ export const TicketsPage: React.FC = () => {
   // Map from teamId → members for cross-team member lookups
   const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
 
+  // Which view is showing: native TimeHuddle tickets ('v1') or Redmine issues.
+  const [view, setView] = useState<TicketsView>('v1');
+
   // Timer state — which ticket has the open timer (shared overnight-safe hook)
   const runningTicket = useRunningTicket(true);
   const [timerLoading, setTimerLoading] = useState<string | null>(null); // ticketId currently toggling
@@ -720,8 +723,10 @@ export const TicketsPage: React.FC = () => {
 
   // Pull-to-refresh handler — only while this page is the active route. It
   // stays mounted (hidden) behind other routes, so registering unconditionally
-  // would hijack the visible page's refresh handler.
-  useRefresh(refetch, pathname === '/app/tickets');
+  // would hijack the visible page's refresh handler. Also gated on the active
+  // view, since every registered handler runs and the Redmine view registers
+  // its own.
+  useRefresh(refetch, pathname === '/app/tickets' && view === 'v1');
 
   // Stable key derived from sorted team IDs — the WS only reconnects when the
   // actual set of teams changes, not on every new array reference from context.
@@ -818,9 +823,6 @@ export const TicketsPage: React.FC = () => {
   const [createLoading, setCreateLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
-
-  // Which view is showing: native TimeHuddle tickets ('v1') or Redmine issues.
-  const [view, setView] = useState<TicketsView>('v1');
 
   // Create state
   const [showCreate, setShowCreate] = useState(false);
@@ -1187,7 +1189,7 @@ export const TicketsPage: React.FC = () => {
           trigger={
             <Button
               variant="ghost"
-              aria-label="Switch tickets view"
+              aria-label={`${VIEW_LABELS[view]} — switch tickets view`}
               className="group inline-flex items-center gap-1.5 px-0 text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100"
               rightIcon={
                 <FontAwesomeIcon

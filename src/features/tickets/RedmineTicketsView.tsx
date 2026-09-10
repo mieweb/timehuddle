@@ -126,6 +126,16 @@ export const RedmineTicketsView: React.FC = () => {
     void load(scope);
   }, [scope, load]);
 
+  // TicketsPage stays mounted behind other routes, so returning from Settings
+  // does not remount this view. Without this, linking or unlinking a Redmine
+  // account there leaves the previous connection state on screen.
+  const wasVisible = useRef(pathname === '/app/tickets');
+  useEffect(() => {
+    const visible = pathname === '/app/tickets';
+    if (visible && !wasVisible.current) void load(scope, { force: true });
+    wasVisible.current = visible;
+  }, [pathname, scope, load]);
+
   // Pull-to-refresh / global refresh forces a refetch of the current scope.
   // Gated on the tickets route: TicketsPage stays mounted behind other routes,
   // so an ungated handler would refetch Redmine issues from Settings etc.
