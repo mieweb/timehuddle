@@ -1180,22 +1180,24 @@ export const TicketsPage: React.FC = () => {
 
   return (
     <AppPage fill>
-      {/* ── View switcher (replaces the page's h1) ── */}
-      <div className="tickets-view-switcher mb-3 shrink-0">
+      {/* ── View switcher: doubles as the page's h1 ── */}
+      <h1 className="tickets-view-switcher mb-3 shrink-0 text-2xl font-semibold tracking-tight">
         <Dropdown
           placement="bottom-start"
           trigger={
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               aria-label="Switch tickets view"
-              className="group inline-flex items-center gap-1.5 rounded-md text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100"
+              className="group inline-flex items-center gap-1.5 px-0 text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100"
+              rightIcon={
+                <FontAwesomeIcon
+                  icon={faChevronDown}
+                  className="text-sm text-neutral-400 transition-transform group-aria-expanded:rotate-180"
+                />
+              }
             >
               {VIEW_LABELS[view]}
-              <FontAwesomeIcon
-                icon={faChevronDown}
-                className="text-sm text-neutral-400 transition-transform group-aria-expanded:rotate-180"
-              />
-            </button>
+            </Button>
           }
         >
           {(Object.keys(VIEW_LABELS) as TicketsView[]).map((key) => (
@@ -1208,7 +1210,7 @@ export const TicketsPage: React.FC = () => {
             </DropdownItem>
           ))}
         </Dropdown>
-      </div>
+      </h1>
 
       {view === 'redmine' && <RedmineTicketsView />}
 

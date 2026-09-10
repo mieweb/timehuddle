@@ -10,8 +10,8 @@
  * with a "Read only" tooltip). Rows link out to Redmine.
  *
  * Fetch strategy: fetch-on-view + a manual "Refresh" button, with a small
- * module-level cache keyed by scope so switching views/scopes doesn't refetch
- * every time. There is no server-side cache in v1.
+ * module-level cache keyed by user and scope so switching views/scopes doesn't
+ * refetch every time. There is no server-side cache in v1.
  */
 import { faExternalLink, faPlus, faRotate, faSearch } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -41,6 +41,7 @@ import {
   type RedmineScope,
 } from '../../lib/api';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useSession } from '../../lib/useSession';
 import { EmptyState } from '../../ui/EmptyState';
 import { useRouter } from '../../ui/router';
 
@@ -55,20 +56,29 @@ const SCOPE_OPTIONS = [
 const UNASSIGNED = '__unassigned__';
 
 /**
- * Session-lived cache of the last fetched list per scope. Module-level so it
- * survives view switches (Tickets v1 ↔ Redmine) without a refetch; cleared on
- * full reload. Refresh / scope changes still refetch as expected.
+ * Session-lived cache of the last fetched list, keyed by user *and* scope.
+ * Module-level so it survives view switches (Tickets v1 ↔ Redmine) without a
+ * refetch. Sign-out does not reload the page, so the user id must be part of
+ * the key or a second user could be served the first user's issues. Only
+ * connected responses are cached, so linking an account in Settings and coming
+ * back refetches instead of replaying a stale "not connected" state.
  */
-const listCache = new Map<RedmineScope, RedmineIssueList>();
+const listCache = new Map<string, RedmineIssueList>();
+
+const cacheKey = (userId: string, scope: RedmineScope) => `${userId}:${scope}`;
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const RedmineTicketsView: React.FC = () => {
-  const { navigate } = useRouter();
+  const { navigate, pathname } = useRouter();
+  const { user } = useSession();
+  const userId = user?.id ?? '';
 
   const [scope, setScope] = useState<RedmineScope>('mine');
-  const [data, setData] = useState<RedmineIssueList | null>(() => listCache.get('mine') ?? null);
-  const [loading, setLoading] = useState(!listCache.has('mine'));
+  const [data, setData] = useState<RedmineIssueList | null>(
+    () => listCache.get(cacheKey(userId, 'mine')) ?? null,
+  );
+  const [loading, setLoading] = useState(!listCache.has(cacheKey(userId, 'mine')));
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [assigneeFilter, setAssigneeFilter] = useState<string>('');
@@ -78,7 +88,12 @@ export const RedmineTicketsView: React.FC = () => {
 
   const load = useCallback(
     async (targetScope: RedmineScope, { force = false }: { force?: boolean } = {}) => {
-      const cached = listCache.get(targetScope);
+      // Bumped before the cache check so a cache hit also supersedes any
+      // in-flight request for a previously selected scope.
+      const seq = ++requestSeq.current;
+      const key = cacheKey(userId, targetScope);
+
+      const cached = listCache.get(key);
       if (cached && !force) {
         setData(cached);
         setLoading(false);
@@ -86,13 +101,12 @@ export const RedmineTicketsView: React.FC = () => {
         return;
       }
 
-      const seq = ++requestSeq.current;
       setLoading(true);
       setError(null);
       try {
         const result = await redmineApi.issues.list(targetScope);
         if (seq !== requestSeq.current) return; // superseded by a newer request
-        listCache.set(targetScope, result);
+        if (result.connected) listCache.set(key, result);
         setData(result);
       } catch (err: unknown) {
         if (seq !== requestSeq.current) return;
@@ -101,19 +115,25 @@ export const RedmineTicketsView: React.FC = () => {
         if (seq === requestSeq.current) setLoading(false);
       }
     },
-    [],
+    [userId],
   );
 
-  // Fetch on scope change (from cache when available).
+  // Fetch on scope change (from cache when available). The assignee filter is
+  // reset because its options are derived from the fetched issues, and a name
+  // present in "All" may be absent from "Assigned to me".
   useEffect(() => {
+    setAssigneeFilter('');
     void load(scope);
   }, [scope, load]);
 
   // Pull-to-refresh / global refresh forces a refetch of the current scope.
+  // Gated on the tickets route: TicketsPage stays mounted behind other routes,
+  // so an ungated handler would refetch Redmine issues from Settings etc.
   useRefresh(
     useCallback(async () => {
       await load(scope, { force: true });
     }, [load, scope]),
+    pathname === '/app/tickets',
   );
 
   const issues = data?.issues ?? [];
