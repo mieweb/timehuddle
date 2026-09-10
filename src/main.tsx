@@ -145,6 +145,21 @@ if (Capacitor.isNativePlatform()) {
         return;
       }
 
+      // Generic in-app deep link: timehuddle://open/app/profile/xyz?tab=work
+      // Used for links that aren't push-notification taps (e.g. shared links).
+      // Stashed for cold start (JS bridge/router not mounted yet) and also
+      // dispatched live for the case the app is already running.
+      if (parsed.host === 'open') {
+        const target = `${parsed.pathname}${parsed.search}`;
+        try {
+          localStorage.setItem('pendingDeepLinkPath', target);
+        } catch {
+          /* ignore */
+        }
+        window.dispatchEvent(new CustomEvent('timehuddle:deeplink', { detail: { path: target } }));
+        return;
+      }
+
       // Password reset: timehuddle://reset?token=XXX
       const token = parsed.searchParams.get('token');
       if (token) {
