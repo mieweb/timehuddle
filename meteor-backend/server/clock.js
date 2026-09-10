@@ -42,6 +42,7 @@ import {
   cancelClockJobs,
   cancelClockJobsByName,
 } from './agenda';
+import { getLocalDayBoundary, getLocalDateKey } from '@timehuddle/date-tz';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 const oid = (hex) => new Mongo.ObjectID(hex);
@@ -53,6 +54,16 @@ async function findUserTeam(userId, teamId) {
     _id: oid(teamId),
     $or: [{ members: userId }, { admins: userId }],
   });
+}
+
+/**
+ * A shift is attributed to the day it fell on in the employee's own
+ * timezone — never a single shared clock — so a distributed team's normal
+ * workday isn't split across two "days" depending on who's viewing it.
+ * Falls back to the team's default, then UTC, for anyone who hasn't set one.
+ */
+function resolveMemberTimezone(user, team) {
+  return user?.timezone || team?.settings?.timezone || 'UTC';
 }
 
 Meteor.methods({
@@ -491,17 +502,30 @@ Meteor.methods({
   },
 
   /** Timesheet data for a user over a date range (epoch-ms boundaries). */
-  async 'clock.timesheet'({ userId, startMs, endMs } = {}) {
+  async 'clock.timesheet'({ userId, startMs, endMs, tz } = {}) {
     const identity = await requireIdentity(this);
     const requesterId = identity.userId;
     const targetUserId = userId;
 
+    let sharedTeam = null;
     if (requesterId !== targetUserId) {
-      const sharedAdminTeam = await Teams.findOneAsync({
+      sharedTeam = await Teams.findOneAsync({
         admins: requesterId,
         $or: [{ members: targetUserId }, { admins: targetUserId }],
       });
-      if (!sharedAdminTeam) throw new Meteor.Error('forbidden', 'Not allowed to view timesheet');
+      if (!sharedTeam) throw new Meteor.Error('forbidden', 'Not allowed to view timesheet');
+    }
+
+    // Prefer the timezone the client sent (it knows the viewer's saved
+    // profile/browser timezone); fall back to the target user's own saved
+    // timezone, then a shared team default, then UTC.
+    let resolvedTz = tz;
+    if (!resolvedTz) {
+      const targetUser = await rawDb()
+        .collection('users')
+        .findOne({ _id: targetUserId }, { projection: { timezone: 1 } });
+      const team = sharedTeam ?? (await Teams.findOneAsync({ members: targetUserId }));
+      resolvedTz = resolveMemberTimezone(targetUser, team);
     }
 
     const events = await ClockEvents.find(
@@ -538,9 +562,7 @@ Meteor.methods({
       (sum, s) => sum + computeTotalBreakSeconds(s.breaks, now),
       0
     );
-    const uniqueDates = new Set(
-      sessions.map((s) => new Date(s.startTime).toISOString().split('T')[0])
-    );
+    const uniqueDates = new Set(sessions.map((s) => getLocalDateKey(s.startTime, resolvedTz)));
 
     return {
       sessions,
@@ -645,17 +667,33 @@ Meteor.methods({
       throw new Meteor.Error('forbidden', 'Forbidden');
     }
 
-    // Get today's start (UTC midnight)
-    const todayStart = new Date();
-    todayStart.setUTCHours(0, 0, 0, 0);
-    const todayStartMs = todayStart.getTime();
     const now = Date.now();
 
-    // Get today's clock events for all members
+    // All users are now in Meteor users collection
+    const meteorUsers = allMemberIds.length > 0
+      ? await rawDb().collection('users').find({ _id: { $in: allMemberIds } }).project({ image: 1, username: 1, timezone: 1 }).toArray()
+      : [];
+
+    const meteorImageMap = new Map(meteorUsers.map((u) => [String(u._id), u.image ?? null]));
+    const meteorUsernameMap = new Map(meteorUsers.map((u) => [String(u._id), u.username ?? null]));
+    const meteorTimezoneMap = new Map(meteorUsers.map((u) => [String(u._id), u.timezone ?? null]));
+
+    // Each member's "today" is measured in their own timezone, not one
+    // shared clock — see resolveMemberTimezone.
+    const todayStartMsByMember = new Map(
+      allMemberIds.map((memberId) => {
+        const tz = resolveMemberTimezone({ timezone: meteorTimezoneMap.get(memberId) }, team);
+        return [memberId, getLocalDayBoundary(now, tz).startMs];
+      })
+    );
+    const earliestTodayStartMs = Math.min(...todayStartMsByMember.values());
+
+    // Get today's clock events for all members (widest boundary across the
+    // team; narrowed per-member below).
     const clockEvents = await ClockEvents.find({
       userId: { $in: allMemberIds },
       teamId,
-      startTime: { $gte: todayStartMs },
+      startTime: { $gte: earliestTodayStartMs },
     }).fetchAsync();
 
     // Load all breaks for today's events
@@ -675,14 +713,6 @@ Meteor.methods({
     allMemberIds.forEach((memberId, i) => {
       nameMap.set(memberId, names[i]);
     });
-
-    // All users are now in Meteor users collection
-    const meteorUsers = allMemberIds.length > 0
-      ? await rawDb().collection('users').find({ _id: { $in: allMemberIds } }).project({ image: 1, username: 1 }).toArray()
-      : [];
-
-    const meteorImageMap = new Map(meteorUsers.map((u) => [String(u._id), u.image ?? null]));
-    const meteorUsernameMap = new Map(meteorUsers.map((u) => [String(u._id), u.username ?? null]));
 
     // Group clock events by userId
     const eventsByUser = new Map();
@@ -704,9 +734,12 @@ Meteor.methods({
         : [];
       const isOnBreak = activeBreaks.some((b) => b.endTime === null);
 
-      // Sum today's work seconds
+      // Sum today's work seconds, using this member's own day boundary —
+      // the initial query fetched a superset across the whole team.
+      const memberTodayStartMs = todayStartMsByMember.get(memberId);
       let todaySeconds = 0;
       for (const ev of userEvents) {
+        if (ev.startTime < memberTodayStartMs) continue;
         const breaks = breaksByEventId.get(ev._id.toHexString()) ?? [];
         todaySeconds += computeWorkSeconds(ev, breaks, now);
       }

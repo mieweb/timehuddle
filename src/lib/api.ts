@@ -100,6 +100,8 @@ export interface PublicUser {
   backgroundUrl: string | null;
   bio: string;
   website: string;
+  /** IANA timezone (e.g. "America/Chicago"), or null if the user hasn't set one. */
+  timezone: string | null;
   reportsTo: { id: string; name: string; username: string | null } | null;
   teamMemberships: Array<{ id: string; name: string; role: 'admin' | 'member' }>;
   /** Teams shared between the viewer and this user (non-personal). Empty for own profile. */
@@ -505,6 +507,7 @@ export const userApi = {
     bio?: string;
     website?: string;
     reportsToUserId?: string | null;
+    timezone?: string | null;
   }) => wormholeCall<{ user: PublicUser }>('users.updateProfile', data).then((r) => r.user),
 
   /** Permanently delete the current user's account and all associated data. */
@@ -1221,6 +1224,8 @@ export interface Team {
   settings?: {
     requirePlanForClock?: boolean;
     autoAcceptJoins?: boolean;
+    /** Default IANA timezone for members who haven't set their own. */
+    timezone?: string | null;
   };
   createdAt: string;
   updatedAt: string | null;
@@ -1303,7 +1308,11 @@ export const teamApi = {
 
   updateSettings: (
     id: string,
-    settings: { requirePlanForClock?: boolean; autoAcceptJoins?: boolean },
+    settings: {
+      requirePlanForClock?: boolean;
+      autoAcceptJoins?: boolean;
+      timezone?: string | null;
+    },
   ) =>
     wormholeCall<{ team: Team }>('teams.updateSettings', { teamId: id, ...settings }).then(
       (r) => r.team,
@@ -1410,7 +1419,7 @@ export const clockApi = {
   getEvents: () => wormholeCall<ClockEvent[]>('clock.events', {}),
 
   /** Get timesheet data for a user over a date range (epoch ms boundaries). */
-  getTimesheet: (userId: string, startMs: number, endMs: number) =>
+  getTimesheet: (userId: string, startMs: number, endMs: number, tz?: string) =>
     wormholeCall<{
       sessions: ClockEvent[];
       summary: {
@@ -1421,7 +1430,7 @@ export const clockApi = {
         averageSessionSeconds: number;
         workingDays: number;
       };
-    }>('clock.timesheet', { userId, startMs, endMs }),
+    }>('clock.timesheet', { userId, startMs, endMs, tz }),
 
   /** Update a clock event's timestamps and optional break intervals. */
   updateTimes: (
@@ -1654,7 +1663,7 @@ export interface WeekDay {
 }
 
 /** Returns the browser's IANA timezone string (e.g. "America/New_York"). */
-function clientTz(): string {
+export function clientTz(): string {
   if (FORCED_TIMEZONE) {
     try {
       // Validate the IANA timezone so bad local values do not break API calls.

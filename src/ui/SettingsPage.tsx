@@ -32,7 +32,7 @@ import {
   Text,
   Textarea,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
@@ -44,11 +44,19 @@ import {
   unsubscribeFromPush,
 } from '../lib/nativePush';
 import { useRefresh } from '../lib/RefreshContext';
-import { userApi, notificationApi, teamApi, tokenApi, type PersonalAccessToken } from '../lib/api';
+import {
+  userApi,
+  notificationApi,
+  teamApi,
+  tokenApi,
+  clientTz,
+  type PersonalAccessToken,
+} from '../lib/api';
 import { getDdpClient } from '../lib/ddp';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
+import { getTimezoneOptions } from '../lib/timezoneOptions';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
@@ -329,6 +337,8 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
   const [reportsToOptions, setReportsToOptions] = useState<Array<{ value: string; label: string }>>(
     [{ value: '', label: 'No manager or lead set' }],
   );
+  const [timezone, setTimezone] = useState('');
+  const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -343,6 +353,9 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
       setBio(p.bio ?? '');
       setWebsite(p.website ?? '');
       setReportsToUserId(p.reportsTo?.id ?? '');
+      // Pre-fill from the browser when the user hasn't chosen one yet —
+      // doesn't save anything until they hit "Save profile".
+      setTimezone(p.timezone ?? clientTz());
     });
 
     return () => {
@@ -408,6 +421,7 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
         bio,
         website,
         reportsToUserId: reportsToUserId || null,
+        timezone: timezone || null,
       });
       await refetch();
       setMessage({ ok: true, text: 'Profile saved.' });
@@ -513,6 +527,24 @@ const ProfileEditor: React.FC<{ refreshTrigger?: number }> = ({ refreshTrigger }
         />
         <Text variant="muted" size="xs" className="mt-1">
           Choose the teammate who manages or leads your work.
+        </Text>
+      </div>
+      <div>
+        <Text size="xs" weight="medium" className="mb-1 block">
+          Timezone
+        </Text>
+        <Select
+          label="Timezone"
+          hideLabel
+          size="sm"
+          value={timezone}
+          options={timezoneOptions}
+          onValueChange={setTimezone}
+          aria-label="Select your timezone"
+        />
+        <Text variant="muted" size="xs" className="mt-1">
+          Used to attribute your shifts to the right calendar day, no matter where a report is
+          viewed from.
         </Text>
       </div>
       {message && (
