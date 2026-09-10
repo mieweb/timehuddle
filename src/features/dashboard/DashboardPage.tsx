@@ -64,7 +64,7 @@ const profilePath = (member: TeamMemberClockStatus) =>
 
 export const DashboardPage: React.FC = () => {
   const { user } = useSession();
-  const { navigate } = useRouter();
+  const { navigate, search, replace } = useRouter();
   const {
     teams,
     allTeams,
@@ -108,9 +108,11 @@ export const DashboardPage: React.FC = () => {
   // ── Deep-link support ──
   //   ?tab=timesheet&teamId=&memberId=  → Team → Timesheet (admin, from notifications)
   //   ?view=timesheet                   → Me → Timesheet (the retired /app/timesheet URL)
+  // Depends on `search` (not just mount) so re-tapping a notification for a
+  // different member while the Dashboard is already open is honored.
   useEffect(() => {
     if (!teamsReady) return;
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(search);
     const deepTab = params.get('tab');
     const deepView = params.get('view');
     const memberId = params.get('memberId');
@@ -137,9 +139,9 @@ export const DashboardPage: React.FC = () => {
     }
 
     if (deepTab || deepView || memberId || teamId) {
-      window.history.replaceState(null, '', window.location.pathname);
+      replace('/app/dashboard');
     }
-  }, [teamsReady, teams, allTeams, setSelectedTeamId, setSelectedOrgId]);
+  }, [teamsReady, teams, allTeams, setSelectedTeamId, setSelectedOrgId, search, replace]);
 
   // Members list (needed by the admin Timesheet view only)
   useEffect(() => {

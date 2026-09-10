@@ -78,7 +78,7 @@ type ProfilePageProps = { userId: string; username?: never } | { username: strin
 
 export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) => {
   const { user: sessionUser } = useSession();
-  const { navigate } = useRouter();
+  const { navigate, search } = useRouter();
   const isOwn = userId ? sessionUser?.id === userId : sessionUser?.username === username;
 
   const [profile, setProfile] = useState<PublicUser | null>(null);
@@ -92,6 +92,12 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   // Background image state
   const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null);
   const [backgroundUploading, setBackgroundUploading] = useState(false);
+  // Active tab — re-derived whenever the deep link's `?tab=` query changes
+  // (e.g. tapping a second notification while already on this profile page).
+  const [activeTab, setActiveTab] = useState(() => new URLSearchParams(search).get('tab') ?? 'feed');
+  useEffect(() => {
+    setActiveTab(new URLSearchParams(search).get('tab') ?? 'feed');
+  }, [search]);
 
   useEffect(() => {
     setIsReady(false);
@@ -408,10 +414,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
 
       {/* Tab rail — Feed | Work | Activity */}
       {profile && (
-        <Tabs
-          defaultValue={new URLSearchParams(window.location.search).get('tab') ?? 'feed'}
-          className="w-full"
-        >
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="mb-4 w-full">
             <TabsTrigger value="feed" className="flex-1">
               Feed

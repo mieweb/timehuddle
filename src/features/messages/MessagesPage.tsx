@@ -37,6 +37,7 @@ import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { MessagesActiveChatContext } from '../../ui/AppLayout';
+import { useRouter } from '../../ui/router';
 import {
   channelApi,
   messageApi,
@@ -76,6 +77,7 @@ function dmBubbleRadius(isMe: boolean, isFirstInGroup: boolean, isLastInGroup: b
 export const MessagesPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? '';
+  const { search: routerSearch, replace } = useRouter();
   const { selectedTeamId, setSelectedTeamId, teamsReady, isAdmin, selectedTeam } = useTeam();
   const { setHasActiveChat } = React.useContext(MessagesActiveChatContext);
 
@@ -152,9 +154,12 @@ export const MessagesPage: React.FC = () => {
   const pendingOpenPeerRef = useRef<string | null>(null);
   const pendingOpenChannelRef = useRef<string | null>(null);
   const pendingDmIntentRef = useRef(false);
+  // Bumped whenever a new deep-link request comes in, so the resolution effects
+  // below re-run even when their other deps (selectedTeam, channels) haven't
+  // changed — e.g. re-tapping a second notification for the same team.
+  const [pendingOpenVersion, setPendingOpenVersion] = useState(0);
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const q = new URLSearchParams(window.location.search);
+    const q = new URLSearchParams(routerSearch);
     const openTeam = q.get('openTeam');
     const openPeer = q.get('openPeer');
     const openChannel = q.get('openChannel');
@@ -167,8 +172,9 @@ export const MessagesPage: React.FC = () => {
     if (openChannel) {
       pendingOpenChannelRef.current = openChannel;
     }
-    window.history.replaceState(null, '', '/app/messages');
-  }, []);
+    setPendingOpenVersion((v) => v + 1);
+    replace('/app/messages');
+  }, [routerSearch, setSelectedTeamId, replace]);
 
   useEffect(() => {
     const peer = pendingOpenPeerRef.current;
@@ -183,7 +189,20 @@ export const MessagesPage: React.FC = () => {
       setActiveView('dm');
       pendingDmIntentRef.current = false;
     }
-  }, [selectedTeam, userId]);
+  }, [selectedTeam, userId, pendingOpenVersion]);
+
+  // Resolves a pending ?openChannel= against whichever channel list is
+  // currently loaded — fires both when the list loads (team switch) and when
+  // a new deep link arrives for a team whose channels are already loaded.
+  useEffect(() => {
+    const channelId = pendingOpenChannelRef.current;
+    if (!channelId) return;
+    const found = channels.find((c) => c.id === channelId);
+    if (!found) return;
+    pendingOpenChannelRef.current = null;
+    setSelectedChannelId(found.id);
+    setActiveView('channel');
+  }, [channels, pendingOpenVersion]);
 
   useEffect(() => {
     if (!userId || typeof window === 'undefined') return;
