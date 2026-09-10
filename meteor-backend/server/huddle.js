@@ -682,7 +682,7 @@ Meteor.methods({
           type: 'huddle-comment',
           postId,
           teamId: post.teamId,
-          url: '/app/huddle',
+          url: `/app/huddle?postId=${postId}`,
         },
         createdAt: new Date(),
       });
@@ -703,7 +703,7 @@ Meteor.methods({
               type: 'huddle-comment',
               postId,
               teamId: post.teamId,
-              url: '/app/huddle',
+              url: `/app/huddle?postId=${postId}`,
             },
             createdAt: new Date(),
           });

@@ -163,6 +163,12 @@ Meteor.methods({
 
     const userName = await userDisplayName(userId);
     const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
+    // With a plan attached, send admins to that Huddle post (it shows the plan);
+    // otherwise fall back to the clocked-in member's Work tab.
+    const clockInUrl =
+      planPostId && isValidId(planPostId)
+        ? `/app/huddle?postId=${planPostId}&teamId=${teamId}`
+        : `/app/profile/${userId}?tab=work`;
     await Promise.all(
       notifyAdmins.map((adminId) =>
         createNotification({
@@ -175,7 +181,7 @@ Meteor.methods({
             userName,
             teamName: team.name,
             teamId,
-            url: `/app/profile/${userId}?tab=work`,
+            url: clockInUrl,
           },
         }).catch(() => {})
       )
@@ -201,20 +207,21 @@ Meteor.methods({
 
     const team = await findUserTeam(userId, teamId);
 
+    // This session's Huddle post (one post per clock session, linked by
+    // clockEventId — see clock-post-simple-plan.md). Drafts never count.
+    // Used both by the plan-first clock-out gate and to deep-link the
+    // clock-out notifications at the post showing the plan + wrap-up.
+    const sessionPost = await rawDb()
+      .collection('huddlePosts')
+      .findOne(
+        { teamId, userId, clockEventId: event._id.toHexString(), status: { $ne: 'draft' } },
+        { sort: { createdAt: -1 } }
+      );
+
     // Plan-first flow: when the team requires a plan, block clock-out until
-    // THIS session's Huddle post has a wrap-up. One post per clock session,
-    // linked by clockEventId (see clock-post-simple-plan.md). Drafts never
-    // count — only published posts.
-    if (team?.settings?.requirePlanForClock) {
-      const post = await rawDb()
-        .collection('huddlePosts')
-        .findOne(
-          { teamId, userId, clockEventId: event._id.toHexString(), status: { $ne: 'draft' } },
-          { sort: { createdAt: -1 } }
-        );
-      if (!post?.wrapUpAt) {
-        throw new Meteor.Error('plan-required', "Add a wrap-up to this session's post first");
-      }
+    // THIS session's post has a wrap-up.
+    if (team?.settings?.requirePlanForClock && !sessionPost?.wrapUpAt) {
+      throw new Meteor.Error('plan-required', "Add a wrap-up to this session's post first");
     }
 
     const now = Date.now();
@@ -255,6 +262,11 @@ Meteor.methods({
       const m = Math.floor((totalSecs % 3600) / 60);
       const durationText = h > 0 ? `${h}h ${m}m` : `${m}m`;
       const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
+      // Prefer this session's Huddle post (shows the plan + wrap-up); fall
+      // back to the member's Work tab when the session had no post.
+      const clockOutUrl = sessionPost
+        ? `/app/huddle?postId=${sessionPost._id.toHexString()}&teamId=${teamId}`
+        : `/app/profile/${userId}?tab=work`;
       await Promise.all(
         notifyAdmins.map((adminId) =>
           createNotification({
@@ -268,7 +280,7 @@ Meteor.methods({
               teamName: team.name,
               teamId,
               duration: durationText,
-              url: `/app/profile/${userId}?tab=work`,
+              url: clockOutUrl,
             },
           }).catch(() => {})
         )
@@ -283,7 +295,7 @@ Meteor.methods({
           teamName: team.name,
           teamId,
           duration: durationText,
-          url: `/app/profile/${userId}?tab=work`,
+          url: clockOutUrl,
         },
       }).catch(() => {});
 
