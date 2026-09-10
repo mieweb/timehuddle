@@ -168,12 +168,29 @@ const AppLayoutContent: React.FC = () => {
     if (resolved !== current) window.history.replaceState(null, '', resolved);
     return resolved.split('?')[0];
   });
+  // Tracked separately from `pathname` so a deep link that only changes the query
+  // (e.g. re-tapping a notification for the same profile with a different `?tab=`)
+  // still triggers a re-render — setPathname alone is a no-op when the path is unchanged.
+  const [search, setSearch] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return window.location.search;
+  });
 
   const navigate = useCallback((path: string) => {
     const target = resolveUrl(path);
     window.history.pushState(null, '', target);
-    setPathname(target.split('?')[0]);
+    const [targetPath, targetSearch = ''] = target.split('?');
+    setPathname(targetPath);
+    setSearch(targetSearch ? `?${targetSearch}` : '');
     window.dispatchEvent(new CustomEvent('timehuddle:navigate', { detail: { path: target } }));
+  }, []);
+
+  const replace = useCallback((path: string) => {
+    const target = resolveUrl(path);
+    window.history.replaceState(null, '', target);
+    const [targetPath, targetSearch = ''] = target.split('?');
+    setPathname(targetPath);
+    setSearch(targetSearch ? `?${targetSearch}` : '');
   }, []);
 
   useEffect(() => {
@@ -181,7 +198,9 @@ const AppLayoutContent: React.FC = () => {
       const current = window.location.pathname + window.location.search;
       const resolved = resolveUrl(current);
       if (resolved !== current) window.history.replaceState(null, '', resolved);
-      setPathname(resolved.split('?')[0]);
+      const [resolvedPath, resolvedSearch = ''] = resolved.split('?');
+      setPathname(resolvedPath);
+      setSearch(resolvedSearch ? `?${resolvedSearch}` : '');
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -218,8 +237,8 @@ const AppLayoutContent: React.FC = () => {
           }),
         );
       } else if (data.type === 'huddle-comment' || data.type === 'huddle-mention') {
-        // Navigate to huddle page (future: scroll to specific post via postId)
-        navigate('/app/huddle');
+        // data.url carries ?postId=... so Huddle can scroll to and highlight it.
+        navigate(data.url || '/app/huddle');
       } else if (data.type === 'team-join-request') {
         // Navigate to notifications page where user can approve/decline
         navigate('/app/notifications');
@@ -250,20 +269,8 @@ const AppLayoutContent: React.FC = () => {
     if (!Capacitor.isNativePlatform()) return;
     const handles: { remove: () => void }[] = [];
 
-    // Check for notification tap that happened before JS bridge was ready (background/cold start)
-    try {
-      const raw = window.localStorage.getItem('pendingPushNotification');
-      if (raw) {
-        const data = JSON.parse(raw) as Record<string, string>;
-        console.log('[PendingPush] found:', JSON.stringify(data));
-        window.localStorage.removeItem('pendingPushNotification');
-        handleNotificationData(data);
-      }
-    } catch {
-      /* ignore */
-    }
-
-    // Background/closed tap → navigate directly
+    // Background/cold-start tap → Capacitor queues the launch notification and
+    // replays it here once this listener attaches.
     PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
       console.log('[ActionPerformed] data:', JSON.stringify(action.notification.data));
       handleNotificationData((action.notification.data ?? {}) as Record<string, string>);
@@ -271,8 +278,8 @@ const AppLayoutContent: React.FC = () => {
       .then((h) => handles.push(h))
       .catch(() => {});
 
-    // Foreground push → iOS shows native banner via AppDelegate willPresent
-    // Tap is handled by pushNotificationActionPerformed above
+    // Foreground push → iOS shows the native banner (presentationOptions in
+    // capacitor.config.ts). Taps come back through the listener above.
     PushNotifications.addListener('pushNotificationReceived', (_notification) => {
       // intentionally empty — iOS handles the banner natively
     })
@@ -283,6 +290,30 @@ const AppLayoutContent: React.FC = () => {
       handles.forEach((h) => h.remove());
     };
   }, [handleNotificationData]);
+
+  // ── Native deep links (timehuddle://open/<path>) ───────────────────────────
+  // Covers links tapped outside a push notification (e.g. shared from another
+  // app). main.tsx's `appUrlOpen` runs before this component mounts on a cold
+  // start, so the path is stashed in localStorage there and drained here.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    try {
+      const pendingPath = window.localStorage.getItem('pendingDeepLinkPath');
+      if (pendingPath) {
+        window.localStorage.removeItem('pendingDeepLinkPath');
+        navigate(pendingPath);
+      }
+    } catch {
+      /* ignore */
+    }
+
+    const handler = (e: Event) => {
+      const path = (e as CustomEvent<{ path?: string }>).detail?.path;
+      if (path) navigate(path);
+    };
+    window.addEventListener('timehuddle:deeplink', handler);
+    return () => window.removeEventListener('timehuddle:deeplink', handler);
+  }, [navigate]);
 
   // ── Web push: service worker message handler ──────────────────────────────
   useEffect(() => {
@@ -374,7 +405,7 @@ const AppLayoutContent: React.FC = () => {
   }, []);
 
   return (
-    <RouterContext.Provider value={{ pathname, navigate }}>
+    <RouterContext.Provider value={{ pathname, search, navigate, replace }}>
       <PageTitleContext.Provider value={pageTitle}>
         <RefreshProvider globalRefreshHandlers={[refetchSession, refetchTeams, refetchClock]}>
           <CommandPalette />
@@ -460,9 +491,9 @@ const AppLayoutContent: React.FC = () => {
                             </div>
                           </PageTitleContext.Provider>
                           {profileUserId ? (
-                            <ProfilePage userId={profileUserId} />
+                            <ProfilePage key={profileUserId} userId={profileUserId} />
                           ) : profileUsername ? (
-                            <ProfilePage username={profileUsername} />
+                            <ProfilePage key={profileUsername} username={profileUsername} />
                           ) : ticketDetailId ? (
                             <TicketDetailPage ticketId={ticketDetailId} />
                           ) : (
