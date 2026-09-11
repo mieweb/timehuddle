@@ -65,24 +65,21 @@ async function enrichPost(post) {
     ticketTitle = ticket?.title;
   }
 
-  // Clock-in/out times are read off the linked ClockEvent rather than copied
-  // onto the post, so the session stays the single source of truth.
-  let session;
-  if (post.clockEventId) {
-    const event = await rawDb()
-      .collection('clockevents')
-      .findOne({ _id: toId(post.clockEventId) }, { projection: { startTime: 1, endTime: 1 } });
-    if (event) {
-      const rawEnd = event.endTime;
-      session = {
-        startTime: typeof event.startTime === 'number' ? event.startTime : 0,
-        endTime:
-          rawEnd instanceof Date ? rawEnd.getTime() : typeof rawEnd === 'number' ? rawEnd : null,
-      };
-    }
-  }
-  
   const id = post._id?.toHexString ? post._id.toHexString() : String(post._id);
+
+  // Clock-in/out times are read off the linked ClockEvent rather than copied
+  // onto the post, so the session stays the single source of truth. Scoped to
+  // the post's own author/team — clockEventId is client-supplied on write, so
+  // an unscoped `_id`-only lookup would let a spoofed id expose another
+  // user's or team's session times through this team's feed. `attachSessions`
+  // pre-populates `post.session` for batch call sites; this falls back to a
+  // single scoped lookup when it hasn't (single-post call sites).
+  const session =
+    post.session !== undefined
+      ? post.session
+      : post.clockEventId
+        ? await fetchOwnedSession(post)
+        : undefined;
   
   return {
     id,
@@ -116,6 +113,51 @@ async function enrichPost(post) {
     createdAt: post.createdAt instanceof Date ? post.createdAt.toISOString() : String(post.createdAt),
     updatedAt: post.updatedAt instanceof Date ? post.updatedAt.toISOString() : String(post.updatedAt ?? post.createdAt),
   };
+}
+
+function toSessionShape(event) {
+  const rawEnd = event.endTime;
+  return {
+    startTime: typeof event.startTime === 'number' ? event.startTime : 0,
+    endTime: rawEnd instanceof Date ? rawEnd.getTime() : typeof rawEnd === 'number' ? rawEnd : null,
+  };
+}
+
+/** Single-post session lookup, scoped to the post's own author/team. */
+async function fetchOwnedSession(post) {
+  const event = await rawDb()
+    .collection('clockevents')
+    .findOne(
+      { _id: toId(post.clockEventId), userId: post.userId, teamId: post.teamId },
+      { projection: { startTime: 1, endTime: 1 } },
+    );
+  return event ? toSessionShape(event) : undefined;
+}
+
+/**
+ * Batch session lookup for a list of posts — one `$in` query instead of one
+ * per post, since `huddlePosts.byTeam` and `huddle.getPosts` enrich an
+ * unbounded team feed. Mutates each post with a `session` property that
+ * `enrichPost` then just passes through.
+ */
+async function attachSessions(posts) {
+  const withSession = posts.filter((p) => p.clockEventId);
+  if (!withSession.length) return posts;
+  const ids = withSession.map((p) => toId(p.clockEventId));
+  const events = await rawDb()
+    .collection('clockevents')
+    .find({ _id: { $in: ids } }, { projection: { userId: 1, teamId: 1, startTime: 1, endTime: 1 } })
+    .toArray();
+  const eventsById = new Map(events.map((e) => [String(e._id), e]));
+  for (const post of withSession) {
+    const event = eventsById.get(String(toId(post.clockEventId)));
+    // Same ownership scoping as the single-post path — a match on _id alone
+    // isn't enough to trust a client-supplied clockEventId.
+    if (event && event.userId === post.userId && String(event.teamId) === String(post.teamId)) {
+      post.session = toSessionShape(event);
+    }
+  }
+  return posts;
 }
 
 async function enrichComment(comment) {
@@ -179,6 +221,7 @@ Meteor.publish('huddlePosts.byTeam', async function (teamId) {
   // Track which ids this subscription has sent, so a draft being published
   // (an update) is delivered as `added` rather than a no-op `changed`.
   const sentIds = new Set();
+  await attachSessions(posts);
   for (const post of posts) {
     const enriched = await enrichPost(post);
     this.added('huddlePosts', enriched.id, enriched);
@@ -272,6 +315,7 @@ Meteor.methods({
       .sort({ createdAt: -1 })
       .toArray();
     
+    await attachSessions(posts);
     const enriched = await Promise.all(posts.map(post => enrichPost(post)));
     return { posts: enriched };
   },
@@ -320,6 +364,24 @@ Meteor.methods({
         if (!user) {
           throw new Meteor.Error('not-found', `User ${mentionedUserId} not found`);
         }
+      }
+    }
+
+    // Validate clockEventId if provided — must be the caller's own session in
+    // this team, so a spoofed id can't later surface someone else's clock-in/
+    // out times through the feed (enrichPost scopes its lookup the same way).
+    if (clockEventId) {
+      if (typeof clockEventId !== 'string' || !isValidId(clockEventId)) {
+        throw new Meteor.Error('bad-request', 'Invalid clockEventId');
+      }
+      const event = await rawDb()
+        .collection('clockevents')
+        .findOne(
+          { _id: toId(clockEventId), userId: identity.userId, teamId },
+          { projection: { _id: 1 } },
+        );
+      if (!event) {
+        throw new Meteor.Error('forbidden', 'Clock event does not belong to you in this team');
       }
     }
     
@@ -540,6 +602,23 @@ Meteor.methods({
     // Drafts are strictly author-only — admins can't see or publish them.
     if (post.userId !== identity.userId) {
       throw new Meteor.Error('forbidden', 'Only the author can publish a draft');
+    }
+
+    // Same scoping as huddle.createPost — must be the caller's own session in
+    // the post's team.
+    if (clockEventId) {
+      if (typeof clockEventId !== 'string' || !isValidId(clockEventId)) {
+        throw new Meteor.Error('bad-request', 'Invalid clockEventId');
+      }
+      const event = await rawDb()
+        .collection('clockevents')
+        .findOne(
+          { _id: toId(clockEventId), userId: identity.userId, teamId: post.teamId },
+          { projection: { _id: 1 } },
+        );
+      if (!event) {
+        throw new Meteor.Error('forbidden', 'Clock event does not belong to you in this team');
+      }
     }
 
     await rawDb().collection('huddlePosts').updateOne(
