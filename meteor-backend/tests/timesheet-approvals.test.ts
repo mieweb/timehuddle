@@ -22,9 +22,10 @@ const TEAM_CODE = 'WHTSAP01';
 const SOLO_CODE = 'WHTSAP02';
 
 const HOUR = 3_600_000;
+const VIDEO_ID = 'wh-tsa-test-video';
 const JUSTIFICATION = {
   description: 'Forgot to clock out after the deploy call ran late.',
-  videoUrl: '/pulsevault/artifacts/test-video',
+  videoUrl: `/pulsevault/artifacts/${VIDEO_ID}`,
 };
 
 let adminJwt: string;
@@ -33,6 +34,8 @@ let adminUserId: string;
 let memberUserId: string;
 let teamId: string;
 let soloTeamId: string;
+let ticketId: string;
+let soloTicketId: string;
 
 /** A completed clock session for the member, inserted straight into Mongo. */
 async function seedSession(onTeamId: string, userId: string) {
@@ -49,6 +52,42 @@ async function seedSession(onTeamId: string, userId: string) {
   };
   await db.collection('clockevents').insertOne(doc);
   return { id: doc._id.toHexString(), start, end };
+}
+
+/** A work item with one hour already logged against it. */
+async function seedWorkItem(onTicketId: string, userId: string) {
+  const db = await getDb();
+  const date = new Date().toISOString().slice(0, 10);
+  const item = {
+    _id: new ObjectId(),
+    userId,
+    ticketId: onTicketId,
+    date,
+    note: 'Original note',
+    createdAt: new Date(),
+  };
+  await db.collection('workitems').insertOne(item);
+  const workItemId = item._id.toHexString();
+  await db.collection('timers').insertOne({
+    _id: new ObjectId(),
+    workItemId,
+    userId,
+    date,
+    startTime: Date.now() - 2 * HOUR,
+    endTime: Date.now() - HOUR,
+    durationSeconds: 3600,
+    createdAt: new Date(),
+  });
+  return { id: workItemId, date };
+}
+
+async function loggedSeconds(workItemId: string) {
+  const db = await getDb();
+  const sessions = await db
+    .collection('timers')
+    .find({ workItemId, endTime: { $ne: null } })
+    .toArray();
+  return sessions.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
 }
 
 async function findSession(id: string) {
@@ -92,6 +131,34 @@ beforeAll(async () => {
   await db.collection('teams').insertMany([reviewed, solo]);
   teamId = reviewed._id.toHexString();
   soloTeamId = solo._id.toHexString();
+
+  const ticket = (onTeamId: string, title: string) => ({
+    _id: new ObjectId(),
+    teamId: onTeamId,
+    title,
+    status: 'open',
+    priority: 'medium',
+    createdBy: memberUserId,
+    assignedTo: memberUserId,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const reviewedTicket = ticket(teamId, 'Reviewed Ticket');
+  const soloTicket = ticket(soloTeamId, 'Solo Ticket');
+  await db.collection('tickets').insertMany([reviewedTicket, soloTicket]);
+  ticketId = reviewedTicket._id.toHexString();
+  soloTicketId = soloTicket._id.toHexString();
+
+  // The server only accepts a video it can trace back to the requester, so the
+  // evidence these tests cite has to actually be theirs.
+  await db.collection('mediaitems').insertOne({
+    _id: new ObjectId(),
+    userId: memberUserId,
+    type: 'video',
+    videoid: VIDEO_ID,
+    url: JUSTIFICATION.videoUrl,
+    uploadedAt: new Date(),
+  });
 });
 
 // Each test seeds its own session and expects an empty queue, so state from a
@@ -100,6 +167,8 @@ beforeEach(async () => {
   const db = await getDb();
   await db.collection('timesheetchangerequests').deleteMany({ userId: memberUserId });
   await db.collection('clockevents').deleteMany({ userId: memberUserId });
+  await db.collection('workitems').deleteMany({ userId: memberUserId });
+  await db.collection('timers').deleteMany({ userId: memberUserId });
   await db
     .collection('notifications')
     .deleteMany({ userId: { $in: [adminUserId, memberUserId] } });
@@ -108,7 +177,11 @@ beforeEach(async () => {
 afterAll(async () => {
   const db = await getDb();
   await db.collection('teams').deleteMany({ code: { $in: [TEAM_CODE, SOLO_CODE] } });
+  await db.collection('tickets').deleteMany({ teamId: { $in: [teamId, soloTeamId] } });
   await db.collection('clockevents').deleteMany({ userId: memberUserId });
+  await db.collection('workitems').deleteMany({ userId: memberUserId });
+  await db.collection('timers').deleteMany({ userId: memberUserId });
+  await db.collection('mediaitems').deleteMany({ videoid: VIDEO_ID });
   await db.collection('timesheetchangerequests').deleteMany({ userId: memberUserId });
   await purgeUser(ADMIN.email);
   await purgeUser(MEMBER.email);
@@ -227,6 +300,190 @@ describe('timesheet approvals — what a submission must carry', () => {
     const second = await wormhole('clock.updateTimes', payload, memberJwt);
     expect(second.ok).toBe(false);
     expect(second.error).toMatch(/already/i);
+  });
+
+  it('refuses a video that is not a recording made here', async () => {
+    const session = await seedSession(teamId, memberUserId);
+    const res = await wormhole(
+      'clock.updateTimes',
+      {
+        clockEventId: session.id,
+        startTime: session.start + HOUR,
+        description: JUSTIFICATION.description,
+        videoUrl: 'https://attacker.example/evidence.mp4',
+      },
+      memberJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/video/i);
+  });
+
+  it('refuses a video belonging to somebody else', async () => {
+    const session = await seedSession(teamId, memberUserId);
+    const res = await wormhole(
+      'clock.updateTimes',
+      {
+        clockEventId: session.id,
+        startTime: session.start + HOUR,
+        description: JUSTIFICATION.description,
+        videoUrl: '/pulsevault/artifacts/somebody-elses-clip',
+      },
+      memberJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/video/i);
+  });
+
+  it('refuses a new entry that overlaps one already on the timesheet', async () => {
+    // Queueing it would put a change in front of a reviewer that could never
+    // be applied however they ruled.
+    const session = await seedSession(teamId, memberUserId);
+    const res = await wormhole(
+      'clock.createManual',
+      {
+        teamId,
+        startTime: session.start + HOUR,
+        endTime: session.end - HOUR / 2,
+        ...JUSTIFICATION,
+      },
+      memberJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/overlap/i);
+  });
+});
+
+describe('timesheet approvals — leaving the team is not a way out', () => {
+  it('still requires approval to edit a session in a team the editor has left', async () => {
+    const session = await seedSession(teamId, memberUserId);
+    const db = await getDb();
+    await db
+      .collection('teams')
+      .updateOne({ code: TEAM_CODE }, { $pull: { members: memberUserId } as never });
+
+    try {
+      const res = await wormhole<{ pending: boolean }>(
+        'clock.updateTimes',
+        { clockEventId: session.id, startTime: session.start + HOUR, ...JUSTIFICATION },
+        memberJwt,
+      );
+      expect(res.ok).toBe(true);
+      expect(res.result.pending).toBe(true);
+      expect((await findSession(session.id))!.startTime).toBe(session.start);
+    } finally {
+      await db
+        .collection('teams')
+        .updateOne({ code: TEAM_CODE }, { $addToSet: { members: memberUserId } as never });
+    }
+  });
+});
+
+describe('timesheet approvals — timer entries', () => {
+  it('lets a relabel through without review', async () => {
+    const entry = await seedWorkItem(ticketId, memberUserId);
+    const res = await wormhole<{ entry: { note: string } }>(
+      'timers.updateEntry',
+      { entryId: entry.id, note: 'Tidied up the wording' },
+      memberJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.entry.note).toBe('Tidied up the wording');
+  });
+
+  it('queues a duration change and applies it on approval', async () => {
+    const entry = await seedWorkItem(ticketId, memberUserId);
+    const submitted = await wormhole<{ pending: boolean; request: { id: string } }>(
+      'timers.updateEntry',
+      { entryId: entry.id, durationSeconds: 7200, ...JUSTIFICATION },
+      memberJwt,
+    );
+    expect(submitted.ok).toBe(true);
+    expect(submitted.result.pending).toBe(true);
+    expect(await loggedSeconds(entry.id)).toBe(3600);
+
+    const decided = await wormhole(
+      'timesheetApprovals.approve',
+      { requestId: submitted.result.request.id },
+      adminJwt,
+    );
+    expect(decided.ok).toBe(true);
+    expect(await loggedSeconds(entry.id)).toBe(7200);
+  });
+
+  it('queues a delete and only removes the entry once approved', async () => {
+    const entry = await seedWorkItem(ticketId, memberUserId);
+    const submitted = await wormhole<{ pending: boolean; request: { id: string } }>(
+      'timers.deleteEntry',
+      { entryId: entry.id, ...JUSTIFICATION },
+      memberJwt,
+    );
+    expect(submitted.ok).toBe(true);
+    const db = await getDb();
+    expect(await db.collection('workitems').countDocuments({ _id: new ObjectId(entry.id) })).toBe(
+      1,
+    );
+
+    await wormhole(
+      'timesheetApprovals.approve',
+      { requestId: submitted.result.request.id },
+      adminJwt,
+    );
+    expect(await db.collection('workitems').countDocuments({ _id: new ObjectId(entry.id) })).toBe(
+      0,
+    );
+  });
+
+  it('applies a solo-admin team\u2019s duration change directly', async () => {
+    const entry = await seedWorkItem(soloTicketId, memberUserId);
+    const res = await wormhole<{ pending?: boolean }>(
+      'timers.updateEntry',
+      { entryId: entry.id, durationSeconds: 7200 },
+      memberJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.pending).toBeUndefined();
+    expect(await loggedSeconds(entry.id)).toBe(7200);
+  });
+
+  it('reviews a move out of a solo-admin team into a reviewed one', async () => {
+    // The time lands on the destination team's timesheet, so gating on the
+    // source alone would make the solo team a staging area.
+    const entry = await seedWorkItem(soloTicketId, memberUserId);
+    const res = await wormhole<{ pending: boolean }>(
+      'timers.updateEntry',
+      { entryId: entry.id, durationSeconds: 7200, ticketId, ...JUSTIFICATION },
+      memberJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.pending).toBe(true);
+    expect(await loggedSeconds(entry.id)).toBe(3600);
+  });
+
+  it('refuses to replay over an edit made while the request was pending', async () => {
+    const entry = await seedWorkItem(ticketId, memberUserId);
+    const submitted = await wormhole<{ request: { id: string } }>(
+      'timers.updateEntry',
+      { entryId: entry.id, durationSeconds: 7200, ...JUSTIFICATION },
+      memberJwt,
+    );
+    // Relabelling stays direct, so this lands while the duration change waits.
+    await wormhole('timers.updateEntry', { entryId: entry.id, note: 'Newer note' }, memberJwt);
+
+    const decided = await wormhole(
+      'timesheetApprovals.approve',
+      { requestId: submitted.result.request.id },
+      adminJwt,
+    );
+    expect(decided.ok).toBe(false);
+    expect(decided.error).toMatch(/edited|again/i);
+
+    const db = await getDb();
+    const entryDoc = await db.collection('workitems').findOne({ _id: new ObjectId(entry.id) });
+    expect(entryDoc!.note).toBe('Newer note');
+    const request = await db
+      .collection('timesheetchangerequests')
+      .findOne({ _id: new ObjectId(submitted.result.request.id) });
+    expect(request!.status).toBe('pending');
   });
 });
 

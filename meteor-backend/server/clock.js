@@ -35,7 +35,7 @@ import {
 } from './timer-core';
 import { createNotification, notifyClockAdmins, userDisplayName } from './notify-core';
 import { emitActivity, ActivityType } from './activity-core';
-import { requiresApproval, submitChangeRequest } from './timesheet-change-requests';
+import { requiresApproval, findTeamById, submitChangeRequest } from './timesheet-change-requests';
 import {
   scheduleClockJobs,
   rescheduleClockJobs,
@@ -63,6 +63,30 @@ async function findUserTeam(userId, teamId) {
 // `notifyAdmins` is off on that path: the admins asked for the change to happen,
 // so telling them it happened is noise — and it reached the approver as "someone
 // else edited this", which reads like a different event entirely.
+
+/**
+ * Whether a manual entry for this range could be inserted right now.
+ *
+ * Run both before queueing a change request and again on replay: checking only
+ * at replay lets an entry that can never be applied sit in the review queue,
+ * and checking only at submission lets an overlap appear while it waits.
+ */
+export async function assertManualRangeUsable({ userId, startTime, endTime }) {
+  const now = Date.now();
+  if (startTime > now || endTime > now) {
+    throw new Meteor.Error('invalid-range', 'Times must be in the past');
+  }
+  if (endTime <= startTime) throw new Meteor.Error('invalid-range', 'End is before start');
+
+  const overlapping = await ClockEvents.findOneAsync({
+    userId,
+    startTime: { $lt: endTime },
+    $or: [{ endTime: null }, { endTime: { $gt: startTime } }],
+  });
+  if (overlapping) {
+    throw new Meteor.Error('overlap', 'This entry overlaps an existing clock session');
+  }
+}
 
 /** Apply new times/breaks to an existing clock event. */
 export async function applyClockUpdate(
@@ -158,20 +182,7 @@ export async function applyClockCreateManual({
   endTime,
   notifyAdmins = true,
 }) {
-  const now = Date.now();
-  if (startTime > now || endTime > now) {
-    throw new Meteor.Error('invalid-range', 'Times must be in the past');
-  }
-  if (endTime <= startTime) throw new Meteor.Error('invalid-range', 'End is before start');
-
-  const overlapping = await ClockEvents.findOneAsync({
-    userId,
-    startTime: { $lt: endTime },
-    $or: [{ endTime: null }, { endTime: { $gt: startTime } }],
-  });
-  if (overlapping) {
-    throw new Meteor.Error('overlap', 'This entry overlaps an existing clock session');
-  }
+  await assertManualRangeUsable({ userId, startTime, endTime });
 
   const _id = await ClockEvents.insertAsync({
     userId,
@@ -510,7 +521,11 @@ Meteor.methods({
       if (!adminTeam) throw new Meteor.Error('forbidden', 'Not allowed to edit this event');
     }
 
-    const team = await findUserTeam(event.userId, event.teamId);
+    // By id, not by membership: the owner is authorised above on ownership
+    // alone, so resolving the team through `findUserTeam` would return null
+    // once they leave it — and a null team needs no approval, which would let
+    // a former member rewrite that team's payroll directly.
+    const team = await findTeamById(event.teamId);
     if (requiresApproval(team, requesterId)) {
       const request = await submitChangeRequest({
         requesterId,
@@ -519,6 +534,7 @@ Meteor.methods({
         action: 'update',
         targetId: clockEventId,
         payload: { startTime, endTime, breaks },
+        baseline: { startTime: event.startTime, endTime: event.endTime ?? null },
         description,
         videoUrl,
       });
@@ -541,7 +557,7 @@ Meteor.methods({
       if (!adminTeam) throw new Meteor.Error('forbidden', 'Not allowed to delete this event');
     }
 
-    const team = await findUserTeam(event.userId, event.teamId);
+    const team = await findTeamById(event.teamId);
     if (requiresApproval(team, requesterId)) {
       const request = await submitChangeRequest({
         requesterId,
@@ -567,6 +583,9 @@ Meteor.methods({
     if (!team) throw new Meteor.Error('forbidden', 'Not a member of this team');
 
     if (requiresApproval(team, userId)) {
+      // Validated before queueing: an entry that overlaps or sits in the future
+      // can never be applied, so it has no business reaching a reviewer.
+      await assertManualRangeUsable({ userId, startTime, endTime });
       const request = await submitChangeRequest({
         requesterId: userId,
         team,

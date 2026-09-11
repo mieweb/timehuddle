@@ -1407,6 +1407,8 @@ export interface TimesheetChangeRequest {
   current: {
     startTime?: number;
     endTime?: number | null;
+    /** Paid seconds, so a break-only edit is visible to a reviewer. */
+    accumulatedTime?: number | null;
     durationSeconds?: number;
     date?: string;
   } | null;
@@ -1529,7 +1531,8 @@ export const clockApi = {
   createManualEntry: (
     data: { teamId: string; startTime: number; endTime: number },
     justification?: TimesheetJustification,
-  ) => wormholeCall<ClockEvent | PendingChange>('clock.createManual', { ...data, ...justification }),
+  ) =>
+    wormholeCall<ClockEvent | PendingChange>('clock.createManual', { ...data, ...justification }),
 };
 
 // ─── Team Dashboard API ───────────────────────────────────────────────────────

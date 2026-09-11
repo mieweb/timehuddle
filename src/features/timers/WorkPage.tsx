@@ -44,9 +44,11 @@ import {
   isPendingChange,
   timerApi,
   ticketApi,
+  timesheetApprovalApi,
   type DayEntry,
   type Timer,
   type Ticket,
+  type TimesheetChangeRequest,
 } from '../../lib/api';
 import {
   timesheetApprovalRequired,
@@ -177,6 +179,24 @@ export const WorkPage: React.FC = () => {
   const [editJustification, setEditJustification] =
     useState<TimesheetJustificationState>(emptyJustification);
 
+  // Changes submitted for review, keyed by the entry they target: a queued edit
+  // leaves the row looking untouched, so without this the user is given no sign
+  // it went anywhere and reopens it straight into `already-pending`.
+  const [myRequests, setMyRequests] = useState<TimesheetChangeRequest[]>([]);
+  const pendingByEntry = useMemo(() => {
+    const map = new Map<string, TimesheetChangeRequest>();
+    for (const r of myRequests) {
+      if (r.targetId && r.status === 'pending' && !map.has(r.targetId)) map.set(r.targetId, r);
+    }
+    return map;
+  }, [myRequests]);
+  const loadMyRequests = useCallback(() => {
+    timesheetApprovalApi
+      .listMine({ status: 'pending' })
+      .then(setMyRequests)
+      .catch(() => {});
+  }, []);
+
   const { user } = useSession();
   const userId = user?.id ?? '';
   // The entry's ticket determines which team reviews the change; fall back to
@@ -251,11 +271,14 @@ export const WorkPage: React.FC = () => {
     void fetchDay();
   }, [fetchDay]);
 
+  useEffect(loadMyRequests, [loadMyRequests]);
+
   // Pull-to-refresh: combine both fetches
   useRefresh(
     useCallback(async () => {
+      loadMyRequests();
       await Promise.all([fetchDay(), fetchWeekTotals()]);
-    }, [fetchDay, fetchWeekTotals]),
+    }, [loadMyRequests, fetchDay, fetchWeekTotals]),
   );
 
   useEffect(() => {
@@ -452,6 +475,8 @@ export const WorkPage: React.FC = () => {
         );
         if (!isPendingChange(result)) {
           setDayEntries((prev) => prev.filter((de) => de.entry.id !== entryId));
+        } else {
+          setMyRequests((prev) => [result.request, ...prev]);
         }
         setEditJustification(emptyJustification);
         void fetchWeekTotals();
@@ -513,6 +538,7 @@ export const WorkPage: React.FC = () => {
           : undefined,
       );
       if (isPendingChange(result)) {
+        setMyRequests((prev) => [result.request, ...prev]);
         setEditEntry(null);
         setEditJustification(emptyJustification);
         return;
@@ -840,6 +866,7 @@ export const WorkPage: React.FC = () => {
                 const total = entryTotalSeconds(de.sessions, currentTime);
                 const runningSess = de.sessions.find((s) => s.endTime === null);
                 const isRunning = !!runningSess;
+                const awaitingApproval = pendingByEntry.has(de.entry.id);
                 const controlsDisabled = (!isRunning && !isToday) || isOnBreak;
                 const disabledReason = isOnBreak
                   ? 'Timers are paused while you are on break.'
@@ -890,6 +917,15 @@ export const WorkPage: React.FC = () => {
                             Running
                           </Badge>
                         )}
+                        {awaitingApproval && (
+                          <Badge
+                            variant="warning"
+                            size="sm"
+                            title="Waiting for an admin to approve your change"
+                          >
+                            Pending approval
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
 
@@ -905,7 +941,12 @@ export const WorkPage: React.FC = () => {
                         size="icon"
                         onClick={() => handleOpenEdit(de)}
                         aria-label="Edit work item"
-                        disabled={deletingEntryId === de.entry.id}
+                        title={
+                          awaitingApproval
+                            ? 'A change to this entry is already awaiting review.'
+                            : undefined
+                        }
+                        disabled={deletingEntryId === de.entry.id || awaitingApproval}
                       >
                         <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
                       </Button>

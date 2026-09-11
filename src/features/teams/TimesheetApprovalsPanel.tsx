@@ -28,8 +28,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ApiError,
+  resolveMediaUrl,
   timesheetApprovalApi,
-  TIMECORE_BASE_URL,
   type TimesheetChangeRequest,
 } from '../../lib/api';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -40,10 +40,6 @@ const ACTION_LABEL: Record<TimesheetChangeRequest['action'], string> = {
   delete: 'Delete entry',
 };
 
-function videoSrc(url: string): string {
-  return url.startsWith('http') ? url : `${TIMECORE_BASE_URL.replace(/\/$/, '')}${url}`;
-}
-
 function asEpoch(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
@@ -53,9 +49,9 @@ const clockFormat: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-di
 
 /** "9:04am" — Intl gives "9:04 AM", which reads heavier than it needs to here. */
 function shortTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, clockFormat).replace(/\s*([AP])M/i, (_, p) =>
-    p.toLowerCase() + 'm',
-  );
+  return date
+    .toLocaleTimeString(undefined, clockFormat)
+    .replace(/\s*([AP])M/i, (_, p) => p.toLowerCase() + 'm');
 }
 
 /** "Sep 7, 9:04am – 4:04pm", naming the second date only when it differs. */
@@ -74,10 +70,50 @@ function formatRange(startMs: number | null, endMs: number | null): string | nul
 
 function formatDurationBetween(startMs: number | null, endMs: number | null): string | null {
   if (startMs === null || endMs === null || endMs <= startMs) return null;
-  const minutes = Math.round((endMs - startMs) / 60_000);
+  return formatMinutes(Math.round((endMs - startMs) / 60_000));
+}
+
+function formatMinutes(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+/**
+ * Paid time before and after, when the two differ.
+ *
+ * A break-only edit leaves the clock range identical while moving what the
+ * entry is worth, so without this the reviewer would be shown two lines that
+ * read the same and asked to rule on a change they cannot see.
+ */
+function describePaidTime(
+  request: TimesheetChangeRequest,
+): { before: string; after: string } | null {
+  if (request.action !== 'update') return null;
+  const currentPaid = asEpoch(request.current?.accumulatedTime);
+  if (currentPaid === null) return null;
+
+  const start = asEpoch(request.payload.startTime) ?? asEpoch(request.current?.startTime);
+  const end =
+    request.payload.endTime === null
+      ? null
+      : (asEpoch(request.payload.endTime) ?? asEpoch(request.current?.endTime));
+  if (start === null || end === null) return null;
+
+  const breaks = Array.isArray(request.payload.breaks) ? request.payload.breaks : null;
+  if (!breaks) return null;
+  const breakSeconds = breaks.reduce((sum, b) => {
+    const bs = asEpoch((b as { startTime?: unknown }).startTime);
+    const be = asEpoch((b as { endTime?: unknown }).endTime);
+    return bs === null || be === null || be <= bs ? sum : sum + Math.floor((be - bs) / 1000);
+  }, 0);
+
+  const nextPaid = Math.max(0, Math.floor((end - start) / 1000) - breakSeconds);
+  if (Math.round(nextPaid / 60) === Math.round(currentPaid / 60)) return null;
+  return {
+    before: formatMinutes(Math.round(currentPaid / 60)),
+    after: formatMinutes(Math.round(nextPaid / 60)),
+  };
 }
 
 /**
@@ -88,8 +124,7 @@ function formatDurationBetween(startMs: number | null, endMs: number | null): st
  */
 function describeChange(request: TimesheetChangeRequest): { before?: string; after?: string } {
   const currentStart = asEpoch(request.current?.startTime);
-  const currentEnd =
-    request.current?.endTime === null ? null : asEpoch(request.current?.endTime);
+  const currentEnd = request.current?.endTime === null ? null : asEpoch(request.current?.endTime);
   const before = formatRange(currentStart, currentEnd) ?? undefined;
 
   if (request.action === 'delete') return { before };
@@ -232,10 +267,11 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
           <ul className="divide-y divide-neutral-100 dark:divide-neutral-800" role="list">
             {requests.map((r) => (
               <li key={r.id}>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  fullWidth
                   onClick={() => setActive(r)}
-                  className="flex w-full items-center gap-3 py-3 text-left transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  className="h-auto justify-start gap-3 px-0 py-3 text-left font-normal"
                   aria-label={`Review ${r.requesterName}'s timesheet change`}
                 >
                   <div className="min-w-0 flex-1">
@@ -256,7 +292,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
                       title="Has a video"
                     />
                   )}
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -331,6 +367,21 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
               );
             })()}
 
+          {active &&
+            (() => {
+              const paid = describePaidTime(active);
+              return paid ? (
+                <div>
+                  <Text size="xs" variant="muted">
+                    Paid time
+                  </Text>
+                  <Text size="sm" weight="medium">
+                    {paid.before} → {paid.after}
+                  </Text>
+                </div>
+              ) : null;
+            })()}
+
           <div>
             <Text size="xs" variant="muted">
               Their explanation
@@ -342,7 +393,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
             // Capped so a portrait recording doesn't push the decision buttons
             // off the bottom of a phone screen.
             <video
-              src={videoSrc(active.videoUrl)}
+              src={resolveMediaUrl(active.videoUrl)}
               controls
               playsInline
               className="max-h-[45vh] w-full rounded-lg bg-black"

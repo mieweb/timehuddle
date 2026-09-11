@@ -19,7 +19,7 @@ import {
 } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { applyClockCreateManual, applyClockDelete, applyClockUpdate } from './clock';
-import { applyTimerDelete, applyTimerUpdate } from './timers';
+import { applyTimerDelete, applyTimerUpdate, teamForEntry } from './timers';
 import {
   attachRequesterNames,
   findTeamById,
@@ -43,7 +43,14 @@ async function resolveCurrentTimes(request) {
 
   if (request.kind === 'clock') {
     const event = await ClockEvents.findOneAsync(new ObjectId(request.targetId));
-    return event ? { startTime: event.startTime, endTime: event.endTime ?? null } : null;
+    if (!event) return null;
+    return {
+      startTime: event.startTime,
+      endTime: event.endTime ?? null,
+      // Paid seconds, so a break-only edit — which moves the total while
+      // leaving the range identical — is visible to the reviewer.
+      accumulatedTime: event.accumulatedTime ?? null,
+    };
   }
 
   const entry = await WorkItems.findOneAsync(new ObjectId(request.targetId));
@@ -84,12 +91,13 @@ async function loadForReview(requestId, reviewerId) {
 /**
  * Replay an approved request against the live data.
  *
- * The target may have moved on since the request was raised — someone else's
- * edit, or a delete — so a missing target is reported as a precondition
- * failure rather than silently succeeding.
+ * Everything here is a precondition check rather than a best effort: the entry
+ * may have moved on since the request was raised — deleted, edited by another
+ * path, or reassigned to a different team's ticket — and an approval that no
+ * longer means what the reviewer read is refused rather than forced through.
  */
 async function applyRequest(request) {
-  const { kind, action, targetId, payload, userId } = request;
+  const { kind, action, targetId, payload, baseline, userId, teamId } = request;
   // The admins asked for this to happen, so the usual "someone changed a
   // timesheet" fan-out is noise here — and it reached the approver worded as
   // if a third party had made the edit. The requester hears about it through
@@ -110,16 +118,61 @@ async function applyRequest(request) {
     if (!event) {
       throw new Meteor.Error('target-gone', 'That clock session no longer exists.');
     }
-    return action === 'delete'
-      ? applyClockDelete(event, userId, quiet)
-      : applyClockUpdate(event, payload, userId, quiet);
+    if (event.teamId !== teamId) {
+      throw new Meteor.Error('target-moved', 'That session now belongs to another team.');
+    }
+    if (action === 'delete') return applyClockDelete(event, userId, quiet);
+    assertUnchangedSince(baseline, {
+      startTime: event.startTime,
+      endTime: event.endTime ?? null,
+    });
+    return applyClockUpdate(event, payload, userId, quiet);
   }
 
   const entry = await WorkItems.findOneAsync(new ObjectId(targetId));
   if (!entry) throw new Meteor.Error('target-gone', 'That time entry no longer exists.');
-  return action === 'delete'
-    ? applyTimerDelete(entry, userId, false)
-    : applyTimerUpdate(entry, payload, userId, quiet);
+  // Ticket-only edits stay direct, so the entry can have been moved to another
+  // team's ticket while this sat pending — in which case this team's admin is
+  // no longer the one entitled to rule on it.
+  const owningTeam = await teamForEntry(entry);
+  if (owningTeam?._id.toHexString() !== teamId) {
+    throw new Meteor.Error('target-moved', 'That entry now belongs to another team.');
+  }
+  if (action === 'delete') return applyTimerDelete(entry, userId, false);
+  assertUnchangedSince(baseline, {
+    note: entry.note ?? null,
+    ticketId: entry.ticketId,
+    durationSeconds: await loggedSeconds(targetId),
+  });
+  return applyTimerUpdate(entry, payload, userId, quiet);
+}
+
+/** Total logged seconds across a work item's completed sessions. */
+async function loggedSeconds(workItemId) {
+  const sessions = await rawDb()
+    .collection('timers')
+    .find({ workItemId, endTime: { $ne: null } })
+    .toArray();
+  return sessions.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
+}
+
+/**
+ * Refuse to replay over an edit made while the request was pending.
+ *
+ * An approved payload overwrites whole fields, so a note changed through the
+ * direct path (relabelling stays direct) would be silently reverted to the
+ * copy captured at submission. The reviewer ruled on a specific before state;
+ * if it is no longer the before state, they need to rule again.
+ */
+function assertUnchangedSince(baseline, live) {
+  if (!baseline) return;
+  const drifted = Object.keys(baseline).find((key) => baseline[key] !== live[key]);
+  if (drifted) {
+    throw new Meteor.Error(
+      'target-changed',
+      'This entry was edited after the request was raised. Ask for it to be submitted again.'
+    );
+  }
 }
 
 /** UTC range for the decision notification — see notifyRequesterOfDecision. */
@@ -167,14 +220,42 @@ async function describeTarget(request) {
   return request.label ? { text: request.label } : null;
 }
 
+/**
+ * Take exclusive ownership of a pending request.
+ *
+ * Two admins can both pass `loadForReview` before either writes a decision, so
+ * without this the mutation could be replayed twice — or applied by an approve
+ * that then loses the race to a reject and is recorded as declined. The claim
+ * is the single point at which a request stops being up for review.
+ */
+async function claimForDecision(requestId) {
+  const claimed = await TimesheetChangeRequests.updateAsync(
+    { _id: requestId, status: 'pending' },
+    { $set: { status: 'processing' } }
+  );
+  if (claimed === 0) {
+    throw new Meteor.Error('already-resolved', 'This request has already been reviewed.');
+  }
+  return TimesheetChangeRequests.findOneAsync(requestId);
+}
+
 async function resolve(request, reviewerId, { approved, note }) {
   // Captured before applying: approving a delete removes the entry this needs
   // to name.
   const entry = await describeTarget(request);
 
-  // Apply before recording the decision: if the replay fails the request stays
-  // pending and reviewable rather than being marked approved with no effect.
-  if (approved) await applyRequest(request);
+  const claimed = await claimForDecision(request._id);
+
+  if (approved) {
+    try {
+      await applyRequest(claimed);
+    } catch (err) {
+      // Hand it back rather than recording a decision the data never took —
+      // the request stays reviewable, and the reviewer sees why it failed.
+      await TimesheetChangeRequests.updateAsync(request._id, { $set: { status: 'pending' } });
+      throw err;
+    }
+  }
 
   await TimesheetChangeRequests.updateAsync(request._id, {
     $set: {

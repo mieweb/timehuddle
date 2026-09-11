@@ -14,12 +14,41 @@ import { MongoInternals } from 'meteor/mongo';
 
 import { Teams, TimesheetChangeRequests, isValidId, rawDb } from './collections';
 import { createNotification, userDisplayName } from './notify-core';
+import { artifactBelongsTo } from './pulsevault';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 export const CHANGE_KINDS = ['clock', 'timer'];
 export const CHANGE_ACTIONS = ['create', 'update', 'delete'];
-export const CHANGE_STATUSES = ['pending', 'approved', 'rejected'];
+// `processing` is the brief claim a reviewer holds while the change is being
+// replayed — see `resolve` in timesheet-approvals.js.
+export const CHANGE_STATUSES = ['pending', 'processing', 'approved', 'rejected'];
+
+Meteor.startup(async () => {
+  // Enforces "one pending change per entry" in the database rather than in the
+  // check-then-insert below, which two concurrent submissions can both pass.
+  await rawDb()
+    .collection('timesheetchangerequests')
+    .createIndex(
+      { targetId: 1, kind: 1 },
+      {
+        unique: true,
+        partialFilterExpression: { status: 'pending', targetId: { $type: 'string' } },
+        name: 'one_pending_change_per_target',
+      }
+    )
+    .catch((err) => {
+      console.warn('[timesheet] pending-change index failed:', err.message);
+    });
+
+  // A `processing` claim only outlives the request that took it if the server
+  // died mid-replay; hand any of those back rather than stranding them.
+  await TimesheetChangeRequests.updateAsync(
+    { status: 'processing' },
+    { $set: { status: 'pending' } },
+    { multi: true }
+  ).catch(() => {});
+});
 
 /** Only adding brand-new time needs a video; editing or deleting is explained in writing alone. */
 const VIDEO_REQUIRED_ACTIONS = ['create'];
@@ -64,7 +93,7 @@ export function toPublicChangeRequest(doc, extras = {}) {
     label: doc.label ?? null,
     description: doc.description,
     videoUrl: doc.videoUrl ?? null,
-    status: doc.status,
+    status: doc.status === 'processing' ? 'pending' : doc.status,
     requestedAt: doc.requestedAt,
     respondedAt: doc.respondedAt ?? null,
     respondedBy: doc.respondedBy ?? null,
@@ -73,7 +102,27 @@ export function toPublicChangeRequest(doc, extras = {}) {
   };
 }
 
-function assertJustification({ action, description, videoUrl }) {
+/** The only shape a video may take: a PulseVault artifact this app uploaded. */
+const ARTIFACT_PATH = /^\/pulsevault\/artifacts\/([A-Za-z0-9._-]+)$/;
+
+/**
+ * Check the video is a recording the requester actually made.
+ *
+ * Without this a `videoUrl` is just a string the client asserts: it could name
+ * a video that doesn't exist, someone else's recording, or an arbitrary origin
+ * that the reviewer's browser would then be made to fetch when the panel
+ * renders it.
+ */
+async function assertVideoIsOwnEvidence(videoUrl, requesterId) {
+  if (!videoUrl) return null;
+  const match = ARTIFACT_PATH.exec(videoUrl);
+  if (!match || !(await artifactBelongsTo(match[1], requesterId))) {
+    throw new Meteor.Error('video-invalid', 'Attach a video recorded or uploaded here.');
+  }
+  return videoUrl;
+}
+
+async function assertJustification({ action, description, videoUrl, requesterId }) {
   const text = typeof description === 'string' ? description.trim() : '';
   if (text.length < 10) {
     throw new Meteor.Error(
@@ -84,17 +133,21 @@ function assertJustification({ action, description, videoUrl }) {
   if (VIDEO_REQUIRED_ACTIONS.includes(action) && !videoUrl) {
     throw new Meteor.Error('video-required', 'Attach a video walking through this change.');
   }
-  return text;
+  return { text, video: await assertVideoIsOwnEvidence(videoUrl, requesterId) };
 }
 
 /**
  * Record a pending change and notify the team's approvers.
  *
  * `label` names the thing being changed when an id alone would be meaningless
- * to a reviewer — a ticket title, say. Times are deliberately *not* stored:
- * they are read back off the live entry and formatted in the reviewer's own
- * timezone, so a snapshot taken here would only go stale and be in the wrong
- * timezone for whoever ends up reading it.
+ * to a reviewer — a ticket title, say. Times are deliberately *not* stored for
+ * display: they are read back off the live entry and formatted in the
+ * reviewer's own timezone, so a snapshot taken here would only go stale and be
+ * in the wrong timezone for whoever ends up reading it.
+ *
+ * `baseline` is the separate, non-display copy of the fields this change would
+ * overwrite. It is compared against the live entry at replay time so an
+ * approval can't silently clobber an edit made while the request sat pending.
  */
 export async function submitChangeRequest({
   requesterId,
@@ -103,6 +156,7 @@ export async function submitChangeRequest({
   action,
   targetId = null,
   payload = {},
+  baseline = null,
   label = null,
   description,
   videoUrl = null,
@@ -116,39 +170,51 @@ export async function submitChangeRequest({
       `action must be one of ${CHANGE_ACTIONS.join(', ')}`
     );
   }
-  const trimmed = assertJustification({ action, description, videoUrl });
+  const { text: trimmed, video } = await assertJustification({
+    action,
+    description,
+    videoUrl,
+    requesterId,
+  });
   const teamId = team._id.toHexString();
+
+  const alreadyPending = () =>
+    new Meteor.Error('already-pending', 'This entry already has a change awaiting review.');
 
   if (targetId) {
     const duplicate = await TimesheetChangeRequests.findOneAsync({
       targetId,
       kind,
-      status: 'pending',
+      status: { $in: ['pending', 'processing'] },
     });
-    if (duplicate) {
-      throw new Meteor.Error(
-        'already-pending',
-        'This entry already has a change awaiting review.'
-      );
-    }
+    if (duplicate) throw alreadyPending();
   }
 
-  const _id = await TimesheetChangeRequests.insertAsync({
-    teamId,
-    userId: requesterId,
-    kind,
-    action,
-    targetId,
-    payload,
-    label,
-    description: trimmed,
-    videoUrl,
-    status: 'pending',
-    requestedAt: new Date(),
-    respondedAt: null,
-    respondedBy: null,
-    responseNote: null,
-  });
+  let _id;
+  try {
+    _id = await TimesheetChangeRequests.insertAsync({
+      teamId,
+      userId: requesterId,
+      kind,
+      action,
+      targetId,
+      payload,
+      baseline,
+      label,
+      description: trimmed,
+      videoUrl: video,
+      status: 'pending',
+      requestedAt: new Date(),
+      respondedAt: null,
+      respondedBy: null,
+      responseNote: null,
+    });
+  } catch (err) {
+    // The partial unique index is what actually holds the invariant; the check
+    // above only buys a friendlier error in the non-racing case.
+    if (err?.code === 11000) throw alreadyPending();
+    throw err;
+  }
   const created = await TimesheetChangeRequests.findOneAsync(_id);
   const requestId = created._id.toHexString();
   const requesterName = await userDisplayName(requesterId);
@@ -223,7 +289,9 @@ export async function notifyRequesterOfDecision(
 export async function listRequestsForUser(userId, { teamId, status } = {}) {
   const selector = { userId };
   if (teamId) selector.teamId = teamId;
-  if (status) selector.status = status;
+  // A request mid-replay is still pending as far as its owner is concerned.
+  if (status === 'pending') selector.status = { $in: ['pending', 'processing'] };
+  else if (status) selector.status = status;
   return TimesheetChangeRequests.find(selector, { sort: { requestedAt: -1 }, limit: 200 }).fetchAsync();
 }
 

@@ -99,12 +99,23 @@ async function getTicketTitleMap(ticketIds) {
   return new Map(tickets.map((t) => [t._id.toHexString(), t.title]));
 }
 
-/** The team that owns a work item, via its ticket. Null when untracked. */
-async function teamForEntry(entry) {
-  if (!isValidId(entry?.ticketId)) return null;
-  const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(entry.ticketId));
+/** The team that owns a ticket. Null when the ticket is untracked or gone. */
+export async function teamForTicket(ticketId) {
+  if (!isValidId(ticketId)) return null;
+  const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
   if (!ticket || !isValidId(ticket.teamId)) return null;
   return Teams.findOneAsync(new Mongo.ObjectID(ticket.teamId));
+}
+
+/** The team that owns a work item, via its ticket. Null when untracked. */
+export async function teamForEntry(entry) {
+  return teamForTicket(entry?.ticketId);
+}
+
+/** Total logged seconds across a work item's completed sessions. */
+async function loggedSeconds(entryId) {
+  const sessions = await Timers.find({ workItemId: entryId, endTime: { $ne: null } }).fetchAsync();
+  return sessions.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
 }
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
@@ -472,16 +483,29 @@ Meteor.methods({
     // Only a change to logged time is a payroll claim. Re-labelling an entry —
     // a note tweak or moving it to the right ticket — stays direct.
     if (durationSeconds !== undefined) {
-      const team = await teamForEntry(entry);
-      if (requiresApproval(team, userId)) {
+      const sourceTeam = await teamForEntry(entry);
+      // A move lands the time on the destination team's timesheet, so that
+      // team's admins are entitled to review it too — gating on the source
+      // alone would let a solo-admin team be used to stage the claim.
+      const destinationTeam =
+        ticketId && ticketId !== entry.ticketId ? await teamForTicket(ticketId) : sourceTeam;
+      const reviewingTeam = [destinationTeam, sourceTeam].find((t) =>
+        requiresApproval(t, userId)
+      );
+      if (reviewingTeam) {
         const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(entry.ticketId));
         const request = await submitChangeRequest({
           requesterId: userId,
-          team,
+          team: reviewingTeam,
           kind: 'timer',
           action: 'update',
           targetId: entryId,
           payload: { note, durationSeconds, ticketId },
+          baseline: {
+            note: entry.note ?? null,
+            ticketId: entry.ticketId,
+            durationSeconds: await loggedSeconds(entryId),
+          },
           label: `${ticket?.title ?? 'a ticket'} — ${entry.date}`,
           description,
           videoUrl,

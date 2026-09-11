@@ -234,7 +234,11 @@ export const TimesheetRow: React.FC<Props> = ({
             <TableCell>{showTeam ? teamName : ''}</TableCell>
             <TableCell>
               {row.isContinued ? null : changeStatus === 'pending' ? (
-                <Badge variant="warning" size="sm" title="Waiting for an admin to approve your change">
+                <Badge
+                  variant="warning"
+                  size="sm"
+                  title="Waiting for an admin to approve your change"
+                >
                   Pending approval
                 </Badge>
               ) : changeStatus === 'rejected' ? (

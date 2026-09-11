@@ -115,12 +115,7 @@ export const TimesheetJustificationFields: React.FC<TimesheetJustificationFields
           onChange={(e) => onChange({ ...value, description: e.target.value })}
           aria-describedby="timesheet-justification-note-hint"
         />
-        <Text
-          id="timesheet-justification-note-hint"
-          variant="muted"
-          size="xs"
-          aria-live="polite"
-        >
+        <Text id="timesheet-justification-note-hint" variant="muted" size="xs" aria-live="polite">
           {remaining > 0 ? `${remaining} more characters needed` : 'Looks good'}
         </Text>
       </div>
@@ -131,6 +126,9 @@ export const TimesheetJustificationFields: React.FC<TimesheetJustificationFields
         <Text size="xs" weight="medium">
           Video walkthrough {videoRequired ? '' : '(optional)'}
         </Text>
+        {/* Native and hidden on purpose: the visible control is the Button
+            below, and `capture` — what opens the camera rather than the file
+            browser on mobile — isn't exposed by the @mieweb/ui Input. */}
         <input
           ref={fileInputRef}
           type="file"
