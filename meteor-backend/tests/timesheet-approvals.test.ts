@@ -173,13 +173,28 @@ describe('timesheet approvals — what a submission must carry', () => {
     expect(res.error).toMatch(/describ|explain|10 characters/i);
   });
 
-  it('rejects a time change with no video', async () => {
+  it('accepts an edit with an explanation and no video — only a new entry needs one', async () => {
     const session = await seedSession(teamId, memberUserId);
-    const res = await wormhole(
+    const res = await wormhole<{ pending: boolean }>(
       'clock.updateTimes',
       {
         clockEventId: session.id,
         startTime: session.start + HOUR,
+        description: JUSTIFICATION.description,
+      },
+      memberJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.pending).toBe(true);
+  });
+
+  it('rejects a brand-new entry with no video', async () => {
+    const res = await wormhole(
+      'clock.createManual',
+      {
+        teamId,
+        startTime: Date.now() - 4 * HOUR,
+        endTime: Date.now() - 2 * HOUR,
         description: JUSTIFICATION.description,
       },
       memberJwt,

@@ -2,7 +2,7 @@
  * Timesheet change requests — the model and submission side of the approval
  * workflow. Editing a timesheet after the fact is a payroll-relevant claim, so
  * on a real team it is a *request* that an admin signs off on, backed by a
- * written justification and (for anything that adds or changes time) a video.
+ * written justification and, for a brand-new entry, a video.
  *
  * Deliberately split from `timesheet-approvals.js`: this module is imported by
  * `clock.js` and `timers.js` to gate their mutations, while the approval side
@@ -21,8 +21,8 @@ export const CHANGE_KINDS = ['clock', 'timer'];
 export const CHANGE_ACTIONS = ['create', 'update', 'delete'];
 export const CHANGE_STATUSES = ['pending', 'approved', 'rejected'];
 
-/** Actions that must be backed by a video — anything that adds or alters time. */
-const VIDEO_REQUIRED_ACTIONS = ['create', 'update'];
+/** Only adding brand-new time needs a video; editing or deleting is explained in writing alone. */
+const VIDEO_REQUIRED_ACTIONS = ['create'];
 
 /**
  * Who can sign off on `requesterId`'s change to this team's timesheet.

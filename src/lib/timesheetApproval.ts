@@ -24,9 +24,9 @@ export function timesheetApprovalRequired(team: Team | null | undefined, userId:
   return timesheetApproversFor(team, userId).length > 0;
 }
 
-/** Deletes are justified in writing; anything that adds or alters time needs a video too. */
+/** Only adding brand-new time needs a video; editing or deleting is explained in writing alone. */
 export function timesheetVideoRequired(action: 'create' | 'update' | 'delete'): boolean {
-  return action !== 'delete';
+  return action === 'create';
 }
 
 export const TIMESHEET_DESCRIPTION_MIN = 10;

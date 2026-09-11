@@ -1008,7 +1008,7 @@ export const WorkPage: React.FC = () => {
                   <TimesheetJustificationFields
                     value={editJustification}
                     onChange={setEditJustification}
-                    videoRequired={durationChanged}
+                    videoRequired={timesheetVideoRequired('update')}
                     disabled={editLoading}
                     approverCount={entryApproverCount}
                   />
