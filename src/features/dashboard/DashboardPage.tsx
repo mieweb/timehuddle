@@ -115,7 +115,7 @@ export const DashboardPage: React.FC = () => {
   //   ?tab=timesheet&teamId=&memberId=  → Team → Timesheet (admin, from notifications)
   //   ?view=timesheet                   → Me → Timesheet (the retired /app/timesheet URL)
   //   ?requestId=                       → open that timesheet approval for review
-  useEffect(() => {
+  const consumeDeepLink = useCallback(() => {
     if (!teamsReady) return;
     const params = new URLSearchParams(window.location.search);
     const deepTab = params.get('tab');
@@ -148,7 +148,18 @@ export const DashboardPage: React.FC = () => {
     if (deepTab || deepView || memberId || teamId || requestId) {
       window.history.replaceState(null, '', window.location.pathname);
     }
-  }, [teamsReady, teams, allTeams, setSelectedTeamId, setSelectedOrgId]);
+  }, [teamsReady, teams, allTeams, setTab, setSelectedTeamId, setSelectedOrgId]);
+
+  useEffect(consumeDeepLink, [consumeDeepLink]);
+
+  // Navigating here from a notification while this page is already open changes
+  // only the query string, so nothing re-renders and the effect above never
+  // re-runs. AppLayout announces every navigation, which is the only signal
+  // that a new deep link has arrived.
+  useEffect(() => {
+    window.addEventListener('timehuddle:navigate', consumeDeepLink);
+    return () => window.removeEventListener('timehuddle:navigate', consumeDeepLink);
+  }, [consumeDeepLink]);
 
   // Members list (needed by the admin Timesheet view only)
   useEffect(() => {

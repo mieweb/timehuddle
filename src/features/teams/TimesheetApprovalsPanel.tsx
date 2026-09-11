@@ -150,13 +150,19 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
   useRefresh(load);
 
   // A notification names one request; open it directly rather than making the
-  // reviewer find it in the list. Tracked by id so it only ever auto-opens
-  // once — the effect re-runs whenever `requests` changes, which includes the
-  // moment a decision removes the request, and without this that re-fetched
-  // the resolved request and reopened the modal on top of the reviewer.
+  // reviewer find it in the list. Guarded by id because the effect re-runs
+  // whenever `requests` changes — including the moment a decision removes the
+  // request, which would otherwise re-fetch the resolved one and reopen the
+  // modal on top of the reviewer. The guard resets once the deep link is
+  // cleared, so tapping the same notification again still works.
   const autoOpenedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!focusRequestId || autoOpenedRef.current === focusRequestId) return;
+    if (!focusRequestId) {
+      autoOpenedRef.current = null;
+      return;
+    }
+    if (autoOpenedRef.current === focusRequestId) return;
+
     const match = requests.find((r) => r.id === focusRequestId);
     if (match) {
       autoOpenedRef.current = focusRequestId;
