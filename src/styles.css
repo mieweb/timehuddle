@@ -26,17 +26,6 @@ html[data-theme='dark'] {
   padding-bottom: max(env(safe-area-inset-bottom), 0px);
 }
 
-/* Modals go full-screen below @mieweb/ui's sm breakpoint (min-h-dvh, square
-   corners), so their content starts at y=0 and runs under the status bar clock
-   and battery. Above it the sheet is centred and already clear, hence the
-   max-width bound. Padding the container rather than the header keeps header,
-   body and footer together inside the safe area. */
-@media (max-width: 639.98px) {
-  .modal-safe-top {
-    padding-top: max(env(safe-area-inset-top), 0px);
-  }
-}
-
 /* Main scroll area on mobile — clears bottom nav + home indicator */
 @media not (min-width: 768px) {
   .app-main-scroll {

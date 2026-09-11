@@ -220,7 +220,10 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
                       {r.requesterName} — {ACTION_LABEL[r.action]}
                     </Text>
                     <Text variant="muted" size="xs" className="truncate">
-                      {describeChange(r).after ?? describeChange(r).before ?? r.description}
+                      {describeChange(r).after ??
+                        describeChange(r).before ??
+                        r.summary ??
+                        r.description}
                     </Text>
                   </div>
                   {r.videoUrl && (
@@ -240,7 +243,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
       <Modal
         open={active !== null}
         onOpenChange={(o) => !o && close()}
-        className="modal-safe-top"
+        className="pt-[env(safe-area-inset-top)] sm:pt-0"
       >
         <ModalHeader>
           <Text weight="semibold">
@@ -266,7 +269,20 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
                         ? null
                         : (asEpoch(active.payload.endTime) ?? asEpoch(active.previous?.endTime)),
                     );
-              if (!before && !after) return null;
+              // Requests raised before `previous` was recorded have no
+              // structured times; the server's summary is the only record of
+              // what they asked for, so fall back to it rather than showing
+              // the reviewer nothing at all.
+              if (!before && !after) {
+                return active.summary ? (
+                  <div className="rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
+                    <Text size="xs" variant="muted">
+                      Requested change
+                    </Text>
+                    <Text size="sm">{active.summary}</Text>
+                  </div>
+                ) : null;
+              }
               return (
                 <div className="space-y-1 rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
                   {before && (

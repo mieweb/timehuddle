@@ -56,9 +56,23 @@ async function findUserTeam(userId, teamId) {
   });
 }
 
+/**
+ * A human-readable UTC range for the stored summary. Only a fallback — the
+ * client re-renders these from the request's structured times in the reviewer's
+ * own timezone, which is the form that actually belongs in front of them.
+ */
 function formatRange(startTime, endTime) {
-  const fmt = (ms) => (typeof ms === 'number' ? new Date(ms).toISOString() : 'open');
-  return `${fmt(startTime)} → ${fmt(endTime)}`;
+  const fmt = (ms) =>
+    typeof ms === 'number'
+      ? new Date(ms).toLocaleString('en-US', {
+          timeZone: 'UTC',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        })
+      : 'still open';
+  return `${fmt(startTime)} → ${fmt(endTime)} UTC`;
 }
 
 // ─── Mutations ───────────────────────────────────────────────────────────────

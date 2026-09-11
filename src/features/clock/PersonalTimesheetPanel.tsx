@@ -798,7 +798,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
           }
         }}
         aria-labelledby="edit-session-title"
-        className="modal-safe-top"
+        className="pt-[env(safe-area-inset-top)] sm:pt-0"
       >
         <ModalHeader>
           <Text weight="semibold" id="edit-session-title">
@@ -984,7 +984,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
           if (!open) setAddEntryError(null);
         }}
         aria-labelledby="add-entry-title"
-        className="modal-safe-top"
+        className="pt-[env(safe-area-inset-top)] sm:pt-0"
       >
         <ModalHeader>
           <Text weight="semibold" id="add-entry-title">
