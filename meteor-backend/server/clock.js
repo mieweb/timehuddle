@@ -504,6 +504,9 @@ Meteor.methods({
         action: 'update',
         targetId: clockEventId,
         payload: { startTime, endTime, breaks },
+        // Kept alongside the change so a reviewer can see what it is moving
+        // away from, and so the summary can be rendered in their own locale.
+        previous: { startTime: event.startTime, endTime: event.endTime },
         summary: `Clock session ${formatRange(event.startTime, event.endTime)} → ${formatRange(
           typeof startTime === 'number' ? startTime : event.startTime,
           endTime === null ? null : typeof endTime === 'number' ? endTime : event.endTime
@@ -539,6 +542,7 @@ Meteor.methods({
         action: 'delete',
         targetId: clockEventId,
         payload: {},
+        previous: { startTime: event.startTime, endTime: event.endTime },
         summary: `Delete clock session ${formatRange(event.startTime, event.endTime)}`,
         description,
         videoUrl,

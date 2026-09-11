@@ -1401,6 +1401,8 @@ export interface TimesheetChangeRequest {
   action: 'create' | 'update' | 'delete';
   targetId: string | null;
   payload: Record<string, unknown>;
+  /** The entry's times before the change, so a reviewer sees what it moves away from. */
+  previous: { startTime?: number; endTime?: number | null } | null;
   summary: string | null;
   description: string;
   videoUrl: string | null;

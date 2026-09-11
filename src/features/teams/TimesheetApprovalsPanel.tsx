@@ -44,6 +44,56 @@ function videoSrc(url: string): string {
   return url.startsWith('http') ? url : `${TIMECORE_BASE_URL.replace(/\/$/, '')}${url}`;
 }
 
+function asEpoch(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+const dayFormat: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric' };
+const clockFormat: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
+
+/** "Sun, Sep 7 · 9:04 AM – 4:04 PM", collapsing the date when both ends share one. */
+function formatRange(startMs: number | null, endMs: number | null): string | null {
+  if (startMs === null) return null;
+  const start = new Date(startMs);
+  const startText = `${start.toLocaleDateString(undefined, dayFormat)} · ${start.toLocaleTimeString(undefined, clockFormat)}`;
+  if (endMs === null) return `${startText} – still open`;
+
+  const end = new Date(endMs);
+  const sameDay = start.toDateString() === end.toDateString();
+  const endText = sameDay
+    ? end.toLocaleTimeString(undefined, clockFormat)
+    : `${end.toLocaleDateString(undefined, dayFormat)} · ${end.toLocaleTimeString(undefined, clockFormat)}`;
+  return `${startText} – ${endText}`;
+}
+
+function formatDurationBetween(startMs: number | null, endMs: number | null): string | null {
+  if (startMs === null || endMs === null || endMs <= startMs) return null;
+  const minutes = Math.round((endMs - startMs) / 60_000);
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+/**
+ * Before/after in the reviewer's own locale. The server stores raw epochs and
+ * its `summary` is a UTC ISO fallback — unreadable at a glance and in the wrong
+ * timezone for whoever is reading it.
+ */
+function describeChange(request: TimesheetChangeRequest): { before?: string; after?: string } {
+  const prevStart = asEpoch(request.previous?.startTime);
+  const prevEnd = request.previous?.endTime === null ? null : asEpoch(request.previous?.endTime);
+  const before = formatRange(prevStart, prevEnd) ?? undefined;
+
+  if (request.action === 'delete') return { before };
+
+  const nextStart = asEpoch(request.payload.startTime) ?? prevStart;
+  const nextEnd =
+    request.payload.endTime === null ? null : (asEpoch(request.payload.endTime) ?? prevEnd);
+  const after = formatRange(nextStart, nextEnd) ?? undefined;
+
+  return request.action === 'create' ? { after } : { before, after };
+}
+
 interface Props {
   teamId?: string;
   /** Opened automatically when a notification deep-links to one request. */
@@ -170,7 +220,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
                       {r.requesterName} — {ACTION_LABEL[r.action]}
                     </Text>
                     <Text variant="muted" size="xs" className="truncate">
-                      {r.summary ?? r.description}
+                      {describeChange(r).after ?? describeChange(r).before ?? r.description}
                     </Text>
                   </div>
                   {r.videoUrl && (
@@ -197,21 +247,52 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
             {active ? `${active.requesterName} — ${ACTION_LABEL[active.action]}` : ''}
           </Text>
         </ModalHeader>
-        <ModalBody className="space-y-4">
+        <ModalBody className="space-y-3">
           {active?.status !== 'pending' && active && (
             <Text size="sm" variant="muted">
               This request was already {active.status}.
             </Text>
           )}
 
-          {active?.summary && (
-            <div className="rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
-              <Text size="xs" variant="muted">
-                Requested change
-              </Text>
-              <Text size="sm">{active.summary}</Text>
-            </div>
-          )}
+          {active &&
+            (() => {
+              const { before, after } = describeChange(active);
+              const duration =
+                active.action === 'delete'
+                  ? null
+                  : formatDurationBetween(
+                      asEpoch(active.payload.startTime) ?? asEpoch(active.previous?.startTime),
+                      active.payload.endTime === null
+                        ? null
+                        : (asEpoch(active.payload.endTime) ?? asEpoch(active.previous?.endTime)),
+                    );
+              if (!before && !after) return null;
+              return (
+                <div className="space-y-1 rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
+                  {before && (
+                    <div>
+                      <Text size="xs" variant="muted">
+                        {active.action === 'delete' ? 'Entry to remove' : 'Currently'}
+                      </Text>
+                      <Text size="sm" className={after ? 'line-through opacity-70' : undefined}>
+                        {before}
+                      </Text>
+                    </div>
+                  )}
+                  {after && (
+                    <div>
+                      <Text size="xs" variant="muted">
+                        {before ? 'Changing to' : 'Adding'}
+                      </Text>
+                      <Text size="sm" weight="medium">
+                        {after}
+                        {duration ? ` (${duration})` : ''}
+                      </Text>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
           <div>
             <Text size="xs" variant="muted">
@@ -256,28 +337,39 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
           )}
         </ModalBody>
         <ModalFooter>
-          <div className="flex w-full items-center gap-2">
+          {/* Approve and Decline share a row and split the width; on a narrow
+              phone they were otherwise squeezed down to "Appr…" / "Dec…". */}
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
             {active?.status === 'pending' ? (
               <>
+                <div className="flex gap-2">
+                  <Button
+                    variant="primary"
+                    className="flex-1"
+                    isLoading={busy === 'approve'}
+                    disabled={busy !== null}
+                    leftIcon={<FontAwesomeIcon icon={faCheck} />}
+                    onClick={() => void respond(true)}
+                  >
+                    Approve
+                  </Button>
+                  <Button
+                    variant="danger"
+                    className="flex-1"
+                    isLoading={busy === 'reject'}
+                    disabled={rejectDisabled}
+                    leftIcon={<FontAwesomeIcon icon={faXmark} />}
+                    onClick={() => void respond(false)}
+                  >
+                    Decline
+                  </Button>
+                </div>
                 <Button
-                  variant="primary"
-                  isLoading={busy === 'approve'}
+                  variant="ghost"
+                  className="sm:ml-auto"
+                  onClick={close}
                   disabled={busy !== null}
-                  leftIcon={<FontAwesomeIcon icon={faCheck} />}
-                  onClick={() => void respond(true)}
                 >
-                  Approve
-                </Button>
-                <Button
-                  variant="danger"
-                  isLoading={busy === 'reject'}
-                  disabled={rejectDisabled}
-                  leftIcon={<FontAwesomeIcon icon={faXmark} />}
-                  onClick={() => void respond(false)}
-                >
-                  Decline
-                </Button>
-                <Button variant="ghost" className="ml-auto" onClick={close} disabled={busy !== null}>
                   Cancel
                 </Button>
               </>
