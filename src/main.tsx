@@ -282,12 +282,11 @@ const App: React.FC = () => {
               );
             }
             const url = nData.url as string | undefined;
-            if (url) {
-              const path = url.split('?')[0];
-              if (path.startsWith('/app/')) {
-                window.history.pushState(null, '', path);
-                window.dispatchEvent(new PopStateEvent('popstate'));
-              }
+            if (url?.startsWith('/app/')) {
+              // Keep the query string — it carries the deep-link target
+              // (post, team, profile tab, channel).
+              window.history.pushState(null, '', url);
+              window.dispatchEvent(new PopStateEvent('popstate'));
             }
           };
         }

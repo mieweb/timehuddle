@@ -44,7 +44,8 @@ export default function Huddle() {
   // per-message-thread concept for (deliberately not force-fit).
   const [feedView, setFeedView] = useState<'chat' | 'cards'>('cards');
   const { user } = useSession();
-  const { selectedTeamId, setSelectedTeamId, allTeams } = useTeam();
+  const { selectedTeamId, setSelectedTeamId, teams, allTeams, setSelectedOrgId, teamsReady } =
+    useTeam();
 
   // Deep-link support: /app/huddle?postId=XXX&teamId=YYY (e.g. from the
   // dashboard's Recent Activity feed, or a clock-in/out or huddle-comment
@@ -75,11 +76,27 @@ export default function Huddle() {
       setPendingTeamId(null);
       return;
     }
-    if (allTeams.some((t) => t.id === pendingTeamId)) {
-      setSelectedTeamId(pendingTeamId);
-      setPendingTeamId(null);
+    if (!teamsReady) return;
+    const inScope = teams.some((t) => t.id === pendingTeamId);
+    const crossOrg = inScope ? null : allTeams.find((t) => t.id === pendingTeamId);
+    if (!inScope && !crossOrg) {
+      setPendingTeamId(null); // not a member of that team — nothing to switch to
+      return;
     }
-  }, [pendingTeamId, selectedTeamId, allTeams, setSelectedTeamId]);
+    // A team outside the selected org is filtered out of `teams` and would be
+    // reset straight back by TeamContext, so switch the org along with it.
+    if (crossOrg) setSelectedOrgId(crossOrg.orgId);
+    setSelectedTeamId(pendingTeamId);
+    setPendingTeamId(null);
+  }, [
+    pendingTeamId,
+    selectedTeamId,
+    teams,
+    allTeams,
+    teamsReady,
+    setSelectedTeamId,
+    setSelectedOrgId,
+  ]);
 
   const [highlightedPostId, setHighlightedPostId] = useState<string | null>(null);
 
@@ -101,14 +118,17 @@ export default function Huddle() {
     setHighlightedPostId(targetPostId);
     setTargetPostId(null);
     replace('/app/huddle');
+  }, [targetPostId, targetPostLoaded, feedTab, feedView, replace]);
 
-    // Scrolling is best-effort and independent of the highlight: the card can
-    // lag a frame or two behind the state update above.
+  // Scrolling hangs off the highlight rather than the target: clearing
+  // `targetPostId` above re-runs that effect, and its cleanup would cancel the
+  // pending animation frame before the card had a chance to mount.
+  useEffect(() => {
+    if (!highlightedPostId) return;
     let frame = 0;
     let attempts = 0;
-    const id = targetPostId;
     const tryScroll = () => {
-      const el = document.getElementById(`huddle-post-${id}`);
+      const el = document.getElementById(`huddle-post-${highlightedPostId}`);
       if (!el) {
         if (attempts++ < 60) frame = requestAnimationFrame(tryScroll);
         return;
@@ -117,7 +137,7 @@ export default function Huddle() {
     };
     frame = requestAnimationFrame(tryScroll);
     return () => cancelAnimationFrame(frame);
-  }, [targetPostId, targetPostLoaded, feedTab, feedView, replace]);
+  }, [highlightedPostId]);
 
   // Long enough to survive a scroll animation and catch the eye. Deliberately
   // not dismissed on tap — the tap that opened the notification arrives here as

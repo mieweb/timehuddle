@@ -309,7 +309,15 @@ const AppLayoutContent: React.FC = () => {
 
     const handler = (e: Event) => {
       const path = (e as CustomEvent<{ path?: string }>).detail?.path;
-      if (path) navigate(path);
+      if (!path) return;
+      // main.tsx always stashes the path for the cold-start case; a live
+      // listener acknowledges it here so it isn't replayed on the next mount.
+      try {
+        window.localStorage.removeItem('pendingDeepLinkPath');
+      } catch {
+        /* ignore */
+      }
+      navigate(path);
     };
     window.addEventListener('timehuddle:deeplink', handler);
     return () => window.removeEventListener('timehuddle:deeplink', handler);

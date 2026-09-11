@@ -151,7 +151,7 @@ export const MessagesPage: React.FC = () => {
   const prevMessageCountRef = useRef(0);
 
   // ── Deep-link / pending thread handling ──────────────────────────────────────
-  const pendingOpenPeerRef = useRef<string | null>(null);
+  const pendingOpenPeerRef = useRef<{ peer: string; teamId: string | null } | null>(null);
   const pendingOpenChannelRef = useRef<string | null>(null);
   const pendingDmIntentRef = useRef(false);
   // Bumped whenever a new deep-link request comes in, so the resolution effects
@@ -166,7 +166,7 @@ export const MessagesPage: React.FC = () => {
     if (!openTeam && !openPeer && !openChannel) return;
     if (openTeam) setSelectedTeamId(openTeam);
     if (openPeer) {
-      pendingOpenPeerRef.current = openPeer;
+      pendingOpenPeerRef.current = { peer: openPeer, teamId: openTeam ?? null };
       pendingDmIntentRef.current = true;
     }
     if (openChannel) {
@@ -177,8 +177,13 @@ export const MessagesPage: React.FC = () => {
   }, [routerSearch, setSelectedTeamId, replace]);
 
   useEffect(() => {
-    const peer = pendingOpenPeerRef.current;
-    if (!peer || !selectedTeam || !userId) return;
+    const pending = pendingOpenPeerRef.current;
+    if (!pending || !selectedTeam || !userId) return;
+    // `setSelectedTeamId` above is scheduled in the same flush as this effect's
+    // trigger, so `selectedTeam` is still the previous team on the first pass.
+    // Consuming the peer here would check membership against the wrong team.
+    if (pending.teamId && selectedTeam.id !== pending.teamId) return;
+    const peer = pending.peer;
     pendingOpenPeerRef.current = null;
     if (selectedTeam.admins.includes(userId) && selectedTeam.members.includes(peer)) {
       setSelectedMemberId(peer);

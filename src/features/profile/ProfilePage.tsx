@@ -78,7 +78,7 @@ type ProfilePageProps = { userId: string; username?: never } | { username: strin
 
 export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) => {
   const { user: sessionUser } = useSession();
-  const { navigate, search } = useRouter();
+  const { navigate, pathname, search, replace } = useRouter();
   const isOwn = userId ? sessionUser?.id === userId : sessionUser?.username === username;
 
   const [profile, setProfile] = useState<PublicUser | null>(null);
@@ -94,10 +94,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ userId, username }) =>
   const [backgroundUploading, setBackgroundUploading] = useState(false);
   // Active tab — re-derived whenever the deep link's `?tab=` query changes
   // (e.g. tapping a second notification while already on this profile page).
-  const [activeTab, setActiveTab] = useState(() => new URLSearchParams(search).get('tab') ?? 'feed');
+  // Consumed immediately: leaving `?tab=` in the URL would make a repeat tap a
+  // no-op change to `search`, so the deep link would be silently ignored.
+  const [activeTab, setActiveTab] = useState(
+    () => new URLSearchParams(search).get('tab') ?? 'feed',
+  );
   useEffect(() => {
-    setActiveTab(new URLSearchParams(search).get('tab') ?? 'feed');
-  }, [search]);
+    const tab = new URLSearchParams(search).get('tab');
+    if (!tab) return;
+    setActiveTab(tab);
+    replace(pathname);
+  }, [search, pathname, replace]);
 
   useEffect(() => {
     setIsReady(false);
