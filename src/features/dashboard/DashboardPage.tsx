@@ -43,6 +43,7 @@ import {
   type TeamMemberClockStatus,
   type TeamRunningTimer,
   type HuddlePost,
+  timesheetApprovalApi,
 } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
@@ -165,6 +166,24 @@ export const DashboardPage: React.FC = () => {
       cancelled = true;
     };
   }, [selectedTeamId, showAdminTimesheet]);
+
+  // Pending timesheet approvals for this team — fetched independent of which
+  // sub-view is open, so the Timesheet toggle can flag it even from Overview.
+  // Covers the case a notification was missed or dismissed: this is the
+  // fallback way to find out something is waiting.
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
+  const fetchPendingApprovals = useCallback(() => {
+    if (!selectedTeamId || !canViewTimesheet) {
+      setPendingApprovalCount(0);
+      return;
+    }
+    timesheetApprovalApi
+      .listPending(selectedTeamId)
+      .then((requests) => setPendingApprovalCount(requests.length))
+      .catch(() => setPendingApprovalCount(0));
+  }, [selectedTeamId, canViewTimesheet]);
+  useEffect(fetchPendingApprovals, [fetchPendingApprovals]);
+  useRefresh(fetchPendingApprovals);
 
   // ── Recent activity — everyone's published plan/wrap-up posts for this
   // team, live via the same DDP publication the Huddle feed uses. Clicking
@@ -385,13 +404,22 @@ export const DashboardPage: React.FC = () => {
           type="button"
           onClick={() => setView('timesheet')}
           aria-pressed={view === 'timesheet'}
-          className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+          className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
             view === 'timesheet'
               ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
               : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
           }`}
         >
           Timesheet
+          {tab === 'team' && pendingApprovalCount > 0 && (
+            <Badge
+              variant="warning"
+              size="sm"
+              aria-label={`${pendingApprovalCount} timesheet ${pendingApprovalCount === 1 ? 'change' : 'changes'} awaiting your approval`}
+            >
+              {pendingApprovalCount}
+            </Badge>
+          )}
         </button>
       </div>
 
