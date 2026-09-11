@@ -26,8 +26,10 @@ interface Props {
   session: ClockEvent;
   teams: Team[];
   onEdit: (session: ClockEvent) => void;
-  /** Set when the user has submitted a change to this session that no admin has ruled on yet. */
-  pendingApproval?: boolean;
+  /** State of the latest change the viewer requested against this session. */
+  changeStatus?: 'pending' | 'rejected';
+  /** The reviewer's reason, shown on a declined change. */
+  changeNote?: string;
 }
 
 type TimelineRow = {
@@ -183,7 +185,13 @@ function splitAtMidnight(rows: TimelineRow[]): TimelineRow[] {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit, pendingApproval }) => {
+export const TimesheetRow: React.FC<Props> = ({
+  session,
+  teams,
+  onEdit,
+  changeStatus,
+  changeNote,
+}) => {
   const teamName = teams.find((t) => t.id === session.teamId)?.name ?? session.teamId;
   const timelineRows = splitAtMidnight(buildTimelineRows(session, Date.now()));
 
@@ -225,9 +233,17 @@ export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit, pendingA
             </TableCell>
             <TableCell>{showTeam ? teamName : ''}</TableCell>
             <TableCell>
-              {row.isContinued ? null : pendingApproval ? (
+              {row.isContinued ? null : changeStatus === 'pending' ? (
                 <Badge variant="warning" size="sm" title="Waiting for an admin to approve your change">
                   Pending approval
+                </Badge>
+              ) : changeStatus === 'rejected' ? (
+                <Badge
+                  variant="danger"
+                  size="sm"
+                  title={changeNote ? `Declined: ${changeNote}` : 'An admin declined your change'}
+                >
+                  Change declined
                 </Badge>
               ) : row.status === 'Active' ? (
                 <Badge variant="success" size="sm">

@@ -60,9 +60,17 @@ async function findUserTeam(userId, teamId) {
 // Extracted from the methods below so an approved change request can replay the
 // exact same write the direct path would have made. `actorId` is the person the
 // change is attributed to, which is the requester even when an admin approves.
+// `notifyAdmins` is off on that path: the admins asked for the change to happen,
+// so telling them it happened is noise — and it reached the approver as "someone
+// else edited this", which reads like a different event entirely.
 
 /** Apply new times/breaks to an existing clock event. */
-export async function applyClockUpdate(event, { startTime, endTime, breaks }, actorId) {
+export async function applyClockUpdate(
+  event,
+  { startTime, endTime, breaks },
+  actorId,
+  { notifyAdmins = true } = {}
+) {
   const clockEventId = event._id.toHexString();
   const effectiveStart = typeof startTime === 'number' ? startTime : event.startTime;
   const effectiveEnd =
@@ -114,14 +122,16 @@ export async function applyClockUpdate(event, { startTime, endTime, breaks }, ac
   if (!updated) throw new Meteor.Error('not-found', 'Clock event not found');
   const updatedBreaks = await findBreaksForEvent(clockEventId);
 
-  notifyClockAdmins(actorId, event.teamId, updated.startTime, 'updated').catch((err) =>
-    console.error('[clock] notify admins failed:', err)
-  );
+  if (notifyAdmins) {
+    notifyClockAdmins(actorId, event.teamId, updated.startTime, 'updated').catch((err) =>
+      console.error('[clock] notify admins failed:', err)
+    );
+  }
   return toPublicClockEvent(updated, updatedBreaks);
 }
 
 /** Remove a clock event along with its breaks, attachments and pending jobs. */
-export async function applyClockDelete(event, actorId) {
+export async function applyClockDelete(event, actorId, { notifyAdmins = true } = {}) {
   const clockEventId = event._id.toHexString();
   await ClockEvents.removeAsync(event._id);
   cancelClockJobs(clockEventId).catch((err) =>
@@ -132,14 +142,22 @@ export async function applyClockDelete(event, actorId) {
     .collection('attachments')
     .deleteMany({ 'attachedTo.kind': 'clock', 'attachedTo.id': clockEventId });
 
-  notifyClockAdmins(actorId, event.teamId, event.startTime, 'deleted').catch((err) =>
-    console.error('[clock] notify admins failed:', err)
-  );
+  if (notifyAdmins) {
+    notifyClockAdmins(actorId, event.teamId, event.startTime, 'deleted').catch((err) =>
+      console.error('[clock] notify admins failed:', err)
+    );
+  }
   return { ok: true };
 }
 
 /** Insert a completed clock event for a past range (manual backfill). */
-export async function applyClockCreateManual({ userId, teamId, startTime, endTime }) {
+export async function applyClockCreateManual({
+  userId,
+  teamId,
+  startTime,
+  endTime,
+  notifyAdmins = true,
+}) {
   const now = Date.now();
   if (startTime > now || endTime > now) {
     throw new Meteor.Error('invalid-range', 'Times must be in the past');
@@ -163,9 +181,11 @@ export async function applyClockCreateManual({ userId, teamId, startTime, endTim
     endTime,
   });
   const created = await ClockEvents.findOneAsync(_id);
-  notifyClockAdmins(userId, teamId, startTime, 'added').catch((err) =>
-    console.error('[clock] notify admins failed:', err)
-  );
+  if (notifyAdmins) {
+    notifyClockAdmins(userId, teamId, startTime, 'added').catch((err) =>
+      console.error('[clock] notify admins failed:', err)
+    );
+  }
   return toPublicClockEvent(created, []);
 }
 

@@ -113,7 +113,12 @@ async function teamForEntry(entry) {
 // requester, even when an admin is the one approving it.
 
 /** Apply a note/duration/ticket change to a work item. */
-export async function applyTimerUpdate(entry, { note, durationSeconds, ticketId }, actorId) {
+export async function applyTimerUpdate(
+  entry,
+  { note, durationSeconds, ticketId },
+  actorId,
+  { notifyAdmins = true } = {}
+) {
   const entryId = entry._id.toHexString();
   const $set = { updatedAt: new Date() };
   const $unset = {};
@@ -144,7 +149,9 @@ export async function applyTimerUpdate(entry, { note, durationSeconds, ticketId 
   const updated = await WorkItems.findOneAsync(entry._id);
   const finalTicketId = ticketId && ticketId !== entry.ticketId ? ticketId : entry.ticketId;
   const updatedTicket = await Tickets.findOneAsync(new Mongo.ObjectID(finalTicketId));
-  notifyTimesheetAdmins(actorId, finalTicketId, updated.date, 'updated').catch(() => {});
+  if (notifyAdmins) {
+    notifyTimesheetAdmins(actorId, finalTicketId, updated.date, 'updated').catch(() => {});
+  }
   return { entry: toPublicEntry(updated, updatedTicket?.title ?? null) };
 }
 

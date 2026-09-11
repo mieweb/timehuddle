@@ -174,23 +174,46 @@ export async function submitChangeRequest({
   return toPublicChangeRequest(created, { requesterName });
 }
 
-/** Notify the requester of the outcome, with the reviewer's note when given. */
-export async function notifyRequesterOfDecision(request, { approved, reviewerId, note }) {
+const ACTION_GERUND = {
+  create: 'adding',
+  update: 'changing',
+  delete: 'removing',
+};
+
+/**
+ * Notify the requester of the outcome.
+ *
+ * `entry` names the specific entry that was ruled on — without it the message
+ * is just "your timesheet change", which is no help to someone with more than
+ * one outstanding. Formatted UTC, since the recipient's timezone isn't known
+ * here; the epochs travel in `data` so the in-app view can localise them.
+ */
+export async function notifyRequesterOfDecision(
+  request,
+  { approved, reviewerId, note, entry } = {}
+) {
   const reviewerName = await userDisplayName(reviewerId);
   const team = await findTeamById(request.teamId);
   const teamName = team?.name ?? 'your team';
   const outcome = approved ? 'approved' : 'declined';
+  const verb = ACTION_GERUND[request.action] ?? 'changing';
+
+  const subject = entry?.text
+    ? `${verb} your ${entry.text} entry`
+    : `${verb} your timesheet entry`;
+  const base = `${reviewerName} ${outcome} ${subject} in ${teamName}`;
 
   return createNotification({
     userId: request.userId,
     title: `Timesheet change ${outcome}`,
-    body: note
-      ? `${reviewerName} ${outcome} your timesheet change in ${teamName}: ${note}`
-      : `${reviewerName} ${outcome} your timesheet change in ${teamName}`,
+    body: note ? `${base}: ${note}` : base,
     data: {
       type: approved ? 'timesheet-change-approved' : 'timesheet-change-rejected',
       requestId: request._id.toHexString(),
       teamId: request.teamId,
+      action: request.action,
+      ...(entry?.startTime != null ? { startTime: String(entry.startTime) } : {}),
+      ...(entry?.endTime != null ? { endTime: String(entry.endTime) } : {}),
       url: `/app/dashboard?view=timesheet&teamId=${request.teamId}`,
     },
   }).catch(() => {});

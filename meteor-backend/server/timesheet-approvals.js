@@ -90,6 +90,11 @@ async function loadForReview(requestId, reviewerId) {
  */
 async function applyRequest(request) {
   const { kind, action, targetId, payload, userId } = request;
+  // The admins asked for this to happen, so the usual "someone changed a
+  // timesheet" fan-out is noise here — and it reached the approver worded as
+  // if a third party had made the edit. The requester hears about it through
+  // the decision notification instead.
+  const quiet = { notifyAdmins: false };
 
   if (kind === 'clock') {
     if (action === 'create') {
@@ -98,6 +103,7 @@ async function applyRequest(request) {
         teamId: payload.teamId,
         startTime: payload.startTime,
         endTime: payload.endTime,
+        notifyAdmins: false,
       });
     }
     const event = await ClockEvents.findOneAsync(new ObjectId(targetId));
@@ -105,18 +111,67 @@ async function applyRequest(request) {
       throw new Meteor.Error('target-gone', 'That clock session no longer exists.');
     }
     return action === 'delete'
-      ? applyClockDelete(event, userId)
-      : applyClockUpdate(event, payload, userId);
+      ? applyClockDelete(event, userId, quiet)
+      : applyClockUpdate(event, payload, userId, quiet);
   }
 
   const entry = await WorkItems.findOneAsync(new ObjectId(targetId));
   if (!entry) throw new Meteor.Error('target-gone', 'That time entry no longer exists.');
   return action === 'delete'
-    ? applyTimerDelete(entry, userId, payload.notifyAdmins !== false)
-    : applyTimerUpdate(entry, payload, userId);
+    ? applyTimerDelete(entry, userId, false)
+    : applyTimerUpdate(entry, payload, userId, quiet);
+}
+
+/** UTC range for the decision notification — see notifyRequesterOfDecision. */
+function formatUtcRange(startMs, endMs) {
+  if (typeof startMs !== 'number') return null;
+  const day = (ms) =>
+    new Date(ms).toLocaleString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
+  const time = (ms) =>
+    new Date(ms)
+      .toLocaleString('en-US', {
+        timeZone: 'UTC',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+      .replace(/\s([AP])M/, (_, p) => p.toLowerCase() + 'm');
+
+  const from = `${day(startMs)}, ${time(startMs)}`;
+  if (typeof endMs !== 'number') return `${from} UTC (still open)`;
+  // Naming the day twice for a single shift just adds noise.
+  const to = day(startMs) === day(endMs) ? time(endMs) : `${day(endMs)}, ${time(endMs)}`;
+  return `${from} – ${to} UTC`;
+}
+
+/**
+ * Name the entry being ruled on, for the requester's notification.
+ *
+ * Read before the change is applied — approving a delete destroys the very
+ * entry the message needs to describe.
+ */
+async function describeTarget(request) {
+  if (request.kind === 'clock') {
+    const times =
+      request.action === 'create'
+        ? { startTime: request.payload.startTime, endTime: request.payload.endTime }
+        : await (async () => {
+            if (!isValidId(request.targetId)) return null;
+            const event = await ClockEvents.findOneAsync(new ObjectId(request.targetId));
+            return event ? { startTime: event.startTime, endTime: event.endTime } : null;
+          })();
+    if (!times) return null;
+    const text = formatUtcRange(times.startTime, times.endTime);
+    return text ? { text, ...times } : null;
+  }
+
+  return request.label ? { text: request.label } : null;
 }
 
 async function resolve(request, reviewerId, { approved, note }) {
+  // Captured before applying: approving a delete removes the entry this needs
+  // to name.
+  const entry = await describeTarget(request);
+
   // Apply before recording the decision: if the replay fails the request stays
   // pending and reviewable rather than being marked approved with no effect.
   if (approved) await applyRequest(request);
@@ -130,7 +185,12 @@ async function resolve(request, reviewerId, { approved, note }) {
     },
   });
 
-  await notifyRequesterOfDecision(request, { approved, reviewerId, note: note?.trim() || null });
+  await notifyRequesterOfDecision(request, {
+    approved,
+    reviewerId,
+    note: note?.trim() || null,
+    entry,
+  });
 
   // The reviewer's prompt has been answered — clear it from every admin's inbox
   // so a second admin isn't shown a decision that has already been made.

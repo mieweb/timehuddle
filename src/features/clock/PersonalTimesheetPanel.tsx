@@ -55,7 +55,7 @@ import {
 } from '../../lib/timesheetApproval';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
-import { getDdpClient } from '../../lib/ddp';
+import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { AttachmentsPanel } from './AttachmentsPanel';
 import { TimesheetRow } from './TimesheetRow';
 import {
@@ -179,27 +179,26 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   const addNeedsApproval = timesheetApprovalRequired(addTeam, userId);
   const addApproverCount = timesheetApproversFor(addTeam, userId).length;
 
-  const pendingByTarget = useMemo(() => {
+  // The latest request per entry, so a row can report that it is awaiting
+  // review or that the reviewer turned it down. `listMine` is newest-first, so
+  // the first one seen for an entry is the one that still stands.
+  const requestByTarget = useMemo(() => {
     const map = new Map<string, TimesheetChangeRequest>();
     for (const r of myRequests) {
-      if (r.status === 'pending' && r.targetId) map.set(r.targetId, r);
+      if (r.targetId && !map.has(r.targetId)) map.set(r.targetId, r);
     }
     return map;
   }, [myRequests]);
 
-  useEffect(() => {
+  const loadMyRequests = useCallback(() => {
     if (!userId) return;
-    let cancelled = false;
     timesheetApprovalApi
       .listMine()
-      .then((requests) => {
-        if (!cancelled) setMyRequests(requests);
-      })
+      .then(setMyRequests)
       .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
   }, [userId]);
+
+  useEffect(loadMyRequests, [loadMyRequests]);
 
   // Guards against out-of-order responses: fetchData can be triggered
   // repeatedly in quick succession (preset change, Apply click, DDP live
@@ -243,6 +242,20 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     void fetchData();
   }, [preset]);
 
+  // A decision changes a request this user raised rather than their own
+  // timesheet data, so without this nothing would re-run to pick up the new
+  // status — or, for an approval, the entry it just rewrote.
+  useEffect(() => {
+    if (!user?.id) return;
+    return subscribeNewNotifications((n) => {
+      const type = (n.data as Record<string, unknown> | undefined)?.type;
+      if (type === 'timesheet-change-approved' || type === 'timesheet-change-rejected') {
+        loadMyRequests();
+        void fetchData();
+      }
+    });
+  }, [user?.id, loadMyRequests, fetchData]);
+
   // ── Real-time timesheet updates (Meteor DDP, oplog-backed) ──
   useEffect(() => {
     if (!user?.id) return;
@@ -258,7 +271,12 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   }, [user?.id, fetchData]);
 
   // Pull-to-refresh
-  useRefresh(fetchData);
+  useRefresh(
+    useCallback(async () => {
+      loadMyRequests();
+      await fetchData();
+    }, [loadMyRequests, fetchData]),
+  );
 
   const openSessionDialog = useCallback((session: ClockEvent) => {
     setActiveSession(session);
@@ -757,15 +775,23 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredSessions.map((s) => (
-                    <TimesheetRow
-                      key={s.id}
-                      session={s}
-                      teams={teams}
-                      onEdit={openSessionDialog}
-                      pendingApproval={pendingByTarget.has(s.id)}
-                    />
-                  ))}
+                  {filteredSessions.map((s) => {
+                    const request = requestByTarget.get(s.id);
+                    return (
+                      <TimesheetRow
+                        key={s.id}
+                        session={s}
+                        teams={teams}
+                        onEdit={openSessionDialog}
+                        changeStatus={
+                          request?.status === 'pending' || request?.status === 'rejected'
+                            ? request.status
+                            : undefined
+                        }
+                        changeNote={request?.responseNote ?? undefined}
+                      />
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
