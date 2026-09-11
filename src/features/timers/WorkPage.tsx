@@ -62,7 +62,7 @@ import {
   type TimesheetJustificationState,
 } from '../clock/TimesheetJustificationFields';
 import { toLocalDateStr } from '../../lib/date';
-import { getDdpClient } from '../../lib/ddp';
+import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
 import { useSession } from '../../lib/useSession';
@@ -272,6 +272,21 @@ export const WorkPage: React.FC = () => {
   }, [fetchDay]);
 
   useEffect(loadMyRequests, [loadMyRequests]);
+
+  // A decision is made elsewhere, by someone else, and changes a request rather
+  // than this page's data — so nothing here would otherwise re-run, and the row
+  // would stay flagged and locked after the admin had already ruled.
+  useEffect(
+    () =>
+      subscribeNewNotifications((n) => {
+        const type = (n.data as Record<string, unknown> | undefined)?.type;
+        if (type === 'timesheet-change-approved' || type === 'timesheet-change-rejected') {
+          loadMyRequests();
+          void fetchDay();
+        }
+      }),
+    [loadMyRequests, fetchDay],
+  );
 
   // Pull-to-refresh: combine both fetches
   useRefresh(
@@ -510,6 +525,9 @@ export const WorkPage: React.FC = () => {
     setEditDuration(secondsToHHMM(total));
     setEditTicketId(de.entry.ticketId);
     setEditError(null);
+    // Per entry: evidence gathered for one work item must not be submitted as
+    // justification for the next one opened.
+    setEditJustification(emptyJustification);
   }, []);
 
   const handleUpdateEntry = useCallback(async () => {
@@ -520,7 +538,14 @@ export const WorkPage: React.FC = () => {
     setEditLoading(true);
     setEditError(null);
     try {
-      const durationChanged = !isRunning && parsedSeconds !== null;
+      // Compared against the entry's current total, not merely parseable: the
+      // modal enables a note-only edit without evidence on exactly that basis,
+      // so sending `durationSeconds` regardless would have the server treat it
+      // as a time claim and reject it.
+      const durationChanged =
+        !isRunning &&
+        parsedSeconds !== null &&
+        parsedSeconds !== entryTotalSeconds(editEntry.sessions, currentTime);
       const result = await timerApi.updateEntry(
         editEntry.entry.id,
         {
@@ -566,6 +591,7 @@ export const WorkPage: React.FC = () => {
     editTicketId,
     editJustification,
     entryNeedsApproval,
+    currentTime,
     fetchDay,
   ]);
 

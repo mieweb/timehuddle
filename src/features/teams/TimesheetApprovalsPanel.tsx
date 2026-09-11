@@ -33,6 +33,7 @@ import {
   type TimesheetChangeRequest,
 } from '../../lib/api';
 import { useRefresh } from '../../lib/RefreshContext';
+import { getDdpClient } from '../../lib/ddp';
 import { formatDuration } from '../../lib/timeUtils';
 
 const ACTION_LABEL: Record<TimesheetChangeRequest['action'], string> = {
@@ -153,14 +154,21 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Claimed per call so a slower response for the team the reviewer just left
+  // can't overwrite the current team's queue — which would put another team's
+  // requests in front of them, approvable, under this team's timesheet.
+  const loadSeqRef = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     try {
-      setRequests(await timesheetApprovalApi.listPending(teamId));
+      const next = await timesheetApprovalApi.listPending(teamId);
+      if (loadSeqRef.current !== seq) return;
+      setRequests(next);
     } catch {
-      setRequests([]);
+      if (loadSeqRef.current === seq) setRequests([]);
     } finally {
-      setLoading(false);
+      if (loadSeqRef.current === seq) setLoading(false);
     }
   }, [teamId]);
 
@@ -175,6 +183,34 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
   }, [load]);
 
   useRefresh(load);
+
+  // Deciding clears the prompt from every admin's inbox and raising one adds it,
+  // so the set of these notifications is a live mirror of the queue. Watching
+  // the collection rather than only arrivals is what catches the removal when
+  // another admin rules first — otherwise their answered request sits here
+  // looking actionable.
+  useEffect(() => {
+    const ddp = getDdpClient();
+    let prompts = '';
+    const offChange = ddp.onCollectionChange('notifications', () => {
+      const next = ddp
+        .docs('notifications')
+        .filter(
+          (d) => (d.data as { type?: string } | undefined)?.type === 'timesheet-change-request',
+        )
+        .map((d) => d._id)
+        .sort()
+        .join(',');
+      if (next === prompts) return;
+      prompts = next;
+      void load();
+    });
+    const unsubscribe = ddp.subscribe('notifications.liveForUser', []);
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [load]);
 
   // A notification names one request; open it directly rather than making the
   // reviewer find it in the list. Guarded by id because the effect re-runs

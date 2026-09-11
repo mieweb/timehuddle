@@ -32,7 +32,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Spinner, Text } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ticketApi,
@@ -186,15 +186,23 @@ export const DashboardPage: React.FC = () => {
   // Covers the case a notification was missed or dismissed: this is the
   // fallback way to find out something is waiting.
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
+  // Claimed per call: switching team re-fires this, and a slower response for
+  // the team just left would otherwise badge the new one with its count.
+  const approvalCountSeqRef = useRef(0);
   const fetchPendingApprovals = useCallback(() => {
+    const seq = ++approvalCountSeqRef.current;
     if (!selectedTeamId || !canViewTimesheet) {
       setPendingApprovalCount(0);
       return;
     }
     timesheetApprovalApi
       .listPending(selectedTeamId)
-      .then((requests) => setPendingApprovalCount(requests.length))
-      .catch(() => setPendingApprovalCount(0));
+      .then((requests) => {
+        if (approvalCountSeqRef.current === seq) setPendingApprovalCount(requests.length);
+      })
+      .catch(() => {
+        if (approvalCountSeqRef.current === seq) setPendingApprovalCount(0);
+      });
   }, [selectedTeamId, canViewTimesheet]);
   useEffect(fetchPendingApprovals, [fetchPendingApprovals]);
   useRefresh(fetchPendingApprovals);

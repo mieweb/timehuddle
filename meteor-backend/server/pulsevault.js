@@ -155,7 +155,9 @@ async function peekReservation(artifactId) {
  *
  * Falls back to the reservation because `onUploadComplete` writes the media
  * record asynchronously, and the client can legitimately submit in the window
- * before it lands.
+ * before it lands. A reservation only proves an id was minted, though, so that
+ * path also has to see bytes on disk — otherwise reserving and never uploading
+ * would mint citable evidence for a video that does not exist.
  */
 export async function artifactBelongsTo(artifactId, userId) {
   if (!artifactId || !userId) return false;
@@ -163,8 +165,10 @@ export async function artifactBelongsTo(artifactId, userId) {
     .collection('mediaitems')
     .findOne({ videoid: artifactId }, { projection: { userId: 1 } });
   if (media) return media.userId === userId;
+
   const reservation = await peekReservation(artifactId);
-  return reservation?.userId === userId;
+  if (reservation?.userId !== userId) return false;
+  return Boolean(await storage.getLocalPath(artifactId).catch(() => null));
 }
 
 Meteor.startup(async () => {

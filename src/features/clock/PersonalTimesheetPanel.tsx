@@ -292,6 +292,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
       }));
     setEditBreaks(nextBreaks);
     setSessionSaveError(null);
+    setEditJustification(emptyJustification);
     setSessionDialogOpen(true);
   }, []);
 
@@ -452,6 +453,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     setNewClockOut('');
     setNewTeamId(selectedTeamId ?? teams[0]?.id ?? '');
     setAddEntryError(null);
+    setAddJustification(emptyJustification);
     setAddEntryOpen(true);
   }, [selectedTeamId, teams]);
 
@@ -821,6 +823,9 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
             setActiveSession(null);
             setEditBreaks([]);
             setSessionSaveError(null);
+            // Cleared on the way out too: evidence gathered for one session
+            // must not be submitted as justification for a different one.
+            setEditJustification(emptyJustification);
           }
         }}
         aria-labelledby="edit-session-title"
@@ -1007,7 +1012,10 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
         open={addEntryOpen}
         onOpenChange={(open) => {
           setAddEntryOpen(open);
-          if (!open) setAddEntryError(null);
+          if (!open) {
+            setAddEntryError(null);
+            setAddJustification(emptyJustification);
+          }
         }}
         aria-labelledby="add-entry-title"
         className="mt-[env(safe-area-inset-top,0px)]"

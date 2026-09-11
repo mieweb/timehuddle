@@ -131,14 +131,18 @@ async function applyRequest(request) {
 
   const entry = await WorkItems.findOneAsync(new ObjectId(targetId));
   if (!entry) throw new Meteor.Error('target-gone', 'That time entry no longer exists.');
-  // Ticket-only edits stay direct, so the entry can have been moved to another
-  // team's ticket while this sat pending — in which case this team's admin is
-  // no longer the one entitled to rule on it.
-  const owningTeam = await teamForEntry(entry);
-  if (owningTeam?._id.toHexString() !== teamId) {
-    throw new Meteor.Error('target-moved', 'That entry now belongs to another team.');
+  if (action === 'delete') {
+    // A delete is reviewed by the team that owned the entry when it was raised,
+    // so if ticket-only editing has since moved it, this admin is no longer the
+    // one entitled to rule on it. An update is bound instead by the baseline's
+    // ticketId below — its request.teamId may be the *destination* of a move
+    // and so deliberately doesn't match where the entry sits right now.
+    const owningTeam = await teamForEntry(entry);
+    if (owningTeam?._id.toHexString() !== teamId) {
+      throw new Meteor.Error('target-moved', 'That entry now belongs to another team.');
+    }
+    return applyTimerDelete(entry, userId, false);
   }
-  if (action === 'delete') return applyTimerDelete(entry, userId, false);
   assertUnchangedSince(baseline, {
     note: entry.note ?? null,
     ticketId: entry.ticketId,

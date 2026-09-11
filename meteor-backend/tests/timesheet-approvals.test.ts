@@ -334,6 +334,19 @@ describe('timesheet approvals — what a submission must carry', () => {
     expect(res.error).toMatch(/video/i);
   });
 
+  it('refuses an edit whose end lands before its start', async () => {
+    // Queueing it would put a change in front of a reviewer that no approval
+    // could apply.
+    const session = await seedSession(teamId, memberUserId);
+    const res = await wormhole(
+      'clock.updateTimes',
+      { clockEventId: session.id, endTime: session.start - HOUR, ...JUSTIFICATION },
+      memberJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/before start/i);
+  });
+
   it('refuses a new entry that overlaps one already on the timesheet', async () => {
     // Queueing it would put a change in front of a reviewer that could never
     // be applied however they ruled.
@@ -445,18 +458,32 @@ describe('timesheet approvals — timer entries', () => {
     expect(await loggedSeconds(entry.id)).toBe(7200);
   });
 
-  it('reviews a move out of a solo-admin team into a reviewed one', async () => {
+  it('reviews a move out of a solo-admin team into a reviewed one, and applies it', async () => {
     // The time lands on the destination team's timesheet, so gating on the
-    // source alone would make the solo team a staging area.
+    // source alone would make the solo team a staging area. The destination is
+    // what gets recorded as the reviewing team, so replay must not expect the
+    // entry to already be there.
     const entry = await seedWorkItem(soloTicketId, memberUserId);
-    const res = await wormhole<{ pending: boolean }>(
+    const submitted = await wormhole<{ pending: boolean; request: { id: string } }>(
       'timers.updateEntry',
       { entryId: entry.id, durationSeconds: 7200, ticketId, ...JUSTIFICATION },
       memberJwt,
     );
-    expect(res.ok).toBe(true);
-    expect(res.result.pending).toBe(true);
+    expect(submitted.ok).toBe(true);
+    expect(submitted.result.pending).toBe(true);
     expect(await loggedSeconds(entry.id)).toBe(3600);
+
+    const decided = await wormhole(
+      'timesheetApprovals.approve',
+      { requestId: submitted.result.request.id },
+      adminJwt,
+    );
+    expect(decided.ok).toBe(true);
+    expect(await loggedSeconds(entry.id)).toBe(7200);
+
+    const db = await getDb();
+    const moved = await db.collection('workitems').findOne({ _id: new ObjectId(entry.id) });
+    expect(moved!.ticketId).toBe(ticketId);
   });
 
   it('refuses to replay over an edit made while the request was pending', async () => {

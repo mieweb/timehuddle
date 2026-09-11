@@ -88,6 +88,21 @@ export async function assertManualRangeUsable({ userId, startTime, endTime }) {
   }
 }
 
+/**
+ * The times an update would leave the event with, or a throw if they're not a
+ * range. Shared with the gate so an impossible edit is refused outright rather
+ * than queued as a change no approval could ever apply.
+ */
+export function effectiveRangeFor(event, { startTime, endTime }) {
+  const effectiveStart = typeof startTime === 'number' ? startTime : event.startTime;
+  const effectiveEnd =
+    endTime === null ? null : typeof endTime === 'number' ? endTime : event.endTime;
+  if (effectiveEnd !== null && effectiveEnd < effectiveStart) {
+    throw new Meteor.Error('invalid-range', 'End is before start');
+  }
+  return { effectiveStart, effectiveEnd };
+}
+
 /** Apply new times/breaks to an existing clock event. */
 export async function applyClockUpdate(
   event,
@@ -96,12 +111,7 @@ export async function applyClockUpdate(
   { notifyAdmins = true } = {}
 ) {
   const clockEventId = event._id.toHexString();
-  const effectiveStart = typeof startTime === 'number' ? startTime : event.startTime;
-  const effectiveEnd =
-    endTime === null ? null : typeof endTime === 'number' ? endTime : event.endTime;
-  if (effectiveEnd !== null && effectiveEnd < effectiveStart) {
-    throw new Meteor.Error('invalid-range', 'End is before start');
-  }
+  const { effectiveStart, effectiveEnd } = effectiveRangeFor(event, { startTime, endTime });
 
   const existingBreaks = await findBreaksForEvent(clockEventId);
   const requestedBreaks = Array.isArray(breaks) ? toBreakEntries(breaks) : existingBreaks;
@@ -527,6 +537,9 @@ Meteor.methods({
     // a former member rewrite that team's payroll directly.
     const team = await findTeamById(event.teamId);
     if (requiresApproval(team, requesterId)) {
+      // Refused now rather than queued: an end before the start is a change no
+      // approval could ever apply.
+      effectiveRangeFor(event, { startTime, endTime });
       const request = await submitChangeRequest({
         requesterId,
         team,
