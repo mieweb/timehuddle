@@ -92,6 +92,39 @@ async function openHuddleFeed(page: Page): Promise<void> {
   await switchToCardView(page);
 }
 
+/** Create a channel through the Messages UI (mirrors channels.spec.ts's helper). */
+async function createChannel(page: Page, name: string): Promise<void> {
+  await page.getByRole('button', { name: 'Create channel' }).click();
+  await page.getByLabel('Channel name').fill(name);
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await expect(page.getByPlaceholder(`Message #${name}`)).toBeVisible({ timeout: 10000 });
+}
+
+async function getChannelIdByName(teamId: string, name: string): Promise<string> {
+  const client = await MongoClient.connect(MONGO_URL);
+  try {
+    const channel = await client.db().collection('channels').findOne({ teamId, name });
+    if (!channel) throw new Error(`Channel "${name}" not found for team ${teamId}`);
+    return String(channel._id);
+  } finally {
+    await client.close();
+  }
+}
+
+/** e2e-* channels aren't cleaned by global-teardown (keyed on `userId`, channels use `createdBy`). */
+async function deleteChannel(channelId: string): Promise<void> {
+  const client = await MongoClient.connect(MONGO_URL);
+  try {
+    await client.db().collection('channelmessages').deleteMany({ channelId });
+    await client
+      .db()
+      .collection('channels')
+      .deleteOne({ _id: new ObjectId(channelId) });
+  } finally {
+    await client.close();
+  }
+}
+
 test.describe('Notification deep links', () => {
   test('a post link highlights the target and clears the consumed query', async ({ page }) => {
     test.setTimeout(90000);
@@ -132,9 +165,7 @@ test.describe('Notification deep links', () => {
     await expect(page.locator(`#huddle-post-${secondId}`)).toHaveClass(/huddle-post-highlight/, {
       timeout: 15000,
     });
-    await expect(page.locator(`#huddle-post-${firstId}`)).not.toHaveClass(
-      /huddle-post-highlight/,
-    );
+    await expect(page.locator(`#huddle-post-${firstId}`)).not.toHaveClass(/huddle-post-highlight/);
   });
 
   test('a post link switches to the post team when another team is selected', async ({ page }) => {
@@ -185,5 +216,72 @@ test.describe('Notification deep links', () => {
 
     await tapNotification(page, profileUrl);
     await expect(workTab).toHaveAttribute('aria-selected', 'true', { timeout: 10000 });
+  });
+
+  test('a dashboard timesheet link opens the linked member, and a different one on repeat tap', async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    await loginAs(page, TEST_USERS.owner1);
+    const teamId = await selectSharedTestTeam(page);
+    const member1Id = await getUserIdByEmail(TEST_USERS.member1.email);
+    const member2Id = await getUserIdByEmail(TEST_USERS.member2.email);
+
+    await page.goto('/app/dashboard');
+    await page.getByRole('heading', { level: 1 }).first().waitFor({ state: 'visible' });
+
+    await tapNotification(
+      page,
+      `/app/dashboard?tab=timesheet&teamId=${teamId}&memberId=${member1Id}`,
+    );
+    const memberSelect = page.getByRole('combobox', { name: 'Member' });
+    await expect(memberSelect).toHaveText(TEST_USERS.member1.name, { timeout: 15000 });
+
+    // Only the query string changes here — the panel stays mounted, so a
+    // second member's deep-link must override the first, not be ignored.
+    await tapNotification(
+      page,
+      `/app/dashboard?tab=timesheet&teamId=${teamId}&memberId=${member2Id}`,
+    );
+    await expect(memberSelect).toHaveText(TEST_USERS.member2.name, { timeout: 15000 });
+  });
+
+  test('a message channel link opens the linked channel, and a different one on repeat tap', async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    await loginAs(page, TEST_USERS.owner1);
+    const teamId = await selectSharedTestTeam(page);
+
+    await page.goto('/app/messages');
+    await page
+      .getByRole('button', { name: 'Create channel' })
+      .waitFor({ state: 'visible', timeout: 20000 });
+
+    const stamp = Date.now();
+    const channelA = `e2e-deep-link-a-${stamp}`;
+    const channelB = `e2e-deep-link-b-${stamp}`;
+    await createChannel(page, channelA);
+    await createChannel(page, channelB);
+    const channelAId = await getChannelIdByName(teamId, channelA);
+    const channelBId = await getChannelIdByName(teamId, channelB);
+
+    try {
+      await tapNotification(page, `/app/messages?openTeam=${teamId}&openChannel=${channelAId}`);
+      await expect(page.getByPlaceholder(`Message #${channelA}`)).toBeVisible({
+        timeout: 15000,
+      });
+
+      // Only the query string changes here — Messages stays mounted, so a
+      // second channel's deep-link must be resolved too, not swallowed as a
+      // no-op because `routerSearch` looks like it hasn't changed enough.
+      await tapNotification(page, `/app/messages?openTeam=${teamId}&openChannel=${channelBId}`);
+      await expect(page.getByPlaceholder(`Message #${channelB}`)).toBeVisible({
+        timeout: 15000,
+      });
+    } finally {
+      await deleteChannel(channelAId);
+      await deleteChannel(channelBId);
+    }
   });
 });
