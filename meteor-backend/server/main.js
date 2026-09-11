@@ -1088,6 +1088,7 @@ Meteor.startup(async() => {
       properties: {
         clockEventId: { type: 'string' },
         description: { type: 'string', description: 'Justification, required on teams with admins' },
+        videoUrl: { type: 'string', description: 'Optional supporting video' },
       },
       required: ['clockEventId'],
     },
@@ -1400,7 +1401,7 @@ Meteor.startup(async() => {
   });
   Wormhole.expose('timers.deleteEntry', {
     description: 'Delete a WorkItem and all its timers',
-    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, notifyAdmins: { type: 'boolean' }, description: { type: 'string' } }, required: ['entryId'] },
+    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, notifyAdmins: { type: 'boolean' }, description: { type: 'string' }, videoUrl: { type: 'string' } }, required: ['entryId'] },
   });
   Wormhole.expose('timers.copyPrevious', {
     description: 'Copy entries from the most recent previous day into toDate',

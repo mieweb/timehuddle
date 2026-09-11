@@ -125,55 +125,55 @@ export const TimesheetJustificationFields: React.FC<TimesheetJustificationFields
         </Text>
       </div>
 
-      {videoRequired && (
-        <div className="mt-3 space-y-1">
-          <Text size="xs" weight="medium">
-            Video walkthrough
-          </Text>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="video/*"
-            capture="user"
-            className="hidden"
-            disabled={busy}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (file) void handleFile(file);
-            }}
-          />
-          {value.videoUrl ? (
-            <div className="flex items-center gap-2">
-              <FontAwesomeIcon
-                icon={faCircleCheck}
-                className="text-green-600 dark:text-green-500"
-                aria-hidden
-              />
-              <Text size="xs">Video attached</Text>
-              <Button
-                variant="link"
-                size="sm"
-                disabled={busy}
-                onClick={() => onChange({ ...value, videoUrl: null })}
-              >
-                Replace
-              </Button>
-            </div>
-          ) : (
+      {/* Always offered — a recording helps the reviewer whether or not this
+          particular action insists on one. */}
+      <div className="mt-3 space-y-1">
+        <Text size="xs" weight="medium">
+          Video walkthrough {videoRequired ? '' : '(optional)'}
+        </Text>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/*"
+          capture="user"
+          className="hidden"
+          disabled={busy}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) void handleFile(file);
+          }}
+        />
+        {value.videoUrl ? (
+          <div className="flex items-center gap-2">
+            <FontAwesomeIcon
+              icon={faCircleCheck}
+              className="text-green-600 dark:text-green-500"
+              aria-hidden
+            />
+            <Text size="xs">Video attached</Text>
             <Button
-              variant="outline"
+              variant="link"
               size="sm"
               disabled={busy}
-              isLoading={progress !== null}
-              leftIcon={<FontAwesomeIcon icon={faVideo} />}
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => onChange({ ...value, videoUrl: null })}
             >
-              {progress !== null ? `Uploading ${progress}%` : 'Record or attach video'}
+              Remove
             </Button>
-          )}
-        </div>
-      )}
+          </div>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            isLoading={progress !== null}
+            leftIcon={<FontAwesomeIcon icon={faVideo} />}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {progress !== null ? `Uploading ${progress}%` : 'Record or attach video'}
+          </Button>
+        )}
+      </div>
 
       {error && (
         <Text size="xs" className="mt-2 text-red-600 dark:text-red-400" role="alert">

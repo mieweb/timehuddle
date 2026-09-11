@@ -518,7 +518,7 @@ Meteor.methods({
   },
 
   /** Delete a clock event (owner or team admin). */
-  async 'clock.deleteEvent'({ clockEventId, description } = {}) {
+  async 'clock.deleteEvent'({ clockEventId, description, videoUrl } = {}) {
     const identity = await requireIdentity(this);
     const requesterId = identity.userId;
     if (!isValidId(clockEventId)) throw new Meteor.Error('not-found', 'Clock event not found');
@@ -541,6 +541,7 @@ Meteor.methods({
         payload: {},
         summary: `Delete clock session ${formatRange(event.startTime, event.endTime)}`,
         description,
+        videoUrl,
       });
       return { pending: true, request };
     }

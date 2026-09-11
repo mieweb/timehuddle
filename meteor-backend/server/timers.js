@@ -489,7 +489,7 @@ Meteor.methods({
   },
 
   /** Delete a WorkItem and all its timers. */
-  async 'timers.deleteEntry'({ entryId, notifyAdmins = true, description } = {}) {
+  async 'timers.deleteEntry'({ entryId, notifyAdmins = true, description, videoUrl } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(entryId)) throw new Meteor.Error('not-found', 'WorkItem not found');
@@ -509,6 +509,7 @@ Meteor.methods({
         payload: { notifyAdmins },
         summary: `Delete time entry on "${ticket?.title ?? 'a ticket'}" (${entry.date})`,
         description,
+        videoUrl,
       });
       return { pending: true, request };
     }

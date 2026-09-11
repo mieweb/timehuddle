@@ -406,7 +406,10 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
       const result = await clockApi.deleteEvent(
         activeSession.id,
         editNeedsApproval
-          ? { description: editJustification.description }
+          ? {
+              description: editJustification.description,
+              videoUrl: editJustification.videoUrl ?? undefined,
+            }
           : undefined,
       );
       if (isPendingChange(result)) setMyRequests((prev) => [result.request, ...prev]);

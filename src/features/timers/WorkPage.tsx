@@ -444,7 +444,10 @@ export const WorkPage: React.FC = () => {
           entryId,
           { notifyAdmins: false },
           entryNeedsApproval
-            ? { description: editJustification.description }
+            ? {
+                description: editJustification.description,
+                videoUrl: editJustification.videoUrl ?? undefined,
+              }
             : undefined,
         );
         if (!isPendingChange(result)) {
