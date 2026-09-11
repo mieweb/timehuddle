@@ -33,7 +33,7 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ApiError, clockApi, type ClockEvent } from '../../lib/api';
 import { formatDuration } from '../../lib/timeUtils';
@@ -122,13 +122,26 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     setData(null);
   }, [selectedTeamId]);
 
+  // Tracks the last `initialMemberId` this panel actually applied, so a second
+  // deep-link (e.g. tapping a different member's notification while this panel
+  // is already mounted) is honoured instead of being ignored just because
+  // `selectedMemberId` is already non-empty from the first one.
+  const appliedInitialMemberIdRef = useRef<string | undefined>(undefined);
+
   // Auto-select: use initialMemberId if it's a valid member of this team, else fall back to first member
   useEffect(() => {
     if (members.length === 0) return;
-    if (selectedMemberId) return; // already set (either by user or previous effect)
 
-    const validInitial = initialMemberId && members.some((m) => m.id === initialMemberId);
-    setSelectedMemberId(validInitial ? initialMemberId : members[0].id);
+    if (initialMemberId && initialMemberId !== appliedInitialMemberIdRef.current) {
+      appliedInitialMemberIdRef.current = initialMemberId;
+      if (members.some((m) => m.id === initialMemberId)) {
+        setSelectedMemberId(initialMemberId);
+        return;
+      }
+    }
+
+    if (selectedMemberId) return; // already set (either by user or the branch above)
+    setSelectedMemberId(members[0].id);
   }, [members, selectedMemberId, initialMemberId]);
 
   const fetchData = useCallback(async () => {
