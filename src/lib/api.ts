@@ -1401,9 +1401,15 @@ export interface TimesheetChangeRequest {
   action: 'create' | 'update' | 'delete';
   targetId: string | null;
   payload: Record<string, unknown>;
-  /** The entry's times before the change, so a reviewer sees what it moves away from. */
-  previous: { startTime?: number; endTime?: number | null } | null;
-  summary: string | null;
+  /** Names what is being changed where an id alone would mean nothing (e.g. a ticket). */
+  label: string | null;
+  /** The entry's live state, resolved server-side at read time — null once it's gone. */
+  current: {
+    startTime?: number;
+    endTime?: number | null;
+    durationSeconds?: number;
+    date?: string;
+  } | null;
   description: string;
   videoUrl: string | null;
   status: 'pending' | 'approved' | 'rejected';

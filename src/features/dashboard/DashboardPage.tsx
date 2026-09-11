@@ -434,6 +434,7 @@ export const DashboardPage: React.FC = () => {
               teamId={selectedTeamId}
               focusRequestId={focusRequestId}
               onFocusHandled={clearFocusRequest}
+              onPendingCountChange={setPendingApprovalCount}
             />
             <AdminTimesheetPanel
               members={teamMembers}

@@ -61,8 +61,7 @@ export function toPublicChangeRequest(doc, extras = {}) {
     action: doc.action,
     targetId: doc.targetId ?? null,
     payload: doc.payload ?? {},
-    previous: doc.previous ?? null,
-    summary: doc.summary ?? null,
+    label: doc.label ?? null,
     description: doc.description,
     videoUrl: doc.videoUrl ?? null,
     status: doc.status,
@@ -91,10 +90,11 @@ function assertJustification({ action, description, videoUrl }) {
 /**
  * Record a pending change and notify the team's approvers.
  *
- * `summary` is a plain-language, already-resolved description of the change
- * (ticket titles, formatted times) so the reviewer does not have to interpret
- * raw ids, and so the request still reads correctly if the underlying entry is
- * edited or removed before anyone looks at it.
+ * `label` names the thing being changed when an id alone would be meaningless
+ * to a reviewer — a ticket title, say. Times are deliberately *not* stored:
+ * they are read back off the live entry and formatted in the reviewer's own
+ * timezone, so a snapshot taken here would only go stale and be in the wrong
+ * timezone for whoever ends up reading it.
  */
 export async function submitChangeRequest({
   requesterId,
@@ -103,8 +103,7 @@ export async function submitChangeRequest({
   action,
   targetId = null,
   payload = {},
-  previous = null,
-  summary = null,
+  label = null,
   description,
   videoUrl = null,
 }) {
@@ -141,8 +140,7 @@ export async function submitChangeRequest({
     action,
     targetId,
     payload,
-    previous,
-    summary,
+    label,
     description: trimmed,
     videoUrl,
     status: 'pending',

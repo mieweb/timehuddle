@@ -7,7 +7,7 @@
  * decision is about the numbers on that timesheet, so it belongs where the
  * reviewer is already looking at them.
  */
-import { faCheck, faVideo, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faVideo } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Badge,
@@ -81,20 +81,22 @@ function formatDurationBetween(startMs: number | null, endMs: number | null): st
 }
 
 /**
- * Before/after in the reviewer's own locale. The server stores raw epochs and
- * its `summary` is a UTC ISO fallback — unreadable at a glance and in the wrong
- * timezone for whoever is reading it.
+ * Before/after in the reviewer's own locale, built from the entry's live state
+ * plus the proposed payload. The server deliberately stores neither — a
+ * formatted snapshot would be stale and in the wrong timezone for whoever ends
+ * up reading it.
  */
 function describeChange(request: TimesheetChangeRequest): { before?: string; after?: string } {
-  const prevStart = asEpoch(request.previous?.startTime);
-  const prevEnd = request.previous?.endTime === null ? null : asEpoch(request.previous?.endTime);
-  const before = formatRange(prevStart, prevEnd) ?? undefined;
+  const currentStart = asEpoch(request.current?.startTime);
+  const currentEnd =
+    request.current?.endTime === null ? null : asEpoch(request.current?.endTime);
+  const before = formatRange(currentStart, currentEnd) ?? undefined;
 
   if (request.action === 'delete') return { before };
 
-  const nextStart = asEpoch(request.payload.startTime) ?? prevStart;
+  const nextStart = asEpoch(request.payload.startTime) ?? currentStart;
   const nextEnd =
-    request.payload.endTime === null ? null : (asEpoch(request.payload.endTime) ?? prevEnd);
+    request.payload.endTime === null ? null : (asEpoch(request.payload.endTime) ?? currentEnd);
   const after = formatRange(nextStart, nextEnd) ?? undefined;
 
   return request.action === 'create' ? { after } : { before, after };
@@ -107,12 +109,15 @@ interface Props {
   /** Called once the deep link has been acted on, so remounting this panel
    *  (switching views) doesn't reopen a request the reviewer already closed. */
   onFocusHandled?: () => void;
+  /** Keeps a badge outside this panel in step with a decision made inside it. */
+  onPendingCountChange?: (count: number) => void;
 }
 
 export const TimesheetApprovalsPanel: React.FC<Props> = ({
   teamId,
   focusRequestId,
   onFocusHandled,
+  onPendingCountChange,
 }) => {
   const [requests, setRequests] = useState<TimesheetChangeRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -131,6 +136,12 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
       setLoading(false);
     }
   }, [teamId]);
+
+  // Reported on every change rather than only on load, so a badge elsewhere
+  // drops the moment a decision removes a request from this list.
+  useEffect(() => {
+    if (!loading) onPendingCountChange?.(requests.length);
+  }, [requests.length, loading, onPendingCountChange]);
 
   useEffect(() => {
     void load();
@@ -228,7 +239,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
                     <Text variant="muted" size="xs" className="truncate">
                       {describeChange(r).after ??
                         describeChange(r).before ??
-                        r.summary ??
+                        r.label ??
                         r.description}
                     </Text>
                   </div>
@@ -270,27 +281,25 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
                 active.action === 'delete'
                   ? null
                   : formatDurationBetween(
-                      asEpoch(active.payload.startTime) ?? asEpoch(active.previous?.startTime),
+                      asEpoch(active.payload.startTime) ?? asEpoch(active.current?.startTime),
                       active.payload.endTime === null
                         ? null
-                        : (asEpoch(active.payload.endTime) ?? asEpoch(active.previous?.endTime)),
+                        : (asEpoch(active.payload.endTime) ?? asEpoch(active.current?.endTime)),
                     );
-              // Requests raised before `previous` was recorded have no
-              // structured times; the server's summary is the only record of
-              // what they asked for, so fall back to it rather than showing
-              // the reviewer nothing at all.
+              // A timer entry, or a target that has since been deleted — no
+              // clock range to lay out, so name what it refers to instead.
               if (!before && !after) {
-                return active.summary ? (
-                  <div className="rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
+                return active.label ? (
+                  <div>
                     <Text size="xs" variant="muted">
-                      Requested change
+                      Entry
                     </Text>
-                    <Text size="sm">{active.summary}</Text>
+                    <Text size="sm">{active.label}</Text>
                   </div>
                 ) : null;
               }
               return (
-                <div className="space-y-1 rounded-md bg-neutral-50 px-3 py-2 dark:bg-neutral-800">
+                <>
                   {before && (
                     <div>
                       <Text size="xs" variant="muted">
@@ -312,7 +321,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
                       </Text>
                     </div>
                   )}
-                </div>
+                </>
               );
             })()}
 
@@ -359,8 +368,9 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
           )}
         </ModalBody>
         <ModalFooter>
-          {/* Approve and Decline share a row and split the width; on a narrow
-              phone they were otherwise squeezed down to "Appr…" / "Dec…". */}
+          {/* Approve and Decline share a row and split the width. The icons are
+              dropped: with them the labels truncated to "Appro…" on a phone,
+              and the colours already carry the same signal. */}
           <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center">
             {active?.status === 'pending' ? (
               <>
@@ -370,7 +380,6 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
                     className="flex-1"
                     isLoading={busy === 'approve'}
                     disabled={busy !== null}
-                    leftIcon={<FontAwesomeIcon icon={faCheck} />}
                     onClick={() => void respond(true)}
                   >
                     Approve
@@ -380,7 +389,6 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
                     className="flex-1"
                     isLoading={busy === 'reject'}
                     disabled={rejectDisabled}
-                    leftIcon={<FontAwesomeIcon icon={faXmark} />}
                     onClick={() => void respond(false)}
                   >
                     Decline

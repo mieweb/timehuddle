@@ -30,6 +30,39 @@ import {
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
+/**
+ * Read back the times the request is proposing to change, off the live entry.
+ *
+ * Resolved here rather than snapshotted at submission: a stored copy goes stale
+ * the moment anyone else touches the entry, and the reviewer needs to compare
+ * against what is actually on the timesheet now. Returns null once the target
+ * is gone, which is also how an approval that can no longer be applied surfaces.
+ */
+async function resolveCurrentTimes(request) {
+  if (!request.targetId || !isValidId(request.targetId)) return null;
+
+  if (request.kind === 'clock') {
+    const event = await ClockEvents.findOneAsync(new ObjectId(request.targetId));
+    return event ? { startTime: event.startTime, endTime: event.endTime ?? null } : null;
+  }
+
+  const entry = await WorkItems.findOneAsync(new ObjectId(request.targetId));
+  if (!entry) return null;
+  const sessions = await rawDb()
+    .collection('timers')
+    .find({ workItemId: request.targetId, endTime: { $ne: null } })
+    .toArray();
+  return {
+    durationSeconds: sessions.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0),
+    date: entry.date,
+  };
+}
+
+/** Attach live entry state to each request for display. */
+async function withCurrent(request, extras = {}) {
+  return toPublicChangeRequest(request, { current: await resolveCurrentTimes(request), ...extras });
+}
+
 /** Load a pending request and assert the caller may rule on it. */
 async function loadForReview(requestId, reviewerId) {
   if (!isValidId(requestId)) throw new Meteor.Error('not-found', 'Request not found');
@@ -142,11 +175,13 @@ Meteor.methods({
 
     const names = await attachRequesterNames(requests);
     return {
-      requests: requests.map((r) =>
-        toPublicChangeRequest(r, {
-          requesterName: names.get(r.userId) ?? 'Someone',
-          teamName: teamNames.get(r.teamId) ?? null,
-        })
+      requests: await Promise.all(
+        requests.map((r) =>
+          withCurrent(r, {
+            requesterName: names.get(r.userId) ?? 'Someone',
+            teamName: teamNames.get(r.teamId) ?? null,
+          })
+        )
       ),
     };
   },
@@ -165,7 +200,7 @@ Meteor.methods({
     }
 
     const names = await attachRequesterNames([request]);
-    return toPublicChangeRequest(request, {
+    return withCurrent(request, {
       requesterName: names.get(request.userId) ?? 'Someone',
       teamName: team?.name ?? null,
       canReview: isReviewer && request.userId !== identity.userId && request.status === 'pending',

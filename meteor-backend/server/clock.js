@@ -56,27 +56,6 @@ async function findUserTeam(userId, teamId) {
   });
 }
 
-/**
- * A human-readable UTC range for the stored summary. Only a fallback — the
- * client re-renders these from the request's structured times in the reviewer's
- * own timezone, which is the form that actually belongs in front of them.
- */
-function formatRange(startTime, endTime) {
-  const fmt = (ms) =>
-    typeof ms === 'number'
-      ? new Date(ms)
-          .toLocaleString('en-US', {
-            timeZone: 'UTC',
-            month: 'short',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: '2-digit',
-          })
-          .replace(/\s([AP])M/, (_, p) => p.toLowerCase() + 'm')
-      : 'still open';
-  return `${fmt(startTime)} – ${fmt(endTime)} UTC`;
-}
-
 // ─── Mutations ───────────────────────────────────────────────────────────────
 // Extracted from the methods below so an approved change request can replay the
 // exact same write the direct path would have made. `actorId` is the person the
@@ -520,13 +499,6 @@ Meteor.methods({
         action: 'update',
         targetId: clockEventId,
         payload: { startTime, endTime, breaks },
-        // Kept alongside the change so a reviewer can see what it is moving
-        // away from, and so the summary can be rendered in their own locale.
-        previous: { startTime: event.startTime, endTime: event.endTime },
-        summary: `Clock session ${formatRange(event.startTime, event.endTime)} → ${formatRange(
-          typeof startTime === 'number' ? startTime : event.startTime,
-          endTime === null ? null : typeof endTime === 'number' ? endTime : event.endTime
-        )}`,
         description,
         videoUrl,
       });
@@ -558,8 +530,6 @@ Meteor.methods({
         action: 'delete',
         targetId: clockEventId,
         payload: {},
-        previous: { startTime: event.startTime, endTime: event.endTime },
-        summary: `Delete clock session ${formatRange(event.startTime, event.endTime)}`,
         description,
         videoUrl,
       });
@@ -583,7 +553,6 @@ Meteor.methods({
         kind: 'clock',
         action: 'create',
         payload: { teamId, startTime, endTime },
-        summary: `Add clock session ${formatRange(startTime, endTime)}`,
         description,
         videoUrl,
       });

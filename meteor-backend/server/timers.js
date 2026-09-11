@@ -475,9 +475,7 @@ Meteor.methods({
           action: 'update',
           targetId: entryId,
           payload: { note, durationSeconds, ticketId },
-          summary: `Set time on "${ticket?.title ?? 'a ticket'}" (${entry.date}) to ${Math.round(
-            durationSeconds / 60
-          )} min`,
+          label: `${ticket?.title ?? 'a ticket'} — ${entry.date}`,
           description,
           videoUrl,
         });
@@ -507,7 +505,7 @@ Meteor.methods({
         action: 'delete',
         targetId: entryId,
         payload: { notifyAdmins },
-        summary: `Delete time entry on "${ticket?.title ?? 'a ticket'}" (${entry.date})`,
+        label: `${ticket?.title ?? 'a ticket'} — ${entry.date}`,
         description,
         videoUrl,
       });
