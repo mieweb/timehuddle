@@ -40,12 +40,30 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useTeam } from '../../lib/TeamContext';
 import { formatDuration } from '../../lib/timeUtils';
-import { ApiError, clockApi, type ClockEvent } from '../../lib/api';
+import {
+  ApiError,
+  clockApi,
+  isPendingChange,
+  timesheetApprovalApi,
+  type ClockEvent,
+  type TimesheetChangeRequest,
+} from '../../lib/api';
+import {
+  timesheetApprovalRequired,
+  timesheetApproversFor,
+  timesheetVideoRequired,
+} from '../../lib/timesheetApproval';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
-import { getDdpClient } from '../../lib/ddp';
+import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { AttachmentsPanel } from './AttachmentsPanel';
 import { TimesheetRow } from './TimesheetRow';
+import {
+  emptyJustification,
+  isJustificationComplete,
+  TimesheetJustificationFields,
+  type TimesheetJustificationState,
+} from './TimesheetJustificationFields';
 import {
   fromLocalDateTimeInputValue,
   getDateRange,
@@ -130,6 +148,8 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   const [sessionSaveLoading, setSessionSaveLoading] = useState(false);
   const [sessionDeleteLoading, setSessionDeleteLoading] = useState(false);
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null);
+  const [editJustification, setEditJustification] =
+    useState<TimesheetJustificationState>(emptyJustification);
 
   // Add entry modal state
   const [addEntryOpen, setAddEntryOpen] = useState(false);
@@ -138,6 +158,47 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   const [newTeamId, setNewTeamId] = useState('');
   const [addEntryLoading, setAddEntryLoading] = useState(false);
   const [addEntryError, setAddEntryError] = useState<string | null>(null);
+  const [addJustification, setAddJustification] =
+    useState<TimesheetJustificationState>(emptyJustification);
+
+  // Changes the user has submitted but no admin has ruled on, keyed by the
+  // entry they target so a row can show its own pending/declined state.
+  const [myRequests, setMyRequests] = useState<TimesheetChangeRequest[]>([]);
+
+  const userId = user?.id ?? '';
+  const teamOf = useCallback((teamId: string) => teams.find((t) => t.id === teamId), [teams]);
+
+  // Whether the team behind each modal reviews retroactive changes. Mirrors the
+  // server so the form can ask for a justification up front instead of letting
+  // someone fill in a whole change and only then be told it needs one.
+  const editTeam = activeSession ? teamOf(activeSession.teamId) : undefined;
+  const editNeedsApproval = timesheetApprovalRequired(editTeam, userId);
+  const editApproverCount = timesheetApproversFor(editTeam, userId).length;
+
+  const addTeam = teamOf(newTeamId);
+  const addNeedsApproval = timesheetApprovalRequired(addTeam, userId);
+  const addApproverCount = timesheetApproversFor(addTeam, userId).length;
+
+  // The latest request per entry, so a row can report that it is awaiting
+  // review or that the reviewer turned it down. `listMine` is newest-first, so
+  // the first one seen for an entry is the one that still stands.
+  const requestByTarget = useMemo(() => {
+    const map = new Map<string, TimesheetChangeRequest>();
+    for (const r of myRequests) {
+      if (r.targetId && !map.has(r.targetId)) map.set(r.targetId, r);
+    }
+    return map;
+  }, [myRequests]);
+
+  const loadMyRequests = useCallback(() => {
+    if (!userId) return;
+    timesheetApprovalApi
+      .listMine()
+      .then(setMyRequests)
+      .catch(() => {});
+  }, [userId]);
+
+  useEffect(loadMyRequests, [loadMyRequests]);
 
   // Guards against out-of-order responses: fetchData can be triggered
   // repeatedly in quick succession (preset change, Apply click, DDP live
@@ -181,6 +242,20 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     void fetchData();
   }, [preset]);
 
+  // A decision changes a request this user raised rather than their own
+  // timesheet data, so without this nothing would re-run to pick up the new
+  // status — or, for an approval, the entry it just rewrote.
+  useEffect(() => {
+    if (!user?.id) return;
+    return subscribeNewNotifications((n) => {
+      const type = (n.data as Record<string, unknown> | undefined)?.type;
+      if (type === 'timesheet-change-approved' || type === 'timesheet-change-rejected') {
+        loadMyRequests();
+        void fetchData();
+      }
+    });
+  }, [user?.id, loadMyRequests, fetchData]);
+
   // ── Real-time timesheet updates (Meteor DDP, oplog-backed) ──
   useEffect(() => {
     if (!user?.id) return;
@@ -196,7 +271,12 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   }, [user?.id, fetchData]);
 
   // Pull-to-refresh
-  useRefresh(fetchData);
+  useRefresh(
+    useCallback(async () => {
+      loadMyRequests();
+      await fetchData();
+    }, [loadMyRequests, fetchData]),
+  );
 
   const openSessionDialog = useCallback((session: ClockEvent) => {
     setActiveSession(session);
@@ -212,6 +292,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
       }));
     setEditBreaks(nextBreaks);
     setSessionSaveError(null);
+    setEditJustification(emptyJustification);
     setSessionDialogOpen(true);
   }, []);
 
@@ -296,14 +377,25 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     setSessionSaveLoading(true);
     setSessionSaveError(null);
     try {
-      await clockApi.updateTimes(activeSession.id, {
-        startTime: parsedStart,
-        endTime: parsedEnd,
-        breaks: parsedBreaks,
-      });
+      const result = await clockApi.updateTimes(
+        activeSession.id,
+        {
+          startTime: parsedStart,
+          endTime: parsedEnd,
+          breaks: parsedBreaks,
+        },
+        editNeedsApproval
+          ? {
+              description: editJustification.description,
+              videoUrl: editJustification.videoUrl ?? undefined,
+            }
+          : undefined,
+      );
+      if (isPendingChange(result)) setMyRequests((prev) => [result.request, ...prev]);
       setSessionDialogOpen(false);
       setActiveSession(null);
       setEditBreaks([]);
+      setEditJustification(emptyJustification);
       await fetchData();
     } catch (e) {
       if (e instanceof ApiError) {
@@ -314,7 +406,15 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     } finally {
       setSessionSaveLoading(false);
     }
-  }, [activeSession, editBreaks, editClockIn, editClockOut, fetchData]);
+  }, [
+    activeSession,
+    editBreaks,
+    editClockIn,
+    editClockOut,
+    editJustification,
+    editNeedsApproval,
+    fetchData,
+  ]);
 
   const handleDeleteSession = useCallback(async () => {
     if (!activeSession) return;
@@ -322,10 +422,20 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     setSessionDeleteLoading(true);
     setSessionSaveError(null);
     try {
-      await clockApi.deleteEvent(activeSession.id);
+      const result = await clockApi.deleteEvent(
+        activeSession.id,
+        editNeedsApproval
+          ? {
+              description: editJustification.description,
+              videoUrl: editJustification.videoUrl ?? undefined,
+            }
+          : undefined,
+      );
+      if (isPendingChange(result)) setMyRequests((prev) => [result.request, ...prev]);
       setSessionDialogOpen(false);
       setActiveSession(null);
       setEditBreaks([]);
+      setEditJustification(emptyJustification);
       await fetchData();
     } catch (e) {
       if (e instanceof ApiError) {
@@ -336,13 +446,14 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     } finally {
       setSessionDeleteLoading(false);
     }
-  }, [activeSession, fetchData]);
+  }, [activeSession, editJustification, editNeedsApproval, fetchData]);
 
   const openAddEntry = useCallback(() => {
     setNewClockIn('');
     setNewClockOut('');
     setNewTeamId(selectedTeamId ?? teams[0]?.id ?? '');
     setAddEntryError(null);
+    setAddJustification(emptyJustification);
     setAddEntryOpen(true);
   }, [selectedTeamId, teams]);
 
@@ -373,15 +484,25 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     setAddEntryLoading(true);
     setAddEntryError(null);
     try {
-      await clockApi.createManualEntry({
-        teamId: newTeamId,
-        startTime: parsedStart,
-        endTime: parsedEnd,
-      });
+      const result = await clockApi.createManualEntry(
+        {
+          teamId: newTeamId,
+          startTime: parsedStart,
+          endTime: parsedEnd,
+        },
+        addNeedsApproval
+          ? {
+              description: addJustification.description,
+              videoUrl: addJustification.videoUrl ?? undefined,
+            }
+          : undefined,
+      );
+      if (isPendingChange(result)) setMyRequests((prev) => [result.request, ...prev]);
       setAddEntryOpen(false);
       setNewClockIn('');
       setNewClockOut('');
       setNewTeamId('');
+      setAddJustification(emptyJustification);
       await fetchData();
     } catch (e) {
       if (e instanceof ApiError) {
@@ -392,7 +513,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     } finally {
       setAddEntryLoading(false);
     }
-  }, [newClockIn, newClockOut, newTeamId, fetchData]);
+  }, [newClockIn, newClockOut, newTeamId, addJustification, addNeedsApproval, fetchData]);
 
   // Duration previews (display-only, computed from inputs)
   const editDurationSeconds = useMemo(() => {
@@ -656,9 +777,23 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredSessions.map((s) => (
-                    <TimesheetRow key={s.id} session={s} teams={teams} onEdit={openSessionDialog} />
-                  ))}
+                  {filteredSessions.map((s) => {
+                    const request = requestByTarget.get(s.id);
+                    return (
+                      <TimesheetRow
+                        key={s.id}
+                        session={s}
+                        teams={teams}
+                        onEdit={openSessionDialog}
+                        changeStatus={
+                          request?.status === 'pending' || request?.status === 'rejected'
+                            ? request.status
+                            : undefined
+                        }
+                        changeNote={request?.responseNote ?? undefined}
+                      />
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -688,9 +823,13 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
             setActiveSession(null);
             setEditBreaks([]);
             setSessionSaveError(null);
+            // Cleared on the way out too: evidence gathered for one session
+            // must not be submitted as justification for a different one.
+            setEditJustification(emptyJustification);
           }
         }}
         aria-labelledby="edit-session-title"
+        className="mt-[env(safe-area-inset-top,0px)]"
       >
         <ModalHeader>
           <Text weight="semibold" id="edit-session-title">
@@ -815,6 +954,15 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
               {sessionSaveError}
             </Text>
           )}
+          {editNeedsApproval && (
+            <TimesheetJustificationFields
+              value={editJustification}
+              onChange={setEditJustification}
+              videoRequired={timesheetVideoRequired('update')}
+              disabled={sessionSaveLoading || sessionDeleteLoading}
+              approverCount={editApproverCount}
+            />
+          )}
           {activeSession && (
             <AttachmentsPanel kind="clock" entityId={activeSession.id} currentUserId={user?.id} />
           )}
@@ -825,9 +973,13 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
               variant="primary"
               onClick={handleSaveSession}
               isLoading={sessionSaveLoading}
-              disabled={sessionDeleteLoading}
+              disabled={
+                sessionDeleteLoading ||
+                (editNeedsApproval &&
+                  !isJustificationComplete(editJustification, timesheetVideoRequired('update')))
+              }
             >
-              Save
+              {editNeedsApproval ? 'Submit for approval' : 'Save'}
             </Button>
             <Button
               variant="ghost"
@@ -842,7 +994,11 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
                 className="ml-auto"
                 onClick={handleDeleteSession}
                 isLoading={sessionDeleteLoading}
-                disabled={sessionSaveLoading}
+                disabled={
+                  sessionSaveLoading ||
+                  (editNeedsApproval &&
+                    !isJustificationComplete(editJustification, timesheetVideoRequired('delete')))
+                }
               >
                 Delete
               </Button>
@@ -856,9 +1012,13 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
         open={addEntryOpen}
         onOpenChange={(open) => {
           setAddEntryOpen(open);
-          if (!open) setAddEntryError(null);
+          if (!open) {
+            setAddEntryError(null);
+            setAddJustification(emptyJustification);
+          }
         }}
         aria-labelledby="add-entry-title"
+        className="mt-[env(safe-area-inset-top,0px)]"
       >
         <ModalHeader>
           <Text weight="semibold" id="add-entry-title">
@@ -899,11 +1059,28 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
               {addEntryError}
             </Text>
           )}
+          {addNeedsApproval && (
+            <TimesheetJustificationFields
+              value={addJustification}
+              onChange={setAddJustification}
+              videoRequired={timesheetVideoRequired('create')}
+              disabled={addEntryLoading}
+              approverCount={addApproverCount}
+            />
+          )}
         </ModalBody>
         <ModalFooter>
           <div className="flex w-full flex-wrap items-center gap-2">
-            <Button variant="primary" onClick={handleAddEntry} isLoading={addEntryLoading}>
-              Save Entry
+            <Button
+              variant="primary"
+              onClick={handleAddEntry}
+              isLoading={addEntryLoading}
+              disabled={
+                addNeedsApproval &&
+                !isJustificationComplete(addJustification, timesheetVideoRequired('create'))
+              }
+            >
+              {addNeedsApproval ? 'Submit for approval' : 'Save Entry'}
             </Button>
             <Button
               variant="ghost"

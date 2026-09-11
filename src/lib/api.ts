@@ -1381,6 +1381,87 @@ export interface ClockEvent {
   endTime: number | null;
 }
 
+// ─── Timesheet change approvals ───────────────────────────────────────────────
+
+/**
+ * Justification attached to a retroactive timesheet change. Required on teams
+ * that have someone to review it; the backend is the authority and rejects a
+ * submission that arrives without one.
+ */
+export interface TimesheetJustification {
+  description: string;
+  videoUrl?: string;
+}
+
+export interface TimesheetChangeRequest {
+  id: string;
+  teamId: string;
+  userId: string;
+  kind: 'clock' | 'timer';
+  action: 'create' | 'update' | 'delete';
+  targetId: string | null;
+  payload: Record<string, unknown>;
+  /** Names what is being changed where an id alone would mean nothing (e.g. a ticket). */
+  label: string | null;
+  /** The entry's live state, resolved server-side at read time — null once it's gone. */
+  current: {
+    startTime?: number;
+    endTime?: number | null;
+    /** Paid seconds, so a break-only edit is visible to a reviewer. */
+    accumulatedTime?: number | null;
+    durationSeconds?: number;
+    date?: string;
+  } | null;
+  description: string;
+  videoUrl: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  requestedAt: string;
+  respondedAt: string | null;
+  respondedBy: string | null;
+  responseNote: string | null;
+  requesterName?: string;
+  teamName?: string | null;
+  canReview?: boolean;
+}
+
+/** What a mutating timesheet call returns when it was queued for review instead. */
+export interface PendingChange {
+  pending: true;
+  request: TimesheetChangeRequest;
+}
+
+export function isPendingChange(result: unknown): result is PendingChange {
+  return typeof result === 'object' && result !== null && 'pending' in result;
+}
+
+export const timesheetApprovalApi = {
+  /** Requests the caller raised — drives their own pending/declined badges. */
+  listMine: (options?: { teamId?: string; status?: TimesheetChangeRequest['status'] }) =>
+    wormholeCall<{ requests: TimesheetChangeRequest[] }>(
+      'timesheetApprovals.listMine',
+      options ?? {},
+    ).then((r) => r.requests),
+
+  /** Requests awaiting the caller's review across the teams they administer. */
+  listPending: (teamId?: string) =>
+    wormholeCall<{ requests: TimesheetChangeRequest[] }>(
+      'timesheetApprovals.listPending',
+      teamId ? { teamId } : {},
+    ).then((r) => r.requests),
+
+  get: (requestId: string) =>
+    wormholeCall<TimesheetChangeRequest>('timesheetApprovals.get', { requestId }),
+
+  approve: (requestId: string, note?: string) =>
+    wormholeCall<TimesheetChangeRequest>('timesheetApprovals.approve', { requestId, note }),
+
+  reject: (requestId: string, note: string) =>
+    wormholeCall<TimesheetChangeRequest>('timesheetApprovals.reject', { requestId, note }),
+
+  cancel: (requestId: string) =>
+    wormholeCall<{ ok: boolean }>('timesheetApprovals.cancel', { requestId }).then((r) => r.ok),
+};
+
 export const clockApi = {
   /** Clock in to a team. Returns the new clock event. */
   start: (teamId: string, planPostId?: string) =>
@@ -1431,15 +1512,27 @@ export const clockApi = {
       endTime?: number | null;
       breaks?: Array<{ startTime: number; endTime: number | null }>;
     },
-  ) => wormholeCall<ClockEvent>('clock.updateTimes', { clockEventId, ...data }),
+    justification?: TimesheetJustification,
+  ) =>
+    wormholeCall<ClockEvent | PendingChange>('clock.updateTimes', {
+      clockEventId,
+      ...data,
+      ...justification,
+    }),
 
   /** Delete a clock event. */
-  deleteEvent: (clockEventId: string) =>
-    wormholeCall<{ ok: boolean }>('clock.deleteEvent', { clockEventId }).then((r) => r.ok),
+  deleteEvent: (clockEventId: string, justification?: TimesheetJustification) =>
+    wormholeCall<{ ok: boolean } | PendingChange>('clock.deleteEvent', {
+      clockEventId,
+      ...justification,
+    }),
 
   /** Create a completed manual clock entry for a past time range. */
-  createManualEntry: (data: { teamId: string; startTime: number; endTime: number }) =>
-    wormholeCall<ClockEvent>('clock.createManual', data),
+  createManualEntry: (
+    data: { teamId: string; startTime: number; endTime: number },
+    justification?: TimesheetJustification,
+  ) =>
+    wormholeCall<ClockEvent | PendingChange>('clock.createManual', { ...data, ...justification }),
 };
 
 // ─── Team Dashboard API ───────────────────────────────────────────────────────
@@ -1700,17 +1793,28 @@ export const timerApi = {
   updateEntry: (
     entryId: string,
     data: { note?: string | null; durationSeconds?: number; ticketId?: string },
+    justification?: TimesheetJustification,
   ) =>
-    wormholeCall<{ entry: WorkItem }>('timers.updateEntry', { entryId, ...data }).then(
-      (r) => r.entry,
-    ),
+    wormholeCall<{ entry: WorkItem } | PendingChange>('timers.updateEntry', {
+      entryId,
+      ...data,
+      ...justification,
+    }),
 
   /** Delete a WorkItem and all of its timers. */
-  deleteEntry: (entryId: string, options?: { notifyAdmins?: boolean }) =>
-    wormholeCall<{ deletedEntry: boolean; deletedSessions: number }>('timers.deleteEntry', {
-      entryId,
-      notifyAdmins: options?.notifyAdmins ?? true,
-    }),
+  deleteEntry: (
+    entryId: string,
+    options?: { notifyAdmins?: boolean },
+    justification?: TimesheetJustification,
+  ) =>
+    wormholeCall<{ deletedEntry: boolean; deletedSessions: number } | PendingChange>(
+      'timers.deleteEntry',
+      {
+        entryId,
+        notifyAdmins: options?.notifyAdmins ?? true,
+        ...justification,
+      },
+    ),
 
   /** Get the currently running timer for the authenticated user, or null. */
   getRunning: () =>

@@ -26,6 +26,10 @@ interface Props {
   session: ClockEvent;
   teams: Team[];
   onEdit: (session: ClockEvent) => void;
+  /** State of the latest change the viewer requested against this session. */
+  changeStatus?: 'pending' | 'rejected';
+  /** The reviewer's reason, shown on a declined change. */
+  changeNote?: string;
 }
 
 type TimelineRow = {
@@ -181,7 +185,13 @@ function splitAtMidnight(rows: TimelineRow[]): TimelineRow[] {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
+export const TimesheetRow: React.FC<Props> = ({
+  session,
+  teams,
+  onEdit,
+  changeStatus,
+  changeNote,
+}) => {
   const teamName = teams.find((t) => t.id === session.teamId)?.name ?? session.teamId;
   const timelineRows = splitAtMidnight(buildTimelineRows(session, Date.now()));
 
@@ -223,7 +233,23 @@ export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
             </TableCell>
             <TableCell>{showTeam ? teamName : ''}</TableCell>
             <TableCell>
-              {row.isContinued ? null : row.status === 'Active' ? (
+              {row.isContinued ? null : changeStatus === 'pending' ? (
+                <Badge
+                  variant="warning"
+                  size="sm"
+                  title="Waiting for an admin to approve your change"
+                >
+                  Pending approval
+                </Badge>
+              ) : changeStatus === 'rejected' ? (
+                <Badge
+                  variant="danger"
+                  size="sm"
+                  title={changeNote ? `Declined: ${changeNote}` : 'An admin declined your change'}
+                >
+                  Change declined
+                </Badge>
+              ) : row.status === 'Active' ? (
                 <Badge variant="success" size="sm">
                   <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
                   Active

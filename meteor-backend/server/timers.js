@@ -3,6 +3,7 @@ import { Mongo, MongoInternals } from 'meteor/mongo';
 import { Timers, WorkItems, Tickets, Teams, isValidId, rawDb } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { createNotification, userDisplayName } from './notify-core';
+import { requiresApproval, submitChangeRequest } from './timesheet-change-requests';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -96,6 +97,84 @@ async function getTicketTitleMap(ticketIds) {
     _id: { $in: ticketIds.filter(isValidId).map((id) => new Mongo.ObjectID(id)) },
   }, { fields: { title: 1 } }).fetchAsync();
   return new Map(tickets.map((t) => [t._id.toHexString(), t.title]));
+}
+
+/** The team that owns a ticket. Null when the ticket is untracked or gone. */
+export async function teamForTicket(ticketId) {
+  if (!isValidId(ticketId)) return null;
+  const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
+  if (!ticket || !isValidId(ticket.teamId)) return null;
+  return Teams.findOneAsync(new Mongo.ObjectID(ticket.teamId));
+}
+
+/** The team that owns a work item, via its ticket. Null when untracked. */
+export async function teamForEntry(entry) {
+  return teamForTicket(entry?.ticketId);
+}
+
+/** Total logged seconds across a work item's completed sessions. */
+async function loggedSeconds(entryId) {
+  const sessions = await Timers.find({ workItemId: entryId, endTime: { $ne: null } }).fetchAsync();
+  return sessions.reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
+}
+
+// ─── Mutations ───────────────────────────────────────────────────────────────
+// Extracted so an approved change request can replay the same write the direct
+// path would have made. `actorId` is who the change is attributed to — the
+// requester, even when an admin is the one approving it.
+
+/** Apply a note/duration/ticket change to a work item. */
+export async function applyTimerUpdate(
+  entry,
+  { note, durationSeconds, ticketId },
+  actorId,
+  { notifyAdmins = true } = {}
+) {
+  const entryId = entry._id.toHexString();
+  const $set = { updatedAt: new Date() };
+  const $unset = {};
+  if (ticketId && ticketId !== entry.ticketId) $set.ticketId = ticketId;
+  if (note !== undefined) {
+    if (note === null || note === '') $unset.note = '';
+    else $set.note = note;
+  }
+  const updateDoc = { $set };
+  if (Object.keys($unset).length) updateDoc.$unset = $unset;
+  await WorkItems.updateAsync(entry._id, updateDoc);
+
+  if (durationSeconds !== undefined) {
+    const isRunning = await Timers.findOneAsync({ workItemId: entryId, endTime: null });
+    if (!isRunning) {
+      const sessions = await Timers.find(
+        { workItemId: entryId, endTime: { $ne: null } },
+        { sort: { startTime: -1 } }
+      ).fetchAsync();
+      if (sessions.length > 0) {
+        const otherTotal = sessions.slice(1).reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
+        const lastDuration = Math.max(0, durationSeconds - otherTotal);
+        await Timers.updateAsync(sessions[0]._id, { $set: { durationSeconds: lastDuration } });
+      }
+    }
+  }
+
+  const updated = await WorkItems.findOneAsync(entry._id);
+  const finalTicketId = ticketId && ticketId !== entry.ticketId ? ticketId : entry.ticketId;
+  const updatedTicket = await Tickets.findOneAsync(new Mongo.ObjectID(finalTicketId));
+  if (notifyAdmins) {
+    notifyTimesheetAdmins(actorId, finalTicketId, updated.date, 'updated').catch(() => {});
+  }
+  return { entry: toPublicEntry(updated, updatedTicket?.title ?? null) };
+}
+
+/** Delete a work item and every timer session under it. */
+export async function applyTimerDelete(entry, actorId, notifyAdmins = true) {
+  const entryId = entry._id.toHexString();
+  const deletedSessions = await Timers.removeAsync({ workItemId: entryId });
+  await WorkItems.removeAsync(entry._id);
+  if (notifyAdmins) {
+    notifyTimesheetAdmins(actorId, entry.ticketId, entry.date, 'deleted').catch(() => {});
+  }
+  return { deletedEntry: true, deletedSessions };
 }
 
 async function getDayEntries(userId, dateStr) {
@@ -373,7 +452,14 @@ Meteor.methods({
   },
 
   /** Update a WorkItem's note, duration, and/or ticket. */
-  async 'timers.updateEntry'({ entryId, note, durationSeconds, ticketId } = {}) {
+  async 'timers.updateEntry'({
+    entryId,
+    note,
+    durationSeconds,
+    ticketId,
+    description,
+    videoUrl,
+  } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(entryId)) throw new Meteor.Error('not-found', 'WorkItem not found');
@@ -394,53 +480,70 @@ Meteor.methods({
       }
     }
 
-    const $set = { updatedAt: new Date() };
-    const $unset = {};
-    if (ticketId && ticketId !== entry.ticketId) $set.ticketId = ticketId;
-    if (note !== undefined) {
-      if (note === null || note === '') $unset.note = '';
-      else $set.note = note;
-    }
-    const updateDoc = { $set };
-    if (Object.keys($unset).length) updateDoc.$unset = $unset;
-    await WorkItems.updateAsync(new Mongo.ObjectID(entryId), updateDoc);
-
+    // Only a change to logged time is a payroll claim. Re-labelling an entry —
+    // a note tweak or moving it to the right ticket — stays direct.
     if (durationSeconds !== undefined) {
-      const isRunning = await Timers.findOneAsync({ workItemId: entryId, endTime: null });
-      if (!isRunning) {
-        const sessions = await Timers.find(
-          { workItemId: entryId, endTime: { $ne: null } },
-          { sort: { startTime: -1 } }
-        ).fetchAsync();
-        if (sessions.length > 0) {
-          const otherTotal = sessions.slice(1).reduce((sum, s) => sum + (s.durationSeconds ?? 0), 0);
-          const lastDuration = Math.max(0, durationSeconds - otherTotal);
-          await Timers.updateAsync(sessions[0]._id, { $set: { durationSeconds: lastDuration } });
-        }
+      const sourceTeam = await teamForEntry(entry);
+      // A move lands the time on the destination team's timesheet, so that
+      // team's admins are entitled to review it too — gating on the source
+      // alone would let a solo-admin team be used to stage the claim.
+      const destinationTeam =
+        ticketId && ticketId !== entry.ticketId ? await teamForTicket(ticketId) : sourceTeam;
+      const reviewingTeam = [destinationTeam, sourceTeam].find((t) =>
+        requiresApproval(t, userId)
+      );
+      if (reviewingTeam) {
+        const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(entry.ticketId));
+        const request = await submitChangeRequest({
+          requesterId: userId,
+          team: reviewingTeam,
+          kind: 'timer',
+          action: 'update',
+          targetId: entryId,
+          payload: { note, durationSeconds, ticketId },
+          baseline: {
+            note: entry.note ?? null,
+            ticketId: entry.ticketId,
+            durationSeconds: await loggedSeconds(entryId),
+          },
+          label: `${ticket?.title ?? 'a ticket'} — ${entry.date}`,
+          description,
+          videoUrl,
+        });
+        return { pending: true, request };
       }
     }
 
-    const updated = await WorkItems.findOneAsync(new Mongo.ObjectID(entryId));
-    const finalTicketId = ticketId && ticketId !== entry.ticketId ? ticketId : entry.ticketId;
-    const updatedTicket = await Tickets.findOneAsync(new Mongo.ObjectID(finalTicketId));
-    notifyTimesheetAdmins(userId, finalTicketId, updated.date, 'updated').catch(() => {});
-    return { entry: toPublicEntry(updated, updatedTicket?.title ?? null) };
+    return applyTimerUpdate(entry, { note, durationSeconds, ticketId }, userId);
   },
 
   /** Delete a WorkItem and all its timers. */
-  async 'timers.deleteEntry'({ entryId, notifyAdmins = true } = {}) {
+  async 'timers.deleteEntry'({ entryId, notifyAdmins = true, description, videoUrl } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     if (!isValidId(entryId)) throw new Meteor.Error('not-found', 'WorkItem not found');
     const entry = await WorkItems.findOneAsync(new Mongo.ObjectID(entryId));
     if (!entry) throw new Meteor.Error('not-found', 'WorkItem not found');
     if (entry.userId !== userId) throw new Meteor.Error('forbidden', 'Forbidden');
-    const deletedSessions = await Timers.removeAsync({ workItemId: entryId });
-    await WorkItems.removeAsync(new Mongo.ObjectID(entryId));
-    if (notifyAdmins) {
-      notifyTimesheetAdmins(userId, entry.ticketId, entry.date, 'deleted').catch(() => {});
+
+    const team = await teamForEntry(entry);
+    if (requiresApproval(team, userId)) {
+      const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(entry.ticketId));
+      const request = await submitChangeRequest({
+        requesterId: userId,
+        team,
+        kind: 'timer',
+        action: 'delete',
+        targetId: entryId,
+        payload: { notifyAdmins },
+        label: `${ticket?.title ?? 'a ticket'} — ${entry.date}`,
+        description,
+        videoUrl,
+      });
+      return { pending: true, request };
     }
-    return { deletedEntry: true, deletedSessions };
+
+    return applyTimerDelete(entry, userId, notifyAdmins);
   },
 
   /** Copy entries from the most recent previous day into toDate. */
