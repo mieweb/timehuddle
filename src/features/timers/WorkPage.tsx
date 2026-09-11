@@ -41,16 +41,29 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   ApiError,
+  isPendingChange,
   timerApi,
   ticketApi,
   type DayEntry,
   type Timer,
   type Ticket,
 } from '../../lib/api';
+import {
+  timesheetApprovalRequired,
+  timesheetApproversFor,
+  timesheetVideoRequired,
+} from '../../lib/timesheetApproval';
+import {
+  emptyJustification,
+  isJustificationComplete,
+  TimesheetJustificationFields,
+  type TimesheetJustificationState,
+} from '../clock/TimesheetJustificationFields';
 import { toLocalDateStr } from '../../lib/date';
 import { getDdpClient } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useSession } from '../../lib/useSession';
 import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
@@ -161,6 +174,20 @@ export const WorkPage: React.FC = () => {
   const [editTicketId, setEditTicketId] = useState('');
   const [editError, setEditError] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState(false);
+  const [editJustification, setEditJustification] =
+    useState<TimesheetJustificationState>(emptyJustification);
+
+  const { user } = useSession();
+  const userId = user?.id ?? '';
+  // The entry's ticket determines which team reviews the change; fall back to
+  // the selected team for an untracked ticket.
+  const entryTeam = useMemo(() => {
+    const ticketId = editEntry?.entry.ticketId;
+    const ticketTeamId = allTickets.find((t) => t.id === ticketId)?.teamId;
+    return teams.find((t) => t.id === (ticketTeamId ?? selectedTeamId));
+  }, [editEntry, allTickets, teams, selectedTeamId]);
+  const entryNeedsApproval = timesheetApprovalRequired(entryTeam, userId);
+  const entryApproverCount = timesheetApproversFor(entryTeam, userId).length;
 
   // ── Fetch tickets for selected team only ──
 
@@ -413,8 +440,17 @@ export const WorkPage: React.FC = () => {
     async (entryId: string) => {
       setDeletingEntryId(entryId);
       try {
-        await timerApi.deleteEntry(entryId, { notifyAdmins: false });
-        setDayEntries((prev) => prev.filter((de) => de.entry.id !== entryId));
+        const result = await timerApi.deleteEntry(
+          entryId,
+          { notifyAdmins: false },
+          entryNeedsApproval
+            ? { description: editJustification.description }
+            : undefined,
+        );
+        if (!isPendingChange(result)) {
+          setDayEntries((prev) => prev.filter((de) => de.entry.id !== entryId));
+        }
+        setEditJustification(emptyJustification);
         void fetchWeekTotals();
       } catch {
         void fetchDay();
@@ -422,7 +458,7 @@ export const WorkPage: React.FC = () => {
         setDeletingEntryId(null);
       }
     },
-    [fetchDay, fetchWeekTotals],
+    [fetchDay, fetchWeekTotals, entryNeedsApproval, editJustification],
   );
 
   const handlePrevWeek = useCallback(() => {
@@ -456,16 +492,35 @@ export const WorkPage: React.FC = () => {
     setEditLoading(true);
     setEditError(null);
     try {
-      const updated = await timerApi.updateEntry(editEntry.entry.id, {
-        note: editNote || null,
-        ...(!isRunning && parsedSeconds !== null ? { durationSeconds: parsedSeconds } : {}),
-        ...(ticketChanged ? { ticketId: editTicketId } : {}),
-      });
+      const durationChanged = !isRunning && parsedSeconds !== null;
+      const result = await timerApi.updateEntry(
+        editEntry.entry.id,
+        {
+          note: editNote || null,
+          ...(durationChanged ? { durationSeconds: parsedSeconds } : {}),
+          ...(ticketChanged ? { ticketId: editTicketId } : {}),
+        },
+        // Only a duration change is a time claim; the server gates on the same
+        // condition, so a note-only edit must not send a justification.
+        durationChanged && entryNeedsApproval
+          ? {
+              description: editJustification.description,
+              videoUrl: editJustification.videoUrl ?? undefined,
+            }
+          : undefined,
+      );
+      if (isPendingChange(result)) {
+        setEditEntry(null);
+        setEditJustification(emptyJustification);
+        return;
+      }
+      const updated = result.entry;
       setDayEntries((prev) =>
         prev.map((de) => (de.entry.id === updated.id ? { ...de, entry: updated } : de)),
       );
-      if (!isRunning && parsedSeconds !== null) void fetchDay();
+      if (durationChanged) void fetchDay();
       setEditEntry(null);
+      setEditJustification(emptyJustification);
     } catch (error) {
       if (error instanceof ApiError) {
         setEditError(error.message);
@@ -475,7 +530,15 @@ export const WorkPage: React.FC = () => {
     } finally {
       setEditLoading(false);
     }
-  }, [editEntry, editNote, editDuration, editTicketId, fetchDay]);
+  }, [
+    editEntry,
+    editNote,
+    editDuration,
+    editTicketId,
+    editJustification,
+    entryNeedsApproval,
+    fetchDay,
+  ]);
 
   const handleCopyPrevious = useCallback(async () => {
     setCopyLoading(true);
@@ -873,6 +936,20 @@ export const WorkPage: React.FC = () => {
       {editEntry &&
         (() => {
           const isRunning = !!editEntry.sessions.find((s) => s.endTime === null);
+          // Only a change to logged time is a payroll claim — the server gates
+          // on the same condition, so a note-only edit skips the justification.
+          const parsedSeconds = hhmmToSeconds(editDuration);
+          const durationChanged =
+            !isRunning &&
+            parsedSeconds !== null &&
+            parsedSeconds !== entryTotalSeconds(editEntry.sessions, currentTime);
+          const editBlocked =
+            entryNeedsApproval &&
+            durationChanged &&
+            !isJustificationComplete(editJustification, timesheetVideoRequired('update'));
+          const deleteBlocked =
+            entryNeedsApproval &&
+            !isJustificationComplete(editJustification, timesheetVideoRequired('delete'));
           return (
             <Modal
               open
@@ -927,6 +1004,15 @@ export const WorkPage: React.FC = () => {
                     {editError}
                   </Text>
                 )}
+                {entryNeedsApproval && (
+                  <TimesheetJustificationFields
+                    value={editJustification}
+                    onChange={setEditJustification}
+                    videoRequired={durationChanged}
+                    disabled={editLoading}
+                    approverCount={entryApproverCount}
+                  />
+                )}
               </ModalBody>
               <ModalFooter className="flex items-center justify-between">
                 <div className="flex gap-2">
@@ -934,9 +1020,9 @@ export const WorkPage: React.FC = () => {
                     variant="primary"
                     onClick={handleUpdateEntry}
                     isLoading={editLoading}
-                    disabled={!isRunning && hhmmToSeconds(editDuration) === null}
+                    disabled={(!isRunning && parsedSeconds === null) || editBlocked}
                   >
-                    Update
+                    {entryNeedsApproval && durationChanged ? 'Submit for approval' : 'Update'}
                   </Button>
                   <Button variant="ghost" onClick={() => setEditEntry(null)}>
                     Cancel
@@ -944,6 +1030,7 @@ export const WorkPage: React.FC = () => {
                 </div>
                 <Button
                   variant="danger"
+                  disabled={deleteBlocked}
                   onClick={() => {
                     void handleDeleteEntry(editEntry.entry.id);
                     setEditEntry(null);

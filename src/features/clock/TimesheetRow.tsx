@@ -26,6 +26,8 @@ interface Props {
   session: ClockEvent;
   teams: Team[];
   onEdit: (session: ClockEvent) => void;
+  /** Set when the user has submitted a change to this session that no admin has ruled on yet. */
+  pendingApproval?: boolean;
 }
 
 type TimelineRow = {
@@ -181,7 +183,7 @@ function splitAtMidnight(rows: TimelineRow[]): TimelineRow[] {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
+export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit, pendingApproval }) => {
   const teamName = teams.find((t) => t.id === session.teamId)?.name ?? session.teamId;
   const timelineRows = splitAtMidnight(buildTimelineRows(session, Date.now()));
 
@@ -223,7 +225,11 @@ export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
             </TableCell>
             <TableCell>{showTeam ? teamName : ''}</TableCell>
             <TableCell>
-              {row.isContinued ? null : row.status === 'Active' ? (
+              {row.isContinued ? null : pendingApproval ? (
+                <Badge variant="warning" size="sm" title="Waiting for an admin to approve your change">
+                  Pending approval
+                </Badge>
+              ) : row.status === 'Active' ? (
                 <Badge variant="success" size="sm">
                   <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
                   Active
