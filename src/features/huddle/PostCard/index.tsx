@@ -177,9 +177,9 @@ export function PostCard({
     <div
       id={`huddle-post-${post.id}`}
       data-testid="post-card"
-      className={`border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800 md:mb-4 md:rounded-xl md:border md:border-gray-200 dark:md:border-neutral-700 transition-all duration-300 ${
+      className={`border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800 md:mb-4 md:rounded-xl md:border md:border-gray-200 dark:md:border-neutral-700 transition-colors duration-300 ${
         highlighted
-          ? 'ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-neutral-900 bg-indigo-50 dark:bg-indigo-950/40 shadow-lg'
+          ? 'huddle-post-highlight relative z-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/50'
           : ''
       }`}
     >

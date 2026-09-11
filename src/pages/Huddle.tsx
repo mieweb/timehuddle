@@ -89,45 +89,43 @@ export default function Huddle() {
     setFeedView('cards');
   }, [targetPostId]);
 
-  // Scroll + highlight. The card can lag a frame or two behind `posts` (the
-  // feed tab/view switch above re-renders first), so poll for the node instead
-  // of assuming it exists the moment the post is in state. The post being in
-  // `posts` already implies its team's feed is the one loaded.
-  useEffect(() => {
-    if (!targetPostId || loading) return;
-    if (feedTab !== 'feed' || feedView !== 'cards') return;
-    if (!posts.some((p) => p.id === targetPostId)) return;
+  // A boolean, not `posts` itself: the array gets a fresh identity on every DDP
+  // change event, and depending on it tore down the effect below (cancelling its
+  // rAF) faster than a frame could elapse, so the scroll never ran.
+  const targetPostLoaded = targetPostId !== null && posts.some((p) => p.id === targetPostId);
 
+  useEffect(() => {
+    if (!targetPostId || !targetPostLoaded) return;
+    if (feedTab !== 'feed' || feedView !== 'cards') return;
+
+    setHighlightedPostId(targetPostId);
+    setTargetPostId(null);
+    replace('/app/huddle');
+
+    // Scrolling is best-effort and independent of the highlight: the card can
+    // lag a frame or two behind the state update above.
     let frame = 0;
     let attempts = 0;
+    const id = targetPostId;
     const tryScroll = () => {
-      const el = document.getElementById(`huddle-post-${targetPostId}`);
+      const el = document.getElementById(`huddle-post-${id}`);
       if (!el) {
         if (attempts++ < 60) frame = requestAnimationFrame(tryScroll);
         return;
       }
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      setHighlightedPostId(targetPostId);
-      setTargetPostId(null);
-      replace('/app/huddle');
     };
     frame = requestAnimationFrame(tryScroll);
     return () => cancelAnimationFrame(frame);
-  }, [targetPostId, loading, posts, feedTab, feedView, replace]);
+  }, [targetPostId, targetPostLoaded, feedTab, feedView, replace]);
 
-  // Hold the highlight for a few seconds, or until the user taps. The tap that
-  // opened the notification can land here as a ghost event, so listening only
-  // starts after a short grace period.
+  // Long enough to survive a scroll animation and catch the eye. Deliberately
+  // not dismissed on tap — the tap that opened the notification arrives here as
+  // a ghost event and was killing the highlight instantly on touch devices.
   useEffect(() => {
     if (!highlightedPostId) return;
-    const clear = () => setHighlightedPostId(null);
-    const expiry = setTimeout(clear, 4000);
-    const listen = setTimeout(() => document.addEventListener('pointerdown', clear), 600);
-    return () => {
-      clearTimeout(expiry);
-      clearTimeout(listen);
-      document.removeEventListener('pointerdown', clear);
-    };
+    const timer = setTimeout(() => setHighlightedPostId(null), 6000);
+    return () => clearTimeout(timer);
   }, [highlightedPostId]);
 
   // Load team data for permission checks
