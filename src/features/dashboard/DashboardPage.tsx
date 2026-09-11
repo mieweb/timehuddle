@@ -56,6 +56,7 @@ import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 import { PersonalTimesheetPanel } from '../clock/PersonalTimesheetPanel';
 import { roundDurationSecondsForDisplay } from '../clock/timesheetUtils';
 import { AdminTimesheetPanel } from '../teams/AdminTimesheetPanel';
+import { TimesheetApprovalsPanel } from '../teams/TimesheetApprovalsPanel';
 
 const profilePath = (member: TeamMemberClockStatus) =>
   `/app/profile/${member.username ?? member.userId}`;
@@ -104,10 +105,12 @@ export const DashboardPage: React.FC = () => {
   const [view, setView] = useState<'overview' | 'timesheet'>('overview');
   const [initialMemberId, setInitialMemberId] = useState<string>('');
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [focusRequestId, setFocusRequestId] = useState<string | null>(null);
 
   // ── Deep-link support ──
   //   ?tab=timesheet&teamId=&memberId=  → Team → Timesheet (admin, from notifications)
   //   ?view=timesheet                   → Me → Timesheet (the retired /app/timesheet URL)
+  //   ?requestId=                       → open that timesheet approval for review
   useEffect(() => {
     if (!teamsReady) return;
     const params = new URLSearchParams(window.location.search);
@@ -115,14 +118,16 @@ export const DashboardPage: React.FC = () => {
     const deepView = params.get('view');
     const memberId = params.get('memberId');
     const teamId = params.get('teamId');
+    const requestId = params.get('requestId');
 
-    if (deepTab === 'timesheet') {
+    if (deepTab === 'timesheet' || requestId) {
       setTab('team');
       setView('timesheet');
     }
     if (deepView === 'timesheet') {
       setView('timesheet');
     }
+    if (requestId) setFocusRequestId(requestId);
     if (memberId) setInitialMemberId(memberId);
     if (teamId) {
       const inScope = teams.find((t) => t.id === teamId);
@@ -136,7 +141,7 @@ export const DashboardPage: React.FC = () => {
       }
     }
 
-    if (deepTab || deepView || memberId || teamId) {
+    if (deepTab || deepView || memberId || teamId || requestId) {
       window.history.replaceState(null, '', window.location.pathname);
     }
   }, [teamsReady, teams, allTeams, setSelectedTeamId, setSelectedOrgId]);
@@ -393,12 +398,15 @@ export const DashboardPage: React.FC = () => {
       {/* ── Timesheet view: Team → admin panel (admins only), Me → personal panel ── */}
       {view === 'timesheet' &&
         (showAdminTimesheet && selectedTeamId ? (
-          <AdminTimesheetPanel
-            members={teamMembers}
-            selectedTeamId={selectedTeamId}
-            teams={teams}
-            initialMemberId={initialMemberId}
-          />
+          <div className="space-y-4">
+            <TimesheetApprovalsPanel teamId={selectedTeamId} focusRequestId={focusRequestId} />
+            <AdminTimesheetPanel
+              members={teamMembers}
+              selectedTeamId={selectedTeamId}
+              teams={teams}
+              initialMemberId={initialMemberId}
+            />
+          </div>
         ) : (
           <PersonalTimesheetPanel />
         ))}
