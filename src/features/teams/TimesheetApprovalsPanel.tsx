@@ -48,22 +48,28 @@ function asEpoch(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-const dayFormat: Intl.DateTimeFormatOptions = { weekday: 'short', month: 'short', day: 'numeric' };
+const dayFormat: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
 const clockFormat: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
 
-/** "Sun, Sep 7 · 9:04 AM – 4:04 PM", collapsing the date when both ends share one. */
+/** "9:04am" — Intl gives "9:04 AM", which reads heavier than it needs to here. */
+function shortTime(date: Date): string {
+  return date.toLocaleTimeString(undefined, clockFormat).replace(/\s*([AP])M/i, (_, p) =>
+    p.toLowerCase() + 'm',
+  );
+}
+
+/** "Sep 7, 9:04am – 4:04pm", naming the second date only when it differs. */
 function formatRange(startMs: number | null, endMs: number | null): string | null {
   if (startMs === null) return null;
   const start = new Date(startMs);
-  const startText = `${start.toLocaleDateString(undefined, dayFormat)} · ${start.toLocaleTimeString(undefined, clockFormat)}`;
-  if (endMs === null) return `${startText} – still open`;
+  const startDay = start.toLocaleDateString(undefined, dayFormat);
+  if (endMs === null) return `${startDay}, ${shortTime(start)} – still open`;
 
   const end = new Date(endMs);
   const sameDay = start.toDateString() === end.toDateString();
-  const endText = sameDay
-    ? end.toLocaleTimeString(undefined, clockFormat)
-    : `${end.toLocaleDateString(undefined, dayFormat)} · ${end.toLocaleTimeString(undefined, clockFormat)}`;
-  return `${startText} – ${endText}`;
+  return sameDay
+    ? `${startDay}, ${shortTime(start)} – ${shortTime(end)}`
+    : `${startDay}, ${shortTime(start)} – ${end.toLocaleDateString(undefined, dayFormat)}, ${shortTime(end)}`;
 }
 
 function formatDurationBetween(startMs: number | null, endMs: number | null): string | null {
@@ -243,7 +249,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
       <Modal
         open={active !== null}
         onOpenChange={(o) => !o && close()}
-        className="pt-[env(safe-area-inset-top)] sm:pt-0"
+        className="mt-[env(safe-area-inset-top,0px)]"
       >
         <ModalHeader>
           <Text weight="semibold">

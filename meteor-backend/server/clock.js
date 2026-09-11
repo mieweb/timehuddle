@@ -64,15 +64,17 @@ async function findUserTeam(userId, teamId) {
 function formatRange(startTime, endTime) {
   const fmt = (ms) =>
     typeof ms === 'number'
-      ? new Date(ms).toLocaleString('en-US', {
-          timeZone: 'UTC',
-          month: 'short',
-          day: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit',
-        })
+      ? new Date(ms)
+          .toLocaleString('en-US', {
+            timeZone: 'UTC',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          })
+          .replace(/\s([AP])M/, (_, p) => p.toLowerCase() + 'm')
       : 'still open';
-  return `${fmt(startTime)} → ${fmt(endTime)} UTC`;
+  return `${fmt(startTime)} – ${fmt(endTime)} UTC`;
 }
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
