@@ -25,7 +25,7 @@ import { useRouter } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { teamApi, huddleApi, type HuddlePost, type Team } from '@lib/api';
-import { getDdpClient } from '@lib/ddp';
+import { getDdpClient, useLiveClockEvents } from '@lib/ddp';
 import { useRefresh } from '@lib/RefreshContext';
 import { toDateString } from '@lib/timeUtils';
 
@@ -147,6 +147,16 @@ export default function Huddle() {
     const timer = setTimeout(() => setHighlightedPostId(null), 6000);
     return () => clearTimeout(timer);
   }, [highlightedPostId]);
+
+  // Live session state for the post headers. The posts publication only fires
+  // on post writes, so a clock-out would never reach the feed on its own —
+  // `clock.liveForTeams` carries every still-open session for the team.
+  const liveTeamIds = useMemo(() => (selectedTeamId ? [selectedTeamId] : []), [selectedTeamId]);
+  const { docs: liveClockEvents } = useLiveClockEvents(liveTeamIds);
+  const activeClockEventIds = useMemo(
+    () => new Set(liveClockEvents.filter((d) => d.endTime == null).map((d) => d._id)),
+    [liveClockEvents],
+  );
 
   // Load team data for permission checks
   useEffect(() => {
@@ -516,6 +526,9 @@ export default function Huddle() {
                       canEdit={canEditPost(post)}
                       canDelete={canDeletePost(post)}
                       highlighted={post.id === highlightedPostId}
+                      sessionActive={
+                        !!post.clockEventId && activeClockEventIds.has(post.clockEventId)
+                      }
                     />
                   ))}
               </>

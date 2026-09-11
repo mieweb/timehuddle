@@ -64,6 +64,23 @@ async function enrichPost(post) {
     const ticket = await rawDb().collection('tickets').findOne({ _id: toId(post.ticketId) });
     ticketTitle = ticket?.title;
   }
+
+  // Clock-in/out times are read off the linked ClockEvent rather than copied
+  // onto the post, so the session stays the single source of truth.
+  let session;
+  if (post.clockEventId) {
+    const event = await rawDb()
+      .collection('clockevents')
+      .findOne({ _id: toId(post.clockEventId) }, { projection: { startTime: 1, endTime: 1 } });
+    if (event) {
+      const rawEnd = event.endTime;
+      session = {
+        startTime: typeof event.startTime === 'number' ? event.startTime : 0,
+        endTime:
+          rawEnd instanceof Date ? rawEnd.getTime() : typeof rawEnd === 'number' ? rawEnd : null,
+      };
+    }
+  }
   
   const id = post._id?.toHexString ? post._id.toHexString() : String(post._id);
   
@@ -92,6 +109,7 @@ async function enrichPost(post) {
     status: post.status ?? undefined,
     postDate: post.postDate ?? undefined,
     clockEventId: post.clockEventId ?? undefined,
+    session,
     wrapUpAt: post.wrapUpAt instanceof Date
       ? post.wrapUpAt.toISOString()
       : (post.wrapUpAt ? String(post.wrapUpAt) : null),

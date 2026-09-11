@@ -157,10 +157,14 @@ Meteor.methods({
         .collection('huddlePosts')
         .findOne({ _id: new ObjectId(planPostId), userId });
       if (planPost && String(planPost.teamId) === String(teamId)) {
-        await rawDb().collection('huddlePosts').updateOne(
-          { _id: planPost._id },
-          { $set: { clockEventId: created._id.toHexString(), updatedAt: new Date() } }
-        );
+        // Not `updatedAt` — the feed renders any post whose updatedAt differs
+        // from createdAt as "edited", and linking a session is not an edit.
+        await rawDb()
+          .collection('huddlePosts')
+          .updateOne(
+            { _id: planPost._id },
+            { $set: { clockEventId: created._id.toHexString() } }
+          );
       } else {
         planPost = null;
       }
