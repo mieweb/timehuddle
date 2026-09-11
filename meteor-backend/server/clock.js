@@ -35,6 +35,7 @@ import {
 } from './timer-core';
 import { createNotification, notifyClockAdmins, userDisplayName } from './notify-core';
 import { emitActivity, ActivityType } from './activity-core';
+import { requiresApproval, submitChangeRequest } from './timesheet-change-requests';
 import {
   scheduleClockJobs,
   rescheduleClockJobs,
@@ -53,6 +54,124 @@ async function findUserTeam(userId, teamId) {
     _id: oid(teamId),
     $or: [{ members: userId }, { admins: userId }],
   });
+}
+
+function formatRange(startTime, endTime) {
+  const fmt = (ms) => (typeof ms === 'number' ? new Date(ms).toISOString() : 'open');
+  return `${fmt(startTime)} → ${fmt(endTime)}`;
+}
+
+// ─── Mutations ───────────────────────────────────────────────────────────────
+// Extracted from the methods below so an approved change request can replay the
+// exact same write the direct path would have made. `actorId` is the person the
+// change is attributed to, which is the requester even when an admin approves.
+
+/** Apply new times/breaks to an existing clock event. */
+export async function applyClockUpdate(event, { startTime, endTime, breaks }, actorId) {
+  const clockEventId = event._id.toHexString();
+  const effectiveStart = typeof startTime === 'number' ? startTime : event.startTime;
+  const effectiveEnd =
+    endTime === null ? null : typeof endTime === 'number' ? endTime : event.endTime;
+  if (effectiveEnd !== null && effectiveEnd < effectiveStart) {
+    throw new Meteor.Error('invalid-range', 'End is before start');
+  }
+
+  const existingBreaks = await findBreaksForEvent(clockEventId);
+  const requestedBreaks = Array.isArray(breaks) ? toBreakEntries(breaks) : existingBreaks;
+  const normalizedBreaks = normalizeBreakEntries(requestedBreaks, effectiveStart, effectiveEnd);
+
+  const classifiedBreaks = normalizedBreaks.map((b) => {
+    if (b.endTime === null || b.type !== undefined) return b;
+    const durationSeconds = Math.floor((b.endTime - b.startTime) / 1000);
+    return { ...b, ...classifyBreak(durationSeconds) };
+  });
+
+  await ClockBreaks.removeAsync({ clockEventId });
+  for (const b of classifiedBreaks) {
+    await ClockBreaks.insertAsync({ clockEventId, ...b });
+  }
+
+  const $set = {};
+  if (typeof startTime === 'number') $set.startTime = startTime;
+  if (endTime === null) $set.endTime = null;
+  else if (typeof endTime === 'number') $set.endTime = endTime;
+
+  if (effectiveEnd !== null) {
+    const now = Date.now();
+    const deductedSeconds = computeDeductedBreakSeconds(classifiedBreaks, now);
+    const spanSeconds = Math.max(0, Math.floor((effectiveEnd - effectiveStart) / 1000));
+    $set.accumulatedTime = Math.max(0, spanSeconds - deductedSeconds);
+  }
+
+  if (Object.keys($set).length > 0) await ClockEvents.updateAsync(event._id, { $set });
+
+  if (typeof startTime === 'number' && event.endTime === null) {
+    rescheduleClockJobs(
+      clockEventId,
+      event.userId,
+      event.teamId,
+      startTime,
+      event.autoClockoutAgreed === true
+    ).catch((err) => console.error('[agenda] rescheduleClockJobs failed:', err));
+  }
+
+  const updated = await ClockEvents.findOneAsync(event._id);
+  if (!updated) throw new Meteor.Error('not-found', 'Clock event not found');
+  const updatedBreaks = await findBreaksForEvent(clockEventId);
+
+  notifyClockAdmins(actorId, event.teamId, updated.startTime, 'updated').catch((err) =>
+    console.error('[clock] notify admins failed:', err)
+  );
+  return toPublicClockEvent(updated, updatedBreaks);
+}
+
+/** Remove a clock event along with its breaks, attachments and pending jobs. */
+export async function applyClockDelete(event, actorId) {
+  const clockEventId = event._id.toHexString();
+  await ClockEvents.removeAsync(event._id);
+  cancelClockJobs(clockEventId).catch((err) =>
+    console.error('[agenda] cancelClockJobs on delete failed:', err)
+  );
+  await ClockBreaks.removeAsync({ clockEventId });
+  await rawDb()
+    .collection('attachments')
+    .deleteMany({ 'attachedTo.kind': 'clock', 'attachedTo.id': clockEventId });
+
+  notifyClockAdmins(actorId, event.teamId, event.startTime, 'deleted').catch((err) =>
+    console.error('[clock] notify admins failed:', err)
+  );
+  return { ok: true };
+}
+
+/** Insert a completed clock event for a past range (manual backfill). */
+export async function applyClockCreateManual({ userId, teamId, startTime, endTime }) {
+  const now = Date.now();
+  if (startTime > now || endTime > now) {
+    throw new Meteor.Error('invalid-range', 'Times must be in the past');
+  }
+  if (endTime <= startTime) throw new Meteor.Error('invalid-range', 'End is before start');
+
+  const overlapping = await ClockEvents.findOneAsync({
+    userId,
+    startTime: { $lt: endTime },
+    $or: [{ endTime: null }, { endTime: { $gt: startTime } }],
+  });
+  if (overlapping) {
+    throw new Meteor.Error('overlap', 'This entry overlaps an existing clock session');
+  }
+
+  const _id = await ClockEvents.insertAsync({
+    userId,
+    teamId,
+    startTime,
+    accumulatedTime: Math.floor((endTime - startTime) / 1000),
+    endTime,
+  });
+  const created = await ClockEvents.findOneAsync(_id);
+  notifyClockAdmins(userId, teamId, startTime, 'added').catch((err) =>
+    console.error('[clock] notify admins failed:', err)
+  );
+  return toPublicClockEvent(created, []);
 }
 
 Meteor.methods({
@@ -357,7 +476,14 @@ Meteor.methods({
   },
 
   /** Update a clock event's timestamps and optional break intervals. */
-  async 'clock.updateTimes'({ clockEventId, startTime, endTime, breaks } = {}) {
+  async 'clock.updateTimes'({
+    clockEventId,
+    startTime,
+    endTime,
+    breaks,
+    description,
+    videoUrl,
+  } = {}) {
     const identity = await requireIdentity(this);
     const requesterId = identity.userId;
     if (!isValidId(clockEventId)) throw new Meteor.Error('not-found', 'Clock event not found');
@@ -369,65 +495,30 @@ Meteor.methods({
       if (!adminTeam) throw new Meteor.Error('forbidden', 'Not allowed to edit this event');
     }
 
-    const effectiveStart = typeof startTime === 'number' ? startTime : event.startTime;
-    const effectiveEnd =
-      endTime === null ? null : typeof endTime === 'number' ? endTime : event.endTime;
-    if (effectiveEnd !== null && effectiveEnd < effectiveStart) {
-      throw new Meteor.Error('invalid-range', 'End is before start');
+    const team = await findUserTeam(event.userId, event.teamId);
+    if (requiresApproval(team, requesterId)) {
+      const request = await submitChangeRequest({
+        requesterId,
+        team,
+        kind: 'clock',
+        action: 'update',
+        targetId: clockEventId,
+        payload: { startTime, endTime, breaks },
+        summary: `Clock session ${formatRange(event.startTime, event.endTime)} → ${formatRange(
+          typeof startTime === 'number' ? startTime : event.startTime,
+          endTime === null ? null : typeof endTime === 'number' ? endTime : event.endTime
+        )}`,
+        description,
+        videoUrl,
+      });
+      return { pending: true, request };
     }
 
-    const existingBreaks = await findBreaksForEvent(clockEventId);
-    const requestedBreaks = Array.isArray(breaks) ? toBreakEntries(breaks) : existingBreaks;
-    const normalizedBreaks = normalizeBreakEntries(requestedBreaks, effectiveStart, effectiveEnd);
-
-    const classifiedBreaks = normalizedBreaks.map((b) => {
-      if (b.endTime === null || b.type !== undefined) return b;
-      const durationSeconds = Math.floor((b.endTime - b.startTime) / 1000);
-      return { ...b, ...classifyBreak(durationSeconds) };
-    });
-
-    await ClockBreaks.removeAsync({ clockEventId });
-    for (const b of classifiedBreaks) {
-      await ClockBreaks.insertAsync({ clockEventId, ...b });
-    }
-
-    const $set = {};
-    if (typeof startTime === 'number') $set.startTime = startTime;
-    if (endTime === null) $set.endTime = null;
-    else if (typeof endTime === 'number') $set.endTime = endTime;
-
-    if (effectiveEnd !== null) {
-      const now = Date.now();
-      const deductedSeconds = computeDeductedBreakSeconds(classifiedBreaks, now);
-      const spanSeconds = Math.max(0, Math.floor((effectiveEnd - effectiveStart) / 1000));
-      $set.accumulatedTime = Math.max(0, spanSeconds - deductedSeconds);
-    }
-
-    if (Object.keys($set).length > 0) await ClockEvents.updateAsync(event._id, { $set });
-
-    if (typeof startTime === 'number' && event.endTime === null) {
-      rescheduleClockJobs(
-        clockEventId,
-        event.userId,
-        event.teamId,
-        startTime,
-        event.autoClockoutAgreed === true
-      ).catch((err) => console.error('[agenda] rescheduleClockJobs failed:', err));
-    }
-
-    const updated = await ClockEvents.findOneAsync(event._id);
-    const updatedBreaks = await findBreaksForEvent(clockEventId);
-    if (updated) {
-      notifyClockAdmins(requesterId, event.teamId, updated.startTime, 'updated').catch((err) =>
-        console.error('[clock] notify admins failed:', err)
-      );
-    }
-    if (!updated) throw new Meteor.Error('not-found', 'Clock event not found');
-    return toPublicClockEvent(updated, updatedBreaks);
+    return applyClockUpdate(event, { startTime, endTime, breaks }, requesterId);
   },
 
   /** Delete a clock event (owner or team admin). */
-  async 'clock.deleteEvent'({ clockEventId } = {}) {
+  async 'clock.deleteEvent'({ clockEventId, description } = {}) {
     const identity = await requireIdentity(this);
     const requesterId = identity.userId;
     if (!isValidId(clockEventId)) throw new Meteor.Error('not-found', 'Clock event not found');
@@ -439,55 +530,46 @@ Meteor.methods({
       if (!adminTeam) throw new Meteor.Error('forbidden', 'Not allowed to delete this event');
     }
 
-    await ClockEvents.removeAsync(event._id);
-    cancelClockJobs(clockEventId).catch((err) =>
-      console.error('[agenda] cancelClockJobs on delete failed:', err)
-    );
-    await ClockBreaks.removeAsync({ clockEventId });
-    await rawDb()
-      .collection('attachments')
-      .deleteMany({ 'attachedTo.kind': 'clock', 'attachedTo.id': clockEventId });
+    const team = await findUserTeam(event.userId, event.teamId);
+    if (requiresApproval(team, requesterId)) {
+      const request = await submitChangeRequest({
+        requesterId,
+        team,
+        kind: 'clock',
+        action: 'delete',
+        targetId: clockEventId,
+        payload: {},
+        summary: `Delete clock session ${formatRange(event.startTime, event.endTime)}`,
+        description,
+      });
+      return { pending: true, request };
+    }
 
-    notifyClockAdmins(requesterId, event.teamId, event.startTime, 'deleted').catch((err) =>
-      console.error('[clock] notify admins failed:', err)
-    );
-
-    return { ok: true };
+    return applyClockDelete(event, requesterId);
   },
 
   /** Create a completed clock event for a past time range (manual backfill). */
-  async 'clock.createManual'({ teamId, startTime, endTime } = {}) {
+  async 'clock.createManual'({ teamId, startTime, endTime, description, videoUrl } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const team = await findUserTeam(userId, teamId);
     if (!team) throw new Meteor.Error('forbidden', 'Not a member of this team');
 
-    const now = Date.now();
-    if (startTime > now || endTime > now) {
-      throw new Meteor.Error('invalid-range', 'Times must be in the past');
+    if (requiresApproval(team, userId)) {
+      const request = await submitChangeRequest({
+        requesterId: userId,
+        team,
+        kind: 'clock',
+        action: 'create',
+        payload: { teamId, startTime, endTime },
+        summary: `Add clock session ${formatRange(startTime, endTime)}`,
+        description,
+        videoUrl,
+      });
+      return { pending: true, request };
     }
-    if (endTime <= startTime) throw new Meteor.Error('invalid-range', 'End is before start');
 
-    const overlapping = await ClockEvents.findOneAsync({
-      userId,
-      startTime: { $lt: endTime },
-      $or: [{ endTime: null }, { endTime: { $gt: startTime } }],
-    });
-    if (overlapping) throw new Meteor.Error('overlap', 'This entry overlaps an existing clock session');
-
-    const accumulatedTime = Math.floor((endTime - startTime) / 1000);
-    const _id = await ClockEvents.insertAsync({
-      userId,
-      teamId,
-      startTime,
-      accumulatedTime,
-      endTime,
-    });
-    const created = await ClockEvents.findOneAsync(_id);
-    notifyClockAdmins(userId, teamId, startTime, 'added').catch((err) =>
-      console.error('[clock] notify admins failed:', err)
-    );
-    return toPublicClockEvent(created, []);
+    return applyClockCreateManual({ userId, teamId, startTime, endTime });
   },
 
   /** Timesheet data for a user over a date range (epoch-ms boundaries). */

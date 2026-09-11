@@ -24,7 +24,7 @@ import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
 import './clock';
 import './timers';
-import './timers';
+import './timesheet-approvals';
 import './notifications';
 import './presence';
 import './activity';
@@ -1074,6 +1074,8 @@ Meteor.startup(async() => {
         startTime: { type: 'number' },
         endTime: { type: ['number', 'null'] },
         breaks: { type: 'array', items: { type: 'object' } },
+        description: { type: 'string', description: 'Justification, required on teams with admins' },
+        videoUrl: { type: 'string', description: 'Supporting video, required on teams with admins' },
       },
       required: ['clockEventId'],
     },
@@ -1083,7 +1085,10 @@ Meteor.startup(async() => {
     description: 'Delete a clock event (owner or team admin)',
     inputSchema: {
       type: 'object',
-      properties: { clockEventId: { type: 'string' } },
+      properties: {
+        clockEventId: { type: 'string' },
+        description: { type: 'string', description: 'Justification, required on teams with admins' },
+      },
       required: ['clockEventId'],
     },
   });
@@ -1096,8 +1101,66 @@ Meteor.startup(async() => {
         teamId: { type: 'string' },
         startTime: { type: 'number' },
         endTime: { type: 'number' },
+        description: { type: 'string', description: 'Justification, required on teams with admins' },
+        videoUrl: { type: 'string', description: 'Supporting video, required on teams with admins' },
       },
       required: ['teamId', 'startTime', 'endTime'],
+    },
+  });
+
+  // ── Timesheet change approvals ──────────────────────────────────────────
+  Wormhole.expose('timesheetApprovals.listMine', {
+    description: 'Timesheet change requests raised by the caller',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        status: { type: 'string', enum: ['pending', 'approved', 'rejected'] },
+      },
+    },
+  });
+
+  Wormhole.expose('timesheetApprovals.listPending', {
+    description: 'Timesheet change requests awaiting the caller’s review',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+    },
+  });
+
+  Wormhole.expose('timesheetApprovals.get', {
+    description: 'Full detail for one timesheet change request',
+    inputSchema: {
+      type: 'object',
+      properties: { requestId: { type: 'string' } },
+      required: ['requestId'],
+    },
+  });
+
+  Wormhole.expose('timesheetApprovals.approve', {
+    description: 'Approve a timesheet change request and apply it',
+    inputSchema: {
+      type: 'object',
+      properties: { requestId: { type: 'string' }, note: { type: 'string' } },
+      required: ['requestId'],
+    },
+  });
+
+  Wormhole.expose('timesheetApprovals.reject', {
+    description: 'Decline a timesheet change request with a reason',
+    inputSchema: {
+      type: 'object',
+      properties: { requestId: { type: 'string' }, note: { type: 'string' } },
+      required: ['requestId', 'note'],
+    },
+  });
+
+  Wormhole.expose('timesheetApprovals.cancel', {
+    description: 'Withdraw a pending timesheet change request the caller raised',
+    inputSchema: {
+      type: 'object',
+      properties: { requestId: { type: 'string' } },
+      required: ['requestId'],
     },
   });
 
@@ -1333,11 +1396,11 @@ Meteor.startup(async() => {
   });
   Wormhole.expose('timers.updateEntry', {
     description: 'Update a WorkItem note, duration, and/or ticket',
-    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, note: { type: 'string' }, durationSeconds: { type: 'number' }, ticketId: { type: 'string' } }, required: ['entryId'] },
+    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, note: { type: 'string' }, durationSeconds: { type: 'number' }, ticketId: { type: 'string' }, description: { type: 'string' }, videoUrl: { type: 'string' } }, required: ['entryId'] },
   });
   Wormhole.expose('timers.deleteEntry', {
     description: 'Delete a WorkItem and all its timers',
-    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, notifyAdmins: { type: 'boolean' } }, required: ['entryId'] },
+    inputSchema: { type: 'object', properties: { entryId: { type: 'string' }, notifyAdmins: { type: 'boolean' }, description: { type: 'string' } }, required: ['entryId'] },
   });
   Wormhole.expose('timers.copyPrevious', {
     description: 'Copy entries from the most recent previous day into toDate',
