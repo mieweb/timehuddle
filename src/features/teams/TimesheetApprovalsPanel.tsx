@@ -24,7 +24,7 @@ import {
   Text,
   Textarea,
 } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ApiError,
@@ -48,9 +48,16 @@ interface Props {
   teamId?: string;
   /** Opened automatically when a notification deep-links to one request. */
   focusRequestId?: string | null;
+  /** Called once the deep link has been acted on, so remounting this panel
+   *  (switching views) doesn't reopen a request the reviewer already closed. */
+  onFocusHandled?: () => void;
 }
 
-export const TimesheetApprovalsPanel: React.FC<Props> = ({ teamId, focusRequestId }) => {
+export const TimesheetApprovalsPanel: React.FC<Props> = ({
+  teamId,
+  focusRequestId,
+  onFocusHandled,
+}) => {
   const [requests, setRequests] = useState<TimesheetChangeRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<TimesheetChangeRequest | null>(null);
@@ -76,20 +83,29 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({ teamId, focusRequestI
   useRefresh(load);
 
   // A notification names one request; open it directly rather than making the
-  // reviewer find it in the list.
+  // reviewer find it in the list. Tracked by id so it only ever auto-opens
+  // once — the effect re-runs whenever `requests` changes, which includes the
+  // moment a decision removes the request, and without this that re-fetched
+  // the resolved request and reopened the modal on top of the reviewer.
+  const autoOpenedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!focusRequestId) return;
+    if (!focusRequestId || autoOpenedRef.current === focusRequestId) return;
     const match = requests.find((r) => r.id === focusRequestId);
     if (match) {
+      autoOpenedRef.current = focusRequestId;
       setActive(match);
+      onFocusHandled?.();
       return;
     }
+    if (loading) return;
     // Not in the pending list — it may already be resolved, so fetch it to show why.
+    autoOpenedRef.current = focusRequestId;
+    onFocusHandled?.();
     timesheetApprovalApi
       .get(focusRequestId)
       .then(setActive)
       .catch(() => {});
-  }, [focusRequestId, requests]);
+  }, [focusRequestId, requests, loading, onFocusHandled]);
 
   const close = useCallback(() => {
     setActive(null);
@@ -171,8 +187,12 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({ teamId, focusRequestI
         </CardContent>
       </Card>
 
-      <Modal open={active !== null} onOpenChange={(o) => !o && close()}>
-        <ModalHeader className="modal-safe-top">
+      <Modal
+        open={active !== null}
+        onOpenChange={(o) => !o && close()}
+        className="modal-safe-top"
+      >
+        <ModalHeader>
           <Text weight="semibold">
             {active ? `${active.requesterName} — ${ACTION_LABEL[active.action]}` : ''}
           </Text>

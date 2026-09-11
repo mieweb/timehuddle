@@ -107,6 +107,9 @@ export const DashboardPage: React.FC = () => {
   const [initialMemberId, setInitialMemberId] = useState<string>('');
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [focusRequestId, setFocusRequestId] = useState<string | null>(null);
+  // Dropped once the approvals panel has opened it, so returning to this view
+  // later doesn't reopen a request the reviewer has already dealt with.
+  const clearFocusRequest = useCallback(() => setFocusRequestId(null), []);
 
   // ── Deep-link support ──
   //   ?tab=timesheet&teamId=&memberId=  → Team → Timesheet (admin, from notifications)
@@ -427,7 +430,11 @@ export const DashboardPage: React.FC = () => {
       {view === 'timesheet' &&
         (showAdminTimesheet && selectedTeamId ? (
           <div className="space-y-4">
-            <TimesheetApprovalsPanel teamId={selectedTeamId} focusRequestId={focusRequestId} />
+            <TimesheetApprovalsPanel
+              teamId={selectedTeamId}
+              focusRequestId={focusRequestId}
+              onFocusHandled={clearFocusRequest}
+            />
             <AdminTimesheetPanel
               members={teamMembers}
               selectedTeamId={selectedTeamId}

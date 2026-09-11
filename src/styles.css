@@ -26,10 +26,15 @@ html[data-theme='dark'] {
   padding-bottom: max(env(safe-area-inset-bottom), 0px);
 }
 
-/* Modal headers on mobile — the sheet fills the screen, so without this the
-   title sits underneath the status bar clock and battery. */
-.modal-safe-top {
-  padding-top: calc(0.75rem + max(env(safe-area-inset-top), 0px));
+/* Modals go full-screen on mobile (min-h-dvh, square corners), so their content
+   starts at y=0 and runs under the status bar clock and battery. Padding the
+   container rather than the header keeps the whole sheet — header, body and
+   footer — inside the safe area. border-box means this eats into the dvh
+   rather than overflowing past it. */
+@media not (min-width: 640px) {
+  .modal-safe-top {
+    padding-top: max(env(safe-area-inset-top), 0px);
+  }
 }
 
 /* Main scroll area on mobile — clears bottom nav + home indicator */
