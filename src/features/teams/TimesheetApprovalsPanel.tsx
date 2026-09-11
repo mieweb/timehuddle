@@ -33,6 +33,7 @@ import {
   type TimesheetChangeRequest,
 } from '../../lib/api';
 import { useRefresh } from '../../lib/RefreshContext';
+import { formatDuration } from '../../lib/timeUtils';
 
 const ACTION_LABEL: Record<TimesheetChangeRequest['action'], string> = {
   create: 'Add time',
@@ -70,13 +71,7 @@ function formatRange(startMs: number | null, endMs: number | null): string | nul
 
 function formatDurationBetween(startMs: number | null, endMs: number | null): string | null {
   if (startMs === null || endMs === null || endMs <= startMs) return null;
-  return formatMinutes(Math.round((endMs - startMs) / 60_000));
-}
-
-function formatMinutes(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  return formatDuration(Math.round((endMs - startMs) / 1000));
 }
 
 /**
@@ -110,10 +105,7 @@ function describePaidTime(
 
   const nextPaid = Math.max(0, Math.floor((end - start) / 1000) - breakSeconds);
   if (Math.round(nextPaid / 60) === Math.round(currentPaid / 60)) return null;
-  return {
-    before: formatMinutes(Math.round(currentPaid / 60)),
-    after: formatMinutes(Math.round(nextPaid / 60)),
-  };
+  return { before: formatDuration(currentPaid), after: formatDuration(nextPaid) };
 }
 
 /**
