@@ -172,7 +172,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({ teamId, focusRequestI
       </Card>
 
       <Modal open={active !== null} onOpenChange={(o) => !o && close()}>
-        <ModalHeader>
+        <ModalHeader className="modal-safe-top">
           <Text weight="semibold">
             {active ? `${active.requesterName} — ${ACTION_LABEL[active.action]}` : ''}
           </Text>
@@ -201,11 +201,13 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({ teamId, focusRequestI
           </div>
 
           {active?.videoUrl && (
+            // Capped so a portrait recording doesn't push the decision buttons
+            // off the bottom of a phone screen.
             <video
               src={videoSrc(active.videoUrl)}
               controls
               playsInline
-              className="w-full rounded-lg bg-black"
+              className="max-h-[45vh] w-full rounded-lg bg-black"
             />
           )}
 
@@ -234,7 +236,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({ teamId, focusRequestI
           )}
         </ModalBody>
         <ModalFooter>
-          <div className="flex w-full flex-wrap items-center gap-2">
+          <div className="flex w-full items-center gap-2">
             {active?.status === 'pending' ? (
               <>
                 <Button
