@@ -285,47 +285,7 @@ async function request<T = unknown>(path: string, options: RequestInit = {}): Pr
 
 // ─── Auth API ─────────────────────────────────────────────────────────────────
 
-/** fetch() with an 8-second abort timeout — prevents indefinite hangs on slow connections. */
-async function timedFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(
-    () =>
-      controller.abort(new Error('Request timed out. Please check your connection and try again.')),
-    8000,
-  );
-  try {
-    return await fetch(url, { signal: controller.signal, ...options });
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
 export const authApi = {
-  /** Dev-only sign-in used by the login probe. */
-  devMemberSignIn: async (
-    domain: 'enterprise' | 'organization' = 'organization',
-    role: 'member' | 'admin' | 'owner' = 'member',
-    joinTeam = false,
-  ): Promise<{ token?: string; user?: TimecoreUser }> => {
-    const res = await timedFetch(`${TIMECORE_BASE_URL}/api/auth/dev/member-sign-in`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ domain, role, joinTeam }),
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      throw new Error(
-        (body.message as string | undefined) ??
-          (body.error as string | undefined) ??
-          `HTTP ${res.status}`,
-      );
-    }
-    const token = res.headers.get('set-auth-token');
-    if (token) sessionToken.set(token);
-    return res.json();
-  },
-
   /**
    * Initiate a social OAuth sign-in (GitHub / Google / Apple).
    * Returns the provider redirect URL; caller should set window.location.href to it.
