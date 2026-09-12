@@ -9,7 +9,6 @@ import {
   getAccessibleOrgIds,
   isTeamAdminOrOrgOwner,
 } from './org-helpers';
-import { ensureDefaultChannel } from './channels';
 import { createNotification } from './notify-core';
 import { sendEmail } from './email';
 import {
@@ -187,7 +186,6 @@ Meteor.methods({
     };
     await Teams.insertAsync(doc);
     await addOrgMember(defaultOrg._id.toHexString(), userId, 'member', true);
-    ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
     return { team: toPublicTeam(doc) };
   },
 
@@ -235,7 +233,6 @@ Meteor.methods({
     };
     await Teams.insertAsync(doc);
     await addOrgMember(orgId, userId, 'member', true);
-    ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
     return { team: toPublicTeam(doc) };
   },
 

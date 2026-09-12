@@ -1499,40 +1499,6 @@ export interface Notification {
   createdAt: string; // ISO
 }
 
-// ─── Messages ─────────────────────────────────────────────────────────────────
-
-export interface Message {
-  id: string;
-  threadId: string;
-  teamId: string;
-  adminId: string;
-  memberId: string;
-  fromUserId: string;
-  toUserId: string;
-  text: string;
-  senderName: string;
-  ticketId?: string;
-  createdAt: string; // ISO
-}
-
-export const messageApi = {
-  getThread: (teamId: string, adminId: string, memberId: string, before?: string) =>
-    wormholeCall<{ messages: Message[]; hasMore: boolean }>('messages.getThread', {
-      teamId,
-      adminId,
-      memberId,
-      ...(before ? { before } : {}),
-    }),
-
-  send: (data: {
-    teamId: string;
-    toUserId: string;
-    text: string;
-    adminId: string;
-    ticketId?: string;
-  }) => wormholeCall<{ message: Message }>('messages.send', data).then((r) => r.message),
-};
-
 export type TeamInvitePreview = {
   notificationId: string;
   teamId: string;
@@ -1873,13 +1839,6 @@ export const mediaApi = {
       r.items.map(withAbsoluteMediaItem),
     ),
 
-  update: (id: string, data: { title?: string; caption?: string; altText?: string }) =>
-    wormholeCall<{ item: MediaItem }>('media.update', { mediaId: id, ...data }).then((r) =>
-      withAbsoluteMediaItem(r.item),
-    ),
-
-  remove: (id: string) => wormholeCall<{ ok: boolean }>('media.remove', { mediaId: id }),
-
   uploadThumbnail: async (id: string, blob: Blob): Promise<MediaItem> => {
     const form = new FormData();
     form.append('file', blob, 'thumbnail.jpg');
@@ -1932,77 +1891,6 @@ export const activityApi = {
 };
 
 // ─── Channel types ────────────────────────────────────────────────────────────
-
-export interface Channel {
-  id: string;
-  teamId: string;
-  name: string;
-  description?: string;
-  isDefault: boolean;
-  /** userIds who can access this channel; empty array means team-wide */
-  members: string[];
-  createdBy: string;
-  createdAt: string;
-}
-
-export interface ChannelMessage {
-  id: string;
-  channelId: string;
-  teamId: string;
-  fromUserId: string;
-  senderName: string;
-  text: string;
-  createdAt: string;
-}
-
-// ─── Channel API ──────────────────────────────────────────────────────────────
-
-export const channelApi = {
-  getChannels: (teamId: string): Promise<Channel[]> =>
-    wormholeCall<{ channels: Channel[] }>('channels.list', { teamId }).then((r) => r.channels),
-
-  createChannel: (data: {
-    teamId: string;
-    name: string;
-    description?: string;
-    members?: string[];
-  }): Promise<Channel> =>
-    wormholeCall<{ channel: Channel }>('channels.create', data).then((r) => r.channel),
-
-  getMessages: (
-    channelId: string,
-    teamId: string,
-    before?: string,
-  ): Promise<{ messages: ChannelMessage[]; hasMore: boolean }> =>
-    wormholeCall<{ messages: ChannelMessage[]; hasMore: boolean }>('channels.getMessages', {
-      channelId,
-      teamId,
-      ...(before ? { before } : {}),
-    }),
-
-  sendMessage: (
-    channelId: string,
-    data: { teamId: string; text: string },
-  ): Promise<ChannelMessage> =>
-    wormholeCall<{ message: ChannelMessage }>('channels.sendMessage', {
-      channelId,
-      ...data,
-    }).then((r) => r.message),
-
-  updateChannel: (
-    channelId: string,
-    data: { teamId: string; name?: string; description?: string; members?: string[] },
-  ): Promise<Channel> =>
-    wormholeCall<{ channel: Channel }>('channels.update', {
-      channelId,
-      ...data,
-    }).then((r) => r.channel),
-
-  deleteChannel: (channelId: string, teamId: string): Promise<void> =>
-    wormholeCall<{ success: boolean }>('channels.delete', { channelId, teamId }).then(() => {}),
-};
-
-// ─── Personal Access Tokens ───────────────────────────────────────────────────
 
 export interface PersonalAccessToken {
   _id: string;
