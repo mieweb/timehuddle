@@ -150,6 +150,10 @@ if (Capacitor.isNativePlatform()) {
       // Stashed for cold start (JS bridge/router not mounted yet) and also
       // dispatched live for the case the app is already running.
       if (parsed.host === 'open') {
+        // The path comes from outside the app, so only in-app routes are
+        // accepted: `//example.com` is a scheme-relative URL that pushState
+        // rejects cross-origin, and it would stay persisted for the next launch.
+        if (!/^\/app(\/|$)/.test(parsed.pathname)) return;
         const target = `${parsed.pathname}${parsed.search}`;
         try {
           localStorage.setItem('pendingDeepLinkPath', target);
