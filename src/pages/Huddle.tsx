@@ -98,7 +98,11 @@ export default function Huddle() {
     setSelectedOrgId,
   ]);
 
-  const [highlightedPostId, setHighlightedPostId] = useState<string | null>(null);
+  // Carries a nonce, not just the id: re-tapping the same notification while
+  // its highlight is still up would otherwise be a no-op state write, and
+  // neither the scroll nor the expiry effect below would re-run.
+  const [highlight, setHighlight] = useState<{ postId: string; nonce: number } | null>(null);
+  const highlightedPostId = highlight?.postId ?? null;
 
   useEffect(() => {
     if (!targetPostId) return;
@@ -115,7 +119,7 @@ export default function Huddle() {
     if (!targetPostId || !targetPostLoaded) return;
     if (feedTab !== 'feed' || feedView !== 'cards') return;
 
-    setHighlightedPostId(targetPostId);
+    setHighlight((prev) => ({ postId: targetPostId, nonce: (prev?.nonce ?? 0) + 1 }));
     setTargetPostId(null);
     replace('/app/huddle');
   }, [targetPostId, targetPostLoaded, feedTab, feedView, replace]);
@@ -124,11 +128,12 @@ export default function Huddle() {
   // `targetPostId` above re-runs that effect, and its cleanup would cancel the
   // pending animation frame before the card had a chance to mount.
   useEffect(() => {
-    if (!highlightedPostId) return;
+    if (!highlight) return;
+    const { postId } = highlight;
     let frame = 0;
     let attempts = 0;
     const tryScroll = () => {
-      const el = document.getElementById(`huddle-post-${highlightedPostId}`);
+      const el = document.getElementById(`huddle-post-${postId}`);
       if (!el) {
         if (attempts++ < 60) frame = requestAnimationFrame(tryScroll);
         return;
@@ -137,16 +142,16 @@ export default function Huddle() {
     };
     frame = requestAnimationFrame(tryScroll);
     return () => cancelAnimationFrame(frame);
-  }, [highlightedPostId]);
+  }, [highlight]);
 
   // Long enough to survive a scroll animation and catch the eye. Deliberately
   // not dismissed on tap — the tap that opened the notification arrives here as
   // a ghost event and was killing the highlight instantly on touch devices.
   useEffect(() => {
-    if (!highlightedPostId) return;
-    const timer = setTimeout(() => setHighlightedPostId(null), 6000);
+    if (!highlight) return;
+    const timer = setTimeout(() => setHighlight(null), 6000);
     return () => clearTimeout(timer);
-  }, [highlightedPostId]);
+  }, [highlight]);
 
   // Live session state for the post headers. The posts publication only fires
   // on post writes, so a clock-out would never reach the feed on its own —
