@@ -74,6 +74,8 @@ interface Props {
   teams: SimpleTeam[];
   /** Pre-select this member when navigating from a notification deep-link. */
   initialMemberId?: string;
+  /** Bumped per deep-link, so an unchanged `initialMemberId` still reapplies. */
+  initialMemberRequestId?: number;
 }
 
 function getSessionWorkSeconds(session: ClockEvent, now: number): number {
@@ -96,6 +98,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   selectedTeamId,
   teams,
   initialMemberId,
+  initialMemberRequestId = 0,
 }) => {
   // Seed state with initialMemberId if provided, otherwise empty (auto-selects first member below)
   const [selectedMemberId, setSelectedMemberId] = useState<string>(initialMemberId ?? '');
@@ -122,27 +125,30 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     setData(null);
   }, [selectedTeamId]);
 
-  // Tracks the last `initialMemberId` this panel actually applied, so a second
-  // deep-link (e.g. tapping a different member's notification while this panel
-  // is already mounted) is honoured instead of being ignored just because
-  // `selectedMemberId` is already non-empty from the first one.
-  const appliedInitialMemberIdRef = useRef<string | undefined>(undefined);
+  // Tracks the last deep-link request this panel actually applied. Keyed on the
+  // request id rather than the member id so re-tapping the same member's
+  // notification still reapplies, and only consumed once the member is known to
+  // be in the rendered list — mid-team-switch `members` is still the previous
+  // team's, and consuming there would drop the request.
+  const appliedRequestIdRef = useRef(0);
 
   // Auto-select: use initialMemberId if it's a valid member of this team, else fall back to first member
   useEffect(() => {
     if (members.length === 0) return;
 
-    if (initialMemberId && initialMemberId !== appliedInitialMemberIdRef.current) {
-      appliedInitialMemberIdRef.current = initialMemberId;
-      if (members.some((m) => m.id === initialMemberId)) {
-        setSelectedMemberId(initialMemberId);
-        return;
-      }
+    if (
+      initialMemberId &&
+      initialMemberRequestId !== appliedRequestIdRef.current &&
+      members.some((m) => m.id === initialMemberId)
+    ) {
+      appliedRequestIdRef.current = initialMemberRequestId;
+      setSelectedMemberId(initialMemberId);
+      return;
     }
 
     if (selectedMemberId) return; // already set (either by user or the branch above)
     setSelectedMemberId(members[0].id);
-  }, [members, selectedMemberId, initialMemberId]);
+  }, [members, selectedMemberId, initialMemberId, initialMemberRequestId]);
 
   const fetchData = useCallback(async () => {
     if (!selectedMemberId) return;

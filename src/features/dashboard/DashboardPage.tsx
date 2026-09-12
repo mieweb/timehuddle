@@ -103,6 +103,10 @@ export const DashboardPage: React.FC = () => {
 
   const [view, setView] = useState<'overview' | 'timesheet'>('overview');
   const [initialMemberId, setInitialMemberId] = useState<string>('');
+  // Bumped per deep-link so the panel reapplies the target even when the id is
+  // unchanged — e.g. re-tapping member A's notification after manually
+  // selecting member B.
+  const [memberRequestId, setMemberRequestId] = useState(0);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
 
   // ── Deep-link support ──
@@ -125,7 +129,10 @@ export const DashboardPage: React.FC = () => {
     if (deepView === 'timesheet') {
       setView('timesheet');
     }
-    if (memberId) setInitialMemberId(memberId);
+    if (memberId) {
+      setInitialMemberId(memberId);
+      setMemberRequestId((n) => n + 1);
+    }
     if (teamId) {
       const inScope = teams.find((t) => t.id === teamId);
       const crossOrg = !inScope && allTeams.find((t) => t.id === teamId);
@@ -400,6 +407,7 @@ export const DashboardPage: React.FC = () => {
             selectedTeamId={selectedTeamId}
             teams={teams}
             initialMemberId={initialMemberId}
+            initialMemberRequestId={memberRequestId}
           />
         ) : (
           <PersonalTimesheetPanel />
