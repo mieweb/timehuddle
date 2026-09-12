@@ -19,7 +19,6 @@ import { PushNotifications } from '@capacitor/push-notifications';
 
 import { ClockPage } from '../features/clock/ClockPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
-import { MessagesPage } from '../features/messages/MessagesPage';
 import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { SeederPage } from '../features/seeder/SeederPage';
@@ -28,7 +27,6 @@ import { TicketsPage } from '../features/tickets/TicketsPage';
 import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
-import { MediaPage } from '../features/media/MediaPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
 import Huddle from '../pages/Huddle';
 import { HiPage } from '../pages/HiPage';
@@ -72,11 +70,9 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/hi': { title: 'Hi', component: HiPage },
   '/app/huddle': { title: 'Huddle', component: Huddle },
-  '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/enterprise': { title: 'Enterprise', component: EnterprisePage },
   '/app/organization': { title: 'Organization', component: OrganizationPage },
-  '/app/media': { title: 'Media Library', component: MediaPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
   ...(import.meta.env.MODE !== 'production'
     ? { '/app/seeder': { title: 'Seeder', component: SeederPage } }
@@ -100,9 +96,14 @@ function match(pathname: string): RouteConfig | null {
  * dashboard's default view, silently losing what the link was pointing at.
  *
  *   /app/timesheet → the personal timesheet, now Dashboard → Me → Timesheet
+ *   /app/messages, /app/media → withdrawn for MVP; no replacement surface, so
+ *     old bookmarks and already-delivered push notifications land on Dashboard
+ *     rather than silently rendering it under the wrong URL.
  */
 const RETIRED_ROUTES: Record<string, string> = {
   '/app/timesheet': '/app/dashboard?view=timesheet',
+  '/app/messages': '/app/dashboard',
+  '/app/media': '/app/dashboard',
 };
 
 // ─── Context ─────────────────────────────────────────────────────────────────
