@@ -78,7 +78,16 @@ export const MessagesPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? '';
   const { search: routerSearch, replace } = useRouter();
-  const { selectedTeamId, setSelectedTeamId, teamsReady, isAdmin, selectedTeam } = useTeam();
+  const {
+    selectedTeamId,
+    setSelectedTeamId,
+    teamsReady,
+    isAdmin,
+    selectedTeam,
+    teams,
+    allTeams,
+    setSelectedOrgId,
+  } = useTeam();
   const { setHasActiveChat } = React.useContext(MessagesActiveChatContext);
 
   // ── View mode ───────────────────────────────────────────────────────────────
@@ -158,13 +167,17 @@ export const MessagesPage: React.FC = () => {
   // below re-run even when their other deps (selectedTeam, channels) haven't
   // changed — e.g. re-tapping a second notification for the same team.
   const [pendingOpenVersion, setPendingOpenVersion] = useState(0);
+  // The target team is kept pending rather than selected outright: a team in
+  // another org is filtered out of `teams` and TeamContext would reset the id
+  // straight back, so the org has to switch with it.
+  const [pendingTeamId, setPendingTeamId] = useState<string | null>(null);
   useEffect(() => {
     const q = new URLSearchParams(routerSearch);
     const openTeam = q.get('openTeam');
     const openPeer = q.get('openPeer');
     const openChannel = q.get('openChannel');
     if (!openTeam && !openPeer && !openChannel) return;
-    if (openTeam) setSelectedTeamId(openTeam);
+    if (openTeam) setPendingTeamId(openTeam);
     if (openPeer) {
       pendingOpenPeerRef.current = { peer: openPeer, teamId: openTeam ?? null };
       pendingDmIntentRef.current = true;
@@ -174,7 +187,33 @@ export const MessagesPage: React.FC = () => {
     }
     setPendingOpenVersion((v) => v + 1);
     replace('/app/messages');
-  }, [routerSearch, setSelectedTeamId, replace]);
+  }, [routerSearch, replace]);
+
+  useEffect(() => {
+    if (!pendingTeamId) return;
+    if (pendingTeamId === selectedTeamId) {
+      setPendingTeamId(null);
+      return;
+    }
+    if (!teamsReady) return;
+    const inScope = teams.some((t) => t.id === pendingTeamId);
+    const crossOrg = inScope ? null : allTeams.find((t) => t.id === pendingTeamId);
+    if (!inScope && !crossOrg) {
+      setPendingTeamId(null); // not a member of that team — nothing to switch to
+      return;
+    }
+    if (crossOrg) setSelectedOrgId(crossOrg.orgId);
+    setSelectedTeamId(pendingTeamId);
+    setPendingTeamId(null);
+  }, [
+    pendingTeamId,
+    selectedTeamId,
+    teams,
+    allTeams,
+    teamsReady,
+    setSelectedTeamId,
+    setSelectedOrgId,
+  ]);
 
   useEffect(() => {
     const pending = pendingOpenPeerRef.current;
