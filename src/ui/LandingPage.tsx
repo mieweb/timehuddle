@@ -171,16 +171,6 @@ const DEMOS: Demo[] = [
     gradient: 'from-red-500/20 to-rose-500/5',
     glow: 'group-hover:shadow-red-500/20',
   },
-  {
-    icon: faComments,
-    title: 'Messages',
-    description:
-      'Team messaging built right into the app. No switching to Slack or Teams — just open Messages and chat with your colleagues in real time.',
-    path: '/app/messages',
-    tag: 'Real-time · Direct · Team threads',
-    gradient: 'from-orange-500/20 to-amber-500/5',
-    glow: 'group-hover:shadow-orange-500/20',
-  },
 ];
 
 interface GalleryItem {
