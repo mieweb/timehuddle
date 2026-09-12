@@ -55,6 +55,14 @@ import './push';
 import { initAgenda } from './agenda';
 import { bearerContextMiddleware } from './bearer-context';
 
+// One-click role sign-in for local development. Imported dynamically so the
+// handler is never registered in a production server.
+if (Meteor.isDevelopment) {
+  Meteor.startup(async () => {
+    await import('./dev-quick-login');
+  });
+}
+
 /**
  * CORS for ALL routes — the Vite frontend on another origin calls both DDP and
  * HTTP endpoints. Global middleware catches everything before any other handlers.
