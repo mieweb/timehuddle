@@ -168,6 +168,30 @@ test.describe('Notification deep links', () => {
     await expect(page.locator(`#huddle-post-${firstId}`)).not.toHaveClass(/huddle-post-highlight/);
   });
 
+  test('re-tapping the same post link restarts its highlight', async ({ page }) => {
+    test.setTimeout(90000);
+    await loginAs(page, TEST_USERS.owner1);
+    const teamId = await selectSharedTestTeam(page);
+    await openHuddleFeed(page);
+
+    const postId = await postViaComposer(page, `repeat-tap target ${Date.now()}`);
+    const card = page.locator(`#huddle-post-${postId}`);
+
+    await tapNotification(page, `/app/huddle?postId=${postId}&teamId=${teamId}`);
+    await expect(card).toHaveClass(/huddle-post-highlight/, { timeout: 15000 });
+
+    // The highlight lives 6s. Tapping the same post again part-way through
+    // used to write the identical id back, which React treats as a no-op, so
+    // neither the scroll nor the expiry timer restarted and the highlight
+    // still died on the original schedule.
+    await page.waitForTimeout(4000);
+    await tapNotification(page, `/app/huddle?postId=${postId}&teamId=${teamId}`);
+
+    // Comfortably past the first tap's 6s expiry, well short of the second's.
+    await page.waitForTimeout(3500);
+    await expect(card).toHaveClass(/huddle-post-highlight/);
+  });
+
   test('a post link switches to the post team when another team is selected', async ({ page }) => {
     test.setTimeout(120000);
     await loginAs(page, TEST_USERS.owner1);
@@ -239,6 +263,19 @@ test.describe('Notification deep links', () => {
 
     // Only the query string changes here — the panel stays mounted, so a
     // second member's deep-link must override the first, not be ignored.
+    await tapNotification(
+      page,
+      `/app/dashboard?tab=timesheet&teamId=${teamId}&memberId=${member2Id}`,
+    );
+    await expect(memberSelect).toHaveText(TEST_USERS.member2.name, { timeout: 15000 });
+
+    // Picking a member by hand leaves the URL untouched, so tapping member2's
+    // notification again pushes an unchanged `memberId`. Keyed on the id
+    // alone, the panel considered it already applied and ignored the tap.
+    await memberSelect.click();
+    await page.getByRole('option', { name: TEST_USERS.member1.name }).click();
+    await expect(memberSelect).toHaveText(TEST_USERS.member1.name);
+
     await tapNotification(
       page,
       `/app/dashboard?tab=timesheet&teamId=${teamId}&memberId=${member2Id}`,
