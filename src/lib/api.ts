@@ -1076,6 +1076,8 @@ export interface HuddlePost {
   postDate?: string;
   /** Clock session this post is the plan/wrap-up for (per-session gate). */
   clockEventId?: string;
+  /** Resolved from `clockEventId` at read time; absent if the session is gone. */
+  session?: { startTime: number; endTime: number | null };
   /** Set when the author saved a wrap-up edit (plan-first clock flow). */
   wrapUpAt?: string | null;
   createdAt: string;

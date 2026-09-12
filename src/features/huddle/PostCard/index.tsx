@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
+import { Badge } from '@mieweb/ui';
 import type { HuddlePost } from '@lib/api';
 import { huddleApi, resolveMediaUrl } from '@lib/api';
+import { formatTime } from '@lib/timeUtils';
 import { MarkdownContent } from '../MarkdownContent';
 import { HuddleComments } from '../HuddleComments';
 import { HuddleComposer } from '../HuddleComposer';
@@ -47,6 +49,33 @@ function Avatar({
   );
 }
 
+// ── Clock session status ──────────────────────────────────────────────────────
+// `active` comes from the live clock publication rather than `session.endTime`,
+// which is only as fresh as the last feed fetch.
+function SessionBadge({
+  session,
+  active,
+}: {
+  session: NonNullable<HuddlePost['session']>;
+  active: boolean;
+}) {
+  const startedAt = formatTime(new Date(session.startTime));
+  if (active) {
+    return (
+      <Badge variant="success" size="sm">
+        Working · since {startedAt}
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="secondary" size="sm">
+      {session.endTime
+        ? `Clocked out · ${startedAt} – ${formatTime(new Date(session.endTime))}`
+        : `Clocked out · from ${startedAt}`}
+    </Badge>
+  );
+}
+
 function getUserColor(userId: string): AvatarColor {
   const colors: AvatarColor[] = ['indigo', 'teal', 'coral', 'amber', 'pink', 'green'];
   const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
@@ -69,6 +98,8 @@ interface PostCardProps {
   /** Briefly highlighted when navigated to directly (e.g. from the dashboard's
    *  Recent Activity feed via `/app/huddle?postId=`). */
   highlighted?: boolean;
+  /** The post's clock session is still open (from the live clock publication). */
+  sessionActive?: boolean;
 }
 
 export function PostCard({
@@ -78,6 +109,7 @@ export function PostCard({
   canDelete,
   onPostUpdated,
   highlighted,
+  sessionActive = false,
 }: PostCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -177,8 +209,10 @@ export function PostCard({
     <div
       id={`huddle-post-${post.id}`}
       data-testid="post-card"
-      className={`border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800 md:mb-4 md:rounded-xl md:border md:border-gray-200 dark:md:border-neutral-700 transition-shadow ${
-        highlighted ? 'ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-neutral-900' : ''
+      className={`border-b border-gray-100 dark:border-neutral-700 px-5 pt-4 bg-white dark:bg-neutral-800 md:mb-4 md:rounded-xl md:border md:border-gray-200 dark:md:border-neutral-700 transition-colors duration-300 ${
+        highlighted
+          ? 'huddle-post-highlight relative z-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/50'
+          : ''
       }`}
     >
       {/* ── Author header ── */}
@@ -192,7 +226,7 @@ export function PostCard({
           <Avatar initials={authorInitials} color={avatarColor} />
         </button>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
               onClick={goToAuthorProfile}
@@ -206,6 +240,7 @@ export function PostCard({
             {post.updatedAt && post.updatedAt !== post.createdAt && (
               <span className="text-xs text-gray-400 dark:text-neutral-500 italic">edited</span>
             )}
+            {post.session && <SessionBadge session={post.session} active={sessionActive} />}
           </div>
         </div>
 

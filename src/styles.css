@@ -423,3 +423,33 @@ html[data-theme='dark'] .scrollbar-mieweb::-webkit-scrollbar-thumb:hover {
     width: 83%;
   }
 }
+
+/* Deep-linked post highlight — the post a notification or the dashboard's
+   Recent Activity feed pointed at. Pulses the ring so it reads as "this one"
+   even when the reader's eyes land mid-scroll. */
+@keyframes huddle-post-highlight {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px var(--color-indigo-500, #6366f1),
+      0 10px 25px -5px rgb(99 102 241 / 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 7px var(--color-indigo-400, #818cf8),
+      0 10px 30px -5px rgb(99 102 241 / 0.5);
+  }
+}
+
+.huddle-post-highlight {
+  animation: huddle-post-highlight 1.1s ease-in-out 3;
+  box-shadow:
+    0 0 0 3px var(--color-indigo-500, #6366f1),
+    0 10px 25px -5px rgb(99 102 241 / 0.35);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .huddle-post-highlight {
+    animation: none;
+  }
+}

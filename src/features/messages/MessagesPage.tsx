@@ -37,6 +37,7 @@ import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { AppPage } from '../../ui/AppPage';
 import { MessagesActiveChatContext } from '../../ui/AppLayout';
+import { useRouter } from '../../ui/router';
 import {
   channelApi,
   messageApi,
@@ -76,7 +77,17 @@ function dmBubbleRadius(isMe: boolean, isFirstInGroup: boolean, isLastInGroup: b
 export const MessagesPage: React.FC = () => {
   const { user } = useSession();
   const userId = user?.id ?? '';
-  const { selectedTeamId, setSelectedTeamId, teamsReady, isAdmin, selectedTeam } = useTeam();
+  const { search: routerSearch, replace } = useRouter();
+  const {
+    selectedTeamId,
+    setSelectedTeamId,
+    teamsReady,
+    isAdmin,
+    selectedTeam,
+    teams,
+    allTeams,
+    setSelectedOrgId,
+  } = useTeam();
   const { setHasActiveChat } = React.useContext(MessagesActiveChatContext);
 
   // ── View mode ───────────────────────────────────────────────────────────────
@@ -149,30 +160,69 @@ export const MessagesPage: React.FC = () => {
   const prevMessageCountRef = useRef(0);
 
   // ── Deep-link / pending thread handling ──────────────────────────────────────
-  const pendingOpenPeerRef = useRef<string | null>(null);
+  const pendingOpenPeerRef = useRef<{ peer: string; teamId: string | null } | null>(null);
   const pendingOpenChannelRef = useRef<string | null>(null);
   const pendingDmIntentRef = useRef(false);
+  // Bumped whenever a new deep-link request comes in, so the resolution effects
+  // below re-run even when their other deps (selectedTeam, channels) haven't
+  // changed — e.g. re-tapping a second notification for the same team.
+  const [pendingOpenVersion, setPendingOpenVersion] = useState(0);
+  // The target team is kept pending rather than selected outright: a team in
+  // another org is filtered out of `teams` and TeamContext would reset the id
+  // straight back, so the org has to switch with it.
+  const [pendingTeamId, setPendingTeamId] = useState<string | null>(null);
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const q = new URLSearchParams(window.location.search);
+    const q = new URLSearchParams(routerSearch);
     const openTeam = q.get('openTeam');
     const openPeer = q.get('openPeer');
     const openChannel = q.get('openChannel');
     if (!openTeam && !openPeer && !openChannel) return;
-    if (openTeam) setSelectedTeamId(openTeam);
+    if (openTeam) setPendingTeamId(openTeam);
     if (openPeer) {
-      pendingOpenPeerRef.current = openPeer;
+      pendingOpenPeerRef.current = { peer: openPeer, teamId: openTeam ?? null };
       pendingDmIntentRef.current = true;
     }
     if (openChannel) {
       pendingOpenChannelRef.current = openChannel;
     }
-    window.history.replaceState(null, '', '/app/messages');
-  }, []);
+    setPendingOpenVersion((v) => v + 1);
+    replace('/app/messages');
+  }, [routerSearch, replace]);
 
   useEffect(() => {
-    const peer = pendingOpenPeerRef.current;
-    if (!peer || !selectedTeam || !userId) return;
+    if (!pendingTeamId) return;
+    if (pendingTeamId === selectedTeamId) {
+      setPendingTeamId(null);
+      return;
+    }
+    if (!teamsReady) return;
+    const inScope = teams.some((t) => t.id === pendingTeamId);
+    const crossOrg = inScope ? null : allTeams.find((t) => t.id === pendingTeamId);
+    if (!inScope && !crossOrg) {
+      setPendingTeamId(null); // not a member of that team — nothing to switch to
+      return;
+    }
+    if (crossOrg) setSelectedOrgId(crossOrg.orgId);
+    setSelectedTeamId(pendingTeamId);
+    setPendingTeamId(null);
+  }, [
+    pendingTeamId,
+    selectedTeamId,
+    teams,
+    allTeams,
+    teamsReady,
+    setSelectedTeamId,
+    setSelectedOrgId,
+  ]);
+
+  useEffect(() => {
+    const pending = pendingOpenPeerRef.current;
+    if (!pending || !selectedTeam || !userId) return;
+    // `setSelectedTeamId` above is scheduled in the same flush as this effect's
+    // trigger, so `selectedTeam` is still the previous team on the first pass.
+    // Consuming the peer here would check membership against the wrong team.
+    if (pending.teamId && selectedTeam.id !== pending.teamId) return;
+    const peer = pending.peer;
     pendingOpenPeerRef.current = null;
     if (selectedTeam.admins.includes(userId) && selectedTeam.members.includes(peer)) {
       setSelectedMemberId(peer);
@@ -183,7 +233,20 @@ export const MessagesPage: React.FC = () => {
       setActiveView('dm');
       pendingDmIntentRef.current = false;
     }
-  }, [selectedTeam, userId]);
+  }, [selectedTeam, userId, pendingOpenVersion]);
+
+  // Resolves a pending ?openChannel= against whichever channel list is
+  // currently loaded — fires both when the list loads (team switch) and when
+  // a new deep link arrives for a team whose channels are already loaded.
+  useEffect(() => {
+    const channelId = pendingOpenChannelRef.current;
+    if (!channelId) return;
+    const found = channels.find((c) => c.id === channelId);
+    if (!found) return;
+    pendingOpenChannelRef.current = null;
+    setSelectedChannelId(found.id);
+    setActiveView('channel');
+  }, [channels, pendingOpenVersion]);
 
   useEffect(() => {
     if (!userId || typeof window === 'undefined') return;
