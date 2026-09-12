@@ -13,7 +13,7 @@ Medical Informatics Engineering ("we", "our", or "us") operates the TimeHuddle m
 - **Account Information:** Name, email address, and password when you create an account
 - **Profile Information:** Display name, avatar, and optional profile details
 - **Work Data:** Clock in/out times, timesheet entries, work summaries, and task descriptions
-- **Team Communication:** Messages, comments, and other communications within your organization
+- **Team Communication:** Posts, comments, and other communications within your organization
 - **Organization Data:** Team assignments, organizational hierarchy, and member roles
 
 ### Automatically Collected Information
