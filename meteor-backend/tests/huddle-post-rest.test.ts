@@ -182,3 +182,106 @@ describe('huddle post authoring over REST', () => {
     expect(res.error).toMatch(/team member/i);
   });
 });
+
+/**
+ * `clockEventId` is client-supplied, and the feed reads clock-in/out times off
+ * the linked session. Without an ownership check on write, a member could
+ * attach someone else's (or another team's) session and expose its times
+ * through this team's feed.
+ */
+describe('huddle post clockEventId ownership', () => {
+  let foreignUserEventId: string;
+  let foreignTeamEventId: string;
+
+  beforeAll(async () => {
+    const db = await getDb();
+    const outsiderUserId = String(
+      (await db.collection('users').findOne({ 'emails.address': OUTSIDER.email }))!._id,
+    );
+
+    // Another user's session, in the team the author *is* a member of.
+    const foreignUserEvent = {
+      _id: new ObjectId(),
+      userId: outsiderUserId,
+      teamId,
+      startTime: Date.now() - 3_600_000,
+      endTime: null,
+      createdAt: new Date(),
+    };
+    // The author's own session, but in a team this post doesn't belong to.
+    const foreignTeamEvent = {
+      _id: new ObjectId(),
+      userId: authorUserId,
+      teamId: new ObjectId().toHexString(),
+      startTime: Date.now() - 3_600_000,
+      endTime: null,
+      createdAt: new Date(),
+    };
+    await db.collection('clockevents').insertMany([foreignUserEvent, foreignTeamEvent]);
+    foreignUserEventId = foreignUserEvent._id.toHexString();
+    foreignTeamEventId = foreignTeamEvent._id.toHexString();
+  });
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db
+      .collection('clockevents')
+      .deleteMany({ _id: { $in: [new ObjectId(foreignUserEventId), new ObjectId(foreignTeamEventId)] } });
+  });
+
+  it('rejects a create linking another user’s clock event', async () => {
+    const res = await wormhole(
+      'huddle.createPost',
+      {
+        teamId,
+        content: { text: 'Whose session is this?', mentions: [] },
+        postDate: todayString(),
+        clockEventId: foreignUserEventId,
+      },
+      authorJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/does not belong to you/i);
+  });
+
+  it('rejects a create linking a clock event from another team', async () => {
+    const res = await wormhole(
+      'huddle.createPost',
+      {
+        teamId,
+        content: { text: 'Session from elsewhere', mentions: [] },
+        postDate: todayString(),
+        clockEventId: foreignTeamEventId,
+      },
+      authorJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/does not belong to you/i);
+  });
+
+  it('rejects a publish linking another user’s clock event', async () => {
+    const draft = await wormhole<{ id: string }>(
+      'huddle.createPost',
+      { teamId, content: { text: 'Draft to hijack', mentions: [] }, draft: true },
+      authorJwt,
+    );
+    expect(draft.ok).toBe(true);
+
+    const res = await wormhole(
+      'huddle.publishPost',
+      {
+        postId: draft.result.id,
+        postDate: todayString(),
+        clockEventId: foreignUserEventId,
+      },
+      authorJwt,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/does not belong to you/i);
+
+    const db = await getDb();
+    const post = await db.collection('huddlePosts').findOne({ _id: new ObjectId(draft.result.id) });
+    expect(post!.clockEventId).toBeUndefined();
+    expect(post!.status).toBe('draft');
+  });
+});

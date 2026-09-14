@@ -66,7 +66,7 @@ const profilePath = (member: TeamMemberClockStatus) =>
 
 export const DashboardPage: React.FC = () => {
   const { user } = useSession();
-  const { navigate } = useRouter();
+  const { navigate, search, replace } = useRouter();
   const {
     teams,
     allTeams,
@@ -105,6 +105,10 @@ export const DashboardPage: React.FC = () => {
 
   const [view, setView] = useState<'overview' | 'timesheet'>('overview');
   const [initialMemberId, setInitialMemberId] = useState<string>('');
+  // Bumped per deep-link so the panel reapplies the target even when the id is
+  // unchanged — e.g. re-tapping member A's notification after manually
+  // selecting member B.
+  const [memberRequestId, setMemberRequestId] = useState(0);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [focusRequestId, setFocusRequestId] = useState<string | null>(null);
   // Dropped once the approvals panel has opened it, so returning to this view
@@ -115,9 +119,11 @@ export const DashboardPage: React.FC = () => {
   //   ?tab=timesheet&teamId=&memberId=  → Team → Timesheet (admin, from notifications)
   //   ?view=timesheet                   → Me → Timesheet (the retired /app/timesheet URL)
   //   ?requestId=                       → open that timesheet approval for review
-  const consumeDeepLink = useCallback(() => {
+  // Depends on `search` (not just mount) so re-tapping a notification for a
+  // different member while the Dashboard is already open is honored.
+  useEffect(() => {
     if (!teamsReady) return;
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(search);
     const deepTab = params.get('tab');
     const deepView = params.get('view');
     const memberId = params.get('memberId');
@@ -132,7 +138,10 @@ export const DashboardPage: React.FC = () => {
       setView('timesheet');
     }
     if (requestId) setFocusRequestId(requestId);
-    if (memberId) setInitialMemberId(memberId);
+    if (memberId) {
+      setInitialMemberId(memberId);
+      setMemberRequestId((n) => n + 1);
+    }
     if (teamId) {
       const inScope = teams.find((t) => t.id === teamId);
       const crossOrg = !inScope && allTeams.find((t) => t.id === teamId);
@@ -146,20 +155,9 @@ export const DashboardPage: React.FC = () => {
     }
 
     if (deepTab || deepView || memberId || teamId || requestId) {
-      window.history.replaceState(null, '', window.location.pathname);
+      replace('/app/dashboard');
     }
-  }, [teamsReady, teams, allTeams, setTab, setSelectedTeamId, setSelectedOrgId]);
-
-  useEffect(consumeDeepLink, [consumeDeepLink]);
-
-  // Navigating here from a notification while this page is already open changes
-  // only the query string, so nothing re-renders and the effect above never
-  // re-runs. AppLayout announces every navigation, which is the only signal
-  // that a new deep link has arrived.
-  useEffect(() => {
-    window.addEventListener('timehuddle:navigate', consumeDeepLink);
-    return () => window.removeEventListener('timehuddle:navigate', consumeDeepLink);
-  }, [consumeDeepLink]);
+  }, [teamsReady, teams, allTeams, setTab, setSelectedTeamId, setSelectedOrgId, search, replace]);
 
   // Members list (needed by the admin Timesheet view only)
   useEffect(() => {
@@ -460,6 +458,7 @@ export const DashboardPage: React.FC = () => {
               selectedTeamId={selectedTeamId}
               teams={teams}
               initialMemberId={initialMemberId}
+              initialMemberRequestId={memberRequestId}
             />
           </div>
         ) : (
