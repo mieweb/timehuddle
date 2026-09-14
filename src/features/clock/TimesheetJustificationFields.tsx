@@ -95,9 +95,9 @@ export const TimesheetJustificationFields: React.FC<TimesheetJustificationFields
         Needs approval
       </Text>
       <Text variant="muted" size="xs" className="mt-0.5">
-        {approverCount === 1
-          ? 'An admin has to approve this before it takes effect.'
-          : `One of ${approverCount} admins has to approve this before it takes effect.`}
+        {approverCount > 1
+          ? `One of ${approverCount} admins has to approve this before it takes effect.`
+          : 'An admin has to approve this before it takes effect.'}
       </Text>
 
       <div className="mt-3 space-y-1">

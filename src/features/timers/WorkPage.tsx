@@ -199,15 +199,37 @@ export const WorkPage: React.FC = () => {
 
   const { user } = useSession();
   const userId = user?.id ?? '';
-  // The entry's ticket determines which team reviews the change; fall back to
-  // the selected team for an untracked ticket.
-  const entryTeam = useMemo(() => {
-    const ticketId = editEntry?.entry.ticketId;
-    const ticketTeamId = allTickets.find((t) => t.id === ticketId)?.teamId;
-    return teams.find((t) => t.id === (ticketTeamId ?? selectedTeamId));
-  }, [editEntry, allTickets, teams, selectedTeamId]);
-  const entryNeedsApproval = timesheetApprovalRequired(entryTeam, userId);
-  const entryApproverCount = timesheetApproversFor(entryTeam, userId).length;
+  // Mirrors `timers.updateEntry`: a duration change lands the time on the
+  // destination team's timesheet, so either end of a move can call for review.
+  // `allTickets` covers the selected team only, so an entry or a destination
+  // whose team can't be resolved here counts as reviewed — guessing "no
+  // approval needed" just means the server rejects the finished edit instead.
+  const { sourceTeam, destinationTeam, teamUnresolved } = useMemo(() => {
+    const sourceTicketId = editEntry?.entry.ticketId;
+    const destinationTicketId = editTicketId || sourceTicketId;
+    const teamFor = (ticketId?: string) => {
+      const teamId = ticketId ? allTickets.find((t) => t.id === ticketId)?.teamId : undefined;
+      return teamId ? teams.find((t) => t.id === teamId) : undefined;
+    };
+    const source = teamFor(sourceTicketId);
+    const destination =
+      destinationTicketId === sourceTicketId ? source : teamFor(destinationTicketId);
+    return {
+      sourceTeam: source,
+      destinationTeam: destination,
+      teamUnresolved: Boolean(editEntry) && (!source || !destination),
+    };
+  }, [editEntry, editTicketId, allTickets, teams]);
+
+  const reviewingTeam = [destinationTeam, sourceTeam].find((t) =>
+    timesheetApprovalRequired(t, userId),
+  );
+  const entryNeedsApproval = teamUnresolved || Boolean(reviewingTeam);
+  const entryApproverCount = timesheetApproversFor(reviewingTeam, userId).length;
+  // A delete stays with the team that owns the entry — there is no destination.
+  const deleteNeedsApproval = sourceTeam
+    ? timesheetApprovalRequired(sourceTeam, userId)
+    : Boolean(editEntry);
 
   // ── Fetch tickets for selected team only ──
 
@@ -481,7 +503,7 @@ export const WorkPage: React.FC = () => {
         const result = await timerApi.deleteEntry(
           entryId,
           { notifyAdmins: false },
-          entryNeedsApproval
+          deleteNeedsApproval
             ? {
                 description: editJustification.description,
                 videoUrl: editJustification.videoUrl ?? undefined,
@@ -501,7 +523,7 @@ export const WorkPage: React.FC = () => {
         setDeletingEntryId(null);
       }
     },
-    [fetchDay, fetchWeekTotals, entryNeedsApproval, editJustification],
+    [fetchDay, fetchWeekTotals, deleteNeedsApproval, editJustification],
   );
 
   const handlePrevWeek = useCallback(() => {
@@ -1018,7 +1040,7 @@ export const WorkPage: React.FC = () => {
             durationChanged &&
             !isJustificationComplete(editJustification, timesheetVideoRequired('update'));
           const deleteBlocked =
-            entryNeedsApproval &&
+            deleteNeedsApproval &&
             !isJustificationComplete(editJustification, timesheetVideoRequired('delete'));
           return (
             <Modal
