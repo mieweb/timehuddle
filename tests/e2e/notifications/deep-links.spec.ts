@@ -338,15 +338,20 @@ test.describe('Notification deep links', () => {
       .waitFor({ state: 'visible', timeout: 20000 });
 
     // DM notification taps don't travel as ?openPeer= — AppLayout and
-    // NotificationsPage dispatch timehuddle:openThread. This drives that exact
-    // path, which used to call setSelectedTeamId directly and bypass the
-    // pending team/org resolver the URL flow goes through.
+    // NotificationsPage persist the intent in sessionStorage and dispatch
+    // timehuddle:openThread. This drives that exact pair, which used to call
+    // setSelectedTeamId directly and bypass the pending team/org resolver the
+    // URL flow goes through.
     const tapDmNotification = (memberId: string) =>
       page.evaluate(
-        (detail) => {
+        ({ detail, storageKey }) => {
+          sessionStorage.setItem(storageKey, JSON.stringify(detail));
           window.dispatchEvent(new CustomEvent('timehuddle:openThread', { detail }));
         },
-        { teamId, adminId: ownerId, memberId },
+        {
+          detail: { teamId, adminId: ownerId, memberId },
+          storageKey: 'app:messagesPendingThread',
+        },
       );
 
     await tapDmNotification(member1Id);
@@ -361,5 +366,11 @@ test.describe('Notification deep links', () => {
     await expect(
       page.getByRole('button', { name: `Direct message ${TEST_USERS.member2.name}` }),
     ).toHaveClass(/bg-blue-50/, { timeout: 15000 });
+
+    // The live handler must consume the persisted intent — left behind, it
+    // replays on the next mount and yanks the user back to the old thread.
+    expect(
+      await page.evaluate(() => sessionStorage.getItem('app:messagesPendingThread')),
+    ).toBeNull();
   });
 });

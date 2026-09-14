@@ -289,6 +289,13 @@ export const MessagesPage: React.FC = () => {
       const { teamId, adminId, memberId } = (
         e as CustomEvent<{ teamId: string; adminId: string; memberId: string }>
       ).detail;
+      // Senders persist the same intent for the not-yet-mounted case; consume
+      // it here or it replays on the next mount and reopens the old thread.
+      try {
+        sessionStorage.removeItem(MESSAGES_PENDING_THREAD_KEY);
+      } catch {
+        /* ignore */
+      }
       queueOpenThread(teamId, adminId, memberId);
     };
     window.addEventListener('timehuddle:openThread', handler);
