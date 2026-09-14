@@ -123,12 +123,16 @@ async function loggedSeconds(entryId) {
 // path would have made. `actorId` is who the change is attributed to — the
 // requester, even when an admin is the one approving it.
 
-/** Apply a note/duration/ticket change to a work item. */
+/**
+ * Apply a note/duration/ticket change to a work item.
+ *
+ * `onCommit` fires immediately before the first write — see applyClockUpdate.
+ */
 export async function applyTimerUpdate(
   entry,
   { note, durationSeconds, ticketId },
   actorId,
-  { notifyAdmins = true } = {}
+  { notifyAdmins = true, onCommit } = {}
 ) {
   const entryId = entry._id.toHexString();
   const $set = { updatedAt: new Date() };
@@ -140,6 +144,7 @@ export async function applyTimerUpdate(
   }
   const updateDoc = { $set };
   if (Object.keys($unset).length) updateDoc.$unset = $unset;
+  onCommit?.();
   await WorkItems.updateAsync(entry._id, updateDoc);
 
   if (durationSeconds !== undefined) {
@@ -167,8 +172,9 @@ export async function applyTimerUpdate(
 }
 
 /** Delete a work item and every timer session under it. */
-export async function applyTimerDelete(entry, actorId, notifyAdmins = true) {
+export async function applyTimerDelete(entry, actorId, notifyAdmins = true, onCommit) {
   const entryId = entry._id.toHexString();
+  onCommit?.();
   const deletedSessions = await Timers.removeAsync({ workItemId: entryId });
   await WorkItems.removeAsync(entry._id);
   if (notifyAdmins) {

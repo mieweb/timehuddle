@@ -104,12 +104,17 @@ export function effectiveRangeFor(event, { startTime, endTime }) {
   return { effectiveStart, effectiveEnd };
 }
 
-/** Apply new times/breaks to an existing clock event. */
+/**
+ * Apply new times/breaks to an existing clock event.
+ *
+ * `onCommit` fires immediately before the first write, so a caller replaying
+ * this can tell a validation refusal from a failure part-way through.
+ */
 export async function applyClockUpdate(
   event,
   { startTime, endTime, breaks },
   actorId,
-  { notifyAdmins = true } = {}
+  { notifyAdmins = true, onCommit } = {}
 ) {
   const clockEventId = event._id.toHexString();
   const { effectiveStart, effectiveEnd } = effectiveRangeFor(event, { startTime, endTime });
@@ -124,6 +129,7 @@ export async function applyClockUpdate(
     return { ...b, ...classifyBreak(durationSeconds) };
   });
 
+  onCommit?.();
   await ClockBreaks.removeAsync({ clockEventId });
   for (const b of classifiedBreaks) {
     await ClockBreaks.insertAsync({ clockEventId, ...b });
@@ -166,8 +172,9 @@ export async function applyClockUpdate(
 }
 
 /** Remove a clock event along with its breaks, attachments and pending jobs. */
-export async function applyClockDelete(event, actorId, { notifyAdmins = true } = {}) {
+export async function applyClockDelete(event, actorId, { notifyAdmins = true, onCommit } = {}) {
   const clockEventId = event._id.toHexString();
+  onCommit?.();
   await ClockEvents.removeAsync(event._id);
   cancelClockJobs(clockEventId).catch((err) =>
     console.error('[agenda] cancelClockJobs on delete failed:', err)
@@ -192,9 +199,11 @@ export async function applyClockCreateManual({
   startTime,
   endTime,
   notifyAdmins = true,
+  onCommit,
 }) {
   await assertManualRangeUsable({ userId, startTime, endTime });
 
+  onCommit?.();
   const _id = await ClockEvents.insertAsync({
     userId,
     teamId,

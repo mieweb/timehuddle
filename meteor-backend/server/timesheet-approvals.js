@@ -98,9 +98,10 @@ async function loadForReview(requestId, reviewerId) {
  * and an approval that no longer means what the reviewer read is refused rather
  * than forced through.
  *
- * `phase.committed` is flipped immediately before the first write so the caller
- * can tell a refusal (nothing written) from a failure part-way through the
- * mutation (payroll data possibly half-changed).
+ * `phase.committed` is flipped by each mutation immediately before its first
+ * write, so the caller can tell a refusal (nothing written) from a failure
+ * part-way through — including the preconditions the mutations check
+ * themselves, like the overlap test inside applyClockCreateManual.
  */
 async function applyRequest(request, phase = {}) {
   const { kind, action, targetId, payload, baseline, userId, teamId } = request;
@@ -108,23 +109,21 @@ async function applyRequest(request, phase = {}) {
   // timesheet" fan-out is noise here — and it reached the approver worded as
   // if a third party had made the edit. The requester hears about it through
   // the decision notification instead.
-  const quiet = { notifyAdmins: false };
-  const commit = (run) => {
+  const onCommit = () => {
     phase.committed = true;
-    return run();
   };
+  const quiet = { notifyAdmins: false, onCommit };
 
   if (kind === 'clock') {
     if (action === 'create') {
-      return commit(() =>
-        applyClockCreateManual({
-          userId,
-          teamId: payload.teamId,
-          startTime: payload.startTime,
-          endTime: payload.endTime,
-          notifyAdmins: false,
-        })
-      );
+      return applyClockCreateManual({
+        userId,
+        teamId: payload.teamId,
+        startTime: payload.startTime,
+        endTime: payload.endTime,
+        notifyAdmins: false,
+        onCommit,
+      });
     }
     const event = await ClockEvents.findOneAsync(new ObjectId(targetId));
     if (!event) {
@@ -133,13 +132,13 @@ async function applyRequest(request, phase = {}) {
     if (event.teamId !== teamId) {
       throw new Meteor.Error('target-moved', 'That session now belongs to another team.');
     }
-    if (action === 'delete') return commit(() => applyClockDelete(event, userId, quiet));
+    if (action === 'delete') return applyClockDelete(event, userId, quiet);
     assertUnchangedSince(baseline, {
       startTime: event.startTime,
       endTime: event.endTime ?? null,
       breaks: breakSignature(await findBreaksForEvent(targetId)),
     });
-    return commit(() => applyClockUpdate(event, payload, userId, quiet));
+    return applyClockUpdate(event, payload, userId, quiet);
   }
 
   const entry = await WorkItems.findOneAsync(new ObjectId(targetId));
@@ -154,14 +153,14 @@ async function applyRequest(request, phase = {}) {
     if (owningTeam?._id.toHexString() !== teamId) {
       throw new Meteor.Error('target-moved', 'That entry now belongs to another team.');
     }
-    return commit(() => applyTimerDelete(entry, userId, false));
+    return applyTimerDelete(entry, userId, false, onCommit);
   }
   assertUnchangedSince(baseline, {
     note: entry.note ?? null,
     ticketId: entry.ticketId,
     durationSeconds: await loggedSeconds(targetId),
   });
-  return commit(() => applyTimerUpdate(entry, payload, userId, quiet));
+  return applyTimerUpdate(entry, payload, userId, quiet);
 }
 
 /** Total logged seconds across a work item's completed sessions. */
