@@ -195,4 +195,41 @@ describe('TimesheetRow', () => {
     expect(screen.getByText('1:04 PM')).toBeTruthy();
     expect(screen.getByText('3h 0m')).toBeTruthy();
   });
+
+  it('replaces the completed status with the pending-approval badge', () => {
+    render(
+      <table>
+        <tbody>
+          <TimesheetRow
+            session={buildSession()}
+            teams={[{ id: 'team-1', name: 'Mobile test' }]}
+            onEdit={vi.fn()}
+            changeStatus="pending"
+          />
+        </tbody>
+      </table>,
+    );
+
+    expect(screen.getAllByText('Pending approval').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Completed')).toBeNull();
+  });
+
+  it('reports a declined change in place of the status', () => {
+    render(
+      <table>
+        <tbody>
+          <TimesheetRow
+            session={buildSession()}
+            teams={[{ id: 'team-1', name: 'Mobile test' }]}
+            onEdit={vi.fn()}
+            changeStatus="rejected"
+            changeNote="Times do not match the roster"
+          />
+        </tbody>
+      </table>,
+    );
+
+    expect(screen.getAllByText('Change declined').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Pending approval')).toBeNull();
+  });
 });

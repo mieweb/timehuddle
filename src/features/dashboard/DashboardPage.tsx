@@ -32,7 +32,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Spinner, Text } from '@mieweb/ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   ticketApi,
@@ -43,6 +43,7 @@ import {
   type TeamMemberClockStatus,
   type TeamRunningTimer,
   type HuddlePost,
+  timesheetApprovalApi,
 } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 import { useTeam } from '../../lib/TeamContext';
@@ -56,6 +57,7 @@ import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
 import { PersonalTimesheetPanel } from '../clock/PersonalTimesheetPanel';
 import { roundDurationSecondsForDisplay } from '../clock/timesheetUtils';
 import { AdminTimesheetPanel } from '../teams/AdminTimesheetPanel';
+import { TimesheetApprovalsPanel } from '../teams/TimesheetApprovalsPanel';
 
 const profilePath = (member: TeamMemberClockStatus) =>
   `/app/profile/${member.username ?? member.userId}`;
@@ -64,7 +66,7 @@ const profilePath = (member: TeamMemberClockStatus) =>
 
 export const DashboardPage: React.FC = () => {
   const { user } = useSession();
-  const { navigate } = useRouter();
+  const { navigate, search, replace } = useRouter();
   const {
     teams,
     allTeams,
@@ -103,27 +105,43 @@ export const DashboardPage: React.FC = () => {
 
   const [view, setView] = useState<'overview' | 'timesheet'>('overview');
   const [initialMemberId, setInitialMemberId] = useState<string>('');
+  // Bumped per deep-link so the panel reapplies the target even when the id is
+  // unchanged — e.g. re-tapping member A's notification after manually
+  // selecting member B.
+  const [memberRequestId, setMemberRequestId] = useState(0);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [focusRequestId, setFocusRequestId] = useState<string | null>(null);
+  // Dropped once the approvals panel has opened it, so returning to this view
+  // later doesn't reopen a request the reviewer has already dealt with.
+  const clearFocusRequest = useCallback(() => setFocusRequestId(null), []);
 
   // ── Deep-link support ──
   //   ?tab=timesheet&teamId=&memberId=  → Team → Timesheet (admin, from notifications)
   //   ?view=timesheet                   → Me → Timesheet (the retired /app/timesheet URL)
+  //   ?requestId=                       → open that timesheet approval for review
+  // Depends on `search` (not just mount) so re-tapping a notification for a
+  // different member while the Dashboard is already open is honored.
   useEffect(() => {
     if (!teamsReady) return;
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(search);
     const deepTab = params.get('tab');
     const deepView = params.get('view');
     const memberId = params.get('memberId');
     const teamId = params.get('teamId');
+    const requestId = params.get('requestId');
 
-    if (deepTab === 'timesheet') {
+    if (deepTab === 'timesheet' || requestId) {
       setTab('team');
       setView('timesheet');
     }
     if (deepView === 'timesheet') {
       setView('timesheet');
     }
-    if (memberId) setInitialMemberId(memberId);
+    if (requestId) setFocusRequestId(requestId);
+    if (memberId) {
+      setInitialMemberId(memberId);
+      setMemberRequestId((n) => n + 1);
+    }
     if (teamId) {
       const inScope = teams.find((t) => t.id === teamId);
       const crossOrg = !inScope && allTeams.find((t) => t.id === teamId);
@@ -136,10 +154,10 @@ export const DashboardPage: React.FC = () => {
       }
     }
 
-    if (deepTab || deepView || memberId || teamId) {
-      window.history.replaceState(null, '', window.location.pathname);
+    if (deepTab || deepView || memberId || teamId || requestId) {
+      replace('/app/dashboard');
     }
-  }, [teamsReady, teams, allTeams, setSelectedTeamId, setSelectedOrgId]);
+  }, [teamsReady, teams, allTeams, setTab, setSelectedTeamId, setSelectedOrgId, search, replace]);
 
   // Members list (needed by the admin Timesheet view only)
   useEffect(() => {
@@ -160,6 +178,32 @@ export const DashboardPage: React.FC = () => {
       cancelled = true;
     };
   }, [selectedTeamId, showAdminTimesheet]);
+
+  // Pending timesheet approvals for this team — fetched independent of which
+  // sub-view is open, so the Timesheet toggle can flag it even from Overview.
+  // Covers the case a notification was missed or dismissed: this is the
+  // fallback way to find out something is waiting.
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
+  // Claimed per call: switching team re-fires this, and a slower response for
+  // the team just left would otherwise badge the new one with its count.
+  const approvalCountSeqRef = useRef(0);
+  const fetchPendingApprovals = useCallback(() => {
+    const seq = ++approvalCountSeqRef.current;
+    if (!selectedTeamId || !canViewTimesheet) {
+      setPendingApprovalCount(0);
+      return;
+    }
+    timesheetApprovalApi
+      .listPending(selectedTeamId)
+      .then((requests) => {
+        if (approvalCountSeqRef.current === seq) setPendingApprovalCount(requests.length);
+      })
+      .catch(() => {
+        if (approvalCountSeqRef.current === seq) setPendingApprovalCount(0);
+      });
+  }, [selectedTeamId, canViewTimesheet]);
+  useEffect(fetchPendingApprovals, [fetchPendingApprovals]);
+  useRefresh(fetchPendingApprovals);
 
   // ── Recent activity — everyone's published plan/wrap-up posts for this
   // team, live via the same DDP publication the Huddle feed uses. Clicking
@@ -380,25 +424,43 @@ export const DashboardPage: React.FC = () => {
           type="button"
           onClick={() => setView('timesheet')}
           aria-pressed={view === 'timesheet'}
-          className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+          className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
             view === 'timesheet'
               ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
               : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
           }`}
         >
           Timesheet
+          {tab === 'team' && pendingApprovalCount > 0 && (
+            <Badge
+              variant="warning"
+              size="sm"
+              aria-label={`${pendingApprovalCount} timesheet ${pendingApprovalCount === 1 ? 'change' : 'changes'} awaiting your approval`}
+            >
+              {pendingApprovalCount}
+            </Badge>
+          )}
         </button>
       </div>
 
       {/* ── Timesheet view: Team → admin panel (admins only), Me → personal panel ── */}
       {view === 'timesheet' &&
         (showAdminTimesheet && selectedTeamId ? (
-          <AdminTimesheetPanel
-            members={teamMembers}
-            selectedTeamId={selectedTeamId}
-            teams={teams}
-            initialMemberId={initialMemberId}
-          />
+          <div className="space-y-4">
+            <TimesheetApprovalsPanel
+              teamId={selectedTeamId}
+              focusRequestId={focusRequestId}
+              onFocusHandled={clearFocusRequest}
+              onPendingCountChange={setPendingApprovalCount}
+            />
+            <AdminTimesheetPanel
+              members={teamMembers}
+              selectedTeamId={selectedTeamId}
+              teams={teams}
+              initialMemberId={initialMemberId}
+              initialMemberRequestId={memberRequestId}
+            />
+          </div>
         ) : (
           <PersonalTimesheetPanel />
         ))}

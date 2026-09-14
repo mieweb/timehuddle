@@ -41,16 +41,31 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   ApiError,
+  isPendingChange,
   timerApi,
   ticketApi,
+  timesheetApprovalApi,
   type DayEntry,
   type Timer,
   type Ticket,
+  type TimesheetChangeRequest,
 } from '../../lib/api';
+import {
+  timesheetApprovalRequired,
+  timesheetApproversFor,
+  timesheetVideoRequired,
+} from '../../lib/timesheetApproval';
+import {
+  emptyJustification,
+  isJustificationComplete,
+  TimesheetJustificationFields,
+  type TimesheetJustificationState,
+} from '../clock/TimesheetJustificationFields';
 import { toLocalDateStr } from '../../lib/date';
-import { getDdpClient } from '../../lib/ddp';
+import { getDdpClient, subscribeNewNotifications } from '../../lib/ddp';
 import { useTeam } from '../../lib/TeamContext';
 import { useRefresh } from '../../lib/RefreshContext';
+import { useSession } from '../../lib/useSession';
 import { formatDuration } from '../../lib/timeUtils';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { AppPage } from '../../ui/AppPage';
@@ -104,7 +119,7 @@ function entryTotalSeconds(sessions: Timer[], now: number): number {
 // ─── WorkPage ─────────────────────────────────────────────────────────────────
 
 export const WorkPage: React.FC = () => {
-  const { teams, teamsReady, currentTime, selectedTeamId, activeClockEvent } = useTeam();
+  const { teams, allTeams, teamsReady, currentTime, selectedTeamId, activeClockEvent } = useTeam();
   const { isClockedIn, clockIn, clockInLoading } = useClockToggle();
   const { navigate } = useRouter();
   const previousClockedInRef = useRef(isClockedIn);
@@ -161,6 +176,95 @@ export const WorkPage: React.FC = () => {
   const [editTicketId, setEditTicketId] = useState('');
   const [editError, setEditError] = useState<string | null>(null);
   const [editLoading, setEditLoading] = useState(false);
+  const [editJustification, setEditJustification] =
+    useState<TimesheetJustificationState>(emptyJustification);
+
+  // Changes submitted for review, keyed by the entry they target: a queued edit
+  // leaves the row looking untouched, so without this the user is given no sign
+  // it went anywhere and reopens it straight into `already-pending`.
+  const [myRequests, setMyRequests] = useState<TimesheetChangeRequest[]>([]);
+  const pendingByEntry = useMemo(() => {
+    const map = new Map<string, TimesheetChangeRequest>();
+    for (const r of myRequests) {
+      if (r.targetId && r.status === 'pending' && !map.has(r.targetId)) map.set(r.targetId, r);
+    }
+    return map;
+  }, [myRequests]);
+  const loadMyRequests = useCallback(() => {
+    timesheetApprovalApi
+      .listMine({ status: 'pending' })
+      .then(setMyRequests)
+      .catch(() => {});
+  }, []);
+
+  const { user } = useSession();
+  const userId = user?.id ?? '';
+
+  // The day holds entries from every team the user tracks against, but
+  // `allTickets` is loaded for the selected team alone. Anything missing is
+  // fetched by id so the edit form gates against the team that really reviews
+  // the entry; a null marks a lookup that failed, so it isn't retried forever.
+  const [otherTeamTickets, setOtherTeamTickets] = useState<Map<string, Ticket | null>>(new Map());
+  useEffect(() => {
+    const missing = [
+      ...new Set(
+        dayEntries
+          .map((de) => de.entry.ticketId)
+          .filter((id) => id && !allTickets.some((t) => t.id === id) && !otherTeamTickets.has(id)),
+      ),
+    ];
+    if (missing.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      missing.map((id) =>
+        ticketApi
+          .getTicket(id)
+          .then((t) => [id, t] as const)
+          .catch(() => [id, null] as const),
+      ),
+    ).then((fetched) => {
+      if (cancelled) return;
+      setOtherTeamTickets((prev) => new Map([...prev, ...fetched]));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dayEntries, allTickets, otherTeamTickets]);
+
+  // Mirrors `timers.updateEntry`: a duration change lands the time on the
+  // destination team's timesheet, so either end of a move can call for review.
+  const { sourceTeam, destinationTeam, teamUnresolved } = useMemo(() => {
+    const sourceTicketId = editEntry?.entry.ticketId;
+    const destinationTicketId = editTicketId || sourceTicketId;
+    const teamFor = (ticketId?: string) => {
+      if (!ticketId) return undefined;
+      const ticket =
+        allTickets.find((t) => t.id === ticketId) ?? otherTeamTickets.get(ticketId) ?? undefined;
+      // `allTeams` rather than the org-scoped `teams`: the entry's team is
+      // often simply outside the org currently selected.
+      return ticket ? allTeams.find((t) => t.id === ticket.teamId) : undefined;
+    };
+    const source = teamFor(sourceTicketId);
+    const destination =
+      destinationTicketId === sourceTicketId ? source : teamFor(destinationTicketId);
+    return {
+      sourceTeam: source,
+      destinationTeam: destination,
+      teamUnresolved: Boolean(editEntry) && (!source || !destination),
+    };
+  }, [editEntry, editTicketId, allTickets, otherTeamTickets, allTeams]);
+
+  const reviewingTeam = [destinationTeam, sourceTeam].find((t) =>
+    timesheetApprovalRequired(t, userId),
+  );
+  // A team that still can't be named after the lookup counts as reviewed:
+  // assuming otherwise only defers the refusal to submission.
+  const entryNeedsApproval = teamUnresolved || Boolean(reviewingTeam);
+  const entryApproverCount = timesheetApproversFor(reviewingTeam, userId).length;
+  // A delete stays with the team that owns the entry — there is no destination.
+  const deleteNeedsApproval = sourceTeam
+    ? timesheetApprovalRequired(sourceTeam, userId)
+    : Boolean(editEntry);
 
   // ── Fetch tickets for selected team only ──
 
@@ -224,11 +328,29 @@ export const WorkPage: React.FC = () => {
     void fetchDay();
   }, [fetchDay]);
 
+  useEffect(loadMyRequests, [loadMyRequests]);
+
+  // A decision is made elsewhere, by someone else, and changes a request rather
+  // than this page's data — so nothing here would otherwise re-run, and the row
+  // would stay flagged and locked after the admin had already ruled.
+  useEffect(
+    () =>
+      subscribeNewNotifications((n) => {
+        const type = (n.data as Record<string, unknown> | undefined)?.type;
+        if (type === 'timesheet-change-approved' || type === 'timesheet-change-rejected') {
+          loadMyRequests();
+          void fetchDay();
+        }
+      }),
+    [loadMyRequests, fetchDay],
+  );
+
   // Pull-to-refresh: combine both fetches
   useRefresh(
     useCallback(async () => {
+      loadMyRequests();
       await Promise.all([fetchDay(), fetchWeekTotals()]);
-    }, [fetchDay, fetchWeekTotals]),
+    }, [loadMyRequests, fetchDay, fetchWeekTotals]),
   );
 
   useEffect(() => {
@@ -413,8 +535,22 @@ export const WorkPage: React.FC = () => {
     async (entryId: string) => {
       setDeletingEntryId(entryId);
       try {
-        await timerApi.deleteEntry(entryId, { notifyAdmins: false });
-        setDayEntries((prev) => prev.filter((de) => de.entry.id !== entryId));
+        const result = await timerApi.deleteEntry(
+          entryId,
+          { notifyAdmins: false },
+          deleteNeedsApproval
+            ? {
+                description: editJustification.description,
+                videoUrl: editJustification.videoUrl ?? undefined,
+              }
+            : undefined,
+        );
+        if (!isPendingChange(result)) {
+          setDayEntries((prev) => prev.filter((de) => de.entry.id !== entryId));
+        } else {
+          setMyRequests((prev) => [result.request, ...prev]);
+        }
+        setEditJustification(emptyJustification);
         void fetchWeekTotals();
       } catch {
         void fetchDay();
@@ -422,7 +558,7 @@ export const WorkPage: React.FC = () => {
         setDeletingEntryId(null);
       }
     },
-    [fetchDay, fetchWeekTotals],
+    [fetchDay, fetchWeekTotals, deleteNeedsApproval, editJustification],
   );
 
   const handlePrevWeek = useCallback(() => {
@@ -446,6 +582,9 @@ export const WorkPage: React.FC = () => {
     setEditDuration(secondsToHHMM(total));
     setEditTicketId(de.entry.ticketId);
     setEditError(null);
+    // Per entry: evidence gathered for one work item must not be submitted as
+    // justification for the next one opened.
+    setEditJustification(emptyJustification);
   }, []);
 
   const handleUpdateEntry = useCallback(async () => {
@@ -456,16 +595,43 @@ export const WorkPage: React.FC = () => {
     setEditLoading(true);
     setEditError(null);
     try {
-      const updated = await timerApi.updateEntry(editEntry.entry.id, {
-        note: editNote || null,
-        ...(!isRunning && parsedSeconds !== null ? { durationSeconds: parsedSeconds } : {}),
-        ...(ticketChanged ? { ticketId: editTicketId } : {}),
-      });
+      // Compared against the entry's current total, not merely parseable: the
+      // modal enables a note-only edit without evidence on exactly that basis,
+      // so sending `durationSeconds` regardless would have the server treat it
+      // as a time claim and reject it.
+      const durationChanged =
+        !isRunning &&
+        parsedSeconds !== null &&
+        parsedSeconds !== entryTotalSeconds(editEntry.sessions, currentTime);
+      const result = await timerApi.updateEntry(
+        editEntry.entry.id,
+        {
+          note: editNote || null,
+          ...(durationChanged ? { durationSeconds: parsedSeconds } : {}),
+          ...(ticketChanged ? { ticketId: editTicketId } : {}),
+        },
+        // Only a duration change is a time claim; the server gates on the same
+        // condition, so a note-only edit must not send a justification.
+        durationChanged && entryNeedsApproval
+          ? {
+              description: editJustification.description,
+              videoUrl: editJustification.videoUrl ?? undefined,
+            }
+          : undefined,
+      );
+      if (isPendingChange(result)) {
+        setMyRequests((prev) => [result.request, ...prev]);
+        setEditEntry(null);
+        setEditJustification(emptyJustification);
+        return;
+      }
+      const updated = result.entry;
       setDayEntries((prev) =>
         prev.map((de) => (de.entry.id === updated.id ? { ...de, entry: updated } : de)),
       );
-      if (!isRunning && parsedSeconds !== null) void fetchDay();
+      if (durationChanged) void fetchDay();
       setEditEntry(null);
+      setEditJustification(emptyJustification);
     } catch (error) {
       if (error instanceof ApiError) {
         setEditError(error.message);
@@ -475,7 +641,16 @@ export const WorkPage: React.FC = () => {
     } finally {
       setEditLoading(false);
     }
-  }, [editEntry, editNote, editDuration, editTicketId, fetchDay]);
+  }, [
+    editEntry,
+    editNote,
+    editDuration,
+    editTicketId,
+    editJustification,
+    entryNeedsApproval,
+    currentTime,
+    fetchDay,
+  ]);
 
   const handleCopyPrevious = useCallback(async () => {
     setCopyLoading(true);
@@ -774,6 +949,7 @@ export const WorkPage: React.FC = () => {
                 const total = entryTotalSeconds(de.sessions, currentTime);
                 const runningSess = de.sessions.find((s) => s.endTime === null);
                 const isRunning = !!runningSess;
+                const awaitingApproval = pendingByEntry.has(de.entry.id);
                 const controlsDisabled = (!isRunning && !isToday) || isOnBreak;
                 const disabledReason = isOnBreak
                   ? 'Timers are paused while you are on break.'
@@ -824,6 +1000,15 @@ export const WorkPage: React.FC = () => {
                             Running
                           </Badge>
                         )}
+                        {awaitingApproval && (
+                          <Badge
+                            variant="warning"
+                            size="sm"
+                            title="Waiting for an admin to approve your change"
+                          >
+                            Pending approval
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
 
@@ -839,7 +1024,12 @@ export const WorkPage: React.FC = () => {
                         size="icon"
                         onClick={() => handleOpenEdit(de)}
                         aria-label="Edit work item"
-                        disabled={deletingEntryId === de.entry.id}
+                        title={
+                          awaitingApproval
+                            ? 'A change to this entry is already awaiting review.'
+                            : undefined
+                        }
+                        disabled={deletingEntryId === de.entry.id || awaitingApproval}
                       >
                         <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
                       </Button>
@@ -873,6 +1063,20 @@ export const WorkPage: React.FC = () => {
       {editEntry &&
         (() => {
           const isRunning = !!editEntry.sessions.find((s) => s.endTime === null);
+          // Only a change to logged time is a payroll claim — the server gates
+          // on the same condition, so a note-only edit skips the justification.
+          const parsedSeconds = hhmmToSeconds(editDuration);
+          const durationChanged =
+            !isRunning &&
+            parsedSeconds !== null &&
+            parsedSeconds !== entryTotalSeconds(editEntry.sessions, currentTime);
+          const editBlocked =
+            entryNeedsApproval &&
+            durationChanged &&
+            !isJustificationComplete(editJustification, timesheetVideoRequired('update'));
+          const deleteBlocked =
+            deleteNeedsApproval &&
+            !isJustificationComplete(editJustification, timesheetVideoRequired('delete'));
           return (
             <Modal
               open
@@ -927,6 +1131,15 @@ export const WorkPage: React.FC = () => {
                     {editError}
                   </Text>
                 )}
+                {entryNeedsApproval && (
+                  <TimesheetJustificationFields
+                    value={editJustification}
+                    onChange={setEditJustification}
+                    videoRequired={timesheetVideoRequired('update')}
+                    disabled={editLoading}
+                    approverCount={entryApproverCount}
+                  />
+                )}
               </ModalBody>
               <ModalFooter className="flex items-center justify-between">
                 <div className="flex gap-2">
@@ -934,9 +1147,9 @@ export const WorkPage: React.FC = () => {
                     variant="primary"
                     onClick={handleUpdateEntry}
                     isLoading={editLoading}
-                    disabled={!isRunning && hhmmToSeconds(editDuration) === null}
+                    disabled={(!isRunning && parsedSeconds === null) || editBlocked}
                   >
-                    Update
+                    {entryNeedsApproval && durationChanged ? 'Submit for approval' : 'Update'}
                   </Button>
                   <Button variant="ghost" onClick={() => setEditEntry(null)}>
                     Cancel
@@ -944,6 +1157,7 @@ export const WorkPage: React.FC = () => {
                 </div>
                 <Button
                   variant="danger"
+                  disabled={deleteBlocked}
                   onClick={() => {
                     void handleDeleteEntry(editEntry.entry.id);
                     setEditEntry(null);

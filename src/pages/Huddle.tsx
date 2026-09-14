@@ -25,12 +25,12 @@ import { useRouter } from '../ui/router';
 import { useSession } from '@lib/useSession';
 import { useTeam } from '@lib/TeamContext';
 import { teamApi, huddleApi, type HuddlePost, type Team } from '@lib/api';
-import { getDdpClient } from '@lib/ddp';
+import { getDdpClient, useLiveClockEvents } from '@lib/ddp';
 import { useRefresh } from '@lib/RefreshContext';
 import { toDateString } from '@lib/timeUtils';
 
 export default function Huddle() {
-  const { navigate } = useRouter();
+  const { navigate, search, replace } = useRouter();
   const [posts, setPosts] = useState<HuddlePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,16 +44,65 @@ export default function Huddle() {
   // per-message-thread concept for (deliberately not force-fit).
   const [feedView, setFeedView] = useState<'chat' | 'cards'>('cards');
   const { user } = useSession();
-  const { selectedTeamId } = useTeam();
+  const { selectedTeamId, setSelectedTeamId, teams, allTeams, setSelectedOrgId, teamsReady } =
+    useTeam();
 
-  // Deep-link support: /app/huddle?postId=XXX (e.g. from the dashboard's
-  // Recent Activity feed) — scroll to and briefly highlight that post once
-  // it's loaded, then strip the query param.
-  const [targetPostId, setTargetPostId] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return null;
-    return new URLSearchParams(window.location.search).get('postId');
-  });
-  const [highlightedPostId, setHighlightedPostId] = useState<string | null>(null);
+  // Deep-link support: /app/huddle?postId=XXX&teamId=YYY (e.g. from the
+  // dashboard's Recent Activity feed, or a clock-in/out or huddle-comment
+  // notification) — switch to the post's team, then scroll to and briefly
+  // highlight it once loaded, then strip the query params.
+  // Re-derived from `search` (not just mount) so tapping a second notification
+  // while already on this page is honored.
+  const [targetPostId, setTargetPostId] = useState<string | null>(() =>
+    new URLSearchParams(search).get('postId'),
+  );
+  const [pendingTeamId, setPendingTeamId] = useState<string | null>(
+    () => new URLSearchParams(search).get('teamId') ?? null,
+  );
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const postId = params.get('postId');
+    if (!postId) return;
+    setTargetPostId(postId);
+    setPendingTeamId(params.get('teamId'));
+  }, [search]);
+
+  // The feed only ever holds the selected team's posts, so a post from another
+  // team can't resolve until the team is switched. Kept pending until the team
+  // list has actually loaded.
+  useEffect(() => {
+    if (!pendingTeamId) return;
+    if (pendingTeamId === selectedTeamId) {
+      setPendingTeamId(null);
+      return;
+    }
+    if (!teamsReady) return;
+    const inScope = teams.some((t) => t.id === pendingTeamId);
+    const crossOrg = inScope ? null : allTeams.find((t) => t.id === pendingTeamId);
+    if (!inScope && !crossOrg) {
+      setPendingTeamId(null); // not a member of that team — nothing to switch to
+      return;
+    }
+    // A team outside the selected org is filtered out of `teams` and would be
+    // reset straight back by TeamContext, so switch the org along with it.
+    if (crossOrg) setSelectedOrgId(crossOrg.orgId);
+    setSelectedTeamId(pendingTeamId);
+    setPendingTeamId(null);
+  }, [
+    pendingTeamId,
+    selectedTeamId,
+    teams,
+    allTeams,
+    teamsReady,
+    setSelectedTeamId,
+    setSelectedOrgId,
+  ]);
+
+  // Carries a nonce, not just the id: re-tapping the same notification while
+  // its highlight is still up would otherwise be a no-op state write, and
+  // neither the scroll nor the expiry effect below would re-run.
+  const [highlight, setHighlight] = useState<{ postId: string; nonce: number } | null>(null);
+  const highlightedPostId = highlight?.postId ?? null;
 
   useEffect(() => {
     if (!targetPostId) return;
@@ -61,27 +110,58 @@ export default function Huddle() {
     setFeedView('cards');
   }, [targetPostId]);
 
-  useEffect(() => {
-    if (!targetPostId || loading) return;
-    if (!posts.some((p) => p.id === targetPostId)) return;
-    document
-      .getElementById(`huddle-post-${targetPostId}`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    setHighlightedPostId(targetPostId);
-    window.history.replaceState(null, '', window.location.pathname);
-    setTargetPostId(null);
-    const timer = setTimeout(() => setHighlightedPostId(null), 2500);
-    return () => clearTimeout(timer);
-  }, [targetPostId, loading, posts]);
+  // A boolean, not `posts` itself: the array gets a fresh identity on every DDP
+  // change event, and depending on it tore down the effect below (cancelling its
+  // rAF) faster than a frame could elapse, so the scroll never ran.
+  const targetPostLoaded = targetPostId !== null && posts.some((p) => p.id === targetPostId);
 
-  // Dismiss the highlight ring as soon as the user clicks/taps anywhere,
-  // rather than waiting out the full timeout.
   useEffect(() => {
-    if (!highlightedPostId) return;
-    const clear = () => setHighlightedPostId(null);
-    document.addEventListener('pointerdown', clear);
-    return () => document.removeEventListener('pointerdown', clear);
-  }, [highlightedPostId]);
+    if (!targetPostId || !targetPostLoaded) return;
+    if (feedTab !== 'feed' || feedView !== 'cards') return;
+
+    setHighlight((prev) => ({ postId: targetPostId, nonce: (prev?.nonce ?? 0) + 1 }));
+    setTargetPostId(null);
+    replace('/app/huddle');
+  }, [targetPostId, targetPostLoaded, feedTab, feedView, replace]);
+
+  // Scrolling hangs off the highlight rather than the target: clearing
+  // `targetPostId` above re-runs that effect, and its cleanup would cancel the
+  // pending animation frame before the card had a chance to mount.
+  useEffect(() => {
+    if (!highlight) return;
+    const { postId } = highlight;
+    let frame = 0;
+    let attempts = 0;
+    const tryScroll = () => {
+      const el = document.getElementById(`huddle-post-${postId}`);
+      if (!el) {
+        if (attempts++ < 60) frame = requestAnimationFrame(tryScroll);
+        return;
+      }
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    frame = requestAnimationFrame(tryScroll);
+    return () => cancelAnimationFrame(frame);
+  }, [highlight]);
+
+  // Long enough to survive a scroll animation and catch the eye. Deliberately
+  // not dismissed on tap — the tap that opened the notification arrives here as
+  // a ghost event and was killing the highlight instantly on touch devices.
+  useEffect(() => {
+    if (!highlight) return;
+    const timer = setTimeout(() => setHighlight(null), 6000);
+    return () => clearTimeout(timer);
+  }, [highlight]);
+
+  // Live session state for the post headers. The posts publication only fires
+  // on post writes, so a clock-out would never reach the feed on its own —
+  // `clock.liveForTeams` carries every still-open session for the team.
+  const liveTeamIds = useMemo(() => (selectedTeamId ? [selectedTeamId] : []), [selectedTeamId]);
+  const { docs: liveClockEvents } = useLiveClockEvents(liveTeamIds);
+  const activeClockEventIds = useMemo(
+    () => new Set(liveClockEvents.filter((d) => d.endTime == null).map((d) => d._id)),
+    [liveClockEvents],
+  );
 
   // Load team data for permission checks
   useEffect(() => {
@@ -451,6 +531,9 @@ export default function Huddle() {
                       canEdit={canEditPost(post)}
                       canDelete={canDeletePost(post)}
                       highlighted={post.id === highlightedPostId}
+                      sessionActive={
+                        !!post.clockEventId && activeClockEventIds.has(post.clockEventId)
+                      }
                     />
                   ))}
               </>

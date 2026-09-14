@@ -273,7 +273,7 @@ Meteor.methods({
               ticketId,
               ticketTitle: ticket.title,
               teamId: ticket.teamId,
-              url: `/app/tickets`,
+              url: `/app/tickets/${ticketId}`,
             },
           }).catch((err) =>
             console.error(`[ticket] notify assignee ${uid} failed:`, err)
