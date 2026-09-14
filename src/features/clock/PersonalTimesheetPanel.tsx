@@ -46,6 +46,7 @@ import {
   isPendingChange,
   timesheetApprovalApi,
   type ClockEvent,
+  type Team,
   type TimesheetChangeRequest,
 } from '../../lib/api';
 import {
@@ -116,6 +117,22 @@ function getSessionWorkSeconds(session: ClockEvent, now: number): number {
   return Math.max(0, Math.floor((session.endTime - session.startTime) / 1000));
 }
 
+/** "Mar 3, 9:00 am – 5:00 pm · Acme" for an addition nobody has ruled on yet. */
+function describePendingAddition(request: TimesheetChangeRequest, teams: Team[]): string {
+  const { startTime, endTime } = request.payload as { startTime?: number; endTime?: number };
+  const teamName = teams.find((t) => t.id === request.teamId)?.name;
+  if (typeof startTime !== 'number') return teamName ? `New entry in ${teamName}` : 'New entry';
+  const time = (ms: number) =>
+    new Date(ms).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const day = new Date(startTime).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  });
+  const range =
+    typeof endTime === 'number' ? `${time(startTime)} – ${time(endTime)}` : time(startTime);
+  return [`${day}, ${range}`, teamName].filter(Boolean).join(' · ');
+}
+
 function getSessionBreakSeconds(session: ClockEvent, now: number): number {
   const breaks = Array.isArray(session.breaks) ? session.breaks : [];
   return breaks.reduce((sum, brk) => {
@@ -132,7 +149,7 @@ function getSessionBreakSeconds(session: ClockEvent, now: number): number {
 
 export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   const { user } = useSession();
-  const { teamsReady, teams, selectedTeamId, currentTime } = useTeam();
+  const { teamsReady, teams, allTeams, selectedTeamId, currentTime } = useTeam();
 
   const [preset, setPreset] = useState<Preset>('week');
   const [customStart, setCustomStart] = useState('');
@@ -166,13 +183,23 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
   const [myRequests, setMyRequests] = useState<TimesheetChangeRequest[]>([]);
 
   const userId = user?.id ?? '';
-  const teamOf = useCallback((teamId: string) => teams.find((t) => t.id === teamId), [teams]);
+  // `teams` is scoped to the selected org, and a team the user has left drops
+  // out of both lists — while their sessions from it stay here, editable, and
+  // still reviewed by that team's admins.
+  const teamOf = useCallback(
+    (teamId: string) => teams.find((t) => t.id === teamId) ?? allTeams.find((t) => t.id === teamId),
+    [teams, allTeams],
+  );
 
   // Whether the team behind each modal reviews retroactive changes. Mirrors the
   // server so the form can ask for a justification up front instead of letting
   // someone fill in a whole change and only then be told it needs one.
   const editTeam = activeSession ? teamOf(activeSession.teamId) : undefined;
-  const editNeedsApproval = timesheetApprovalRequired(editTeam, userId);
+  // An unresolvable team is one the user is no longer in, which the server
+  // always reviews — hiding the fields there would make every save fail.
+  const editNeedsApproval = activeSession
+    ? !editTeam || timesheetApprovalRequired(editTeam, userId)
+    : false;
   const editApproverCount = timesheetApproversFor(editTeam, userId).length;
 
   const addTeam = teamOf(newTeamId);
@@ -189,6 +216,14 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     }
     return map;
   }, [myRequests]);
+
+  // A queued addition has no entry yet, so there is no row for `requestByTarget`
+  // to hang a status off. Without listing them the modal just closes and the
+  // time looks like it never went anywhere — so it gets submitted again.
+  const pendingAdditions = useMemo(
+    () => myRequests.filter((r) => r.action === 'create' && r.status === 'pending'),
+    [myRequests],
+  );
 
   const loadMyRequests = useCallback(() => {
     if (!userId) return;
@@ -515,6 +550,19 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
     }
   }, [newClockIn, newClockOut, newTeamId, addJustification, addNeedsApproval, fetchData]);
 
+  const [withdrawing, setWithdrawing] = useState<string | null>(null);
+  const withdrawRequest = useCallback(async (requestId: string) => {
+    setWithdrawing(requestId);
+    try {
+      await timesheetApprovalApi.cancel(requestId);
+      setMyRequests((prev) => prev.filter((r) => r.id !== requestId));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Unable to withdraw that request.');
+    } finally {
+      setWithdrawing(null);
+    }
+  }, []);
+
   // Duration previews (display-only, computed from inputs)
   const editDurationSeconds = useMemo(() => {
     if (!editClockIn || !editClockOut) return null;
@@ -738,6 +786,35 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
         {error && (
           <Alert variant="danger" dismissible>
             <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Additions waiting on an admin — no session row exists for these yet. */}
+        {pendingAdditions.length > 0 && (
+          <Alert variant="warning" aria-live="polite">
+            <AlertDescription>
+              <Text size="sm" weight="medium">
+                Awaiting approval
+              </Text>
+              <ul className="mt-2 space-y-2">
+                {pendingAdditions.map((r) => (
+                  <li key={r.id} className="flex flex-wrap items-center gap-2">
+                    <Text size="sm" className="grow">
+                      {describePendingAddition(r, teams)}
+                    </Text>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      isLoading={withdrawing === r.id}
+                      onClick={() => void withdrawRequest(r.id)}
+                      aria-label={`Withdraw ${describePendingAddition(r, teams)}`}
+                    >
+                      Withdraw
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </AlertDescription>
           </Alert>
         )}
       </div>

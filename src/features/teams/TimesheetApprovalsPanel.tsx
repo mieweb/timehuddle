@@ -243,6 +243,25 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
       .catch(() => {});
   }, [focusRequestId, requests, loading, onFocusHandled]);
 
+  // Another admin ruling on the request that is open here drops it from the
+  // refreshed queue but leaves this copy saying `pending`, so the modal would
+  // keep offering Approve/Decline until one of them failed. Re-read it instead
+  // and let the already-reviewed notice take over.
+  const reconciledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading || busy || !active || active.status !== 'pending') return;
+    if (requests.some((r) => r.id === active.id)) {
+      reconciledRef.current = null;
+      return;
+    }
+    if (reconciledRef.current === active.id) return;
+    reconciledRef.current = active.id;
+    timesheetApprovalApi
+      .get(active.id)
+      .then((fresh) => setActive((cur) => (cur?.id === fresh.id ? fresh : cur)))
+      .catch(() => {});
+  }, [requests, active, loading, busy]);
+
   const close = useCallback(() => {
     setActive(null);
     setNote('');
