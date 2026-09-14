@@ -119,7 +119,7 @@ function entryTotalSeconds(sessions: Timer[], now: number): number {
 // ─── WorkPage ─────────────────────────────────────────────────────────────────
 
 export const WorkPage: React.FC = () => {
-  const { teams, teamsReady, currentTime, selectedTeamId, activeClockEvent } = useTeam();
+  const { teams, allTeams, teamsReady, currentTime, selectedTeamId, activeClockEvent } = useTeam();
   const { isClockedIn, clockIn, clockInLoading } = useClockToggle();
   const { navigate } = useRouter();
   const previousClockedInRef = useRef(isClockedIn);
@@ -199,17 +199,50 @@ export const WorkPage: React.FC = () => {
 
   const { user } = useSession();
   const userId = user?.id ?? '';
+
+  // The day holds entries from every team the user tracks against, but
+  // `allTickets` is loaded for the selected team alone. Anything missing is
+  // fetched by id so the edit form gates against the team that really reviews
+  // the entry; a null marks a lookup that failed, so it isn't retried forever.
+  const [otherTeamTickets, setOtherTeamTickets] = useState<Map<string, Ticket | null>>(new Map());
+  useEffect(() => {
+    const missing = [
+      ...new Set(
+        dayEntries
+          .map((de) => de.entry.ticketId)
+          .filter((id) => id && !allTickets.some((t) => t.id === id) && !otherTeamTickets.has(id)),
+      ),
+    ];
+    if (missing.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      missing.map((id) =>
+        ticketApi
+          .getTicket(id)
+          .then((t) => [id, t] as const)
+          .catch(() => [id, null] as const),
+      ),
+    ).then((fetched) => {
+      if (cancelled) return;
+      setOtherTeamTickets((prev) => new Map([...prev, ...fetched]));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dayEntries, allTickets, otherTeamTickets]);
+
   // Mirrors `timers.updateEntry`: a duration change lands the time on the
   // destination team's timesheet, so either end of a move can call for review.
-  // `allTickets` covers the selected team only, so an entry or a destination
-  // whose team can't be resolved here counts as reviewed — guessing "no
-  // approval needed" just means the server rejects the finished edit instead.
   const { sourceTeam, destinationTeam, teamUnresolved } = useMemo(() => {
     const sourceTicketId = editEntry?.entry.ticketId;
     const destinationTicketId = editTicketId || sourceTicketId;
     const teamFor = (ticketId?: string) => {
-      const teamId = ticketId ? allTickets.find((t) => t.id === ticketId)?.teamId : undefined;
-      return teamId ? teams.find((t) => t.id === teamId) : undefined;
+      if (!ticketId) return undefined;
+      const ticket =
+        allTickets.find((t) => t.id === ticketId) ?? otherTeamTickets.get(ticketId) ?? undefined;
+      // `allTeams` rather than the org-scoped `teams`: the entry's team is
+      // often simply outside the org currently selected.
+      return ticket ? allTeams.find((t) => t.id === ticket.teamId) : undefined;
     };
     const source = teamFor(sourceTicketId);
     const destination =
@@ -219,11 +252,13 @@ export const WorkPage: React.FC = () => {
       destinationTeam: destination,
       teamUnresolved: Boolean(editEntry) && (!source || !destination),
     };
-  }, [editEntry, editTicketId, allTickets, teams]);
+  }, [editEntry, editTicketId, allTickets, otherTeamTickets, allTeams]);
 
   const reviewingTeam = [destinationTeam, sourceTeam].find((t) =>
     timesheetApprovalRequired(t, userId),
   );
+  // A team that still can't be named after the lookup counts as reviewed:
+  // assuming otherwise only defers the refusal to submission.
   const entryNeedsApproval = teamUnresolved || Boolean(reviewingTeam);
   const entryApproverCount = timesheetApproversFor(reviewingTeam, userId).length;
   // A delete stays with the team that owns the entry — there is no destination.
