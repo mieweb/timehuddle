@@ -36,11 +36,23 @@ This directory contains E2E tests that verify real-time synchronization across m
 - Role change synchronization
 - Blocked status sync
 
+### ✅ Media Library (`media-library.spec.ts`)
+
+- Media item count sync
+- Upload notifications
+- Item visibility updates
+
 ### ✅ Huddle Posts (`huddle-posts.spec.ts`)
 
 - New post synchronization
 - Post count consistency
 - Comment updates
+
+### ✅ Messages (`messages.spec.ts`)
+
+- Thread list sync
+- New message delivery
+- Real-time chat updates
 
 ### ✅ Notifications (`notifications.spec.ts`)
 
@@ -66,7 +78,7 @@ npm run test:e2e -- tests/e2e/realtime/
 
 # Run specific feature tests
 npm run test:e2e -- tests/e2e/realtime/ticket-timers.spec.ts
-npm run test:e2e -- tests/e2e/realtime/huddle-posts.spec.ts
+npm run test:e2e -- tests/e2e/realtime/messages.spec.ts
 
 # Run in headed mode (see the browser)
 npm run test:e2e:headed -- tests/e2e/realtime/

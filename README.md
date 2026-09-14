@@ -29,6 +29,7 @@ Features **Clock In/Out**, **Ticket Tracking**, **Timesheets**, **Team Managemen
 - **Ticket tracking** — create, assign, and track tickets with accumulated time
 - **Timesheets** — view and manage time entries by date range
 - **Team management** — create/join teams, invite members, role-based admin controls
+- **Direct messaging** — send messages to team members with ticket context
 - **Dashboard** — overview of today's time, weekly totals, active sessions, and team count
 - **Shared validation** — [Zod](https://zod.dev) schemas shared across client forms and the API layer
 - **Dark / light theme** — persisted via `localStorage`, flash-free on load

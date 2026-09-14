@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -7,7 +7,6 @@ const ddpMocks = vi.hoisted(() => ({
   loginWithPassword: vi.fn(),
   getTeamInvitation: vi.fn(),
   acceptTeamInvitation: vi.fn(),
-  devQuickLogin: vi.fn(),
 }));
 
 vi.mock('../lib/useSession', () => ({
@@ -28,6 +27,7 @@ vi.mock('../lib/api', () => ({
   METEOR_BASE_URL: 'http://localhost:3100',
   authApi: {
     signInWithSocial: vi.fn(),
+    devMemberSignIn: vi.fn(),
   },
 }));
 
@@ -118,29 +118,17 @@ describe('LoginForm dev sign-in gate', () => {
 
     render(<LoginForm />);
 
-    expect(screen.queryByRole('group', { name: /development sign-in by role/i })).toBeNull();
+    expect(screen.queryByText('Domain')).toBeNull();
+    expect(screen.queryByText('Login Type')).toBeNull();
+    expect(screen.queryByText('Join a team')).toBeNull();
   });
 
-  it('renders a sign-in button per role outside production mode', () => {
+  it('renders the dev card outside production mode', () => {
     vi.stubEnv('MODE', 'development');
 
     render(<LoginForm />);
 
-    const group = screen.getByRole('group', { name: /development sign-in by role/i });
-    expect(
-      within(group)
-        .getAllByRole('button')
-        .map((b) => b.textContent),
-    ).toEqual(['Member', 'Org Admin', 'Org Owner', 'Enterprise Admin', 'Enterprise Owner']);
-  });
-
-  it('signs in as the clicked role', async () => {
-    vi.stubEnv('MODE', 'development');
-    ddpMocks.devQuickLogin.mockResolvedValue(undefined);
-
-    render(<LoginForm />);
-    fireEvent.click(screen.getByRole('button', { name: 'Org Admin' }));
-
-    await waitFor(() => expect(ddpMocks.devQuickLogin).toHaveBeenCalledWith('org-admin'));
+    expect(screen.getByText('Domain')).toBeTruthy();
+    expect(screen.getByText('Login Type')).toBeTruthy();
   });
 });

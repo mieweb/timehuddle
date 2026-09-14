@@ -19,6 +19,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 
 import { ClockPage } from '../features/clock/ClockPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
+import { MessagesPage } from '../features/messages/MessagesPage';
 import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
 import { SeederPage } from '../features/seeder/SeederPage';
@@ -27,13 +28,14 @@ import { TicketsPage } from '../features/tickets/TicketsPage';
 import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
+import { MediaPage } from '../features/media/MediaPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
 import Huddle from '../pages/Huddle';
 import { HiPage } from '../pages/HiPage';
 import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
 import { OrganizationPage } from '../features/org/OrganizationPage';
 import { EnterprisePage } from '../features/enterprise/EnterprisePage';
-import { SIDEBAR_KEY } from '../lib/constants';
+import { SIDEBAR_KEY, MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
 import { TeamProvider, useTeam } from '../lib/TeamContext';
 import { useBrand } from '../lib/useBrand';
 import { useClockDocumentTitle } from '../lib/useClockDocumentTitle';
@@ -70,9 +72,11 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/dashboard': { title: 'Dashboard', component: DashboardPage },
   '/app/hi': { title: 'Hi', component: HiPage },
   '/app/huddle': { title: 'Huddle', component: Huddle },
+  '/app/messages': { title: 'Messages', component: MessagesPage },
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/enterprise': { title: 'Enterprise', component: EnterprisePage },
   '/app/organization': { title: 'Organization', component: OrganizationPage },
+  '/app/media': { title: 'Media Library', component: MediaPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
   ...(import.meta.env.MODE !== 'production'
     ? { '/app/seeder': { title: 'Seeder', component: SeederPage } }
@@ -96,14 +100,9 @@ function match(pathname: string): RouteConfig | null {
  * dashboard's default view, silently losing what the link was pointing at.
  *
  *   /app/timesheet → the personal timesheet, now Dashboard → Me → Timesheet
- *   /app/messages, /app/media → withdrawn for MVP; no replacement surface, so
- *     old bookmarks and already-delivered push notifications land on Dashboard
- *     rather than silently rendering it under the wrong URL.
  */
 const RETIRED_ROUTES: Record<string, string> = {
   '/app/timesheet': '/app/dashboard?view=timesheet',
-  '/app/messages': '/app/dashboard',
-  '/app/media': '/app/dashboard',
 };
 
 // ─── Context ─────────────────────────────────────────────────────────────────
@@ -125,6 +124,10 @@ export const SidebarContext = createContext<SidebarCtx>({
 });
 
 export const useSidebar = () => useContext(SidebarContext);
+
+export const MessagesActiveChatContext = createContext<{
+  setHasActiveChat: (v: boolean) => void;
+}>({ setHasActiveChat: () => {} });
 
 export const AppFeedbackContext = createContext<{
   openReportIssue: () => void;
@@ -193,7 +196,22 @@ const AppLayoutContent: React.FC = () => {
   const handleNotificationData = useCallback(
     (data: Record<string, string>) => {
       console.log('[handleNotificationData] received:', JSON.stringify(data));
-      if (data.type === 'shift-end-reminder') {
+      if (data.type === 'message' && data.teamId && data.adminId && data.memberId) {
+        try {
+          sessionStorage.setItem(
+            MESSAGES_PENDING_THREAD_KEY,
+            JSON.stringify({ teamId: data.teamId, adminId: data.adminId, memberId: data.memberId }),
+          );
+        } catch {
+          /* ignore */
+        }
+        window.dispatchEvent(
+          new CustomEvent('timehuddle:openThread', {
+            detail: { teamId: data.teamId, adminId: data.adminId, memberId: data.memberId },
+          }),
+        );
+        navigate('/app/messages');
+      } else if (data.type === 'shift-end-reminder') {
         window.dispatchEvent(
           new CustomEvent('timehuddle:openShiftReminder', {
             detail: { clockEventId: data.clockEventId, teamId: data.teamId },
@@ -323,7 +341,9 @@ const AppLayoutContent: React.FC = () => {
 
   const isTicketsRoute =
     !profileUserId && !profileUsername && !ticketDetailId && pathname === '/app/tickets';
+  const isMessagesPage = pathname === '/app/messages';
 
+  const [messagesHasActiveChat, setMessagesHasActiveChat] = useState(false);
   const [reportIssueOpen, setReportIssueOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
@@ -367,90 +387,97 @@ const AppLayoutContent: React.FC = () => {
                 openFeedback: () => setFeedbackOpen(true),
               }}
             >
-              <SidebarContext.Provider
-                value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+              <MessagesActiveChatContext.Provider
+                value={{ setHasActiveChat: setMessagesHasActiveChat }}
               >
-                <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-                  {/* Mobile backdrop */}
-                  {isMobileOpen &&
-                    createPortal(
-                      <div
-                        className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
-                        onClick={closeMobile}
-                        aria-hidden
-                      />,
-                      document.body,
-                    )}
+                <SidebarContext.Provider
+                  value={{ isExpanded, isMobileOpen, toggle, openMobile, closeMobile }}
+                >
+                  <div className="flex h-dvh overflow-hidden bg-neutral-50 font-sans text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+                    {/* Mobile backdrop */}
+                    {isMobileOpen &&
+                      createPortal(
+                        <div
+                          className="fixed inset-0 z-45 bg-black/50 backdrop-blur-sm md:hidden"
+                          onClick={closeMobile}
+                          aria-hidden
+                        />,
+                        document.body,
+                      )}
 
-                  {/* Foreground push notification banner (native iOS/Android) */}
-                  {foregroundNotif &&
-                    createPortal(
-                      <div
-                        onClick={() => {
-                          handleNotificationData(foregroundNotif.data);
-                          console.log(
-                            '[Banner] tapped, data:',
-                            JSON.stringify(foregroundNotif.data),
-                          );
-                          setForegroundNotif(null);
-                          if (dismissTimer.current) clearTimeout(dismissTimer.current);
-                        }}
-                        className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm md:w-auto md:max-w-md
+                    {/* Foreground push notification banner (native iOS/Android) */}
+                    {foregroundNotif &&
+                      createPortal(
+                        <div
+                          onClick={() => {
+                            handleNotificationData(foregroundNotif.data);
+                            console.log(
+                              '[Banner] tapped, data:',
+                              JSON.stringify(foregroundNotif.data),
+                            );
+                            setForegroundNotif(null);
+                            if (dismissTimer.current) clearTimeout(dismissTimer.current);
+                          }}
+                          className="fixed top-4 left-1/2 -translate-x-1/2 z-9999 w-[90%] max-w-sm md:w-auto md:max-w-md
                                    bg-neutral-900 dark:bg-neutral-800 text-white rounded-2xl
                                    shadow-xl px-4 py-3 cursor-pointer flex flex-col gap-0.5
                                    border border-white/10"
-                        role="alert"
+                          role="alert"
+                        >
+                          <span className="font-semibold text-sm leading-tight">
+                            {foregroundNotif.title}
+                          </span>
+                          <span className="text-xs text-neutral-300 leading-snug">
+                            {foregroundNotif.body}
+                          </span>
+                        </div>,
+                        document.body,
+                      )}
+
+                    <Sidebar />
+
+                    {/* Content column */}
+                    <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                      <AppHeader />
+                      <main
+                        ref={mainRef}
+                        className={`flex-1 overflow-auto ${isMessagesPage ? `h-full ${messagesHasActiveChat ? 'pb-0' : 'app-main-scroll'}` : 'app-main-scroll'} md:pb-0`}
                       >
-                        <span className="font-semibold text-sm leading-tight">
-                          {foregroundNotif.title}
-                        </span>
-                        <span className="text-xs text-neutral-300 leading-snug">
-                          {foregroundNotif.body}
-                        </span>
-                      </div>,
-                      document.body,
-                    )}
-
-                  <Sidebar />
-
-                  {/* Content column */}
-                  <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                    <AppHeader />
-                    <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
-                      <PullToRefresh>
-                        {/* TicketsPage stays mounted to preserve its state, and
+                        <PullToRefresh>
+                          {/* TicketsPage stays mounted to preserve its state, and
                             is only hidden when another route is showing. It must
                             not render a page title while hidden — it isn't the
                             page — so the title is withheld from that instance. */}
-                        <PageTitleContext.Provider value={isTicketsRoute ? pageTitle : null}>
-                          <div
-                            className={
-                              isTicketsRoute
-                                ? 'h-full w-full flex flex-col'
-                                : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
-                            }
-                          >
-                            <TicketsPage />
-                          </div>
-                        </PageTitleContext.Provider>
-                        {profileUserId ? (
-                          <ProfilePage userId={profileUserId} />
-                        ) : profileUsername ? (
-                          <ProfilePage username={profileUsername} />
-                        ) : ticketDetailId ? (
-                          <TicketDetailPage ticketId={ticketDetailId} />
-                        ) : (
-                          route &&
-                          route.component !== TicketsPage &&
-                          React.createElement(route.component)
-                        )}
-                      </PullToRefresh>
-                    </main>
-                  </div>
+                          <PageTitleContext.Provider value={isTicketsRoute ? pageTitle : null}>
+                            <div
+                              className={
+                                isTicketsRoute
+                                  ? 'h-full w-full flex flex-col'
+                                  : 'absolute w-0 h-0 overflow-hidden invisible pointer-events-none'
+                              }
+                            >
+                              <TicketsPage />
+                            </div>
+                          </PageTitleContext.Provider>
+                          {profileUserId ? (
+                            <ProfilePage userId={profileUserId} />
+                          ) : profileUsername ? (
+                            <ProfilePage username={profileUsername} />
+                          ) : ticketDetailId ? (
+                            <TicketDetailPage ticketId={ticketDetailId} />
+                          ) : (
+                            route &&
+                            route.component !== TicketsPage &&
+                            React.createElement(route.component)
+                          )}
+                        </PullToRefresh>
+                      </main>
+                    </div>
 
-                  <BottomNav />
-                </div>
-              </SidebarContext.Provider>
+                    {(!isMessagesPage || !messagesHasActiveChat) && <BottomNav />}
+                  </div>
+                </SidebarContext.Provider>
+              </MessagesActiveChatContext.Provider>
             </AppFeedbackContext.Provider>
           </ShiftReminderProvider>
         </RefreshProvider>

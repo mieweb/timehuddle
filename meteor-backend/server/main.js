@@ -29,6 +29,7 @@ import './notifications';
 import './presence';
 import './activity';
 // M2 — Collaboration
+import './channels'; // must precede teams (teams.create calls ensureDefaultChannel)
 import './teams';
 import './team-join-requests';
 
@@ -36,6 +37,7 @@ import './team-join-requests';
 import './pulsevault';
 // Pulse Cam QR scan interstitial (deep link + app-store fallback)
 import './pulse-link';
+import './messages';
 import './huddle';
 // M8 — Live collaborative editing relay (Yjs) on /yjs
 import './yjs';
@@ -54,14 +56,6 @@ import './email';
 import './push';
 import { initAgenda } from './agenda';
 import { bearerContextMiddleware } from './bearer-context';
-
-// One-click role sign-in for local development. Imported dynamically so the
-// handler is never registered in a production server.
-if (Meteor.isDevelopment) {
-  Meteor.startup(async () => {
-    await import('./dev-quick-login');
-  });
-}
 
 /**
  * CORS for ALL routes — the Vite frontend on another origin calls both DDP and
@@ -1680,6 +1674,117 @@ Meteor.startup(async() => {
         action: { type: 'string', enum: ['approve', 'decline'] },
       },
       required: ['notificationId', 'action'],
+    },
+  });
+
+  // ── Channels ───────────────────────────────────────────────────────────────
+
+  Wormhole.expose('channels.list', {
+    description: 'List channels the caller can see in a team',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('channels.create', {
+    description: 'Create a new channel in a team',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        members: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['teamId', 'name'],
+    },
+  });
+
+  Wormhole.expose('channels.getMessages', {
+    description: 'Get paginated messages for a channel',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channelId: { type: 'string' },
+        teamId: { type: 'string' },
+        before: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      required: ['channelId', 'teamId'],
+    },
+  });
+
+  Wormhole.expose('channels.sendMessage', {
+    description: 'Send a message to a channel',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channelId: { type: 'string' },
+        teamId: { type: 'string' },
+        text: { type: 'string' },
+      },
+      required: ['channelId', 'teamId', 'text'],
+    },
+  });
+
+  Wormhole.expose('channels.update', {
+    description: 'Edit a channel (name, description, members) — creator or team admin only',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channelId: { type: 'string' },
+        teamId: { type: 'string' },
+        name: { type: 'string' },
+        description: { type: 'string' },
+        members: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['channelId', 'teamId'],
+    },
+  });
+
+  Wormhole.expose('channels.delete', {
+    description: 'Delete a non-default channel and its messages — creator or team admin only',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channelId: { type: 'string' },
+        teamId: { type: 'string' },
+      },
+      required: ['channelId', 'teamId'],
+    },
+  });
+
+  // ── Messages (DMs) ────────────────────────────────────────────────────────
+
+  Wormhole.expose('messages.getThread', {
+    description: 'Get paginated messages for a DM thread',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        adminId: { type: 'string' },
+        memberId: { type: 'string' },
+        before: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+      required: ['teamId', 'adminId', 'memberId'],
+    },
+  });
+
+  Wormhole.expose('messages.send', {
+    description: 'Send a direct message',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        teamId: { type: 'string' },
+        toUserId: { type: 'string' },
+        text: { type: 'string' },
+        adminId: { type: 'string' },
+        ticketId: { type: 'string' },
+      },
+      required: ['teamId', 'toUserId', 'text', 'adminId'],
     },
   });
 

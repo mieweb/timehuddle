@@ -40,6 +40,8 @@ flowchart TD
         RWork["/work"]
         RHuddle["/huddle"]
         RNotif["/notifications"]
+        RMsg["/messages"]
+        RChannels["/channels"]
         RAttach["/attachments"]
         RMedia["/media"]
         RPulse["/video (PulseVault)"]
@@ -62,6 +64,8 @@ flowchart TD
         SHuddle[HuddleService]
         SNotif[NotificationService]
         SPush[PushService]
+        SMsg[MessageService]
+        SChan[ChannelService]
         SAttach[AttachmentService]
         SMedia[MediaService]
         SActivity[ActivityService]
@@ -83,6 +87,9 @@ flowchart TD
         CTimers[(timers)]
         CHuddle[(huddleposts)]
         CNotif[(notifications)]
+        CMsg[(messages)]
+        CChan[(channels)]
+        CChanMsg[(channelmessages)]
         CAttach[(attachments)]
         CMedia[(mediaitems)]
         CActivity[(activities)]
@@ -422,6 +429,40 @@ sequenceDiagram
 
 ---
 
+## Messages API (Admin–Member DM)
+
+Direct threads between an admin and a team member. Thread identity: `teamId:adminId:memberId`.
+
+| Method | Path           | Auth   | Description                                               |
+| ------ | -------------- | ------ | --------------------------------------------------------- |
+| `GET`  | `/v1/messages` | Member | Cursor-paginated messages (`?teamId=&adminId=&memberId=`) |
+| `POST` | `/v1/messages` | Member | Send a message in a thread                                |
+
+**WebSocket — Messages**
+
+| Protocol | Path              | Description                                                      |
+| -------- | ----------------- | ---------------------------------------------------------------- |
+| `WS`     | `/v1/messages/ws` | Real-time DM stream (`?threadId=teamId:adminId:memberId&token=`) |
+
+---
+
+## Channels API (Team Group Chat)
+
+| Method | Path                        | Auth   | Description                           |
+| ------ | --------------------------- | ------ | ------------------------------------- |
+| `GET`  | `/v1/channels`              | Member | List channels for a team (`?teamId=`) |
+| `POST` | `/v1/channels`              | Member | Create a channel                      |
+| `GET`  | `/v1/channels/:id/messages` | Member | Cursor-paginated channel messages     |
+| `POST` | `/v1/channels/:id/messages` | Member | Send a message to a channel           |
+
+**WebSocket — Channels**
+
+| Protocol | Path              | Description                                             |
+| -------- | ----------------- | ------------------------------------------------------- |
+| `WS`     | `/v1/channels/ws` | Real-time channel stream (`?channelId=&teamId=&token=`) |
+
+---
+
 ## Attachments API
 
 Attachments can be linked to either a `clock` event or a `ticket`.
@@ -525,6 +566,8 @@ flowchart TD
     TicketAPI -->|attach media| AttachAPI["Attachments\n/v1/attachments"]
     TicketAPI -->|upload video| PulseAPI["PulseVault\n/v1/video"]
     HuddleAPI -->|attach media| AttachAPI
+    TeamAPI -->|DM thread| MsgAPI["Messages\n/v1/messages"]
+    TeamAPI -->|group chat| ChanAPI["Channels\n/v1/channels"]
     UserAPI -->|activity events| ActivityAPI["Activity\n/v1/activity"]
     UserAPI -->|PATs| TokenAPI["Tokens\n/v1/me/tokens"]
     UserAPI -->|presence| PresenceAPI["Presence\n/v1/presence/ws"]
@@ -558,6 +601,8 @@ At boot (`backend/src/server.ts`), the backend runs:
 | Ticket changes   | WebSocket | `/v1/tickets/ws`       | Team members                        |
 | Team events      | WebSocket | `/v1/teams/ws`         | Team members                        |
 | Huddle posts     | WebSocket | `/v1/huddle/ws`        | Team members                        |
+| DM thread        | WebSocket | `/v1/messages/ws`      | Thread participants                 |
+| Channel chat     | WebSocket | `/v1/channels/ws`      | Channel members                     |
 | Presence         | WebSocket | `/v1/presence/ws`      | Any user watching a set of user IDs |
 
 All WebSocket routes validate the `Origin` header against a trusted allowlist on upgrade. Capacitor native (`capacitor://localhost`) and `http://localhost:3000` are always trusted.

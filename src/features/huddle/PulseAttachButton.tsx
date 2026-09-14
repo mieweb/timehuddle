@@ -11,8 +11,8 @@ import {
   openPulseAppOrStore,
 } from '../../lib/device';
 import type { MediaItem } from './types';
-import { buildScanLink, buildUploadDeepLink } from '../pulse-upload/PulseUploadButton';
-import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
+import { buildScanLink, buildUploadDeepLink } from '../media/PulseUploadButton';
+import { PulseUploadModal } from '../media/PulseUploadModal';
 import {
   PENDING_TTL_MS,
   POLL_INTERVAL_MS,

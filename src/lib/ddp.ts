@@ -24,10 +24,6 @@ type DdpDoc = { _id: string } & Record<string, unknown>;
 type CollectionStore = Map<string, DdpDoc>;
 type Listener = () => void;
 
-/** Roles offered by the dev-only quick sign-in (see meteor-backend/server/dev-quick-login.js). */
-export type DevRole =
-  'member' | 'org-admin' | 'org-owner' | 'enterprise-admin' | 'enterprise-owner';
-
 /**
  * Meteor's MongoID.idStringify prefixes ObjectId-backed ids with '-'.
  * Strip it so ids match the 24-char hex strings the REST API uses.
@@ -317,19 +313,6 @@ class DdpClient {
     await this.call('accounts.createUser', { email, password, name });
     // After creating, log in immediately
     await this.loginWithPassword(email, password);
-  }
-
-  /**
-   * Dev-only: sign in as the fixture account for `role`, provisioning it with
-   * that role's permissions on first use. The handler only exists on a server
-   * running in development mode.
-   */
-  async devQuickLogin(role: DevRole): Promise<void> {
-    await this.ensureConnected();
-    const result = (await this.call('login', { devQuickLogin: { role } })) as { token?: string };
-    if (result?.token) {
-      localStorage.setItem('meteor_resume_token', result.token);
-    }
   }
 
   async getTeamInvitation(token: string): Promise<{

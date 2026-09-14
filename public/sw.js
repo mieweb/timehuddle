@@ -29,6 +29,10 @@ self.addEventListener('push', function (event) {
       formattedBody = `${notificationData.userName} started timer on "${notificationData.ticketTitle || notificationData.ticketId}"`;
     } else if (notificationData.type === 'ticket-timer-stop') {
       formattedBody = `${notificationData.userName} stopped timer on "${notificationData.ticketTitle || notificationData.ticketId}"`;
+    } else if (notificationData.type === 'message') {
+      formattedBody = notificationData.senderName
+        ? `${notificationData.senderName}: ${data.body}`
+        : data.body;
     }
 
     const options = {

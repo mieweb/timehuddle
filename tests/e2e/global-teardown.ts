@@ -122,15 +122,17 @@ export default async function globalTeardown(): Promise<void> {
     }
 
     // ── 10. Clean up test-related data in auxiliary collections ──────────────
-    // Remove timers, clock events, notifications, team join requests,
+    // Remove timers, clock events, notifications, messages, team join requests,
     // and any other data linked to test users.
     const auxiliaryCollections = [
       'timers',
       'clockevents',
       'notifications',
+      'messages',
       'teamjoinrequests',
       'tickets',
       'workitems',
+      'channels',
     ];
     let auxiliaryDeleted = 0;
     for (const collName of auxiliaryCollections) {
