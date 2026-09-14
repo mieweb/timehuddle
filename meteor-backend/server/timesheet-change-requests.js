@@ -42,9 +42,11 @@ Meteor.startup(async () => {
     });
 
   // A `processing` claim only outlives the request that took it if the server
-  // died mid-replay; hand any of those back rather than stranding them.
+  // died mid-replay; hand any of those back rather than stranding them. One
+  // that recorded a failure part-way through the mutation is left alone — its
+  // entry may be half-changed, so it needs looking at, not re-queueing.
   await TimesheetChangeRequests.updateAsync(
-    { status: 'processing' },
+    { status: 'processing', replayFailedAt: { $exists: false } },
     { $set: { status: 'pending' } },
     { multi: true }
   ).catch(() => {});
@@ -104,6 +106,25 @@ export function toPublicChangeRequest(doc, extras = {}) {
 
 /** The only shape a video may take: a PulseVault artifact this app uploaded. */
 const ARTIFACT_PATH = /^\/pulsevault\/artifacts\/([A-Za-z0-9._-]+)$/;
+
+/**
+ * Whether a recording is the evidence behind a change nobody has ruled on yet.
+ *
+ * Ownership is checked when the request is submitted, but the requester still
+ * owns the recording afterwards: without this they could delete it while the
+ * request sits in the queue and leave the reviewer an unplayable URL.
+ */
+export async function artifactIsEvidenceUnderReview(artifactId) {
+  if (!artifactId) return false;
+  const cited = await TimesheetChangeRequests.findOneAsync(
+    {
+      videoUrl: `/pulsevault/artifacts/${artifactId}`,
+      status: { $in: ['pending', 'processing'] },
+    },
+    { fields: { _id: 1 } }
+  );
+  return Boolean(cited);
+}
 
 /**
  * Check the video is a recording the requester actually made.

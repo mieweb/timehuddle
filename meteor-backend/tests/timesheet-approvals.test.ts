@@ -167,6 +167,7 @@ beforeEach(async () => {
   const db = await getDb();
   await db.collection('timesheetchangerequests').deleteMany({ userId: memberUserId });
   await db.collection('clockevents').deleteMany({ userId: memberUserId });
+  await db.collection('clockbreaks').deleteMany({});
   await db.collection('workitems').deleteMany({ userId: memberUserId });
   await db.collection('timers').deleteMany({ userId: memberUserId });
   await db
@@ -179,6 +180,7 @@ afterAll(async () => {
   await db.collection('teams').deleteMany({ code: { $in: [TEAM_CODE, SOLO_CODE] } });
   await db.collection('tickets').deleteMany({ teamId: { $in: [teamId, soloTeamId] } });
   await db.collection('clockevents').deleteMany({ userId: memberUserId });
+  await db.collection('clockbreaks').deleteMany({});
   await db.collection('workitems').deleteMany({ userId: memberUserId });
   await db.collection('timers').deleteMany({ userId: memberUserId });
   await db.collection('mediaitems').deleteMany({ videoid: VIDEO_ID });
@@ -363,6 +365,60 @@ describe('timesheet approvals — what a submission must carry', () => {
     );
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/overlap/i);
+  });
+
+  it('keeps the evidence for a request nobody has ruled on yet', async () => {
+    const session = await seedSession(teamId, memberUserId);
+    expect(
+      (
+        await wormhole(
+          'clock.updateTimes',
+          { clockEventId: session.id, startTime: session.start + HOUR, ...JUSTIFICATION },
+          memberJwt,
+        )
+      ).ok,
+    ).toBe(true);
+
+    const db = await getDb();
+    const media = (await db.collection('mediaitems').findOne({ videoid: VIDEO_ID }))!;
+    const res = await wormhole('media.remove', { mediaId: String(media._id) }, memberJwt);
+
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/review/i);
+    expect(await db.collection('mediaitems').countDocuments({ videoid: VIDEO_ID })).toBe(1);
+  });
+});
+
+describe('timesheet approvals — replaying over a session that moved on', () => {
+  it('refuses to replay when a break was taken while the request was pending', async () => {
+    // Pausing leaves the session's start and end untouched, but the replay
+    // replaces every break — so without a break baseline this silently wipes
+    // the pause the reviewer never saw.
+    const session = await seedSession(teamId, memberUserId);
+    const submitted = await wormhole<{ request: { id: string } }>(
+      'clock.updateTimes',
+      { clockEventId: session.id, startTime: session.start + HOUR, ...JUSTIFICATION },
+      memberJwt,
+    );
+    expect(submitted.ok).toBe(true);
+
+    const db = await getDb();
+    await db.collection('clockbreaks').insertOne({
+      _id: new ObjectId(),
+      clockEventId: session.id,
+      startTime: session.start + HOUR / 2,
+      endTime: session.start + HOUR,
+    });
+
+    const decided = await wormhole(
+      'timesheetApprovals.approve',
+      { requestId: submitted.result.request.id },
+      adminJwt,
+    );
+    expect(decided.ok).toBe(false);
+    expect(decided.error).toMatch(/edited|again/i);
+    expect(await db.collection('clockbreaks').countDocuments({ clockEventId: session.id })).toBe(1);
+    expect((await findSession(session.id))!.startTime).toBe(session.start);
   });
 });
 

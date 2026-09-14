@@ -3,6 +3,7 @@ import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
 import { Teams } from './collections';
 import { resolveToken, requireIdentity } from './auth-bridge';
+import { artifactIsEvidenceUnderReview } from './timesheet-change-requests';
 import { randomBytes } from 'crypto';
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -582,6 +583,12 @@ Meteor.methods({
     const doc = await db.collection('mediaitems').findOne({ _id: new ObjectId(mediaId) });
     if (!doc) throw new Meteor.Error('not-found', 'Not found');
     if (doc.userId !== userId) throw new Meteor.Error('forbidden', 'Not the owner');
+    if (await artifactIsEvidenceUnderReview(doc.videoid)) {
+      throw new Meteor.Error(
+        'evidence-in-review',
+        'This video backs a timesheet change awaiting review. Withdraw that request first.'
+      );
+    }
     await db.collection('mediaitems').deleteOne({ _id: doc._id });
 
     unlinkSafe(resolveUploadPath(doc.url, '/uploads/media/', MEDIA_DIR));

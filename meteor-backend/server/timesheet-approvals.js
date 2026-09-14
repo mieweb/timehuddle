@@ -19,6 +19,7 @@ import {
 } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { applyClockCreateManual, applyClockDelete, applyClockUpdate } from './clock';
+import { breakSignature, findBreaksForEvent } from './clock-core';
 import { applyTimerDelete, applyTimerUpdate, teamForEntry } from './timers';
 import {
   attachRequesterNames,
@@ -91,28 +92,39 @@ async function loadForReview(requestId, reviewerId) {
 /**
  * Replay an approved request against the live data.
  *
- * Everything here is a precondition check rather than a best effort: the entry
- * may have moved on since the request was raised — deleted, edited by another
- * path, or reassigned to a different team's ticket — and an approval that no
- * longer means what the reviewer read is refused rather than forced through.
+ * Everything before the `apply*` call is a precondition check rather than a
+ * best effort: the entry may have moved on since the request was raised —
+ * deleted, edited by another path, or reassigned to a different team's ticket —
+ * and an approval that no longer means what the reviewer read is refused rather
+ * than forced through.
+ *
+ * `phase.committed` is flipped immediately before the first write so the caller
+ * can tell a refusal (nothing written) from a failure part-way through the
+ * mutation (payroll data possibly half-changed).
  */
-async function applyRequest(request) {
+async function applyRequest(request, phase = {}) {
   const { kind, action, targetId, payload, baseline, userId, teamId } = request;
   // The admins asked for this to happen, so the usual "someone changed a
   // timesheet" fan-out is noise here — and it reached the approver worded as
   // if a third party had made the edit. The requester hears about it through
   // the decision notification instead.
   const quiet = { notifyAdmins: false };
+  const commit = (run) => {
+    phase.committed = true;
+    return run();
+  };
 
   if (kind === 'clock') {
     if (action === 'create') {
-      return applyClockCreateManual({
-        userId,
-        teamId: payload.teamId,
-        startTime: payload.startTime,
-        endTime: payload.endTime,
-        notifyAdmins: false,
-      });
+      return commit(() =>
+        applyClockCreateManual({
+          userId,
+          teamId: payload.teamId,
+          startTime: payload.startTime,
+          endTime: payload.endTime,
+          notifyAdmins: false,
+        })
+      );
     }
     const event = await ClockEvents.findOneAsync(new ObjectId(targetId));
     if (!event) {
@@ -121,12 +133,13 @@ async function applyRequest(request) {
     if (event.teamId !== teamId) {
       throw new Meteor.Error('target-moved', 'That session now belongs to another team.');
     }
-    if (action === 'delete') return applyClockDelete(event, userId, quiet);
+    if (action === 'delete') return commit(() => applyClockDelete(event, userId, quiet));
     assertUnchangedSince(baseline, {
       startTime: event.startTime,
       endTime: event.endTime ?? null,
+      breaks: breakSignature(await findBreaksForEvent(targetId)),
     });
-    return applyClockUpdate(event, payload, userId, quiet);
+    return commit(() => applyClockUpdate(event, payload, userId, quiet));
   }
 
   const entry = await WorkItems.findOneAsync(new ObjectId(targetId));
@@ -141,14 +154,14 @@ async function applyRequest(request) {
     if (owningTeam?._id.toHexString() !== teamId) {
       throw new Meteor.Error('target-moved', 'That entry now belongs to another team.');
     }
-    return applyTimerDelete(entry, userId, false);
+    return commit(() => applyTimerDelete(entry, userId, false));
   }
   assertUnchangedSince(baseline, {
     note: entry.note ?? null,
     ticketId: entry.ticketId,
     durationSeconds: await loggedSeconds(targetId),
   });
-  return applyTimerUpdate(entry, payload, userId, quiet);
+  return commit(() => applyTimerUpdate(entry, payload, userId, quiet));
 }
 
 /** Total logged seconds across a work item's completed sessions. */
@@ -251,12 +264,23 @@ async function resolve(request, reviewerId, { approved, note }) {
   const claimed = await claimForDecision(request._id);
 
   if (approved) {
+    const phase = {};
     try {
-      await applyRequest(claimed);
+      await applyRequest(claimed, phase);
     } catch (err) {
-      // Hand it back rather than recording a decision the data never took —
-      // the request stays reviewable, and the reviewer sees why it failed.
-      await TimesheetChangeRequests.updateAsync(request._id, { $set: { status: 'pending' } });
+      if (phase.committed) {
+        // The mutation is several non-transactional writes, so a failure here
+        // may have left the timesheet part-changed. Re-queueing would let it be
+        // declined as though nothing had happened; it stays claimed, out of
+        // every queue, with the reason recorded for whoever looks.
+        await TimesheetChangeRequests.updateAsync(request._id, {
+          $set: { replayFailedAt: new Date(), replayError: err.reason ?? err.message ?? null },
+        });
+      } else {
+        // Refused before the first write — hand it back so the request stays
+        // reviewable, and the reviewer sees why it failed.
+        await TimesheetChangeRequests.updateAsync(request._id, { $set: { status: 'pending' } });
+      }
       throw err;
     }
   }
@@ -378,7 +402,16 @@ Meteor.methods({
       throw new Meteor.Error('already-resolved', 'This request has already been reviewed.');
     }
 
-    await TimesheetChangeRequests.removeAsync(request._id);
+    // Conditional on the status rather than the id alone: an approver can claim
+    // the request between the read above and this write, and deleting a claimed
+    // request would strip the audit record out from under a running replay.
+    const removed = await TimesheetChangeRequests.removeAsync({
+      _id: request._id,
+      status: 'pending',
+    });
+    if (removed === 0) {
+      throw new Meteor.Error('already-resolved', 'This request has already been reviewed.');
+    }
     await rawDb()
       .collection('notifications')
       .deleteMany({
