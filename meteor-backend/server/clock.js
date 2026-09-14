@@ -18,6 +18,7 @@ import { requireIdentity, findUserById } from './auth-bridge';
 import { requireTeamMembership } from './permissions';
 import {
   toPublicClockEvent,
+  breakSignature,
   classifyBreak,
   computeDeductedBreakSeconds,
   computeWorkSeconds,
@@ -572,7 +573,13 @@ Meteor.methods({
         action: 'update',
         targetId: clockEventId,
         payload: { startTime, endTime, breaks },
-        baseline: { startTime: event.startTime, endTime: event.endTime ?? null },
+        baseline: {
+          startTime: event.startTime,
+          endTime: event.endTime ?? null,
+          // Replay replaces every break, so a pause/resume during review has to
+          // count as drift even when the session's range is untouched.
+          breaks: breakSignature(await findBreaksForEvent(clockEventId)),
+        },
         description,
         videoUrl,
       });

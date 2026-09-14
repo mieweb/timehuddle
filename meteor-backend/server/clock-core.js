@@ -57,6 +57,18 @@ export function findBreaksForEvent(clockEventId) {
   return ClockBreaks.find({ clockEventId }, { sort: { startTime: 1 } }).fetchAsync();
 }
 
+/**
+ * Stable signature of a session's break intervals.
+ *
+ * An approved edit replaces the break collection wholesale, so this is what a
+ * change request records as its baseline: without it a pause/resume made while
+ * the request sat pending leaves start/end untouched and the replay silently
+ * discards the newer breaks.
+ */
+export function breakSignature(breaks) {
+  return breaks.map((b) => `${b.startTime}-${b.endTime ?? 'open'}`).join('|');
+}
+
 /** Load breaks for many clock events in one query (mirror of findBreaksForEvents). */
 export function findBreaksForEvents(clockEventIds) {
   if (!clockEventIds.length) return Promise.resolve([]);
