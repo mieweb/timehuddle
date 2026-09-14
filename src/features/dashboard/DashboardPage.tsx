@@ -64,7 +64,7 @@ const profilePath = (member: TeamMemberClockStatus) =>
 
 export const DashboardPage: React.FC = () => {
   const { user } = useSession();
-  const { navigate } = useRouter();
+  const { navigate, search, replace } = useRouter();
   const {
     teams,
     allTeams,
@@ -103,14 +103,20 @@ export const DashboardPage: React.FC = () => {
 
   const [view, setView] = useState<'overview' | 'timesheet'>('overview');
   const [initialMemberId, setInitialMemberId] = useState<string>('');
+  // Bumped per deep-link so the panel reapplies the target even when the id is
+  // unchanged — e.g. re-tapping member A's notification after manually
+  // selecting member B.
+  const [memberRequestId, setMemberRequestId] = useState(0);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
 
   // ── Deep-link support ──
   //   ?tab=timesheet&teamId=&memberId=  → Team → Timesheet (admin, from notifications)
   //   ?view=timesheet                   → Me → Timesheet (the retired /app/timesheet URL)
+  // Depends on `search` (not just mount) so re-tapping a notification for a
+  // different member while the Dashboard is already open is honored.
   useEffect(() => {
     if (!teamsReady) return;
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(search);
     const deepTab = params.get('tab');
     const deepView = params.get('view');
     const memberId = params.get('memberId');
@@ -123,7 +129,10 @@ export const DashboardPage: React.FC = () => {
     if (deepView === 'timesheet') {
       setView('timesheet');
     }
-    if (memberId) setInitialMemberId(memberId);
+    if (memberId) {
+      setInitialMemberId(memberId);
+      setMemberRequestId((n) => n + 1);
+    }
     if (teamId) {
       const inScope = teams.find((t) => t.id === teamId);
       const crossOrg = !inScope && allTeams.find((t) => t.id === teamId);
@@ -137,9 +146,9 @@ export const DashboardPage: React.FC = () => {
     }
 
     if (deepTab || deepView || memberId || teamId) {
-      window.history.replaceState(null, '', window.location.pathname);
+      replace('/app/dashboard');
     }
-  }, [teamsReady, teams, allTeams, setSelectedTeamId, setSelectedOrgId]);
+  }, [teamsReady, teams, allTeams, setSelectedTeamId, setSelectedOrgId, search, replace]);
 
   // Members list (needed by the admin Timesheet view only)
   useEffect(() => {
@@ -398,6 +407,7 @@ export const DashboardPage: React.FC = () => {
             selectedTeamId={selectedTeamId}
             teams={teams}
             initialMemberId={initialMemberId}
+            initialMemberRequestId={memberRequestId}
           />
         ) : (
           <PersonalTimesheetPanel />

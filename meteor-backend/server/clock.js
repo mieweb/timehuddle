@@ -149,11 +149,25 @@ Meteor.methods({
 
     // Plan-first flow: link the just-posted plan to this session so the
     // per-session clock-out gate can find it (one post per clock session).
+    // Only the author's own post in *this* team qualifies — the admin deep link
+    // below opens the team feed, which a post from elsewhere never appears in.
+    let planPost = null;
     if (planPostId && isValidId(planPostId)) {
-      await rawDb().collection('huddlePosts').updateOne(
-        { _id: new ObjectId(planPostId), userId },
-        { $set: { clockEventId: created._id.toHexString(), updatedAt: new Date() } }
-      );
+      planPost = await rawDb()
+        .collection('huddlePosts')
+        .findOne({ _id: new ObjectId(planPostId), userId });
+      if (planPost && String(planPost.teamId) === String(teamId)) {
+        // Not `updatedAt` — the feed renders any post whose updatedAt differs
+        // from createdAt as "edited", and linking a session is not an edit.
+        await rawDb()
+          .collection('huddlePosts')
+          .updateOne(
+            { _id: planPost._id },
+            { $set: { clockEventId: created._id.toHexString() } }
+          );
+      } else {
+        planPost = null;
+      }
     }
 
     // Schedule 4h break reminder + 7h45m shift-end reminder.
@@ -163,6 +177,11 @@ Meteor.methods({
 
     const userName = await userDisplayName(userId);
     const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
+    // With a plan attached, send admins to that Huddle post (it shows the plan);
+    // otherwise fall back to the clocked-in member's Work tab.
+    const clockInUrl = planPost
+      ? `/app/huddle?postId=${planPostId}&teamId=${teamId}`
+      : `/app/profile/${userId}?tab=work`;
     await Promise.all(
       notifyAdmins.map((adminId) =>
         createNotification({
@@ -175,7 +194,7 @@ Meteor.methods({
             userName,
             teamName: team.name,
             teamId,
-            url: `/app/profile/${userId}?tab=work`,
+            url: clockInUrl,
           },
         }).catch(() => {})
       )
@@ -201,20 +220,21 @@ Meteor.methods({
 
     const team = await findUserTeam(userId, teamId);
 
+    // This session's Huddle post (one post per clock session, linked by
+    // clockEventId — see clock-post-simple-plan.md). Drafts never count.
+    // Used both by the plan-first clock-out gate and to deep-link the
+    // clock-out notifications at the post showing the plan + wrap-up.
+    const sessionPost = await rawDb()
+      .collection('huddlePosts')
+      .findOne(
+        { teamId, userId, clockEventId: event._id.toHexString(), status: { $ne: 'draft' } },
+        { sort: { createdAt: -1 } }
+      );
+
     // Plan-first flow: when the team requires a plan, block clock-out until
-    // THIS session's Huddle post has a wrap-up. One post per clock session,
-    // linked by clockEventId (see clock-post-simple-plan.md). Drafts never
-    // count — only published posts.
-    if (team?.settings?.requirePlanForClock) {
-      const post = await rawDb()
-        .collection('huddlePosts')
-        .findOne(
-          { teamId, userId, clockEventId: event._id.toHexString(), status: { $ne: 'draft' } },
-          { sort: { createdAt: -1 } }
-        );
-      if (!post?.wrapUpAt) {
-        throw new Meteor.Error('plan-required', "Add a wrap-up to this session's post first");
-      }
+    // THIS session's post has a wrap-up.
+    if (team?.settings?.requirePlanForClock && !sessionPost?.wrapUpAt) {
+      throw new Meteor.Error('plan-required', "Add a wrap-up to this session's post first");
     }
 
     const now = Date.now();
@@ -255,6 +275,11 @@ Meteor.methods({
       const m = Math.floor((totalSecs % 3600) / 60);
       const durationText = h > 0 ? `${h}h ${m}m` : `${m}m`;
       const notifyAdmins = (team.admins ?? []).filter((id) => id !== userId);
+      // Prefer this session's Huddle post (shows the plan + wrap-up); fall
+      // back to the member's Work tab when the session had no post.
+      const clockOutUrl = sessionPost
+        ? `/app/huddle?postId=${sessionPost._id.toHexString()}&teamId=${teamId}`
+        : `/app/profile/${userId}?tab=work`;
       await Promise.all(
         notifyAdmins.map((adminId) =>
           createNotification({
@@ -268,7 +293,7 @@ Meteor.methods({
               teamName: team.name,
               teamId,
               duration: durationText,
-              url: `/app/profile/${userId}?tab=work`,
+              url: clockOutUrl,
             },
           }).catch(() => {})
         )
@@ -283,7 +308,7 @@ Meteor.methods({
           teamName: team.name,
           teamId,
           duration: durationText,
-          url: `/app/profile/${userId}?tab=work`,
+          url: clockOutUrl,
         },
       }).catch(() => {});
 
