@@ -23,6 +23,9 @@ export const WorkItems = new Mongo.Collection('workitems', { idGeneration: 'MONG
 export const MediaItems = new Mongo.Collection('mediaitems', { idGeneration: 'MONGO' });
 export const OrgMembers = new Mongo.Collection('org_members', { idGeneration: 'MONGO' });
 export const HuddlePosts = new Mongo.Collection('huddlePosts', { idGeneration: 'MONGO' });
+export const TimesheetChangeRequests = new Mongo.Collection('timesheetchangerequests', {
+  idGeneration: 'MONGO',
+});
 
 /** Raw native-driver handle for collections we only read ad hoc (sessions, users). */
 export function rawDb() {

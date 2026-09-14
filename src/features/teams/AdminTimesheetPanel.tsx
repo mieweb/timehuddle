@@ -35,10 +35,23 @@ import {
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { ApiError, clockApi, type ClockEvent } from '../../lib/api';
+import { ApiError, clockApi, isPendingChange, type ClockEvent } from '../../lib/api';
 import { formatDuration } from '../../lib/timeUtils';
 import { type TeamMember } from '../../lib/api';
 import { getDdpClient } from '../../lib/ddp';
+import { useSession } from '../../lib/useSession';
+import { useTeam } from '../../lib/TeamContext';
+import {
+  timesheetApprovalRequired,
+  timesheetApproversFor,
+  timesheetVideoRequired,
+} from '../../lib/timesheetApproval';
+import {
+  emptyJustification,
+  isJustificationComplete,
+  TimesheetJustificationFields,
+  type TimesheetJustificationState,
+} from '../clock/TimesheetJustificationFields';
 import { AdminDayGroup } from './AdminDayGroup';
 import {
   fromLocalDateTimeInputValue,
@@ -118,6 +131,31 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
   const [sessionSaveLoading, setSessionSaveLoading] = useState(false);
   const [sessionDeleteLoading, setSessionDeleteLoading] = useState(false);
   const [sessionSaveError, setSessionSaveError] = useState<string | null>(null);
+  const [editJustification, setEditJustification] =
+    useState<TimesheetJustificationState>(emptyJustification);
+  const [pendingNotice, setPendingNotice] = useState<string | null>(null);
+
+  // An admin's own edit is reviewed too, by one of the *other* admins — so this
+  // panel needs the same justification the member-facing one collects, or every
+  // save on a multi-admin team is rejected by the server.
+  const { user } = useSession();
+  const { teams: fullTeams } = useTeam();
+  const userId = user?.id ?? '';
+  const editTeam = fullTeams.find((t) => t.id === activeSession?.teamId);
+  const editNeedsApproval = timesheetApprovalRequired(editTeam, userId);
+  const editApproverCount = timesheetApproversFor(editTeam, userId).length;
+  const justification = editNeedsApproval
+    ? {
+        description: editJustification.description,
+        videoUrl: editJustification.videoUrl ?? undefined,
+      }
+    : undefined;
+  const saveBlocked =
+    editNeedsApproval &&
+    !isJustificationComplete(editJustification, timesheetVideoRequired('update'));
+  const deleteBlocked =
+    editNeedsApproval &&
+    !isJustificationComplete(editJustification, timesheetVideoRequired('delete'));
 
   // When the team changes, reset member selection (but keep initialMemberId if still valid)
   useEffect(() => {
@@ -272,6 +310,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     setEditClockIn(toLocalDateTimeInputValue(session.startTime));
     setEditClockOut(session.endTime ? toLocalDateTimeInputValue(session.endTime) : '');
     setSessionSaveError(null);
+    setEditJustification(emptyJustification);
     setSessionDialogOpen(true);
   }, []);
 
@@ -296,12 +335,18 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     setSessionSaveLoading(true);
     setSessionSaveError(null);
     try {
-      await clockApi.updateTimes(activeSession.id, {
-        startTime: parsedStart,
-        endTime: parsedEnd,
-      });
+      const result = await clockApi.updateTimes(
+        activeSession.id,
+        {
+          startTime: parsedStart,
+          endTime: parsedEnd,
+        },
+        justification,
+      );
+      setPendingNotice(isPendingChange(result) ? 'Sent to another admin for approval.' : null);
       setSessionDialogOpen(false);
       setActiveSession(null);
+      setEditJustification(emptyJustification);
       await fetchData();
     } catch (e) {
       if (e instanceof ApiError) setSessionSaveError(e.message);
@@ -309,7 +354,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     } finally {
       setSessionSaveLoading(false);
     }
-  }, [activeSession, editClockIn, editClockOut, fetchData]);
+  }, [activeSession, editClockIn, editClockOut, justification, fetchData]);
 
   const handleDeleteSession = useCallback(async () => {
     if (!activeSession) return;
@@ -317,9 +362,11 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     setSessionDeleteLoading(true);
     setSessionSaveError(null);
     try {
-      await clockApi.deleteEvent(activeSession.id);
+      const result = await clockApi.deleteEvent(activeSession.id, justification);
+      setPendingNotice(isPendingChange(result) ? 'Sent to another admin for approval.' : null);
       setSessionDialogOpen(false);
       setActiveSession(null);
+      setEditJustification(emptyJustification);
       await fetchData();
     } catch (e) {
       if (e instanceof ApiError) setSessionSaveError(e.message);
@@ -327,7 +374,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
     } finally {
       setSessionDeleteLoading(false);
     }
-  }, [activeSession, fetchData]);
+  }, [activeSession, justification, fetchData]);
 
   // ── Member select options ──
   const memberOptions = useMemo(
@@ -466,6 +513,12 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
         </Alert>
       )}
 
+      {pendingNotice && (
+        <Alert variant="info" dismissible onDismiss={() => setPendingNotice(null)}>
+          <AlertDescription>{pendingNotice}</AlertDescription>
+        </Alert>
+      )}
+
       {/* Sessions table */}
       {data && filteredSessions.length > 0 && (
         <Card padding="none">
@@ -563,6 +616,15 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
             onChange={(e) => setEditClockOut(e.target.value)}
             placeholder="Leave blank to keep active"
           />
+          {editNeedsApproval && (
+            <TimesheetJustificationFields
+              value={editJustification}
+              onChange={setEditJustification}
+              videoRequired={timesheetVideoRequired('update')}
+              disabled={sessionSaveLoading || sessionDeleteLoading}
+              approverCount={editApproverCount}
+            />
+          )}
           {sessionSaveError && (
             <Text size="xs" className="text-danger">
               {sessionSaveError}
@@ -575,9 +637,9 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
               variant="primary"
               onClick={handleSaveSession}
               isLoading={sessionSaveLoading}
-              disabled={sessionDeleteLoading}
+              disabled={sessionDeleteLoading || saveBlocked}
             >
-              Save
+              {editNeedsApproval ? 'Submit for approval' : 'Save'}
             </Button>
             <Button
               variant="ghost"
@@ -592,7 +654,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
                 className="ml-auto"
                 onClick={handleDeleteSession}
                 isLoading={sessionDeleteLoading}
-                disabled={sessionSaveLoading}
+                disabled={sessionSaveLoading || deleteBlocked}
               >
                 Delete
               </Button>
