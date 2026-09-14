@@ -321,4 +321,45 @@ test.describe('Notification deep links', () => {
       await deleteChannel(channelBId);
     }
   });
+
+  test('a DM notification opens the linked thread, and a different one on repeat tap', async ({
+    page,
+  }) => {
+    test.setTimeout(90000);
+    await loginAs(page, TEST_USERS.owner1);
+    const teamId = await selectSharedTestTeam(page);
+    const ownerId = await getUserIdByEmail(TEST_USERS.owner1.email);
+    const member1Id = await getUserIdByEmail(TEST_USERS.member1.email);
+    const member2Id = await getUserIdByEmail(TEST_USERS.member2.email);
+
+    await page.goto('/app/messages');
+    await page
+      .getByRole('button', { name: 'Create channel' })
+      .waitFor({ state: 'visible', timeout: 20000 });
+
+    // DM notification taps don't travel as ?openPeer= — AppLayout and
+    // NotificationsPage dispatch timehuddle:openThread. This drives that exact
+    // path, which used to call setSelectedTeamId directly and bypass the
+    // pending team/org resolver the URL flow goes through.
+    const tapDmNotification = (memberId: string) =>
+      page.evaluate(
+        (detail) => {
+          window.dispatchEvent(new CustomEvent('timehuddle:openThread', { detail }));
+        },
+        { teamId, adminId: ownerId, memberId },
+      );
+
+    await tapDmNotification(member1Id);
+    await expect(page.getByPlaceholder('Type a message…')).toBeVisible({ timeout: 15000 });
+    await expect(
+      page.getByRole('button', { name: `Direct message ${TEST_USERS.member1.name}` }),
+    ).toHaveClass(/bg-blue-50/, { timeout: 15000 });
+
+    // Second tap while the page stays mounted must switch threads, not be
+    // swallowed because the first thread is already open.
+    await tapDmNotification(member2Id);
+    await expect(
+      page.getByRole('button', { name: `Direct message ${TEST_USERS.member2.name}` }),
+    ).toHaveClass(/bg-blue-50/, { timeout: 15000 });
+  });
 });

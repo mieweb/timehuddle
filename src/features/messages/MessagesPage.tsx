@@ -189,6 +189,24 @@ export const MessagesPage: React.FC = () => {
     replace('/app/messages');
   }, [routerSearch, replace]);
 
+  // DM notification taps (sessionStorage drain + timehuddle:openThread) feed the
+  // same pending resolver as ?openTeam=&openPeer=, so cross-org threads switch
+  // org before the team is selected instead of being reset by TeamContext.
+  const queueOpenThread = useCallback(
+    (teamId?: string, adminId?: string, memberId?: string) => {
+      if (teamId) setPendingTeamId(teamId);
+      if (adminId && memberId && userId) {
+        const peer = userId === adminId ? memberId : userId === memberId ? adminId : null;
+        if (peer) {
+          pendingOpenPeerRef.current = { peer, teamId: teamId ?? null };
+          pendingDmIntentRef.current = true;
+        }
+      }
+      setPendingOpenVersion((v) => v + 1);
+    },
+    [userId],
+  );
+
   useEffect(() => {
     if (!pendingTeamId) return;
     if (pendingTeamId === selectedTeamId) {
@@ -260,37 +278,22 @@ export const MessagesPage: React.FC = () => {
     try {
       const parsed = JSON.parse(raw) as { teamId?: string; adminId?: string; memberId?: string };
       sessionStorage.removeItem(MESSAGES_PENDING_THREAD_KEY);
-      const { teamId, adminId, memberId } = parsed;
-      if (teamId) setSelectedTeamId(teamId);
-      if (adminId && memberId) {
-        pendingDmIntentRef.current = true;
-        if (userId === adminId) setSelectedMemberId(memberId);
-        else if (userId === memberId) setSelectedAdminId(adminId);
-        setActiveView('dm');
-      }
+      queueOpenThread(parsed.teamId, parsed.adminId, parsed.memberId);
     } catch {
       /* ignore */
     }
-  }, [userId]);
+  }, [userId, queueOpenThread]);
 
   useEffect(() => {
     const handler = (e: Event) => {
-      const {
-        teamId: tId,
-        adminId: aId,
-        memberId: mId,
-      } = (e as CustomEvent<{ teamId: string; adminId: string; memberId: string }>).detail;
-      if (tId) setSelectedTeamId(tId);
-      if (aId && mId && userId) {
-        pendingDmIntentRef.current = true;
-        if (userId === aId) setSelectedMemberId(mId);
-        else if (userId === mId) setSelectedAdminId(aId);
-        setActiveView('dm');
-      }
+      const { teamId, adminId, memberId } = (
+        e as CustomEvent<{ teamId: string; adminId: string; memberId: string }>
+      ).detail;
+      queueOpenThread(teamId, adminId, memberId);
     };
     window.addEventListener('timehuddle:openThread', handler);
     return () => window.removeEventListener('timehuddle:openThread', handler);
-  }, [userId]);
+  }, [queueOpenThread]);
 
   // ── Fetch member names ────────────────────────────────────────────────────────
   useEffect(() => {
