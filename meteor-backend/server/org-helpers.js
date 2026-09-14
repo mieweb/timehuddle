@@ -162,6 +162,30 @@ export async function addOrgMember(orgId, userId, role = 'member', auto = false)
   return { orgId, userId, role: nextRole, auto: nextAuto };
 }
 
+/**
+ * Set a membership to exactly `role`, demoting where `addOrgMember` would
+ * keep the higher of the two. For callers that own the role outright rather
+ * than contributing a claim to it.
+ */
+export async function setOrgMemberRole(orgId, userId, role) {
+  if (!isValidId(orgId)) return 'not-found';
+  const db = rawDb();
+  const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
+  if (!org) return 'not-found';
+
+  await db.collection('org_members').updateOne(
+    { orgId, userId },
+    {
+      $set: { role, auto: false, updatedAt: new Date() },
+      $setOnInsert: { _id: new ObjectId(), orgId, userId, createdAt: new Date() },
+    },
+    { upsert: true },
+  );
+
+  await syncLegacyRoleArrays(orgId, userId, role);
+  return { orgId, userId, role, auto: false };
+}
+
 export async function getAccessibleOrgIds(userId) {
   const db = rawDb();
   const memberships = await db.collection('org_members').find({ userId }).toArray();

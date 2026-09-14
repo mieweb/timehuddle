@@ -14,7 +14,7 @@ import { Accounts } from 'meteor/accounts-base';
 import { MongoInternals } from 'meteor/mongo';
 
 import { Teams, rawDb } from './collections';
-import { ensureDefaultOrganization, addOrgMember } from './org-helpers';
+import { ensureDefaultOrganization, setOrgMemberRole } from './org-helpers';
 import { ensurePersonalTeam } from './teams';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -83,15 +83,19 @@ async function ensureDevAccount(spec) {
   return userId;
 }
 
+/** Grant exactly `role`, clearing whichever enterprise list the role isn't. */
 async function ensureEnterpriseRole(enterpriseId, userId, role) {
-  const [add, remove] = role === 'owner' ? ['owners', 'admins'] : ['admins', 'owners'];
+  const lists = ['owners', 'admins'];
+  const add = role === 'owner' ? 'owners' : role === 'admin' ? 'admins' : null;
+  const pull = lists.filter((list) => list !== add);
+
   await rawDb()
     .collection('enterprises')
     .updateOne(
       { _id: new ObjectId(enterpriseId) },
       {
-        $addToSet: { [add]: userId },
-        $pull: { [remove]: userId },
+        ...(add ? { $addToSet: { [add]: userId } } : {}),
+        $pull: Object.fromEntries(pull.map((list) => [list, userId])),
         $set: { updatedAt: new Date() },
       },
     );
@@ -128,14 +132,19 @@ async function ensureDevTeam(orgId, userId, teamAdmin) {
   );
 }
 
-/** Create the account if needed and grant every permission the role implies. */
+/**
+ * Create the account if needed and reset it to exactly the permissions the
+ * role implies. These fixtures get edited during role-management testing, so
+ * every sign-in re-provisions rather than tops up — otherwise a "Member"
+ * login could still hold admin rights granted in an earlier session.
+ */
 async function provisionDevUser(spec) {
   const userId = await ensureDevAccount(spec);
   const org = await ensureDefaultOrganization();
   const orgId = org._id.toHexString();
 
-  await addOrgMember(orgId, userId, spec.orgRole, false);
-  if (spec.enterpriseRole && org.enterpriseId) {
+  await setOrgMemberRole(orgId, userId, spec.orgRole);
+  if (org.enterpriseId) {
     await ensureEnterpriseRole(org.enterpriseId, userId, spec.enterpriseRole);
   }
   await ensurePersonalTeam(userId);
