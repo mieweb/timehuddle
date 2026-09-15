@@ -113,16 +113,31 @@ describe('LoginForm team invitations', () => {
 });
 
 describe('LoginForm dev sign-in gate', () => {
-  it('does not render the dev card in production mode', () => {
+  const devCard = () => screen.queryByRole('group', { name: /development sign-in by role/i });
+
+  it('does not render the dev card in a production build', () => {
+    vi.stubEnv('DEV', false);
     vi.stubEnv('MODE', 'production');
 
     render(<LoginForm />);
 
-    expect(screen.queryByRole('group', { name: /development sign-in by role/i })).toBeNull();
+    expect(devCard()).toBeNull();
   });
 
-  it('renders a sign-in button per role outside production mode', () => {
-    vi.stubEnv('MODE', 'development');
+  // `--mode testflight` is a real build (.github/workflows/testflight.yml) whose
+  // backend is production, so it never registers the devQuickLogin handler.
+  // Gating on MODE !== 'production' shipped five buttons that always failed.
+  it('does not render the dev card in a testflight build', () => {
+    vi.stubEnv('DEV', false);
+    vi.stubEnv('MODE', 'testflight');
+
+    render(<LoginForm />);
+
+    expect(devCard()).toBeNull();
+  });
+
+  it('renders a sign-in button per role in development', () => {
+    vi.stubEnv('DEV', true);
 
     render(<LoginForm />);
 
@@ -135,7 +150,7 @@ describe('LoginForm dev sign-in gate', () => {
   });
 
   it('signs in as the clicked role', async () => {
-    vi.stubEnv('MODE', 'development');
+    vi.stubEnv('DEV', true);
     ddpMocks.devQuickLogin.mockResolvedValue(undefined);
 
     render(<LoginForm />);
