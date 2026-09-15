@@ -14,11 +14,9 @@ import {
   faCheck,
   faClock,
   faClockRotateLeft,
-  faEnvelope,
   faGauge,
   faGear,
   faListCheck,
-  faPhotoFilm,
   faSitemap,
   faMoon,
   faSpinner,
@@ -41,7 +39,6 @@ import {
   type GitHubIssue,
 } from '../features/tickets/githubIssue';
 import { teamApi, ticketApi, type TeamMember, type Ticket } from '../lib/api';
-import { MESSAGES_PENDING_THREAD_KEY } from '../lib/constants';
 import { useTeam } from '../lib/TeamContext';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
@@ -77,13 +74,6 @@ const NAV_ITEMS: NavSection[] = [
         label: 'Org Chart',
         href: '/app/organization',
         keywords: ['organization', 'hierarchy', 'chart', 'structure'],
-      },
-      { icon: faEnvelope, label: 'Messages', href: '/app/messages', keywords: ['chat', 'inbox'] },
-      {
-        icon: faPhotoFilm,
-        label: 'Media Library',
-        href: '/app/media',
-        keywords: ['media', 'photos', 'videos', 'images', 'library', 'uploads'],
       },
       {
         icon: faBell,
@@ -144,18 +134,6 @@ export const CommandPalette: React.FC = () => {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [selectedValue, setSelectedValue] = useState('');
-
-  const memberValueToId = React.useMemo(() => {
-    const map = new Map<string, string>();
-    for (const m of members) {
-      const value = `member ${m.name} ${m.email}`.toLowerCase();
-      map.set(value, m.id);
-    }
-    return map;
-  }, [members]);
-
-  const highlightedMemberIdRaw = memberValueToId.get(selectedValue.toLowerCase()) ?? null;
-  const highlightedMemberId = highlightedMemberIdRaw === user?.id ? null : highlightedMemberIdRaw;
 
   const resetState = useCallback(() => {
     setSearch('');
@@ -296,58 +274,6 @@ export const CommandPalette: React.FC = () => {
     },
     [preview.status, selectedTeam, handleCreateTicket],
   );
-
-  const openMessageToMember = useCallback(
-    (targetId: string) => {
-      if (!selectedTeamId || !user?.id || !selectedTeam) return;
-
-      const targetIsAdmin = selectedTeam.admins.includes(targetId);
-      const currentUserIsAdmin = selectedTeam.admins.includes(user.id);
-
-      let adminId: string;
-      let memberId: string;
-
-      if (currentUserIsAdmin && !targetIsAdmin) {
-        adminId = user.id;
-        memberId = targetId;
-      } else if (!currentUserIsAdmin && targetIsAdmin) {
-        adminId = targetId;
-        memberId = user.id;
-      } else {
-        return;
-      }
-
-      sessionStorage.setItem(
-        MESSAGES_PENDING_THREAD_KEY,
-        JSON.stringify({ teamId: selectedTeamId, adminId, memberId }),
-      );
-
-      window.dispatchEvent(
-        new CustomEvent('timehuddle:openThread', {
-          detail: { teamId: selectedTeamId, adminId, memberId },
-        }),
-      );
-
-      navigate('/app/messages');
-      setOpen(false);
-    },
-    [selectedTeamId, selectedTeam, user?.id, navigate],
-  );
-
-  useEffect(() => {
-    if (!open) return;
-
-    const handleShiftEnter = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && e.shiftKey && highlightedMemberId) {
-        e.preventDefault();
-        e.stopPropagation();
-        openMessageToMember(highlightedMemberId);
-      }
-    };
-
-    document.addEventListener('keydown', handleShiftEnter, true);
-    return () => document.removeEventListener('keydown', handleShiftEnter, true);
-  }, [open, highlightedMemberId, openMessageToMember]);
 
   const isGithubMode = preview.status !== 'idle';
   const canCreate = preview.status === 'ready' && !!selectedTeam;
@@ -579,14 +505,6 @@ export const CommandPalette: React.FC = () => {
                 </kbd>
                 <span>{canCreate ? 'create ticket' : 'select'}</span>
               </span>
-              {highlightedMemberId && (
-                <span className="flex items-center gap-1.5">
-                  <kbd className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] dark:bg-neutral-800">
-                    Shift+Enter
-                  </kbd>
-                  <span>message</span>
-                </span>
-              )}
               <span className="flex items-center gap-1.5">
                 <kbd className="rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] dark:bg-neutral-800">
                   Esc

@@ -7,8 +7,6 @@
 // ─── Validation limits ────────────────────────────────────────────────────────
 
 export const TODO_TEXT_MAX = 200;
-export const CHAT_MESSAGE_MAX = 2000;
-export const CHAT_ROOM_NAME_MAX = 50;
 export const POLL_QUESTION_MAX = 300;
 export const POLL_OPTION_MAX = 100;
 export const POLL_OPTIONS_MIN = 2;
@@ -26,6 +24,3 @@ export const SIDEBAR_KEY = 'app:sidebar' as const;
 // ─── Misc ─────────────────────────────────────────────────────────────────────
 
 export const REPO_URL = 'https://github.com/mieweb/timehuddle' as const;
-
-/** Open Messages with a specific thread after navigating from a notification */
-export const MESSAGES_PENDING_THREAD_KEY = 'app:messagesPendingThread' as const;

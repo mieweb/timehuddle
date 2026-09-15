@@ -9,7 +9,6 @@ import {
   getAccessibleOrgIds,
   isTeamAdminOrOrgOwner,
 } from './org-helpers';
-import { ensureDefaultChannel } from './channels';
 import { createNotification } from './notify-core';
 import { sendEmail } from './email';
 import {
@@ -45,6 +44,28 @@ function toId(id) {
 
 function generateTeamCode() {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
+}
+
+/** The single "Personal" team every user gets, created on first need. */
+export async function ensurePersonalTeam(userId) {
+  const existing = await Teams.findOneAsync({ isPersonal: true, members: userId });
+  if (existing) return existing;
+
+  const defaultOrg = await ensureDefaultOrganization();
+  const doc = {
+    _id: new Mongo.ObjectID(),
+    orgId: defaultOrg._id.toHexString(),
+    parentTeamId: null,
+    name: 'Personal',
+    members: [userId],
+    admins: [userId],
+    code: generateTeamCode(),
+    isPersonal: true,
+    createdAt: new Date(),
+  };
+  await Teams.insertAsync(doc);
+  await addOrgMember(defaultOrg._id.toHexString(), userId, 'member', true);
+  return doc;
 }
 
 async function getInvitationByToken(token) {
@@ -169,26 +190,7 @@ Meteor.methods({
 
   async 'teams.ensurePersonal'() {
     const identity = await requireIdentity(this);
-    const userId = identity.userId;
-    const existing = await Teams.findOneAsync({ isPersonal: true, members: userId });
-    if (existing) return { team: toPublicTeam(existing) };
-
-    const defaultOrg = await ensureDefaultOrganization();
-    const doc = {
-      _id: new Mongo.ObjectID(),
-      orgId: defaultOrg._id.toHexString(),
-      parentTeamId: null,
-      name: 'Personal',
-      members: [userId],
-      admins: [userId],
-      code: generateTeamCode(),
-      isPersonal: true,
-      createdAt: new Date(),
-    };
-    await Teams.insertAsync(doc);
-    await addOrgMember(defaultOrg._id.toHexString(), userId, 'member', true);
-    ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
-    return { team: toPublicTeam(doc) };
+    return { team: toPublicTeam(await ensurePersonalTeam(identity.userId)) };
   },
 
   async 'teams.create'({ name, description, orgId: requestedOrgId, parentTeamId }) {
@@ -235,7 +237,6 @@ Meteor.methods({
     };
     await Teams.insertAsync(doc);
     await addOrgMember(orgId, userId, 'member', true);
-    ensureDefaultChannel(doc._id.toHexString(), userId).catch(() => {});
     return { team: toPublicTeam(doc) };
   },
 

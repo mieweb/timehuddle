@@ -72,7 +72,7 @@ import { EmptyState } from '../../ui/EmptyState';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
-import { PulseUploadButton } from '../media/PulseUploadButton';
+import { PulseUploadButton } from '../pulse-upload/PulseUploadButton';
 import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
 
 // ─── Constants ────────────────────────────────────────────────────────────────

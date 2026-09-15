@@ -25,7 +25,7 @@ import { MarkdownContent } from '../../ui/MarkdownContent';
 import { useRouter } from '../../ui/router';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
-import { PulseUploadButton } from '../media/PulseUploadButton';
+import { PulseUploadButton } from '../pulse-upload/PulseUploadButton';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
