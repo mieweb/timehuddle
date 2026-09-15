@@ -186,6 +186,22 @@ export async function setOrgMemberRole(orgId, userId, role) {
   return { orgId, userId, role, auto: false };
 }
 
+/**
+ * Put `userId` back in the teams `orgs.blockMember` pulled them out of, with
+ * the admin flag each membership had at the time. Takes the recorded block
+ * entries, so it works for one org or for every block a user carries.
+ */
+export async function restoreBlockedMemberships(userId, blocks) {
+  const db = rawDb();
+  for (const { teamId, wasAdmin } of blocks.flatMap((b) => b.removedFromTeams ?? [])) {
+    if (!isValidId(teamId)) continue;
+    await db.collection('teams').updateOne(
+      { _id: new ObjectId(teamId) },
+      { $addToSet: { members: userId, ...(wasAdmin ? { admins: userId } : {}) } },
+    );
+  }
+}
+
 export async function getAccessibleOrgIds(userId) {
   const db = rawDb();
   const memberships = await db.collection('org_members').find({ userId }).toArray();

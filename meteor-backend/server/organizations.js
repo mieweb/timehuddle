@@ -6,6 +6,7 @@ import {
   ensureDefaultOrganization,
   addOrgMember,
   getAccessibleOrgIds,
+  restoreBlockedMemberships,
 } from './org-helpers';
 import { buildAbilityFor } from './permissions';
 import { subject } from '@casl/ability';
@@ -842,18 +843,7 @@ Meteor.methods({
     );
 
     // Restore membership in whichever teams blockMember removed them from.
-    for (const { teamId, wasAdmin } of blockRecord.removedFromTeams ?? []) {
-      if (!isValidId(teamId)) continue;
-      await db.collection('teams').updateOne(
-        { _id: new ObjectId(teamId) },
-        {
-          $addToSet: {
-            members: targetUserId,
-            ...(wasAdmin ? { admins: targetUserId } : {}),
-          },
-        }
-      );
-    }
+    await restoreBlockedMemberships(targetUserId, [blockRecord]);
 
     // Fire-and-forget activity
     void emitActivity({

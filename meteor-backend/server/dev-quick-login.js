@@ -14,7 +14,11 @@ import { Accounts } from 'meteor/accounts-base';
 import { MongoInternals } from 'meteor/mongo';
 
 import { Teams, rawDb } from './collections';
-import { ensureDefaultOrganization, setOrgMemberRole } from './org-helpers';
+import {
+  ensureDefaultOrganization,
+  setOrgMemberRole,
+  restoreBlockedMemberships,
+} from './org-helpers';
 import { ensurePersonalTeam } from './teams';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
@@ -133,6 +137,22 @@ async function ensureDevTeam(orgId, userId, teamAdmin) {
 }
 
 /**
+ * Undo anything a block did to the fixture. Blocking a dev user while testing
+ * org moderation otherwise bricks its button for good: validateLoginAttempt
+ * rejects every later sign-in, and ensurePersonalTeam — which finds the team
+ * by membership — would build a second "Personal" alongside the orphaned one.
+ */
+async function clearDevBlocks(userId) {
+  const users = rawDb().collection('users');
+  const user = await users.findOne({ _id: userId }, { projection: { blocked: 1 } });
+  const blocks = user?.blocked ?? [];
+  if (blocks.length === 0) return;
+
+  await restoreBlockedMemberships(userId, blocks);
+  await users.updateOne({ _id: userId }, { $unset: { blocked: '' } });
+}
+
+/**
  * Create the account if needed and reset it to exactly the permissions the
  * role implies. These fixtures get edited during role-management testing, so
  * every sign-in re-provisions rather than tops up — otherwise a "Member"
@@ -143,6 +163,7 @@ async function provisionDevUser(spec) {
   const org = await ensureDefaultOrganization();
   const orgId = org._id.toHexString();
 
+  await clearDevBlocks(userId);
   await setOrgMemberRole(orgId, userId, spec.orgRole);
   if (org.enterpriseId) {
     await ensureEnterpriseRole(org.enterpriseId, userId, spec.enterpriseRole);
