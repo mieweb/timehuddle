@@ -15,7 +15,6 @@ import {
   faBolt,
   faChevronLeft,
   faChevronRight,
-  faComments,
   faGlobe,
   faKey,
   faLayerGroup,
@@ -44,7 +43,6 @@ const TECH_BADGES = [
   'Time Tracking',
   'Teams',
   'Tickets',
-  'Real-time Messaging',
   'Clock In / Out',
   'Notifications',
   'Inbox',
@@ -83,14 +81,6 @@ const FEATURES: Feature[] = [
       'Create, assign, and track tickets tied to time entries. Keep work accountable with status tracking from open through to resolved.',
     gradient: 'from-red-500/20 to-rose-500/5',
     glow: 'group-hover:shadow-red-500/20',
-  },
-  {
-    icon: faComments,
-    title: 'Real-time Messaging',
-    description:
-      'Built-in team messaging with instant delivery via Server-Sent Events. Chat within a team or start a direct thread — no third-party app required.',
-    gradient: 'from-orange-500/20 to-amber-500/5',
-    glow: 'group-hover:shadow-orange-500/20',
   },
   {
     icon: faGlobe,
@@ -886,7 +876,7 @@ export const LandingPage: React.FC = () => {
               aria-hidden="true"
             />
             <span className="text-xs font-semibold text-orange-700 dark:text-orange-300">
-              Time Tracking · Teams · Tickets · Messaging
+              Time Tracking · Teams · Tickets · Notifications
             </span>
           </motion.div>
 
@@ -929,7 +919,7 @@ export const LandingPage: React.FC = () => {
             <strong className="font-semibold text-neutral-900 dark:text-neutral-100">
               teams and tickets
             </strong>
-            , and chat with your colleagues — all in one place.{' '}
+            , and keep everyone in the loop — all in one place.{' '}
             <strong className="font-semibold text-neutral-900 dark:text-neutral-100">
               No spreadsheets required.
             </strong>
