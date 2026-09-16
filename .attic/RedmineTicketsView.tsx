@@ -1,4 +1,16 @@
 /**
+ * ARCHIVED (Milestone 2.1) — superseded by the unified ticket list.
+ *
+ * This was the standalone "Redmine Tickets" view reached from a heading
+ * dropdown on /app/tickets. That switcher is gone: Redmine issues now appear
+ * alongside TimeHuddle tickets in one list, and source is a badge and a filter
+ * rather than a mode. See `src/features/tickets/sources/` and Milestone 2.1 in
+ * `huddle_redmine_clock.md`.
+ *
+ * Kept for reference because of two pieces of hard-won behaviour that the
+ * `redmineSource` adapter inherited: the per-(user, scope) cache key, and the
+ * request-sequence guard against a slow response for a superseded scope.
+ *
  * RedmineTicketsView — read-only list of the connected user's Redmine issues.
  *
  * Milestone 2 of the Redmine integration. This is a *separate* data path from

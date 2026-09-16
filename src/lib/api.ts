@@ -2037,19 +2037,32 @@ export interface RedmineStatus {
 /** Which issues to fetch: assigned to me, or everything the key can see. */
 export type RedmineScope = 'mine' | 'all';
 
-/** A Redmine `{ id, name }` reference (project, status, assignee). */
+/** A Redmine `{ id, name }` reference (project, assignee, priority, tracker). */
 export interface RedmineNamed {
   id: number;
   name: string;
 }
 
-/** Minimal, read-only Redmine issue shape rendered by the Redmine Tickets view. */
+/**
+ * A Redmine issue status. `isClosed` comes from Redmine's own `is_closed` flag —
+ * statuses are instance-defined free text, so the name alone cannot tell us
+ * whether an issue is closed.
+ */
+export interface RedmineIssueStatus extends RedmineNamed {
+  isClosed: boolean;
+}
+
+/** Read-only Redmine issue shape, as shaped server-side by `redmine-issues.js`. */
 export interface RedmineIssue {
   id: number;
   subject: string;
   project: RedmineNamed | null;
-  status: RedmineNamed | null;
+  status: RedmineIssueStatus | null;
   assignedTo: RedmineNamed | null;
+  priority: RedmineNamed | null;
+  tracker: RedmineNamed | null;
+  createdAt: string | null;
+  updatedAt: string | null;
 }
 
 /** Response for `redmine.issues.list`. `connected: false` → user has no link. */

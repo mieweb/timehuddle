@@ -8,6 +8,7 @@
  * 5. Ticket details modal
  * 6. Delete ticket
  * 7. Assign/unassign ticket
+ * 8. Unified list: source filter, sorting, no view switcher
  */
 import { test, expect } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
@@ -31,11 +32,11 @@ test.describe('Tickets', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Tickets' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'New Ticket' })).toBeVisible();
     await expect(page.getByPlaceholder('Search tickets…')).toBeVisible();
-    await expect(page.getByRole('tab', { name: /Open/i })).toBeVisible();
-    await expect(page.getByRole('tab', { name: /Closed/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Priority' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Status' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Assignee' })).toBeVisible();
+    await expect(page.getByRole('switch', { name: /Closed/i })).toBeVisible();
+    // Sorting and filtering live on the column headers, not a chip bar.
+    for (const header of ['Title', 'Issue #', 'Source', 'Status', 'Priority', 'Updated']) {
+      await expect(page.getByRole('columnheader', { name: new RegExp(header) })).toBeVisible();
+    }
   });
 
   test('should create a ticket', async ({ page }) => {
