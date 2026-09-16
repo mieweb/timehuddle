@@ -2,28 +2,45 @@ import { type Page, type Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 /**
- * TicketsPage - Page object for ticket management
+ * TicketsPage - Page object for the unified ticket table.
+ *
+ * The table shows every source (TimeHuddle, Redmine) at once — there is no view
+ * switcher. Rows carry `data-ticket-source` so tests can assert on provenance.
+ * Sorting and filtering both live on the column headers; a switch toggles
+ * open/closed, and paging replaces scrolling.
  */
 export class TicketsPage extends BasePage {
   readonly heading: Locator;
   readonly newTicketButton: Locator;
   readonly searchInput: Locator;
-  readonly openTab: Locator;
-  readonly closedTab: Locator;
-  readonly priorityFilter: Locator;
-  readonly statusFilter: Locator;
-  readonly assigneeFilter: Locator;
+  readonly closedSwitch: Locator;
+  readonly clearFiltersButton: Locator;
+  readonly selectAllCheckbox: Locator;
+  readonly pagination: Locator;
 
   constructor(page: Page) {
     super(page);
     this.heading = this.page.getByRole('heading', { level: 1, name: /Tickets/i });
     this.newTicketButton = this.page.getByRole('button', { name: 'New Ticket' });
     this.searchInput = this.page.getByPlaceholder('Search tickets…');
-    this.openTab = this.page.getByRole('tab', { name: /Open/i });
-    this.closedTab = this.page.getByRole('tab', { name: /Closed/i });
-    this.priorityFilter = this.page.getByRole('button', { name: 'Priority' });
-    this.statusFilter = this.page.getByRole('button', { name: 'Status' });
-    this.assigneeFilter = this.page.getByRole('button', { name: 'Assignee' });
+    this.closedSwitch = this.page.getByRole('switch', { name: /Closed/i });
+    this.clearFiltersButton = this.page.getByRole('button', { name: 'Clear filters' });
+    this.selectAllCheckbox = this.page.getByRole('checkbox', { name: /Select all tickets/i });
+    this.pagination = this.page.getByRole('navigation', { name: 'Ticket pages' });
+  }
+
+  /** The filter trigger inside a column header. */
+  filterTrigger(column: string): Locator {
+    return this.page
+      .getByRole('columnheader', { name: new RegExp(column) })
+      .getByRole('button', { name: new RegExp(`(Filter by|filtered by) ${column}`, 'i') });
+  }
+
+  /** Pick a value from a column's filter menu. */
+  async filterBy(column: string, option: string) {
+    await this.filterTrigger(column).click();
+    await this.page.getByRole('menuitem', { name: option, exact: true }).click();
+    await this.page.waitForTimeout(300);
   }
 
   async goto() {
@@ -74,8 +91,38 @@ export class TicketsPage extends BasePage {
 
   /** Get the count of visible tickets */
   async getTicketCount(): Promise<number> {
-    const items = this.page.locator('[role="article"], [data-ticket-id]');
-    return await items.count();
+    return await this.page.locator('tr[data-ticket-id]').count();
+  }
+
+  /** All rows contributed by one source. */
+  rowsFromSource(sourceId: 'huddle' | 'redmine'): Locator {
+    return this.page.locator(`tr[data-ticket-source="${sourceId}"]`);
+  }
+
+  /** The row for a given ticket title. */
+  rowByTitle(title: string): Locator {
+    return this.page.locator('tr[data-ticket-id]').filter({ hasText: title });
+  }
+
+  /** Restrict the table to a single source via the Source column filter. */
+  async filterBySource(label: 'TimeHuddle' | 'Redmine') {
+    await this.filterBy('Source', label);
+  }
+
+  /** Click a sortable column header to sort by it. */
+  async sortByColumn(header: string) {
+    await this.page
+      .getByRole('columnheader', { name: new RegExp(header) })
+      .getByRole('button', { name: new RegExp(`Sort by ${header}`, 'i') })
+      .click();
+    await this.page.waitForTimeout(300);
+  }
+
+  /** Current aria-sort value of a column header. */
+  async sortStateOf(header: string): Promise<string | null> {
+    return await this.page
+      .getByRole('columnheader', { name: new RegExp(header) })
+      .getAttribute('aria-sort');
   }
 
   /** Click on a ticket by title */
@@ -122,15 +169,17 @@ export class TicketsPage extends BasePage {
     }
   }
 
-  /** Switch to closed tickets tab */
+  /** Switch to closed tickets */
   async showClosedTickets() {
-    await this.closedTab.click();
+    await this.closedSwitch.click();
     await this.page.waitForTimeout(500);
   }
 
-  /** Switch to open tickets tab */
+  /** Switch back to open tickets */
   async showOpenTickets() {
-    await this.openTab.click();
-    await this.page.waitForTimeout(500);
+    if (await this.closedSwitch.isChecked()) {
+      await this.closedSwitch.click();
+      await this.page.waitForTimeout(500);
+    }
   }
 }

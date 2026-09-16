@@ -1,61 +1,41 @@
 /**
- * TicketsPage — CRUD ticket management.
+ * TicketsPage — the unified ticket table at /app/tickets.
  *
- * Features:
- *   • Create ticket (title + optional GitHub URL)
- *   • Edit title/GitHub link
- *   • Delete tickets
- *   • Search/filter
- *   • Status badge display
+ * Shows tickets from every registered source (TimeHuddle's own tickets, a
+ * connected Redmine instance) in one table. Source is a column and a filter,
+ * not a mode: there is no view switcher. See `sources/README.md`.
  *
- * Ticket-level timer tracking has moved to the Timers page (/app/work).
+ * This page still owns TimeHuddle-specific mutations (create, edit, delete,
+ * status, assignment) and the ticket timer; rows gate those controls on each
+ * source's capabilities.
  */
-import {
-  faChevronDown,
-  faEllipsisVertical,
-  faExternalLink,
-  faEye,
-  faPen,
-  faCircleCheck,
-  faCircleDot,
-  faCircleXmark,
-  faPlus,
-  faRightLeft,
-  faSearch,
-  faShareFromSquare,
-  faTrash,
-  faXmark,
-} from '@fortawesome/free-solid-svg-icons';
+import { faPlus, faSearch, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
   Card,
   CardContent,
-  Dropdown,
-  DropdownContent,
-  DropdownItem,
-  DropdownSeparator,
   Input,
+  Modal,
   ModalBody,
   ModalClose,
   ModalFooter,
   ModalHeader,
   ModalTitle,
+  Pagination,
   Select,
+  Switch,
   Text,
   Textarea,
-  type DropdownPlacement,
 } from '@mieweb/ui';
-import { AppModal } from '@ui/AppModal';
-import { Capacitor } from '@capacitor/core';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 
 import {
   teamApi,
   ticketApi,
   timerApi,
   shareTicketWithTimeharbor,
+  type RedmineScope,
   type Team,
   type TeamMember,
   type Ticket,
@@ -71,21 +51,23 @@ import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
 import { UserAvatar } from '../../ui/UserAvatar';
-import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
-import { PulseUploadButton } from '../pulse-upload/PulseUploadButton';
+import { PulseUploadButton } from '../media/PulseUploadButton';
 import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
-import { RedmineTicketsView } from './RedmineTicketsView';
-
-// ─── View switcher ──────────────────────────────────────────────────────────
-
-/** Which tickets view is active: the native TimeHuddle list, or Redmine issues. */
-type TicketsView = 'v1' | 'redmine';
-
-const VIEW_LABELS: Record<TicketsView, string> = {
-  v1: 'Tickets v1',
-  redmine: 'Redmine Tickets',
-};
+import { TicketTable } from './TicketTable';
+import {
+  applyFilters,
+  hasActiveFilters,
+  sortTickets,
+  toggleSort,
+  DEFAULT_SORT,
+  EMPTY_FILTERS,
+  type SortField,
+  type SortSpec,
+  type TicketFilters,
+} from './ticketFilters';
+import { huddleSource, useUnifiedTickets, type UnifiedTicket } from './sources';
+import { useAutoPageSize } from './useAutoPageSize';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -105,32 +87,6 @@ const PRIORITY_OPTIONS = [
   { value: 'critical', label: 'Critical' },
 ];
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
-  const years = Math.floor(months / 12);
-  return `${years} year${years === 1 ? '' : 's'} ago`;
-}
-
-function statusIconFor(status: string | null | undefined): {
-  icon: typeof faCircleDot;
-  className: string;
-} {
-  const s = status ?? 'open';
-  if (s === 'closed' || s === 'reviewed')
-    return { icon: faCircleCheck, className: 'text-purple-500' };
-  if (s === 'blocked') return { icon: faCircleXmark, className: 'text-amber-500' };
-  return { icon: faCircleDot, className: 'text-green-500' };
-}
-
 function priorityLabelClass(priority: string): string {
   if (priority === 'critical')
     return 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400';
@@ -141,523 +97,10 @@ function priorityLabelClass(priority: string): string {
   return 'border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400';
 }
 
-function statusLabelClass(status: string): string {
-  if (status === 'in-progress')
-    return 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-400';
-  if (status === 'blocked')
-    return 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400';
-  return 'border-neutral-200 bg-neutral-100 text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400';
-}
-
 async function fetchIssueTitle(url: string): Promise<string | null> {
   const issue = await fetchGithubIssue(url);
   return issue?.title ?? null;
 }
-
-// ─── TicketRow ─────────────────────────────────────────────────────────────────
-
-interface TicketRowProps {
-  ticket: Ticket;
-  isCreator: boolean;
-  assigneeNames: string[];
-  assigneeIds: string[];
-  createdByName: string | null;
-  suppressAvatars?: boolean;
-  onEditRequest: (ticket: Ticket) => void;
-  onDeleteRequest: (id: string) => void;
-  onChangeStatusRequest: (ticket: Ticket) => void;
-  onShareWithTimeharbor: (ticket: Ticket, shared: boolean) => void;
-  // Timer state
-  isTimerRunning: boolean;
-  timerLoading: boolean;
-  onToggleTimer: (ticketId: string) => void;
-}
-
-const TicketRow: React.FC<TicketRowProps> = ({
-  ticket,
-  isCreator,
-  assigneeNames,
-  assigneeIds,
-  createdByName,
-  suppressAvatars = false,
-  onEditRequest,
-  onDeleteRequest,
-  onChangeStatusRequest,
-  onShareWithTimeharbor,
-  isTimerRunning,
-  timerLoading,
-  onToggleTimer,
-}) => {
-  const { navigate } = useRouter();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuTriggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
-  const { icon, className: iconClass } = statusIconFor(ticket.status);
-  const showStatusLabel =
-    ticket.status &&
-    ticket.status !== 'open' &&
-    ticket.status !== 'closed' &&
-    ticket.status !== 'reviewed';
-  const statusLabel = STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label;
-
-  // The options menu is portaled to <body> and positioned with `fixed`
-  // coordinates computed from the trigger's own rect — the row list's
-  // `overflow-y-scroll` clips an absolutely-positioned menu the same way
-  // FilterDropdown's mobile chip row does (see its comment below): once one
-  // axis is non-"visible", the CSS overflow spec forces the other axis to
-  // clip too, silently hiding the menu when a row sits near the bottom of
-  // the scrollable list.
-  const updateMenuPosition = useCallback(() => {
-    const trigger = menuTriggerRef.current;
-    if (!trigger) return;
-    const rect = trigger.getBoundingClientRect();
-    const gutter = 8;
-    setMenuStyle({
-      position: 'fixed',
-      top: rect.bottom + 8,
-      right: Math.max(gutter, window.innerWidth - rect.right),
-      left: 'auto',
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    updateMenuPosition();
-    window.addEventListener('resize', updateMenuPosition);
-    window.addEventListener('scroll', updateMenuPosition, true);
-    return () => {
-      window.removeEventListener('resize', updateMenuPosition);
-      window.removeEventListener('scroll', updateMenuPosition, true);
-    };
-  }, [menuOpen, updateMenuPosition]);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handlePointerDown = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (menuTriggerRef.current?.contains(target)) return;
-      if (menuRef.current?.contains(target)) return;
-      setMenuOpen(false);
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setMenuOpen(false);
-    };
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [menuOpen]);
-
-  return (
-    <li
-      data-ticket-id={ticket.id}
-      className="group relative flex items-start gap-3 px-4 py-3 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/40 max-md:overflow-visible"
-    >
-      <TimerToggleButton
-        isRunning={isTimerRunning}
-        isLoading={timerLoading}
-        onClick={() => onToggleTimer(ticket.id)}
-        ariaLabel={
-          isTimerRunning ? `Stop timer for ${ticket.title}` : `Start timer for ${ticket.title}`
-        }
-      />
-
-      {/* Status icon */}
-      <div className="mt-0.5 shrink-0 pt-0.5">
-        <FontAwesomeIcon icon={icon} className={`text-base ${iconClass}`} />
-      </div>
-
-      {/* Content */}
-      <div className="min-w-0 flex-1">
-        {/* Title + label badges */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <button
-            className="text-left text-sm font-semibold text-neutral-900 hover:text-primary dark:text-neutral-100 dark:hover:text-primary"
-            onClick={() => navigate(`/app/tickets/${ticket.id}`)}
-          >
-            {ticket.title}
-          </button>
-          {ticket.priority && (
-            <span
-              className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium ${priorityLabelClass(ticket.priority)}`}
-            >
-              {ticket.priority}
-            </span>
-          )}
-          {showStatusLabel && statusLabel && (
-            <span
-              className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium ${statusLabelClass(ticket.status)}`}
-            >
-              {statusLabel}
-            </span>
-          )}
-          {ticket.sharedWithTimeharbor && (
-            <span
-              className="inline-flex items-center rounded-full border border-blue-300 bg-blue-50 px-1.5 py-px text-[11px] font-medium text-blue-700 dark:border-blue-700 dark:bg-blue-950/40 dark:text-blue-400"
-              title="Shared with TimeHarbor"
-              aria-label="Shared with TimeHarbor"
-            >
-              TH
-            </span>
-          )}
-        </div>
-
-        {/* Metadata line */}
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-neutral-500 dark:text-neutral-400">
-          <span>
-            #{ticket.id.slice(-5)} opened {timeAgo(ticket.createdAt)} by{' '}
-            {createdByName ?? `user-${ticket.createdBy.slice(-4)}`}
-          </span>
-          {assigneeNames.length > 0 && (
-            <span>
-              · assigned to {assigneeNames.slice(0, 2).join(', ')}
-              {assigneeNames.length > 2 && ` +${assigneeNames.length - 2} more`}
-            </span>
-          )}
-          {ticket.github && (
-            <a
-              href={ticket.github}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 hover:text-blue-500 hover:underline"
-            >
-              <FontAwesomeIcon icon={faExternalLink} className="text-[10px]" />
-              {ticket.github.includes('github.com') ? 'GitHub' : 'Issue link'}
-            </a>
-          )}
-        </div>
-      </div>
-
-      {/* Right side: timer toggle + assignee avatars + overflow menu */}
-      <div className="flex shrink-0 items-center gap-2">
-        {!suppressAvatars && assigneeIds.length > 0 && (
-          <div className="flex -space-x-1">
-            {assigneeIds.slice(0, 3).map((id, idx) => {
-              const name = assigneeNames[idx];
-              return (
-                <button
-                  key={id}
-                  className="rounded-full ring-2 ring-white dark:ring-neutral-900 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary hover:z-10"
-                  onClick={() => navigate(`/app/profile/${id}`)}
-                  aria-label={`View ${name}'s profile`}
-                  title={name}
-                >
-                  <UserAvatar name={name} size="xs" />
-                </button>
-              );
-            })}
-            {assigneeIds.length > 3 && (
-              <div
-                className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-200 text-[10px] font-medium text-neutral-600 ring-2 ring-white dark:bg-neutral-700 dark:text-neutral-300 dark:ring-neutral-900"
-                title={`${assigneeIds.length - 3} more assignees`}
-              >
-                +{assigneeIds.length - 3}
-              </div>
-            )}
-          </div>
-        )}
-        <Button
-          ref={menuTriggerRef}
-          variant="ghost"
-          size="icon"
-          aria-label="Ticket options"
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((o) => !o)}
-        >
-          <FontAwesomeIcon icon={faEllipsisVertical} className="text-sm" />
-        </Button>
-        {menuOpen &&
-          createPortal(
-            <div
-              ref={menuRef}
-              role="menu"
-              style={menuStyle}
-              className="z-[99999] max-md:max-w-[calc(100vw-2rem)] md:max-w-xs rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
-            >
-              <DropdownContent className="bg-white dark:bg-neutral-800">
-                <DropdownItem
-                  icon={<FontAwesomeIcon icon={faEye} />}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    navigate(`/app/tickets/${ticket.id}`);
-                  }}
-                >
-                  Ticket Details
-                </DropdownItem>
-                {isCreator && (
-                  <DropdownItem
-                    icon={<FontAwesomeIcon icon={faPen} />}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onEditRequest(ticket);
-                    }}
-                  >
-                    Edit Ticket
-                  </DropdownItem>
-                )}
-                <DropdownItem
-                  icon={<FontAwesomeIcon icon={faRightLeft} />}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onChangeStatusRequest(ticket);
-                  }}
-                >
-                  Change Status
-                </DropdownItem>
-                <DropdownItem
-                  icon={<FontAwesomeIcon icon={faShareFromSquare} />}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onShareWithTimeharbor(ticket, !ticket.sharedWithTimeharbor);
-                  }}
-                >
-                  {ticket.sharedWithTimeharbor ? 'Remove from TimeHarbor' : 'Send to TimeHarbor'}
-                </DropdownItem>
-                {isCreator && (
-                  <>
-                    <DropdownSeparator />
-                    <DropdownItem
-                      icon={<FontAwesomeIcon icon={faTrash} />}
-                      variant="danger"
-                      onClick={() => {
-                        setMenuOpen(false);
-                        onDeleteRequest(ticket.id);
-                      }}
-                    >
-                      Delete Ticket
-                    </DropdownItem>
-                  </>
-                )}
-              </DropdownContent>
-            </div>,
-            document.body,
-          )}
-      </div>
-    </li>
-  );
-};
-
-// ─── Filter dropdown helper ───────────────────────────────────────────────────
-
-interface FilterDropdownProps {
-  label: string;
-  activeLabel: string | null;
-  placement?: DropdownPlacement;
-  /** The id of the currently open filter menu. Used to close this dropdown
-   *  when a sibling opens. Set to a different non-null string to force close. */
-  activeMenuId?: string | null;
-  /** This dropdown's own id — used to decide whether to self-close. */
-  menuId?: string;
-  /** Container the menu must stay within (e.g. the ticket list card) — the
-   *  menu is clamped to this element's bounds in addition to the viewport. */
-  boundaryRef?: React.RefObject<HTMLElement | null>;
-  onOpenChange?: (open: boolean) => void;
-  children: React.ReactNode;
-}
-
-const FilterDropdown: React.FC<FilterDropdownProps> = ({
-  label,
-  activeLabel,
-  placement = 'bottom-start',
-  activeMenuId,
-  menuId,
-  boundaryRef,
-  onOpenChange,
-  children,
-}) => {
-  const [open, setOpen] = React.useState(false);
-  const triggerRef = React.useRef<HTMLButtonElement>(null);
-  const menuRef = React.useRef<HTMLDivElement>(null);
-  const [menuStyle, setMenuStyle] = React.useState<React.CSSProperties>({});
-
-  // On narrow/native screens the filter bar wraps, so filters that prefer
-  // bottom-end (right-aligned) can end up on the left side of the screen.
-  // bottom-end with right:0 would then extend the menu off the left edge.
-  // Force bottom-start on mobile/Capacitor so menus always open to the right.
-  const effectivePlacement =
-    Capacitor.isNativePlatform() || window.innerWidth < 768 ? 'bottom-start' : placement;
-
-  // Close when another dropdown in the group becomes active
-  React.useEffect(() => {
-    if (activeMenuId !== null && activeMenuId !== undefined && activeMenuId !== menuId) {
-      setOpen(false);
-    }
-  }, [activeMenuId, menuId]);
-
-  const handleOpenChange = React.useCallback(
-    (next: boolean) => {
-      setOpen(next);
-      onOpenChange?.(next);
-    },
-    [onOpenChange],
-  );
-
-  // The menu is portaled to <body> and positioned with `fixed` coordinates
-  // computed from the trigger's own rect — this lets it escape the mobile
-  // filter-chip row's `overflow-x-auto`, which (per the CSS overflow spec)
-  // also clips the *vertical* axis once any non-"visible" overflow is set,
-  // silently cutting off an absolutely-positioned menu docked below it.
-  const updatePosition = React.useCallback(() => {
-    const trigger = triggerRef.current;
-    if (!trigger) return;
-    const rect = trigger.getBoundingClientRect();
-    const gutter = 8;
-    shiftAppliedRef.current = false;
-    if (effectivePlacement === 'bottom-end') {
-      setMenuStyle({
-        position: 'fixed',
-        top: rect.bottom + 8,
-        right: Math.max(gutter, window.innerWidth - rect.right),
-        left: 'auto',
-      });
-    } else {
-      setMenuStyle({
-        position: 'fixed',
-        top: rect.bottom + 8,
-        left: Math.max(gutter, rect.left),
-        right: 'auto',
-      });
-    }
-  }, [effectivePlacement]);
-
-  React.useEffect(() => {
-    if (!open) return;
-    updatePosition();
-    window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition, true);
-    return () => {
-      window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('scroll', updatePosition, true);
-    };
-  }, [open, updatePosition]);
-
-  // `updatePosition` anchors the menu to the trigger before its actual
-  // (content-dependent) width is known, so a menu docked near a screen edge
-  // — e.g. "Assignee" wrapping to bottom-start on mobile — can still render
-  // partly off-screen or spill outside the ticket list card. Once mounted,
-  // measure the real box and nudge it back within the viewport (and the
-  // card, if `boundaryRef` is given). Guarded by a ref (reset each time it
-  // opens) so the resulting `setMenuStyle` call doesn't re-trigger itself.
-  const shiftAppliedRef = React.useRef(false);
-  React.useEffect(() => {
-    if (!open) shiftAppliedRef.current = false;
-  }, [open]);
-
-  React.useLayoutEffect(() => {
-    if (!open || shiftAppliedRef.current) return;
-    const menu = menuRef.current;
-    if (!menu) return;
-    shiftAppliedRef.current = true;
-    const rect = menu.getBoundingClientRect();
-    const gutter = 8;
-    const boundaryRect = boundaryRef?.current?.getBoundingClientRect();
-    const maxRight = boundaryRect
-      ? Math.min(window.innerWidth - gutter, boundaryRect.right - gutter)
-      : window.innerWidth - gutter;
-    const minLeft = boundaryRect ? Math.max(gutter, boundaryRect.left + gutter) : gutter;
-    const overflowRight = rect.right - maxRight;
-    const overflowLeft = minLeft - rect.left;
-    if (overflowRight > 0) {
-      setMenuStyle((prev) =>
-        typeof prev.left === 'number'
-          ? { ...prev, left: Math.max(minLeft, prev.left - overflowRight) }
-          : typeof prev.right === 'number'
-            ? { ...prev, right: Math.max(gutter, prev.right + overflowRight) }
-            : prev,
-      );
-    } else if (overflowLeft > 0) {
-      setMenuStyle((prev) =>
-        typeof prev.left === 'number' ? { ...prev, left: prev.left + overflowLeft } : prev,
-      );
-    }
-  }, [open, menuStyle, boundaryRef]);
-
-  // Close on outside click / Escape — the library's Dropdown handles this
-  // internally, but we're no longer using it for the menu itself since it
-  // needs to live in a portal.
-  React.useEffect(() => {
-    if (!open) return;
-    const handlePointerDown = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (triggerRef.current?.contains(target)) return;
-      if (menuRef.current?.contains(target)) return;
-      handleOpenChange(false);
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleOpenChange(false);
-    };
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [open, handleOpenChange]);
-
-  return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => handleOpenChange(!open)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className={`flex items-center gap-1 text-xs font-medium transition-colors ${
-          activeLabel
-            ? 'text-neutral-900 dark:text-neutral-100'
-            : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-        }`}
-      >
-        {activeLabel ? `${label}: ${activeLabel}` : label}
-        <FontAwesomeIcon icon={faChevronDown} className="text-[10px]" />
-      </button>
-      {open &&
-        createPortal(
-          <div
-            ref={menuRef}
-            role="menu"
-            style={menuStyle}
-            className="z-9999 max-w-[calc(100vw-1rem)] min-w-48 rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800"
-            /* Clicking any item bubbles up here and closes the dropdown */
-            onClick={() => handleOpenChange(false)}
-          >
-            <DropdownContent className="max-h-[60vh] overflow-y-auto bg-white dark:bg-neutral-800 shadow-lg">
-              {children}
-            </DropdownContent>
-          </div>,
-          document.body,
-        )}
-    </>
-  );
-};
-
-// ─── Ticket skeleton rows ─────────────────────────────────────────────────────
-
-const TicketSkeletonRow: React.FC<{ wide?: boolean }> = ({ wide }) => (
-  <li className="flex items-start gap-3 px-4 py-3">
-    <div className="mt-1 h-3.5 w-3.5 shrink-0 animate-pulse rounded-full bg-neutral-200 dark:bg-neutral-700" />
-    <div className="min-w-0 flex-1 space-y-2">
-      <div
-        className={`h-3.5 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700 ${wide ? 'w-2/3' : 'w-1/2'}`}
-      />
-      <div className="h-2.5 w-1/3 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />
-    </div>
-  </li>
-);
-
-const TicketListSkeleton: React.FC = () => (
-  <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-    <TicketSkeletonRow wide />
-    <TicketSkeletonRow />
-    <TicketSkeletonRow wide />
-    <TicketSkeletonRow />
-    <TicketSkeletonRow wide />
-  </ul>
-);
 
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
@@ -666,13 +109,12 @@ export const TicketsPage: React.FC = () => {
   const { isClockedIn, clockIn } = useClockToggle();
   const { navigate, pathname } = useRouter();
 
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [ticketsLoading, setTicketsLoading] = useState(true);
   // Map from teamId → members for cross-team member lookups
   const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
 
-  // Which view is showing: native TimeHuddle tickets ('v1') or Redmine issues.
-  const [view, setView] = useState<TicketsView>('v1');
+  // Which Redmine issues to pull in. "All" by default — narrowing to your own
+  // issues is now the Assignee column filter, not a separate fetch scope.
+  const [redmineScope] = useState<RedmineScope>('all');
 
   // Timer state — which ticket has the open timer (shared overnight-safe hook)
   const runningTicket = useRunningTicket(true);
@@ -680,104 +122,6 @@ export const TicketsPage: React.FC = () => {
   const [pendingStartTicketId, setPendingStartTicketId] = useState<string | null>(null);
   const [showClockInPrompt, setShowClockInPrompt] = useState(false);
   const [clockInPromptError, setClockInPromptError] = useState<string | null>(null);
-
-  const refetch = useCallback(async () => {
-    if (!teams.length) {
-      // Don't clear loading state until teams have finished loading — prevents
-      // a flash of empty-state between "teams ready" and first ticket fetch.
-      if (teamsReady) {
-        setTickets([]);
-        setTicketsLoading(false);
-      }
-      return;
-    }
-    try {
-      const results = await Promise.all(teams.map((t) => ticketApi.getTickets(t.id)));
-      // Deduplicate by id in case a ticket appears in multiple team responses
-      const seen = new Set<string>();
-      const merged: Ticket[] = [];
-      for (const batch of results) {
-        for (const ticket of batch) {
-          if (!seen.has(ticket.id)) {
-            seen.add(ticket.id);
-            merged.push(ticket);
-          }
-        }
-      }
-      setTickets(merged);
-    } catch {
-      // keep previous tickets on error
-    } finally {
-      setTicketsLoading(false);
-    }
-  }, [teams, teamsReady]);
-
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
-
-  // When the user switches team in the header, follow the new team in the filter.
-  useEffect(() => {
-    if (selectedTeamId) setTeamFilter(selectedTeamId);
-  }, [selectedTeamId]);
-
-  // Pull-to-refresh handler — only while this page is the active route. It
-  // stays mounted (hidden) behind other routes, so registering unconditionally
-  // would hijack the visible page's refresh handler. Also gated on the active
-  // view, since every registered handler runs and the Redmine view registers
-  // its own.
-  useRefresh(refetch, pathname === '/app/tickets' && view === 'v1');
-
-  // Stable key derived from sorted team IDs — the WS only reconnects when the
-  // actual set of teams changes, not on every new array reference from context.
-  const teamIdsKey = useMemo(
-    () =>
-      teams
-        .map((t) => t.id)
-        .sort()
-        .join(','),
-    [teams],
-  );
-
-  // Real-time updates via Meteor DDP (oplog-backed publication `tickets.byTeam`).
-  // Replaces the hand-rolled /v1/tickets/ws WebSocket: any write to the shared
-  // Mongo (Fastify REST, Meteor methods, wormhole REST, MCP agents) is pushed
-  // here automatically — no broadcast code on any server.
-  useEffect(() => {
-    if (!teamIdsKey || !userId) return;
-
-    const teamIds = teamIdsKey.split(',');
-    const ddp = getDdpClient();
-
-    const offChange = ddp.onCollectionChange('tickets', () => {
-      const liveDocs = ddp.docs('tickets').map(ddpDocToTicket);
-      const liveIds = new Set(liveDocs.map((t) => t.id));
-      const subscribedTeams = new Set(teamIds);
-      setTickets((prev) => [
-        // Keep tickets outside the subscription (other teams) untouched;
-        // drop subscribed-team tickets that the live set no longer contains.
-        ...prev.filter((t) => !subscribedTeams.has(t.teamId) && !liveIds.has(t.id)),
-        ...liveDocs,
-      ]);
-    });
-    const unsubscribe = ddp.subscribe('tickets.byTeam', [teamIds]);
-
-    return () => {
-      offChange();
-      unsubscribe();
-    };
-  }, [teamIdsKey, userId]);
-
-  // ── Real-time timer updates live inside useRunningTicket ──
-
-  // Listen for external refetch requests (e.g., from CommandPalette or clock operations)
-  useEffect(() => {
-    const onRefetch = () => {
-      void refetch();
-    };
-    window.addEventListener('tickets:refetch', onRefetch);
-    return () => window.removeEventListener('tickets:refetch', onRefetch);
-  }, [refetch]);
 
   // Fetch members for all teams
   useEffect(() => {
@@ -819,6 +163,83 @@ export const TicketsPage: React.FC = () => {
     [allMembers],
   );
 
+  // ── Unified ticket sources ──
+
+  const sourceCtx = useMemo(
+    () => ({
+      userId,
+      teams: teams.map((t: Team) => ({ id: t.id, name: t.name })),
+      resolveMemberName: getAssigneeName,
+      redmineScope,
+    }),
+    [userId, teams, getAssigneeName, redmineScope],
+  );
+
+  const {
+    tickets: allTickets,
+    loading: ticketsLoading,
+    errors: sourceErrors,
+    refetch,
+    setSourceItems,
+  } = useUnifiedTickets(sourceCtx);
+
+  // Pull-to-refresh handler — only while this page is the active route. It
+  // stays mounted (hidden) behind other routes, so registering unconditionally
+  // would hijack the visible page's refresh handler.
+  useRefresh(refetch, pathname === '/app/tickets');
+
+  // Stable key derived from sorted team IDs — the subscription only reconnects
+  // when the actual set of teams changes, not on every new array reference.
+  const teamIdsKey = useMemo(
+    () =>
+      teams
+        .map((t: Team) => t.id)
+        .sort()
+        .join(','),
+    [teams],
+  );
+
+  // Real-time updates via Meteor DDP (oplog-backed publication `tickets.byTeam`).
+  // Any write to the shared Mongo (Fastify REST, Meteor methods, wormhole REST,
+  // MCP agents) is pushed here automatically — no broadcast code on any server.
+  //
+  // This replaces only the `huddle` partition: other sources have their own
+  // update paths and must not be touched by a Huddle push.
+  useEffect(() => {
+    if (!teamIdsKey || !userId) return;
+
+    const teamIds = teamIdsKey.split(',');
+    const ddp = getDdpClient();
+
+    const offChange = ddp.onCollectionChange('tickets', () => {
+      const liveDocs = ddp.docs('tickets').map(ddpDocToTicket);
+      setSourceItems(
+        'huddle',
+        liveDocs.map((doc) => huddleSource.toUnified(doc, sourceCtxRef.current)),
+      );
+    });
+    const unsubscribe = ddp.subscribe('tickets.byTeam', [teamIds]);
+
+    return () => {
+      offChange();
+      unsubscribe();
+    };
+  }, [teamIdsKey, userId, setSourceItems]);
+
+  // Read inside the DDP callback so live pushes normalize against the current
+  // team/member data without resubscribing every time that data changes.
+  const sourceCtxRef = React.useRef(sourceCtx);
+  sourceCtxRef.current = sourceCtx;
+
+  // ── Real-time timer updates live inside useRunningTicket ──
+
+  // Listen for external refetch requests (e.g., from CommandPalette or clock operations)
+  useEffect(() => {
+    const onRefetch = () => refetch();
+    window.addEventListener('tickets:refetch', onRefetch);
+    return () => window.removeEventListener('tickets:refetch', onRefetch);
+  }, [refetch]);
+
   // Mutation loading states
   const [createLoading, setCreateLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -834,15 +255,17 @@ export const TicketsPage: React.FC = () => {
 
   // Search + filter
   const [searchQuery, setSearchQuery] = useState('');
-  const [teamFilter, setTeamFilter] = useState<string | null>(() => selectedTeamId ?? null);
-  const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
-  const [statusDetailFilter, setStatusDetailFilter] = useState<string | null>(null);
-  const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
-  const [openFilterMenu, setOpenFilterMenu] = useState<
-    'team' | 'priority' | 'status' | 'assignee' | null
-  >(null);
-  const ticketListRef = React.useRef<HTMLUListElement | null>(null);
-  const [suppressedAvatarIds, setSuppressedAvatarIds] = useState<string[]>([]);
+  const [filters, setFilters] = useState<TicketFilters>(EMPTY_FILTERS);
+  const [sort, setSort] = useState<SortSpec>(DEFAULT_SORT);
+  const [showClosed, setShowClosed] = useState(false);
+  const [openFilterMenu, setOpenFilterMenu] = useState<string | null>(null);
+
+  // Row selection, keyed by composite ticket key. Reserved for bulk actions.
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+
+  // Pagination — the table fills the available height instead of scrolling.
+  const [page, setPage] = useState(1);
+  const { containerRef: tableAreaRef, pageSize } = useAutoPageSize();
 
   // Delete state
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -858,7 +281,7 @@ export const TicketsPage: React.FC = () => {
   const editFetchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Change status modal (any team member)
-  const [changeStatusTicket, setChangeStatusTicket] = useState<Ticket | null>(null);
+  const [changeStatusTicket, setChangeStatusTicket] = useState<UnifiedTicket | null>(null);
   const [changeStatusValue, setChangeStatusValue] = useState('');
   const [changeStatusSaving, setChangeStatusSaving] = useState(false);
 
@@ -866,116 +289,77 @@ export const TicketsPage: React.FC = () => {
   const [detailsTicket, setDetailsTicket] = useState<Ticket | null>(null);
   const [detailsAttachmentRefresh, setDetailsAttachmentRefresh] = useState(0);
 
-  // Status filter: Open vs Closed (GitHub style)
-  type StatusFilter = 'open' | 'closed';
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
-
-  // Filter tickets by search + team + assignee
-  const searchFilteredTickets = useMemo(() => {
-    let result = tickets;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (t) => t.title.toLowerCase().includes(q) || t.github?.toLowerCase().includes(q),
-      );
-    }
-    if (teamFilter) {
-      result = result.filter((t) => t.teamId === teamFilter);
-    }
-    if (assigneeFilter === '__unassigned__') {
-      result = result.filter((t) => !t.assignedTo || t.assignedTo.length === 0);
-    } else if (assigneeFilter) {
-      result = result.filter((t) => t.assignedTo?.includes(assigneeFilter));
-    }
-    if (statusDetailFilter) {
-      result = result.filter((t) => (t.status ?? 'open') === statusDetailFilter);
-    }
-    if (priorityFilter === 'none') {
-      result = result.filter((t) => !t.priority);
-    } else if (priorityFilter) {
-      result = result.filter((t) => t.priority === priorityFilter);
-    }
-    return result;
-  }, [tickets, searchQuery, teamFilter, assigneeFilter, statusDetailFilter, priorityFilter]);
+  // Everything matching the search + filter chips, before the Open/Closed split.
+  const searchFilteredTickets = useMemo(
+    () => applyFilters(allTickets, filters, searchQuery),
+    [allTickets, filters, searchQuery],
+  );
 
   // Open vs closed counts (GitHub-style header tabs)
   const openCount = useMemo(
-    () =>
-      searchFilteredTickets.filter(
-        (t) => !t.status || (t.status !== 'closed' && t.status !== 'reviewed'),
-      ).length,
+    () => searchFilteredTickets.filter((t) => !t.status.isClosed).length,
     [searchFilteredTickets],
   );
   const closedCount = useMemo(
-    () =>
-      searchFilteredTickets.filter((t) => t.status === 'closed' || t.status === 'reviewed').length,
+    () => searchFilteredTickets.filter((t) => t.status.isClosed).length,
     [searchFilteredTickets],
   );
 
-  // Filter tickets by status tab
-  const filteredTickets = useMemo(() => {
-    if (statusFilter === 'closed')
-      return searchFilteredTickets.filter((t) => t.status === 'closed' || t.status === 'reviewed');
-    // 'open' = everything that isn't closed
-    return searchFilteredTickets.filter(
-      (t) => !t.status || (t.status !== 'closed' && t.status !== 'reviewed'),
-    );
-  }, [searchFilteredTickets, statusFilter]);
+  const sortedTickets = useMemo(
+    () =>
+      sortTickets(
+        searchFilteredTickets.filter((t) => t.status.isClosed === showClosed),
+        sort,
+      ),
+    [searchFilteredTickets, showClosed, sort],
+  );
 
-  // When a filter menu is open on desktop web, suppress only row avatars that
-  // visually intersect with that floating menu area.
+  const totalPages = Math.max(1, Math.ceil(sortedTickets.length / pageSize));
+
+  // Clamp rather than reset: shrinking the window or tightening a filter should
+  // land on the last real page, not silently jump the user back to page 1.
   useEffect(() => {
-    if (!openFilterMenu) {
-      setSuppressedAvatarIds([]);
-      return;
-    }
-    if (openFilterMenu === 'team' || openFilterMenu === 'status') {
-      setSuppressedAvatarIds([]);
-      return;
-    }
-    if (Capacitor.isNativePlatform() || window.innerWidth < 768) {
-      setSuppressedAvatarIds([]);
-      return;
-    }
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
 
-    const listEl = ticketListRef.current;
-    if (!listEl) {
-      setSuppressedAvatarIds([]);
-      return;
-    }
+  // Any change to what is listed invalidates the current page position.
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, filters, showClosed]);
 
-    const updateSuppressedRows = () => {
-      const menuEl = document.querySelector('[role="menu"]') as HTMLElement | null;
-      if (!menuEl) {
-        setSuppressedAvatarIds([]);
-        return;
-      }
+  const pageTickets = useMemo(
+    () => sortedTickets.slice((page - 1) * pageSize, page * pageSize),
+    [sortedTickets, page, pageSize],
+  );
 
-      const menuRect = menuEl.getBoundingClientRect();
-      const ids: string[] = [];
-      const rows = listEl.querySelectorAll<HTMLLIElement>('li[data-ticket-id]');
+  const handleSortChange = useCallback((field: SortField) => {
+    setSort((current) => toggleSort(current, field));
+    setPage(1);
+  }, []);
 
-      rows.forEach((row) => {
-        const rowRect = row.getBoundingClientRect();
-        const overlapsMenu = rowRect.top < menuRect.bottom && rowRect.bottom > menuRect.top;
-        if (overlapsMenu && row.dataset.ticketId) ids.push(row.dataset.ticketId);
+  const handleSelectedChange = useCallback((ticket: UnifiedTicket, selected: boolean) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (selected) next.add(ticket.key);
+      else next.delete(ticket.key);
+      return next;
+    });
+  }, []);
+
+  // Select-all applies to the current page only, matching what the user sees.
+  const handleSelectAllChange = useCallback(
+    (selected: boolean) => {
+      setSelectedKeys((prev) => {
+        const next = new Set(prev);
+        for (const ticket of pageTickets) {
+          if (selected) next.add(ticket.key);
+          else next.delete(ticket.key);
+        }
+        return next;
       });
-
-      setSuppressedAvatarIds(ids);
-    };
-
-    const rafId = window.requestAnimationFrame(updateSuppressedRows);
-    const scrollHost = listEl.closest('main');
-
-    scrollHost?.addEventListener('scroll', updateSuppressedRows, { passive: true });
-    window.addEventListener('resize', updateSuppressedRows, { passive: true });
-
-    return () => {
-      window.cancelAnimationFrame(rafId);
-      scrollHost?.removeEventListener('scroll', updateSuppressedRows);
-      window.removeEventListener('resize', updateSuppressedRows);
-    };
-  }, [openFilterMenu, filteredTickets.length]);
+    },
+    [pageTickets],
+  );
 
   // Member options for assignee select in the edit modal
   const memberOptions = useMemo(() => {
@@ -984,38 +368,7 @@ export const TicketsPage: React.FC = () => {
     return members.map((m) => ({ value: m.id, label: m.name || m.email }));
   }, [membersByTeam, selectedTeamId, teams]);
 
-  // Active filter label helpers
   const ticketCardRef = React.useRef<HTMLDivElement>(null);
-  const activeTeamLabel = useMemo(
-    () => (teamFilter ? (teams.find((t: Team) => t.id === teamFilter)?.name ?? null) : null),
-    [teamFilter, teams],
-  );
-  const activeStatusDetailLabel = useMemo(
-    () =>
-      statusDetailFilter
-        ? (STATUS_OPTIONS.find((s) => s.value === statusDetailFilter)?.label ?? null)
-        : null,
-    [statusDetailFilter],
-  );
-  const activePriorityLabel = useMemo(
-    () =>
-      priorityFilter
-        ? (PRIORITY_OPTIONS.find((p) => p.value === priorityFilter)?.label ?? null)
-        : null,
-    [priorityFilter],
-  );
-  const activeAssigneeLabel = useMemo(() => {
-    if (!assigneeFilter) return null;
-    if (assigneeFilter === '__unassigned__') return 'Unassigned';
-    return getAssigneeName(assigneeFilter) ?? null;
-  }, [assigneeFilter, getAssigneeName]);
-
-  // Members sorted with current user first
-  const sortedMembers = useMemo(() => {
-    const me = allMembers.find((m) => m.id === userId);
-    const rest = allMembers.filter((m) => m.id !== userId);
-    return me ? [me, ...rest] : rest;
-  }, [allMembers, userId]);
 
   // ── Handlers ──
 
@@ -1043,7 +396,12 @@ export const TicketsPage: React.FC = () => {
   }, []);
 
   const handleToggleTimer = useCallback(
-    async (ticketId: string) => {
+    async (ticket: UnifiedTicket) => {
+      // Only Huddle tickets have a timer path today; the row hides the control
+      // for any source whose `trackTime` capability is false.
+      if (!ticket.capabilities.trackTime) return;
+      const ticketId = ticket.id;
+
       if (runningTicket?.id === ticketId && runningTicket.sessionId) {
         // Stop the running timer
         setTimerLoading(ticketId);
@@ -1116,14 +474,18 @@ export const TicketsPage: React.FC = () => {
     }
   }, [createTitle, createGithub, refetch, selectedTeam]);
 
-  const openEditModal = (ticket: Ticket) => {
+  // The list only carries the normalized shape, so fetch the full ticket the
+  // edit form needs (description, assignees) when the modal actually opens.
+  const openEditModal = useCallback(async (unified: UnifiedTicket) => {
+    if (!unified.capabilities.edit) return;
+    const ticket = await ticketApi.getTicket(unified.id);
     setEditTicket(ticket);
     setEditTitle(ticket.title);
     setEditDescription(ticket.description || '');
     setEditGithub(ticket.github || '');
     setEditAssignees(ticket.assignedTo ?? []);
     setEditPriority(ticket.priority || 'none');
-  };
+  }, []);
 
   const handleSaveEdit = useCallback(async () => {
     if (!editTicket || !editTitle.trim()) return;
@@ -1181,43 +543,13 @@ export const TicketsPage: React.FC = () => {
     'ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:border-blue-300 focus-visible:border-blue-300';
 
   return (
-    <AppPage fill>
-      {/* ── View switcher: doubles as the page's h1 ── */}
-      <h1 className="tickets-view-switcher mb-3 shrink-0 text-2xl font-semibold tracking-tight">
-        <Dropdown
-          placement="bottom-start"
-          trigger={
-            <Button
-              variant="ghost"
-              aria-label={`${VIEW_LABELS[view]} — switch tickets view`}
-              className="group inline-flex items-center gap-1.5 px-0 text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100"
-              rightIcon={
-                <FontAwesomeIcon
-                  icon={faChevronDown}
-                  className="text-sm text-neutral-400 transition-transform group-aria-expanded:rotate-180"
-                />
-              }
-            >
-              {VIEW_LABELS[view]}
-            </Button>
-          }
-        >
-          {(Object.keys(VIEW_LABELS) as TicketsView[]).map((key) => (
-            <DropdownItem
-              key={key}
-              onClick={() => setView(key)}
-              className={view === key ? 'font-semibold' : ''}
-            >
-              {VIEW_LABELS[key]}
-            </DropdownItem>
-          ))}
-        </Dropdown>
+    <AppPage fill width="full">
+      <h1 className="mb-3 shrink-0 text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
+        Tickets
       </h1>
 
-      {view === 'redmine' && <RedmineTicketsView />}
-
       {/* ── Header: New Ticket + Search ── */}
-      <div className={view === 'redmine' ? 'hidden' : 'flex min-h-0 flex-1 flex-col gap-3'}>
+      <div className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
           <div className="flex items-center gap-2">
             <Button
@@ -1254,6 +586,29 @@ export const TicketsPage: React.FC = () => {
                 className={`pl-8 rounded-lg ${noFocusRingClass}`}
                 size="sm"
               />
+            </div>
+
+            <div className="flex shrink-0 items-center gap-3">
+              <Text size="xs" variant="muted" className="hidden whitespace-nowrap sm:block">
+                {ticketsLoading ? '…' : `${openCount} open · ${closedCount} closed`}
+              </Text>
+              <Switch
+                size="sm"
+                label="Closed"
+                labelPosition="left"
+                checked={showClosed}
+                onCheckedChange={setShowClosed}
+              />
+              {hasActiveFilters(filters) && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="whitespace-nowrap px-2 text-xs"
+                  onClick={() => setFilters(EMPTY_FILTERS)}
+                >
+                  Clear filters
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -1356,249 +711,84 @@ export const TicketsPage: React.FC = () => {
           </Card>
         )}
 
-        {/* ── Unified ticket list (GitHub style) ── */}
-        <Card
-          ref={ticketCardRef}
-          padding="none"
-          className="flex min-h-0 flex-1 flex-col overflow-visible"
-        >
-          {/* GitHub-style header: Open / Closed tabs + filter dropdowns */}
-          <div
-            className={`sticky top-0 z-30 rounded-t-xl border-b border-neutral-200 bg-neutral-50/95 px-4 py-4 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-700 md:relative md:top-auto md:z-30 ${Capacitor.isNativePlatform() ? 'dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80' : 'dark:bg-neutral-800/70 dark:supports-backdrop-filter:bg-neutral-800/50'}`}
-          >
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-2">
-              {/* Left: status tabs */}
-              <div className="flex items-center gap-4">
-                <button
-                  role="tab"
-                  aria-selected={statusFilter === 'open'}
-                  onClick={() => setStatusFilter('open')}
-                  className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                    statusFilter === 'open'
-                      ? 'text-neutral-900 dark:text-neutral-100'
-                      : 'text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
-                  }`}
-                >
-                  <FontAwesomeIcon icon={faCircleDot} className="text-green-500" />
-                  {ticketsLoading ? '…' : openCount} Open
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={statusFilter === 'closed'}
-                  onClick={() => setStatusFilter('closed')}
-                  className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
-                    statusFilter === 'closed'
-                      ? 'text-neutral-900 dark:text-neutral-100'
-                      : 'text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'
-                  }`}
-                >
-                  <FontAwesomeIcon icon={faCircleCheck} className="text-purple-500" />
-                  {ticketsLoading ? '…' : closedCount} Closed
-                </button>
-              </div>
-
-              {/* Right: filter dropdowns — horizontally scrollable chip row on mobile */}
-              <div className="ticket-filter-chips -mx-4 flex items-center gap-4 overflow-x-auto px-4 pb-1 md:mx-0 md:flex-wrap md:gap-x-4 md:gap-y-2 md:overflow-visible md:px-0 md:pb-0 md:pl-0">
-                {teams.length > 1 && (
-                  <div className="shrink-0">
-                    <FilterDropdown
-                      label="Team"
-                      activeLabel={activeTeamLabel}
-                      boundaryRef={ticketCardRef}
-                      menuId="team"
-                      activeMenuId={openFilterMenu}
-                      onOpenChange={(open) => setOpenFilterMenu(open ? 'team' : null)}
-                    >
-                      <DropdownItem
-                        onClick={() => setTeamFilter(null)}
-                        className={!teamFilter ? 'font-semibold' : ''}
-                      >
-                        All teams
-                      </DropdownItem>
-                      <DropdownSeparator />
-                      {teams.map((t: Team) => (
-                        <DropdownItem
-                          key={t.id}
-                          onClick={() => setTeamFilter(t.id)}
-                          className={teamFilter === t.id ? 'font-semibold' : ''}
-                        >
-                          {t.name}
-                        </DropdownItem>
-                      ))}
-                    </FilterDropdown>
-                  </div>
-                )}
-                <div className="shrink-0">
-                  <FilterDropdown
-                    label="Priority"
-                    activeLabel={activePriorityLabel}
-                    boundaryRef={ticketCardRef}
-                    menuId="priority"
-                    activeMenuId={openFilterMenu}
-                    onOpenChange={(open) => setOpenFilterMenu(open ? 'priority' : null)}
-                  >
-                    <DropdownItem
-                      onClick={() => setPriorityFilter(null)}
-                      className={!priorityFilter ? 'font-semibold' : ''}
-                    >
-                      Any priority
-                    </DropdownItem>
-                    <DropdownSeparator />
-                    {PRIORITY_OPTIONS.map((p) => (
-                      <DropdownItem
-                        key={p.value}
-                        onClick={() =>
-                          setPriorityFilter(priorityFilter === p.value ? null : p.value)
-                        }
-                        className={priorityFilter === p.value ? 'font-semibold' : ''}
-                      >
-                        {p.label}
-                      </DropdownItem>
-                    ))}
-                  </FilterDropdown>
-                </div>
-                <div className="shrink-0">
-                  <FilterDropdown
-                    label="Status"
-                    activeLabel={activeStatusDetailLabel}
-                    placement="bottom-end"
-                    boundaryRef={ticketCardRef}
-                    menuId="status"
-                    activeMenuId={openFilterMenu}
-                    onOpenChange={(open) => setOpenFilterMenu(open ? 'status' : null)}
-                  >
-                    <DropdownItem
-                      onClick={() => setStatusDetailFilter(null)}
-                      className={!statusDetailFilter ? 'font-semibold' : ''}
-                    >
-                      Any status
-                    </DropdownItem>
-                    <DropdownSeparator />
-                    {STATUS_OPTIONS.filter(
-                      (s) => s.value !== 'open' && s.value !== 'closed' && s.value !== 'reviewed',
-                    ).map((s) => (
-                      <DropdownItem
-                        key={s.value}
-                        onClick={() =>
-                          setStatusDetailFilter(statusDetailFilter === s.value ? null : s.value)
-                        }
-                        className={statusDetailFilter === s.value ? 'font-semibold' : ''}
-                      >
-                        {s.label}
-                      </DropdownItem>
-                    ))}
-                  </FilterDropdown>
-                </div>
-                <div className="shrink-0">
-                  <FilterDropdown
-                    label="Assignee"
-                    activeLabel={activeAssigneeLabel}
-                    placement="bottom-end"
-                    boundaryRef={ticketCardRef}
-                    menuId="assignee"
-                    activeMenuId={openFilterMenu}
-                    onOpenChange={(open) => setOpenFilterMenu(open ? 'assignee' : null)}
-                  >
-                    <DropdownItem
-                      onClick={() => setAssigneeFilter(null)}
-                      className={assigneeFilter === null ? 'font-semibold' : ''}
-                    >
-                      Any
-                    </DropdownItem>
-                    <DropdownSeparator />
-                    <DropdownItem
-                      onClick={() =>
-                        setAssigneeFilter(
-                          assigneeFilter === '__unassigned__' ? null : '__unassigned__',
-                        )
-                      }
-                      className={assigneeFilter === '__unassigned__' ? 'font-semibold' : ''}
-                    >
-                      Unassigned
-                    </DropdownItem>
-                    {sortedMembers.length > 0 && <DropdownSeparator />}
-                    {sortedMembers.map((m) => (
-                      <DropdownItem
-                        key={m.id}
-                        onClick={() => setAssigneeFilter(assigneeFilter === m.id ? null : m.id)}
-                        className={assigneeFilter === m.id ? 'font-semibold' : ''}
-                      >
-                        {m.id === userId ? `${m.name || m.email} (you)` : m.name || m.email}
-                      </DropdownItem>
-                    ))}
-                  </FilterDropdown>
-                </div>
-              </div>
-            </div>
+        {/* ── Unified ticket table ── */}
+        <Card ref={ticketCardRef} padding="none" className="flex min-h-0 flex-1 flex-col">
+          {/* Fills the remaining height; only the columns scroll, horizontally. */}
+          <div ref={tableAreaRef} className="min-h-0 flex-1 overflow-hidden">
+            <TicketTable
+              tickets={pageTickets}
+              optionSource={searchFilteredTickets}
+              loading={ticketsLoading}
+              errors={sourceErrors}
+              isCreator={(t) => t.createdBy?.id === userId}
+              sort={sort}
+              onSortChange={handleSortChange}
+              filters={filters}
+              onFiltersChange={setFilters}
+              openMenuId={openFilterMenu}
+              onOpenMenuChange={setOpenFilterMenu}
+              boundaryRef={ticketCardRef}
+              selectedKeys={selectedKeys}
+              onSelectedChange={handleSelectedChange}
+              onSelectAllChange={handleSelectAllChange}
+              runningTicketId={runningTicket?.id ?? null}
+              timerLoadingId={timerLoading}
+              totalCount={sortedTickets.length}
+              showClosed={showClosed}
+              onToggleTimer={handleToggleTimer}
+              onEditRequest={(t) => void openEditModal(t)}
+              onDeleteRequest={(t) => setDeleteId(t.id)}
+              onChangeStatusRequest={(t) => {
+                setChangeStatusTicket(t);
+                setChangeStatusValue(t.status.native || 'open');
+              }}
+              onShareWithTimeharbor={async (t, shared) => {
+                try {
+                  await shareTicketWithTimeharbor(t.id, shared);
+                  refetch();
+                } catch {
+                  // Silently ignore — user can retry
+                }
+              }}
+              emptyState={
+                <EmptyState
+                  title={
+                    searchQuery || hasActiveFilters(filters)
+                      ? 'No tickets match your filters'
+                      : showClosed
+                        ? 'No closed tickets'
+                        : 'No open tickets'
+                  }
+                  description={
+                    !searchQuery && !hasActiveFilters(filters) && !showClosed
+                      ? 'Create one to get started.'
+                      : undefined
+                  }
+                />
+              }
+            />
           </div>
 
-          <div className="scrollbar-mieweb scrollbar-mieweb-visible min-h-0 flex-1 overflow-y-scroll max-md:overflow-x-visible max-md:pb-64">
-            {/* Ticket rows */}
-            {filteredTickets.length > 0 ? (
-              <ul
-                ref={ticketListRef}
-                className="divide-y divide-neutral-100 dark:divide-neutral-800 max-md:overflow-visible"
-                aria-label={statusFilter === 'open' ? 'Open tickets' : 'Closed tickets'}
-              >
-                {filteredTickets.map((t) => (
-                  <TicketRow
-                    key={t.id}
-                    ticket={t}
-                    isCreator={t.createdBy === userId}
-                    assigneeNames={(t.assignedTo ?? []).map((id) => getAssigneeName(id) ?? id)}
-                    assigneeIds={t.assignedTo ?? []}
-                    createdByName={getAssigneeName(t.createdBy)}
-                    suppressAvatars={
-                      openFilterMenu !== 'team' &&
-                      openFilterMenu !== 'status' &&
-                      suppressedAvatarIds.includes(t.id)
-                    }
-                    onEditRequest={openEditModal}
-                    onDeleteRequest={setDeleteId}
-                    onChangeStatusRequest={(ticket) => {
-                      setChangeStatusTicket(ticket);
-                      setChangeStatusValue(ticket.status || 'open');
-                    }}
-                    onShareWithTimeharbor={async (ticket, shared) => {
-                      try {
-                        await shareTicketWithTimeharbor(ticket.id, shared);
-                        // Optimistically update local state
-                        setTickets((prev) =>
-                          prev.map((t) =>
-                            t.id === ticket.id ? { ...t, sharedWithTimeharbor: shared } : t,
-                          ),
-                        );
-                      } catch {
-                        // Silently ignore — user can retry
-                      }
-                    }}
-                    isTimerRunning={runningTicket?.id === t.id}
-                    timerLoading={timerLoading === t.id}
-                    onToggleTimer={handleToggleTimer}
-                  />
-                ))}
-              </ul>
-            ) : ticketsLoading ? (
-              <TicketListSkeleton />
-            ) : (
-              <EmptyState
-                title={
-                  searchQuery
-                    ? 'No tickets match your search'
-                    : statusFilter === 'open'
-                      ? 'No open tickets'
-                      : 'No closed tickets'
-                }
-                description={
-                  !searchQuery && statusFilter === 'open' ? 'Create one to get started.' : undefined
-                }
+          {totalPages > 1 && (
+            <div className="flex shrink-0 items-center justify-between gap-2 border-t border-neutral-200 px-4 py-2 dark:border-neutral-700">
+              <Text size="xs" variant="muted">
+                {selectedKeys.size > 0
+                  ? `${selectedKeys.size} selected`
+                  : `${sortedTickets.length} ticket${sortedTickets.length === 1 ? '' : 's'}`}
+              </Text>
+              <Pagination
+                page={page}
+                totalPages={totalPages}
+                onPageChange={setPage}
+                size="sm"
+                label="Ticket pages"
               />
-            )}
-          </div>
+            </div>
+          )}
         </Card>
 
         {/* Edit ticket modal (creator only) */}
-        <AppModal open={!!editTicket} onOpenChange={(open) => !open && setEditTicket(null)}>
+        <Modal open={!!editTicket} onOpenChange={(open) => !open && setEditTicket(null)}>
           <ModalHeader>
             <ModalTitle>Edit Ticket</ModalTitle>
             <ModalClose />
@@ -1703,10 +893,10 @@ export const TicketsPage: React.FC = () => {
               Save
             </Button>
           </ModalFooter>
-        </AppModal>
+        </Modal>
 
         {/* Change Status modal */}
-        <AppModal
+        <Modal
           open={!!changeStatusTicket}
           onOpenChange={(open) => !open && setChangeStatusTicket(null)}
           size="sm"
@@ -1736,11 +926,11 @@ export const TicketsPage: React.FC = () => {
               Save
             </Button>
           </ModalFooter>
-        </AppModal>
+        </Modal>
 
         {/* Ticket Details modal */}
         {detailsTicket && (
-          <AppModal open onOpenChange={(open) => !open && setDetailsTicket(null)}>
+          <Modal open onOpenChange={(open) => !open && setDetailsTicket(null)}>
             <ModalHeader>
               <ModalTitle>Ticket Details</ModalTitle>
               <ModalClose />
@@ -1876,11 +1066,11 @@ export const TicketsPage: React.FC = () => {
                 Close
               </Button>
             </ModalFooter>
-          </AppModal>
+          </Modal>
         )}
 
         {/* Delete confirmation */}
-        <AppModal open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)} size="sm">
+        <Modal open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)} size="sm">
           <ModalHeader>
             <ModalTitle>Delete Ticket?</ModalTitle>
             <ModalClose />
@@ -1898,10 +1088,10 @@ export const TicketsPage: React.FC = () => {
               Delete
             </Button>
           </ModalFooter>
-        </AppModal>
+        </Modal>
 
         {/* Clock-In Prompt Modal */}
-        <AppModal
+        <Modal
           open={showClockInPrompt}
           onOpenChange={(open) => {
             setShowClockInPrompt(open);
@@ -1944,9 +1134,9 @@ export const TicketsPage: React.FC = () => {
               Clock In Now
             </Button>
           </ModalFooter>
-        </AppModal>
+        </Modal>
 
-        <AppModal open={showNoTeamDialog} onOpenChange={setShowNoTeamDialog} size="sm">
+        <Modal open={showNoTeamDialog} onOpenChange={setShowNoTeamDialog} size="sm">
           <ModalHeader>
             <ModalTitle>No team available</ModalTitle>
             <ModalClose />
@@ -1974,7 +1164,7 @@ export const TicketsPage: React.FC = () => {
               Go to Teams
             </Button>
           </ModalFooter>
-        </AppModal>
+        </Modal>
       </div>
     </AppPage>
   );
