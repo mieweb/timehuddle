@@ -95,30 +95,64 @@ working tree on 2026-09-17:
     `pb-[env(safe-area-inset-bottom)]`. This is a Capacitor app, so the
     safe-area padding is load-bearing on iOS and must be preserved on the
     `Sheet` replacement.
+11. **The generated markdown leaks utility CSS into the production bundle.**
+    Tailwind 4 auto-detects `**/*.md` and compiles any class-like token out of a
+    fenced example. Adding `AGENTS.md` + the generated ruleset grew the CSS by
+    33 bytes; repo markdown as a whole contributed ~1.7 KB. Fixed with
+    `@source not "../**/*.md"` in `src/styles.css`. Verified safe: the exclusion
+    drops exactly 17 selectors, none of which appear in `src/` (`bg-black/5`,
+    `text-gray-800` and `border-indigo-300` look used but are substring matches
+    for `bg-black/50`, `prose-p:text-gray-800` and
+    `prose-blockquote:border-indigo-300` — different selectors).
+12. **Pre-existing, out of scope: `prose-*` classes are dead.**
+    `@tailwindcss/typography` is installed but never registered, because
+    Tailwind 4 never loaded the legacy `tailwind.config.cjs`. No `prose-`
+    selector is emitted in **either** build, so the prose classes in
+    `src/features/huddle/MarkdownContent.tsx` have no effect today. Deleting the
+    config does not cause this and does not change it. Worth its own issue.
 
 ---
 
 ## Phases
 
-### Phase 1 — Version bump to ^0.8.0 (prerequisite) ⬜
+### Phase 1 — Version bump to ^0.8.0 (prerequisite) ✅
 
 Moved to the front: `init-agent` ships only in 0.8.0+ (Correction 7). Committed on
 its own so the upgrade is a single revertable change.
 
-- [ ] Bump `@mieweb/ui` → `^0.8.0`, reinstall, confirm lockfile resolves 0.8.0
-- [ ] Review the 0.7.3 → 0.8.0 diff for breaking changes to the components in use
-- [ ] Full `lint` / `typecheck` / `format` / `test:unit` + e2e before committing
-- [ ] Note 0.9.0 (current `latest`) as a follow-up
+- [x] Bump `@mieweb/ui` → `^0.8.0`, reinstall, confirm lockfile resolves 0.8.0
+- [x] Review the 0.7.3 → 0.8.0 diff for breaking changes to the components in use —
+      none found; lint, typecheck, unit tests and a production build all pass
+- [x] Full `lint` / `typecheck` / `format` / `test:unit` before committing
+- [x] Note 0.9.0 (current `latest`) as a follow-up
+
+Nested `@mieweb/ui` copies remain under `@mieweb/datavis` (0.7.3) and
+`@mieweb/ychart` (0.2.4). Those are each package's own pinned dependency, not app
+resolution — the app imports resolve to the top-level 0.8.0.
 
 **Files:** `package.json` · `package-lock.json`
 
-### Phase 2 — Agent setup + build-config drift ⬜
+### Phase 2 — Agent setup + build-config drift ✅
 
-- [ ] `npx mieweb-ui init-agent` → commit `.github/instructions/mieweb-ui.instructions.md` + `AGENTS.md`
-- [ ] Trim duplicated `@mieweb/ui` prose from `.github/copilot-instructions.md`
-- [ ] Delete `tailwind.config.cjs` (Tailwind 3 `presets`/`content` config in a Tailwind 4 build; verify no `vite.config.ts` / `postcss.config.cjs` reference first)
-- [ ] De-duplicate `@source` + `@custom-variant dark` in `src/styles.css:224-228`
-- [ ] Document the "rerun `init-agent` after every upgrade" rule in contributor docs
+- [x] `npx mieweb-ui init-agent` → committed `.github/instructions/mieweb-ui.instructions.md` + `AGENTS.md`
+- [x] Trim duplicated `@mieweb/ui` prose from `.github/copilot-instructions.md` — replaced with a pointer, so the library file is the single source of truth
+- [x] Delete `tailwind.config.cjs` — **proven inert**: no `@config` directive exists, nothing references the file, and a build before/after produced a byte-identical CSS bundle (same content hash)
+- [x] De-duplicate `@source` + `@custom-variant dark` in `src/styles.css`
+- [x] Document the "rerun `init-agent` after every upgrade" rule (in the copilot-instructions pointer)
+- [x] **Added:** `@source not "../**/*.md"` — see Correction 11
+
+#### Rules the generated ruleset adds that the repo's prose did not
+
+The library file is stricter than the old hand-written section. Two rules change
+how the later phases should be written:
+
+- **Rule 2 — adjacent buttons must be wrapped in `ButtonGroup`**, and icon-only
+  buttons need `size="icon"` + a required `aria-label`. This applies directly to
+  `BottomNav` (Phase 6) and the `PostCard` action row (Phase 7).
+- **Rule 5 — use variants/sizes, never `className` hacks that imitate a variant.**
+  Noted because Phase 3's modal-sizing approach leans on `className`; that is
+  acceptable only where no prop expresses the behaviour (the mobile full-screen
+  default), and `size` should be preferred wherever it maps.
 
 **Files:** `package.json` · `tailwind.config.cjs` (del) · `src/styles.css` · `.github/copilot-instructions.md` · `AGENTS.md` (new) · `.github/instructions/mieweb-ui.instructions.md` (new)
 
@@ -195,6 +229,8 @@ Added last, on already-migrated code, so it lands green with a minimal allowlist
 
 ## Phase log
 
-| Phase    | Commit     | Validation                                   | Notes                |
-| -------- | ---------- | -------------------------------------------- | -------------------- |
-| baseline | `98875e25` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) | tag `ui538-baseline` |
+| Phase                    | Commit     | Validation                                                | Notes                                                |
+| ------------------------ | ---------- | --------------------------------------------------------- | ---------------------------------------------------- |
+| baseline                 | `98875e25` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) e2e ✅ (170) | tag `ui538-baseline`                                 |
+| 1 — bump 0.8.0           | `889e1a81` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | no breaking changes found                            |
+| 2 — agent setup + config | pending    | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | CSS 394,881 → 392,947 bytes (docs no longer scanned) |

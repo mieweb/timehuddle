@@ -224,8 +224,10 @@ html[data-theme='dark'] {
 @source "../node_modules/@mieweb/ui/dist";
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
-@source "../node_modules/@mieweb/ui/dist";
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+/* Markdown in the repo is documentation, not app source. Tailwind 4 auto-detects
+ * it and compiles any class-like token from a fenced example into the bundle —
+ * `AGENTS.md` and the generated @mieweb/ui ruleset are full of them. */
+@source not "../**/*.md";
 
 /* Map @mieweb/ui brand tokens → Tailwind 4 theme colors (inline = use var() as-is) */
 @theme inline {
