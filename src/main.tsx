@@ -89,7 +89,6 @@ _log(`window.Capacitor=${JSON.stringify(Object.keys((window as any).Capacitor ||
 import { InboxPage } from './features/inbox/InboxPage';
 import { enterpriseApi } from './lib/api';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
-import { MESSAGES_PENDING_THREAD_KEY } from './lib/constants';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
 import { AppLayout } from './ui/AppLayout';
@@ -262,29 +261,6 @@ const App: React.FC = () => {
         if (nData) {
           notif.onclick = () => {
             window.focus();
-            if (nData.type === 'message' && nData.teamId && nData.adminId && nData.memberId) {
-              try {
-                sessionStorage.setItem(
-                  MESSAGES_PENDING_THREAD_KEY,
-                  JSON.stringify({
-                    teamId: String(nData.teamId),
-                    adminId: String(nData.adminId),
-                    memberId: String(nData.memberId),
-                  }),
-                );
-              } catch {
-                /* ignore */
-              }
-              window.dispatchEvent(
-                new CustomEvent('timehuddle:openThread', {
-                  detail: {
-                    teamId: String(nData.teamId),
-                    adminId: String(nData.adminId),
-                    memberId: String(nData.memberId),
-                  },
-                }),
-              );
-            }
             const url = nData.url as string | undefined;
             if (url?.startsWith('/app/')) {
               // Keep the query string — it carries the deep-link target
