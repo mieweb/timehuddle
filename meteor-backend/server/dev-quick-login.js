@@ -9,6 +9,8 @@
  * main.js only imports this module under the same condition — production
  * builds have no code path to it at all.
  */
+import { randomBytes } from 'crypto';
+
 import { Meteor } from 'meteor/meteor';
 import { Accounts } from 'meteor/accounts-base';
 import { MongoInternals } from 'meteor/mongo';
@@ -23,8 +25,10 @@ import { ensurePersonalTeam } from './teams';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
-/** Also settable as a normal email/password login, for flows a button can't reach. */
-const DEV_PASSWORD = 'DevPass1!';
+/** Never reused across accounts or sign-ins — see the rotation in `provisionDevUser`. */
+function randomDevPassword() {
+  return randomBytes(24).toString('hex');
+}
 
 /** Shared non-personal team so admin/owner screens have members to act on. */
 const DEV_TEAM_NAME = 'Dev Team';
@@ -79,7 +83,7 @@ async function ensureDevAccount(spec) {
 
   const userId = await Accounts.createUserAsync({
     email: spec.email,
-    password: DEV_PASSWORD,
+    password: randomDevPassword(),
     username: spec.username,
     profile: { name: spec.name },
   });
@@ -160,6 +164,7 @@ async function clearDevBlocks(userId) {
  */
 async function provisionDevUser(spec) {
   const userId = await ensureDevAccount(spec);
+  await Accounts.setPasswordAsync(userId, randomDevPassword(), { logout: false });
   const org = await ensureDefaultOrganization();
   const orgId = org._id.toHexString();
 
