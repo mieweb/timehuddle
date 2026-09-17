@@ -4,11 +4,21 @@
  * Forces the user to choose a canonical TimeHuddle username before accessing the app.
  * Username is globally unique, 3–30 chars, lowercase alphanumeric + _ -.
  */
-import React, { useEffect, useId, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { usernameApi } from '../lib/api';
 import { useSession } from '../lib/useSession';
-import { Button, Input, Text } from '@mieweb/ui';
+import {
+  Button,
+  ButtonGroup,
+  Input,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  ModalTitle,
+  Text,
+} from '@mieweb/ui';
+import { AppModal } from './AppModal';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -47,7 +57,6 @@ const ERROR_MESSAGES: Record<string, string> = {
 
 export const UsernameClaimModal: React.FC = () => {
   const { user, refetch, signOut } = useSession();
-  const labelId = useId();
 
   const [username, setUsername] = useState(() => (user?.name ? suggestUsername(user.name) : ''));
   const [availability, setAvailability] = useState<
@@ -119,29 +128,26 @@ export const UsernameClaimModal: React.FC = () => {
   };
 
   return (
-    /* Backdrop */
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={labelId}
+    /* A gate, not a dismissible dialog: the user cannot continue in the app
+       without claiming a username, so there is no close affordance. */
+    <AppModal
+      open
+      onOpenChange={() => {}}
+      size="md"
+      closeOnOverlayClick={false}
+      closeOnEscape={false}
     >
-      <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-2xl dark:bg-neutral-900">
-        {/* Heading */}
-        <div className="mb-6 space-y-2">
-          <h2
-            id={labelId}
-            className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-50"
-          >
-            Username Required
-          </h2>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+      <ModalHeader>
+        <ModalTitle>Username Required</ModalTitle>
+      </ModalHeader>
+
+      <form onSubmit={handleSubmit} noValidate>
+        <ModalBody className="space-y-4">
+          <Text as="p" variant="muted" size="sm">
             You must claim a <strong>unique username</strong> before continuing in TimeHuddle. This
             identifies you across the app.
-          </p>
-        </div>
+          </Text>
 
-        <form onSubmit={handleSubmit} noValidate className="space-y-4">
           <div>
             <Input
               label="Username"
@@ -188,8 +194,10 @@ export const UsernameClaimModal: React.FC = () => {
               {error}
             </Text>
           )}
+        </ModalBody>
 
-          <div className="space-y-2">
+        <ModalFooter>
+          <ButtonGroup orientation="vertical" className="w-full">
             <Button
               variant="primary"
               fullWidth
@@ -212,9 +220,9 @@ export const UsernameClaimModal: React.FC = () => {
             >
               Sign out
             </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+          </ButtonGroup>
+        </ModalFooter>
+      </form>
+    </AppModal>
   );
 };

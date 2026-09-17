@@ -12,7 +12,7 @@
  * Fails open: if the backend is unreachable the user gets straight through,
  * because a device that can't reach the server can't download the update either.
  */
-import { Button, Spinner } from '@mieweb/ui';
+import { Button, Progress, Spinner } from '@mieweb/ui';
 import React from 'react';
 
 import { applyForcedUpdate, checkForcedUpdate, type ForcedUpdate } from '../lib/ota';
@@ -100,19 +100,10 @@ export const OtaUpdateGate: React.FC<{ children: React.ReactNode }> = ({ childre
                       : "A new version is downloading. The app will restart when it's ready."}
                   </p>
                 </div>
-                <div
-                  role="progressbar"
-                  aria-valuenow={percent}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-label="Update download progress"
-                  className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800"
-                >
-                  <div
-                    className="h-full rounded-full bg-blue-600 transition-[width] duration-300 ease-out dark:bg-blue-500"
-                    style={{ width: `${percent}%` }}
-                  />
-                </div>
+                {/* No `label`: it would render visible text above the bar. The
+                    component then names the bar "Progress", which reads fine
+                    inside a dialog already titled "Updating TimeHuddle". */}
+                <Progress value={percent} size="sm" />
                 <p className="font-mono text-[11px] text-neutral-400 dark:text-neutral-500">
                   v{update.running} → v{update.version}
                 </p>
