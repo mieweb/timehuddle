@@ -390,6 +390,81 @@ only a new adapter file and a registry entry.
 
 ---
 
+## Milestone 2.2 — "My Board" personal priority view
+
+A personal priority board layered on top of the unified table: select tickets on the
+Tickets tab and move them to a second "My Board" tab, which renders the identical table UI
+plus one extra column — a play button between the checkbox and Title columns — reserved for
+starting a ticket timer directly from the row. **UI-only in this milestone**: the play button
+is a static, always-disabled placeholder. Wiring it to actually start/stop a timer (even for
+Huddle tickets, where the underlying mechanism already works via the ⋮ menu) is deliberately
+left to **Milestone 3**, whose "Ticket table" entry point bullet below now covers both the
+main table's ⋮ menu and this column.
+
+### Decisions
+
+- **Identity-only persistence (Core Model Data Discipline).** The new `my_board` collection
+  stores `{ userId, sourceId, ticketId, addedAt }` — no title/status snapshot. Display fields
+  are resolved by filtering the already-fetched unified ticket list against board membership
+  at render time. A board entry whose ticket later disappears from that list (archived,
+  deleted, out of the Redmine fetch window) simply doesn't render a row — no error.
+- **Tabs, not a dropdown.** `@mieweb/ui`'s `Tabs`/`TabsList`/`TabsTrigger` replace the page's
+  static `<h1>` (kept `sr-only` for a11y/test continuity). Same `/app/tickets` URL throughout
+  — `activeView` is local component state, matching M2.1's decision to retire the
+  heading-dropdown pattern rather than reintroducing it for a second view.
+- **`useTicketTableView` extraction.** The page's inline search/filter/sort/paginate/select
+  pipeline is now a hook, instantiated once per tab (`allTickets`, and the board subset)
+  so switching tabs never resets or leaks the other tab's state. This is the reuse M2.1's
+  single-table refactor didn't need yet — a second table view is what earns the hook.
+- **Bulk-action bar.** Shown once `selectedKeys.size > 0`: "N selected" · Deselect all ·
+  **Delete** (functional — loops the existing single-delete method over the eligible
+  selection; no new bulk Meteor method) · **Archive** and **Close Issues** (**static,
+  always-disabled placeholders** — no backend or model support exists yet; reserved for a
+  later milestone) · a contextual primary button, **Move to My Board** on the Tickets tab or
+  **Remove from My Board** on the My Board tab.
+- **`TimerToggleButton` reuse.** The play-button column renders the existing (previously
+  unused) `src/ui/TimerToggleButton.tsx` as-is, always `disabled`, `isRunning={false}`, with a
+  tooltip explaining the feature lands in a later milestone. No new button component.
+
+### Backend
+
+- [x] `MyBoard` collection (`meteor-backend/server/collections.js`) + a compound unique index
+      on `{ userId, sourceId, ticketId }` (`meteor-backend/server/my-board.js`), enforcing
+      "one board row per (user, ticket)" and making `addMany` an idempotent upsert.
+- [x] Meteor methods `myBoard.list` / `myBoard.addMany` / `myBoard.removeMany`, modeled
+      directly on `redmine.js`'s conventions (`requireIdentity`, plain `Meteor.methods`).
+- [x] `Wormhole.expose` registration for all three in `meteor-backend/server/main.js`.
+
+### Frontend
+
+- [x] `myBoardApi` (`src/lib/api.ts`) — `list` / `addMany` / `removeMany`, same shape as
+      `notificationApi`.
+- [x] `useTicketTableView.ts` — extracted pipeline, instantiated as `ticketsView` and
+      `boardView` in `TicketsPage.tsx`.
+- [x] `TicketTable`/`TicketTableRow` gained an opt-in `showTimerColumn` prop. The main
+      Tickets table passes nothing, so its markup and columns are unaffected.
+- [x] `TicketBulkActionBar.tsx` — the bulk-action bar component, reused for both tabs.
+- [x] `TicketsPage.tsx` — tabs, board membership state (`boardKeys`, optimistic
+      add/remove, no refetch needed since entries are inert identity rows), generalized
+      delete confirmation (`deleteIds: string[]` covers both single-row and bulk delete).
+
+### Tests
+
+- [x] `tests/e2e/tickets/my-board.spec.ts` — move/remove to board, the board's play button
+      renders visible but disabled, the bulk-action bar's Delete/Archive/Close Issues/board
+      buttons, and bulk delete via the (generalized) confirmation modal.
+- [x] `tests/e2e/pages/TicketsPage.ts` — tab, bulk-action-bar, and timer-button locators.
+- [x] Confirmed unchanged: `unified-table.spec.ts`'s `'starts a timer from the row menu, not
+a row button'` test — the main Tickets table still never renders the timer column.
+- [ ] **Not yet run against the local stack** (`compose.yaml`) — unit tests (186) and
+      `typecheck`/`lint`/`format` all pass; Playwright needs the local stack to confirm.
+
+**Done when:** a user can select tickets on the Tickets tab, move them to My Board, see the
+identical table with an inert play-button column, move them back, and none of Delete
+(functional) / Archive / Close Issues (static) reach beyond this milestone's stated scope.
+
+---
+
 ## Milestone 3 — Start a ticket timer against a Redmine issue
 
 Let a user track time against a Redmine issue using the **existing ticket-timer
@@ -412,6 +487,9 @@ to the user's key** (no team-membership permission check).
       until the source-aware `timers.createEntry` below exists — M3 flips that flag rather
       than adding new UI. _(M2.1 also removed the per-row timer button that Huddle rows
       used to carry; the timer lives in the ⋮ menu for both sources now.)_
+- [ ] **My Board play button**: M2.2 shipped the column (between checkbox and Title) as a
+      static, always-disabled placeholder. M3 wires it to the same `onToggleTimer` mechanism
+      the ⋮ menu already uses — no new column, no new plumbing, just enabling what's there.
 - [ ] Extend `timers.createEntry` (and title/link resolution) to accept a Redmine source
       and create/reuse a `source: 'redmine'` WorkItem.
 - [ ] Handle "not connected" and "no assigned tickets" cases gracefully.
@@ -598,5 +676,7 @@ and any Redmine issue detail page (issues are read-only; link out instead).
 6. Milestone 2.1 (unified table) — **UI-only and independent of 3–5**, so it can run in
    parallel or slot in wherever convenient. It is numbered 2.1 because it supersedes M2's
    view switcher, not because it blocks anything.
-7. Milestone 6 (persistence / two-way sync) — deferred; do not start before its blockers
+7. Milestone 2.2 (My Board) — **UI-only and independent of 3–5**, same as 2.1; built on top
+   of it. Its play-button column is inert until M3 wires it up.
+8. Milestone 6 (persistence / two-way sync) — deferred; do not start before its blockers
    are resolved and M5 has shipped.

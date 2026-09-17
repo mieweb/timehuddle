@@ -1586,6 +1586,30 @@ export const notificationApi = {
   testPush: () => wormholeCall<{ ok: boolean }>('notifications.testPush', {}),
 };
 
+/** Identity-only reference to a ticket, independent of source (Huddle, Redmine, …). */
+export interface MyBoardRef {
+  sourceId: string;
+  ticketId: string;
+}
+
+/** A "My Board" entry as stored server-side — no title/status snapshot. */
+export interface MyBoardEntry extends MyBoardRef {
+  addedAt: string;
+}
+
+export const myBoardApi = {
+  /** List the signed-in user's My Board entries (identity only). */
+  list: () => wormholeCall<{ entries: MyBoardEntry[] }>('myBoard.list', {}).then((r) => r.entries),
+
+  /** Add tickets to the signed-in user's My Board. Idempotent — re-adding is a no-op. */
+  addMany: (refs: MyBoardRef[]) =>
+    wormholeCall<{ addedCount: number }>('myBoard.addMany', { refs }),
+
+  /** Remove tickets from the signed-in user's My Board. */
+  removeMany: (refs: MyBoardRef[]) =>
+    wormholeCall<{ removedCount: number }>('myBoard.removeMany', { refs }),
+};
+
 // ─── Attachments ──────────────────────────────────────────────────────────────
 export type AttachmentKind = 'clock' | 'ticket';
 export type AttachmentType = 'video' | 'image' | 'link';

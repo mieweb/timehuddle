@@ -49,6 +49,7 @@ const COLUMN_COUNT = 10;
  */
 const COLUMN_WIDTH = {
   select: 44,
+  timer: 56,
   ref: 90,
   source: 130,
   status: 140,
@@ -60,7 +61,10 @@ const COLUMN_WIDTH = {
 };
 
 /** Sum of the fixed columns plus a readable floor for the flexible Title column. */
-const TABLE_MIN_WIDTH = Object.values(COLUMN_WIDTH).reduce((sum, w) => sum + w, 0) + 220;
+const FIXED_COLUMN_WIDTH = Object.entries(COLUMN_WIDTH)
+  .filter(([key]) => key !== 'timer')
+  .reduce((sum, [, w]) => sum + w, 0);
+const TABLE_MIN_WIDTH = FIXED_COLUMN_WIDTH + 220;
 
 // Overrides ScrollArea's default `bg-border` thumb (too heavy in dark mode) with
 // a thin, theme-aware bar matching the app's `.scrollbar-mieweb` palette. Same
@@ -93,15 +97,20 @@ export interface TicketTableProps {
   showClosed: boolean;
   emptyState: React.ReactNode;
   onToggleTimer: (ticket: UnifiedTicket) => void;
+  /**
+   * My Board only. Adds a play-button column between the checkbox and Title
+   * columns. Static/disabled in M2.2 — see `TicketTableRow`.
+   */
+  showTimerColumn?: boolean;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
   onShareWithTimeharbor: (ticket: UnifiedTicket, shared: boolean) => void;
 }
 
-const SkeletonRow: React.FC = () => (
+const SkeletonRow: React.FC<{ colSpan: number }> = ({ colSpan }) => (
   <TableRow>
-    <TableCell colSpan={COLUMN_COUNT}>
+    <TableCell colSpan={colSpan}>
       <div className="h-4 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
     </TableCell>
   </TableRow>
@@ -129,6 +138,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   showClosed,
   emptyState,
   onToggleTimer,
+  showTimerColumn = false,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -137,6 +147,8 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   const selectedOnPage = tickets.filter((t) => selectedKeys.has(t.key)).length;
   const allSelected = tickets.length > 0 && selectedOnPage === tickets.length;
   const someSelected = selectedOnPage > 0 && !allSelected;
+  const columnCount = COLUMN_COUNT + (showTimerColumn ? 1 : 0);
+  const tableMinWidth = TABLE_MIN_WIDTH + (showTimerColumn ? COLUMN_WIDTH.timer : 0);
 
   const set = <K extends keyof TicketFilters>(key: K, value: TicketFilters[K]) =>
     onFiltersChange({ ...filters, [key]: value });
@@ -192,10 +204,11 @@ export const TicketTable: React.FC<TicketTableProps> = ({
             aria-label={showClosed ? 'Closed tickets' : 'Open tickets'}
             responsive={false}
             className="table-fixed"
-            style={{ minWidth: TABLE_MIN_WIDTH }}
+            style={{ minWidth: tableMinWidth }}
           >
             <colgroup>
               <col style={{ width: COLUMN_WIDTH.select }} />
+              {showTimerColumn && <col style={{ width: COLUMN_WIDTH.timer }} />}
               <col />
               <col style={{ width: COLUMN_WIDTH.ref }} />
               <col style={{ width: COLUMN_WIDTH.source }} />
@@ -216,6 +229,12 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                     aria-label={allSelected ? 'Deselect all tickets' : 'Select all tickets'}
                   />
                 </TableHead>
+
+                {showTimerColumn && (
+                  <TableHead>
+                    <span className="sr-only">Timer</span>
+                  </TableHead>
+                )}
 
                 <TicketColumnHeader label="Title" sortField="title" {...headerProps} />
                 <TicketColumnHeader label="Issue #" sortField="ref" {...headerProps} />
@@ -283,7 +302,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
             </TableHeader>
             <TableBody>
               {loading && tickets.length === 0
-                ? Array.from({ length: 5 }, (_, i) => <SkeletonRow key={i} />)
+                ? Array.from({ length: 5 }, (_, i) => <SkeletonRow key={i} colSpan={columnCount} />)
                 : tickets.map((ticket) => (
                     <TicketTableRow
                       key={ticket.key}
@@ -294,6 +313,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                       isTimerRunning={ticket.sourceId === 'huddle' && runningTicketId === ticket.id}
                       timerLoading={timerLoadingId === ticket.id}
                       onToggleTimer={onToggleTimer}
+                      showTimerColumn={showTimerColumn}
                       onEditRequest={onEditRequest}
                       onDeleteRequest={onDeleteRequest}
                       onChangeStatusRequest={onChangeStatusRequest}
