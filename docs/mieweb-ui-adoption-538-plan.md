@@ -240,15 +240,26 @@ Needs its own issue covering the migration of `ThemeToggle`, `SettingsPage`,
 
 **Files:** `src/ui/AppModal.tsx` (new) · `src/styles.css` · 15 `Modal` call sites
 
-### Phase 4 — Hand-rolled modals & overlays ⬜
+### Phase 4 — Hand-rolled modals & overlays ✅
 
-- [ ] `InstallerModal.tsx` → `Modal` / `ModalHeader` / `ModalBody`. It is a
-      non-dismissible gate with no open state, so it needs
-      `open closeOnOverlayClick={false} closeOnEscape={false}` to keep behaviour.
-- [ ] `UsernameClaimModal.tsx` → same (also non-dismissible)
-- [ ] `OtaUpdateGate.tsx` → **narrowed**: swap the hand-rolled
-      `role="progressbar"` for `Progress`, but keep the opaque full-screen gate
-      markup (Correction 8). Needs a call on the acceptance criterion.
+- [x] `InstallerModal.tsx` → `AppModal` + `ModalHeader`/`ModalTitle`/`ModalBody`/
+      `ModalFooter`, with `closeOnOverlayClick={false} closeOnEscape={false}` to
+      preserve its non-dismissible gate behaviour.
+- [x] `UsernameClaimModal.tsx` → same, plus its two stacked actions become a
+      vertical `ButtonGroup` (ruleset Rule 2).
+- [x] Both drop their hand-rolled `useId` labelling — `ModalTitle` sets the id
+      `Modal` already targets with `aria-labelledby`.
+- [x] `OtaUpdateGate.tsx` → **narrowed**: `role="progressbar"` → `Progress`;
+      the opaque full-screen gate markup stays (Correction 8).
+
+**Deliberate deviation:** the criterion "`OtaUpdateGate` contains no
+`fixed inset-0` overlay markup" is **not met**, by choice. See Correction 8.
+
+**`Progress` is used without `label`.** The prop renders _visible_ text above the
+bar and switches the accessible name to `aria-labelledby`. Omitting it keeps the
+rendered output identical and lets the component name the bar "Progress", which
+reads correctly inside a dialog already titled "Updating TimeHuddle". The
+existing accessibility test in `OtaUpdateGate.test.tsx` still passes.
 
 **Files:** `src/ui/InstallerModal.tsx` · `src/ui/UsernameClaimModal.tsx` · `src/ui/OtaUpdateGate.tsx`
 
@@ -303,3 +314,4 @@ Added last, on already-migrated code, so it lands green with a minimal allowlist
 | 3 — AppModal wrapper     | `f8bccd76` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | tw-merge equivalence verified                         |
 | e2e after phase 3        | —          | ❌ 2 failed · 5 flaky · 171 passed                        | bisected to the 0.8.0 bump, not to this branch        |
 | 1 — **reverted**         | `b3a09d9d` | lint ✅ typecheck ✅ unit ✅ (149) build ✅ plan-first ✅ | back to 0.7.3; composer regression gone (7✅ 1 flaky) |
+| 4 — setup modals         | `d0af5fe0` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | OtaUpdateGate narrowed to the Progress swap           |
