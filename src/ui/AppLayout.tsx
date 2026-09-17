@@ -462,10 +462,11 @@ const AppLayoutContent: React.FC = () => {
                     <main ref={mainRef} className="flex-1 overflow-auto app-main-scroll md:pb-0">
                       <PullToRefresh>
                         {/* TicketsPage stays mounted to preserve its state, and
-                            is only hidden when another route is showing. It must
-                            not render a page title while hidden — it isn't the
-                            page — so the title is withheld from that instance. */}
-                        <PageTitleContext.Provider value={isTicketsRoute ? pageTitle : null}>
+                            is only hidden when another route is showing. The
+                            tickets page renders its own heading, so the registry
+                            title is always withheld from this instance to avoid
+                            a duplicate h1. */}
+                        <PageTitleContext.Provider value={null}>
                           <div
                             className={
                               isTicketsRoute

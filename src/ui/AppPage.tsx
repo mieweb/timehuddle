@@ -6,7 +6,8 @@
  * hand-roll padding or max-widths.
  *
  *   width="content"  (default) reading and forms — dashboard, settings, teams
- *   width="wide"               data-dense grids — work, tickets, timesheet
+ *   width="wide"               data-dense grids — work, timesheet
+ *   width="full"               wide tables that earn every pixel — tickets
  *   fill                       content owns the remaining height and scrolls
  *                              itself (chat, board, canvas)
  *   flush                      content runs edge-to-edge; the title keeps the
@@ -20,11 +21,12 @@ import React from 'react';
 
 import { PageTitle, usePageTitle } from './pageTitle';
 
-export type PageWidth = 'content' | 'wide';
+export type PageWidth = 'content' | 'wide' | 'full';
 
 const COLUMN: Record<PageWidth, string> = {
   content: 'max-w-4xl',
   wide: 'max-w-7xl',
+  full: 'max-w-none',
 };
 
 interface AppPageProps {

@@ -13,9 +13,12 @@ import { Meteor } from 'meteor/meteor';
 
 import { RedmineLinks } from './collections';
 import { requireIdentity } from './auth-bridge';
-import { getCurrentUser, redmineBaseUrl } from './redmine-client';
-import { encryptSecret, envKey } from './redmine-crypto';
+import { getCurrentUser, listIssues, redmineBaseUrl } from './redmine-client';
+import { decryptSecret, encryptSecret, envKey } from './redmine-crypto';
 import { toStatus } from './redmine-status';
+import { toIssueList } from './redmine-issues';
+
+const VALID_SCOPES = new Set(['mine', 'all']);
 
 const DUPLICATE_KEY_ERROR_CODE = 11000;
 
@@ -119,5 +122,39 @@ Meteor.methods({
   async 'redmine.status'() {
     const { userId } = await requireIdentity(this);
     return toStatus(await RedmineLinks.findOneAsync({ userId }), configuredBaseUrl());
+  },
+
+  /**
+   * List the caller's Redmine issues (read-only) using their stored API key.
+   * `scope: 'mine'` → assigned to me; `scope: 'all'` → everything the key can see.
+   * Returns `{ connected: false, issues: [] }` when the user has no link, so the
+   * view can render its "not connected" state without a separate round-trip.
+   */
+  async 'redmine.issues.list'({ scope = 'mine' } = {}) {
+    const { userId } = await requireIdentity(this);
+    if (!VALID_SCOPES.has(scope)) {
+      throw new Meteor.Error('bad-request', 'scope must be "mine" or "all".');
+    }
+
+    const link = await RedmineLinks.findOneAsync({ userId });
+    if (!link) return { connected: false, baseUrl: configuredBaseUrl(), issues: [] };
+
+    const baseUrl = configuredBaseUrl();
+    const apiKey = decryptSecret(link.apiKey, envKey());
+
+    let issues;
+    try {
+      issues = await listIssues(apiKey, { scope });
+    } catch (err) {
+      if (err?.status === 401 || err?.status === 403) {
+        throw new Meteor.Error('invalid-key', 'Your Redmine API key was rejected.');
+      }
+      throw new Meteor.Error(
+        'unreachable',
+        'Could not reach Redmine. Check the server URL and that the REST API is enabled.',
+      );
+    }
+
+    return { connected: true, baseUrl, issues: toIssueList(issues) };
   },
 });

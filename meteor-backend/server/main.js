@@ -23,6 +23,7 @@ import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
 import './redmine';
+import './my-board';
 import './clock';
 import './timers';
 import './timesheet-approvals';
@@ -1016,6 +1017,55 @@ Meteor.startup(async() => {
   Wormhole.expose('redmine.status', {
     description: "The caller's Redmine connection status (never returns the API key)",
     inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('redmine.issues.list', {
+    description: "List the caller's Redmine issues (read-only) using their stored API key",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope: {
+          type: 'string',
+          enum: ['mine', 'all'],
+          description: "'mine' = assigned to me, 'all' = everything the key can see",
+        },
+      },
+    },
+  });
+
+  // ── My Board ─────────────────────────────────────────────────────────────
+
+  Wormhole.expose('myBoard.list', {
+    description: "List the caller's My Board entries (identity only)",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  const myBoardRefsSchema = {
+    type: 'object',
+    properties: {
+      refs: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            sourceId: { type: 'string' },
+            ticketId: { type: 'string' },
+          },
+          required: ['sourceId', 'ticketId'],
+        },
+      },
+    },
+    required: ['refs'],
+  };
+
+  Wormhole.expose('myBoard.addMany', {
+    description: "Add tickets to the caller's My Board (idempotent)",
+    inputSchema: myBoardRefsSchema,
+  });
+
+  Wormhole.expose('myBoard.removeMany', {
+    description: "Remove tickets from the caller's My Board",
+    inputSchema: myBoardRefsSchema,
   });
 
   Wormhole.expose('clock.active', {

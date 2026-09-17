@@ -1701,6 +1701,30 @@ export const notificationApi = {
   testPush: () => wormholeCall<{ ok: boolean }>('notifications.testPush', {}),
 };
 
+/** Identity-only reference to a ticket, independent of source (Huddle, Redmine, …). */
+export interface MyBoardRef {
+  sourceId: string;
+  ticketId: string;
+}
+
+/** A "My Board" entry as stored server-side — no title/status snapshot. */
+export interface MyBoardEntry extends MyBoardRef {
+  addedAt: string;
+}
+
+export const myBoardApi = {
+  /** List the signed-in user's My Board entries (identity only). */
+  list: () => wormholeCall<{ entries: MyBoardEntry[] }>('myBoard.list', {}).then((r) => r.entries),
+
+  /** Add tickets to the signed-in user's My Board. Idempotent — re-adding is a no-op. */
+  addMany: (refs: MyBoardRef[]) =>
+    wormholeCall<{ addedCount: number }>('myBoard.addMany', { refs }),
+
+  /** Remove tickets from the signed-in user's My Board. */
+  removeMany: (refs: MyBoardRef[]) =>
+    wormholeCall<{ removedCount: number }>('myBoard.removeMany', { refs }),
+};
+
 // ─── Attachments ──────────────────────────────────────────────────────────────
 export type AttachmentKind = 'clock' | 'ticket';
 export type AttachmentType = 'video' | 'image' | 'link';
@@ -2082,6 +2106,44 @@ export interface RedmineStatus {
   linkedAt?: string | null;
 }
 
+/** Which issues to fetch: assigned to me, or everything the key can see. */
+export type RedmineScope = 'mine' | 'all';
+
+/** A Redmine `{ id, name }` reference (project, assignee, priority, tracker). */
+export interface RedmineNamed {
+  id: number;
+  name: string;
+}
+
+/**
+ * A Redmine issue status. `isClosed` comes from Redmine's own `is_closed` flag —
+ * statuses are instance-defined free text, so the name alone cannot tell us
+ * whether an issue is closed.
+ */
+export interface RedmineIssueStatus extends RedmineNamed {
+  isClosed: boolean;
+}
+
+/** Read-only Redmine issue shape, as shaped server-side by `redmine-issues.js`. */
+export interface RedmineIssue {
+  id: number;
+  subject: string;
+  project: RedmineNamed | null;
+  status: RedmineIssueStatus | null;
+  assignedTo: RedmineNamed | null;
+  priority: RedmineNamed | null;
+  tracker: RedmineNamed | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+/** Response for `redmine.issues.list`. `connected: false` → user has no link. */
+export interface RedmineIssueList {
+  connected: boolean;
+  baseUrl: string | null;
+  issues: RedmineIssue[];
+}
+
 export const redmineApi = {
   /** Current Redmine connection status for the signed-in user. */
   status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
@@ -2092,6 +2154,12 @@ export const redmineApi = {
 
   /** Remove the Redmine link. */
   disconnect: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.disconnect', {}),
+
+  issues: {
+    /** List the caller's Redmine issues (read-only) for the given scope. */
+    list: (scope: RedmineScope): Promise<RedmineIssueList> =>
+      wormholeCall<RedmineIssueList>('redmine.issues.list', { scope }),
+  },
 };
 
 // ─── TimeHarbor Share ─────────────────────────────────────────────────────────
