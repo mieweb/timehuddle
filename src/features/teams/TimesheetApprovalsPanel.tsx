@@ -16,7 +16,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  Modal,
   ModalBody,
   ModalFooter,
   ModalHeader,
@@ -24,6 +23,7 @@ import {
   Text,
   Textarea,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -346,7 +346,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
         </CardContent>
       </Card>
 
-      <Modal
+      <AppModal
         open={active !== null}
         onOpenChange={(o) => !o && close()}
         className="mt-[env(safe-area-inset-top,0px)]"
@@ -514,7 +514,7 @@ export const TimesheetApprovalsPanel: React.FC<Props> = ({
             )}
           </div>
         </ModalFooter>
-      </Modal>
+      </AppModal>
     </>
   );
 };

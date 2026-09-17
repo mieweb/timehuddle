@@ -20,7 +20,6 @@
  */
 import {
   Button,
-  Modal,
   ModalBody,
   ModalClose,
   ModalFooter,
@@ -28,6 +27,7 @@ import {
   ModalTitle,
   Text,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { ApiError, notificationApi, type Notification } from '../../lib/api';
@@ -216,7 +216,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
     <ShiftReminderContext.Provider value={{ openModal, closeModal }}>
       {children}
 
-      <Modal open={!!pendingNotif} onOpenChange={(open) => !open && closeModal()} size="lg">
+      <AppModal open={!!pendingNotif} onOpenChange={(open) => !open && closeModal()} size="lg">
         <ModalHeader>
           <ModalTitle>Shift End Reminder</ModalTitle>
           <ModalClose />
@@ -252,7 +252,7 @@ export const ShiftReminderProvider: React.FC<{ children: React.ReactNode }> = ({
             Agree to Clock Out
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
     </ShiftReminderContext.Provider>
   );
 };

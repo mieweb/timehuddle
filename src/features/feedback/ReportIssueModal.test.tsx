@@ -43,6 +43,7 @@ vi.mock('@mieweb/ui', () => ({
       {children}
     </button>
   ),
+  cn: (...classes: unknown[]) => classes.filter(Boolean).join(' '),
 }));
 
 describe('ReportIssueModal', () => {

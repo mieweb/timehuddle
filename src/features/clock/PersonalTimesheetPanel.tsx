@@ -23,7 +23,6 @@ import {
   CardTitle,
   cn,
   Input,
-  Modal,
   ModalBody,
   ModalFooter,
   ModalHeader,
@@ -36,6 +35,7 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
@@ -892,7 +892,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
         )}
       </div>
 
-      <Modal
+      <AppModal
         open={sessionDialogOpen}
         onOpenChange={(open) => {
           setSessionDialogOpen(open);
@@ -1082,10 +1082,10 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
             )}
           </div>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
       {/* Add Entry modal */}
-      <Modal
+      <AppModal
         open={addEntryOpen}
         onOpenChange={(open) => {
           setAddEntryOpen(open);
@@ -1168,7 +1168,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
             </Button>
           </div>
         </ModalFooter>
-      </Modal>
+      </AppModal>
     </div>
   );
 };

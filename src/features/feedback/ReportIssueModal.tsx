@@ -1,4 +1,5 @@
-import { Button, Modal, ModalBody, ModalFooter, ModalHeader } from '@mieweb/ui';
+import { Button, ModalBody, ModalFooter, ModalHeader } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React from 'react';
 
 interface ReportIssueModalProps {
@@ -23,7 +24,7 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({ open, onClos
   };
 
   return (
-    <Modal open={open} onOpenChange={(isOpen) => !isOpen && onClose()} size="sm">
+    <AppModal open={open} onOpenChange={(isOpen) => !isOpen && onClose()} size="sm">
       <ModalHeader>Report an Issue</ModalHeader>
       <ModalBody>
         <div className="space-y-4">
@@ -117,6 +118,6 @@ export const ReportIssueModal: React.FC<ReportIssueModalProps> = ({ open, onClos
           Cancel
         </Button>
       </ModalFooter>
-    </Modal>
+    </AppModal>
   );
 };

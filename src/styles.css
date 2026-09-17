@@ -138,30 +138,6 @@ html[data-theme='dark'] {
   color: var(--color-neutral-500, #737373);
 }
 
-/* All modals: centered popup on every screen size (override the library's
- * full-screen-on-mobile defaults: `min-h-dvh`, `rounded-none`, `max-h-dvh`).
- * The org-switcher bottom-sheet overrides below keep higher specificity and
- * continue to win inside the 767px media query.
- * NOTE: These selectors target @mieweb/ui internals (data-slot, data-state).
- * A library upgrade that renames those attributes will break all modals.
- * TODO: Replace with a proper Modal size/variant prop in @mieweb/ui instead. */
-[data-slot='modal'] {
-  min-height: 0 !important;
-  border-radius: 0.75rem !important;
-  max-height: calc(100dvh - 2rem) !important;
-}
-
-/* On small screens give regular modals horizontal breathing room so they
- * don't touch the viewport edges (the library's centering container uses
- * `p-0` on mobile). The org-switcher is full-width by intent, so exclude it. */
-@media (max-width: 639px) {
-  [data-slot='modal']:not(.org-switcher-modal) {
-    margin-left: 1rem;
-    margin-right: 1rem;
-    width: calc(100% - 2rem);
-  }
-}
-
 /* Prevent iOS Safari from auto-zooming when focusing inputs smaller than 16px */
 @media (max-width: 767px) {
   input,
@@ -185,19 +161,23 @@ html[data-theme='dark'] {
  * library's centering flex container without forking the Modal component.
  */
 @media (max-width: 767px) {
-  [data-slot='modal'].org-switcher-modal {
-    align-self: end !important;
-    min-height: auto !important;
-    max-height: 88dvh !important;
-    width: 100% !important;
-    border-radius: 1rem 1rem 0 0 !important;
-    animation: none !important;
+  .org-switcher-modal {
+    align-self: end;
+    min-height: auto;
+    max-height: 88dvh;
+    width: 100%;
+    border-radius: 1rem 1rem 0 0;
+    animation: none;
   }
-  [data-slot='modal'].org-switcher-modal[data-state='open'] {
-    animation: mieweb-modal-fade-in 150ms ease-out both !important;
+  /* `data-state` is still a library internal, but it is the only handle the
+   * Modal exposes for its open/close transition, and the bottom sheet needs a
+   * slide rather than the default zoom. Narrowed from the previous rules,
+   * which also depended on `[data-slot='modal']`. */
+  .org-switcher-modal[data-state='open'] {
+    animation: mieweb-modal-fade-in 150ms ease-out both;
   }
-  [data-slot='modal'].org-switcher-modal[data-state='closed'] {
-    animation: mieweb-modal-fade-out 120ms ease-in both !important;
+  .org-switcher-modal[data-state='closed'] {
+    animation: mieweb-modal-fade-out 120ms ease-in both;
   }
 }
 
