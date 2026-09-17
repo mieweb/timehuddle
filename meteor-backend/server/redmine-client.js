@@ -56,3 +56,18 @@ export async function getCurrentUser(apiKey) {
   const data = await redmineRequest('/users/current.json', { apiKey });
   return data?.user ?? null;
 }
+
+/**
+ * List issues visible to `apiKey` via `GET /issues.json`.
+ *
+ * `scope: 'mine'` restricts to issues assigned to the caller (`assigned_to_id=me`);
+ * `scope: 'all'` lists everything the key can see. Pagination is bounded by
+ * `limit`/`offset` (Redmine caps `limit` at 100). Returns the raw `issues` array
+ * (shaping into our minimal DTO is done in redmine-issues.js).
+ */
+export async function listIssues(apiKey, { scope = 'mine', limit = 100, offset = 0 } = {}) {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+  if (scope === 'mine') params.set('assigned_to_id', 'me');
+  const data = await redmineRequest(`/issues.json?${params.toString()}`, { apiKey });
+  return data?.issues ?? [];
+}

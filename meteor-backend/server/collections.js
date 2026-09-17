@@ -27,6 +27,11 @@ export const HuddlePosts = new Mongo.Collection('huddlePosts', { idGeneration: '
 // The personal API key is stored encrypted at rest (see redmine-crypto.js) and
 // is never returned to the client.
 export const RedmineLinks = new Mongo.Collection('redmine_links', { idGeneration: 'MONGO' });
+// One row per (user, ticket) a user has added to their personal "My Board".
+// Identity only — { userId, sourceId, ticketId, addedAt } — no title/status
+// snapshot. Display fields are resolved client-side against already-fetched
+// unified tickets (Core Model Data Discipline).
+export const MyBoard = new Mongo.Collection('my_board', { idGeneration: 'MONGO' });
 
 /** Raw native-driver handle for collections we only read ad hoc (sessions, users). */
 export function rawDb() {
