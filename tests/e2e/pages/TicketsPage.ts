@@ -17,6 +17,14 @@ export class TicketsPage extends BasePage {
   readonly clearFiltersButton: Locator;
   readonly selectAllCheckbox: Locator;
   readonly pagination: Locator;
+  readonly ticketsTab: Locator;
+  readonly myBoardTab: Locator;
+  readonly moveToBoardButton: Locator;
+  readonly removeFromBoardButton: Locator;
+  readonly deselectAllButton: Locator;
+  readonly bulkDeleteButton: Locator;
+  readonly archiveButton: Locator;
+  readonly closeIssuesButton: Locator;
 
   constructor(page: Page) {
     super(page);
@@ -27,6 +35,30 @@ export class TicketsPage extends BasePage {
     this.clearFiltersButton = this.page.getByRole('button', { name: 'Clear filters' });
     this.selectAllCheckbox = this.page.getByRole('checkbox', { name: /Select all tickets/i });
     this.pagination = this.page.getByRole('navigation', { name: 'Ticket pages' });
+    this.ticketsTab = this.page.getByRole('tab', { name: 'Tickets' });
+    this.myBoardTab = this.page.getByRole('tab', { name: 'My Board' });
+    this.moveToBoardButton = this.page.getByRole('button', { name: 'Move to My Board' });
+    this.removeFromBoardButton = this.page.getByRole('button', { name: 'Remove from My Board' });
+    this.deselectAllButton = this.page.getByRole('button', { name: 'Deselect all' });
+    this.bulkDeleteButton = this.page.getByRole('button', { name: 'Delete selected tickets' });
+    this.archiveButton = this.page.getByRole('button', { name: 'Archive' });
+    this.closeIssuesButton = this.page.getByRole('button', { name: 'Close Issues' });
+  }
+
+  /** Switch between the "Tickets" and "My Board" tabs (same URL). */
+  async switchToTab(tab: 'tickets' | 'my-board') {
+    await (tab === 'tickets' ? this.ticketsTab : this.myBoardTab).click();
+    await this.page.waitForTimeout(300);
+  }
+
+  /** Check a ticket row's selection checkbox by title. */
+  async selectTicket(title: string) {
+    await this.rowByTitle(title).getByRole('checkbox').click();
+  }
+
+  /** The (disabled in M2.2) play/timer button on a My Board row. */
+  timerButtonForRow(title: string): Locator {
+    return this.rowByTitle(title).getByRole('button', { name: /start timer|stop timer/i });
   }
 
   /** The filter trigger inside a column header. */

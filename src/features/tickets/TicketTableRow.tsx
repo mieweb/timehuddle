@@ -36,6 +36,7 @@ import { createPortal } from 'react-dom';
 
 import { timeAgo } from '../../lib/date';
 import { useRouter } from '../../ui/router';
+import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { UserAvatar } from '../../ui/UserAvatar';
 
 import { SOURCE_LABELS, type UnifiedTicket } from './sources';
@@ -49,6 +50,12 @@ export interface TicketTableRowProps {
   isTimerRunning: boolean;
   timerLoading: boolean;
   onToggleTimer: (ticket: UnifiedTicket) => void;
+  /**
+   * My Board only. Renders a play-button column between the checkbox and
+   * Title cells. Static/disabled in M2.2 — wiring it to actually start a
+   * timer is Milestone 3's job.
+   */
+  showTimerColumn?: boolean;
   onEditRequest: (ticket: UnifiedTicket) => void;
   onDeleteRequest: (ticket: UnifiedTicket) => void;
   onChangeStatusRequest: (ticket: UnifiedTicket) => void;
@@ -84,6 +91,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   isTimerRunning,
   timerLoading,
   onToggleTimer,
+  showTimerColumn = false,
   onEditRequest,
   onDeleteRequest,
   onChangeStatusRequest,
@@ -167,6 +175,18 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
           aria-label={`Select ${ticket.title}`}
         />
       </TableCell>
+
+      {showTimerColumn && (
+        <TableCell className="pl-2">
+          <TimerToggleButton
+            isRunning={false}
+            disabled
+            onClick={() => {}}
+            ariaLabel="Start timer"
+            title="Starting timers from My Board is coming in a future milestone"
+          />
+        </TableCell>
+      )}
 
       <TableCell className="overflow-hidden">
         <div className="flex min-w-0 items-center gap-2">

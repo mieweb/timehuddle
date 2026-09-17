@@ -25,12 +25,17 @@ import {
   Pagination,
   Select,
   Switch,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   Text,
   Textarea,
 } from '@mieweb/ui';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  myBoardApi,
   teamApi,
   ticketApi,
   timerApi,
@@ -54,20 +59,11 @@ import { UserAvatar } from '../../ui/UserAvatar';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
 import { PulseUploadButton } from '../media/PulseUploadButton';
 import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
+import { TicketBulkActionBar } from './TicketBulkActionBar';
 import { TicketTable } from './TicketTable';
-import {
-  applyFilters,
-  hasActiveFilters,
-  sortTickets,
-  toggleSort,
-  DEFAULT_SORT,
-  EMPTY_FILTERS,
-  type SortField,
-  type SortSpec,
-  type TicketFilters,
-} from './ticketFilters';
+import { hasActiveFilters } from './ticketFilters';
 import { huddleSource, useUnifiedTickets, type UnifiedTicket } from './sources';
-import { useAutoPageSize } from './useAutoPageSize';
+import { useTicketTableView } from './useTicketTableView';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -253,22 +249,60 @@ export const TicketsPage: React.FC = () => {
   const [createTitleFetching, setCreateTitleFetching] = useState(false);
   const createFetchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Search + filter
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filters, setFilters] = useState<TicketFilters>(EMPTY_FILTERS);
-  const [sort, setSort] = useState<SortSpec>(DEFAULT_SORT);
-  const [showClosed, setShowClosed] = useState(false);
-  const [openFilterMenu, setOpenFilterMenu] = useState<string | null>(null);
+  // Tickets tab vs My Board tab — same URL, local state only (M2.1 retired the
+  // heading-dropdown pattern; this is real tabs instead).
+  const [activeView, setActiveView] = useState<'tickets' | 'my-board'>('tickets');
 
-  // Row selection, keyed by composite ticket key. Reserved for bulk actions.
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  // My Board membership — identity only (`${sourceId}:${id}` keys, matching
+  // UnifiedTicket.key). Display fields are resolved by filtering allTickets,
+  // never snapshotted server-side (Core Model Data Discipline).
+  const [boardKeys, setBoardKeys] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    void myBoardApi.list().then((entries) => {
+      setBoardKeys(new Set(entries.map((e) => `${e.sourceId}:${e.ticketId}`)));
+    });
+  }, []);
+  const boardTickets = useMemo(
+    () => allTickets.filter((t) => boardKeys.has(t.key)),
+    [allTickets, boardKeys],
+  );
+  // Superset lookup for resolving a selection key (Tickets or My Board tab)
+  // back to its ticket, e.g. to gate the bulk Delete button.
+  const ticketByKey = useMemo(() => new Map(allTickets.map((t) => [t.key, t])), [allTickets]);
 
-  // Pagination — the table fills the available height instead of scrolling.
-  const [page, setPage] = useState(1);
-  const { containerRef: tableAreaRef, pageSize } = useAutoPageSize();
+  // Search/filter/sort/paginate/select — one independent pipeline per tab, so
+  // switching tabs never resets or leaks the other tab's state.
+  const ticketsView = useTicketTableView(allTickets);
+  const boardView = useTicketTableView(boardTickets);
+  const {
+    searchQuery,
+    setSearchQuery,
+    filters,
+    setFilters,
+    clearFilters,
+    sort,
+    onSortChange: handleSortChange,
+    showClosed,
+    setShowClosed,
+    openFilterMenu,
+    onOpenFilterMenuChange: setOpenFilterMenu,
+    page,
+    setPage,
+    containerRef: tableAreaRef,
+    searchFilteredTickets,
+    openCount,
+    closedCount,
+    sortedTickets,
+    pageTickets,
+    totalPages,
+    selectedKeys,
+    onSelectedChange: handleSelectedChange,
+    onSelectAllChange: handleSelectAllChange,
+  } = ticketsView;
 
-  // Delete state
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  // Delete state — a list so the same confirm modal covers single-row (⋮ menu)
+  // and bulk (action bar) delete without two code paths.
+  const [deleteIds, setDeleteIds] = useState<string[]>([]);
 
   // Edit modal state (creator only)
   const [editTicket, setEditTicket] = useState<Ticket | null>(null);
@@ -289,78 +323,6 @@ export const TicketsPage: React.FC = () => {
   const [detailsTicket, setDetailsTicket] = useState<Ticket | null>(null);
   const [detailsAttachmentRefresh, setDetailsAttachmentRefresh] = useState(0);
 
-  // Everything matching the search + filter chips, before the Open/Closed split.
-  const searchFilteredTickets = useMemo(
-    () => applyFilters(allTickets, filters, searchQuery),
-    [allTickets, filters, searchQuery],
-  );
-
-  // Open vs closed counts (GitHub-style header tabs)
-  const openCount = useMemo(
-    () => searchFilteredTickets.filter((t) => !t.status.isClosed).length,
-    [searchFilteredTickets],
-  );
-  const closedCount = useMemo(
-    () => searchFilteredTickets.filter((t) => t.status.isClosed).length,
-    [searchFilteredTickets],
-  );
-
-  const sortedTickets = useMemo(
-    () =>
-      sortTickets(
-        searchFilteredTickets.filter((t) => t.status.isClosed === showClosed),
-        sort,
-      ),
-    [searchFilteredTickets, showClosed, sort],
-  );
-
-  const totalPages = Math.max(1, Math.ceil(sortedTickets.length / pageSize));
-
-  // Clamp rather than reset: shrinking the window or tightening a filter should
-  // land on the last real page, not silently jump the user back to page 1.
-  useEffect(() => {
-    setPage((current) => Math.min(current, totalPages));
-  }, [totalPages]);
-
-  // Any change to what is listed invalidates the current page position.
-  useEffect(() => {
-    setPage(1);
-  }, [searchQuery, filters, showClosed]);
-
-  const pageTickets = useMemo(
-    () => sortedTickets.slice((page - 1) * pageSize, page * pageSize),
-    [sortedTickets, page, pageSize],
-  );
-
-  const handleSortChange = useCallback((field: SortField) => {
-    setSort((current) => toggleSort(current, field));
-    setPage(1);
-  }, []);
-
-  const handleSelectedChange = useCallback((ticket: UnifiedTicket, selected: boolean) => {
-    setSelectedKeys((prev) => {
-      const next = new Set(prev);
-      if (selected) next.add(ticket.key);
-      else next.delete(ticket.key);
-      return next;
-    });
-  }, []);
-
-  // Select-all applies to the current page only, matching what the user sees.
-  const handleSelectAllChange = useCallback(
-    (selected: boolean) => {
-      setSelectedKeys((prev) => {
-        const next = new Set(prev);
-        for (const ticket of pageTickets) {
-          if (selected) next.add(ticket.key);
-          else next.delete(ticket.key);
-        }
-        return next;
-      });
-    },
-    [pageTickets],
-  );
-
   // Member options for assignee select in the edit modal
   const memberOptions = useMemo(() => {
     const teamId = selectedTeamId ?? teams[0]?.id;
@@ -369,6 +331,7 @@ export const TicketsPage: React.FC = () => {
   }, [membersByTeam, selectedTeamId, teams]);
 
   const ticketCardRef = React.useRef<HTMLDivElement>(null);
+  const boardCardRef = React.useRef<HTMLDivElement>(null);
 
   // ── Handlers ──
 
@@ -528,264 +491,490 @@ export const TicketsPage: React.FC = () => {
   }, [changeStatusTicket, changeStatusValue, refetch]);
 
   const handleDelete = useCallback(async () => {
-    if (!deleteId) return;
+    if (deleteIds.length === 0) return;
     setDeleteLoading(true);
     try {
-      await ticketApi.deleteTicket(deleteId);
-      setDeleteId(null);
+      await Promise.all(deleteIds.map((id) => ticketApi.deleteTicket(id)));
+      setDeleteIds([]);
+      ticketsView.clearSelection();
+      boardView.clearSelection();
       void refetch();
     } finally {
       setDeleteLoading(false);
     }
-  }, [deleteId, refetch]);
+  }, [deleteIds, refetch, ticketsView, boardView]);
+
+  // Ticket is eligible for the caller to delete — the same gate the row's ⋮
+  // menu already applies (`capabilities.delete && isCreator`).
+  const canDelete = useCallback(
+    (ticket: UnifiedTicket) => ticket.capabilities.delete && ticket.createdBy?.id === userId,
+    [userId],
+  );
+
+  // The bulk Delete button is disabled unless every currently selected
+  // ticket (on whichever tab) is eligible.
+  const canDeleteSelection = useCallback(
+    (selectedKeys: Set<string>) =>
+      selectedKeys.size > 0 &&
+      [...selectedKeys].every((key) => {
+        const ticket = ticketByKey.get(key);
+        return ticket ? canDelete(ticket) : false;
+      }),
+    [ticketByKey, canDelete],
+  );
+
+  const handleBulkDeleteRequest = useCallback(
+    (selectedKeys: Set<string>) => {
+      setDeleteIds(
+        [...selectedKeys].map((key) => ticketByKey.get(key)?.id).filter((id): id is string => !!id),
+      );
+    },
+    [ticketByKey],
+  );
+
+  const handleMoveToBoard = useCallback(() => {
+    const keys = [...ticketsView.selectedKeys];
+    const refs = keys.map((key) => {
+      const [sourceId, ticketId] = key.split(/:(.*)/s);
+      return { sourceId, ticketId };
+    });
+    void myBoardApi.addMany(refs).then(() => {
+      setBoardKeys((prev) => new Set([...prev, ...keys]));
+      ticketsView.clearSelection();
+    });
+  }, [ticketsView]);
+
+  const handleRemoveFromBoard = useCallback(() => {
+    const keys = [...boardView.selectedKeys];
+    const refs = keys.map((key) => {
+      const [sourceId, ticketId] = key.split(/:(.*)/s);
+      return { sourceId, ticketId };
+    });
+    void myBoardApi.removeMany(refs).then(() => {
+      setBoardKeys((prev) => {
+        const next = new Set(prev);
+        for (const key of keys) next.delete(key);
+        return next;
+      });
+      boardView.clearSelection();
+    });
+  }, [boardView]);
 
   const noFocusRingClass =
     'ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:border-blue-300 focus-visible:border-blue-300';
 
   return (
     <AppPage fill width="full">
-      <h1 className="mb-3 shrink-0 text-2xl font-semibold tracking-tight text-neutral-900 dark:text-neutral-100">
-        Tickets
-      </h1>
+      <h1 className="sr-only">Tickets</h1>
 
-      {/* ── Header: New Ticket + Search ── */}
       <div className="flex min-h-0 flex-1 flex-col gap-3">
-        <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="primary"
-              size="sm"
-              leftIcon={<FontAwesomeIcon icon={faPlus} />}
-              // Teams arrive asynchronously, so selectedTeam is null on first
-              // paint even for users who have one. Without this guard an early
-              // click reports "No team available" to a user who has a team.
-              disabled={!teamsReady}
-              onClick={() => {
-                if (!selectedTeam) {
-                  setShowNoTeamDialog(true);
-                  return;
-                }
-                setShowCreate(true);
-              }}
-              className="shrink-0 rounded-lg"
-            >
-              New Ticket
-            </Button>
+        <Tabs
+          value={activeView}
+          onValueChange={(v) => setActiveView(v as 'tickets' | 'my-board')}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <TabsList className="mb-3 w-fit shrink-0">
+            <TabsTrigger value="tickets">Tickets</TabsTrigger>
+            <TabsTrigger value="my-board">My Board</TabsTrigger>
+          </TabsList>
 
-            <div className="relative min-w-0 flex-1">
-              <FontAwesomeIcon
-                icon={faSearch}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
-              />
-              <Input
-                label="Search"
-                hideLabel
-                placeholder="Search tickets…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={`pl-8 rounded-lg ${noFocusRingClass}`}
-                size="sm"
-              />
-            </div>
-
-            <div className="flex shrink-0 items-center gap-3">
-              <Text size="xs" variant="muted" className="hidden whitespace-nowrap sm:block">
-                {ticketsLoading ? '…' : `${openCount} open · ${closedCount} closed`}
-              </Text>
-              <Switch
-                size="sm"
-                label="Closed"
-                labelPosition="left"
-                checked={showClosed}
-                onCheckedChange={setShowClosed}
-              />
-              {hasActiveFilters(filters) && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="whitespace-nowrap px-2 text-xs"
-                  onClick={() => setFilters(EMPTY_FILTERS)}
-                >
-                  Clear filters
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Create ticket form */}
-        {showCreate && (
-          <Card
-            padding="sm"
-            className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20"
+          {/* ── Tickets tab ── */}
+          <TabsContent
+            value="tickets"
+            forceMount
+            className="mt-0 flex min-h-0 flex-1 flex-col gap-3"
           >
-            <CardContent>
-              <div className="flex items-center justify-between pl-2">
-                <Text size="sm" weight="semibold">
-                  New Ticket
-                </Text>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowCreate(false)}
-                  aria-label="Close"
-                  className="h-8 w-8 rounded-full hover:bg-blue-100 dark:hover:bg-blue-800"
-                >
-                  <FontAwesomeIcon icon={faXmark} className="text-xs" />
-                </Button>
-              </div>
-              <form
-                className="mt-2 space-y-2"
-                onSubmit={(e: React.FormEvent<HTMLFormElement>) => {
-                  e.preventDefault();
-                  if (!createTitle.trim()) return;
-                  void handleCreate();
-                }}
-                onKeyDown={(e: React.KeyboardEvent<HTMLFormElement>) => {
-                  if (e.key !== 'Escape') return;
-                  e.preventDefault();
-                  setShowCreate(false);
-                }}
-              >
-                <Input
-                  label="Title"
-                  hideLabel
-                  size="sm"
-                  placeholder={createTitleFetching ? 'Fetching title…' : 'Ticket title'}
-                  value={createTitle}
-                  onChange={(e) => setCreateTitle(e.target.value)}
-                  className={noFocusRingClass}
-                  autoFocus
-                  disabled={createTitleFetching}
-                  onPaste={(e) => {
-                    const text = (
-                      e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData
-                    )
-                      ?.getData('text')
-                      ?.trim();
-                    if (!text || !isGithubIssueUrl(text)) return;
-                    e.preventDefault();
-                    setCreateGithub(text);
-                    setCreateTitleFetching(true);
-                    void fetchIssueTitle(text).then((title) => {
-                      if (title) setCreateTitle(title);
-                      setCreateTitleFetching(false);
-                    });
-                  }}
-                />
-                <Input
-                  label="GitHub URL"
-                  hideLabel
-                  size="sm"
-                  type="url"
-                  placeholder="GitHub URL (optional)"
-                  value={createGithub}
-                  className={noFocusRingClass}
-                  onChange={(e) => {
-                    const url = e.target.value;
-                    setCreateGithub(url);
-                    if (createFetchTimer.current) clearTimeout(createFetchTimer.current);
-                    if (isGithubIssueUrl(url)) {
-                      createFetchTimer.current = setTimeout(() => {
-                        setCreateTitleFetching(true);
-                        void fetchIssueTitle(url).then((title) => {
-                          if (title) setCreateTitle(title);
-                          setCreateTitleFetching(false);
-                        });
-                      }, 300);
-                    }
-                  }}
-                />
+            {/* ── Header: New Ticket + Search ── */}
+            <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
+              <div className="flex items-center gap-2">
                 <Button
                   variant="primary"
                   size="sm"
-                  type="submit"
-                  isLoading={createLoading}
-                  loadingText="Creating…"
-                  disabled={!createTitle.trim() || !selectedTeam}
+                  leftIcon={<FontAwesomeIcon icon={faPlus} />}
+                  // Teams arrive asynchronously, so selectedTeam is null on first
+                  // paint even for users who have one. Without this guard an early
+                  // click reports "No team available" to a user who has a team.
+                  disabled={!teamsReady}
+                  onClick={() => {
+                    if (!selectedTeam) {
+                      setShowNoTeamDialog(true);
+                      return;
+                    }
+                    setShowCreate(true);
+                  }}
+                  className="shrink-0 rounded-lg"
                 >
-                  Create Ticket
+                  New Ticket
                 </Button>
-              </form>
-            </CardContent>
-          </Card>
-        )}
 
-        {/* ── Unified ticket table ── */}
-        <Card ref={ticketCardRef} padding="none" className="flex min-h-0 flex-1 flex-col">
-          {/* Fills the remaining height; only the columns scroll, horizontally. */}
-          <div ref={tableAreaRef} className="min-h-0 flex-1 overflow-hidden">
-            <TicketTable
-              tickets={pageTickets}
-              optionSource={searchFilteredTickets}
-              loading={ticketsLoading}
-              errors={sourceErrors}
-              isCreator={(t) => t.createdBy?.id === userId}
-              sort={sort}
-              onSortChange={handleSortChange}
-              filters={filters}
-              onFiltersChange={setFilters}
-              openMenuId={openFilterMenu}
-              onOpenMenuChange={setOpenFilterMenu}
-              boundaryRef={ticketCardRef}
-              selectedKeys={selectedKeys}
-              onSelectedChange={handleSelectedChange}
-              onSelectAllChange={handleSelectAllChange}
-              runningTicketId={runningTicket?.id ?? null}
-              timerLoadingId={timerLoading}
-              totalCount={sortedTickets.length}
-              showClosed={showClosed}
-              onToggleTimer={handleToggleTimer}
-              onEditRequest={(t) => void openEditModal(t)}
-              onDeleteRequest={(t) => setDeleteId(t.id)}
-              onChangeStatusRequest={(t) => {
-                setChangeStatusTicket(t);
-                setChangeStatusValue(t.status.native || 'open');
-              }}
-              onShareWithTimeharbor={async (t, shared) => {
-                try {
-                  await shareTicketWithTimeharbor(t.id, shared);
-                  refetch();
-                } catch {
-                  // Silently ignore — user can retry
-                }
-              }}
-              emptyState={
-                <EmptyState
-                  title={
-                    searchQuery || hasActiveFilters(filters)
-                      ? 'No tickets match your filters'
-                      : showClosed
-                        ? 'No closed tickets'
-                        : 'No open tickets'
-                  }
-                  description={
-                    !searchQuery && !hasActiveFilters(filters) && !showClosed
-                      ? 'Create one to get started.'
-                      : undefined
+                <div className="relative min-w-0 flex-1">
+                  <FontAwesomeIcon
+                    icon={faSearch}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
+                  />
+                  <Input
+                    label="Search"
+                    hideLabel
+                    placeholder="Search tickets…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className={`pl-8 rounded-lg ${noFocusRingClass}`}
+                    size="sm"
+                  />
+                </div>
+
+                <div className="flex shrink-0 items-center gap-3">
+                  <Text size="xs" variant="muted" className="hidden whitespace-nowrap sm:block">
+                    {ticketsLoading ? '…' : `${openCount} open · ${closedCount} closed`}
+                  </Text>
+                  <Switch
+                    size="sm"
+                    label="Closed"
+                    labelPosition="left"
+                    checked={showClosed}
+                    onCheckedChange={setShowClosed}
+                  />
+                  {hasActiveFilters(filters) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="whitespace-nowrap px-2 text-xs"
+                      onClick={clearFilters}
+                    >
+                      Clear filters
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Create ticket form */}
+            {showCreate && (
+              <Card
+                padding="sm"
+                className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20"
+              >
+                <CardContent>
+                  <div className="flex items-center justify-between pl-2">
+                    <Text size="sm" weight="semibold">
+                      New Ticket
+                    </Text>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowCreate(false)}
+                      aria-label="Close"
+                      className="h-8 w-8 rounded-full hover:bg-blue-100 dark:hover:bg-blue-800"
+                    >
+                      <FontAwesomeIcon icon={faXmark} className="text-xs" />
+                    </Button>
+                  </div>
+                  <form
+                    className="mt-2 space-y-2"
+                    onSubmit={(e: React.FormEvent<HTMLFormElement>) => {
+                      e.preventDefault();
+                      if (!createTitle.trim()) return;
+                      void handleCreate();
+                    }}
+                    onKeyDown={(e: React.KeyboardEvent<HTMLFormElement>) => {
+                      if (e.key !== 'Escape') return;
+                      e.preventDefault();
+                      setShowCreate(false);
+                    }}
+                  >
+                    <Input
+                      label="Title"
+                      hideLabel
+                      size="sm"
+                      placeholder={createTitleFetching ? 'Fetching title…' : 'Ticket title'}
+                      value={createTitle}
+                      onChange={(e) => setCreateTitle(e.target.value)}
+                      className={noFocusRingClass}
+                      autoFocus
+                      disabled={createTitleFetching}
+                      onPaste={(e) => {
+                        const text = (
+                          e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData
+                        )
+                          ?.getData('text')
+                          ?.trim();
+                        if (!text || !isGithubIssueUrl(text)) return;
+                        e.preventDefault();
+                        setCreateGithub(text);
+                        setCreateTitleFetching(true);
+                        void fetchIssueTitle(text).then((title) => {
+                          if (title) setCreateTitle(title);
+                          setCreateTitleFetching(false);
+                        });
+                      }}
+                    />
+                    <Input
+                      label="GitHub URL"
+                      hideLabel
+                      size="sm"
+                      type="url"
+                      placeholder="GitHub URL (optional)"
+                      value={createGithub}
+                      className={noFocusRingClass}
+                      onChange={(e) => {
+                        const url = e.target.value;
+                        setCreateGithub(url);
+                        if (createFetchTimer.current) clearTimeout(createFetchTimer.current);
+                        if (isGithubIssueUrl(url)) {
+                          createFetchTimer.current = setTimeout(() => {
+                            setCreateTitleFetching(true);
+                            void fetchIssueTitle(url).then((title) => {
+                              if (title) setCreateTitle(title);
+                              setCreateTitleFetching(false);
+                            });
+                          }, 300);
+                        }
+                      }}
+                    />
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      type="submit"
+                      isLoading={createLoading}
+                      loadingText="Creating…"
+                      disabled={!createTitle.trim() || !selectedTeam}
+                    >
+                      Create Ticket
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
+            )}
+
+            {selectedKeys.size > 0 && (
+              <TicketBulkActionBar
+                selectedCount={selectedKeys.size}
+                onDeselectAll={ticketsView.clearSelection}
+                canDeleteSelected={canDeleteSelection(selectedKeys)}
+                onDelete={() => handleBulkDeleteRequest(selectedKeys)}
+                primaryLabel="Move to My Board"
+                onPrimaryAction={handleMoveToBoard}
+              />
+            )}
+
+            {/* ── Unified ticket table ── */}
+            <Card ref={ticketCardRef} padding="none" className="flex min-h-0 flex-1 flex-col">
+              {/* Fills the remaining height; only the columns scroll, horizontally. */}
+              <div ref={tableAreaRef} className="min-h-0 flex-1 overflow-hidden">
+                <TicketTable
+                  tickets={pageTickets}
+                  optionSource={searchFilteredTickets}
+                  loading={ticketsLoading}
+                  errors={sourceErrors}
+                  isCreator={(t) => t.createdBy?.id === userId}
+                  sort={sort}
+                  onSortChange={handleSortChange}
+                  filters={filters}
+                  onFiltersChange={setFilters}
+                  openMenuId={openFilterMenu}
+                  onOpenMenuChange={setOpenFilterMenu}
+                  boundaryRef={ticketCardRef}
+                  selectedKeys={selectedKeys}
+                  onSelectedChange={handleSelectedChange}
+                  onSelectAllChange={handleSelectAllChange}
+                  runningTicketId={runningTicket?.id ?? null}
+                  timerLoadingId={timerLoading}
+                  totalCount={sortedTickets.length}
+                  showClosed={showClosed}
+                  onToggleTimer={handleToggleTimer}
+                  onEditRequest={(t) => void openEditModal(t)}
+                  onDeleteRequest={(t) => setDeleteIds([t.id])}
+                  onChangeStatusRequest={(t) => {
+                    setChangeStatusTicket(t);
+                    setChangeStatusValue(t.status.native || 'open');
+                  }}
+                  onShareWithTimeharbor={async (t, shared) => {
+                    try {
+                      await shareTicketWithTimeharbor(t.id, shared);
+                      refetch();
+                    } catch {
+                      // Silently ignore — user can retry
+                    }
+                  }}
+                  emptyState={
+                    <EmptyState
+                      title={
+                        searchQuery || hasActiveFilters(filters)
+                          ? 'No tickets match your filters'
+                          : showClosed
+                            ? 'No closed tickets'
+                            : 'No open tickets'
+                      }
+                      description={
+                        !searchQuery && !hasActiveFilters(filters) && !showClosed
+                          ? 'Create one to get started.'
+                          : undefined
+                      }
+                    />
                   }
                 />
-              }
-            />
-          </div>
+              </div>
 
-          {totalPages > 1 && (
-            <div className="flex shrink-0 items-center justify-between gap-2 border-t border-neutral-200 px-4 py-2 dark:border-neutral-700">
-              <Text size="xs" variant="muted">
-                {selectedKeys.size > 0
-                  ? `${selectedKeys.size} selected`
-                  : `${sortedTickets.length} ticket${sortedTickets.length === 1 ? '' : 's'}`}
-              </Text>
-              <Pagination
-                page={page}
-                totalPages={totalPages}
-                onPageChange={setPage}
-                size="sm"
-                label="Ticket pages"
-              />
+              {totalPages > 1 && (
+                <div className="flex shrink-0 items-center justify-between gap-2 border-t border-neutral-200 px-4 py-2 dark:border-neutral-700">
+                  <Text size="xs" variant="muted">
+                    {selectedKeys.size > 0
+                      ? `${selectedKeys.size} selected`
+                      : `${sortedTickets.length} ticket${sortedTickets.length === 1 ? '' : 's'}`}
+                  </Text>
+                  <Pagination
+                    page={page}
+                    totalPages={totalPages}
+                    onPageChange={setPage}
+                    size="sm"
+                    label="Ticket pages"
+                  />
+                </div>
+              )}
+            </Card>
+          </TabsContent>
+
+          {/* ── My Board tab ── */}
+          <TabsContent
+            value="my-board"
+            forceMount
+            className="mt-0 flex min-h-0 flex-1 flex-col gap-3"
+          >
+            <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
+              <div className="flex items-center gap-2">
+                <div className="relative min-w-0 flex-1">
+                  <FontAwesomeIcon
+                    icon={faSearch}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400"
+                  />
+                  <Input
+                    label="Search"
+                    hideLabel
+                    placeholder="Search My Board…"
+                    value={boardView.searchQuery}
+                    onChange={(e) => boardView.setSearchQuery(e.target.value)}
+                    className={`pl-8 rounded-lg ${noFocusRingClass}`}
+                    size="sm"
+                  />
+                </div>
+
+                <div className="flex shrink-0 items-center gap-3">
+                  <Text size="xs" variant="muted" className="hidden whitespace-nowrap sm:block">
+                    {ticketsLoading
+                      ? '…'
+                      : `${boardView.openCount} open · ${boardView.closedCount} closed`}
+                  </Text>
+                  <Switch
+                    size="sm"
+                    label="Closed"
+                    labelPosition="left"
+                    checked={boardView.showClosed}
+                    onCheckedChange={boardView.setShowClosed}
+                  />
+                  {hasActiveFilters(boardView.filters) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="whitespace-nowrap px-2 text-xs"
+                      onClick={boardView.clearFilters}
+                    >
+                      Clear filters
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
-          )}
-        </Card>
+
+            {boardView.selectedKeys.size > 0 && (
+              <TicketBulkActionBar
+                selectedCount={boardView.selectedKeys.size}
+                onDeselectAll={boardView.clearSelection}
+                canDeleteSelected={canDeleteSelection(boardView.selectedKeys)}
+                onDelete={() => handleBulkDeleteRequest(boardView.selectedKeys)}
+                primaryLabel="Remove from My Board"
+                onPrimaryAction={handleRemoveFromBoard}
+              />
+            )}
+
+            {/* ── My Board table ── */}
+            <Card ref={boardCardRef} padding="none" className="flex min-h-0 flex-1 flex-col">
+              <div ref={boardView.containerRef} className="min-h-0 flex-1 overflow-hidden">
+                <TicketTable
+                  tickets={boardView.pageTickets}
+                  optionSource={boardView.searchFilteredTickets}
+                  loading={ticketsLoading}
+                  errors={sourceErrors}
+                  isCreator={(t) => t.createdBy?.id === userId}
+                  sort={boardView.sort}
+                  onSortChange={boardView.onSortChange}
+                  filters={boardView.filters}
+                  onFiltersChange={boardView.setFilters}
+                  openMenuId={boardView.openFilterMenu}
+                  onOpenMenuChange={boardView.onOpenFilterMenuChange}
+                  boundaryRef={boardCardRef}
+                  selectedKeys={boardView.selectedKeys}
+                  onSelectedChange={boardView.onSelectedChange}
+                  onSelectAllChange={boardView.onSelectAllChange}
+                  runningTicketId={runningTicket?.id ?? null}
+                  timerLoadingId={timerLoading}
+                  totalCount={boardView.sortedTickets.length}
+                  showClosed={boardView.showClosed}
+                  onToggleTimer={handleToggleTimer}
+                  showTimerColumn
+                  onEditRequest={(t) => void openEditModal(t)}
+                  onDeleteRequest={(t) => setDeleteIds([t.id])}
+                  onChangeStatusRequest={(t) => {
+                    setChangeStatusTicket(t);
+                    setChangeStatusValue(t.status.native || 'open');
+                  }}
+                  onShareWithTimeharbor={async (t, shared) => {
+                    try {
+                      await shareTicketWithTimeharbor(t.id, shared);
+                      refetch();
+                    } catch {
+                      // Silently ignore — user can retry
+                    }
+                  }}
+                  emptyState={
+                    <EmptyState
+                      title={
+                        boardView.searchQuery || hasActiveFilters(boardView.filters)
+                          ? 'No tickets match your filters'
+                          : boardView.showClosed
+                            ? 'No closed tickets on your board'
+                            : 'Your board is empty'
+                      }
+                      description={
+                        !boardView.searchQuery &&
+                        !hasActiveFilters(boardView.filters) &&
+                        !boardView.showClosed
+                          ? 'Select tickets on the Tickets tab and click "Move to My Board".'
+                          : undefined
+                      }
+                    />
+                  }
+                />
+              </div>
+
+              {boardView.totalPages > 1 && (
+                <div className="flex shrink-0 items-center justify-between gap-2 border-t border-neutral-200 px-4 py-2 dark:border-neutral-700">
+                  <Text size="xs" variant="muted">
+                    {boardView.selectedKeys.size > 0
+                      ? `${boardView.selectedKeys.size} selected`
+                      : `${boardView.sortedTickets.length} ticket${boardView.sortedTickets.length === 1 ? '' : 's'}`}
+                  </Text>
+                  <Pagination
+                    page={boardView.page}
+                    totalPages={boardView.totalPages}
+                    onPageChange={boardView.setPage}
+                    size="sm"
+                    label="Ticket pages"
+                  />
+                </div>
+              )}
+            </Card>
+          </TabsContent>
+        </Tabs>
 
         {/* Edit ticket modal (creator only) */}
         <Modal open={!!editTicket} onOpenChange={(open) => !open && setEditTicket(null)}>
@@ -1069,19 +1258,27 @@ export const TicketsPage: React.FC = () => {
           </Modal>
         )}
 
-        {/* Delete confirmation */}
-        <Modal open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)} size="sm">
+        {/* Delete confirmation — covers both single-row (⋮ menu) and bulk delete */}
+        <Modal
+          open={deleteIds.length > 0}
+          onOpenChange={(open) => !open && setDeleteIds([])}
+          size="sm"
+        >
           <ModalHeader>
-            <ModalTitle>Delete Ticket?</ModalTitle>
+            <ModalTitle>
+              {deleteIds.length > 1 ? `Delete ${deleteIds.length} Tickets?` : 'Delete Ticket?'}
+            </ModalTitle>
             <ModalClose />
           </ModalHeader>
           <ModalBody>
             <Text variant="muted" size="sm">
-              This will permanently delete this ticket and remove it from all clock events.
+              {deleteIds.length > 1
+                ? 'This will permanently delete these tickets and remove them from all clock events.'
+                : 'This will permanently delete this ticket and remove it from all clock events.'}
             </Text>
           </ModalBody>
           <ModalFooter>
-            <Button variant="outline" onClick={() => setDeleteId(null)}>
+            <Button variant="outline" onClick={() => setDeleteIds([])}>
               Cancel
             </Button>
             <Button variant="danger" onClick={handleDelete} isLoading={deleteLoading}>
