@@ -170,13 +170,13 @@ export function PostCard({
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
+            <Button
+              variant="link"
               onClick={goToAuthorProfile}
-              className="font-medium text-sm text-gray-900 dark:text-white hover:underline"
+              className="h-auto p-0 text-sm font-medium text-gray-900 dark:text-white"
             >
               {authorName}
-            </button>
+            </Button>
             <span className="text-xs text-gray-500 dark:text-neutral-400">
               {formatTimestamp(post.createdAt)}
             </span>
