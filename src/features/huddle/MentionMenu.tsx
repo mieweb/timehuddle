@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { AnchoredMenu } from '@ui/AnchoredMenu';
+import { HuddleAvatar } from './HuddleAvatar';
 import { fetchTeamMembers } from './api';
 import type { TeamMember } from './types';
 
@@ -111,17 +112,14 @@ export function MentionMenu({ teamId, onSelect }: MentionMenuProps) {
                 className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors text-gray-700 dark:text-neutral-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400 dark:focus-visible:ring-indigo-500"
               >
                 <div className="flex items-center gap-2">
-                  {member.image ? (
-                    <img
-                      src={member.image}
-                      alt={member.name}
-                      className="w-6 h-6 rounded-full shrink-0"
-                    />
-                  ) : (
-                    <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-[10px] font-semibold shrink-0">
-                      {member.name.substring(0, 2).toUpperCase()}
-                    </div>
-                  )}
+                  {/* A fixed tint rather than the per-user colour used in the
+                      feed — the mention list is a picker, not an identity. */}
+                  <HuddleAvatar
+                    src={member.image}
+                    initials={member.name.substring(0, 2).toUpperCase()}
+                    color="indigo"
+                    size="xs"
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{member.name}</div>
                     <div className="text-[10px] text-gray-400 dark:text-neutral-500 truncate">
