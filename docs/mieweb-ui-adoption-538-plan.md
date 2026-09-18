@@ -155,6 +155,15 @@ working tree on 2026-09-17:
     `mieweb-modal-fade-in` keyframes for the org switcher, and why `BottomNav`
     keeps framer-motion: `Sheet` would trade a spring slide-up for an abrupt pop
     with no supported way to restore it. Pre-existing, but it blocks `Sheet`.
+16. **🔴 `Dropdown` does not open in 0.7.3.** The PostCard menu swap shipped in
+    `7d81b841` broke three e2e specs (`edit-composer-remount` and two
+    `yjs-collab-editing` cases), all of which open a post's menu to reach "Edit
+    post". A minimal probe — a bare `Dropdown` with one `DropdownItem` and no
+    other markup — does not open on a trigger click either, with the library
+    `Button` or a plain `<button>`. The trigger renders and takes the click; the
+    menu never mounts. Reverted in `0851a9f9`; the hand-rolled menu stays, now
+    with the `aria-haspopup`/`aria-expanded` attributes added during the swap.
+    This is the second behaviour defect found in the library during #538.
 
 ---
 
@@ -334,3 +343,5 @@ Added last, on already-migrated code, so it lands green with a minimal allowlist
 | 6 — BottomNav            | `bcc5106e` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | Button adopted; sheet kept (no animation lib)         |
 | 7 — composer Badge       | `90733139` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | partial — see the `truncate` limitation               |
 | 8 — ESLint guardrail     | `221406cf` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | verified by probe: 4 errors on a new file             |
+| full e2e (final)         | —          | ❌ 3 failed · 4 flaky · 171 passed (38.3m)                | all 3 traced to the Dropdown swap                     |
+| Dropdown revert          | `0851a9f9` | unit ✅ (149) + the 3 failing specs ✅                    | Dropdown does not open in 0.7.3                       |
