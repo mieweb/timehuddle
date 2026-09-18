@@ -2,7 +2,6 @@ import { faQrcode, faVideo, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
-  Modal,
   ModalBody,
   ModalClose,
   ModalFooter,
@@ -10,6 +9,7 @@ import {
   ModalTitle,
   Text,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import { QRCodeSVG } from 'qrcode.react';
 import React from 'react';
 
@@ -45,7 +45,7 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
   doneLabel = 'Done — Refresh',
 }) => {
   return (
-    <Modal
+    <AppModal
       open={open}
       onOpenChange={(next) => !next && onClose()}
       aria-label="Upload video with the Pulse app"
@@ -108,6 +108,6 @@ export const PulseUploadModal: React.FC<PulseUploadModalProps> = ({
           {doneLabel}
         </Button>
       </ModalFooter>
-    </Modal>
+    </AppModal>
   );
 };

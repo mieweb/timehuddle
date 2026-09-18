@@ -34,6 +34,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { faApple } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { Button } from '@mieweb/ui';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import React, { useState } from 'react';
 
@@ -217,6 +218,9 @@ export const BottomNav: React.FC = () => {
         className="bottom-nav fixed bottom-0 left-0 right-0 z-40 flex items-end justify-around border-t border-neutral-200 bg-white px-2 dark:border-neutral-800 dark:bg-neutral-900 md:hidden"
         aria-label="Bottom navigation"
       >
+        {/* The FAB and tab buttons stay raw: `Button` wraps its children in a
+            single `truncate` span and its base is a horizontal `inline-flex`,
+            neither of which can express an icon stacked over a label. */}
         {TABS.map((tab) => {
           const isActive =
             pathname === tab.href || (tab.href === '/app/dashboard' && pathname === '/app');
@@ -292,6 +296,14 @@ export const BottomNav: React.FC = () => {
         })}
       </nav>
 
+      {/* Deliberately not the @mieweb/ui `Sheet`. Sheet renders nothing until
+          open and unmounts on close, and carries no enter/exit animation of its
+          own — its only animation hook, the `animate-in`/`slide-in-from-*`
+          utilities the library's own Modal references, needs
+          `tailwindcss-animate`, which this project does not install. Swapping
+          would turn this spring slide-up into an abrupt pop on the primary
+          mobile surface. The focus trap, scroll lock, escape handling and focus
+          restore below are the behaviour Sheet would otherwise provide. */}
       <AnimatePresence>
         {moreOpen && (
           <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="More">
@@ -313,26 +325,28 @@ export const BottomNav: React.FC = () => {
             >
               <div className="flex shrink-0 items-center gap-2 border-b border-neutral-100 px-5 py-4 dark:border-neutral-800">
                 {moreSection !== 'root' && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={() => setMoreSection('root')}
                     aria-label="Back"
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                    className="rounded-full text-neutral-400"
                   >
                     <FontAwesomeIcon icon={faChevronLeft} />
-                  </button>
+                  </Button>
                 )}
                 <h2 className="flex-1 font-semibold text-neutral-900 dark:text-neutral-100">
                   {moreSection === 'root' ? 'More' : SECTION_CONFIG[moreSection].label}
                 </h2>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={closeMore}
                   aria-label="Close"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                  className="rounded-full text-neutral-400"
                 >
                   <FontAwesomeIcon icon={faXmark} />
-                </button>
+                </Button>
               </div>
               <div className="overflow-y-auto px-5 py-4">
                 {moreSection === 'root' ? (
@@ -382,15 +396,16 @@ export const BottomNav: React.FC = () => {
                 ) : (
                   <div className="flex flex-col gap-1">
                     {SECTION_CONFIG[moreSection].rows.map((row) => (
-                      <button
+                      <Button
                         key={row.label}
-                        type="button"
+                        variant="ghost"
+                        fullWidth
                         onClick={row.onClick}
-                        className="flex items-center gap-3 rounded-lg px-3 py-3 text-left text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                        leftIcon={<FontAwesomeIcon icon={row.icon} className="w-5 text-base" />}
+                        className="justify-start gap-3 px-3 py-3 text-neutral-700 dark:text-neutral-200"
                       >
-                        <FontAwesomeIcon icon={row.icon} className="w-5 text-base" />
-                        <span className="text-sm font-medium">{row.label}</span>
-                      </button>
+                        {row.label}
+                      </Button>
                     ))}
                   </div>
                 )}

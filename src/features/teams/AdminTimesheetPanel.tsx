@@ -20,7 +20,6 @@ import {
   CardHeader,
   CardTitle,
   Input,
-  Modal,
   ModalBody,
   ModalFooter,
   ModalHeader,
@@ -33,6 +32,7 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ApiError, clockApi, isPendingChange, type ClockEvent } from '../../lib/api';
@@ -586,7 +586,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
       )}
 
       {/* Edit session modal */}
-      <Modal
+      <AppModal
         open={sessionDialogOpen}
         onOpenChange={(open) => {
           setSessionDialogOpen(open);
@@ -661,7 +661,7 @@ export const AdminTimesheetPanel: React.FC<Props> = ({
             )}
           </div>
         </ModalFooter>
-      </Modal>
+      </AppModal>
     </div>
   );
 };

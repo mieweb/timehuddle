@@ -23,7 +23,6 @@ import {
   Card,
   CardContent,
   Input,
-  Modal,
   ModalBody,
   ModalFooter,
   ModalHeader,
@@ -37,6 +36,7 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -821,7 +821,7 @@ export const WorkPage: React.FC = () => {
       </div>
 
       {/* ── New Entry Modal ── */}
-      <Modal
+      <AppModal
         open={showNewEntry}
         onOpenChange={(o) => {
           setShowNewEntry(o);
@@ -881,10 +881,10 @@ export const WorkPage: React.FC = () => {
             </Button>
           </div>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
       {/* ── Clock-In Prompt Modal ── */}
-      <Modal
+      <AppModal
         open={showClockInPrompt}
         onOpenChange={(open) => {
           setShowClockInPrompt(open);
@@ -927,7 +927,7 @@ export const WorkPage: React.FC = () => {
             </Button>
           </div>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
       {/* ── Day View ── */}
       {dayEntries.length === 0 ? (
@@ -1078,7 +1078,7 @@ export const WorkPage: React.FC = () => {
             deleteNeedsApproval &&
             !isJustificationComplete(editJustification, timesheetVideoRequired('delete'));
           return (
-            <Modal
+            <AppModal
               open
               onOpenChange={(o) => {
                 if (!o) setEditEntry(null);
@@ -1167,7 +1167,7 @@ export const WorkPage: React.FC = () => {
                   Delete
                 </Button>
               </ModalFooter>
-            </Modal>
+            </AppModal>
           );
         })()}
     </AppPage>

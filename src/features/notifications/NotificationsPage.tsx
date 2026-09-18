@@ -8,7 +8,6 @@ import { faCheckDouble, faCircleInfo, faTrash, faXmark } from '@fortawesome/free
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
-  Modal,
   ModalBody,
   ModalClose,
   ModalFooter,
@@ -16,6 +15,7 @@ import {
   ModalTitle,
   Text,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
@@ -434,7 +434,11 @@ export const NotificationsPage: React.FC = () => {
         />
       )}
 
-      <Modal open={!!invitePreview} onOpenChange={(open) => !open && closeInviteModal()} size="lg">
+      <AppModal
+        open={!!invitePreview}
+        onOpenChange={(open) => !open && closeInviteModal()}
+        size="lg"
+      >
         <ModalHeader>
           <ModalTitle>Team Invite</ModalTitle>
           <ModalClose />
@@ -509,9 +513,9 @@ export const NotificationsPage: React.FC = () => {
             {invitePreview?.alreadyMember ? 'Already in team' : 'Join'}
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
-      <Modal
+      <AppModal
         open={!!joinRequestPreview}
         onOpenChange={(open) => !open && closeJoinRequestModal()}
         size="lg"
@@ -591,7 +595,7 @@ export const NotificationsPage: React.FC = () => {
             </>
           )}
         </ModalFooter>
-      </Modal>
+      </AppModal>
     </AppPage>
   );
 };
