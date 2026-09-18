@@ -141,6 +141,21 @@ working tree on 2026-09-17:
     `src/features/huddle/MarkdownContent.tsx` have no effect today. Deleting the
     config does not cause this and does not change it. Worth its own issue.
 
+14. **`Button` cannot express stacked or two-line controls.** It renders its
+    children inside a single `truncate` span (`overflow-hidden`,
+    `whitespace-nowrap`) over a horizontal `inline-flex` base, so any control
+    stacking an icon above a label — or pairing a title with a description —
+    collapses to one clipped line. This invalidates much of the issue's
+    "raw `<button>` → `Button`" table: the bottom-nav tabs and FAB, the "More"
+    sheet tiles, and `ReportIssueModal`'s option rows all stay raw on purpose.
+15. **`tailwindcss-animate` is not installed, so library animations are inert.**
+    Nothing in the built CSS matches `animate-in`, `fade-in-0` or `zoom-in-95` —
+    the classes `Modal` and `Sheet` rely on. Modals have no enter or exit
+    animation today, which is why `src/styles.css` carries its own
+    `mieweb-modal-fade-in` keyframes for the org switcher, and why `BottomNav`
+    keeps framer-motion: `Sheet` would trade a spring slide-up for an abrupt pop
+    with no supported way to restore it. Pre-existing, but it blocks `Sheet`.
+
 ---
 
 ## Phases
@@ -263,7 +278,7 @@ existing accessibility test in `OtaUpdateGate.test.tsx` still passes.
 
 **Files:** `src/ui/InstallerModal.tsx` · `src/ui/UsernameClaimModal.tsx` · `src/ui/OtaUpdateGate.tsx`
 
-### Phase 5 — Huddle avatars, dropdown, textarea ⬜
+### Phase 5 — Huddle avatars, dropdown, textarea ✅
 
 - [ ] Delete the duplicated local `Avatar()` from `PostCard/index.tsx` **and** `HuddleComments/index.tsx` → `Avatar`
 - [ ] `PostCard` dropdown → `Dropdown` / `DropdownItem`
@@ -272,14 +287,14 @@ existing accessibility test in `OtaUpdateGate.test.tsx` still passes.
 
 **Files:** `src/features/huddle/PostCard/index.tsx` · `src/features/huddle/HuddleComments/index.tsx` · `src/features/huddle/MentionMenu.tsx`
 
-### Phase 6 — BottomNav refactor ⬜
+### Phase 6 — BottomNav refactor 🟡 partial
 
 - [ ] `role="dialog"` "More" sheet → `Sheet` (`side="bottom"`)
 - [ ] 9 raw `<button>` → `Button`
 
 **Files:** `src/ui/BottomNav.tsx`
 
-### Phase 7 — Remaining medium-severity swaps ⬜
+### Phase 7 — Remaining medium-severity swaps 🟡 partial
 
 - [ ] `PostCard` remaining raw buttons → `Button`
 - [ ] `Sidebar.tsx` `NavLink` → `Button variant="ghost"`
@@ -293,7 +308,7 @@ existing accessibility test in `OtaUpdateGate.test.tsx` still passes.
 - [ ] `LandingPage.tsx` cards → `Card`
 - [ ] ~~`MediaPage.tsx`~~ ⛔ file deleted in #542
 
-### Phase 8 — ESLint guardrail ⬜
+### Phase 8 — ESLint guardrail ✅
 
 Added last, on already-migrated code, so it lands green with a minimal allowlist.
 
@@ -309,9 +324,13 @@ Added last, on already-migrated code, so it lands green with a minimal allowlist
 | Phase                    | Commit     | Validation                                                | Notes                                                 |
 | ------------------------ | ---------- | --------------------------------------------------------- | ----------------------------------------------------- |
 | baseline                 | `98875e25` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) e2e ✅ (170) | tag `ui538-baseline`                                  |
-| 1 — bump 0.8.0           | `889e1a81` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | static checks all passed — e2e later disproved it     |
-| 2 — agent setup + config | `177626b4` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | CSS 394,881 → 392,947 bytes (docs no longer scanned)  |
-| 3 — AppModal wrapper     | `f8bccd76` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | tw-merge equivalence verified                         |
+| 1 — bump 0.8.0           | `c9119826` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | static checks all passed — e2e later disproved it     |
+| 2 — agent setup + config | `4ca94709` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | CSS 394,881 → 392,947 bytes (docs no longer scanned)  |
+| 3 — AppModal wrapper     | `93992149` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | tw-merge equivalence verified                         |
 | e2e after phase 3        | —          | ❌ 2 failed · 5 flaky · 171 passed                        | bisected to the 0.8.0 bump, not to this branch        |
-| 1 — **reverted**         | `b3a09d9d` | lint ✅ typecheck ✅ unit ✅ (149) build ✅ plan-first ✅ | back to 0.7.3; composer regression gone (7✅ 1 flaky) |
-| 4 — setup modals         | `d0af5fe0` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | OtaUpdateGate narrowed to the Progress swap           |
+| 1 — **reverted**         | `a6315b70` | lint ✅ typecheck ✅ unit ✅ (149) build ✅ plan-first ✅ | back to 0.7.3; composer regression gone (7✅ 1 flaky) |
+| 4 — setup modals         | `fd782f5a` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | OtaUpdateGate narrowed to the Progress swap           |
+| 5 — huddle avatars       | `7d81b841` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | −80 lines; fixed a broken image fallback              |
+| 6 — BottomNav            | `bcc5106e` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | Button adopted; sheet kept (no animation lib)         |
+| 7 — composer Badge       | `90733139` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | partial — see the `truncate` limitation               |
+| 8 — ESLint guardrail     | `221406cf` | lint ✅ typecheck ✅ format ✅ unit ✅ (149) build ✅     | verified by probe: 4 errors on a new file             |
