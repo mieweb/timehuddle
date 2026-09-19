@@ -44,7 +44,6 @@ const make = (overrides: Partial<UnifiedTicket>): UnifiedTicket =>
       delete: false,
       assign: false,
       changeStatus: false,
-      trackTime: false,
       openExternal: false,
     },
     ...overrides,

@@ -9,10 +9,13 @@
  * Normalization happens here, at the read layer, and is never persisted: no
  * source information is written to the core `Ticket` model.
  */
-import type { RedmineScope } from '../../../lib/api';
+import type { RedmineScope, TicketSourceId } from '../../../lib/api';
 
-/** Registered source identifiers. Adding a source starts by widening this. */
-export type TicketSourceId = 'huddle' | 'redmine';
+/**
+ * Registered source identifiers. Defined in `lib/api` because the timer
+ * endpoints take one, and re-exported here so source code reads from one place.
+ */
+export type { TicketSourceId };
 
 /**
  * What a source lets the user do from the unified list.
@@ -25,8 +28,6 @@ export interface SourceCapabilities {
   delete: boolean;
   assign: boolean;
   changeStatus: boolean;
-  /** Start/stop a TimeHuddle timer. This is a Huddle write, not a source write. */
-  trackTime: boolean;
   /** Row opens `externalUrl` in a new tab instead of an in-app detail route. */
   openExternal: boolean;
 }

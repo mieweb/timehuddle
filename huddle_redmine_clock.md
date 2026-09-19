@@ -465,11 +465,231 @@ identical table with an inert play-button column, move them back, and none of De
 
 ---
 
+## Time recording — one flow, two systems, one projection
+
+**Read this before M3.** Time is the one place in this integration where a user can see two
+different numbers in two different products and reasonably conclude the app is broken. This
+section fixes the vocabulary and the flow so M3–M5 implement one story rather than three.
+
+**The M3 entry-point question is now closed — see
+[`docs/redmine-m3-ticket-timer-flow.md`](./docs/redmine-m3-ticket-timer-flow.md) for the full
+sub-plan.** Summary: **My Board's ▶/⏸ is the only place a ticket timer starts.** The Clock
+page never lists tickets, and the Tickets-table ⋮ menu's "Start timer" item is retired.
+Starting a ticket timer **requires an active shift** — a reversal of this section's original
+R2/R3, recorded below.
+
+### The rule, in one line
+
+> **TimeHuddle is the system of record for _how_ time was spent. Redmine's "Spent time" is a
+> derived, one-way daily projection of it — never an input.**
+
+Corollaries that follow from that and are binding on M3–M5:
+
+- Detail (sessions, starts/stops, breaks, notes) lives **only** in TimeHuddle. Redmine gets a
+  single rolled-up number per issue per day and nothing else.
+- Nothing entered on the Redmine side ever flows back. There is no reverse sync in v1, and
+  **an edit made in Redmine's Spent time tab will be silently overwritten** by the next sync
+  (see decision **R4**).
+- The **shift clock total is never pushed to Redmine.** Only per-ticket timers are.
+
+### Where a user can start time today, and what each one writes
+
+```mermaid
+flowchart TD
+    User(["👤 User"])
+
+    subgraph Entry["Where time can be started in TimeHuddle (post-decision)"]
+        direction LR
+        ShiftBtn["Clock page<br/>Clock In / Out / Break — never lists tickets"]
+        BoardPlay["My Board<br/>▶ / ⏸ — the ONLY place a ticket timer starts<br/>🆕 M3 wires it, requires an active shift"]
+        WorkRow["Work page<br/>▶ / ⏸ on an existing entry, + manual Add Entry<br/>(fixes/backfills, does not compete with My Board)"]
+    end
+
+    User --> ShiftBtn
+    User --> BoardPlay
+    User --> WorkRow
+
+    ShiftBtn --> ClockEvents
+    BoardPlay -. "blocked unless a shift is running" .-> ClockEvents
+    BoardPlay --> WorkItems
+    WorkRow --> WorkItems
+
+    subgraph SysA["System A — shift clock, per team"]
+        ClockEvents[("ClockEvents + ClockBreaks<br/>accumulatedTime = span − meal breaks")]
+    end
+
+    subgraph SysB["System B — ticket timers, per issue per day"]
+        WorkItems[("WorkItems<br/>one per user + source + ticket + date")]
+        Sessions[("Timers<br/>many start/stop sessions, tagged with clockEventId")]
+        WorkItems --> Sessions
+    end
+
+    ClockEvents -. "break closes the running session<br/>resume opens a new one<br/>clock out closes all<br/>(8h auto-clockout closes runaway ticket timers too)" .-> Sessions
+    ClockEvents -. "shift total is never pushed" .-> NotSynced["🚫 stays in TimeHuddle"]
+    Sessions ==> Timesheet["Dashboard Timesheet<br/>ticket sessions nested under their shift row"]
+    Sessions ==> SyncEngine["M5 — upsert one time entry<br/>per issue per day (deferred, unstarted)"]
+    SyncEngine ==> Spent["Redmine → issue → Spent time"]
+
+    classDef huddle fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
+    classDef redmine fill:#fee2e2,stroke:#b91c1c,color:#7f1d1d
+    classDef entry fill:#f1f5f9,stroke:#64748b,color:#1e293b
+    classDef blocked fill:#f5f5f4,stroke:#a8a29e,color:#44403c
+
+    class ClockEvents,WorkItems,Sessions huddle
+    class SyncEngine,Spent redmine
+    class ShiftBtn,BoardPlay,WorkRow entry
+    class NotSynced blocked
+```
+
+**Verified against the code, not assumed:**
+
+- **The Clock page never gains a ticket picker** (dropped — see the M3 sub-plan). It only
+  ever owns Clock In/Out and Break/Resume, plus the read-only running-ticket badge
+  (`useRunningTicket(isClockedIn)`).
+- **My Board is now the single start point** (this reverses M2.1's "start from the ⋮ menu"
+  design — that entry point is retired, not just deprioritized). Work page keeps its own
+  ▶/⏸, but only for an entry that already exists — it fixes/backfills, it doesn't compete
+  with My Board as a _starting_ action.
+- **System A already drives System B, one way.** `clock.pause` → `closeRunningForUser`;
+  `clock.resume` → `restartTimerForWorkItem`; `clock.stop` and every auto-clockout job →
+  `closeAllForUser`. System B never writes back to System A. **Confirmed:**
+  `closeAllForUser` filters only by `userId` (no `source`/`ticketId` filter), so once a ticket
+  timer requires an active shift (D3 below), it inherits the shift's existing 8h
+  auto-clockout for free — no new close-out mechanism needs to be built.
+- **Switching tickets is silent by design.** `timers.startSession` and `timers.createEntry`
+  both call `closeRunningSession` first, so starting a second ticket timer auto-stops the
+  first. This is existing, already-shipped behavior — no warning dialog is being added for
+  it. It's a different case from **starting a ticket timer with no shift running**, which is
+  now a hard block with a message (D3), because that's a state the user needs to fix.
+
+### Where a user sees time, and why the numbers differ
+
+| Surface                          | Shows                            | Granularity                   | Source           |
+| -------------------------------- | -------------------------------- | ----------------------------- | ---------------- |
+| Clock page session timer         | Current **shift** elapsed        | live                          | System A         |
+| Dashboard → Me → Timesheet       | Shift sessions + breaks          | per shift                     | System A         |
+| Work page (`/app/work`)          | **Ticket** work items + sessions | per item per day              | System B         |
+| Redmine → issue → **Spent time** | Rolled-up hours                  | **one row per issue per day** | System B, via M5 |
+
+**The shift total and the sum of ticket timers are different numbers and always will be** — a
+user can be clocked in without any ticket timer running. This is not a bug, but it _is_ the
+most likely support question, so the two must never be added together or shown under one
+unlabelled heading (see **R5**).
+
+### How one day's work reaches Redmine
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as 👤 User
+    participant Huddle as TimeHuddle
+    participant Mongo as WorkItems + Timers
+    participant Redmine as Redmine
+
+    Dev->>Huddle: Start timer on Redmine issue #1234
+    Huddle->>Mongo: close any running session (one timer at a time)
+    Huddle->>Mongo: upsert WorkItem (user, redmine:1234, 2026-09-17)
+    Huddle->>Mongo: insert Timer session (start)
+
+    Dev->>Huddle: Take a break
+    Huddle->>Mongo: close the running session
+    Dev->>Huddle: Resume
+    Huddle->>Mongo: open a NEW session on the same WorkItem
+    Note over Mongo: Break time is absent because the session ended —<br/>nothing is subtracted. Subtraction is System A only.
+
+    Dev->>Huddle: Stop timer / clock out / auto-clockout
+    Huddle->>Mongo: close all running sessions
+    Huddle->>Mongo: net seconds = Σ sessions for (issue, day)
+
+    alt no redmineTimeEntryId stored yet
+        Huddle->>Redmine: POST /time_entries.json<br/>(issue_id, hours, activity_id, spent_on)
+        Redmine-->>Huddle: 201 + time entry id
+        Huddle->>Mongo: store redmineTimeEntryId
+    else id already stored
+        Huddle->>Redmine: PUT /time_entries/{id}.json (hours)
+        Redmine-->>Huddle: 204
+    end
+
+    Huddle->>Redmine: GET /time_entries/{id}.json (confirm)
+    Redmine-->>Huddle: hours as actually stored
+    alt hours match what we sent
+        Huddle->>Mongo: mark synced
+    else mismatch, 403, 404 or unreachable
+        Huddle->>Mongo: mark "sync failed" → offer Retry
+    end
+```
+
+### Verified facts about the target Redmine instance
+
+Probed against `REDMINE_BASE_URL` (`redmine0.os.mieweb.org`, unauthenticated reads only):
+
+- ✅ **REST web service is enabled** — real JSON is served.
+- ✅ **`activity_id` is enumerable without admin** via
+  `GET /enumerations/time_entry_activities.json`.
+- ⚠️ **`activity_id` is mandatory.** The instance offers exactly two activities — `Design`
+  (id 8) and `Development` (id 9) — and **neither is `is_default: true`**. Omitting
+  `activity_id` therefore fails with `422 Activity cannot be blank` on _every_ POST. M4's
+  "pick a sensible default" is a hard requirement, not a nicety. **Resolve the id at runtime;
+  do not hardcode `9`** — enumeration ids are instance-specific and an admin can renumber them.
+- ⚠️ **`edit_own_time_entries` is a separate Redmine permission from `log_time`**, and is not
+  implied by it. M5's upsert-by-`PUT` strategy assumes it. If the users' roles lack it, every
+  update returns `403` and the "exactly one entry per issue per day" guarantee collapses.
+  **Check the role config before building the upsert**, and treat `403` on `PUT` as a
+  first-class failure state rather than an unexpected error.
+- ⬜ **Redmine version is not exposed** in the footer (admin-only), so `allowed_statuses`
+  availability is still unconfirmed. Irrelevant to M3–M5; only matters if issue editing is
+  ever scheduled.
+
+### Decisions — resolved
+
+- **R2 — REVERSED. A ticket timer now _requires_ an active shift.** The original reasoning
+  (Redmine WorkItems have no `teamId`; gating on the shift would lock out non-team-member
+  Redmine users) still holds as a real trade-off, but it's now an **accepted v1 gap** rather
+  than a reason to decouple the two systems — same category as the already-accepted
+  `getTeamRunning`/`getUserWorkSummary` exclusions. Enforcement matches how ticket timers
+  worked before Redmine entered the picture, and it's a **prerequisite**, not a competing
+  concern — see D3 in the M3 sub-plan.
+- **R3 — RESOLVED, no new mechanism needed.** R3 worried about a ticket timer with nothing to
+  stop it, because R2 (as originally written) let timers run outside a shift. Now that R2 is
+  reversed, every ticket timer lives inside a shift and **inherits the shift's existing 8h
+  auto-clockout for free** — confirmed in code: `closeAllForUser` filters only by `userId`,
+  with no `source`/`ticketId` filter. No max-session cap needs to be built.
+- **R1, R4, R5, R6 — unchanged, and still scoped to Milestone 5**, which remains unstarted.
+  None of them are required for M3 to be done; they matter once the sync engine is actually
+  built. Restated briefly so they aren't lost:
+  - **R1** — trigger the Redmine sync on session close (not clock-out alone), since a session
+    close is the one event every ticket timer always has.
+  - **R4** — on conflict with a manual Redmine-side edit, TimeHuddle's next sync overwrites
+    it; say so in both the Redmine comment and Huddle's UI.
+  - **R5** — never sum or co-mingle **Shift** (System A) and **Ticket timer** (System B)
+    totals; Redmine's own label is **Spent time**.
+  - **R6** — a per-issue-per-day sync badge (_Not synced_ / _Synced_ / _Failed → Retry_) in
+    Huddle once M5 exists.
+
+**Full M3 flow, decisions and checklists now live in
+[`docs/redmine-m3-ticket-timer-flow.md`](./docs/redmine-m3-ticket-timer-flow.md).**
+
+---
+
 ## Milestone 3 — Start a ticket timer against a Redmine issue
 
 Let a user track time against a Redmine issue using the **existing ticket-timer
 mechanism** (WorkItems + Timers), the same one already used for internal tickets.
-_(Details still to be finalized — see "Time-tracking integration" note below.)_
+
+**Full flow, decisions and checklists:
+[`docs/redmine-m3-ticket-timer-flow.md`](./docs/redmine-m3-ticket-timer-flow.md).** Summary
+of what changed from earlier drafts of this milestone:
+
+- **Single start point: My Board's ▶/⏸.** The Clock page never lists tickets (the earlier
+  "Redmine tickets dropdown" is dropped), and the Tickets-table ⋮ menu's "Start timer" item
+  is retired rather than flag-flipped.
+- **A ticket timer now requires an active shift** (reverses this plan's earlier "stays
+  independent of the shift clock" position) — closes the stale-timer risk for free via the
+  shift's existing 8h auto-clockout, no new mechanism needed.
+- **Timesheet nesting split out to Milestone 3.1**, below — it's a distinct, heavier piece of
+  work (a backend join plus new `TimesheetRow` UI) that shouldn't block My Board's core
+  start/stop mechanics. Verified in code as **entirely new work** either way —
+  `ClockEvent` carries no ticket data today.
 
 **Key change — source-aware `WorkItem` (decided):** the timer layer already stores
 one `WorkItem` per (userId, ticket, date) with multiple start/stop `Timers` sessions.
@@ -478,25 +698,51 @@ Make it **source-aware** rather than building a parallel timer:
 All session / net-hours math is reused unchanged. Redmine WorkItems are **personal
 to the user's key** (no team-membership permission check).
 
-**Two entry points (decided):**
-
-- [ ] **Clock page**: a **"Redmine tickets" dropdown**, shown **only when a Redmine
-      account is connected**, populated from `redmine.issues.list({ scope: 'mine' })`.
-- [ ] **Ticket table**: a **"Start timer"** item in the row's ⋮ menu. M2.1 already ships
-      this entry point, gated on `capabilities.trackTime`, which is **false** for Redmine
-      until the source-aware `timers.createEntry` below exists — M3 flips that flag rather
-      than adding new UI. _(M2.1 also removed the per-row timer button that Huddle rows
-      used to carry; the timer lives in the ⋮ menu for both sources now.)_
-- [ ] **My Board play button**: M2.2 shipped the column (between checkbox and Title) as a
-      static, always-disabled placeholder. M3 wires it to the same `onToggleTimer` mechanism
-      the ⋮ menu already uses — no new column, no new plumbing, just enabling what's there.
+- [ ] **Shift gate.** Reject starting a ticket timer with no active `ClockEvent`
+      (`ClockEvents.findOneAsync({ userId, endTime: null })`); surface "Clock in to start a
+      ticket timer" in the UI.
+- [ ] **My Board play button**: wire the M2.2 column (static, always-disabled today) to
+      start/stop via the source-aware timer path, gated on the shift check above.
+- [ ] **Retire the ⋮ menu's "Start timer" item** — do not flip `capabilities.trackTime` to
+      true; remove the entry point instead so My Board stays the only start point.
 - [ ] Extend `timers.createEntry` (and title/link resolution) to accept a Redmine source
-      and create/reuse a `source: 'redmine'` WorkItem.
+      and create/reuse a `source: 'redmine'` WorkItem. **Three concrete blockers, required
+      regardless of which UI calls this** (`meteor-backend/server/timers.js`): 1. it hard-requires a valid Huddle `Tickets` ObjectID (`isValidId(ticketId)` +
+      `Tickets.findOneAsync`) and **throws `not-found` for a numeric Redmine id**; 2. it runs a **team-membership check** off `ticket.teamId`, which a Redmine issue has
+      no equivalent of — Redmine WorkItems are personal to the key and must skip it; 3. the WorkItem uniqueness key is `{ userId, ticketId, date }` and must become
+      source-aware, or a Redmine issue `#42` and Huddle ticket id `42` would collide.
+      `toPublicEntry(entry, ticket.title)` also needs a Redmine title resolver.
+- [ ] **Timer-switching needs no new UI.** `createEntry`/`startSession` already call
+      `closeRunningSession` first — starting a second timer silently stops the first. This is
+      existing, shipped behavior; just confirm it still holds with a Redmine source in the mix.
 - [ ] Handle "not connected" and "no assigned tickets" cases gracefully.
 
-**Done when:** a connected user can start/stop a timer against a Redmine issue from either
-the clock page dropdown or the ticket table, producing a normal TimeHuddle work-session tied
-to that Redmine issue.
+**Done when:** a connected user can clock in, move tickets to My Board, and start/stop a timer
+on one from the board (blocked while clocked out), with the session showing up on the Work
+page. **Does not require** the Dashboard Timesheet to reflect it yet — that's M3.1.
+
+---
+
+## Milestone 3.1 — Nest ticket timers into the Dashboard Timesheet
+
+Split out from M3 because it's a distinct, heavier piece of work (a backend join plus new
+`TimesheetRow` UI) that shouldn't block My Board's core start/stop mechanics from shipping.
+Depends on M3's shift-gate decision (D3 in the sub-plan): because a ticket timer can only
+exist while a shift is running, and `clock.stop`/auto-clockout always call `closeAllForUser`
+before closing the shift, every ticket-timer session is guaranteed to fall within its
+containing shift's window.
+
+**Full checklist: [`docs/redmine-m3-ticket-timer-flow.md`](./docs/redmine-m3-ticket-timer-flow.md)
+(Milestone 3.1 section).** Summary:
+
+- [ ] Store `clockEventId` on each `Timers` session at creation.
+- [ ] Backend: join `Timers` sessions to their shift by `clockEventId` in the shift-timesheet
+      read, with ticket title/link resolved the same way M3's title resolver does.
+- [ ] Frontend: `TimesheetRow` renders an expandable sub-list of ticket sessions under each
+      shift row; a shift with none renders unchanged from today.
+
+**Done when:** every ticket-timer session started under M3 appears nested under the correct
+shift row in Dashboard → Me → Timesheet.
 
 ---
 
@@ -518,7 +764,13 @@ All timing detail lives on the TimeHuddle side; Redmine only ever gets a total.
 - [ ] Add `redmineTimeEntryId` to the (Redmine) work record (idempotency key for sync).
 - [ ] Add a per-team/user **default `activity_id`** (Redmine requires an activity;
       pick a sensible default, e.g. "Development", configurable later).
-- [ ] Unit-check the hours math (breaks subtracted, multiple sessions merged correctly).
+- [ ] Unit-check the hours math (multiple sessions merged correctly).
+      **Correction — nothing is "subtracted" in System B.** Breaks are excluded _structurally_:
+      `clock.pause` closes the running session and `clock.resume` opens a new one, so break
+      time never appears in any session. The subtract-deducted-breaks model
+      (`accumulatedTime = span − deducted`) belongs to **System A only**. Applying it to
+      System B would **double-count the break as a deduction** against time that never
+      included it.
 
 **Done when:** starting/stopping, taking breaks, and running multiple sessions produces one
 correct net-hours total per ticket per day, entirely within TimeHuddle.
@@ -661,22 +913,32 @@ and any Redmine issue detail page (issues are read-only; link out instead).
 - [ ] Every Redmine write is confirmed by a follow-up read (no blind trust in HTTP 200).
 - [ ] Graceful handling of: not-connected, invalid key, Redmine unreachable, no tickets.
 - [ ] Config: `REDMINE_BASE_URL` + default `activity_id` documented, not hardcoded.
-- [ ] Manual end-to-end test against the local Redmine instance
-      (`compose.yaml`) using a seeded user from `accounts.md`:
-      connect → see assigned tickets → clock in on a ticket → work with a break →
-      clock out → verify a single correct "Spent time" entry appears in Redmine.
+      _`activity_id` must be **resolved at runtime** from
+      `/enumerations/time_entry_activities.json` — the instance has no default activity, so a
+      missing id is a hard `422`. See "Verified facts about the target Redmine instance"._
+- [ ] Manual end-to-end test: connect → see assigned tickets → start a ticket timer → work
+      with a break → stop → verify a single correct "Spent time" entry appears in Redmine.
+      **Corrected — there is no local Redmine to test against.** The plan previously named
+      `compose.yaml` and a seeded user from `accounts.md`; **neither file exists**, and
+      `docker-compose.yml` has no `redmine` service. `REDMINE_BASE_URL` points at a **shared
+      external instance** (`redmine0.os.mieweb.org`), so the first write lands in a Redmine
+      other people use. That requires a designated scratch project or test issue, plus
+      `DELETE /time_entries/{id}.json` cleanup, and it makes any write-path e2e test
+      stateful against shared infrastructure — decide the test target before M5.
 
 ## Suggested build order
 
 1. Milestone 1 (connection) — nothing works without it.
 2. Milestone 2 (read issues) — proves the key + read path.
-3. Milestone 3 (clock dropdown) — ties a session to an issue.
-4. Milestone 4 (timing math) — mostly TimeHuddle-internal.
-5. Milestone 5 (write-back) — the payoff, last because it depends on 1–4.
-6. Milestone 2.1 (unified table) — **UI-only and independent of 3–5**, so it can run in
+3. Milestone 3 (My Board start/stop) — ties a session to an issue.
+4. Milestone 3.1 (Timesheet nesting) — depends on M3's shift gate; can trail M3 without
+   blocking M4/M5, since neither reads from the Dashboard Timesheet.
+5. Milestone 4 (timing math) — mostly TimeHuddle-internal.
+6. Milestone 5 (write-back) — the payoff, last because it depends on 1–4 (not 3.1).
+7. Milestone 2.1 (unified table) — **UI-only and independent of 3–5**, so it can run in
    parallel or slot in wherever convenient. It is numbered 2.1 because it supersedes M2's
    view switcher, not because it blocks anything.
-7. Milestone 2.2 (My Board) — **UI-only and independent of 3–5**, same as 2.1; built on top
+8. Milestone 2.2 (My Board) — **UI-only and independent of 3–5**, same as 2.1; built on top
    of it. Its play-button column is inert until M3 wires it up.
-8. Milestone 6 (persistence / two-way sync) — deferred; do not start before its blockers
+9. Milestone 6 (persistence / two-way sync) — deferred; do not start before its blockers
    are resolved and M5 has shipped.

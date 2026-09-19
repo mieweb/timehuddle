@@ -26,26 +26,8 @@ npm install
 
 ### Build and Development
 
-```bash
-npm run dev      # Vite dev server — instant startup, port 3000
-npm run build    # Production build → dist/
-npm run preview  # Preview production build locally
-```
-
-- Development URL: `http://localhost:3000`
+- Development URL: `http://localhost:3000` (non-default Vite port)
 - Connects to the backend API at `http://localhost:4000`
-
-### Code Quality and Validation
-
-```bash
-npm run lint       # ESLint
-npm run lint:fix   # ESLint auto-fix
-npm run typecheck  # tsc --noEmit
-npm run format     # Prettier check
-npm run format:fix # Prettier auto-fix
-npm test           # Vitest (run once)
-npm run test:watch # Vitest watch mode
-```
 
 Pre-commit hooks (husky + lint-staged) run lint + format automatically.
 
@@ -65,38 +47,9 @@ Pre-commit hooks (husky + lint-staged) run lint + format automatically.
 
 ## Reporting Issues
 
-### GitHub Issue Titles
-
-- **Use Title Case**: Capitalize all major words in issue titles (e.g., "Add Docker Compose for Full Local Development Stack")
-- **No conventional commit prefixes**: Do not use `feat:`, `fix:`, `chore:` etc. in issue titles — those belong in commit messages, not issues
-- **Be descriptive**: Titles should clearly convey the what, not the how
-
-### Issue Body Structure
-
-- **Overview**: One paragraph explaining the problem or goal
-- **Current State**: Bullet list of how things work today
-- **Proposed Changes**: Numbered sections with sub-bullets for each change
-- **Acceptance Criteria**: Checkboxes (`- [ ]`) for each verifiable outcome
-- **Out of Scope (for Now)**: Explicit list of what is intentionally excluded from this issue
+See `.claude/skills/github-issue/SKILL.md` for issue title and body conventions.
 
 ## Project Structure
-
-```
-index.html              # Vite entry — mounts <div id="root">
-src/
-  main.tsx              # ReactDOM.createRoot entry point
-  styles.css            # Tailwind 4 entry + brand token bridge (required)
-  features/             # Feature-sliced modules (clock, teams, tickets, …)
-  lib/                  # Shared utilities (api, TeamContext, useSession, …)
-  ui/                   # Shell components (AppLayout, Sidebar, AppHeader, …)
-```
-
-### Path Aliases
-
-| Alias    | Resolves to |
-| -------- | ----------- |
-| `@ui/*`  | `src/ui/*`  |
-| `@lib/*` | `src/lib/*` |
 
 ### Key Files
 
@@ -105,34 +58,6 @@ src/
 - **Routing**: client-side only via `RouterContext` (no React Router)
 - **API calls**: `src/lib/api.ts` — fetch wrappers to the backend
 - **Auth**: `src/lib/useSession.ts`
-
-## Technology Stack
-
-### Vite 8
-
-- `@vitejs/plugin-react` (SWC)
-- HMR — changes reflect instantly, no restart needed
-- Build output: `dist/`
-
-### React 19
-
-- Concurrent features, Suspense
-- `motion` (Framer Motion 12) for animations
-
-### Tailwind CSS 4
-
-- Oxide/Lightning CSS engine — **no `tailwind.config.js` required**
-- Theme tokens via CSS variables in `client/styles.css`
-- `@mieweb/ui` brand tokens mapped to Tailwind colors
-- Dark mode via `data-theme="dark"` on `<html>`
-
-### TypeScript 5.x
-
-- Strict mode, `moduleResolution: Bundler`, `module: ESNext`
-
-### Vitest
-
-- Unit/integration tests alongside source files
 
 ## Styling Conventions
 
@@ -185,33 +110,7 @@ src/
 - **The backend owns data**: Persistence, validation, and business rules live in the backend. The frontend only consumes the API.
 - **Public APIs only**: The frontend communicates with the backend exclusively through versioned HTTP endpoints — never by reaching into backend modules directly.
 
-### Backend Architecture: Route → Controller → Service
-
-Every backend feature must follow a strict three-layer separation:
-
-| Layer          | Location                   | Responsibility                                              |
-| -------------- | -------------------------- | ----------------------------------------------------------- |
-| **Route**      | `backend/src/routes/`      | Schema declaration, auth hooks, wires request to controller |
-| **Controller** | `backend/src/controllers/` | Extracts params, calls service(s), formats reply            |
-| **Service**    | `backend/src/services/`    | Business logic and database access — no Fastify types       |
-
-**Rules:**
-
-- **Routes never contain business logic.** They declare the Fastify schema, attach `preHandler`/`onRequest` hooks, and call exactly one controller method.
-- **Controllers never touch the database directly.** They read from `req` (params, query, body, `req.user`), call service methods, and call `reply.send()` or `return`.
-- **Services never import Fastify types.** They are plain async functions or classes that can be unit-tested without an HTTP context.
-- **New routes always get a controller.** Do not add inline handler logic to a route file — extract it to `backend/src/controllers/<feature>.controller.ts` immediately.
-- **Existing inline route handlers should be migrated to controllers** whenever they are touched.
-
-```
-// ✅ Correct
-// routes/work-summary.ts  → calls workSummaryController.getByUser(req, reply)
-// controllers/work-summary.controller.ts → calls workSummaryService.forUser(userId)
-// services/work-summary.service.ts → queries MongoDB, returns data
-
-// ❌ Wrong
-// routes/work-summary.ts  → contains MongoDB queries inline
-```
+See `backend/CLAUDE.md` for the Route → Controller → Service architecture and Mongoose-specific rules.
 
 ### Refactoring Guidelines
 
@@ -235,61 +134,6 @@ Every backend feature must follow a strict three-layer separation:
 - **Avoid unnecessary re-renders**: Prefer `useMemo` and `useCallback` only where measurable impact exists — don't pre-optimize
 - **Bundle size**: Avoid importing entire libraries; prefer named imports
 - **Backend queries**: Return only the fields the client needs; avoid over-fetching from the API
-
-### Avoid Repetitive Code: DRY
-
-Do this when it makes sense.
-
-- **For Example**: Never call connection setup per-query.\*\* Guards like `ensureMongooseConnected()` repeated inside model helpers cause redundant readyState checks and risk duplicate connect attempts.
-- Initialize all connections once in `bootstrap()` in `backend/src/server.ts`, before any request can arrive:
-  ```typescript
-  await connectDB(); // native MongoDB driver
-  await ensureMongooseConnected(); // Mongoose (whenever any Mongoose model is in use)
-  ```
-- Model helpers then need no connection guards — queries run unconditionally.
-
-### Mongoose vs Native MongoDB — When to Use Each
-
-- **Mongoose**: Stateful or permissioned models with lifecycle hooks, instance methods, or enum enforcement (e.g. `Ticket`). Use `InferSchemaType` — no separate interface needed.
-- **Native MongoDB driver**: Simple append/query models with no business rules (e.g. `ClockEvent`). Use a typed `interface` + collection accessor from `backend/src/models/index.ts`.
-
-### Mongoose ESM Import Rule (Node 24)
-
-Named imports from `mongoose` crash in ESM under Node 24 / Docker. Always use the default import then destructure:
-
-```typescript
-// ❌ Fails in Node 24 ESM
-import { Schema, model, models } from 'mongoose';
-
-// ✅ Correct
-import mongoose from 'mongoose';
-const { Schema, model, models } = mongoose;
-```
-
-### Mongoose Schema — `_id` Type Pinning
-
-`InferSchemaType` infers `_id` as `mongoose.Types.ObjectId`, which is incompatible with native driver filter types. Pin it explicitly when the model coexists with native driver queries:
-
-```typescript
-import { ObjectId } from 'mongodb';
-export type Ticket = mongoose.InferSchemaType<typeof ticketSchema> & { _id: ObjectId };
-```
-
-### Mongoose Pre-Hook Signature (v8+)
-
-Use `async function` with no `next` parameter — passing `next` causes a type error in Mongoose 8:
-
-```typescript
-// ❌ Type error in Mongoose 8
-ticketSchema.pre('save', function (next) {
-  next();
-});
-
-// ✅ Correct
-ticketSchema.pre('save', async function () {
-  this.updatedAt = new Date();
-});
-```
 
 ## HTML & CSS Guidelines
 
@@ -364,6 +208,12 @@ ticketSchema.pre('save', async function () {
 - **Isolated improvements**: If a change grows complex, extract it into a new function, module, or component instead of modifying multiple areas.
 - **Direct requests only**: Large refactors or architectural shifts should only occur when explicitly requested.
 - **Permission changes by need**: Add new permission arrangements only when they are required for the current task or explicitly requested.
+
+### Claude Code Config Hygiene
+
+- **Never commit personal Claude Code setup**: `.claude/settings.local.json`, `.claude/local/`, and `CLAUDE.local.md` are personal, machine-specific configuration (permission modes, allowlists, local skill overrides) and must never be staged or committed — they are gitignored for this reason.
+- **Only intentional, reviewed changes to shared Claude config are committed**: edits to the checked-in `CLAUDE.md`, `.claude/settings.json`, `.claude/skills/`, or `.claude/agents/` belong in git only when they are meant as team-wide conventions, not as a byproduct of one person's local Claude Code session (e.g. running `/doctor`).
+- Before committing, check `git status` for unexpected `.claude/*` entries and confirm with the user before staging any of them.
 
 ## @mieweb/ui Usage
 

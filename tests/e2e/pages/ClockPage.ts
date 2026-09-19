@@ -165,6 +165,24 @@ export class ClockPage extends BasePage {
   }
 
   /**
+   * Leave the user clocked in, whichever clock-in flow this account is on.
+   * Counterpart to `ensureClockedOut` — specs that need a running shift (every
+   * ticket-timer spec does, since M3 gates timers on one) call this rather
+   * than assuming the previous test's state.
+   */
+  async ensureClockedIn(plan = 'Plan for a ticket-timer test') {
+    await this.goto();
+    if (await this.isClockedIn()) return;
+    if (await this.clockInButton.isVisible().catch(() => false)) {
+      await this.clockIn();
+      return;
+    }
+    // Plan-first flow: the plan composer replaces the bare "Clock in" button.
+    await this.typePlan(plan);
+    await this.postPlanAndClockIn();
+  }
+
+  /**
    * Leave the user clocked out. Specs in this serial suite share seed users and
    * a database, so an earlier test can leave a session open — which renders the
    * clock page in wrap-up mode and hides the plan composer entirely.

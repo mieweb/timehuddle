@@ -1,19 +1,43 @@
+/**
+ * Ticket timers — WorkItems (one row per user + ticket + day) and the Timer
+ * sessions inside them.
+ *
+ * Since Milestone 3 a WorkItem is source-aware: it points at a Huddle ticket or
+ * a Redmine issue via `{ source, ticketId }` (see ticket-refs.js), and starting
+ * a session requires an active shift, which is what guarantees every session is
+ * contained by — and auto-closed with — the shift it belongs to.
+ */
 import { Meteor } from 'meteor/meteor';
 import { Mongo, MongoInternals } from 'meteor/mongo';
-import { Timers, WorkItems, Tickets, Teams, isValidId, rawDb } from './collections';
+import { Timers, WorkItems, Tickets, Teams, ClockEvents, isValidId, rawDb } from './collections';
 import { requireIdentity } from './auth-bridge';
 import { createNotification, userDisplayName } from './notify-core';
+import {
+  HUDDLE,
+  normalizeSource,
+  refKey,
+  resolveTicketRef,
+  resolveTicketRefs,
+  sourceSelector,
+} from './ticket-refs';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function toPublicEntry(e, ticketTitle = null) {
+/**
+ * @param {object} e        the stored WorkItem
+ * @param {{title: string|null, url: string|null}|null} display  resolved at read
+ *   time by ticket-refs.js — never persisted on the row itself.
+ */
+function toPublicEntry(e, display = null) {
   return {
     id: e._id.toHexString(),
     userId: e.userId,
+    source: normalizeSource(e.source),
     ticketId: e.ticketId,
-    displayTitle: ticketTitle ?? null,
+    displayTitle: display?.title ?? null,
+    displayUrl: display?.url ?? null,
     date: e.date,
     note: e.note ?? null,
     sortOrder: e.sortOrder ?? null,
@@ -27,6 +51,7 @@ function toPublicSession(s) {
     id: s._id.toHexString(),
     workItemId: s.workItemId,
     userId: s.userId,
+    clockEventId: s.clockEventId ?? null,
     date: s.date,
     startTime: s.startTime,
     endTime: s.endTime ?? null,
@@ -62,6 +87,22 @@ async function closeRunningSession(userId, now) {
   return running._id.toHexString();
 }
 
+/**
+ * The caller's running shift, or a hard stop.
+ *
+ * A ticket timer may only run inside a shift (M3 D3). That is what lets the
+ * existing 8h auto-clockout close ticket sessions for free, and what lets the
+ * Dashboard timesheet nest a session under the shift that contains it.
+ * Source-agnostic on purpose: it works the same for a Huddle team and a
+ * personal workspace.
+ */
+async function requireActiveShift(userId) {
+  const shift = await ClockEvents.findOneAsync({ userId, endTime: null });
+  if (!shift) throw new Meteor.Error('no-active-shift', 'Clock in to start a ticket timer');
+  return shift._id.toHexString();
+}
+
+/** Admin timesheet notifications are a Huddle-team concept; Redmine has no team. */
 async function notifyTimesheetAdmins(actorUserId, ticketId, date, action) {
   if (!isValidId(ticketId)) return;
   const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
@@ -90,12 +131,16 @@ async function notifyTimesheetAdmins(actorUserId, ticketId, date, action) {
   );
 }
 
-async function getTicketTitleMap(ticketIds) {
-  if (!ticketIds.length) return new Map();
-  const tickets = await Tickets.find({
-    _id: { $in: ticketIds.filter(isValidId).map((id) => new Mongo.ObjectID(id)) },
-  }, { fields: { title: 1 } }).fetchAsync();
-  return new Map(tickets.map((t) => [t._id.toHexString(), t.title]));
+/** Shape a day's entries + sessions for the wire, resolving titles in one batch. */
+async function toPublicDay(userId, entries) {
+  const display = await resolveTicketRefs(
+    userId,
+    entries.map(({ entry }) => entry),
+  );
+  return entries.map(({ entry, sessions }) => ({
+    entry: toPublicEntry(entry, display.get(refKey(normalizeSource(entry.source), entry.ticketId))),
+    sessions: sessions.map(toPublicSession),
+  }));
 }
 
 async function getDayEntries(userId, dateStr) {
@@ -126,14 +171,7 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const entries = await getDayEntries(userId, date);
-    const ticketIds = [...new Set(entries.map(({ entry }) => entry.ticketId))];
-    const titleMap = await getTicketTitleMap(ticketIds);
-    return {
-      entries: entries.map(({ entry, sessions }) => ({
-        entry: toPublicEntry(entry, titleMap.get(entry.ticketId) ?? null),
-        sessions: sessions.map(toPublicSession),
-      })),
-    };
+    return { entries: await toPublicDay(userId, entries) };
   },
 
   /** Get entries + sessions for today. Admin can pass userId. */
@@ -153,14 +191,9 @@ Meteor.methods({
 
     const today = todayInTz(tz);
     const entries = await getDayEntries(userId, today);
-    const ticketIds = [...new Set(entries.map(({ entry }) => entry.ticketId))];
-    const titleMap = await getTicketTitleMap(ticketIds);
-    return {
-      entries: entries.map(({ entry, sessions }) => ({
-        entry: toPublicEntry(entry, titleMap.get(entry.ticketId) ?? null),
-        sessions: sessions.map(toPublicSession),
-      })),
-    };
+    // Titles resolve against the *target* user's Redmine key, since the issues
+    // are only reachable through the key that logged the time.
+    return { entries: await toPublicDay(userId, entries) };
   },
 
   /** Get per-day totals for a 7-day week starting at date (YYYY-MM-DD). */
@@ -211,9 +244,12 @@ Meteor.methods({
     const ticketIds = [...ticketMap.keys()];
     if (!ticketIds.length) return { timers: [] };
 
+    // Team-scoped by definition, so Huddle-sourced only: a Redmine WorkItem is
+    // personal to its owner's API key and has no team to surface it under.
     const runningWorkItems = await WorkItems.find({
       ticketId: { $in: ticketIds },
       userId: { $in: allMembers },
+      ...sourceSelector(HUDDLE),
     }).fetchAsync();
     const workItemIds = runningWorkItems.map((wi) => wi._id.toHexString());
     if (!workItemIds.length) return { timers: [] };
@@ -257,10 +293,10 @@ Meteor.methods({
   },
 
   /** Get total seconds for a ticket across all closed sessions. */
-  async 'timers.getTicketTotal'({ ticketId } = {}) {
+  async 'timers.getTicketTotal'({ ticketId, source } = {}) {
     await requireIdentity(this);
     const entryIds = (await WorkItems.find(
-      { ticketId },
+      { ticketId, ...sourceSelector(normalizeSource(source)) },
       { fields: { _id: 1 } }
     ).fetchAsync()).map((e) => e._id.toHexString());
     if (!entryIds.length) return { totalSeconds: 0 };
@@ -272,29 +308,37 @@ Meteor.methods({
     return { totalSeconds: agg[0]?.total ?? 0 };
   },
 
-  /** Get or create a WorkItem for a ticket on a given date. Optionally start a timer. */
-  async 'timers.createEntry'({ ticketId, date, note, startNow = false, notifyAdmins = true, tz } = {}) {
+  /**
+   * Get or create a WorkItem for a ticket on a given date. Optionally start a timer.
+   *
+   * `source` defaults to Huddle so existing callers are unchanged; My Board
+   * passes the row's own source. The uniqueness key is
+   * `{userId, source, ticketId, date}` — without `source`, Redmine issue #42
+   * and a Huddle ticket would share a row.
+   */
+  async 'timers.createEntry'({ ticketId, source, date, note, startNow = false, notifyAdmins = true, tz } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
-    if (!isValidId(ticketId)) throw new Meteor.Error('not-found', 'Ticket not found');
-    const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
-    if (!ticket) throw new Meteor.Error('not-found', 'Ticket not found');
-    if (isValidId(ticket.teamId)) {
-      const team = await Teams.findOneAsync({
-        _id: new Mongo.ObjectID(ticket.teamId),
-        $or: [{ members: userId }, { admins: userId }],
-      });
-      if (!team) throw new Meteor.Error('forbidden', 'Forbidden');
+    const ticketSource = normalizeSource(source);
+    if (typeof ticketId !== 'string' || !ticketId) {
+      throw new Meteor.Error('not-found', 'Ticket not found');
     }
+    const display = await resolveTicketRef(userId, ticketSource, ticketId);
 
-    // Check if a work item already exists for this user+ticket+date
-    let entry = await WorkItems.findOneAsync({ userId, ticketId, date });
+    // Check if a work item already exists for this user+source+ticket+date
+    let entry = await WorkItems.findOneAsync({
+      userId,
+      ticketId,
+      date,
+      ...sourceSelector(ticketSource),
+    });
     let isNewEntry = false;
-    
+
     if (!entry) {
       // Create new work item only if one doesn't exist
       const entryId = await WorkItems.insertAsync({
         userId,
+        source: ticketSource,
         ticketId,
         date,
         ...(note ? { note } : {}),
@@ -311,10 +355,12 @@ Meteor.methods({
     let session = null;
     if (startNow) {
       if (isPreviousDate(date, tz)) throw new Meteor.Error('invalid-date', 'Cannot start a timer on a previous day');
+      const clockEventId = await requireActiveShift(userId);
       await closeRunningSession(userId, Date.now());
       const sessionId = await Timers.insertAsync({
         workItemId: entry._id.toHexString(),
         userId,
+        clockEventId,
         date,
         startTime: Date.now(),
         endTime: null,
@@ -324,14 +370,11 @@ Meteor.methods({
     }
 
     // Only notify admins if we actually created a new entry (not when reusing existing)
-    if (notifyAdmins && isNewEntry) {
+    if (notifyAdmins && isNewEntry && ticketSource === HUDDLE) {
       notifyTimesheetAdmins(userId, ticketId, date, 'added').catch(() => {});
     }
 
-    return {
-      entry: toPublicEntry(entry, ticket.title ?? null),
-      session,
-    };
+    return { entry: toPublicEntry(entry, display), session };
   },
 
   /** Start a timer for a WorkItem. Closes any open timer first. */
@@ -344,10 +387,12 @@ Meteor.methods({
     if (entry.userId !== userId) throw new Meteor.Error('forbidden', 'Forbidden');
     if (isPreviousDate(entry.date, tz)) throw new Meteor.Error('invalid-date', 'Cannot start a timer on a previous day');
 
+    const clockEventId = await requireActiveShift(userId);
     const closedSessionId = await closeRunningSession(userId, now);
     const sessionId = await Timers.insertAsync({
       workItemId: entryId,
       userId,
+      clockEventId,
       date: entry.date,
       startTime: now,
       endTime: null,
@@ -381,22 +426,25 @@ Meteor.methods({
     if (!entry) throw new Meteor.Error('not-found', 'WorkItem not found');
     if (entry.userId !== userId) throw new Meteor.Error('forbidden', 'Forbidden');
 
-    if (ticketId && ticketId !== entry.ticketId) {
-      if (!isValidId(ticketId)) throw new Meteor.Error('ticket-not-found', 'Ticket not found');
-      const ticket = await Tickets.findOneAsync(new Mongo.ObjectID(ticketId));
-      if (!ticket) throw new Meteor.Error('ticket-not-found', 'Ticket not found');
-      if (isValidId(ticket.teamId)) {
-        const team = await Teams.findOneAsync({
-          _id: new Mongo.ObjectID(ticket.teamId),
-          $or: [{ members: userId }, { admins: userId }],
-        });
-        if (!team) throw new Meteor.Error('forbidden', 'Forbidden');
+    // Retargeting is Huddle-only: the Work page's ticket picker lists Huddle
+    // tickets, and moving logged time onto a *different* Redmine issue is a
+    // sync concern (M5), not an edit.
+    const retargeting = Boolean(ticketId) && ticketId !== entry.ticketId;
+    if (retargeting) {
+      try {
+        await resolveTicketRef(userId, HUDDLE, ticketId);
+      } catch (err) {
+        if (err?.error === 'not-found') throw new Meteor.Error('ticket-not-found', 'Ticket not found');
+        throw err;
       }
     }
 
     const $set = { updatedAt: new Date() };
     const $unset = {};
-    if (ticketId && ticketId !== entry.ticketId) $set.ticketId = ticketId;
+    if (retargeting) {
+      $set.ticketId = ticketId;
+      $set.source = HUDDLE;
+    }
     if (note !== undefined) {
       if (note === null || note === '') $unset.note = '';
       else $set.note = note;
@@ -421,10 +469,12 @@ Meteor.methods({
     }
 
     const updated = await WorkItems.findOneAsync(new Mongo.ObjectID(entryId));
-    const finalTicketId = ticketId && ticketId !== entry.ticketId ? ticketId : entry.ticketId;
-    const updatedTicket = await Tickets.findOneAsync(new Mongo.ObjectID(finalTicketId));
-    notifyTimesheetAdmins(userId, finalTicketId, updated.date, 'updated').catch(() => {});
-    return { entry: toPublicEntry(updated, updatedTicket?.title ?? null) };
+    const finalSource = normalizeSource(updated.source);
+    const display = await resolveTicketRefs(userId, [updated]);
+    if (finalSource === HUDDLE) {
+      notifyTimesheetAdmins(userId, updated.ticketId, updated.date, 'updated').catch(() => {});
+    }
+    return { entry: toPublicEntry(updated, display.get(refKey(finalSource, updated.ticketId))) };
   },
 
   /** Delete a WorkItem and all its timers. */
@@ -437,7 +487,7 @@ Meteor.methods({
     if (entry.userId !== userId) throw new Meteor.Error('forbidden', 'Forbidden');
     const deletedSessions = await Timers.removeAsync({ workItemId: entryId });
     await WorkItems.removeAsync(new Mongo.ObjectID(entryId));
-    if (notifyAdmins) {
+    if (notifyAdmins && normalizeSource(entry.source) === HUDDLE) {
       notifyTimesheetAdmins(userId, entry.ticketId, entry.date, 'deleted').catch(() => {});
     }
     return { deletedEntry: true, deletedSessions };
@@ -455,7 +505,7 @@ Meteor.methods({
     const prevEntries = await WorkItems.find({ userId, date: prev.date }).fetchAsync();
     if (!prevEntries.length) return { created: 0 };
 
-    const sig = (e) => `${e.ticketId}::${e.note ?? ''}::${e.sortOrder ?? ''}`;
+    const sig = (e) => `${normalizeSource(e.source)}::${e.ticketId}::${e.note ?? ''}::${e.sortOrder ?? ''}`;
     const existing = await WorkItems.find({ userId, date: toDate }).fetchAsync();
     const existingCounts = new Map();
     for (const e of existing) {
@@ -470,6 +520,7 @@ Meteor.methods({
       if (rem > 0) { existingCounts.set(k, rem - 1); continue; }
       await WorkItems.insertAsync({
         userId,
+        source: normalizeSource(e.source),
         ticketId: e.ticketId,
         date: toDate,
         ...(e.note ? { note: e.note } : {}),
@@ -514,9 +565,11 @@ Meteor.methods({
     // Get unique WorkItem IDs
     const workItemIds = [...new Set(recentTimers.map((t) => t.workItemId))];
     
-    // Fetch WorkItems to get ticket IDs
+    // Fetch WorkItems to get ticket IDs. Huddle-sourced only: this summary is
+    // shown to teammates, and a Redmine issue is private to its owner's key.
     const workItems = await WorkItems.find({
       _id: { $in: workItemIds.filter(isValidId).map((id) => new Mongo.ObjectID(id)) },
+      ...sourceSelector(HUDDLE),
     }).fetchAsync();
 
     const ticketIds = [...new Set(workItems.map((wi) => wi.ticketId).filter(isValidId))];

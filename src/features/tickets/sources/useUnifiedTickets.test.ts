@@ -45,7 +45,6 @@ function fakeSource(
       delete: false,
       assign: false,
       changeStatus: false,
-      trackTime: false,
       openExternal: false,
     },
     isAvailable: () => isAvailable,

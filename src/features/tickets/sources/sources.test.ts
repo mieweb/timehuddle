@@ -190,7 +190,6 @@ describe('redmineSource.toUnified', () => {
       assign: false,
       changeStatus: false,
       // Stays false until the source-aware timers.createEntry exists (M3).
-      trackTime: false,
       openExternal: true,
     });
   });

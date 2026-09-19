@@ -26,7 +26,6 @@ import './redmine';
 import './my-board';
 import './clock';
 import './timers';
-import './timers';
 import './notifications';
 import './presence';
 import './activity';

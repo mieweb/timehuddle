@@ -5,14 +5,23 @@
  * Continuation segments show "---" for clock-in (on all but the first day)
  * and "---" for clock-out (on all but the last day), making it clear the
  * session carried over from / into an adjacent day.
+ *
+ * A shift that had ticket timers running inside it (M3.1) also gets an
+ * expandable sub-list of those sessions. Because a ticket timer can only run
+ * while a shift is running, every such session is contained by the shift it is
+ * nested under. A shift with none renders exactly as it did before.
  */
-import { faEllipsisVertical } from '@fortawesome/free-solid-svg-icons';
+import {
+  faChevronDown,
+  faChevronRight,
+  faEllipsisVertical,
+} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Badge, Button, TableCell, TableRow, Text } from '@mieweb/ui';
-import React from 'react';
+import React, { useState } from 'react';
 
 import { formatDate, formatDuration, formatTime } from '../../lib/timeUtils';
-import { type ClockEvent } from '../../lib/api';
+import { type ClockEvent, type ShiftTicketSession } from '../../lib/api';
 import { roundDurationSecondsForDisplay } from './timesheetUtils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -181,19 +190,69 @@ function splitAtMidnight(rows: TimelineRow[]): TimelineRow[] {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+/** Open a ticket session's target — in-app for Huddle, the instance for Redmine. */
+function TicketSessionLink({ ticket }: { ticket: ShiftTicketSession }) {
+  const label = ticket.title ?? `#${ticket.ticketId}`;
+  if (!ticket.url) {
+    return (
+      <Text size="xs" variant="muted">
+        {label}
+      </Text>
+    );
+  }
+  return (
+    <a
+      href={ticket.url}
+      {...(ticket.source === 'redmine' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+      className="text-xs text-neutral-700 hover:text-primary hover:underline dark:text-neutral-300"
+      title={label}
+    >
+      {label}
+    </a>
+  );
+}
+
 export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
   const teamName = teams.find((t) => t.id === session.teamId)?.name ?? session.teamId;
   const timelineRows = splitAtMidnight(buildTimelineRows(session, Date.now()));
+  const ticketSessions = session.ticketSessions ?? [];
+  const [ticketsOpen, setTicketsOpen] = useState(false);
+  const ticketListId = `shift-tickets-${session.id}`;
 
   return (
     <>
       {timelineRows.map((row, idx) => {
         const showActions = idx === 0;
+        // The disclosure belongs on the chronologically-first segment, next to
+        // the date the shift actually started on.
+        const showTicketToggle = ticketSessions.length > 0 && idx === timelineRows.length - 1;
         // Team name belongs on the chronologically-first segment (last in desc-sorted array)
         const showTeam = idx === timelineRows.length - 1;
         return (
           <TableRow key={`${session.id}-${row.kind}-${idx}`}>
-            <TableCell>{formatDate(new Date(row.start), true)}</TableCell>
+            <TableCell>
+              <div className="flex items-center gap-1">
+                {showTicketToggle && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-5 w-5 shrink-0"
+                    aria-expanded={ticketsOpen}
+                    aria-controls={ticketListId}
+                    aria-label={`${ticketsOpen ? 'Hide' : 'Show'} ${ticketSessions.length} ticket timer${
+                      ticketSessions.length === 1 ? '' : 's'
+                    } for this shift`}
+                    onClick={() => setTicketsOpen((open) => !open)}
+                  >
+                    <FontAwesomeIcon
+                      icon={ticketsOpen ? faChevronDown : faChevronRight}
+                      className="text-[10px]"
+                    />
+                  </Button>
+                )}
+                <span>{formatDate(new Date(row.start), true)}</span>
+              </div>
+            </TableCell>
             <TableCell>
               {row.isContinuation ? (
                 <Text variant="muted" size="xs">
@@ -253,6 +312,44 @@ export const TimesheetRow: React.FC<Props> = ({ session, teams, onEdit }) => {
           </TableRow>
         );
       })}
+
+      {ticketsOpen &&
+        ticketSessions.map((ticket, idx) => (
+          <TableRow
+            key={ticket.id}
+            // `aria-controls` needs one target: the first row anchors the group.
+            {...(idx === 0 ? { id: ticketListId } : {})}
+            className="bg-neutral-50 dark:bg-neutral-900/40"
+          >
+            <TableCell className="pl-10">
+              <TicketSessionLink ticket={ticket} />
+            </TableCell>
+            <TableCell>
+              <Text size="xs" variant="muted">
+                {formatTime(new Date(ticket.startTime))}
+              </Text>
+            </TableCell>
+            <TableCell>
+              <Text size="xs" variant="muted">
+                {ticket.endTime === null ? '—' : formatTime(new Date(ticket.endTime))}
+              </Text>
+            </TableCell>
+            <TableCell className="font-mono">
+              <Text size="xs" variant="muted">
+                {ticket.durationSeconds === null
+                  ? '—'
+                  : formatDuration(roundDurationSecondsForDisplay(ticket.durationSeconds))}
+              </Text>
+            </TableCell>
+            <TableCell />
+            <TableCell>
+              <Badge variant="outline" size="sm">
+                {ticket.source === 'redmine' ? 'Redmine' : 'Ticket'}
+              </Badge>
+            </TableCell>
+            <TableCell />
+          </TableRow>
+        ))}
     </>
   );
 };

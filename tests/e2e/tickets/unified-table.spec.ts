@@ -151,13 +151,15 @@ test.describe('Unified ticket table', () => {
     expect(overflowsVertically).toBe(false);
   });
 
-  test('starts a timer from the row menu, not a row button', async ({ page }) => {
+  test('offers no way to start a timer — that lives only on My Board (M3 D1)', async ({ page }) => {
     const title = `E2E Timer Menu ${Date.now()}`;
     await tickets.createTicket(title);
 
     const row = tickets.rowByTitle(title).first();
+    await expect(row.getByRole('button', { name: /start timer|stop timer/i })).toHaveCount(0);
+
     await row.getByRole('button', { name: 'Ticket options' }).click();
-    await expect(page.getByRole('menuitem', { name: /Start timer/ })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /timer/i })).toHaveCount(0);
     await page.keyboard.press('Escape');
   });
 
