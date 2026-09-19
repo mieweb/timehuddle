@@ -13,8 +13,9 @@ import { Meteor } from 'meteor/meteor';
 
 import { RedmineLinks } from './collections';
 import { requireIdentity } from './auth-bridge';
-import { getCurrentUser, listIssues, redmineBaseUrl } from './redmine-client';
-import { decryptSecret, encryptSecret, envKey } from './redmine-crypto';
+import { getCurrentUser, listIssues, optionalRedmineBaseUrl, redmineBaseUrl } from './redmine-client';
+import { encryptSecret, envKey } from './redmine-crypto';
+import { findRedmineApiKey } from './redmine-account';
 import { toStatus } from './redmine-status';
 import { toIssueList } from './redmine-issues';
 
@@ -33,18 +34,6 @@ Meteor.startup(async () => {
     console.error('[redmine] failed to create unique userId index:', error);
   }
 });
-
-/**
- * Server-configured Redmine base URL, or null if unset. Used only to shape the
- * status response; connect validates a real URL separately before writing.
- */
-function configuredBaseUrl() {
-  try {
-    return redmineBaseUrl();
-  } catch {
-    return null;
-  }
-}
 
 Meteor.methods({
   /**
@@ -121,7 +110,7 @@ Meteor.methods({
   /** Report the caller's Redmine connection status (never the key). */
   async 'redmine.status'() {
     const { userId } = await requireIdentity(this);
-    return toStatus(await RedmineLinks.findOneAsync({ userId }), configuredBaseUrl());
+    return toStatus(await RedmineLinks.findOneAsync({ userId }), optionalRedmineBaseUrl());
   },
 
   /**
@@ -136,11 +125,10 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'scope must be "mine" or "all".');
     }
 
-    const link = await RedmineLinks.findOneAsync({ userId });
-    if (!link) return { connected: false, baseUrl: configuredBaseUrl(), issues: [] };
+    const apiKey = await findRedmineApiKey(userId);
+    if (!apiKey) return { connected: false, baseUrl: optionalRedmineBaseUrl(), issues: [] };
 
-    const baseUrl = configuredBaseUrl();
-    const apiKey = decryptSecret(link.apiKey, envKey());
+    const baseUrl = optionalRedmineBaseUrl();
 
     let issues;
     try {

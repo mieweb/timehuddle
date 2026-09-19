@@ -585,7 +585,16 @@ export const ClockPage: React.FC = () => {
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => navigate(`/app/tickets/${runningTicket.id}`)}
+                onClick={() => {
+                  // A Redmine issue lives on the external instance; a Huddle
+                  // ticket has an in-app detail route.
+                  if (!runningTicket.url) return;
+                  if (runningTicket.source === 'redmine') {
+                    window.open(runningTicket.url, '_blank', 'noopener,noreferrer');
+                    return;
+                  }
+                  navigate(runningTicket.url);
+                }}
                 aria-label={`Open ticket: ${runningTicket.title}`}
                 className="h-auto max-w-full rounded-full p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-600 dark:focus-visible:ring-green-400"
               >

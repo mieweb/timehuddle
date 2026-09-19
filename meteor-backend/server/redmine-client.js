@@ -5,8 +5,10 @@
  * per-user personal API key is injected as the `X-Redmine-API-Key` header so
  * every request is attributed to that user (no admin switch-user needed).
  *
- * Milestone 1 only needs `getCurrentUser` (key validation + identity). Issue
- * and time-entry helpers are added in their own milestones to avoid dead code.
+ * Helpers are added milestone by milestone to avoid dead code: `getCurrentUser`
+ * (M1 key validation + identity), `listIssues` (M2 read-only issue list), and
+ * `getIssue`/`listIssuesByIds` (M3 existence check + title resolution for
+ * source-aware ticket timers). Time-entry writes belong to M5 and are absent.
  */
 
 /** Server-wide Redmine base URL, trailing slash trimmed. Throws if unset. */
@@ -16,6 +18,18 @@ export function redmineBaseUrl() {
     throw new Error('REDMINE_BASE_URL is not configured');
   }
   return url.trim().replace(/\/+$/, '');
+}
+
+/**
+ * The configured base URL, or null when Redmine is unconfigured. Read paths use
+ * this — a missing URL just means "no link to render", not a failure.
+ */
+export function optionalRedmineBaseUrl() {
+  try {
+    return redmineBaseUrl();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -68,6 +82,40 @@ export async function getCurrentUser(apiKey) {
 export async function listIssues(apiKey, { scope = 'mine', limit = 100, offset = 0 } = {}) {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (scope === 'mine') params.set('assigned_to_id', 'me');
+  const data = await redmineRequest(`/issues.json?${params.toString()}`, { apiKey });
+  return data?.issues ?? [];
+}
+
+/**
+ * Fetch one issue via `GET /issues/{id}.json`, or null when it does not exist
+ * (or the key cannot see it — Redmine reports both as 404, and the distinction
+ * does not matter to a caller that only needs "can this user time this issue").
+ */
+export async function getIssue(apiKey, issueId) {
+  try {
+    const data = await redmineRequest(`/issues/${issueId}.json`, { apiKey });
+    return data?.issue ?? null;
+  } catch (err) {
+    if (err?.status === 404 || err?.status === 403) return null;
+    throw err;
+  }
+}
+
+/**
+ * Fetch several issues by id in one request.
+ *
+ * `status_id=*` is required: `/issues.json` defaults to open issues only, and a
+ * timesheet has to resolve the subject of an issue that has since been closed.
+ * Redmine caps `limit` at 100, which also bounds how many ids are worth asking
+ * for in a single call.
+ */
+export async function listIssuesByIds(apiKey, issueIds) {
+  if (!issueIds.length) return [];
+  const params = new URLSearchParams({
+    issue_id: issueIds.join(','),
+    status_id: '*',
+    limit: String(Math.min(issueIds.length, 100)),
+  });
   const data = await redmineRequest(`/issues.json?${params.toString()}`, { apiKey });
   return data?.issues ?? [];
 }

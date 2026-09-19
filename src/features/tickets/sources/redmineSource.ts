@@ -2,9 +2,9 @@
  * A connected Redmine instance as a unified source.
  *
  * Read-only: Redmine issue data is never written from TimeHuddle, so every
- * mutating capability is false. `trackTime` stays false until the source-aware
- * `timers.createEntry` exists (M3) — the row must not offer a timer it cannot
- * start.
+ * mutating capability is false. Timing a Redmine issue is not a Redmine write —
+ * the session lives in TimeHuddle — so it is not gated here; it is started from
+ * My Board like any other ticket (M3).
  */
 import { redmineApi, type RedmineIssue, type RedmineScope } from '../../../lib/api';
 
@@ -28,7 +28,6 @@ const CAPABILITIES: SourceCapabilities = {
   delete: false,
   assign: false,
   changeStatus: false,
-  trackTime: false,
   openExternal: true,
 };
 

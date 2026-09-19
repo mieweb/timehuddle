@@ -1,15 +1,15 @@
 /**
- * "My Board" personal priority view (Milestone 2.2).
+ * "My Board" personal priority view (Milestone 2.2) and the ticket timers it
+ * starts (Milestone 3).
  *
- * The play/timer button on a My Board row is a static, always-disabled
- * placeholder in this milestone — wiring it to actually start/stop a timer is
- * Milestone 3's job. `unified-table.spec.ts`'s
- * "starts a timer from the row menu, not a row button" test still covers the
- * main Tickets table, which never renders this column at all.
+ * My Board's ▶/⏸ is the *only* place in the app a ticket timer starts (M3 D1).
+ * The main Tickets table has no timer control at all — `unified-table.spec.ts`
+ * asserts its absence from the row menu.
  */
 import { test, expect } from '@playwright/test';
 
 import { TEST_USERS, loginAs } from '../fixtures/users';
+import { ClockPage } from '../pages/ClockPage';
 import { TicketsPage } from '../pages/TicketsPage';
 
 test.describe('My Board', () => {
@@ -33,10 +33,8 @@ test.describe('My Board', () => {
     const boardRow = tickets.rowByTitle(title);
     await expect(boardRow).toBeVisible();
 
-    // The board row has the extra play-button column; the main table never does.
-    const timerButton = tickets.timerButtonForRow(title);
-    await expect(timerButton).toBeVisible();
-    await expect(timerButton).toBeDisabled();
+    // The board row has the extra ▶/⏸ column; the main table never does.
+    await expect(tickets.timerButtonForRow(title)).toBeVisible();
 
     await tickets.selectTicket(title);
     await expect(tickets.removeFromBoardButton).toBeVisible();
@@ -74,5 +72,79 @@ test.describe('My Board', () => {
     await tickets.bulkDeleteButton.click();
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
     await expect(tickets.rowByTitle(title)).toHaveCount(0);
+  });
+});
+
+test.describe('My Board ticket timers', () => {
+  let tickets: TicketsPage;
+  let clock: ClockPage;
+
+  test.beforeEach(async ({ page }) => {
+    await loginAs(page, TEST_USERS.owner1);
+    clock = new ClockPage(page);
+    tickets = new TicketsPage(page);
+  });
+
+  test('starts and stops a timer from the board row', async () => {
+    await clock.ensureClockedIn();
+
+    const title = `E2E Board Timer ${Date.now()}`;
+    await tickets.goto();
+    await tickets.createTicket(title);
+    await tickets.moveToBoard(title);
+
+    await tickets.startTimerButton(title).click();
+    await expect(tickets.stopTimerButton(title)).toBeVisible();
+
+    await tickets.stopTimerButton(title).click();
+    await expect(tickets.startTimerButton(title)).toBeVisible();
+  });
+
+  test('switching to another ticket stops the first one, with no warning (D5)', async ({
+    page,
+  }) => {
+    await clock.ensureClockedIn();
+
+    const stamp = Date.now();
+    const first = `E2E Switch A ${stamp}`;
+    const second = `E2E Switch B ${stamp}`;
+    await tickets.goto();
+    await tickets.createTicket(first);
+    await tickets.createTicket(second);
+
+    await tickets.selectTicket(first);
+    await tickets.selectTicket(second);
+    await tickets.moveToBoardButton.click();
+    await tickets.switchToTab('my-board');
+
+    await tickets.startTimerButton(first).click();
+    await expect(tickets.stopTimerButton(first)).toBeVisible();
+
+    await tickets.startTimerButton(second).click();
+    await expect(tickets.stopTimerButton(second)).toBeVisible();
+
+    // The first stopped silently — no confirmation dialog, no second running row.
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(tickets.startTimerButton(first)).toBeVisible();
+
+    await tickets.stopTimerButton(second).click();
+  });
+
+  test('will not start a timer while clocked out (D3)', async ({ page }) => {
+    await clock.ensureClockedOut();
+
+    const title = `E2E Gate ${Date.now()}`;
+    await tickets.goto();
+    await tickets.createTicket(title);
+    await tickets.moveToBoard(title);
+
+    await tickets.startTimerButton(title).click();
+
+    // The board offers the fix rather than starting an unattached timer.
+    await expect(page.getByRole('heading', { name: 'Clock In Required' })).toBeVisible();
+    await expect(tickets.stopTimerButton(title)).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(tickets.startTimerButton(title)).toBeVisible();
   });
 });
