@@ -532,7 +532,12 @@ Meteor.methods({
       name: user.profile?.name || email || 'Unknown',
       username: user.username || null,
       image: user.image || null,
-      emailVerified: user.emails?.[0]?.verified ?? false
+      emailVerified: user.emails?.[0]?.verified ?? false,
+      // Both feed the release-notes page: the version decides what is still
+      // unread, and the signup date keeps a brand-new account from being told
+      // about a release it has only ever known as present.
+      createdAt: user.createdAt ? new Date(user.createdAt).toISOString() : null,
+      releaseNotesSeenVersion: user.releaseNotesSeenVersion || null
     };
   }
 });

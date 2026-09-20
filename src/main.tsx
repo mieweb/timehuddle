@@ -87,6 +87,7 @@ _log(`window.webkit?.messageHandlers?.bridge=${!!(window as any).webkit?.message
 _log(`window.Capacitor=${JSON.stringify(Object.keys((window as any).Capacitor || {}))}`);
 
 import { InboxPage } from './features/inbox/InboxPage';
+import { PublicReleaseNotesPage } from './features/release-notes/PublicReleaseNotesPage';
 import { enterpriseApi } from './lib/api';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
@@ -402,6 +403,12 @@ function renderRoot() {
     } else if (window.location.pathname === '/inbox') {
       _root = createRoot(el);
       _root.render(<InboxPage />);
+      return;
+    } else if (window.location.pathname === '/release-notes') {
+      // Public on purpose: linked from the landing page, so someone deciding
+      // whether to sign up can read what shipped without an account.
+      _root = createRoot(el);
+      _root.render(<PublicReleaseNotesPage />);
       return;
     }
 

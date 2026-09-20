@@ -1787,6 +1787,11 @@ Meteor.startup(async() => {
     inputSchema: { type: 'object', properties: { username: { type: 'string' } }, required: ['username'] },
   });
 
+  Wormhole.expose('users.markReleaseNotesSeen', {
+    description: 'Record the newest release note this user has read',
+    inputSchema: { type: 'object', properties: { version: { type: 'string' } }, required: ['version'] },
+  });
+
   // ── Organizations ─────────────────────────────────────────────────────────
 
   Wormhole.expose('orgs.list', { description: 'List organizations accessible to the caller', inputSchema: { type: 'object', properties: {} } });

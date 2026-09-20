@@ -66,6 +66,11 @@ export interface TimecoreUser {
   backgroundUrl?: string | null;
   /** Canonical username — null until the user has claimed one. */
   username: string | null;
+  /**
+   * Newest release note this user has read, or null if they never have.
+   * Drives the "New" flags on /app/release-notes and the menu badge.
+   */
+  releaseNotesSeenVersion: string | null;
   organizationMembership?: {
     organizationId: string;
     organizationSlug: string;

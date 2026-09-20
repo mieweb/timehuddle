@@ -410,6 +410,8 @@ class DdpClient {
     username: string | null;
     image: string | null;
     emailVerified: boolean;
+    createdAt: string | null;
+    releaseNotesSeenVersion: string | null;
   } | null> {
     try {
       // Use a timeout to prevent hanging
@@ -430,10 +432,17 @@ class DdpClient {
         username: string | null;
         image: string | null;
         emailVerified: boolean;
+        createdAt: string | null;
+        releaseNotesSeenVersion: string | null;
       } | null;
     } catch {
       return null;
     }
+  }
+
+  /** Records the newest release note the user has read. Never moves backwards. */
+  async markReleaseNotesSeen(version: string): Promise<void> {
+    await this.call('users.markReleaseNotesSeen', { version });
   }
 
   async logout(): Promise<void> {
