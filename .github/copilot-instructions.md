@@ -83,6 +83,7 @@ Pre-commit hooks (husky + lint-staged) run lint + format automatically.
 
 ```
 index.html              # Vite entry — mounts <div id="root">
+release-notes/          # One markdown file per shipped version — see its README
 src/
   main.tsx              # ReactDOM.createRoot entry point
   styles.css            # Tailwind 4 entry + brand token bridge (required)
@@ -90,6 +91,14 @@ src/
   lib/                  # Shared utilities (api, TeamContext, useSession, …)
   ui/                   # Shell components (AppLayout, Sidebar, AppHeader, …)
 ```
+
+### Release Notes
+
+A user-visible change ships with a note in [`release-notes/`](release-notes/README.md):
+one markdown file per version, named for the version it ships under, bundled into
+the build and rendered at `/app/release-notes`. That README is the single source
+of truth for the format, where assets go, and the bundle-size rules — read it
+before adding a note rather than copying an existing file blind.
 
 ### Path Aliases
 
