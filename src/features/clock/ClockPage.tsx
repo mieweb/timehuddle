@@ -216,19 +216,36 @@ export const ClockPage: React.FC = () => {
   // post directly (one-shot wormhole call) so it seeds immediately; the DDP copy
   // still takes over for realtime once it arrives.
   const [sessionPostFetch, setSessionPostFetch] = useState<DraftRef | null>(null);
+  // Whether the wrap-up seed lookup has settled (resolved or failed). The
+  // editor must not mount before this: RichEditor reads `value` on mount only,
+  // and since 0.8.0 it no longer picks up a later value even when remounted via
+  // `key`. Mounting empty and remounting once the plan text arrives therefore
+  // left the wrap-up composer blank, and submitting it overwrote the plan post
+  // with wrap-up-only text — silent loss of what the user wrote at clock-in.
+  const [seedSettled, setSeedSettled] = useState(false);
+  // What the editor was actually mounted with. The wrap-up submit overwrites
+  // the plan post, so if the editor never received the plan text we must not
+  // let that overwrite drop it — see the guard in postWrapUpAndClockOut.
+  const shownSeedRef = useRef<string>('');
+  const editorMounted = composerMode !== 'wrapup' || seedSettled;
   useEffect(() => {
     if (composerMode !== 'wrapup' || !gateTeamId || !activeClockEvent?.id) {
       setSessionPostFetch(null);
+      setSeedSettled(composerMode !== 'wrapup');
       return;
     }
     let cancelled = false;
     setSessionPostFetch(null);
+    setSeedSettled(false);
     huddleApi
       .getMyPostForSession(gateTeamId, activeClockEvent.id)
       .then((post) => {
         if (!cancelled) setSessionPostFetch(post);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setSeedSettled(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -244,6 +261,11 @@ export const ClockPage: React.FC = () => {
       : composerMode === 'wrapup'
         ? (sessionPost?.content.text ?? sessionPostFetch?.content.text ?? '')
         : '';
+
+  // Remember what the editor was actually mounted with, for the wrap-up guard.
+  useEffect(() => {
+    if (editorMounted) shownSeedRef.current = seedText;
+  }, [editorMounted, seedText, composerMode, editorKey]);
 
   // Caches the plan post ID immediately after creation so postWrapUpAndClockOut
   // can update the right post even if the DDP subscription hasn't synced yet.
@@ -372,11 +394,23 @@ export const ClockPage: React.FC = () => {
       const mentionUserIds = mentions.length ? mentions.map((m) => m.userId) : undefined;
       const postAttachments = attachments.map(toPostAttachment);
       if (effectivePostId) {
-        // Normal flow: update the plan post with the wrap-up.
+        // Safety net against losing the plan.
+        //
+        // This update REPLACES the plan post's text. If the editor never
+        // received the plan (seed lookup failed, or RichEditor ignored it),
+        // submitting would silently destroy what the user wrote at clock-in.
+        // Only merge when the editor demonstrably never showed the plan —
+        // `shownSeedRef` is what it actually mounted with — so text the user
+        // deliberately edited or deleted is left exactly as they left it.
+        const planText = (sessionPost?.content.text ?? sessionPostFetch?.content.text ?? '').trim();
+        const editorNeverSawPlan = planText !== '' && !shownSeedRef.current.includes(planText);
+        const textToSave =
+          editorNeverSawPlan && !trimmed.includes(planText) ? `${planText}\n\n${trimmed}` : trimmed;
+
         await huddleApi.updatePost(
           effectivePostId,
           {
-            text: trimmed,
+            text: textToSave,
             mentions: mentionUserIds ?? sessionPost?.content.mentions ?? [],
           },
           {
@@ -565,15 +599,27 @@ export const ClockPage: React.FC = () => {
               )}
             </div>
 
-            <MarkdownEditor
-              key={`${composerMode}-${editorKey}`}
-              value={seedText}
-              onChange={setText}
-              onSubmit={() =>
-                void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
-              }
-              onImagePaste={uploadPastedImages}
-            />
+            {/* Mounted only once the seed lookup has settled — see `seedSettled`.
+                Mounting earlier gives RichEditor an empty `value` it will never
+                replace, which silently drops the plan text on wrap-up. */}
+            {!editorMounted ? (
+              <div
+                className="markdown-editor flex items-center justify-center rounded-lg border border-gray-200 py-10 dark:border-neutral-700"
+                data-testid="composer-seed-loading"
+              >
+                <Spinner size="sm" label="Loading your plan…" />
+              </div>
+            ) : (
+              <MarkdownEditor
+                key={`${composerMode}-${editorKey}`}
+                value={seedText}
+                onChange={setText}
+                onSubmit={() =>
+                  void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
+                }
+                onImagePaste={uploadPastedImages}
+              />
+            )}
 
             {/* ── Ticket / mention / attachment chips ── */}
             <ComposerChips
