@@ -31,7 +31,20 @@ import {
   faComments,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle, Spinner, Text } from '@mieweb/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Progress,
+  Spinner,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  Text,
+} from '@mieweb/ui';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
@@ -341,32 +354,12 @@ export const DashboardPage: React.FC = () => {
     <AppPage
       titleActions={
         isPersonalWorkspace ? undefined : (
-          <div className="inline-flex rounded-full bg-neutral-100 p-1 dark:bg-neutral-800">
-            <button
-              type="button"
-              onClick={() => setTab('me')}
-              aria-pressed={tab === 'me'}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                tab === 'me'
-                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-              }`}
-            >
-              Me
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab('team')}
-              aria-pressed={tab === 'team'}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                tab === 'team'
-                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-              }`}
-            >
-              Team
-            </button>
-          </div>
+          <Tabs variant="pills" value={tab} onValueChange={(v) => setTab(v as 'me' | 'team')}>
+            <TabsList aria-label="Dashboard scope" className="w-fit">
+              <TabsTrigger value="me">Me</TabsTrigger>
+              <TabsTrigger value="team">Team</TabsTrigger>
+            </TabsList>
+          </Tabs>
         )
       }
     >
@@ -407,41 +400,28 @@ export const DashboardPage: React.FC = () => {
       />
 
       {/* ── Overview / Timesheet toggle ──────────────────────────────── */}
-      <div className="inline-flex rounded-full bg-neutral-100 p-1 dark:bg-neutral-800">
-        <button
-          type="button"
-          onClick={() => setView('overview')}
-          aria-pressed={view === 'overview'}
-          className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-            view === 'overview'
-              ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-              : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-          }`}
-        >
-          Overview
-        </button>
-        <button
-          type="button"
-          onClick={() => setView('timesheet')}
-          aria-pressed={view === 'timesheet'}
-          className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-            view === 'timesheet'
-              ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-              : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300'
-          }`}
-        >
-          Timesheet
-          {tab === 'team' && pendingApprovalCount > 0 && (
-            <Badge
-              variant="warning"
-              size="sm"
-              aria-label={`${pendingApprovalCount} timesheet ${pendingApprovalCount === 1 ? 'change' : 'changes'} awaiting your approval`}
-            >
-              {pendingApprovalCount}
-            </Badge>
-          )}
-        </button>
-      </div>
+      <Tabs
+        variant="pills"
+        value={view}
+        onValueChange={(v) => setView(v as 'overview' | 'timesheet')}
+      >
+        <TabsList aria-label="Dashboard view" className="w-fit">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="timesheet">
+            Timesheet
+            {tab === 'team' && pendingApprovalCount > 0 && (
+              <Badge
+                variant="warning"
+                size="sm"
+                className="ml-1.5"
+                aria-label={`${pendingApprovalCount} timesheet ${pendingApprovalCount === 1 ? 'change' : 'changes'} awaiting your approval`}
+              >
+                {pendingApprovalCount}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {/* ── Timesheet view: Team → admin panel (admins only), Me → personal panel ── */}
       {view === 'timesheet' &&
@@ -810,12 +790,13 @@ export const DashboardPage: React.FC = () => {
                                   ? ` ${member.name.split(' ')[1][0]}.`
                                   : ''}
                               </Text>
-                              <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
-                                <div
-                                  className={`h-full rounded-full transition-all ${member.isClockedIn ? 'bg-blue-500' : 'bg-neutral-300 dark:bg-neutral-600'}`}
-                                  style={{ width: `${barPct}%` }}
-                                />
-                              </div>
+                              <Progress
+                                value={barPct}
+                                size="sm"
+                                variant={member.isClockedIn ? 'success' : 'default'}
+                                className="mt-1"
+                                label={`${member.name}'s tracked time today`}
+                              />
                             </div>
                           </button>
                           <Text size="sm" weight="medium" className="shrink-0 tabular-nums">
@@ -954,14 +935,14 @@ const MemberRow: React.FC<MemberRowProps> = ({ member, currentTime, isAdmin, onN
               {member.name}
             </Text>
             {isAdmin && (
-              <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-400">
+              <Badge variant="secondary" size="sm" className="shrink-0 uppercase">
                 Admin
-              </span>
+              </Badge>
             )}
             {member.isOnBreak && (
-              <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400">
+              <Badge variant="warning" size="sm" className="shrink-0 uppercase">
                 On Break
-              </span>
+              </Badge>
             )}
           </div>
           <Text variant="muted" size="xs">

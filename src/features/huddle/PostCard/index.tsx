@@ -1,5 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
-import { Badge, Button } from '@mieweb/ui';
+import { faEllipsisVertical } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { useState, useEffect } from 'react';
+import { Badge, Button, Dropdown, DropdownItem } from '@mieweb/ui';
 import type { HuddlePost } from '@lib/api';
 import { huddleApi, resolveMediaUrl } from '@lib/api';
 import { formatTime } from '@lib/timeUtils';
@@ -77,19 +79,6 @@ export function PostCard({
   const [likeCount, setLikeCount] = useState(post.likes?.length ?? 0);
   const [hasLiked, setHasLiked] = useState(post.likes?.includes(currentUserId) ?? false);
   const [commentCount, setCommentCount] = useState(post.commentCount ?? 0);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setShowMenu(false);
-      }
-    }
-    if (showMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showMenu]);
   // Reset edit state and update counts when post changes
   useEffect(() => {
     setLikeCount(post.likes?.length ?? 0);
@@ -202,52 +191,28 @@ export function PostCard({
           </div>
         </div>
 
-        {/* Three-dot menu.
-            Deliberately not the @mieweb/ui `Dropdown`: in 0.7.3 it does not
-            open when its trigger is clicked. Reproduced both in this app's e2e
-            suite and in isolation with a plain `<button>` trigger and no other
-            markup, so it is the component rather than this wiring. Revisit once
-            the library is upgradable — see the composer regression in #538. */}
+        {/* The library Dropdown portals to <body> and positions `fixed` as of
+            0.9.0, so it is no longer clipped by the feed's scroll container —
+            the reason this menu was hand-rolled on 0.7.3. */}
         {(canEdit || canDelete) && (
-          <div className="relative" ref={menuRef}>
-            <button
-              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-neutral-700 transition-colors"
-              onClick={() => setShowMenu(!showMenu)}
-              aria-label="Post actions"
-              aria-haspopup="menu"
-              aria-expanded={showMenu}
-            >
-              <svg
-                className="w-4 h-4 text-gray-400 dark:text-neutral-500"
-                fill="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <circle cx="12" cy="5" r="1.5" />
-                <circle cx="12" cy="12" r="1.5" />
-                <circle cx="12" cy="19" r="1.5" />
-              </svg>
-            </button>
-            {showMenu && (
-              <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-neutral-800 rounded-lg shadow-lg border border-gray-200 dark:border-neutral-700 z-10">
-                {canEdit && (
-                  <button
-                    className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-700 rounded-t-lg"
-                    onClick={handleEdit}
-                  >
-                    Edit post
-                  </button>
-                )}
-                {canDelete && (
-                  <button
-                    className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-neutral-700 rounded-b-lg"
-                    onClick={handleDelete}
-                  >
-                    Delete post
-                  </button>
-                )}
-              </div>
+          <Dropdown
+            open={showMenu}
+            onOpenChange={setShowMenu}
+            placement="bottom-end"
+            width={192}
+            trigger={
+              <Button variant="ghost" size="icon" aria-label="Post actions">
+                <FontAwesomeIcon icon={faEllipsisVertical} />
+              </Button>
+            }
+          >
+            {canEdit && <DropdownItem onClick={handleEdit}>Edit post</DropdownItem>}
+            {canDelete && (
+              <DropdownItem variant="danger" onClick={handleDelete}>
+                Delete post
+              </DropdownItem>
             )}
-          </div>
+          </Dropdown>
         )}
       </div>
 
