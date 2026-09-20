@@ -1,5 +1,6 @@
 import { Meteor } from 'meteor/meteor';
 import { MongoInternals } from 'meteor/mongo';
+import { isNewer, isValidVersion } from '@timehuddle/ota-version';
 import { Teams, rawDb, isValidId } from './collections';
 import { requireIdentity } from './auth-bridge';
 
@@ -224,5 +225,33 @@ Meteor.methods({
     }
 
     return { username: normalized };
+  },
+
+  /**
+   * Records the newest release note this user has read.
+   *
+   * Stored on the user rather than in the browser so reading the notes on a
+   * laptop also clears them on a phone. Only ever moves forward: an older
+   * client that is behind on bundles must not walk the marker backwards and
+   * resurface notes the user has already read elsewhere.
+   */
+  async 'users.markReleaseNotesSeen'({ version }) {
+    const identity = await requireIdentity(this);
+    if (!isValidVersion(version)) {
+      throw new Meteor.Error('bad-request', 'version must be semver, like 1.0.2');
+    }
+
+    const user = await rawDb().collection('users').findOne(
+      { _id: identity.userId },
+      { projection: { releaseNotesSeenVersion: 1 } },
+    );
+    const current = user?.releaseNotesSeenVersion || null;
+    if (current && !isNewer(version, current)) return { releaseNotesSeenVersion: current };
+
+    await rawDb().collection('users').updateOne(
+      { _id: identity.userId },
+      { $set: { releaseNotesSeenVersion: version, updatedAt: new Date() } },
+    );
+    return { releaseNotesSeenVersion: version };
   },
 });
