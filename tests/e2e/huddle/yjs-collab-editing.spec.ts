@@ -89,14 +89,11 @@ async function openEditComposer(page: Page, seedText: string): Promise<void> {
   await postCard.waitFor({ state: 'visible', timeout: 15000 });
 
   // Open the three-dot menu (⋮ button inside the card)
-  const menuButton = postCard
-    .locator('button')
-    .filter({ has: page.locator('circle') })
-    .last();
+  const menuButton = postCard.getByRole('button', { name: 'Post actions' });
   await menuButton.click();
 
   // Click "Edit post" in the dropdown
-  await page.getByRole('button', { name: 'Edit post' }).click();
+  await page.getByRole('menuitem', { name: 'Edit post' }).click();
 
   // Wait for the ProseMirror editor to appear inside the edit composer
   await page.locator('.ProseMirror').first().waitFor({ state: 'visible', timeout: 10000 });
@@ -158,13 +155,10 @@ test.describe('Huddle — Yjs real-time collaborative editing', () => {
         const count = await staleCards.count();
         for (let i = 0; i < count; i++) {
           const card = staleCards.nth(i);
-          const menuBtn = card
-            .locator('button')
-            .filter({ has: page.locator('circle') })
-            .last();
+          const menuBtn = card.getByRole('button', { name: 'Post actions' });
           if (await menuBtn.isVisible({ timeout: 1000 })) {
             await menuBtn.click();
-            const deleteBtn = page.getByRole('button', { name: 'Delete post' });
+            const deleteBtn = page.getByRole('menuitem', { name: 'Delete post' });
             if (await deleteBtn.isVisible({ timeout: 1000 })) await deleteBtn.click();
           }
         }
@@ -236,11 +230,8 @@ test.describe('Huddle — Yjs real-time collaborative editing', () => {
       .locator('[data-testid="post-card"]')
       .filter({ hasText: POST_SEED_TEXT })
       .first();
-    const menuButton = postCard
-      .locator('button')
-      .filter({ has: adminPage.locator('circle') })
-      .last();
-    const deletePost = adminPage.getByRole('button', { name: 'Delete post' });
+    const menuButton = postCard.getByRole('button', { name: 'Post actions' });
+    const deletePost = adminPage.getByRole('menuitem', { name: 'Delete post' });
 
     // The kebab menu occasionally swallows the first click (it toggles shut if
     // the menu is still animating), so open it with a bounded retry instead of
@@ -294,12 +285,9 @@ test.describe('Huddle — Yjs real-time collaborative editing', () => {
       .locator('[data-testid="post-card"]')
       .filter({ hasText: POST_SEED_TEXT })
       .first();
-    const menuButton = postCard
-      .locator('button')
-      .filter({ has: memberPage.locator('circle') })
-      .last();
+    const menuButton = postCard.getByRole('button', { name: 'Post actions' });
     await menuButton.click();
-    await memberPage.getByRole('button', { name: 'Delete post' }).click();
+    await memberPage.getByRole('menuitem', { name: 'Delete post' }).click();
     const confirmBtn = memberPage.getByRole('button', { name: /confirm|yes|delete/i }).first();
     if (await confirmBtn.isVisible({ timeout: 2000 })) {
       await confirmBtn.click();

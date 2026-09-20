@@ -39,11 +39,16 @@ export class TimesheetPage extends BasePage {
     await this.addEntryButton.waitFor({ state: 'visible', timeout });
   }
 
-  /** Open the timesheet from the dashboard's own Me -> Timesheet toggle. */
+  /**
+   * Open the timesheet from the dashboard's own Me -> Timesheet toggle.
+   *
+   * These are `role="tab"`, not buttons: the toggle is a @mieweb/ui `Tabs`
+   * (variant="pills"), which gives it a real tablist and arrow-key navigation.
+   */
   async navigateFromDashboard() {
     await this.page.goto('/app/dashboard');
     await this.heading.waitFor({ state: 'visible', timeout: 10000 });
-    await this.page.locator('main').getByRole('button', { name: 'Timesheet', exact: true }).click();
+    await this.page.locator('main').getByRole('tab', { name: 'Timesheet', exact: true }).click();
     await this.waitForLoad();
   }
 

@@ -238,12 +238,12 @@ test.describe('Timesheet calculation fixes', () => {
             .getByRole('dialog')
             .getByRole('button', { name: 'Test Team Alpha' })
             .click();
-          await adminPage.getByRole('button', { name: 'Team', exact: true }).click();
+          await adminPage.getByRole('tab', { name: 'Team', exact: true }).click();
           // "Timesheet" tab in the dashboard body — scope to <main> because
           // the sidebar also has a Timesheet nav button with the same name.
           await adminPage
             .getByRole('main')
-            .getByRole('button', { name: 'Timesheet', exact: true })
+            .getByRole('tab', { name: 'Timesheet', exact: true })
             .click();
 
           // Wait for the admin timesheet panel itself to mount.

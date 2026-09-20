@@ -396,6 +396,11 @@ export function HuddleComposer({
           }}
           disabled={!canSubmit}
           isLoading={posting}
+          // `loadingText` keeps the in-flight label ("Posting…") as the
+          // button's accessible name. Without it `isLoading` shows only a
+          // spinner, which drops the status text screen readers announce and
+          // the e2e suite asserts on as the double-submit guard.
+          loadingText="Posting…"
         >
           {submitLabel}
         </Button>
