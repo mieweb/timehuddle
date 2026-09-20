@@ -23,6 +23,11 @@ interface SessionState {
   refetch: () => Promise<void>;
   /** Sign out from timecore and clear local session state. */
   signOut: () => Promise<void>;
+  /**
+   * Record that the user has read the release notes up to `version`.
+   * Persists on the user document, so it follows them across devices.
+   */
+  markReleaseNotesSeen: (version: string) => Promise<void>;
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -34,6 +39,7 @@ const SessionContext = createContext<SessionState>({
   blockMessage: null,
   refetch: async () => {},
   signOut: async () => {},
+  markReleaseNotesSeen: async () => {},
 });
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
@@ -89,11 +95,12 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
           id: meteorUser.id,
           email: meteorUser.email,
           name: meteorUser.name,
-          createdAt: new Date().toISOString(),
+          createdAt: meteorUser.createdAt ?? new Date().toISOString(),
           emailVerified: meteorUser.emailVerified ?? true,
           image: meteorUser.image ?? null,
           backgroundUrl: null,
           username: meteorUser.username ?? null,
+          releaseNotesSeenVersion: meteorUser.releaseNotesSeenVersion ?? null,
           organizationMembership: null,
           organizations,
         });
@@ -161,11 +168,29 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
     await authApi.signOut().catch(() => {});
   }, []);
 
+  const markReleaseNotesSeen = useCallback(async (version: string) => {
+    // Optimistic: the page has already been read by the time this runs, and a
+    // failed write should not leave the notes flagged for the rest of the
+    // session. The server is the source of truth again on the next fetch.
+    setUser((prev) => (prev ? { ...prev, releaseNotesSeenVersion: version } : prev));
+    await getDdpClient()
+      .markReleaseNotesSeen(version)
+      .catch(() => {});
+  }, []);
+
   const needsUsernameClaim = !!user && user.username === null;
 
   return (
     <SessionContext.Provider
-      value={{ user, loading, needsUsernameClaim, blockMessage, refetch: fetchSession, signOut }}
+      value={{
+        user,
+        loading,
+        needsUsernameClaim,
+        blockMessage,
+        refetch: fetchSession,
+        signOut,
+        markReleaseNotesSeen,
+      }}
     >
       {children}
     </SessionContext.Provider>
