@@ -24,9 +24,8 @@ release-notes/
 
 - **The filename is the version.** `1.0.2.md` is the note for `1.0.2` — the same
   version the OTA bundle ships under. The file's `version:` field must match its
-  own filename, and the unit test in
-  [`notes.test.ts`](../src/features/release-notes/notes.test.ts) fails the build
-  if it doesn't.
+  own filename, or the note is dropped from the page at build time. Nothing
+  reports that, so check the page after adding a note.
 - **Anything that isn't `<semver>.md` is ignored**, so this README never shows up
   in the app.
 - **Assets live under `assets/<version>/`** — one folder per release, so deleting
@@ -42,9 +41,10 @@ release-notes/
    a second file.
 2. Copy the template below to `release-notes/<version>.md`.
 3. Put any screenshots in `release-notes/assets/<version>/`.
-4. Run `npm test` — the release-notes tests parse every file in this folder and
-   fail on a bad version, a bad date, or an image path that points at nothing.
-5. Look at it: `npm run dev` → `/release-notes` (no login) or `/app/release-notes`.
+4. Look at it: `npm run dev` → `/release-notes` (no login) or `/app/release-notes`.
+   This is the only check there is — a bad version, a bad date or an image path
+   that points at nothing drops the note from the page with no error anywhere,
+   so if your release is missing, that is why.
 
 ### Template
 
@@ -101,8 +101,8 @@ in this folder is a 20 MB download for every user on cellular data, so:
 
 Reference assets with a path relative to this folder — `assets/1.0.3/clock-in.png`
 — and always give the image real alt text. The build rewrites that path to the
-hashed bundle URL; a path that matches no file fails the test rather than
-shipping a broken image.
+hashed bundle URL; a path that matches no file drops the whole note from the
+page, so check it renders before you ship.
 
 ## How a note reaches the user
 
