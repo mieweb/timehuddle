@@ -1,7 +1,7 @@
 # @mieweb/ui Page-by-Page Adoption Audit
 
 **Status:** In progress — pages are audited one at a time, by URL, on request.
-**Library version:** `@mieweb/ui@0.7.3` (pinned; see [CLAUDE.md](../CLAUDE.md) for why 0.8.0+ is blocked)
+**Library version:** audited on `0.7.3`; **upgraded to `0.9.0` on 2026-09-20** — see §11
 **Rules of record:** [`.github/instructions/mieweb-ui.instructions.md`](../.github/instructions/mieweb-ui.instructions.md)
 **Started:** 2026-09-20
 
@@ -75,20 +75,20 @@ separately under "Library gaps" — they are not counted against the page.
 Snapshot taken 2026-09-20 on `feat/mieweb-ui-adoption-538`. This is the context every page
 score sits inside.
 
-| Metric                     | Value           |
-| -------------------------- | --------------- |
-| `.tsx` files under `src/`  | 96              |
-| …that import `@mieweb/ui`  | 73 (76%)        |
-| Raw `<button>` in `src/`   | 6               |
-| Raw `<input>` in `src/`    | 2               |
-| Raw `<select>` in `src/`   | 1               |
-| Raw `<textarea>` in `src/` | 2               |
-| Library components in use  | ~35 distinct    |
-| Library catalog size       | 126+ components |
+| Metric                     | Value                    |
+| -------------------------- | ------------------------ |
+| `.tsx` files under `src/`  | 96                       |
+| …that import `@mieweb/ui`  | 73 (76%)                 |
+| Raw `<button>` in `src/`   | ~~6~~ **60** (see §11.1) |
+| Raw `<input>` in `src/`    | ~~2~~ **13** (see §11.1) |
+| Raw `<select>` in `src/`   | 1                        |
+| Raw `<textarea>` in `src/` | 2                        |
+| Library components in use  | ~35 distinct             |
+| Library catalog size       | 126+ components          |
 
-Raw-control counts are low because ESLint now fails the build on new raw
-`button`/`input`/`select`/`textarea` in `src/` (commit `221406cf`). The remaining occurrences
-are grandfathered and each needs a recorded reason.
+ESLint fails the build on new raw `button`/`input`/`select`/`textarea` in `src/`
+(commit `221406cf`), so nothing new enters. The 60 that remain are grandfathered and each needs a
+recorded reason. The original "6" here was a bad regex, not a clean codebase — see §11.1.
 
 ### Most-used components
 
@@ -372,6 +372,93 @@ and `Table` is for "only if the human insists". `DataVisNitroGrid` is **not impo
 in the app**. This needs one deliberate decision rather than a per-page finding — these are
 small, fixed-column, edit-in-place tables, which is arguably exactly where plain `Table` is the
 right call. Recorded here; to be settled before the ticket/member pages are audited.
+
+---
+
+## 11. Correction and migration log (2026-09-20)
+
+> This section post-dates §10 and supersedes it where they disagree.
+
+### 11.1 A measurement error in §3
+
+**§3's raw-control baseline was wrong and understated the work by roughly 10×.** It counted with
+`<button[ >]`, which requires `<button` to be followed by a space or `>`. Almost every raw button
+in this codebase is written multi-line:
+
+```tsx
+<button
+  type="button"
+```
+
+so `<button` is followed by a newline and the pattern missed it. Corrected counts, app-wide in
+`src/**/*.tsx`, using `<button(\s|>|$)`:
+
+| Control      | §3 claimed | Actual |
+| ------------ | ---------- | ------ |
+| `<button>`   | 6          | **60** |
+| `<input>`    | 2          | **13** |
+| `<select>`   | 1          | 1      |
+| `<textarea>` | 2          | 2      |
+
+**The per-page grades in §5 and §10 are unaffected** — those were measured in the rendered DOM via
+`data-slot`, not by grepping source, and they stand. Only the app-wide source baseline was wrong.
+
+### 11.2 The library moved: 0.7.3 → 0.9.0
+
+The version hold is over. 0.8.0+ regressed the Kerebron `RichEditor` seeding the clock composer
+depends on; **0.9.0 fixes it**, verified by editing an existing Huddle post and confirming the
+editor seeds with its content (`<p>yes</p>`), plus a full clock in/out cycle. Upgrade gates all
+passed: `tsc`, `eslint`, `vite build`, 149 unit tests, no API breaks.
+
+0.9.0 ships **62 components, up from 40**, and that invalidates three gaps logged in §6:
+
+| Gap                                                   | Status after 0.9.0                                                                                                                                                                                            |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #5 — no segmented-control primitive                   | **Wrong, now closed.** `Tabs` accepts `variant="pills"` and `TabsContent` is optional, so `Tabs`+`TabsList`+`TabsTrigger` works as a pure segmented control with real `role=tablist` and arrow-key navigation |
+| #6 — no stat-tile component                           | **Wrong, now closed.** `CardStat` exists, taking `value`, `label`, `trend` and `icon` — exactly the markup repeated 13×                                                                                       |
+| #1 / #7 — `Dropdown` clipped inside scroll containers | **Fixed in 0.9.0.** Verified live: the menu portals out and computes `position: fixed`, so it is no longer clipped. This is why the Huddle post menu could return to the library component                    |
+| #8 — `Dropdown` container missing `role="menu"`       | **Still present in 0.9.0.** Verified live: 9 `role="menuitem"` children, container `role` is `null`. Still a library-side fix                                                                                 |
+
+New in 0.9.0 and relevant to the remaining work: `CopyButton`, `RowActionToolbar`,
+`NotificationCenter`, `CountBadge`, `Timeline`, `Sparkline`, `Toggle`, `Accordion`,
+`DateRangePicker`, `VisuallyHidden`.
+
+### 11.3 What has been migrated
+
+| Finding                                     | Fix                                                                                      | Verified                                                        |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| 🔴 Huddle composer unreachable by keyboard  | Bare `<div cursor-pointer>` → `Button`                                                   | Live: `tagName` BUTTON, `data-slot="button"`, tabbable          |
+| 🔴 Off-brand indigo Post button             | → `Button variant="primary"`, `isLoading` replaces the manual label swap                 | Live                                                            |
+| 🔴 Post menu with no `role="menu"`          | → library `Dropdown`; bespoke outside-click effect deleted                               | Live: portaled, `position: fixed`, `role=menuitem` children     |
+| 🔴 Composer Photo/Video/Doc raw buttons     | → `Button variant="outline"`; shared class reduced to pill shape only                    | Live: brand-orange `rgb(251,146,60)` borders                    |
+| 🔴 P1 hand-rolled `aria-pressed` toggles ×3 | → `Tabs variant="pills"`                                                                 | Live: 2 `role=tablist`, 0 `aria-pressed`, arrow-keys move focus |
+| 🔴 Admin / On Break / sessions-count pills  | → `Badge`                                                                                | Live                                                            |
+| 🔴 `Completed` status as bare `Text`        | → `Badge`, matching its four sibling statuses                                            | Live                                                            |
+| 🔴 Ticket status/priority colour maps       | Ten hardcoded pairs → `statusVariant()` / `priorityVariant()` returning `Badge` variants | Live                                                            |
+| 🔴 Raw assignee checkboxes                  | → `Checkbox`                                                                             | Live: brand-coloured, was browser-default blue                  |
+| 🔴 Hand-rolled member progress bar          | → `Progress`                                                                             | Live                                                            |
+| 🟠 Ticket back / delete / edit buttons      | → `Button`, delete as `variant="danger"`                                                 | Live                                                            |
+
+**`/app/tickets/:id` went 4/9 → 9/9 library controls (44% → 100%)**, measured live.
+
+Four files came off the ESLint grandfather list, so the build now fails if raw controls return to
+them: `HuddleComposer.tsx`, `AttachmentBar.tsx`, `pages/Huddle.tsx`, `TicketDetailPage.tsx`. The
+list is down to 28 entries.
+
+### 11.4 Still outstanding
+
+Ranked by reach. These are the bulk of the remaining 60 raw buttons:
+
+1. **`Sidebar.tsx`** (3 raw buttons, 32 hardcoded colours, zero library imports) — on every route
+2. **`BottomNav.tsx`** (6 raw buttons, 41 hardcoded colours) — the mobile nav, most of any file
+3. **`CommandPalette.tsx`** (520 lines, 83 hardcoded colours) — the library ships `CommandPalette`; this may be a deletion rather than a rewrite
+4. **`TicketsPage.tsx`** (5 raw buttons incl. all four filter dropdowns, 132 hardcoded colours)
+5. **`OrganizationChart.tsx`** (7-button toolbar, the F-grade page)
+6. **`PostCard/index.tsx`** (4 raw buttons left — reaction buttons still named "0")
+7. **`DashboardPage.tsx`** (4 raw buttons — these are the clickable-row gap #3, still blocked)
+8. **The colour sweep** (P2) — untouched; still the long pole
+9. **`ButtonGroup` / `Alert` / `ModalTitle`** (§10.5) — still 1, 2 and 7 files respectively
+10. **`CardStat`** — now available to replace the 13 repeated stat tiles
 
 ---
 
