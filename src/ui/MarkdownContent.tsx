@@ -84,11 +84,27 @@ const markdownComponents: Components = {
 interface MarkdownContentProps {
   content: string;
   className?: string;
+  /**
+   * Treat every newline as a line break.
+   *
+   * True for anything typed into a box — a huddle post wraps where the author
+   * pressed Enter, and collapsing those would run their lines together. False
+   * for prose authored as a markdown *file*, where lines are wrapped to a
+   * column and only a blank line means a new paragraph.
+   */
+  hardBreaks?: boolean;
 }
 
-export const MarkdownContent: React.FC<MarkdownContentProps> = ({ content, className }) => (
+export const MarkdownContent: React.FC<MarkdownContentProps> = ({
+  content,
+  className,
+  hardBreaks = true,
+}) => (
   <div className={className}>
-    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={markdownComponents}>
+    <ReactMarkdown
+      remarkPlugins={hardBreaks ? [remarkGfm, remarkBreaks] : [remarkGfm]}
+      components={markdownComponents}
+    >
       {content}
     </ReactMarkdown>
   </div>
