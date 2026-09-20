@@ -813,6 +813,16 @@ export const LandingPage: React.FC = () => {
               <FontAwesomeIcon icon={faGithub} className="text-sm" aria-hidden="true" />
             </motion.a>
 
+            {/* What's New — the public release notes */}
+            <motion.a
+              href="/release-notes"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.97 }}
+              className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+            >
+              What&rsquo;s New
+            </motion.a>
+
             {/* Divider */}
             <span className="mx-1 h-4 w-px bg-neutral-700" aria-hidden="true" />
 
@@ -1127,20 +1137,25 @@ export const LandingPage: React.FC = () => {
           <div className="flex items-center gap-6 text-sm text-neutral-500">
             {[
               { label: 'GitHub ↗', href: REPO_URL },
+              { label: "What's New", href: '/release-notes' },
               { label: 'Sign In ↗', href: '/app' },
               { label: 'Sign Up ↗', href: '/app?mode=signup' },
-            ].map((link) => (
-              <motion.a
-                key={link.label}
-                href={link.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                whileHover={reduced ? {} : { y: -2 }}
-                className="transition-colors hover:text-neutral-900 dark:hover:text-neutral-100"
-              >
-                {link.label}
-              </motion.a>
-            ))}
+            ].map((link) => {
+              // Only send people off-site in a new tab; the in-app links stay
+              // in this one, which is what the ↗ on the others already promises.
+              const isExternal = link.href.startsWith('http');
+              return (
+                <motion.a
+                  key={link.label}
+                  href={link.href}
+                  {...(isExternal ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                  whileHover={reduced ? {} : { y: -2 }}
+                  className="transition-colors hover:text-neutral-900 dark:hover:text-neutral-100"
+                >
+                  {link.label}
+                </motion.a>
+              );
+            })}
           </div>
         </div>
       </footer>
