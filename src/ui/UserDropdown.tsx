@@ -6,6 +6,7 @@
 import {
   faBug,
   faBuilding,
+  faBullhorn,
   faCircleUser,
   faComments,
   faGear,
@@ -15,9 +16,10 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { faApple } from '@fortawesome/free-brands-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Dropdown, DropdownItem, DropdownLabel, DropdownSeparator, Text } from '@mieweb/ui';
-import React, { useCallback, useState } from 'react';
+import { Badge, Dropdown, DropdownItem, DropdownLabel, DropdownSeparator, Text } from '@mieweb/ui';
+import React, { useCallback, useMemo, useState } from 'react';
 
+import { releaseNotes, unseenReleaseNotes } from '../features/release-notes/notes';
 import { useTeam } from '../lib/TeamContext';
 import { useSession } from '../lib/useSession';
 import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
@@ -43,6 +45,16 @@ export const UserDropdown: React.FC = () => {
     setOpen(false);
     void signOut();
   }, [signOut]);
+
+  const unseenReleaseCount = useMemo(
+    () => unseenReleaseNotes(releaseNotes, user?.releaseNotesSeenVersion, user?.createdAt).length,
+    [user?.createdAt, user?.releaseNotesSeenVersion],
+  );
+
+  const handleReleaseNotes = useCallback(() => {
+    setOpen(false);
+    navigate('/app/release-notes');
+  }, [navigate]);
 
   const handleProfile = useCallback(() => {
     setOpen(false);
@@ -184,6 +196,20 @@ export const UserDropdown: React.FC = () => {
             <span className="font-normal">TestFlight</span>
           </DropdownItem>
         </div>
+
+        <DropdownItem icon={<FontAwesomeIcon icon={faBullhorn} />} onClick={handleReleaseNotes}>
+          <span className="font-normal">What&rsquo;s New</span>
+          {unseenReleaseCount > 0 && (
+            <Badge
+              variant="success"
+              size="sm"
+              className="ms-2"
+              aria-label={`${unseenReleaseCount} unread ${unseenReleaseCount === 1 ? 'release note' : 'release notes'}`}
+            >
+              {unseenReleaseCount}
+            </Badge>
+          )}
+        </DropdownItem>
 
         <DropdownSeparator />
 

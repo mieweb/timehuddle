@@ -21,6 +21,7 @@ import { ClockPage } from '../features/clock/ClockPage';
 import { DashboardPage } from '../features/dashboard/DashboardPage';
 import { NotificationsPage } from '../features/notifications/NotificationsPage';
 import { ProfilePage } from '../features/profile/ProfilePage';
+import { ReleaseNotesPage } from '../features/release-notes/ReleaseNotesPage';
 import { SeederPage } from '../features/seeder/SeederPage';
 import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
@@ -73,6 +74,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/notifications': { title: 'Notifications', component: NotificationsPage },
   '/app/enterprise': { title: 'Enterprise', component: EnterprisePage },
   '/app/organization': { title: 'Organization', component: OrganizationPage },
+  '/app/release-notes': { title: 'What’s New', component: ReleaseNotesPage },
   '/app/settings': { title: 'Settings', component: SettingsPage },
   ...(import.meta.env.MODE !== 'production'
     ? { '/app/seeder': { title: 'Seeder', component: SeederPage } }
