@@ -22,13 +22,14 @@ import {
   createIssue,
   getIssueDetail,
   listIssuePriorities,
+  listIssueStatuses,
   listProjectMemberships,
   listProjects,
   listProjectTrackers,
   optionalRedmineBaseUrl,
   updateIssue,
 } from './redmine-client';
-import { toFormOptions, toIssueDetail, toNamedList } from './redmine-issues';
+import { toFormOptions, toIssueDetail, toJournals, toNameMap, toNamedList } from './redmine-issues';
 import {
   buildUpdatePayload,
   readBackMismatches,
@@ -40,7 +41,9 @@ import { toRedmineMeteorError } from './redmine';
 const FIVE_MINUTES = 5 * 60 * 1000;
 const projectsCache = createUserTtlCache(FIVE_MINUTES);
 const formOptionsCache = createUserTtlCache(FIVE_MINUTES);
-const prioritiesCache = createUserTtlCache(60 * 60 * 1000);
+const ONE_HOUR = 60 * 60 * 1000;
+const prioritiesCache = createUserTtlCache(ONE_HOUR);
+const statusesCache = createUserTtlCache(ONE_HOUR);
 
 /** What the user is told for each named write failure. */
 const WRITE_FAILURE_MESSAGES = {
@@ -75,8 +78,8 @@ function requireIssueId(issueId) {
   }
 }
 
-/** Read one issue's detail DTO, mapping "missing" to a `gone` error. */
-async function loadIssueDetail(apiKey, issueId) {
+/** Read one raw issue (with transitions and history), mapping "missing" to `gone`. */
+async function loadRawIssue(apiKey, issueId) {
   let raw;
   try {
     raw = await getIssueDetail(apiKey, issueId);
@@ -84,7 +87,48 @@ async function loadIssueDetail(apiKey, issueId) {
     throw toRedmineMeteorError(err);
   }
   if (!raw) throw new Meteor.Error('gone', WRITE_FAILURE_MESSAGES.gone);
-  return toIssueDetail(raw);
+  return raw;
+}
+
+/** Read one issue's detail DTO, mapping "missing" to a `gone` error. */
+async function loadIssueDetail(apiKey, issueId) {
+  return toIssueDetail(await loadRawIssue(apiKey, issueId));
+}
+
+/** A project's trackers, assignable users and priorities, from the per-user cache. */
+function loadFormOptions(userId, apiKey, projectId) {
+  return formOptionsCache.get(userId, `project:${projectId}`, async () => {
+    const [trackers, memberships, priorities] = await Promise.all([
+      listProjectTrackers(apiKey, projectId),
+      listProjectMemberships(apiKey, projectId),
+      prioritiesCache.get(userId, 'priorities', () => listIssuePriorities(apiKey)),
+    ]);
+    return toFormOptions({ trackers, memberships, priorities });
+  });
+}
+
+/**
+ * An issue's history with status, priority, assignee and tracker ids named.
+ * Best-effort: if the lookups cannot be fetched, the history still renders with
+ * `#id` placeholders rather than failing the whole page.
+ */
+async function loadJournals(userId, apiKey, raw) {
+  let lookups = {};
+  try {
+    const [statuses, options] = await Promise.all([
+      statusesCache.get(userId, 'statuses', () => listIssueStatuses(apiKey)),
+      raw.project?.id ? loadFormOptions(userId, apiKey, raw.project.id) : null,
+    ]);
+    lookups = {
+      statuses: toNameMap(statuses),
+      priorities: toNameMap(options?.priorities),
+      users: toNameMap(options?.assignees),
+      trackers: toNameMap(options?.trackers),
+    };
+  } catch {
+    /* fall through with empty lookups */
+  }
+  return toJournals(raw.journals, lookups);
 }
 
 Meteor.methods({
@@ -117,14 +161,7 @@ Meteor.methods({
 
     let options;
     try {
-      options = await formOptionsCache.get(userId, `project:${projectId}`, async () => {
-        const [trackers, memberships, priorities] = await Promise.all([
-          listProjectTrackers(apiKey, projectId),
-          listProjectMemberships(apiKey, projectId),
-          prioritiesCache.get(userId, 'priorities', () => listIssuePriorities(apiKey)),
-        ]);
-        return toFormOptions({ trackers, memberships, priorities });
-      });
+      options = await loadFormOptions(userId, apiKey, projectId);
     } catch (err) {
       throw toRedmineMeteorError(err);
     }
@@ -133,13 +170,21 @@ Meteor.methods({
     return { ...options, me: link?.redmineUserId ?? null };
   },
 
-  /** One issue with its description and the status changes the caller may make. */
+  /**
+   * One issue with its description, the status changes the caller may make,
+   * and its Redmine history (`journals`, oldest first) for the issue page.
+   */
   async 'redmine.issues.get'({ issueId } = {}) {
     const { userId } = await requireIdentity(this);
     requireIssueId(issueId);
     const apiKey = await requireApiKey(userId);
 
-    return { baseUrl: optionalRedmineBaseUrl(), issue: await loadIssueDetail(apiKey, issueId) };
+    const raw = await loadRawIssue(apiKey, issueId);
+    return {
+      baseUrl: optionalRedmineBaseUrl(),
+      issue: toIssueDetail(raw),
+      journals: await loadJournals(userId, apiKey, raw),
+    };
   },
 
   /**

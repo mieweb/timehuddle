@@ -259,6 +259,18 @@ async function getDayEntries(userId, dateStr) {
 
 // ─── Methods ──────────────────────────────────────────────────────────────────
 
+/** Most sessions a ticket page's Activity lists. */
+const TICKET_SESSIONS_LIMIT = 100;
+
+/** Ids (hex) of the caller's WorkItems for one ticket in one source. */
+async function callerWorkItemIds(userId, ticketId, source) {
+  const items = await WorkItems.find(
+    { userId, ticketId, ...sourceSelector(normalizeSource(source)) },
+    { fields: { _id: 1 } }
+  ).fetchAsync();
+  return items.map((e) => e._id.toHexString());
+}
+
 Meteor.methods({
   /** Get entries + sessions for a calendar day (YYYY-MM-DD). */
   async 'timers.getDay'({ date, tz = 'UTC' } = {}) {
@@ -392,10 +404,7 @@ Meteor.methods({
    */
   async 'timers.getTicketTotal'({ ticketId, source } = {}) {
     const { userId } = await requireIdentity(this);
-    const entryIds = (await WorkItems.find(
-      { userId, ticketId, ...sourceSelector(normalizeSource(source)) },
-      { fields: { _id: 1 } }
-    ).fetchAsync()).map((e) => e._id.toHexString());
+    const entryIds = await callerWorkItemIds(userId, ticketId, source);
     if (!entryIds.length) return { totalSeconds: 0 };
     const db = rawDb();
     const agg = await db.collection('timers').aggregate([
@@ -403,6 +412,34 @@ Meteor.methods({
       { $group: { _id: null, total: { $sum: '$durationSeconds' } } },
     ]).toArray();
     return { totalSeconds: agg[0]?.total ?? 0 };
+  },
+
+  /**
+   * The caller's own timer sessions on one ticket, newest first, for the ticket
+   * page's Activity. A running session is included with `endTime: null`.
+   * Scoped to the caller, like `getTicketTotal`: other people's sessions on the
+   * same ticket are never returned.
+   */
+  async 'timers.getTicketSessions'({ ticketId, source } = {}) {
+    const { userId } = await requireIdentity(this);
+    if (typeof ticketId !== 'string' || !ticketId) {
+      throw new Meteor.Error('bad-request', 'ticketId is required');
+    }
+    const entryIds = await callerWorkItemIds(userId, ticketId, source);
+    if (!entryIds.length) return { sessions: [] };
+    const sessions = await Timers.find(
+      { userId, workItemId: { $in: entryIds } },
+      { sort: { startTime: -1 }, limit: TICKET_SESSIONS_LIMIT }
+    ).fetchAsync();
+    return {
+      sessions: sessions.map((t) => ({
+        id: t._id.toHexString(),
+        date: t.date,
+        startTime: t.startTime,
+        endTime: t.endTime ?? null,
+        durationSeconds: t.durationSeconds ?? null,
+      })),
+    };
   },
 
   /**

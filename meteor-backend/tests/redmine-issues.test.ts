@@ -16,6 +16,8 @@ import {
   toIssue,
   toIssueDetail,
   toIssueList,
+  toJournals,
+  toNameMap,
   toNamedList,
 } from '../server/redmine-issues';
 
@@ -207,5 +209,77 @@ describe('redmine-issues toNamedList (M6)', () => {
       { id: 7, name: 'Platform' },
     ]);
     expect(toNamedList('nope')).toEqual([]);
+  });
+});
+
+describe('redmine-issues toJournals (M6 issue page)', () => {
+  const lookups = {
+    statuses: toNameMap([
+      { id: 1, name: 'New' },
+      { id: 5, name: 'Closed' },
+    ]),
+    priorities: toNameMap([
+      { id: 2, name: 'Normal' },
+      { id: 3, name: 'High' },
+    ]),
+    users: toNameMap([{ id: 8, name: 'Priya Patel' }]),
+  };
+
+  it('names status, priority and assignee ids', () => {
+    const [journal] = toJournals(
+      [
+        {
+          id: 11,
+          user: { id: 8, name: 'Priya Patel' },
+          created_on: '2026-09-21T10:00:00Z',
+          notes: '',
+          details: [
+            { property: 'attr', name: 'status_id', old_value: '1', new_value: '5' },
+            { property: 'attr', name: 'priority_id', old_value: '2', new_value: '3' },
+            { property: 'attr', name: 'assigned_to_id', old_value: null, new_value: '8' },
+          ],
+        },
+      ],
+      lookups,
+    );
+    expect(journal).toEqual({
+      id: 11,
+      user: { id: 8, name: 'Priya Patel' },
+      createdAt: '2026-09-21T10:00:00.000Z',
+      notes: '',
+      changes: [
+        { field: 'status', from: 'New', to: 'Closed' },
+        { field: 'priority', from: 'Normal', to: 'High' },
+        { field: 'assignee', from: null, to: 'Priya Patel' },
+      ],
+    });
+  });
+
+  it('falls back to #id for an id it cannot name', () => {
+    const [journal] = toJournals(
+      [{ id: 1, details: [{ property: 'attr', name: 'assigned_to_id', old_value: '99', new_value: '' }] }],
+      lookups,
+    );
+    expect(journal.changes).toEqual([{ field: 'assignee', from: '#99', to: null }]);
+  });
+
+  it('keeps comments, hides description text, and names other kinds of change', () => {
+    const journals = toJournals([
+      { id: 1, notes: 'Looks good\r\nto me', details: [] },
+      { id: 2, details: [{ property: 'attr', name: 'description', old_value: 'a', new_value: 'b' }] },
+      { id: 3, details: [{ property: 'cf', name: '4', old_value: '', new_value: 'x' }] },
+      { id: 4, details: [{ property: 'attr', name: 'due_date', old_value: null, new_value: '2026-10-01' }] },
+    ]);
+    expect(journals.map((j) => [j.notes, j.changes])).toEqual([
+      ['Looks good\nto me', []],
+      ['', [{ field: 'description', from: null, to: null }]],
+      ['', [{ field: 'custom field', from: null, to: null }]],
+      ['', [{ field: 'due date', from: null, to: null }]],
+    ]);
+  });
+
+  it('drops empty journals and tolerates malformed input', () => {
+    expect(toJournals([{ id: 1, notes: '', details: [] }, null, { notes: 'no id' }])).toEqual([]);
+    expect(toJournals(undefined)).toEqual([]);
   });
 });
