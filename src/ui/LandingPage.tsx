@@ -937,7 +937,11 @@ export const LandingPage: React.FC = () => {
       >
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
           {/* Logo */}
-          <motion.a href="/" className="flex items-center gap-2.5" whileHover={{ scale: 1.03 }}>
+          <motion.a
+            href="/"
+            className="flex min-w-0 items-center gap-2.5"
+            whileHover={{ scale: 1.03 }}
+          >
             <motion.span
               className="flex items-center justify-center"
               whileHover={reduced ? {} : { rotate: 20 }}
@@ -945,13 +949,14 @@ export const LandingPage: React.FC = () => {
             >
               <Logo size={28} className="rounded-md" />
             </motion.span>
-            <span className="text-sm font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
+            {/* Below ~360px the mark alone reads better than a clipped "T…" */}
+            <span className="truncate text-sm font-semibold tracking-tight text-neutral-900 max-[360px]:hidden dark:text-neutral-50">
               TimeHuddle
             </span>
           </motion.a>
 
           {/* Nav actions */}
-          <nav aria-label="Site navigation" className="flex min-w-0 flex-wrap items-center gap-1">
+          <nav aria-label="Site navigation" className="flex shrink-0 items-center gap-1">
             {/* GitHub */}
             <motion.a
               href={REPO_URL}
@@ -970,20 +975,26 @@ export const LandingPage: React.FC = () => {
               href="/release-notes"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
-              className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'whitespace-normal')}
+              className={cn(
+                buttonVariants({ variant: 'ghost', size: 'sm' }),
+                'hidden sm:inline-flex',
+              )}
             >
               What&rsquo;s New
             </motion.a>
 
             {/* Divider */}
-            <span className="mx-1 h-4 w-px bg-neutral-700" aria-hidden="true" />
+            <span
+              className="mx-1 hidden h-4 w-px bg-neutral-700 sm:inline-block"
+              aria-hidden="true"
+            />
 
             {/* Sign in */}
             <motion.a
               href="/app"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
-              className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'whitespace-normal')}
+              className={buttonVariants({ variant: 'ghost', size: 'sm' })}
             >
               Sign in
             </motion.a>
@@ -995,7 +1006,7 @@ export const LandingPage: React.FC = () => {
               whileTap={{ scale: 0.96 }}
               className={cn(
                 buttonVariants({ variant: 'primary', size: 'sm' }),
-                'relative ml-1 overflow-hidden whitespace-normal shadow-sm shadow-primary-500/30',
+                'relative ml-1 overflow-hidden shadow-sm shadow-primary-500/30',
               )}
             >
               <motion.span
