@@ -11,10 +11,10 @@
  *   3. `timers.copyPrevious` compares on a signature that includes the note
  *      (timers.js:508), sees no match, and inserts a *second* row for today.
  *
- * Two sibling rows would each carry their own remote entry id and produce two
- * Redmine entries for one issue-day — the single invariant M5 is judged on. That
- * is why `redmine_time_syncs` is its own collection with a unique index on
- * {userId, ticketId, date} rather than a field on WorkItems.
+ * Two sibling rows would each carry their own remote entry id, so sync state
+ * cannot live on WorkItems. It lives in `redmine_time_syncs`, one row per entry
+ * created in Redmine, and the push sums every sibling's sessions for a
+ * ticket-day before subtracting what earlier entries already covered (D5).
  *
  * The mechanic is source-agnostic (`sourceSelector` treats a missing `source` as
  * huddle), so this uses a Huddle ticket: creating a Redmine-sourced entry would

@@ -1,114 +1,129 @@
 /**
- * Sync state for the one Redmine time entry that represents a user's work on an
- * issue on a given day (M4 groundwork for M5's write).
+ * One row per time entry TimeHuddle has created in Redmine (M5, D5).
  *
- * Row shape — one per (user, Redmine issue, day):
+ * Row shape:
  *   userId              TimeHuddle user id
- *   ticketId            Redmine issue id, as a string (it is a number in the
- *                       Redmine API but a string in our WorkItem rows)
- *   date                "YYYY-MM-DD"
- *   source              always 'redmine'; stored for legibility, not indexed —
- *                       Huddle ticket ids are 24-hex ObjectIds and Redmine ids
- *                       are short decimals, so the two cannot collide
- *   redmineTimeEntryId  the remote entry's id, or null before the first sync
- *   syncedHours         what Redmine confirmed on the last successful write
- *   lastAttemptAt       when a sync was last tried
- *   failureReason       why the last attempt failed, or null
+ *   ticketId            Redmine issue id, as a string (a number in the Redmine
+ *                       API, a string in our WorkItem rows)
+ *   date                "YYYY-MM-DD" — the entry's `spent_on`
+ *   source              always 'redmine'; stored for legibility
+ *   redmineTimeEntryId  the remote entry's id
+ *   syncedSeconds       the raw seconds this entry covered — what later pushes
+ *                       subtract to find the unsent remainder
+ *   syncedHours         the rounded hours actually sent
+ *   lastAttemptAt       when it was pushed
+ *   failureReason       set if the read-back disagreed ('hours-mismatch'),
+ *                       otherwise null. The entry still exists either way.
  *
- * `redmineTimeEntryId` is canonical business data, not a display convenience:
- * it is the remote system's identity for this record, and losing it produces
- * duplicate Redmine entries. Resolved issue titles and urls stay out, exactly as
- * M3 established.
+ * **Why one row per entry, not per ticket-day (D5).** The first design allowed
+ * exactly one entry per ticket-day, enforced by a unique index. Combined with
+ * create-only (D1), that meant any work done after a mid-day push could never
+ * reach Redmine, and the push panel silently disappeared. A ticket-day may now
+ * carry several entries; each push sends only the seconds not already covered,
+ * and Redmine's per-issue total stays correct.
  *
- * M5 adds the write path. This module ships only the collection, its uniqueness
- * guarantee, and the read helper the sync engine will start from.
+ * `redmineTimeEntryId` and `syncedSeconds` are canonical business data: losing
+ * either would resend time already in Redmine. Titles and urls stay out, as M3
+ * established.
  */
 import { Meteor } from 'meteor/meteor';
 
 import { RedmineTimeSyncs } from './collections';
+import { redmineClosedSecondsUntil } from './timer-core';
 
-// The one-entry-per-issue-per-day guarantee lives here, in the storage layer,
-// rather than in a read-before-write that two concurrent session closes could
-// both pass. Mirrors the unique-index startup pattern in redmine.js.
 Meteor.startup(async () => {
+  // The pre-D5 index made a second entry for the same ticket-day impossible.
+  try {
+    await RedmineTimeSyncs.rawCollection().dropIndex('unique_redmine_time_sync_day');
+  } catch {
+    /* already dropped, or never created */
+  }
+
   try {
     await RedmineTimeSyncs.createIndexAsync(
       { userId: 1, ticketId: 1, date: 1 },
-      { unique: true, name: 'unique_redmine_time_sync_day' },
+      { name: 'redmine_time_sync_lookup' },
+    );
+    // Each remote entry is recorded once, however the push is retried.
+    await RedmineTimeSyncs.createIndexAsync(
+      { redmineTimeEntryId: 1 },
+      {
+        unique: true,
+        name: 'unique_redmine_time_entry',
+        partialFilterExpression: { redmineTimeEntryId: { $type: 'number' } },
+      },
     );
   } catch (error) {
-    console.error('[redmine] failed to create unique time-sync index:', error);
+    console.error('[redmine] failed to create time-sync indexes:', error);
   }
+
+  await backfillSyncedSeconds();
 });
 
-/** The sync row for one user + Redmine issue + day, or null before a first sync. */
-export function findSyncState(userId, ticketId, date) {
-  return RedmineTimeSyncs.findOneAsync({ userId, ticketId, date });
-}
-
 /**
- * Every ticket-day this user has already pushed.
+ * One-time backfill for rows written before D5, which recorded rounded hours but
+ * not the seconds they covered.
  *
- * Only rows that actually carry a `redmineTimeEntryId` count as synced: a row
- * left behind by a failed attempt holds a `failureReason` and no id, and must
- * stay eligible for a retry.
- *
- * @returns {Promise<Set<string>>} keys of the form `ticketId|date` — safe because a
- *   ticket id is a decimal or hex string and a date is `YYYY-MM-DD`, so neither
- *   can contain the separator. Must match the keys built in redmine.js.
+ * Deriving seconds from `syncedHours` would be up to 18 seconds out per row, and
+ * that error would resurface as phantom unsent time. The exact figure is
+ * recoverable instead: those rows were pushed with the ticket-day's whole total
+ * at the time, i.e. every session that had closed by `lastAttemptAt`.
+ * Idempotent — only rows still missing `syncedSeconds` are touched.
  */
-export async function syncedKeysFor(userId) {
+async function backfillSyncedSeconds() {
   const rows = await RedmineTimeSyncs.find(
-    { userId, redmineTimeEntryId: { $ne: null } },
-    { fields: { ticketId: 1, date: 1 } },
+    { redmineTimeEntryId: { $type: 'number' }, syncedSeconds: { $exists: false } },
+    { fields: { userId: 1, ticketId: 1, date: 1, lastAttemptAt: 1 } },
   ).fetchAsync();
-  return new Set(rows.map((row) => `${row.ticketId}|${row.date}`));
+
+  for (const row of rows) {
+    const cutoff = row.lastAttemptAt instanceof Date ? row.lastAttemptAt.getTime() : Date.now();
+    const seconds = await redmineClosedSecondsUntil(row.userId, row.ticketId, row.date, cutoff);
+    await RedmineTimeSyncs.updateAsync(row._id, { $set: { syncedSeconds: seconds } });
+  }
+  if (rows.length) console.log(`[redmine] backfilled syncedSeconds on ${rows.length} sync row(s)`);
 }
 
 /**
- * Record a successful push.
- *
- * `upsert` against the unique `{userId, ticketId, date}` index is what makes a
- * double-press of the button harmless: the second write updates the same row
- * rather than creating a second one, and the caller checks for an existing
- * entry id before ever reaching Redmine.
+ * Seconds already sent to Redmine, per ticket-day, for one user.
+ * @returns {Promise<Map<string, number>>} keyed `ticketId|date` — safe because a
+ *   ticket id is a decimal or hex string and a date is `YYYY-MM-DD`, so neither
+ *   can contain the separator. Must match the keys built in redmine-time-entries.js.
  */
-export function recordSynced(userId, ticketId, date, { redmineTimeEntryId, hours }) {
-  return RedmineTimeSyncs.upsertAsync(
-    { userId, ticketId, date },
-    {
-      $set: {
-        userId,
-        ticketId,
-        date,
-        source: 'redmine',
-        redmineTimeEntryId,
-        syncedHours: hours,
-        lastAttemptAt: new Date(),
-        failureReason: null,
-      },
-    },
-  );
+export async function sentSecondsFor(userId) {
+  const rows = await RedmineTimeSyncs.find(
+    { userId, redmineTimeEntryId: { $type: 'number' } },
+    { fields: { ticketId: 1, date: 1, syncedSeconds: 1 } },
+  ).fetchAsync();
+
+  const byKey = new Map();
+  for (const row of rows) {
+    const key = `${row.ticketId}|${row.date}`;
+    byKey.set(key, (byKey.get(key) ?? 0) + (row.syncedSeconds ?? 0));
+  }
+  return byKey;
+}
+
+/** Record an entry Redmine has just created. */
+export function recordEntry(userId, ticketId, date, { redmineTimeEntryId, seconds, hours }) {
+  return RedmineTimeSyncs.insertAsync({
+    userId,
+    ticketId,
+    date,
+    source: 'redmine',
+    redmineTimeEntryId,
+    syncedSeconds: seconds,
+    syncedHours: hours,
+    lastAttemptAt: new Date(),
+    failureReason: null,
+  });
 }
 
 /**
- * Record a failed push, leaving `redmineTimeEntryId` untouched so a retry is
- * still possible. The reason is kept verbatim for the UI — "the role lacks
- * log_time" is a different user action from "Redmine was unreachable".
+ * Flag an entry whose read-back disagreed with what was sent. The entry exists
+ * in Redmine regardless, so it keeps counting as sent — clearing it would resend
+ * the same time as a duplicate.
  */
-export function recordFailure(userId, ticketId, date, failureReason) {
-  return RedmineTimeSyncs.upsertAsync(
-    { userId, ticketId, date },
-    {
-      $set: {
-        userId,
-        ticketId,
-        date,
-        source: 'redmine',
-        lastAttemptAt: new Date(),
-        failureReason,
-      },
-      $setOnInsert: { redmineTimeEntryId: null, syncedHours: null },
-    },
-  );
+export function flagEntry(redmineTimeEntryId, failureReason) {
+  return RedmineTimeSyncs.updateAsync({ redmineTimeEntryId }, { $set: { failureReason } });
 }

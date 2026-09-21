@@ -144,6 +144,32 @@ export async function redmineTicketDaysFor(userId) {
 }
 
 /**
+ * Net Redmine seconds for one user + ticket + day, counting only sessions that
+ * had closed by `cutoffMs`.
+ *
+ * Used once, to backfill how much time each pre-D5 sync row actually covered:
+ * those rows recorded rounded hours, not seconds, but the sessions that fed them
+ * are still here and closed before the push, so the exact figure is recoverable.
+ */
+export async function redmineClosedSecondsUntil(userId, ticketId, date, cutoffMs) {
+  const rows = await workItems()
+    .find({ userId, ticketId, date, ...sourceSelector('redmine') }, { projection: { _id: 1 } })
+    .toArray();
+  if (!rows.length) return 0;
+
+  const sessions = await timers()
+    .find(
+      {
+        workItemId: { $in: rows.map((row) => row._id.toHexString()) },
+        endTime: { $ne: null, $lte: cutoffMs },
+      },
+      { projection: { endTime: 1, durationSeconds: 1 } },
+    )
+    .toArray();
+  return sumClosedSessions(sessions);
+}
+
+/**
  * Start a fresh running timer for a work item (used when a break ends).
  * `clockEventId` ties the new session to the shift it resumes inside, the same
  * way `timers.startSession` does, so the Dashboard timesheet can nest it.
