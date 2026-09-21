@@ -183,13 +183,12 @@ describe('redmineSource.toUnified', () => {
     expect(unified.priority).toBeNull();
   });
 
-  it('exposes no write capability', () => {
+  it('can be edited but never deleted from TimeHuddle (M6)', () => {
     expect(redmineSource.capabilities).toMatchObject({
-      edit: false,
+      edit: true,
       delete: false,
-      assign: false,
-      changeStatus: false,
-      // Stays false until the source-aware timers.createEntry exists (M3).
+      assign: true,
+      changeStatus: true,
       openExternal: true,
     });
   });

@@ -2,8 +2,8 @@
  * TicketTableRow — one row of the unified ticket table.
  *
  * Renders a `UnifiedTicket` without caring which source it came from. Every
- * action is gated on `ticket.capabilities`, so a read-only source (Redmine)
- * cannot render a control it is unable to perform.
+ * action is gated on `ticket.capabilities`, so a source cannot render a control
+ * it is unable to perform (Redmine issues, for instance, are never deleted).
  *
  * Timers are the exception to "actions live in the ⋮ menu": they are started
  * only from My Board's ▶/⏸ column (M3 D1), never from the menu, so there is
@@ -107,6 +107,10 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
 
   const { capabilities, status, externalUrl, assignees } = ticket;
   const { icon, className: iconClass } = statusIconFor(status);
+  // "Only the creator edits" is Huddle's own rule. An external source enforces
+  // its own permissions server-side (Redmine checks the user's role and
+  // workflow), so its rows offer the action and surface any refusal.
+  const canEdit = capabilities.edit && (ticket.sourceId !== 'huddle' || isCreator);
 
   const openTicket = useCallback(() => {
     if (externalUrl) {
@@ -345,7 +349,7 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
                     ? `Open in ${SOURCE_LABELS[ticket.sourceId]}`
                     : 'Ticket Details'}
                 </DropdownItem>
-                {capabilities.edit && isCreator && (
+                {canEdit && (
                   <DropdownItem
                     icon={<FontAwesomeIcon icon={faPen} />}
                     onClick={() => {

@@ -13,8 +13,12 @@ import { faPlus, faSearch, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
+  Alert,
+  AlertDescription,
   Card,
   CardContent,
+  Dropdown,
+  DropdownItem,
   Input,
   Modal,
   ModalBody,
@@ -64,7 +68,14 @@ import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
 import { TicketBulkActionBar } from './TicketBulkActionBar';
 import { TicketTable } from './TicketTable';
 import { hasActiveFilters } from './ticketFilters';
-import { huddleSource, useUnifiedTickets, type UnifiedTicket } from './sources';
+import { RedmineIssueCreateModal } from './redmine/RedmineIssueCreateModal';
+import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
+import {
+  huddleSource,
+  invalidateRedmineCache,
+  useUnifiedTickets,
+  type UnifiedTicket,
+} from './sources';
 import { useMeAssigneeKeys } from './useMeAssigneeKeys';
 import { useTicketTableView } from './useTicketTableView';
 
@@ -190,6 +201,23 @@ export const TicketsPage: React.FC = () => {
   // would hijack the visible page's refresh handler.
   useRefresh(refetch, pathname === '/app/tickets');
 
+  // The Redmine list is cached per session, so a refetch after a Redmine write
+  // must drop that cache or it would re-serve the pre-write rows.
+  const refetchAfterRedmineWrite = useCallback(() => {
+    invalidateRedmineCache();
+    void refetch();
+  }, [refetch]);
+
+  // M6: Redmine issues are edited and created in their own dialogs, under the
+  // user's personal Redmine key.
+  const [redmineEditIssueId, setRedmineEditIssueId] = useState<number | null>(null);
+  const [showRedmineCreate, setShowRedmineCreate] = useState(false);
+  const [redmineNotice, setRedmineNotice] = useState<{
+    issueId: number;
+    message: string;
+    isWarning: boolean;
+  } | null>(null);
+
   // Stable key derived from sorted team IDs — the subscription only reconnects
   // when the actual set of teams changes, not on every new array reference.
   const teamIdsKey = useMemo(
@@ -276,10 +304,14 @@ export const TicketsPage: React.FC = () => {
   // Whether the user has linked a Redmine account, so the board can say *why*
   // its Redmine rows are missing instead of silently showing a short list.
   const [redmineConnected, setRedmineConnected] = useState<boolean | null>(null);
+  const [redmineBaseUrl, setRedmineBaseUrl] = useState<string | null>(null);
   useEffect(() => {
     void redmineApi
       .status()
-      .then((status) => setRedmineConnected(status.connected))
+      .then((status) => {
+        setRedmineConnected(status.connected);
+        setRedmineBaseUrl(status.connected ? (status.baseUrl ?? null) : null);
+      })
       .catch(() => setRedmineConnected(null));
   }, []);
 
@@ -463,6 +495,26 @@ export const TicketsPage: React.FC = () => {
     await startTimerForTicket(ticket);
   }, [pendingStartTicket, selectedTeamId, clockIn, startTimerForTicket]);
 
+  const startHuddleCreate = useCallback(() => {
+    if (!selectedTeam) {
+      setShowNoTeamDialog(true);
+      return;
+    }
+    setShowCreate(true);
+  }, [selectedTeam]);
+
+  const handleRedmineCreated = useCallback(
+    (issueId: number, warning: string | null) => {
+      setRedmineNotice({
+        issueId,
+        message: warning ?? `Created Redmine issue #${issueId}.`,
+        isWarning: Boolean(warning),
+      });
+      refetchAfterRedmineWrite();
+    },
+    [refetchAfterRedmineWrite],
+  );
+
   const handleCreate = useCallback(async () => {
     if (!createTitle.trim()) return;
     if (!selectedTeam) {
@@ -490,6 +542,10 @@ export const TicketsPage: React.FC = () => {
   // edit form needs (description, assignees) when the modal actually opens.
   const openEditModal = useCallback(async (unified: UnifiedTicket) => {
     if (!unified.capabilities.edit) return;
+    if (unified.sourceId === 'redmine') {
+      setRedmineEditIssueId(Number(unified.id));
+      return;
+    }
     const ticket = await ticketApi.getTicket(unified.id);
     setEditTicket(ticket);
     setEditTitle(ticket.title);
@@ -526,6 +582,17 @@ export const TicketsPage: React.FC = () => {
       setEditSaving(false);
     }
   }, [editTicket, editTitle, editDescription, editGithub, editAssignees, editPriority, refetch]);
+
+  // A Redmine status change goes through the edit dialog: its choices are the
+  // transitions Redmine's workflow allows, not Huddle's fixed status list.
+  const handleChangeStatusRequest = useCallback((t: UnifiedTicket) => {
+    if (t.sourceId === 'redmine') {
+      setRedmineEditIssueId(Number(t.id));
+      return;
+    }
+    setChangeStatusTicket(t);
+    setChangeStatusValue(t.status.native || 'open');
+  }, []);
 
   const handleSaveStatus = useCallback(async () => {
     if (!changeStatusTicket || !changeStatusValue) return;
@@ -612,6 +679,22 @@ export const TicketsPage: React.FC = () => {
   const noFocusRingClass =
     'ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:border-blue-300 focus-visible:border-blue-300';
 
+  const newTicketButton = (
+    <Button
+      variant="primary"
+      size="sm"
+      leftIcon={<FontAwesomeIcon icon={faPlus} />}
+      // Teams arrive asynchronously, so selectedTeam is null on first
+      // paint even for users who have one. Without this guard an early
+      // click reports "No team available" to a user who has a team.
+      disabled={!teamsReady}
+      onClick={startHuddleCreate}
+      className="shrink-0 rounded-lg"
+    >
+      New Ticket
+    </Button>
+  );
+
   return (
     <AppPage fill width="full">
       <h1 className="sr-only">Tickets</h1>
@@ -636,25 +719,23 @@ export const TicketsPage: React.FC = () => {
             {/* ── Header: New Ticket + Search ── */}
             <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
               <div className="flex items-center gap-2">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  leftIcon={<FontAwesomeIcon icon={faPlus} />}
-                  // Teams arrive asynchronously, so selectedTeam is null on first
-                  // paint even for users who have one. Without this guard an early
-                  // click reports "No team available" to a user who has a team.
-                  disabled={!teamsReady}
-                  onClick={() => {
-                    if (!selectedTeam) {
-                      setShowNoTeamDialog(true);
-                      return;
-                    }
-                    setShowCreate(true);
-                  }}
-                  className="shrink-0 rounded-lg"
-                >
-                  New Ticket
-                </Button>
+                {redmineConnected ? (
+                  // With Redmine linked, "New Ticket" asks which system the new
+                  // item belongs to. Dropdown replaces the trigger's onClick.
+                  <Dropdown trigger={newTicketButton} placement="bottom-start">
+                    <DropdownItem onClick={startHuddleCreate}>TimeHuddle ticket</DropdownItem>
+                    <DropdownItem
+                      onClick={() => {
+                        setRedmineNotice(null);
+                        setShowRedmineCreate(true);
+                      }}
+                    >
+                      Redmine issue
+                    </DropdownItem>
+                  </Dropdown>
+                ) : (
+                  newTicketButton
+                )}
 
                 <div className="relative min-w-0 flex-1">
                   <FontAwesomeIcon
@@ -698,6 +779,30 @@ export const TicketsPage: React.FC = () => {
             </div>
 
             {/* Create ticket form */}
+            <div className="redmine-create-notice" aria-live="polite">
+              {redmineNotice && (
+                <Alert
+                  variant={redmineNotice.isWarning ? 'warning' : 'success'}
+                  dismissible
+                  onDismiss={() => setRedmineNotice(null)}
+                >
+                  <AlertDescription>
+                    {redmineNotice.message}{' '}
+                    {redmineBaseUrl && (
+                      <a
+                        href={`${redmineBaseUrl}/issues/${redmineNotice.issueId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium underline"
+                      >
+                        Open in Redmine
+                      </a>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+
             {showCreate && (
               <Card
                 padding="sm"
@@ -833,10 +938,7 @@ export const TicketsPage: React.FC = () => {
                   onToggleTimer={handleToggleTimer}
                   onEditRequest={(t) => void openEditModal(t)}
                   onDeleteRequest={(t) => setDeleteIds([t.id])}
-                  onChangeStatusRequest={(t) => {
-                    setChangeStatusTicket(t);
-                    setChangeStatusValue(t.status.native || 'open');
-                  }}
+                  onChangeStatusRequest={handleChangeStatusRequest}
                   onShareWithTimeharbor={async (t, shared) => {
                     try {
                       await shareTicketWithTimeharbor(t.id, shared);
@@ -986,10 +1088,7 @@ export const TicketsPage: React.FC = () => {
                   showTimerColumn
                   onEditRequest={(t) => void openEditModal(t)}
                   onDeleteRequest={(t) => setDeleteIds([t.id])}
-                  onChangeStatusRequest={(t) => {
-                    setChangeStatusTicket(t);
-                    setChangeStatusValue(t.status.native || 'open');
-                  }}
+                  onChangeStatusRequest={handleChangeStatusRequest}
                   onShareWithTimeharbor={async (t, shared) => {
                     try {
                       await shareTicketWithTimeharbor(t.id, shared);
@@ -1426,6 +1525,17 @@ export const TicketsPage: React.FC = () => {
             </Button>
           </ModalFooter>
         </Modal>
+
+        <RedmineIssueEditModal
+          issueId={redmineEditIssueId}
+          onClose={() => setRedmineEditIssueId(null)}
+          onSaved={refetchAfterRedmineWrite}
+        />
+        <RedmineIssueCreateModal
+          open={showRedmineCreate}
+          onClose={() => setShowRedmineCreate(false)}
+          onCreated={handleRedmineCreated}
+        />
       </div>
     </AppPage>
   );
