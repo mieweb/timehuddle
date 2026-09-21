@@ -23,9 +23,10 @@ import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
 import './redmine';
+// Imported for its Meteor.startup unique-index creation, not for a method.
+import './redmine-time-sync';
 import './my-board';
 import './clock';
-import './timers';
 import './timers';
 import './notifications';
 import './presence';
@@ -1017,6 +1018,56 @@ Meteor.startup(async() => {
           description: "'mine' = assigned to me, 'all' = everything the key can see",
         },
       },
+    },
+  });
+
+  Wormhole.expose('redmine.activities.list', {
+    description:
+      "The instance's time-entry activities plus which one the caller's time logs under",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('redmine.activities.setDefault', {
+    description: "Set the caller's default Redmine time-entry activity",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        activityId: { type: 'number', description: 'Redmine time-entry activity id' },
+      },
+      required: ['activityId'],
+    },
+  });
+
+  Wormhole.expose('redmine.timeEntries.preview', {
+    description:
+      'Preview the ticket-day totals a push would send to Redmine. Read-only — creates nothing.',
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('redmine.timeEntries.push', {
+    description:
+      'Create one Redmine time entry per confirmed ticket-day. Irreversible: entries cannot be edited or deleted afterwards.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entries: {
+          type: 'array',
+          description: 'Ticket-days to send. Hours are recomputed server-side, never taken from here.',
+          items: {
+            type: 'object',
+            properties: {
+              ticketId: { type: 'string', description: 'Redmine issue id' },
+              date: { type: 'string', description: 'The day being logged, YYYY-MM-DD' },
+              activityId: {
+                type: 'number',
+                description: 'Optional override of the resolved activity',
+              },
+            },
+            required: ['ticketId', 'date'],
+          },
+        },
+      },
+      required: ['entries'],
     },
   });
 

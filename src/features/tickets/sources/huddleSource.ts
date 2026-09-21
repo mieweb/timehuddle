@@ -25,7 +25,6 @@ const CAPABILITIES: SourceCapabilities = {
   delete: true,
   assign: true,
   changeStatus: true,
-  trackTime: true,
   openExternal: false,
 };
 

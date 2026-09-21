@@ -31,6 +31,7 @@ import {
   containerOptions,
   priorityOptions,
   statusOptions,
+  ME,
   NO_PRIORITY,
   UNASSIGNED,
   type SortField,
@@ -90,16 +91,18 @@ export interface TicketTableProps {
   selectedKeys: Set<string>;
   onSelectedChange: (ticket: UnifiedTicket, selected: boolean) => void;
   onSelectAllChange: (selected: boolean) => void;
-  runningTicketId: string | null;
-  timerLoadingId: string | null;
+  /** `${sourceId}:${id}` of the ticket whose timer is running, if any. */
+  runningTicketKey: string | null;
+  /** `${sourceId}:${id}` of the row whose timer is mid start/stop, if any. */
+  timerLoadingKey: string | null;
   /** Total across all pages, for the screen-reader status line. */
   totalCount: number;
   showClosed: boolean;
   emptyState: React.ReactNode;
   onToggleTimer: (ticket: UnifiedTicket) => void;
   /**
-   * My Board only. Adds a play-button column between the checkbox and Title
-   * columns. Static/disabled in M2.2 — see `TicketTableRow`.
+   * My Board only. Adds the ▶/⏸ column between the checkbox and Title columns.
+   * My Board is the only place a ticket timer starts — see `TicketTableRow`.
    */
   showTimerColumn?: boolean;
   onEditRequest: (ticket: UnifiedTicket) => void;
@@ -132,8 +135,8 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   selectedKeys,
   onSelectedChange,
   onSelectAllChange,
-  runningTicketId,
-  timerLoadingId,
+  runningTicketKey,
+  timerLoadingKey,
   totalCount,
   showClosed,
   emptyState,
@@ -265,7 +268,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                     options: priorityOptions(optionSource),
                     value: filters.priority,
                     onChange: (value) => set('priority', value),
-                    extraOption: { value: NO_PRIORITY, label: 'No priority' },
+                    extraOptions: [{ value: NO_PRIORITY, label: 'No priority' }],
                   }}
                   {...headerProps}
                 />
@@ -277,7 +280,12 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                     options: assigneeOptions(optionSource),
                     value: filters.assignee,
                     onChange: (value) => set('assignee', value),
-                    extraOption: { value: UNASSIGNED, label: 'Unassigned' },
+                    // "Me" first: it is the shortcut people reach for most, and
+                    // it spans every source at once (see the ME sentinel).
+                    extraOptions: [
+                      { value: ME, label: 'Me' },
+                      { value: UNASSIGNED, label: 'Unassigned' },
+                    ],
                   }}
                   {...headerProps}
                 />
@@ -310,8 +318,8 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                       isCreator={isCreator(ticket)}
                       selected={selectedKeys.has(ticket.key)}
                       onSelectedChange={onSelectedChange}
-                      isTimerRunning={ticket.sourceId === 'huddle' && runningTicketId === ticket.id}
-                      timerLoading={timerLoadingId === ticket.id}
+                      isTimerRunning={runningTicketKey === ticket.key}
+                      timerLoading={timerLoadingKey === ticket.key}
                       onToggleTimer={onToggleTimer}
                       showTimerColumn={showTimerColumn}
                       onEditRequest={onEditRequest}

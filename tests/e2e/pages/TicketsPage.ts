@@ -56,9 +56,27 @@ export class TicketsPage extends BasePage {
     await this.rowByTitle(title).getByRole('checkbox').click();
   }
 
-  /** The (disabled in M2.2) play/timer button on a My Board row. */
+  /**
+   * The ▶/⏸ button on a My Board row. My Board is the only place in the app
+   * that starts a ticket timer (M3 D1), so this exists nowhere else.
+   */
   timerButtonForRow(title: string): Locator {
     return this.rowByTitle(title).getByRole('button', { name: /start timer|stop timer/i });
+  }
+
+  startTimerButton(title: string): Locator {
+    return this.page.getByRole('button', { name: `Start timer for ${title}` });
+  }
+
+  stopTimerButton(title: string): Locator {
+    return this.page.getByRole('button', { name: `Stop timer for ${title}` });
+  }
+
+  /** Move a ticket to My Board from the Tickets tab and land on My Board. */
+  async moveToBoard(title: string) {
+    await this.selectTicket(title);
+    await this.moveToBoardButton.click();
+    await this.switchToTab('my-board');
   }
 
   /** The filter trigger inside a column header. */
@@ -123,17 +141,29 @@ export class TicketsPage extends BasePage {
 
   /** Get the count of visible tickets */
   async getTicketCount(): Promise<number> {
-    return await this.page.locator('tr[data-ticket-id]').count();
+    return await this.activePanel.locator('tr[data-ticket-id]').count();
+  }
+
+  /**
+   * The tab panel currently on screen.
+   *
+   * Both panels are force-mounted so switching tabs keeps each one's search,
+   * filters and selection — which means every ticket on My Board also exists as
+   * a row in the hidden Tickets panel. Every row locator scopes through here so
+   * it resolves to the one row the user can actually see.
+   */
+  get activePanel(): Locator {
+    return this.page.locator('[role="tabpanel"]:visible');
   }
 
   /** All rows contributed by one source. */
   rowsFromSource(sourceId: 'huddle' | 'redmine'): Locator {
-    return this.page.locator(`tr[data-ticket-source="${sourceId}"]`);
+    return this.activePanel.locator(`tr[data-ticket-source="${sourceId}"]`);
   }
 
-  /** The row for a given ticket title. */
+  /** The row for a given ticket title, in whichever tab is showing. */
   rowByTitle(title: string): Locator {
-    return this.page.locator('tr[data-ticket-id]').filter({ hasText: title });
+    return this.activePanel.locator('tr[data-ticket-id]').filter({ hasText: title });
   }
 
   /** Restrict the table to a single source via the Source column filter. */

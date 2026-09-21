@@ -15,6 +15,7 @@ import {
   DEFAULT_SORT,
   EMPTY_FILTERS,
   NO_PRIORITY,
+  ME,
   UNASSIGNED,
   assigneeOptions,
   priorityOptions,
@@ -44,7 +45,6 @@ const make = (overrides: Partial<UnifiedTicket>): UnifiedTicket =>
       delete: false,
       assign: false,
       changeStatus: false,
-      trackTime: false,
       openExternal: false,
     },
     ...overrides,
@@ -137,6 +137,47 @@ describe('applyFilters', () => {
     expect(applyFilters([huddle, assigned], withFilters({ assignee: UNASSIGNED }), '')).toEqual([
       huddle,
     ]);
+  });
+
+  describe('the ME sentinel', () => {
+    const myHuddle = make({ key: 'huddle:2', id: '2', assignees: [{ id: 'u1', name: 'Ada' }] });
+    const myRedmine = make({
+      key: 'redmine:2',
+      sourceId: 'redmine',
+      id: '2',
+      assignees: [{ id: '8', name: 'Ada' }],
+    });
+    const theirs = make({ key: 'huddle:3', id: '3', assignees: [{ id: 'u2', name: 'Grace' }] });
+    const meKeys = ['huddle:u1', 'redmine:8'];
+
+    it('matches the signed-in user across every source at once', () => {
+      const result = applyFilters(
+        [myHuddle, myRedmine, theirs, huddle],
+        withFilters({ assignee: ME }),
+        '',
+        meKeys,
+      );
+      expect(result).toEqual([myHuddle, myRedmine]);
+    });
+
+    it('still works for Huddle before the Redmine id has loaded', () => {
+      const result = applyFilters([myHuddle, myRedmine], withFilters({ assignee: ME }), '', [
+        'huddle:u1',
+      ]);
+      expect(result).toEqual([myHuddle]);
+    });
+
+    it('does not match a same-numbered assignee in another namespace', () => {
+      // Redmine account 8 must not be matched by a Huddle user literally id "8".
+      const huddleEight = make({ key: 'huddle:9', id: '9', assignees: [{ id: '8', name: 'Ada' }] });
+      expect(applyFilters([huddleEight], withFilters({ assignee: ME }), '', ['redmine:8'])).toEqual(
+        [],
+      );
+    });
+
+    it('matches nothing rather than everything when the user is unknown', () => {
+      expect(applyFilters([myHuddle, myRedmine], withFilters({ assignee: ME }), '')).toEqual([]);
+    });
   });
 
   it('finds tickets with no priority', () => {

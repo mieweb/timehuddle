@@ -165,7 +165,7 @@ jobs:
 
           DELETE_RESPONSE=$(curl -s -w "\n%{http_code}" \
             -X DELETE "$API_URL/api/v1/sites/$SITE_ID/containers/$CONTAINER_ID" \
-            -H "Authorization: $API_KEY" \
+            -H "Authorization: Bearer $API_KEY" \
             -H "Accept: application/json")
 
           DELETE_CODE=$(echo "$DELETE_RESPONSE" | tail -1)
@@ -185,7 +185,7 @@ jobs:
 
           for attempt in $(seq 1 18); do
             RAW=$(curl -s -w "\n%{http_code}" \
-              -H "Authorization: $API_KEY" \
+              -H "Authorization: Bearer $API_KEY" \
               -H "Accept: application/json" \
               "$API_URL/api/v1/sites/$SITE_ID/containers?hostname=$CONTAINER_HOSTNAME")
 
@@ -365,7 +365,7 @@ jobs:
 
           DELETE_RESPONSE=$(curl -s -w "\n%{http_code}" \
             -X DELETE "$API_URL/api/v1/sites/$SITE_ID/containers/$CONTAINER_ID" \
-            -H "Authorization: $API_KEY" \
+            -H "Authorization: Bearer $API_KEY" \
             -H "Accept: application/json")
 
           DELETE_CODE=$(echo "$DELETE_RESPONSE" | tail -1)
