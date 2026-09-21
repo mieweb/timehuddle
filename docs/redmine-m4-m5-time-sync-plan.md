@@ -4,9 +4,10 @@ Parent plan: [`huddle_redmine_clock.md`](../huddle_redmine_clock.md).
 Predecessor: [`redmine-m3-ticket-timer-flow.md`](./redmine-m3-ticket-timer-flow.md) (M3/M3.1, shipped).
 
 M3 made it possible to _record_ time against a Redmine issue inside TimeHuddle. This document
-covers the remaining half of the original goal — **turning those recorded sessions into exactly
-one Redmine "Spent time" entry per issue per day**, pushed **manually, on the user's explicit
-confirmation**, and **never modified afterwards.**
+covers the remaining half of the original goal — **turning those recorded sessions into Redmine
+"Spent time" entries**, pushed **manually, on the user's explicit confirmation**, and **never
+modified afterwards.** Each push sends only time not already sent, so a ticket-day pushed more
+than once carries more than one entry (D5), and Redmine's per-issue total is always right.
 
 > **Status: Phase 0 decided; Phases 1–4 built and verified end-to-end (2026-09-21).**
 > Redmine issues appear in Huddle, a timer runs against them, and on clock-out the confirmed
@@ -16,11 +17,16 @@ confirmation**, and **never modified afterwards.**
 >
 > **⚠️ One open defect: the hours rounding disagrees with Redmine's** — see "Open defect" below.
 > M5 is not done until it is fixed.
+>
+> **Revised 2026-09-21 (D5):** a real bug surfaced after shipping. Work done after a mid-day push
+> could never reach Redmine, and the push panel hid itself. Fixed by allowing several entries per
+> ticket-day — see "D5 — pushing a ticket-day more than once" below.
 
-## The four decisions that shape this plan
+## The decisions that shape this plan
 
-Taken 2026-09-20. They replace several positions the earlier draft of this document argued for,
-and the superseded reasoning is preserved inline wherever it was reversed.
+D1–D4 were taken 2026-09-20 and D5 on 2026-09-21. They replace several positions the earlier draft
+of this document argued for, and the superseded reasoning is preserved inline wherever it was
+reversed.
 
 | #      | Decision                                                                                                                                                                                             | Consequence                                                                                                                                          |
 | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -28,6 +34,7 @@ and the superseded reasoning is preserved inline wherever it was reversed.
 | **D2** | **The push is manual and confirmed.** Huddle holds all time locally; the user presses a button when their day is done and approves a summary before anything is sent.                                | Solves "when is the day final?" — the user answers it. Replaces the automatic on-session-close trigger (R1).                                         |
 | **D3** | **`redmine0.os.mieweb.org` is the write target.** It is the user's own instance on the MIE web container, safe to write to. The company's real instance comes later, as a `REDMINE_BASE_URL` change. | Phase 0's "find a write-safe target" is resolved. No scratch project or shared-infrastructure negotiation needed.                                    |
 | **D4** | **The activity is derived from the issue's Redmine tracker**, falling back to the user's default.                                                                                                    | Keeps the choice inside Redmine's own data. See Phase 1 for the wrinkle this hits on the current instance.                                           |
+| **D5** | **A ticket-day may be pushed more than once.** Each push sends only the seconds not already sent, as a new entry. Supersedes "exactly one entry per issue per day".                                  | Later work on an already-pushed ticket-day can reach Redmine. The one-per-day unique index is dropped; a per-user push lock prevents double-sends.   |
 
 **Scope guardrail, confirmed:** this integration makes **no structural change to Redmine**. The
 only write it ever performs is `POST /time_entries.json`. Trackers, statuses, workflows, custom
@@ -65,8 +72,8 @@ Every box below is expanded, with its reasoning, in the phase section of the sam
 - [x] ~~Add `redmineTimeEntryId` to `WorkItem`~~ → a `redmine_time_syncs` collection instead; the
       WorkItem grain claim was false (see Phase 2 → Idempotency key)
 - [x] Store sync state: last synced hours, last attempt time, failure reason
-- [x] **The `{userId, ticketId, date}` unique index survives D2 unchanged** — a manual push grouped
-      per ticket per day is exactly that grain
+- [x] ~~The `{userId, ticketId, date}` unique index survives D2 unchanged~~ → **dropped by D5**;
+      `redmine_time_syncs` is now one row per entry, with a unique index on the entry id
 
 **Phase 3 — The write (M5)**
 
@@ -93,6 +100,9 @@ Every box below is expanded, with its reasoning, in the phase section of the sam
 - [x] User-facing strings: English literals; i18n deferred until an i18n layer exists
 - [x] Blocked rows are **shown with the reason**, not hidden — a silently shorter list than the
       user's day is worse than an explained omission
+- [x] Rows pushed before show their already-sent time; results survive a push that sends everything (D5)
+- [ ] **Per-row include checkbox** — Send pushes every sendable row; entries are permanent (see D5 risks)
+- [ ] **Stale-timer guard (R3)** — a forgotten overnight timer is currently offered like real work
 
 **Verification gates (before hand-off)**
 
@@ -102,7 +112,8 @@ Every box below is expanded, with its reasoning, in the phase section of the sam
 - [ ] `npm run format`
 - [ ] Unit tests for the hours math
 - [ ] Browser smoke at `http://localhost:3000`
-- [ ] Manual e2e against redmine0: connect → timer → break → stop → clock out → push → one entry per ticket
+- [x] Manual e2e against redmine0: connect → timer → break → stop → clock out → push → entries in Redmine
+- [ ] Re-test D5: push mid-day, keep working the same ticket, push again → a second entry for the new time only
 
 **Also outstanding from M2.1 (unrelated to sync, still open)**
 
@@ -117,8 +128,8 @@ Every box below is expanded, with its reasoning, in the phase section of the sam
 > derived, one-way daily projection of it — never an input.**
 
 Everything below is downstream of that. Detail (sessions, breaks, notes) stays in TimeHuddle;
-Redmine receives one rolled-up number per issue per day, on the user's confirmation, and nothing
-else.
+Redmine receives rolled-up numbers per issue per day — one per push, on the user's confirmation —
+and nothing else.
 
 **A consequence of D1 worth stating plainly:** because Huddle only ever _creates_ entries, any
 time already logged in Redmine by hand is invisible to this integration. If issue #1 carries 3h
@@ -298,17 +309,23 @@ async 'timers.getTicketTotal'({ ticketId, source } = {}) {
 > id and produce two Redmine entries for one issue-day — the single invariant M5 is judged on.
 > Demonstrated by `meteor-backend/tests/redmine-time-sync.test.ts`.
 
-- [x] **`redmine_time_syncs`**, keyed `{userId, ticketId, date}` with a real unique index — the
-      grain `WorkItems` cannot guarantee. `source` is stored for legibility but left out of the
-      key: Huddle ticket ids are 24-hex ObjectIds and Redmine ids are short decimals.
-- [x] Hold `redmineTimeEntryId` there, with last synced hours, last attempt time, and the failure
-      reason. Phase 3 is its first writer.
-- [x] **D2 changes nothing here.** A manual push grouped per ticket per day _is_ this grain. Had
-      the design instead written one entry per timer session, this index would have had to be
-      re-keyed to the session id — it does not.
-- [x] **Core Model Data Discipline check:** `redmineTimeEntryId` is canonical business data — the
-      remote system's identity for this record, and losing it produces duplicates. It is **not** a
-      display-only fallback, so persisting it is correct. Resolved titles and urls stay out.
+- [x] **`redmine_time_syncs`** is its own collection, because `WorkItems` cannot hold one entry id
+      per issue-day.
+- [x] ~~Keyed `{userId, ticketId, date}` with a unique index~~ → **one row per Redmine entry** (D5),
+      holding `redmineTimeEntryId`, the raw **`syncedSeconds`** that entry covered, the rounded
+      `syncedHours` sent, `lastAttemptAt`, and a `failureReason` if the read-back disagreed. A
+      unique partial index on `redmineTimeEntryId` means an entry can never be recorded twice; a
+      non-unique `{userId, ticketId, date}` index serves the lookups.
+- [x] **Unsent time = the ticket-day's net seconds − the sum of its rows' `syncedSeconds`.** Tracked
+      in seconds, not rounded hours, so repeated pushes cannot drift.
+- [x] **Core Model Data Discipline check:** `redmineTimeEntryId` and `syncedSeconds` are canonical
+      business data — lose either and time already in Redmine would be sent again. Neither is a
+      display-only fallback. Resolved titles and urls stay out.
+
+> **Superseded (D5):** this section first argued that "a manual push grouped per ticket per day
+> _is_ this grain", so the unique index could stay. That held only if a user pushed exactly once
+> per day. The first real mid-day push broke it: later work on that ticket-day was excluded
+> forever, because an entry already existed and create-only forbids changing it.
 
 ---
 
@@ -381,9 +398,10 @@ sequenceDiagram
 
 - [ ] **Re-read after every write and compare.** Redmine can return success while storing
       something else; the parent plan's cross-cutting DoD requires confirmation-by-read.
-- [ ] **Per-entry failure state.** A push of three entries where the second fails leaves the other
-      two synced. Retry re-POSTs **only** rows with no stored entry id — that, plus the unique
-      index, is what makes pressing the button twice harmless.
+- [x] **Per-entry failure state.** A push of three entries where the second fails leaves the other
+      two synced. A failure before Redmine creates anything is not recorded, so that time stays
+      unsent and is offered again. Pressing the button twice is harmless because each push
+      subtracts what earlier entries already covered, under a per-user lock (D5).
 - [ ] **Name the failure modes.** `403` → the role lacks `log_time`. `422` → the activity was
       rejected (see Phase 1). Network/timeout → retryable. Each should say which it is rather
       than surfacing as a generic failure.
@@ -434,10 +452,14 @@ net-hours total per user per issue per day, entirely within TimeHuddle, with an 
 at runtime from the issue's tracker and a `redmineTimeEntryId` field ready to hold the remote
 identity.
 
-**M5:** a full day of clock and timer activity, followed by one press of the push button and one
-confirmation, produces **exactly one** Redmine time entry per issue per day, with correct hours,
-confirmed by read-back. Pressing the button again creates **nothing further**, and no entry is
-ever edited or deleted.
+**M5:** a day of clock and timer activity, pushed with one or more confirmations, puts every
+tracked second into Redmine **exactly once**: the sum of the entries for an issue-day equals the
+net hours Huddle recorded for it, each confirmed by read-back. Pressing the button again with
+nothing new creates **nothing further**, and no entry is ever edited or deleted.
+
+> **Superseded (D5):** this originally required "exactly one entry per issue per day". The real
+> invariant was always that no time is lost and none is sent twice. One entry per day was just
+> the first way of getting that, and it failed as soon as someone pushed mid-day.
 
 ## Verification gates
 
@@ -469,6 +491,50 @@ Also outstanding from M2.1, unrelated to sync but still open:
 `tests/e2e/realtime/ticket-timers.spec.ts` currently self-skips (it never clocks in and never
 opens My Board, so it finds no timer buttons and early-returns), and the unreachable
 ticket-details modal in `TicketsPage.tsx` is still dead code.
+
+## D5 — pushing a ticket-day more than once (2026-09-21)
+
+**The bug.** A user pushed ticket #15 mid-day, kept working it for ~37 minutes, stopped the timer
+and clocked out. The push panel didn't appear. The ticket-day already had an entry, so it counted
+as synced. Under create-only (D1) that entry could never grow, so the new time was **permanently
+excluded**, and with nothing left to offer the panel hid itself.
+
+**The fix.** Each push sends `net seconds − seconds already sent` as a **new** entry. Redmine adds
+up entries per issue in its Spent time view, so its total stays right.
+
+| Area                                                                                 | Files                                           |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| `unsentTotals` — the subtraction, pure and unit-tested                               | `meteor-backend/server/redmine-time-entries.js` |
+| One row per entry, `syncedSeconds`, index swap, one-time backfill                    | `meteor-backend/server/redmine-time-sync.js`    |
+| `redmineClosedSecondsUntil` — exact seconds for the backfill                         | `meteor-backend/server/timer-core.js`           |
+| Per-user push lock; a ticket-day listed twice is sent once                           | `meteor-backend/server/redmine.js`              |
+| "Already sent" shown per row; results no longer vanish; few-second leftovers ignored | `src/features/clock/RedminePushPanel.tsx`       |
+
+- **Double-send safety moved from the index to a lock.** The one-per-day unique index was what
+  stopped two concurrent pushes from both writing. It's gone, so a push now takes a lock on the
+  caller's `redmine_links` row, with an atomic update and a 2-minute stale timeout. The lock
+  covers both the unsent-time calculation and the writes.
+- **The backfill is exact.** Rows written before D5 recorded rounded hours only. Their
+  `syncedSeconds` is recovered from the sessions that had closed by `lastAttemptAt`. For the
+  motivating ticket-day that gives 4546s, matching the two pre-push sessions to the second.
+  Deriving it from `syncedHours` would have been up to 18s out per row, and that error would have
+  shown up as phantom unsent time.
+- **A second bug fixed on the way.** After a push that sent everything, the reloaded preview was
+  empty, so the component unmounted and the dialog closed before showing its results. Results now
+  render from a snapshot taken when Send is pressed.
+- **Verified** with 6 new unit tests (60 backend total, 192 frontend), a clean `push-reviewer`
+  pass, and the migration run against live data.
+
+### ⚠️ Two risks the fix exposed
+
+- **No way to leave a row out.** Send pushes every sendable row. Under D1 that's permanent, so a
+  bad row forces a choice between sending it or sending nothing. **Follow-up: a per-row include
+  checkbox in the dialog.**
+- **A forgotten timer is now visible, and pushable.** The old bug had been hiding a 7.39h session
+  on #15 for 2026-09-20: one session running overnight, 01:57 → 09:20 UTC, almost certainly a
+  timer left on and closed automatically rather than real work. D5 correctly counts it as unsent,
+  so the panel now offers it. This is the stale-timer risk the parent plan's **R3** predicted, and
+  it has no guard yet. Fix the session in Huddle before pushing that day.
 
 ## ⚠️ Open defect — hours rounding disagrees with Redmine's
 
