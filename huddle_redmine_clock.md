@@ -493,8 +493,8 @@ R2/R3, recorded below.
 
 Corollaries that follow from that and are binding on M3–M5:
 
-- Detail (sessions, starts/stops, breaks, notes) lives **only** in TimeHuddle. Redmine gets a
-  single rolled-up number per issue per day and nothing else.
+- Detail (sessions, starts/stops, breaks, notes) lives **only** in TimeHuddle. Redmine gets
+  rolled-up numbers per issue per day (one per push, D5) and nothing else.
 - Nothing entered on the Redmine side ever flows back. There is no reverse sync in v1, and
   **an edit made in Redmine's Spent time tab will be silently overwritten** by the next sync
   (see decision **R4**).
@@ -535,7 +535,7 @@ flowchart TD
     ClockEvents -. "break closes the running session<br/>resume opens a new one<br/>clock out closes all<br/>(8h auto-clockout closes runaway ticket timers too)" .-> Sessions
     ClockEvents -. "shift total is never pushed" .-> NotSynced["🚫 stays in TimeHuddle"]
     Sessions ==> Timesheet["Dashboard Timesheet<br/>ticket sessions nested under their shift row"]
-    Sessions ==> SyncEngine["M5 — upsert one time entry<br/>per issue per day (deferred, unstarted)"]
+    Sessions ==> SyncEngine["M5 — confirmed push, create-only<br/>unsent time per issue per day"]
     SyncEngine ==> Spent["Redmine → issue → Spent time"]
 
     classDef huddle fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
@@ -572,12 +572,12 @@ flowchart TD
 
 ### Where a user sees time, and why the numbers differ
 
-| Surface                          | Shows                            | Granularity                   | Source           |
-| -------------------------------- | -------------------------------- | ----------------------------- | ---------------- |
-| Clock page session timer         | Current **shift** elapsed        | live                          | System A         |
-| Dashboard → Me → Timesheet       | Shift sessions + breaks          | per shift                     | System A         |
-| Work page (`/app/work`)          | **Ticket** work items + sessions | per item per day              | System B         |
-| Redmine → issue → **Spent time** | Rolled-up hours                  | **one row per issue per day** | System B, via M5 |
+| Surface                          | Shows                            | Granularity                             | Source           |
+| -------------------------------- | -------------------------------- | --------------------------------------- | ---------------- |
+| Clock page session timer         | Current **shift** elapsed        | live                                    | System A         |
+| Dashboard → Me → Timesheet       | Shift sessions + breaks          | per shift                               | System A         |
+| Work page (`/app/work`)          | **Ticket** work items + sessions | per item per day                        | System B         |
+| Redmine → issue → **Spent time** | Rolled-up hours                  | **one row per push, per issue per day** | System B, via M5 |
 
 **The shift total and the sum of ticket timers are different numbers and always will be** — a
 user can be clocked in without any ticket timer running. This is not a bug, but it _is_ the
@@ -809,10 +809,10 @@ All timing detail lives on the TimeHuddle side; Redmine only ever gets a total.
       `getTicketTotal`'s own missing `userId` scope is a pre-existing authorization gap and is
       **still open** as its own change.
 - [x] ~~Add `redmineTimeEntryId` to the (Redmine) work record~~ → a **`redmine_time_syncs`**
-      collection with a real unique index on `{userId, ticketId, date}`. The WorkItem grain claim
-      was false: `timers.copyPrevious` dedupes on a signature including `note`, so sibling rows
-      for the same tuple legitimately exist and would have produced two Redmine entries per
-      issue-day.
+      collection. The WorkItem grain claim was false: `timers.copyPrevious` dedupes on a signature
+      including `note`, so sibling rows for the same tuple legitimately exist. The collection first
+      held one row per issue-day under a unique index; **D5 (M5, below) made it one row per Redmine
+      entry**, recording the seconds each entry covered.
 - [x] Add a per-user **default `activity_id`**, resolved **at runtime** and never hardcoded.
       Order: the user's Settings choice → the issue's Redmine **tracker** → `is_default` → one
       named `Development` → the first.
@@ -836,7 +836,7 @@ correct net-hours total per ticket per day, entirely within TimeHuddle.
 > open defect, below. Full detail:
 > [`docs/redmine-m4-m5-time-sync-plan.md`](./docs/redmine-m4-m5-time-sync-plan.md) (Phases 3–4).
 >
-> **Two decisions reversed this milestone's original design. Both are deliberate:**
+> **Three decisions reversed this milestone's original design. All are deliberate:**
 >
 > - **D1 — create-only.** No edit, no delete, ever. Logged time is permanent; changing it is an
 >   administrative act in Redmine. `edit_own_time_entries` is therefore **not wanted**, and the
@@ -844,6 +844,10 @@ correct net-hours total per ticket per day, entirely within TimeHuddle.
 > - **D2 — the push is manual and confirmed.** The user presses a button when their day is done
 >   and approves a summary before anything is sent, which is what makes "is the day finished?"
 >   answerable at all. This replaces the automatic on-clock-out trigger.
+> - **D5 — a ticket-day may be pushed more than once** _(2026-09-21, after shipping)._ Each push
+>   sends only the unsent seconds as a new entry. With exactly one entry per issue-day, work done
+>   after a mid-day push could never reach Redmine, because create-only forbids growing the
+>   existing entry, and the push panel then hid itself. Found in manual testing.
 
 Push the computed hours to Redmine as a time entry (the only write in v1).
 
@@ -857,10 +861,16 @@ Push the computed hours to Redmine as a time entry (the only write in v1).
 - [x] Round/format hours to decimal hours. **Rounded once, to 2dp, on the summed seconds** — never
       per session, which would let error accumulate.
 - [x] **Re-read after write** and confirm the hours match; surface a sync error if they don't.
-- [x] Never create a duplicate — the unique index plus the stored entry id make a second press
-      a no-op.
+- [x] Never send the same time twice — each push subtracts the seconds earlier entries covered
+      (D5), under a per-user lock so two tabs pressing Send together cannot both write. A unique
+      index on the entry id means no entry is ever recorded twice.
 - [x] Retry/failure UX: per-entry state with a named reason; a failed row stays eligible, so
       re-opening the dialog is the retry.
+- [ ] **Per-row include checkbox in the dialog.** Send currently pushes every sendable row, and
+      entries are permanent, so one bad row forces a choice between sending it and sending nothing.
+- [ ] **Stale-timer guard (R3).** Now concrete: a 7.39h overnight session on #15 (2026-09-20),
+      almost certainly a timer left running, was hidden by the pre-D5 bug and is now offered for
+      push. Nothing yet stops it being sent.
 
 > **⚠️ Open defect — hours rounding disagrees with Redmine's.** The read-back check is working and
 > caught it: we send `0.11 / 1.26 / 0.61`, Redmine stores `0.12 / 1.27 / 0.62` — it rounds **up**
@@ -869,8 +879,10 @@ Push the computed hours to Redmine as a time entry (the only write in v1).
 > exist and are within a minute of correct. Fix is to match Redmine's rounding in
 > `redmine-time-entries.js` and decide what to do with the three already-flagged rows.
 
-**Done when:** a full day of clock/timer activity produces exactly **one** Redmine time
-entry per ticket per day, with correct hours and no duplicates on retry.
+**Done when:** a day of clock/timer activity reaches Redmine with every tracked second sent
+**exactly once** — the entries for an issue-day sum to the hours Huddle recorded — with no
+duplicates on retry. _(This originally said "exactly one entry per ticket per day"; D5 replaced
+that, because the rule that actually matters is no lost time and no double-sent time.)_
 _Met, except that "correct hours" is off by up to one minute per entry until the rounding defect
 above is fixed._
 
