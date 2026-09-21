@@ -59,6 +59,7 @@ const FAILURE_TEXT: Record<string, string> = {
   'hours-mismatch': 'Redmine stored different hours than we sent',
   'no-entry-id': 'Redmine did not return an entry id',
   'already-synced-or-gone': 'Already sent, or no longer eligible',
+  'invalid-activity': 'That activity no longer exists in Redmine',
 };
 
 /** `0.51` → `0:31`, so hours read the way the rest of the app shows time. */
