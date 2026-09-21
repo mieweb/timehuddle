@@ -25,8 +25,12 @@ export interface TicketColumnFilter {
   /** Currently selected value, or null for "any". */
   value: string | null;
   onChange: (value: string | null) => void;
-  /** Extra entry above the options, e.g. "Unassigned" or "No priority". */
-  extraOption?: { value: string; label: string };
+  /**
+   * Entries above the derived options, in order — e.g. "Me" and "Unassigned",
+   * or "No priority". These are not derived from the loaded tickets, so they
+   * stay available even when nothing currently matches them.
+   */
+  extraOptions?: { value: string; label: string }[];
 }
 
 export interface TicketColumnHeaderProps {
@@ -62,9 +66,9 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
 
   const selectedLabel =
     filter && filter.value
-      ? ((filter.extraOption?.value === filter.value
-          ? filter.extraOption.label
-          : filter.options.find((o) => o.value === filter.value)?.label) ?? null)
+      ? (filter.extraOptions?.find((o) => o.value === filter.value)?.label ??
+        filter.options.find((o) => o.value === filter.value)?.label ??
+        null)
       : null;
 
   // Options arrive pre-grouped by source; a label is emitted when the group
@@ -125,14 +129,15 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
             >
               {filter.anyLabel}
             </DropdownItem>
-            {filter.extraOption && (
+            {filter.extraOptions?.map((option) => (
               <DropdownItem
-                onClick={() => filter.onChange(filter.extraOption!.value)}
-                className={filter.value === filter.extraOption.value ? 'font-semibold' : ''}
+                key={option.value}
+                onClick={() => filter.onChange(option.value)}
+                className={filter.value === option.value ? 'font-semibold' : ''}
               >
-                {filter.extraOption.label}
+                {option.label}
               </DropdownItem>
-            )}
+            ))}
             {filter.options.length > 0 && <DropdownSeparator />}
             {filter.options.map((option) => {
               const startsGroup = option.group !== undefined && option.group !== lastGroup;

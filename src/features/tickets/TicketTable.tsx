@@ -31,6 +31,7 @@ import {
   containerOptions,
   priorityOptions,
   statusOptions,
+  ME,
   NO_PRIORITY,
   UNASSIGNED,
   type SortField,
@@ -267,7 +268,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                     options: priorityOptions(optionSource),
                     value: filters.priority,
                     onChange: (value) => set('priority', value),
-                    extraOption: { value: NO_PRIORITY, label: 'No priority' },
+                    extraOptions: [{ value: NO_PRIORITY, label: 'No priority' }],
                   }}
                   {...headerProps}
                 />
@@ -279,7 +280,12 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                     options: assigneeOptions(optionSource),
                     value: filters.assignee,
                     onChange: (value) => set('assignee', value),
-                    extraOption: { value: UNASSIGNED, label: 'Unassigned' },
+                    // "Me" first: it is the shortcut people reach for most, and
+                    // it spans every source at once (see the ME sentinel).
+                    extraOptions: [
+                      { value: ME, label: 'Me' },
+                      { value: UNASSIGNED, label: 'Unassigned' },
+                    ],
                   }}
                   {...headerProps}
                 />
