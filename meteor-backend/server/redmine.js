@@ -27,8 +27,8 @@ import { findRedmineApiKey } from './redmine-account';
 import { toStatus } from './redmine-status';
 import { toIssueList } from './redmine-issues';
 import { bustActivityCache, getActivitiesForUser, pickDefaultActivity } from './redmine-activities';
-import { buildPushRows, PUSH_COMMENT } from './redmine-time-entries';
-import { recordFailure, recordSynced, syncedKeysFor } from './redmine-time-sync';
+import { buildPushRows, PUSH_COMMENT, unsentTotals } from './redmine-time-entries';
+import { flagEntry, recordEntry, sentSecondsFor } from './redmine-time-sync';
 import { redmineTicketDaysFor } from './timer-core';
 
 const VALID_SCOPES = new Set(['mine', 'all']);
@@ -76,6 +76,38 @@ async function isIdleForPush(userId) {
   return !runningTimer;
 }
 
+/** A lock older than this is treated as abandoned (a crashed or timed-out push). */
+const PUSH_LOCK_STALE_MS = 2 * 60 * 1000;
+
+/**
+ * Claim the caller's push lock, or return false if a push is already running.
+ *
+ * Under D5 a ticket-day may take several entries, so the storage layer no longer
+ * rejects a second one. Without this, two tabs pressing Send together would both
+ * compute the same unsent time and both create an entry for it. The claim is a
+ * single atomic update on the caller's `redmine_links` row, so exactly one of
+ * two concurrent pushes wins.
+ */
+async function acquirePushLock(userId) {
+  const now = new Date();
+  const claimed = await RedmineLinks.updateAsync(
+    {
+      userId,
+      $or: [
+        { pushingSince: null },
+        { pushingSince: { $exists: false } },
+        { pushingSince: { $lt: new Date(now.getTime() - PUSH_LOCK_STALE_MS) } },
+      ],
+    },
+    { $set: { pushingSince: now } },
+  );
+  return claimed === 1;
+}
+
+function releasePushLock(userId) {
+  return RedmineLinks.updateAsync({ userId }, { $set: { pushingSince: null } });
+}
+
 /**
  * The unsynced ticket-days for a user, shaped for the dialog.
  *
@@ -86,10 +118,8 @@ async function buildPreviewRows(userId, apiKey) {
   const totals = await redmineTicketDaysFor(userId);
   if (!totals.length) return [];
 
-  const alreadySynced = await syncedKeysFor(userId);
-  const unsynced = totals.filter(
-    (total) => !alreadySynced.has(`${total.ticketId}|${total.date}`),
-  );
+  // Only the time not already covered by earlier entries (D5).
+  const unsynced = unsentTotals(totals, await sentSecondsFor(userId));
   if (!unsynced.length) return [];
 
   const issueIds = [...new Set(unsynced.map((total) => total.ticketId))];
@@ -157,27 +187,27 @@ async function pushOneEntry(userId, apiKey, row, activityId) {
         : err?.status === 422
           ? 'rejected-by-redmine'
           : 'unreachable';
-    await recordFailure(userId, row.ticketId, row.date, reason);
+    // Nothing was created, so nothing is recorded: the time stays unsent and
+    // is offered again on the next push.
     return { ...base, ok: false, reason };
   }
 
   const entryId = created?.id ?? null;
   if (entryId == null) {
-    await recordFailure(userId, row.ticketId, row.date, 'no-entry-id');
     return { ...base, ok: false, reason: 'no-entry-id' };
   }
 
-  // Store the id before confirming: if the read-back fails, the entry still
-  // exists in Redmine, and forgetting its id is what would produce a duplicate
-  // on the next push.
-  await recordSynced(userId, row.ticketId, row.date, {
+  // Record before confirming: if the read-back fails, the entry still exists in
+  // Redmine, and forgetting it is what would resend the same time as a duplicate.
+  await recordEntry(userId, row.ticketId, row.date, {
     redmineTimeEntryId: entryId,
+    seconds: row.seconds,
     hours: row.hours,
   });
 
   const stored = await getTimeEntry(apiKey, entryId);
   if (stored && Number(stored.hours) !== row.hours) {
-    await recordFailure(userId, row.ticketId, row.date, 'hours-mismatch');
+    await flagEntry(entryId, 'hours-mismatch');
     return { ...base, ok: false, reason: 'hours-mismatch', storedHours: Number(stored.hours), entryId };
   }
 
@@ -415,26 +445,53 @@ Meteor.methods({
       );
     }
 
-    // Recomputed server-side, then matched against the requested rows.
-    const previewRows = await buildPreviewRows(userId, apiKey);
-    const byKey = new Map(previewRows.map((row) => [`${row.ticketId}|${row.date}`, row]));
-
-    // The same enumeration the rows were resolved from, served from cache. If it
-    // cannot be fetched the set stays empty, so every override is rejected as
-    // unverifiable rather than trusted.
-    let validActivityIds = new Set();
-    try {
-      validActivityIds = new Set((await getActivitiesForUser(userId, apiKey)).map((a) => a.id));
-    } catch {
-      /* unreachable — handled per row below */
+    // Held across both the unsent-time calculation and the writes: releasing it
+    // between them would let a second push read the same unsent figure before
+    // this one records its entry.
+    if (!(await acquirePushLock(userId))) {
+      throw new Meteor.Error(
+        'push-in-progress',
+        'A push to Redmine is already running. Wait for it to finish, then try again.',
+      );
     }
+    try {
+      return { results: await pushRequestedEntries(userId, apiKey, entries) };
+    } finally {
+      await releasePushLock(userId);
+    }
+  },
+});
 
-    const results = [];
-    for (const requested of entries) {
-      const key = `${requested?.ticketId}|${requested?.date}`;
-      const row = byKey.get(key);
+/**
+ * Push each requested ticket-day, holding the caller's push lock.
+ *
+ * Unsent time is recomputed here rather than taken from the client, then
+ * matched against the requested rows.
+ */
+async function pushRequestedEntries(userId, apiKey, entries) {
+  const previewRows = await buildPreviewRows(userId, apiKey);
+  const byKey = new Map(previewRows.map((row) => [`${row.ticketId}|${row.date}`, row]));
 
-      if (!row) {
+  // The same enumeration the rows were resolved from, served from cache. If it
+  // cannot be fetched the set stays empty, so every override is rejected as
+  // unverifiable rather than trusted.
+  let validActivityIds = new Set();
+  try {
+    validActivityIds = new Set((await getActivitiesForUser(userId, apiKey)).map((a) => a.id));
+  } catch {
+    /* unreachable — handled per row below */
+  }
+
+  // A ticket-day listed twice would otherwise have its unsent time sent twice.
+  const handled = new Set();
+
+  const results = [];
+  for (const requested of entries) {
+    const key = `${requested?.ticketId}|${requested?.date}`;
+    const row = handled.has(key) ? undefined : byKey.get(key);
+    handled.add(key);
+
+    if (!row) {
         results.push({
           ticketId: requested?.ticketId ?? null,
           date: requested?.date ?? null,
@@ -465,6 +522,5 @@ Meteor.methods({
       results.push(await pushOneEntry(userId, apiKey, row, activityId));
     }
 
-    return { results };
-  },
-});
+  return results;
+}

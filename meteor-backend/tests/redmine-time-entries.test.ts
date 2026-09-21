@@ -13,6 +13,7 @@ import {
   isPushable,
   buildPushRows,
   pushableRows,
+  unsentTotals,
 } from '../server/redmine-time-entries';
 
 const resolver = (trackerName: string | null) =>
@@ -128,6 +129,70 @@ describe('buildPushRows', () => {
 
   it('tolerates a non-array input', () => {
     expect(buildPushRows(undefined as never, issues, resolver)).toEqual([]);
+  });
+});
+
+describe('unsentTotals (D5 — pushing a ticket-day more than once)', () => {
+  it('sends only the work done after an earlier push', () => {
+    // The case that surfaced this: #15 pushed mid-day at 4546s, then worked
+    // another 2215s. Only the 2215s may go up, as its own entry.
+    const [row] = unsentTotals(
+      [{ ticketId: '15', date: '2026-09-21', seconds: 4546 + 2215 }],
+      new Map([['15|2026-09-21', 4546]]),
+    );
+    expect(row).toEqual({
+      ticketId: '15',
+      date: '2026-09-21',
+      seconds: 2215,
+      alreadySentSeconds: 4546,
+    });
+    expect(toHours(row.seconds)).toBe(0.62);
+  });
+
+  it('passes a never-pushed ticket-day through whole', () => {
+    expect(
+      unsentTotals([{ ticketId: '12', date: '2026-09-21', seconds: 1442 }], new Map()),
+    ).toEqual([{ ticketId: '12', date: '2026-09-21', seconds: 1442, alreadySentSeconds: 0 }]);
+  });
+
+  it('drops a ticket-day with nothing new', () => {
+    expect(
+      unsentTotals(
+        [{ ticketId: '12', date: '2026-09-21', seconds: 1442 }],
+        new Map([['12|2026-09-21', 1442]]),
+      ),
+    ).toEqual([]);
+  });
+
+  it('keeps a few new seconds so they can accumulate', () => {
+    const [row] = unsentTotals(
+      [{ ticketId: '12', date: '2026-09-21', seconds: 1447 }],
+      new Map([['12|2026-09-21', 1442]]),
+    );
+    expect(row.seconds).toBe(5);
+    expect(isPushable(toHours(row.seconds))).toBe(false);
+  });
+
+  it('never goes negative if more was sent than is now recorded', () => {
+    // e.g. a session was deleted after its time was pushed.
+    expect(
+      unsentTotals(
+        [{ ticketId: '12', date: '2026-09-21', seconds: 1000 }],
+        new Map([['12|2026-09-21', 1442]]),
+      ),
+    ).toEqual([]);
+  });
+
+  it('carries alreadySentSeconds through to the dialog row', () => {
+    const [row] = buildPushRows(
+      unsentTotals(
+        [{ ticketId: '19', date: '2026-09-21', seconds: 7200 }],
+        new Map([['19|2026-09-21', 3600]]),
+      ),
+      issues,
+      resolver,
+    );
+    expect(row).toMatchObject({ seconds: 3600, alreadySentSeconds: 3600, hours: 1 });
   });
 });
 

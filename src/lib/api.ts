@@ -2153,8 +2153,11 @@ export interface RedmineTimeEntryRow {
   ticketId: string;
   /** The day being logged, `YYYY-MM-DD`. */
   date: string;
+  /** Seconds not yet sent to Redmine — what this push would cover. */
   seconds: number;
-  /** Decimal hours, rounded once to 2dp — exactly what Redmine will store. */
+  /** Seconds already sent for this ticket-day by earlier pushes (D5). */
+  alreadySentSeconds: number;
+  /** Decimal hours for `seconds`, rounded once to 2dp — what Redmine will store. */
   hours: number;
   subject: string | null;
   trackerName: string | null;

@@ -40,6 +40,7 @@ import {
   type RedmineActivity,
   type RedmineTimeEntryPreview,
   type RedmineTimeEntryPushOutcome,
+  type RedmineTimeEntryRow,
 } from '../../lib/api';
 
 /** Stable row identity; mirrors the server's `{ticketId, date}` grain. */
@@ -75,6 +76,9 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
   const [overrides, setOverrides] = useState<Record<string, number>>({});
   const [pushing, setPushing] = useState(false);
   const [results, setResults] = useState<RedmineTimeEntryPushOutcome[] | null>(null);
+  // The rows as they were when sent. The preview is reloaded after a push and
+  // sent rows drop out of it, so results must not be rendered from the live list.
+  const [pushedRows, setPushedRows] = useState<RedmineTimeEntryRow[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -98,9 +102,18 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
     void load();
   }, [load, isClockedIn]);
 
-  const rows = preview?.rows ?? [];
+  const rows = useMemo(() => preview?.rows ?? [], [preview]);
   const sendable = useMemo(() => rows.filter((row) => row.blockedReason === null), [rows]);
-  const blocked = useMemo(() => rows.filter((row) => row.blockedReason !== null), [rows]);
+  // A few seconds of new time is not worth a row of its own: it stays unsent
+  // and accumulates, so it neither summons the panel nor counts as blocked.
+  const blocked = useMemo(
+    () => rows.filter((row) => row.blockedReason !== null && row.blockedReason !== 'too-short'),
+    [rows],
+  );
+  const offeredRows = useMemo(
+    () => rows.filter((row) => row.blockedReason !== 'too-short'),
+    [rows],
+  );
   const totalHours = useMemo(() => sendable.reduce((sum, row) => sum + row.hours, 0), [sendable]);
 
   const activityOptions = useMemo(
@@ -115,6 +128,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
 
   const handlePush = async () => {
     setPushing(true);
+    setPushedRows(offeredRows);
     try {
       const { results: outcome } = await redmineApi.timeEntries.push(
         sendable.map((row) => ({
@@ -141,8 +155,14 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
     setError(null);
   };
 
-  // Nothing to offer: not linked, or no unsynced Redmine time at all.
-  if (!preview?.connected || rows.length === 0) return null;
+  // Nothing to offer: not linked, or nothing unsent beyond a few seconds. Kept
+  // mounted while the dialog is open so a push that sends everything can still
+  // show its results.
+  const hasSomethingToShow = sendable.length > 0 || blocked.length > 0;
+  if (!open && (!preview?.connected || !hasSomethingToShow)) return null;
+  if (!preview) return null;
+
+  const tableRows = results ? pushedRows : offeredRows;
 
   const idle = preview.idle;
   const canSend = idle && sendable.length > 0;
@@ -200,7 +220,7 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => {
+              {tableRows.map((row) => {
                 const key = rowKey(row);
                 const outcome = resultByKey.get(key);
                 return (
@@ -223,6 +243,11 @@ export const RedminePushPanel: React.FC<{ isClockedIn: boolean }> = ({ isClocked
                           ({row.hours.toFixed(2)}h)
                         </Text>
                       </Text>
+                      {row.alreadySentSeconds > 0 && (
+                        <Text variant="muted" size="xs">
+                          new time only · {asClock(row.alreadySentSeconds / 3600)} already sent
+                        </Text>
+                      )}
                     </TableCell>
                     <TableCell>
                       {row.blockedReason ? (

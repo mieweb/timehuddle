@@ -43,6 +43,36 @@ export function isPushable(hours) {
 }
 
 /**
+ * The time on each ticket-day that has not yet reached Redmine (D5).
+ *
+ * A ticket-day can be pushed more than once: a user may push mid-day and keep
+ * working. Entries are create-only (D1), so later work goes up as a further
+ * entry covering just the difference. `sentSeconds` is tracked in raw seconds,
+ * not rounded hours, so repeated pushes cannot drift.
+ *
+ * A ticket-day with nothing new is dropped; one with a few new seconds is kept,
+ * so short stretches accumulate until they are worth sending.
+ *
+ * @param {Array<{ticketId: string, date: string, seconds: number}>} totals
+ * @param {Map<string, number>} sentSecondsByKey  keyed `ticketId|date`
+ * @returns {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds: number}>}
+ */
+export function unsentTotals(totals, sentSecondsByKey) {
+  if (!Array.isArray(totals)) return [];
+  return totals
+    .map((total) => {
+      const alreadySentSeconds = sentSecondsByKey.get(`${total.ticketId}|${total.date}`) ?? 0;
+      return {
+        ticketId: total.ticketId,
+        date: total.date,
+        seconds: Math.max(0, total.seconds - alreadySentSeconds),
+        alreadySentSeconds,
+      };
+    })
+    .filter((total) => total.seconds > 0);
+}
+
+/**
  * Build the confirmation-dialog rows for a set of unsynced ticket-days.
  *
  * Pure: the caller supplies the already-computed net seconds, the issues it
@@ -54,7 +84,8 @@ export function isPushable(hours) {
  * tracked time, and hiding it would silently drop work. It carries
  * `issueMissing: true` so the dialog can show it as unsendable instead.
  *
- * @param {Array<{ticketId: string, date: string, seconds: number}>} totals
+ * @param {Array<{ticketId: string, date: string, seconds: number, alreadySentSeconds?: number}>} totals
+ *   `seconds` is the unsent time only — see `unsentTotals`
  * @param {Map<string, {subject: string, trackerName: string|null}>} issuesById
  * @param {(trackerName: string|null) => {activityId: number|null, activityName: string|null, reason: string}} resolveActivity
  */
@@ -71,6 +102,7 @@ export function buildPushRows(totals, issuesById, resolveActivity) {
         ticketId: String(total.ticketId),
         date: total.date,
         seconds: total.seconds,
+        alreadySentSeconds: total.alreadySentSeconds ?? 0,
         hours,
         subject: issue?.subject ?? null,
         trackerName: issue?.trackerName ?? null,
