@@ -36,10 +36,18 @@ import {
   useSpring,
   useTransform,
 } from 'motion/react';
+import { Badge, Button, Card, buttonVariants, cardVariants } from '@mieweb/ui';
+import { cn } from '@mieweb/ui/utils';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { REPO_URL } from '../lib/constants';
 import { Logo } from './Logo';
+
+// @mieweb/ui components under Motion. `motion.create` keeps the component's own
+// markup and tokens while letting Motion drive its transforms, so the page uses
+// the library rather than re-implementing a card or a badge in Tailwind.
+const MotionCard = motion.create(Card);
+const MotionBadge = motion.create(Badge);
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -341,17 +349,19 @@ interface FeatureCardProps {
 }
 
 const FeatureCard: React.FC<FeatureCardProps> = ({ feature, index, reduced }) => {
-  const ref = useRef<HTMLElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: '-60px' });
 
   return (
-    <motion.article
+    <MotionCard
       ref={ref}
+      as="article"
+      padding="lg"
       initial={reduced ? false : { opacity: 0, y: 40, scale: 0.96 }}
       animate={inView ? { opacity: 1, y: 0, scale: 1 } : {}}
       transition={{ duration: 0.5, delay: index * 0.08, ease: [0.22, 1, 0.36, 1] }}
       whileHover={reduced ? {} : { y: -4, scale: 1.015 }}
-      className={`group relative overflow-hidden rounded-2xl border border-neutral-200/80 bg-white p-6 shadow-sm transition-shadow hover:shadow-xl dark:border-neutral-800/80 dark:bg-neutral-900/80 ${feature.glow}`}
+      className={`group transition-shadow hover:shadow-xl ${feature.glow}`}
     >
       <div
         className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${feature.gradient} opacity-0 transition-opacity duration-300 group-hover:opacity-100`}
@@ -373,7 +383,7 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ feature, index, reduced }) =>
           {feature.description}
         </p>
       </div>
-    </motion.article>
+    </MotionCard>
   );
 };
 
@@ -386,17 +396,19 @@ interface DemoCardProps {
 }
 
 const DemoCard: React.FC<DemoCardProps> = ({ demo, index, reduced }) => {
-  const ref = useRef<HTMLElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: '-60px' });
 
   return (
-    <motion.article
+    <MotionCard
       ref={ref}
+      as="article"
+      padding="lg"
       initial={reduced ? false : { opacity: 0, y: 40, scale: 0.96 }}
       animate={inView ? { opacity: 1, y: 0, scale: 1 } : {}}
       transition={{ duration: 0.5, delay: index * 0.09, ease: [0.22, 1, 0.36, 1] }}
       whileHover={reduced ? {} : { y: -4, scale: 1.015 }}
-      className={`group relative flex flex-col overflow-hidden rounded-2xl border border-neutral-200/80 bg-white p-6 shadow-sm transition-shadow hover:shadow-xl dark:border-neutral-800/80 dark:bg-neutral-900/80 ${demo.glow}`}
+      className={`group transition-shadow hover:shadow-xl ${demo.glow}`}
     >
       <div
         className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${demo.gradient} opacity-0 transition-opacity duration-300 group-hover:opacity-100`}
@@ -423,7 +435,7 @@ const DemoCard: React.FC<DemoCardProps> = ({ demo, index, reduced }) => {
           Try it live →
         </a>
       </div>
-    </motion.article>
+    </MotionCard>
   );
 };
 
@@ -451,12 +463,14 @@ const AnimatedTerminal: React.FC<{ reduced: boolean }> = ({ reduced }) => {
   }, [inView, reduced]);
 
   return (
-    <motion.div
+    <MotionCard
       ref={ref}
+      padding="none"
       initial={reduced ? false : { opacity: 0, y: 30 }}
       animate={inView ? { opacity: 1, y: 0 } : {}}
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-      className="overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950 shadow-2xl shadow-black/40"
+      // terminal chrome stays dark in both themes, so it overrides the card tokens
+      className="border-neutral-800 bg-neutral-950 shadow-2xl shadow-black/40"
     >
       <div
         className="flex items-center gap-1.5 border-b border-neutral-800 bg-neutral-900/80 px-4 py-3"
@@ -497,7 +511,7 @@ const AnimatedTerminal: React.FC<{ reduced: boolean }> = ({ reduced }) => {
           )}
         </code>
       </pre>
-    </motion.div>
+    </MotionCard>
   );
 };
 
@@ -558,9 +572,10 @@ const StatsStrip: React.FC<{ reduced: boolean }> = ({ reduced }) => {
   const inView = useInView(ref, { once: true, margin: '-60px' });
 
   return (
-    <motion.div
+    <MotionCard
       ref={ref}
-      className="mx-auto mt-16 grid max-w-3xl grid-cols-2 gap-px overflow-hidden rounded-2xl border border-neutral-200 bg-neutral-200 shadow-sm dark:border-neutral-800 dark:bg-neutral-800 sm:grid-cols-4"
+      padding="none"
+      className="mx-auto mt-16 grid max-w-3xl grid-cols-2 gap-px bg-border sm:grid-cols-4"
     >
       {STATS.map((stat, i) => (
         <motion.div
@@ -568,13 +583,13 @@ const StatsStrip: React.FC<{ reduced: boolean }> = ({ reduced }) => {
           initial={reduced ? false : { opacity: 0, y: 16 }}
           animate={inView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.4, delay: i * 0.07 }}
-          className="flex flex-col items-center justify-center gap-1 bg-white px-4 py-6 dark:bg-neutral-950"
+          className="flex flex-col items-center justify-center gap-1 bg-card px-4 py-6"
         >
           <span className="text-2xl font-bold">{stat.value}</span>
           <span className="text-xs text-neutral-500 dark:text-neutral-400">{stat.label}</span>
         </motion.div>
       ))}
-    </motion.div>
+    </MotionCard>
   );
 };
 
@@ -639,28 +654,30 @@ const Lightbox: React.FC<LightboxProps> = ({ items, index, onClose, onPrev, onNe
       aria-label={item.alt}
     >
       {/* Close */}
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="icon"
         onClick={onClose}
         aria-label="Close lightbox"
-        className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/40"
+        className="absolute right-4 top-4 z-10 rounded-full bg-white/10 text-white backdrop-blur-sm hover:bg-white/20 hover:text-white"
       >
         <FontAwesomeIcon icon={faXmark} className="text-lg" />
-      </button>
+      </Button>
 
       {/* Prev */}
       {items.length > 1 && (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={(e) => {
             e.stopPropagation();
             onPrev();
           }}
           aria-label="Previous screenshot"
-          className="absolute left-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/40"
+          className="absolute left-4 z-10 rounded-full bg-white/10 text-white backdrop-blur-sm hover:bg-white/20 hover:text-white"
         >
           <FontAwesomeIcon icon={faChevronLeft} />
-        </button>
+        </Button>
       )}
 
       {/* Image */}
@@ -678,17 +695,18 @@ const Lightbox: React.FC<LightboxProps> = ({ items, index, onClose, onPrev, onNe
 
       {/* Next */}
       {items.length > 1 && (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={(e) => {
             e.stopPropagation();
             onNext();
           }}
           aria-label="Next screenshot"
-          className="absolute right-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur-sm hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/40"
+          className="absolute right-4 z-10 rounded-full bg-white/10 text-white backdrop-blur-sm hover:bg-white/20 hover:text-white"
         >
           <FontAwesomeIcon icon={faChevronRight} />
-        </button>
+        </Button>
       )}
 
       {/* Caption */}
@@ -740,7 +758,7 @@ const GallerySection: React.FC<{ reduced: boolean }> = ({ reduced }) => {
               transition={{ duration: 0.45, delay: i * 0.07, ease: [0.22, 1, 0.36, 1] }}
               whileHover={reduced ? {} : { y: -4, scale: 1.02 }}
               onClick={() => setLightboxIndex(i)}
-              className="group relative cursor-pointer overflow-hidden rounded-2xl border border-neutral-200/80 bg-white shadow-sm transition-shadow hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-orange-500/40 dark:border-neutral-800/80 dark:bg-neutral-900/80"
+              className={cn(cardVariants({ padding: 'none', interactive: true }), 'group')}
               aria-label={`View screenshot: ${item.label}`}
             >
               <img
@@ -800,23 +818,25 @@ const RedmineStepCard: React.FC<{ step: RedmineStep; index: number; reduced: boo
       initial={reduced ? false : { opacity: 0, y: 32 }}
       animate={inView ? { opacity: 1, y: 0 } : {}}
       transition={{ duration: 0.5, delay: index * 0.1, ease: [0.22, 1, 0.36, 1] }}
-      className="relative rounded-2xl border border-neutral-200/80 bg-white p-6 shadow-sm dark:border-neutral-800/80 dark:bg-neutral-900/80"
+      className="h-full"
     >
-      <div className="mb-4 flex items-center gap-3">
-        <span
-          className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/10 text-sky-500 dark:bg-sky-400/10 dark:text-sky-300"
-          aria-hidden="true"
-        >
-          <FontAwesomeIcon icon={step.icon} />
-        </span>
-        <span className="text-xs font-semibold uppercase tracking-widest text-neutral-400 dark:text-neutral-500">
-          Step {index + 1}
-        </span>
-      </div>
-      <h3 className="mb-2 font-semibold text-neutral-900 dark:text-neutral-50">{step.title}</h3>
-      <p className="text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
-        {step.description}
-      </p>
+      <Card padding="lg" className="h-full">
+        <div className="mb-4 flex items-center gap-3">
+          <span
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/10 text-sky-500 dark:bg-sky-400/10 dark:text-sky-300"
+            aria-hidden="true"
+          >
+            <FontAwesomeIcon icon={step.icon} />
+          </span>
+          <Badge variant="outline" size="sm" className="uppercase tracking-widest">
+            Step {index + 1}
+          </Badge>
+        </div>
+        <h3 className="mb-2 font-semibold text-neutral-900 dark:text-neutral-50">{step.title}</h3>
+        <p className="text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+          {step.description}
+        </p>
+      </Card>
     </motion.li>
   );
 };
@@ -931,7 +951,7 @@ export const LandingPage: React.FC = () => {
           </motion.a>
 
           {/* Nav actions */}
-          <nav aria-label="Site navigation" className="flex items-center gap-1">
+          <nav aria-label="Site navigation" className="flex min-w-0 flex-wrap items-center gap-1">
             {/* GitHub */}
             <motion.a
               href={REPO_URL}
@@ -940,7 +960,7 @@ export const LandingPage: React.FC = () => {
               aria-label="View source on GitHub"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.93 }}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-neutral-800 hover:text-neutral-200 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+              className={cn(buttonVariants({ variant: 'ghost', size: 'icon' }), 'h-8 w-8')}
             >
               <FontAwesomeIcon icon={faGithub} className="text-sm" aria-hidden="true" />
             </motion.a>
@@ -950,7 +970,7 @@ export const LandingPage: React.FC = () => {
               href="/release-notes"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
-              className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+              className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'whitespace-normal')}
             >
               What&rsquo;s New
             </motion.a>
@@ -963,7 +983,7 @@ export const LandingPage: React.FC = () => {
               href="/app"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.97 }}
-              className="inline-flex h-8 items-center rounded-md px-3 text-sm font-medium text-neutral-300 transition-colors hover:bg-neutral-800 hover:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+              className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'whitespace-normal')}
             >
               Sign in
             </motion.a>
@@ -973,7 +993,10 @@ export const LandingPage: React.FC = () => {
               href="/app?mode=signup"
               whileHover={reduced ? {} : { scale: 1.04, y: -1 }}
               whileTap={{ scale: 0.96 }}
-              className="relative ml-1 inline-flex h-8 items-center overflow-hidden rounded-md bg-orange-600 px-4 text-sm font-semibold text-white shadow-sm shadow-orange-500/30 transition-colors hover:bg-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/60"
+              className={cn(
+                buttonVariants({ variant: 'primary', size: 'sm' }),
+                'relative ml-1 overflow-hidden whitespace-normal shadow-sm shadow-primary-500/30',
+              )}
             >
               <motion.span
                 className="pointer-events-none absolute inset-0 bg-gradient-to-r from-orange-400/0 via-white/15 to-orange-400/0"
@@ -1005,22 +1028,23 @@ export const LandingPage: React.FC = () => {
 
         <div className="relative z-10 mx-auto max-w-4xl px-6">
           {/* Status badge */}
-          <motion.div
+          <MotionBadge
+            size="lg"
             initial={reduced ? false : { opacity: 0, y: -16, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-            className="mb-8 inline-flex items-center gap-2 rounded-full border border-orange-200/80 bg-orange-50/80 px-4 py-1.5 backdrop-blur-sm dark:border-orange-800/50 dark:bg-orange-950/40"
+            className="mb-8 gap-2 border border-orange-200/80 bg-orange-50/80 text-xs font-semibold text-orange-700 backdrop-blur-sm dark:border-orange-800/50 dark:bg-orange-950/40 dark:text-orange-300"
+            icon={
+              <motion.span
+                animate={reduced ? {} : { scale: [1, 1.5, 1] }}
+                transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+                className="h-1.5 w-1.5 rounded-full bg-orange-500"
+                aria-hidden="true"
+              />
+            }
           >
-            <motion.span
-              animate={reduced ? {} : { scale: [1, 1.5, 1] }}
-              transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
-              className="h-1.5 w-1.5 rounded-full bg-orange-500"
-              aria-hidden="true"
-            />
-            <span className="text-xs font-semibold text-orange-700 dark:text-orange-300">
-              Time Tracking · Teams · Tickets · Redmine
-            </span>
-          </motion.div>
+            Time Tracking · Teams · Tickets · Redmine
+          </MotionBadge>
 
           {/* Headline */}
           <h1
@@ -1098,7 +1122,7 @@ export const LandingPage: React.FC = () => {
               rel="noopener noreferrer"
               whileHover={reduced ? {} : { scale: 1.04, y: -2 }}
               whileTap={{ scale: 0.96 }}
-              className="inline-flex items-center gap-2.5 rounded-xl border-2 border-neutral-300 bg-white px-6 py-3 text-sm font-semibold text-neutral-700 shadow-sm hover:border-neutral-400 hover:bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-orange-500/40 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-800"
+              className={buttonVariants({ variant: 'outline', size: 'lg' })}
             >
               <FontAwesomeIcon icon={faGithub} aria-hidden="true" />
               View on GitHub
@@ -1107,7 +1131,10 @@ export const LandingPage: React.FC = () => {
               href="/app?mode=signup"
               whileHover={reduced ? {} : { scale: 1.06, y: -2 }}
               whileTap={{ scale: 0.95 }}
-              className="relative inline-flex items-center gap-2.5 overflow-hidden rounded-xl bg-orange-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-orange-500/30 hover:bg-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+              className={cn(
+                buttonVariants({ variant: 'primary', size: 'lg' }),
+                'relative overflow-hidden shadow-lg shadow-primary-500/30',
+              )}
             >
               <motion.span
                 className="pointer-events-none absolute inset-0 bg-gradient-to-r from-orange-400/0 via-white/20 to-orange-400/0"
@@ -1130,16 +1157,17 @@ export const LandingPage: React.FC = () => {
             aria-label="Technology stack"
           >
             {TECH_BADGES.map((badge, i) => (
-              <motion.span
+              <MotionBadge
                 key={badge}
+                variant="outline"
                 initial={reduced ? false : { opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.35, delay: 0.9 + i * 0.06 }}
                 whileHover={reduced ? {} : { scale: 1.1, y: -2 }}
-                className="cursor-default rounded-full border border-neutral-200 bg-neutral-50/80 px-3 py-1 text-xs font-medium text-neutral-600 backdrop-blur-sm dark:border-neutral-700/80 dark:bg-neutral-900/80 dark:text-neutral-400"
+                className="cursor-default border-neutral-200 bg-neutral-50/80 px-3 py-1 text-neutral-600 backdrop-blur-sm dark:border-neutral-700/80 dark:bg-neutral-900/80 dark:text-neutral-400"
               >
                 {badge}
-              </motion.span>
+              </MotionBadge>
             ))}
           </motion.div>
         </div>
@@ -1273,7 +1301,10 @@ export const LandingPage: React.FC = () => {
                 href="/app?mode=signup"
                 whileHover={reduced ? {} : { scale: 1.06, y: -2 }}
                 whileTap={{ scale: 0.96 }}
-                className="relative z-10 mt-8 inline-flex items-center gap-2.5 rounded-xl bg-white px-7 py-3.5 text-sm font-bold text-orange-700 shadow-lg shadow-black/20 hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-white/60"
+                className={cn(
+                  buttonVariants({ size: 'lg' }),
+                  'relative z-10 mt-8 bg-white text-orange-700 shadow-lg shadow-black/20 hover:bg-orange-50 hover:text-orange-800',
+                )}
               >
                 <FontAwesomeIcon icon={faBolt} aria-hidden="true" />
                 Get Started
