@@ -21,10 +21,30 @@
  * remount via `key` when switching documents. `value` still tracks the live
  * content on re-render (the host updates it from `onChange`), which is what
  * drives the placeholder's visibility.
+ *
+ * Collaborative mode is best-effort: see {@link COLLAB_MOUNT_TIMEOUT_MS}.
  */
 import { RichEditor } from '@mieweb/ui/kerebron';
 import type { CollabConfig } from '@mieweb/ui/kerebron';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+
+/**
+ * How long to wait for a collaborative editor to appear before remounting it
+ * without collaboration.
+ *
+ * RichEditor builds its collaborative kit behind a dynamic `import()` (Yjs and
+ * friends are optional peers, so plain mode never loads them). When that import
+ * fails — a stale Vite dep hash in dev, a chunk that didn't reach the device on
+ * a partial OTA update — RichEditor catches the error and renders *nothing*:
+ * the edit composer becomes an empty bordered box with no toolbar and no text,
+ * and the post can't be edited at all. Editing matters more than co-editing, so
+ * an editor that never appears is replaced by the single-user one, which seeds
+ * from `value` and needs no extra chunk.
+ *
+ * Generous by design — a warm editor mounts in well under 100ms, and the only
+ * cost of waiting is how long a genuinely broken editor stays blank.
+ */
+const COLLAB_MOUNT_TIMEOUT_MS = 4000;
 
 interface MarkdownEditorProps {
   value?: string;
@@ -55,6 +75,30 @@ export function MarkdownEditor({
 }: MarkdownEditorProps) {
   const isEmpty = value.trim().length === 0;
   const containerRef = useRef<HTMLDivElement>(null);
+  // Set once the collaborative editor has failed to mount — see
+  // COLLAB_MOUNT_TIMEOUT_MS. Never reset: the failure is a missing module, so
+  // retrying the same room would just blank the editor again.
+  const [collabFailed, setCollabFailed] = useState(false);
+  const activeCollab = collabFailed ? undefined : collab;
+
+  // The room, not the config object: hosts rebuild that object every render
+  // (`collab={huddlePostCollab(postId)}`), and depending on it would restart
+  // the deadline on every re-render — the composer re-renders often enough
+  // (upload progress, Pulse polling) that it would never expire.
+  const collabRoom = collab?.room;
+  useEffect(() => {
+    if (!collabRoom || collabFailed) return;
+    const timer = setTimeout(() => {
+      // ProseMirror is what RichEditor renders once it's alive; nothing there
+      // means the editor was never created.
+      if (containerRef.current?.querySelector('.ProseMirror')) return;
+      console.warn(
+        '[MarkdownEditor] Collaborative editor failed to load — falling back to the single-user editor.',
+      );
+      setCollabFailed(true);
+    }, COLLAB_MOUNT_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [collabRoom, collabFailed]);
 
   // Kerebron's paste handler embeds a pasted screenshot inline as a base64
   // `data:` URL, so a single screenshot adds hundreds of KB to the post
@@ -121,7 +165,15 @@ export function MarkdownEditor({
         }
       }}
     >
-      <RichEditor value={value} onChange={onChange} collab={collab} />
+      {/* RichEditor reads `collab` at mount only, so dropping collaboration
+          has to remount it — hence the key. `value` tracks the host's live
+          text, so the replacement editor seeds with whatever is there now. */}
+      <RichEditor
+        key={activeCollab ? 'collab' : 'solo'}
+        value={value}
+        onChange={onChange}
+        collab={activeCollab}
+      />
     </div>
   );
 }
