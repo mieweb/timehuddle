@@ -7,6 +7,7 @@ import {
   faBug,
   faBuilding,
   faBullhorn,
+  faChartLine,
   faCircleUser,
   faComments,
   faGear,
@@ -22,7 +23,10 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { releaseNotes, unseenReleaseNotes } from '../features/release-notes/notes';
 import { useTeam } from '../lib/TeamContext';
 import { useSession } from '../lib/useSession';
-import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
+import {
+  hasDefaultOrganizationAdminAccess,
+  hasOrganizationAdminAccess,
+} from '../lib/organizationAccess';
 import { useAppFeedback } from './AppLayout';
 import { useRouter } from './router';
 import { UserAvatar } from './UserAvatar';
@@ -34,7 +38,7 @@ const TESTFLIGHT_URL = 'https://testflight.apple.com/join/45w2knYf';
 
 export const UserDropdown: React.FC = () => {
   const { user, signOut } = useSession();
-  const { enterprises } = useTeam();
+  const { enterprises, organizations } = useTeam();
   const { openFeedback, openReportIssue } = useAppFeedback();
   const email = user?.email;
   const [open, setOpen] = useState(false);
@@ -67,11 +71,17 @@ export const UserDropdown: React.FC = () => {
 
   const displayName = user?.name || email?.split('@')[0] || 'Account';
   const truncated = displayName.length > 22 ? `${displayName.slice(0, 20)}…` : displayName;
-  const showOrganizationAdmin = hasDefaultOrganizationAdminAccess(user);
+  const isOrganizationAdmin = hasOrganizationAdminAccess(organizations);
+  const showOrganizationAdmin = hasDefaultOrganizationAdminAccess(user) || isOrganizationAdmin;
 
   const handleOrganizationMembers = useCallback(() => {
     setOpen(false);
     navigate('/app/org/members');
+  }, [navigate]);
+
+  const handleOrganizationUsage = useCallback(() => {
+    setOpen(false);
+    navigate('/app/org/usage');
   }, [navigate]);
 
   const handleEnterprisePage = useCallback(() => {
@@ -167,6 +177,15 @@ export const UserDropdown: React.FC = () => {
             >
               <span className="font-normal">Members</span>
             </DropdownItem>
+
+            {isOrganizationAdmin && (
+              <DropdownItem
+                icon={<FontAwesomeIcon icon={faChartLine} />}
+                onClick={handleOrganizationUsage}
+              >
+                <span className="font-normal">Usage</span>
+              </DropdownItem>
+            )}
           </div>
         )}
 

@@ -547,6 +547,77 @@ export const orgAdminApi = {
     }).then((r) => r.user),
 };
 
+// ─── Org Usage API (default-org owners and admins) ───────────────────────────
+
+/** Feature buckets the usage report counts actions into. */
+export const USAGE_FEATURES = [
+  { key: 'clock', label: 'Clock' },
+  { key: 'posts', label: 'Huddle posts' },
+  { key: 'comments', label: 'Comments' },
+  { key: 'tickets', label: 'Tickets' },
+  { key: 'timers', label: 'Work timers' },
+  { key: 'pulse', label: 'Pulse videos' },
+] as const;
+
+export type UsageFeature = (typeof USAGE_FEATURES)[number]['key'];
+
+/** How habitually a member uses TimeHuddle, over the report's 30-day window. */
+export type UsageCadence = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'dormant';
+
+/** Whether the member did anything in the selected period — not their cadence. */
+export type UsageStatus = 'active' | 'idle' | 'blocked';
+
+/** Periods the counts can be scoped to. Must match USAGE_PERIOD_DAYS on the server. */
+export const USAGE_PERIOD_DAYS = [1, 7, 14, 30] as const;
+
+export type UsagePeriodDays = (typeof USAGE_PERIOD_DAYS)[number];
+
+export interface OrgUsageUser {
+  id: string;
+  name: string;
+  email: string;
+  username: string | null;
+  image: string | null;
+  role: DefaultOrganizationRole | 'member';
+  blocked: boolean;
+  status: UsageStatus;
+  /** Actions per feature within the selected period. */
+  features: Record<UsageFeature, number>;
+  totalActions: number;
+  /** Distinct days with at least one action, within the selected period. */
+  activeDays: number;
+  cadence: UsageCadence;
+  /** Distinct active days across the full cadence window, whatever the period. */
+  cadenceActiveDays: number;
+  topFeature: UsageFeature | null;
+  lastActiveAt: string | null;
+}
+
+export interface OrgUsageReport {
+  organization: { id: string; name: string };
+  periodDays: UsagePeriodDays;
+  cadenceWindowDays: number;
+  timezone: string;
+  generatedAt: string;
+  totals: {
+    members: number;
+    activeMembers: number;
+    cadenceCounts: Record<UsageCadence, number>;
+    featureTotals: Record<UsageFeature, number>;
+    topFeature: UsageFeature | null;
+  };
+  users: OrgUsageUser[];
+}
+
+export const usageApi = {
+  /**
+   * Per-member usage for the default organization. Day buckets are cut in the
+   * viewer's own timezone, so "today" means their today.
+   */
+  getOrgUsage: (periodDays: UsagePeriodDays) =>
+    wormholeCall<OrgUsageReport>('usage.orgUsage', { periodDays, timezone: clientTz() }),
+};
+
 // ─── Public Organization API (for all authenticated users) ──────────────────
 
 export const orgApi = {
