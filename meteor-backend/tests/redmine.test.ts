@@ -134,3 +134,54 @@ describe('redmine (wormhole)', () => {
     expect(second.result.connected).toBe(false);
   });
 });
+
+/**
+ * M6 issue create/edit. Like the rest of this file, only the deterministic
+ * paths are covered here — auth, input validation and the not-connected gate,
+ * all of which run before any Redmine request. The write-and-read-back happy
+ * path needs a live instance and is covered by the manual e2e in the M6 plan;
+ * its rules are unit-covered in redmine-issue-writes.test.ts.
+ */
+describe('redmine issues create/edit (wormhole, M6)', () => {
+  const M6_METHODS: Array<[string, Record<string, unknown>]> = [
+    ['redmine.projects.list', {}],
+    ['redmine.projects.formOptions', { projectId: 1 }],
+    ['redmine.issues.get', { issueId: 1 }],
+    ['redmine.issues.create', { projectId: 1, subject: 'x' }],
+    [
+      'redmine.issues.update',
+      { issueId: 1, expectedUpdatedAt: '2026-01-01T00:00:00.000Z', edits: { priorityId: 2 } },
+    ],
+  ];
+
+  it.each(M6_METHODS)('rejects unauthenticated %s calls', async (method, params) => {
+    const res = await wormhole(method, params, 'invalid-jwt');
+    expect(res.ok).toBe(false);
+  });
+
+  it.each(M6_METHODS)('requires a linked account for %s', async (method, params) => {
+    const res = await wormhole(method, params, jwtB);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/Connect your Redmine account first/);
+  });
+
+  it('validates the create form before checking the connection', async () => {
+    const noSubject = await wormhole('redmine.issues.create', { projectId: 1, subject: '  ' }, jwtB);
+    expect(noSubject.ok).toBe(false);
+    expect(noSubject.error).toMatch(/subject is required/i);
+
+    const noProject = await wormhole('redmine.issues.create', { subject: 'x' }, jwtB);
+    expect(noProject.error).toMatch(/Choose a project/);
+  });
+
+  it('rejects malformed ids and a missing expectedUpdatedAt', async () => {
+    const badIssue = await wormhole('redmine.issues.get', { issueId: 'abc' }, jwtB);
+    expect(badIssue.error).toMatch(/issue id is required/);
+
+    const badProject = await wormhole('redmine.projects.formOptions', { projectId: 0 }, jwtB);
+    expect(badProject.error).toMatch(/project id is required/);
+
+    const noVersion = await wormhole('redmine.issues.update', { issueId: 1, edits: {} }, jwtB);
+    expect(noVersion.error).toMatch(/expectedUpdatedAt is required/);
+  });
+});
