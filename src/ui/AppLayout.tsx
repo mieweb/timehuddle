@@ -25,7 +25,8 @@ import { ProfilePage } from '../features/profile/ProfilePage';
 import { SeederPage } from '../features/seeder/SeederPage';
 import { TeamsPage } from '../features/teams/TeamsPage';
 import { TicketsPage } from '../features/tickets/TicketsPage';
-import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
+import { RedmineIssueDetailPage } from '../features/tickets/detail/RedmineIssueDetailPage';
+import { TicketDetailPage } from '../features/tickets/detail/TicketDetailPage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
 import { MediaPage } from '../features/media/MediaPage';
@@ -318,12 +319,20 @@ const AppLayoutContent: React.FC = () => {
       : null;
   const profileUsername = profileSegment && !profileUserId ? profileSegment : null;
 
+  // A Redmine issue lives under its own prefix; Huddle ticket ids are 24-char
+  // hex, so the two can never collide.
+  const redmineIssueMatch = !profileSegment
+    ? /^\/app\/tickets\/redmine\/(\d+)$/.exec(pathname)
+    : null;
+  const redmineIssueId = redmineIssueMatch ? Number(redmineIssueMatch[1]) : null;
+
   const ticketDetailId =
-    !profileSegment && pathname.startsWith('/app/tickets/')
+    !profileSegment && !redmineIssueMatch && pathname.startsWith('/app/tickets/')
       ? pathname.slice('/app/tickets/'.length)
       : null;
 
-  const route = profileUserId || profileUsername || ticketDetailId ? null : match(pathname);
+  const route =
+    profileUserId || profileUsername || ticketDetailId || redmineIssueId ? null : match(pathname);
 
   // Shown in the browser tab. Covers the dynamic routes too, which have no
   // registry entry.
@@ -332,7 +341,9 @@ const AppLayoutContent: React.FC = () => {
       ? 'Profile'
       : ticketDetailId
         ? 'Ticket'
-        : (route?.title ?? 'App');
+        : redmineIssueId
+          ? 'Issue'
+          : (route?.title ?? 'App');
   useClockDocumentTitle(documentTitle);
 
   // Rendered in the body by <PageTitle />. Null on profile and ticket detail:
@@ -340,7 +351,11 @@ const AppLayoutContent: React.FC = () => {
   const pageTitle = route?.title ?? null;
 
   const isTicketsRoute =
-    !profileUserId && !profileUsername && !ticketDetailId && pathname === '/app/tickets';
+    !profileUserId &&
+    !profileUsername &&
+    !ticketDetailId &&
+    !redmineIssueId &&
+    pathname === '/app/tickets';
   const isMessagesPage = pathname === '/app/messages';
 
   const [messagesHasActiveChat, setMessagesHasActiveChat] = useState(false);
@@ -466,6 +481,8 @@ const AppLayoutContent: React.FC = () => {
                             <ProfilePage username={profileUsername} />
                           ) : ticketDetailId ? (
                             <TicketDetailPage ticketId={ticketDetailId} />
+                          ) : redmineIssueId ? (
+                            <RedmineIssueDetailPage issueId={redmineIssueId} />
                           ) : (
                             route &&
                             route.component !== TicketsPage &&

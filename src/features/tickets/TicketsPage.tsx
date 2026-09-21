@@ -9,14 +9,13 @@
  * status, assignment) and the ticket timer; rows gate those controls on each
  * source's capabilities.
  */
-import { faPlus, faSearch, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faPlus, faSearch } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
   Alert,
   AlertDescription,
   Card,
-  CardContent,
   Dropdown,
   DropdownItem,
   Input,
@@ -64,8 +63,10 @@ import { EmptyState } from '../../ui/EmptyState';
 import { UserAvatar } from '../../ui/UserAvatar';
 import { AttachmentsPanel } from '../clock/AttachmentsPanel';
 import { PulseUploadButton } from '../media/PulseUploadButton';
-import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
+import { fetchGithubIssueTitle, isGithubIssueUrl } from './githubIssue';
+import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketBulkActionBar } from './TicketBulkActionBar';
+import { TicketCreateModal } from './TicketCreateModal';
 import { TicketTable } from './TicketTable';
 import { hasActiveFilters } from './ticketFilters';
 import { RedmineIssueCreateModal } from './redmine/RedmineIssueCreateModal';
@@ -89,14 +90,6 @@ const STATUS_OPTIONS = [
   { value: 'reviewed', label: 'Reviewed' },
 ];
 
-const PRIORITY_OPTIONS = [
-  { value: 'none', label: 'None' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'critical', label: 'Critical' },
-];
-
 function priorityLabelClass(priority: string): string {
   if (priority === 'critical')
     return 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400';
@@ -105,11 +98,6 @@ function priorityLabelClass(priority: string): string {
   if (priority === 'medium')
     return 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-400';
   return 'border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400';
-}
-
-async function fetchIssueTitle(url: string): Promise<string | null> {
-  const issue = await fetchGithubIssue(url);
-  return issue?.title ?? null;
 }
 
 export const TicketsPage: React.FC = () => {
@@ -271,17 +259,14 @@ export const TicketsPage: React.FC = () => {
   }, [refetch]);
 
   // Mutation loading states
-  const [createLoading, setCreateLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
 
   // Create state
   const [showCreate, setShowCreate] = useState(false);
   const [showNoTeamDialog, setShowNoTeamDialog] = useState(false);
-  const [createTitle, setCreateTitle] = useState('');
-  const [createGithub, setCreateGithub] = useState('');
-  const [createTitleFetching, setCreateTitleFetching] = useState(false);
-  const createFetchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Controlled so picking an item closes the menu before its dialog opens.
+  const [newTicketMenuOpen, setNewTicketMenuOpen] = useState(false);
 
   // Tickets tab vs My Board tab — same URL, local state only (M2.1 retired the
   // heading-dropdown pattern; this is real tabs instead).
@@ -496,6 +481,7 @@ export const TicketsPage: React.FC = () => {
   }, [pendingStartTicket, selectedTeamId, clockIn, startTimerForTicket]);
 
   const startHuddleCreate = useCallback(() => {
+    setNewTicketMenuOpen(false);
     if (!selectedTeam) {
       setShowNoTeamDialog(true);
       return;
@@ -514,29 +500,6 @@ export const TicketsPage: React.FC = () => {
     },
     [refetchAfterRedmineWrite],
   );
-
-  const handleCreate = useCallback(async () => {
-    if (!createTitle.trim()) return;
-    if (!selectedTeam) {
-      setShowCreate(false);
-      setShowNoTeamDialog(true);
-      return;
-    }
-    setCreateLoading(true);
-    try {
-      await ticketApi.createTicket({
-        teamId: selectedTeam.id,
-        title: createTitle.trim(),
-        github: createGithub.trim() || undefined,
-      });
-      setCreateTitle('');
-      setCreateGithub('');
-      setShowCreate(false);
-      void refetch();
-    } finally {
-      setCreateLoading(false);
-    }
-  }, [createTitle, createGithub, refetch, selectedTeam]);
 
   // The list only carries the normalized shape, so fetch the full ticket the
   // edit form needs (description, assignees) when the modal actually opens.
@@ -722,10 +685,16 @@ export const TicketsPage: React.FC = () => {
                 {redmineConnected ? (
                   // With Redmine linked, "New Ticket" asks which system the new
                   // item belongs to. Dropdown replaces the trigger's onClick.
-                  <Dropdown trigger={newTicketButton} placement="bottom-start">
+                  <Dropdown
+                    trigger={newTicketButton}
+                    placement="bottom-start"
+                    open={newTicketMenuOpen}
+                    onOpenChange={setNewTicketMenuOpen}
+                  >
                     <DropdownItem onClick={startHuddleCreate}>TimeHuddle ticket</DropdownItem>
                     <DropdownItem
                       onClick={() => {
+                        setNewTicketMenuOpen(false);
                         setRedmineNotice(null);
                         setShowRedmineCreate(true);
                       }}
@@ -802,103 +771,6 @@ export const TicketsPage: React.FC = () => {
                 </Alert>
               )}
             </div>
-
-            {showCreate && (
-              <Card
-                padding="sm"
-                className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20"
-              >
-                <CardContent>
-                  <div className="flex items-center justify-between pl-2">
-                    <Text size="sm" weight="semibold">
-                      New Ticket
-                    </Text>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowCreate(false)}
-                      aria-label="Close"
-                      className="h-8 w-8 rounded-full hover:bg-blue-100 dark:hover:bg-blue-800"
-                    >
-                      <FontAwesomeIcon icon={faXmark} className="text-xs" />
-                    </Button>
-                  </div>
-                  <form
-                    className="mt-2 space-y-2"
-                    onSubmit={(e: React.FormEvent<HTMLFormElement>) => {
-                      e.preventDefault();
-                      if (!createTitle.trim()) return;
-                      void handleCreate();
-                    }}
-                    onKeyDown={(e: React.KeyboardEvent<HTMLFormElement>) => {
-                      if (e.key !== 'Escape') return;
-                      e.preventDefault();
-                      setShowCreate(false);
-                    }}
-                  >
-                    <Input
-                      label="Title"
-                      hideLabel
-                      size="sm"
-                      placeholder={createTitleFetching ? 'Fetching title…' : 'Ticket title'}
-                      value={createTitle}
-                      onChange={(e) => setCreateTitle(e.target.value)}
-                      className={noFocusRingClass}
-                      autoFocus
-                      disabled={createTitleFetching}
-                      onPaste={(e) => {
-                        const text = (
-                          e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData
-                        )
-                          ?.getData('text')
-                          ?.trim();
-                        if (!text || !isGithubIssueUrl(text)) return;
-                        e.preventDefault();
-                        setCreateGithub(text);
-                        setCreateTitleFetching(true);
-                        void fetchIssueTitle(text).then((title) => {
-                          if (title) setCreateTitle(title);
-                          setCreateTitleFetching(false);
-                        });
-                      }}
-                    />
-                    <Input
-                      label="GitHub URL"
-                      hideLabel
-                      size="sm"
-                      type="url"
-                      placeholder="GitHub URL (optional)"
-                      value={createGithub}
-                      className={noFocusRingClass}
-                      onChange={(e) => {
-                        const url = e.target.value;
-                        setCreateGithub(url);
-                        if (createFetchTimer.current) clearTimeout(createFetchTimer.current);
-                        if (isGithubIssueUrl(url)) {
-                          createFetchTimer.current = setTimeout(() => {
-                            setCreateTitleFetching(true);
-                            void fetchIssueTitle(url).then((title) => {
-                              if (title) setCreateTitle(title);
-                              setCreateTitleFetching(false);
-                            });
-                          }, 300);
-                        }
-                      }}
-                    />
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      type="submit"
-                      isLoading={createLoading}
-                      loadingText="Creating…"
-                      disabled={!createTitle.trim() || !selectedTeam}
-                    >
-                      Create Ticket
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            )}
 
             {selectedKeys.size > 0 && (
               <TicketBulkActionBar
@@ -1162,7 +1034,7 @@ export const TicketsPage: React.FC = () => {
                   e.preventDefault();
                   setEditGithub(text);
                   setTitleFetching(true);
-                  void fetchIssueTitle(text).then((title) => {
+                  void fetchGithubIssueTitle(text).then((title) => {
                     if (title) setEditTitle(title);
                     setTitleFetching(false);
                   });
@@ -1190,7 +1062,7 @@ export const TicketsPage: React.FC = () => {
                   if (isGithubIssueUrl(url)) {
                     editFetchTimer.current = setTimeout(() => {
                       setTitleFetching(true);
-                      void fetchIssueTitle(url).then((title) => {
+                      void fetchGithubIssueTitle(url).then((title) => {
                         if (title) setEditTitle(title);
                         setTitleFetching(false);
                       });
@@ -1526,6 +1398,14 @@ export const TicketsPage: React.FC = () => {
           </ModalFooter>
         </Modal>
 
+        <TicketCreateModal
+          open={showCreate}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => void refetch()}
+          teams={teams}
+          defaultTeamId={selectedTeam?.id ?? null}
+          userId={userId}
+        />
         <RedmineIssueEditModal
           issueId={redmineEditIssueId}
           onClose={() => setRedmineEditIssueId(null)}

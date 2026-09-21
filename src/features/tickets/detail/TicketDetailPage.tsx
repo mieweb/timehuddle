@@ -1,5 +1,6 @@
 import {
   faArrowLeft,
+  faCopy,
   faExternalLink,
   faPen,
   faTrash,
@@ -8,24 +9,31 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Card, CardContent, Select, Spinner, Text, Textarea, Input } from '@mieweb/ui';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   activityApi,
   teamApi,
   ticketApi,
+  timerApi,
   type ActivityLogItem,
   type TeamMember,
   type Ticket,
-} from '../../lib/api';
-import { useSession } from '../../lib/useSession';
-import { useTeam } from '../../lib/TeamContext';
-import { useRefresh } from '../../lib/RefreshContext';
-import { AppPage } from '../../ui/AppPage';
-import { MarkdownContent } from '../../ui/MarkdownContent';
-import { useRouter } from '../../ui/router';
-import { UserAvatar } from '../../ui/UserAvatar';
-import { AttachmentsPanel } from '../clock/AttachmentsPanel';
-import { PulseUploadButton } from '../media/PulseUploadButton';
+  type TicketSession,
+} from '../../../lib/api';
+import { useSession } from '../../../lib/useSession';
+import { useTeam } from '../../../lib/TeamContext';
+import { useRefresh } from '../../../lib/RefreshContext';
+import { AppPage } from '../../../ui/AppPage';
+import { MarkdownContent } from '../../../ui/MarkdownContent';
+import { useRouter } from '../../../ui/router';
+import { UserAvatar } from '../../../ui/UserAvatar';
+import { AttachmentsPanel } from '../../clock/AttachmentsPanel';
+import { PulseUploadButton } from '../../media/PulseUploadButton';
+import { PRIORITY_OPTIONS } from '../huddleTicketOptions';
+import { huddleTicketRef } from '../sources';
+
+import { fromHuddleEvents, fromSessions, mergeByTime } from './activityEntries';
+import { TicketActivityCard } from './TicketActivityCard';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -35,14 +43,6 @@ const STATUS_OPTIONS = [
   { value: 'blocked', label: 'Blocked' },
   { value: 'reviewed', label: 'Reviewed' },
   { value: 'closed', label: 'Closed' },
-];
-
-const PRIORITY_OPTIONS = [
-  { value: 'none', label: 'None' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'critical', label: 'Critical' },
 ];
 
 function priorityColor(priority: string | null): string {
@@ -85,23 +85,6 @@ function formatDate(iso: string): string {
   });
 }
 
-function activityLabel(event: ActivityLogItem): string {
-  switch (event.type) {
-    case 'ticket.created':
-      return 'created this ticket';
-    case 'ticket.updated':
-      return 'updated this ticket';
-    case 'ticket.deleted':
-      return 'deleted this ticket';
-    case 'ticket.status_changed':
-      return `changed status to ${event.payload.status ?? ''}`;
-    case 'ticket.assigned':
-      return `assigned to ${event.payload.assigneeName ?? event.payload.assignedTo ?? 'someone'}`;
-    default:
-      return event.type.replace(/\./g, ' ');
-  }
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface TicketDetailPageProps {
@@ -116,6 +99,8 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [activity, setActivity] = useState<ActivityLogItem[]>([]);
+  const [sessions, setSessions] = useState<TicketSession[]>([]);
+  const [idCopied, setIdCopied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -135,10 +120,12 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     Promise.all([
       ticketApi.getTicket(ticketId),
       activityApi.getTicketActivity(ticketId, 50).catch(() => ({ events: [] })),
+      timerApi.getTicketSessions(ticketId, 'huddle').catch(() => []),
     ])
-      .then(([t, a]) => {
+      .then(([t, a, s]) => {
         setTicket(t);
         setActivity(a.events);
+        setSessions(s);
         setTitleDraft(t.title);
         setDescDraft(t.description ?? '');
       })
@@ -150,12 +137,14 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     React.useCallback(async () => {
       setLoading(true);
       try {
-        const [t, a] = await Promise.all([
+        const [t, a, s] = await Promise.all([
           ticketApi.getTicket(ticketId),
           activityApi.getTicketActivity(ticketId, 50).catch(() => ({ events: [] })),
+          timerApi.getTicketSessions(ticketId, 'huddle').catch(() => []),
         ]);
         setTicket(t);
         setActivity(a.events);
+        setSessions(s);
       } catch {
         setError('Failed to refresh ticket.');
       } finally {
@@ -173,7 +162,24 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
       .catch(() => setActionError('Failed to load team members. Assignee cannot be changed.'));
   }, [ticket?.teamId]);
 
+  // Huddle's activity log plus the viewer's own timer sessions, newest first.
+  const activityEntries = useMemo(
+    () => mergeByTime(fromHuddleEvents(activity), fromSessions(sessions, 'You')),
+    [activity, sessions],
+  );
+
   // ── Handlers ──
+
+  const copyTicketId = async () => {
+    if (!ticket) return;
+    try {
+      await navigator.clipboard.writeText(ticket.id);
+      setIdCopied(true);
+      window.setTimeout(() => setIdCopied(false), 2000);
+    } catch {
+      setActionError('Could not copy the ticket id.');
+    }
+  };
 
   const saveTitle = async () => {
     if (!ticket || !titleDraft.trim() || titleDraft === ticket.title) {
@@ -339,8 +345,25 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
           </div>
         )}
 
-        {/* Status badge under title */}
-        <div className="ticket-title-meta mt-1.5 flex items-center gap-2">
+        {/* Id, status and priority under the title */}
+        <div className="ticket-title-meta mt-1.5 flex flex-wrap items-center gap-2">
+          <span className="ticket-id inline-flex items-center gap-1">
+            <Text size="sm" variant="muted" className="font-mono">
+              {huddleTicketRef(ticket.id)}
+            </Text>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Copy ticket id"
+              title="Copy the full ticket id"
+              onClick={() => void copyTicketId()}
+            >
+              <FontAwesomeIcon icon={idCopied ? faCheck : faCopy} className="h-3 w-3" />
+            </Button>
+            <span className="sr-only" aria-live="polite">
+              {idCopied ? 'Ticket id copied' : ''}
+            </span>
+          </span>
           <span
             className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColor(ticket.status)}`}
           >
@@ -457,38 +480,11 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
             </CardContent>
           </Card>
 
-          {/* Activity log */}
-          <Card>
-            <CardContent className="ticket-activity-section">
-              <Text size="sm" className="font-semibold text-neutral-700 dark:text-neutral-300 mb-3">
-                Activity
-              </Text>
-              {activity.length === 0 ? (
-                <Text size="sm" className="italic text-neutral-400">
-                  No activity yet.
-                </Text>
-              ) : (
-                <ol className="ticket-activity-list space-y-4" aria-label="Ticket activity">
-                  {activity.map((event) => (
-                    <li key={event.id} className="ticket-activity-item flex items-start gap-2">
-                      <UserAvatar size="xs" name={event.actor.name ?? '?'} />
-                      <div className="min-w-0">
-                        <span className="text-sm font-medium text-neutral-800 dark:text-neutral-200">
-                          {event.actor.name}
-                        </span>{' '}
-                        <span className="text-sm text-neutral-500 dark:text-neutral-400">
-                          {activityLabel(event)}
-                        </span>
-                        <div className="text-xs text-neutral-400 mt-0.5">
-                          {formatDate(event.occurredAt)}
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </CardContent>
-          </Card>
+          {/* Activity: the ticket's history plus your own timer sessions */}
+          <TicketActivityCard
+            entries={activityEntries}
+            note="Includes the time you logged on this ticket."
+          />
         </div>
 
         {/* ── Right column: sidebar ── */}
