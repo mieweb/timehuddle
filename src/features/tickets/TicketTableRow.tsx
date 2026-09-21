@@ -4,14 +4,16 @@
  * Renders a `UnifiedTicket` without caring which source it came from. Every
  * action is gated on `ticket.capabilities`, so a read-only source (Redmine)
  * cannot render a control it is unable to perform.
+ *
+ * Timers are the exception to "actions live in the ⋮ menu": they are started
+ * only from My Board's ▶/⏸ column (M3 D1), never from the menu, so there is
+ * exactly one place in the app that starts a ticket timer.
  */
 import {
   faEllipsisVertical,
   faExternalLink,
   faEye,
   faPen,
-  faPlay,
-  faStop,
   faCircleCheck,
   faCircleDot,
   faCircleXmark,
@@ -51,9 +53,9 @@ export interface TicketTableRowProps {
   timerLoading: boolean;
   onToggleTimer: (ticket: UnifiedTicket) => void;
   /**
-   * My Board only. Renders a play-button column between the checkbox and
-   * Title cells. Static/disabled in M2.2 — wiring it to actually start a
-   * timer is Milestone 3's job.
+   * My Board only. Renders the ▶/⏸ column between the checkbox and Title
+   * cells. My Board is the *only* place a ticket timer is started (M3 D1), so
+   * no other table passes this.
    */
   showTimerColumn?: boolean;
   onEditRequest: (ticket: UnifiedTicket) => void;
@@ -179,11 +181,12 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
       {showTimerColumn && (
         <TableCell className="pl-2">
           <TimerToggleButton
-            isRunning={false}
-            disabled
-            onClick={() => {}}
-            ariaLabel="Start timer"
-            title="Starting timers from My Board is coming in a future milestone"
+            isRunning={isTimerRunning}
+            isLoading={timerLoading}
+            onClick={() => onToggleTimer(ticket)}
+            ariaLabel={
+              isTimerRunning ? `Stop timer for ${ticket.title}` : `Start timer for ${ticket.title}`
+            }
           />
         </TableCell>
       )}
@@ -342,18 +345,6 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
                     ? `Open in ${SOURCE_LABELS[ticket.sourceId]}`
                     : 'Ticket Details'}
                 </DropdownItem>
-                {capabilities.trackTime && (
-                  <DropdownItem
-                    icon={<FontAwesomeIcon icon={isTimerRunning ? faStop : faPlay} />}
-                    disabled={timerLoading}
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onToggleTimer(ticket);
-                    }}
-                  >
-                    {isTimerRunning ? 'Stop timer' : 'Start timer'}
-                  </DropdownItem>
-                )}
                 {capabilities.edit && isCreator && (
                   <DropdownItem
                     icon={<FontAwesomeIcon icon={faPen} />}

@@ -5,8 +5,16 @@
  * per-user personal API key is injected as the `X-Redmine-API-Key` header so
  * every request is attributed to that user (no admin switch-user needed).
  *
- * Milestone 1 only needs `getCurrentUser` (key validation + identity). Issue
- * and time-entry helpers are added in their own milestones to avoid dead code.
+ * Helpers are added milestone by milestone to avoid dead code: `getCurrentUser`
+ * (M1 key validation + identity), `listIssues` (M2 read-only issue list),
+ * `getIssue`/`listIssuesByIds` (M3 existence check + title resolution for
+ * source-aware ticket timers), `listTimeEntryActivities` (M4 activity
+ * resolution), and `createTimeEntry`/`getTimeEntry` (M5 push + read-back).
+ *
+ * **`createTimeEntry` is the only write in this file, and the only one there
+ * will be (D1).** No update or delete helper exists: once time is logged it is
+ * permanent, and changing it is an administrative act performed in Redmine
+ * itself. Adding one here would be dead code that invites misuse.
  */
 
 /** Server-wide Redmine base URL, trailing slash trimmed. Throws if unset. */
@@ -16,6 +24,18 @@ export function redmineBaseUrl() {
     throw new Error('REDMINE_BASE_URL is not configured');
   }
   return url.trim().replace(/\/+$/, '');
+}
+
+/**
+ * The configured base URL, or null when Redmine is unconfigured. Read paths use
+ * this — a missing URL just means "no link to render", not a failure.
+ */
+export function optionalRedmineBaseUrl() {
+  try {
+    return redmineBaseUrl();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -70,4 +90,104 @@ export async function listIssues(apiKey, { scope = 'mine', limit = 100, offset =
   if (scope === 'mine') params.set('assigned_to_id', 'me');
   const data = await redmineRequest(`/issues.json?${params.toString()}`, { apiKey });
   return data?.issues ?? [];
+}
+
+/**
+ * Fetch one issue via `GET /issues/{id}.json`, or null when it does not exist
+ * (or the key cannot see it — Redmine reports both as 404, and the distinction
+ * does not matter to a caller that only needs "can this user time this issue").
+ */
+export async function getIssue(apiKey, issueId) {
+  try {
+    const data = await redmineRequest(`/issues/${issueId}.json`, { apiKey });
+    return data?.issue ?? null;
+  } catch (err) {
+    if (err?.status === 404 || err?.status === 403) return null;
+    throw err;
+  }
+}
+
+/**
+ * List the instance's time-entry activities via
+ * `GET /enumerations/time_entry_activities.json`.
+ *
+ * Enumerable with an ordinary personal key — no admin rights needed. Redmine
+ * rejects a time entry with no `activity_id`, and this instance has no
+ * `is_default` activity, so the id has to be resolved from here at runtime
+ * rather than hardcoded (enumeration ids are instance-specific and an admin can
+ * renumber them).
+ */
+export async function listTimeEntryActivities(apiKey) {
+  const data = await redmineRequest('/enumerations/time_entry_activities.json', { apiKey });
+  return data?.time_entry_activities ?? [];
+}
+
+/**
+ * Fetch several issues by id in one request.
+ *
+ * `status_id=*` is required: `/issues.json` defaults to open issues only, and a
+ * timesheet has to resolve the subject of an issue that has since been closed.
+ * Redmine caps `limit` at 100, which also bounds how many ids are worth asking
+ * for in a single call.
+ */
+export async function listIssuesByIds(apiKey, issueIds) {
+  if (!issueIds.length) return [];
+  const params = new URLSearchParams({
+    issue_id: issueIds.join(','),
+    status_id: '*',
+    limit: String(Math.min(issueIds.length, 100)),
+  });
+  const data = await redmineRequest(`/issues.json?${params.toString()}`, { apiKey });
+  return data?.issues ?? [];
+}
+
+/**
+ * Create one time entry via `POST /time_entries.json`, attributed to the owner
+ * of `apiKey`.
+ *
+ * **The only write this integration performs.** Requires the caller's Redmine
+ * role to hold `log_time`; without it every call returns `403`. `activity_id` is
+ * mandatory on this instance (it has no `is_default` activity), so omitting it
+ * fails with `422 Activity cannot be blank`.
+ *
+ * @param {string} apiKey        the caller's personal Redmine API key
+ * @param {object} entry
+ * @param {number} entry.issueId    Redmine issue id
+ * @param {number} entry.hours      decimal hours, already rounded by the caller
+ * @param {number} entry.activityId resolved enumeration id — never hardcoded
+ * @param {string} entry.spentOn    the day being logged, `YYYY-MM-DD`
+ * @param {string} [entry.comments] free text shown in Redmine's Spent time tab
+ * @returns {Promise<object|null>} the created entry as Redmine echoes it back
+ */
+export async function createTimeEntry(apiKey, { issueId, hours, activityId, spentOn, comments }) {
+  const data = await redmineRequest('/time_entries.json', {
+    apiKey,
+    method: 'POST',
+    body: {
+      time_entry: {
+        issue_id: issueId,
+        hours,
+        activity_id: activityId,
+        spent_on: spentOn,
+        ...(comments ? { comments } : {}),
+      },
+    },
+  });
+  return data?.time_entry ?? null;
+}
+
+/**
+ * Fetch one time entry via `GET /time_entries/{id}.json`, or null when it is
+ * gone. Used to confirm a write actually stored what we sent — Redmine can
+ * answer `201` while persisting something else, and the cross-cutting
+ * definition of done requires confirmation-by-read for every write.
+ */
+export async function getTimeEntry(apiKey, entryId) {
+  try {
+    const data = await redmineRequest(`/time_entries/${entryId}.json`, { apiKey });
+    return data?.time_entry ?? null;
+  } catch (err) {
+    if (err?.status === 404 || err?.status === 403) return null;
+    throw err;
+  }
 }

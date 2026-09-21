@@ -60,6 +60,7 @@ import {
 import { ComposerProgress } from '../huddle/ComposerProgress';
 import { ComposerError } from '../huddle/ComposerError';
 import type { MediaItem } from '../huddle/types';
+import { RedminePushPanel } from './RedminePushPanel';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
@@ -585,7 +586,16 @@ export const ClockPage: React.FC = () => {
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => navigate(`/app/tickets/${runningTicket.id}`)}
+                onClick={() => {
+                  // A Redmine issue lives on the external instance; a Huddle
+                  // ticket has an in-app detail route.
+                  if (!runningTicket.url) return;
+                  if (runningTicket.source === 'redmine') {
+                    window.open(runningTicket.url, '_blank', 'noopener,noreferrer');
+                    return;
+                  }
+                  navigate(runningTicket.url);
+                }}
                 aria-label={`Open ticket: ${runningTicket.title}`}
                 className="h-auto max-w-full rounded-full p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-600 dark:focus-visible:ring-green-400"
               >
@@ -761,6 +771,9 @@ export const ClockPage: React.FC = () => {
             {clockOutBlockedReason}
           </Text>
         )}
+
+        {/* ── Redmine push (M5) — renders itself away when there is nothing to send ── */}
+        <RedminePushPanel isClockedIn={isClockedIn} />
 
         {/* ── Recent sessions ── */}
         <Card padding="lg" className="clock-recent-sessions mb-4 shrink-0">

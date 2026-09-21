@@ -1,7 +1,10 @@
 /**
  * Timers — wormhole REST integration tests.
  *
- * Fixture: USER in a team with a ticket. Tests timer start/stop and work item deduplication.
+ * Fixture: USER in a team with a ticket, clocked in for the whole file. The
+ * clock-in is not incidental: since M3 a ticket timer may only start while a
+ * shift is running, so every `startNow: true` below depends on it. The gate
+ * itself is asserted in "requires an active shift".
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
@@ -55,10 +58,15 @@ beforeAll(async () => {
   };
   await db.collection('tickets').insertOne(ticketDoc);
   ticketId = ticketDoc._id.toHexString();
+
+  const clockIn = await wormhole('clock.start', { teamId }, jwt);
+  expect(clockIn.ok).toBe(true);
 });
 
 afterAll(async () => {
+  await wormhole('clock.stop', { teamId }, jwt);
   const db = await getDb();
+  await db.collection('clockevents').deleteMany({ userId });
   await db.collection('teams').deleteMany({ code: 'WHTIMER' });
   await db.collection('tickets').deleteMany({ teamId });
   await db.collection('workitems').deleteMany({ userId });
@@ -262,5 +270,75 @@ describe('timers (wormhole)', () => {
       .toArray();
     expect(workItems).toHaveLength(1);
     expect(workItems[0].note).toBe(testNote);
+  });
+
+  it('stamps the running shift on each session and tags the entry as Huddle-sourced', async () => {
+    const db = await getDb();
+    const today = new Date().toISOString().split('T')[0];
+
+    const shift = await db.collection('clockevents').findOne({ userId, endTime: null });
+    expect(shift).not.toBeNull();
+
+    const res = await wormhole<{
+      entry: { id: string; source: string; displayTitle: string | null };
+      session: { id: string; clockEventId: string | null } | null;
+    }>('timers.createEntry', { ticketId, date: today, startNow: true, notifyAdmins: false }, jwt);
+
+    expect(res.ok).toBe(true);
+    expect(res.result.entry.source).toBe('huddle');
+    expect(res.result.entry.displayTitle).toBe('Timer Test Ticket');
+    expect(res.result.session?.clockEventId).toBe(String(shift!._id));
+
+    await wormhole('timers.stopSession', { sessionId: res.result.session!.id }, jwt);
+  });
+
+  it('keeps a Redmine issue id in its own namespace, separate from a Huddle ticket', async () => {
+    const db = await getDb();
+    const today = new Date().toISOString().split('T')[0];
+
+    // Unlinked account, so the source-aware path stops at the Redmine
+    // connection check — which already proves the id did not fall through to
+    // the Huddle `Tickets` lookup that would have 404'd on a numeric id.
+    const res = await wormhole('timers.createEntry', {
+      ticketId: '424242',
+      source: 'redmine',
+      date: today,
+      startNow: false,
+      notifyAdmins: false,
+    }, jwt);
+
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/Redmine/i);
+
+    const created = await db.collection('workitems').findOne({ userId, ticketId: '424242' });
+    expect(created).toBeNull();
+  });
+
+  it('requires an active shift to start a timer', async () => {
+    const today = new Date().toISOString().split('T')[0];
+    const clockOut = await wormhole('clock.stop', { teamId }, jwt);
+    expect(clockOut.ok).toBe(true);
+
+    try {
+      const res = await wormhole('timers.createEntry', {
+        ticketId,
+        date: today,
+        startNow: true,
+        notifyAdmins: false,
+      }, jwt);
+      expect(res.ok).toBe(false);
+      expect(res.error).toMatch(/Clock in to start a ticket timer/i);
+
+      // The WorkItem itself is still fine to create — only the session is gated.
+      const entryOnly = await wormhole('timers.createEntry', {
+        ticketId,
+        date: today,
+        startNow: false,
+        notifyAdmins: false,
+      }, jwt);
+      expect(entryOnly.ok).toBe(true);
+    } finally {
+      await wormhole('clock.start', { teamId }, jwt);
+    }
   });
 });

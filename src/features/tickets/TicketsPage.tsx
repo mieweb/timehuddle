@@ -35,7 +35,9 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  ApiError,
   myBoardApi,
+  redmineApi,
   teamApi,
   ticketApi,
   timerApi,
@@ -63,6 +65,7 @@ import { TicketBulkActionBar } from './TicketBulkActionBar';
 import { TicketTable } from './TicketTable';
 import { hasActiveFilters } from './ticketFilters';
 import { huddleSource, useUnifiedTickets, type UnifiedTicket } from './sources';
+import { useMeAssigneeKeys } from './useMeAssigneeKeys';
 import { useTicketTableView } from './useTicketTableView';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -112,10 +115,13 @@ export const TicketsPage: React.FC = () => {
   // issues is now the Assignee column filter, not a separate fetch scope.
   const [redmineScope] = useState<RedmineScope>('all');
 
-  // Timer state — which ticket has the open timer (shared overnight-safe hook)
+  // Timer state — which ticket has the open timer (shared overnight-safe hook).
+  // Keyed by `${sourceId}:${id}`, not id: a Redmine issue #42 and a Huddle
+  // ticket are different rows that can share neither state nor identity.
   const runningTicket = useRunningTicket(true);
-  const [timerLoading, setTimerLoading] = useState<string | null>(null); // ticketId currently toggling
-  const [pendingStartTicketId, setPendingStartTicketId] = useState<string | null>(null);
+  const [timerLoadingKey, setTimerLoadingKey] = useState<string | null>(null);
+  const [timerError, setTimerError] = useState<string | null>(null);
+  const [pendingStartTicket, setPendingStartTicket] = useState<UnifiedTicket | null>(null);
   const [showClockInPrompt, setShowClockInPrompt] = useState(false);
   const [clockInPromptError, setClockInPromptError] = useState<string | null>(null);
 
@@ -266,14 +272,41 @@ export const TicketsPage: React.FC = () => {
     () => allTickets.filter((t) => boardKeys.has(t.key)),
     [allTickets, boardKeys],
   );
+
+  // Whether the user has linked a Redmine account, so the board can say *why*
+  // its Redmine rows are missing instead of silently showing a short list.
+  const [redmineConnected, setRedmineConnected] = useState<boolean | null>(null);
+  useEffect(() => {
+    void redmineApi
+      .status()
+      .then((status) => setRedmineConnected(status.connected))
+      .catch(() => setRedmineConnected(null));
+  }, []);
+
+  /**
+   * Board entries with no ticket behind them. A board row is identity-only, so
+   * it outlives the ticket it points at: a Redmine issue is unreachable while
+   * the account is unlinked, and a Huddle ticket may have been deleted.
+   */
+  const unresolvedBoardNotice = useMemo(() => {
+    const missing = [...boardKeys].filter((key) => !allTickets.some((t) => t.key === key));
+    if (ticketsLoading || missing.length === 0) return null;
+    const redmineCount = missing.filter((key) => key.startsWith('redmine:')).length;
+    if (redmineCount > 0 && redmineConnected === false) {
+      return `Connect your Redmine account in Settings to see ${redmineCount} Redmine issue${redmineCount === 1 ? '' : 's'} on your board.`;
+    }
+    return `${missing.length} ticket${missing.length === 1 ? '' : 's'} on your board ${missing.length === 1 ? 'is' : 'are'} no longer available.`;
+  }, [boardKeys, allTickets, ticketsLoading, redmineConnected]);
   // Superset lookup for resolving a selection key (Tickets or My Board tab)
   // back to its ticket, e.g. to gate the bulk Delete button.
   const ticketByKey = useMemo(() => new Map(allTickets.map((t) => [t.key, t])), [allTickets]);
 
   // Search/filter/sort/paginate/select — one independent pipeline per tab, so
   // switching tabs never resets or leaks the other tab's state.
-  const ticketsView = useTicketTableView(allTickets);
-  const boardView = useTicketTableView(boardTickets);
+  // Resolves the assignee filter's "Me" option across both id namespaces.
+  const meKeys = useMeAssigneeKeys();
+  const ticketsView = useTicketTableView(allTickets, meKeys);
+  const boardView = useTicketTableView(boardTickets, meKeys);
   const {
     searchQuery,
     setSearchQuery,
@@ -335,14 +368,31 @@ export const TicketsPage: React.FC = () => {
 
   // ── Handlers ──
 
-  // Timer toggle handler
-  const startTimerForTicket = useCallback(async (ticketId: string) => {
-    setTimerLoading(ticketId);
+  // ── Ticket timers (started only from My Board — M3 D1) ──
+
+  /**
+   * Turn a rejected timer start into something the user can act on. The shift
+   * gate is the common one: `isClockedIn` can be stale (another tab clocked
+   * out, the 8h auto-clockout fired), so the server's answer is authoritative.
+   */
+  const timerErrorMessage = (err: unknown): string => {
+    const code = err instanceof ApiError ? err.code : undefined;
+    if (code === 'no-active-shift') return 'Clock in to start a ticket timer.';
+    if (code === 'not-connected')
+      return 'Connect your Redmine account in Settings to time this issue.';
+    if (code === 'unreachable' || code === 'invalid-key')
+      return 'Could not reach Redmine to start this timer.';
+    return 'Could not start the timer. Please try again.';
+  };
+
+  const startTimerForTicket = useCallback(async (ticket: UnifiedTicket) => {
+    setTimerLoadingKey(ticket.key);
+    setTimerError(null);
     try {
-      const today = toLocalDateStr(new Date());
       const result = await timerApi.createEntry({
-        ticketId,
-        date: today,
+        ticketId: ticket.id,
+        source: ticket.sourceId,
+        date: toLocalDateStr(new Date()),
         startNow: true,
         notifyAdmins: false,
       });
@@ -352,47 +402,46 @@ export const TicketsPage: React.FC = () => {
         window.dispatchEvent(new CustomEvent('tickets:refetch'));
       }
     } catch (err) {
-      console.error('Timer start failed:', err);
+      setTimerError(timerErrorMessage(err));
     } finally {
-      setTimerLoading(null);
+      setTimerLoadingKey(null);
     }
   }, []);
 
   const handleToggleTimer = useCallback(
     async (ticket: UnifiedTicket) => {
-      // Only Huddle tickets have a timer path today; the row hides the control
-      // for any source whose `trackTime` capability is false.
-      if (!ticket.capabilities.trackTime) return;
-      const ticketId = ticket.id;
-
-      if (runningTicket?.id === ticketId && runningTicket.sessionId) {
-        // Stop the running timer
-        setTimerLoading(ticketId);
+      // Starting a second ticket's timer auto-stops the first (M3 D5) — that is
+      // `closeRunningSession` server-side, and needs no confirmation here.
+      if (runningTicket?.key === ticket.key && runningTicket.sessionId) {
+        setTimerLoadingKey(ticket.key);
+        setTimerError(null);
         try {
           await timerApi.stopSession(runningTicket.sessionId);
           window.dispatchEvent(new CustomEvent('tickets:refetch'));
-        } catch (err) {
-          console.error('Timer stop failed:', err);
+        } catch {
+          setTimerError('Could not stop the timer. Please try again.');
         } finally {
-          setTimerLoading(null);
+          setTimerLoadingKey(null);
         }
-      } else {
-        // Start timer — prompt for clock-in if needed
-        if (!isClockedIn) {
-          setPendingStartTicketId(ticketId);
-          setClockInPromptError(null);
-          setShowClockInPrompt(true);
-          return;
-        }
-
-        await startTimerForTicket(ticketId);
+        return;
       }
+
+      // A ticket timer requires an active shift (M3 D3). Offer to clock in
+      // rather than letting the server reject the start.
+      if (!isClockedIn) {
+        setPendingStartTicket(ticket);
+        setClockInPromptError(null);
+        setShowClockInPrompt(true);
+        return;
+      }
+
+      await startTimerForTicket(ticket);
     },
     [runningTicket, isClockedIn, startTimerForTicket],
   );
 
   const handleClockInAndStart = useCallback(async () => {
-    if (!pendingStartTicketId) return;
+    if (!pendingStartTicket) return;
 
     if (!selectedTeamId) {
       setClockInPromptError('Select a team before clocking in.');
@@ -407,12 +456,12 @@ export const TicketsPage: React.FC = () => {
       return;
     }
 
-    const ticketId = pendingStartTicketId;
+    const ticket = pendingStartTicket;
     setShowClockInPrompt(false);
-    setPendingStartTicketId(null);
+    setPendingStartTicket(null);
 
-    await startTimerForTicket(ticketId);
-  }, [pendingStartTicketId, selectedTeamId, clockIn, startTimerForTicket]);
+    await startTimerForTicket(ticket);
+  }, [pendingStartTicket, selectedTeamId, clockIn, startTimerForTicket]);
 
   const handleCreate = useCallback(async () => {
     if (!createTitle.trim()) return;
@@ -777,8 +826,8 @@ export const TicketsPage: React.FC = () => {
                   selectedKeys={selectedKeys}
                   onSelectedChange={handleSelectedChange}
                   onSelectAllChange={handleSelectAllChange}
-                  runningTicketId={runningTicket?.id ?? null}
-                  timerLoadingId={timerLoading}
+                  runningTicketKey={runningTicket?.key ?? null}
+                  timerLoadingKey={timerLoadingKey}
                   totalCount={sortedTickets.length}
                   showClosed={showClosed}
                   onToggleTimer={handleToggleTimer}
@@ -896,6 +945,20 @@ export const TicketsPage: React.FC = () => {
               />
             )}
 
+            {/* Timer failures and unresolvable board entries, announced politely. */}
+            <div role="status" aria-live="polite" className="empty:hidden">
+              {timerError && (
+                <Text size="xs" className="block text-danger">
+                  {timerError}
+                </Text>
+              )}
+              {unresolvedBoardNotice && (
+                <Text size="xs" variant="muted" className="block">
+                  {unresolvedBoardNotice}
+                </Text>
+              )}
+            </div>
+
             {/* ── My Board table ── */}
             <Card ref={boardCardRef} padding="none" className="flex min-h-0 flex-1 flex-col">
               <div ref={boardView.containerRef} className="min-h-0 flex-1 overflow-hidden">
@@ -915,8 +978,8 @@ export const TicketsPage: React.FC = () => {
                   selectedKeys={boardView.selectedKeys}
                   onSelectedChange={boardView.onSelectedChange}
                   onSelectAllChange={boardView.onSelectAllChange}
-                  runningTicketId={runningTicket?.id ?? null}
-                  timerLoadingId={timerLoading}
+                  runningTicketKey={runningTicket?.key ?? null}
+                  timerLoadingKey={timerLoadingKey}
                   totalCount={boardView.sortedTickets.length}
                   showClosed={boardView.showClosed}
                   onToggleTimer={handleToggleTimer}
@@ -945,11 +1008,12 @@ export const TicketsPage: React.FC = () => {
                             : 'Your board is empty'
                       }
                       description={
-                        !boardView.searchQuery &&
+                        unresolvedBoardNotice ??
+                        (!boardView.searchQuery &&
                         !hasActiveFilters(boardView.filters) &&
                         !boardView.showClosed
                           ? 'Select tickets on the Tickets tab and click "Move to My Board".'
-                          : undefined
+                          : undefined)
                       }
                     />
                   }
@@ -1293,7 +1357,7 @@ export const TicketsPage: React.FC = () => {
           onOpenChange={(open) => {
             setShowClockInPrompt(open);
             if (!open) {
-              setPendingStartTicketId(null);
+              setPendingStartTicket(null);
               setClockInPromptError(null);
             }
           }}
@@ -1321,7 +1385,7 @@ export const TicketsPage: React.FC = () => {
               variant="outline"
               onClick={() => {
                 setShowClockInPrompt(false);
-                setPendingStartTicketId(null);
+                setPendingStartTicket(null);
                 setClockInPromptError(null);
               }}
             >

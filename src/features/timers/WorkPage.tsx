@@ -591,7 +591,8 @@ export const WorkPage: React.FC = () => {
     if (!editEntry) return;
     const parsedSeconds = hhmmToSeconds(editDuration);
     const isRunning = !!editEntry.sessions.find((s) => s.endTime === null);
-    const ticketChanged = editTicketId !== editEntry.entry.ticketId;
+    const ticketChanged =
+      editEntry.entry.source !== 'redmine' && editTicketId !== editEntry.entry.ticketId;
     setEditLoading(true);
     setEditError(null);
     try {
@@ -684,10 +685,26 @@ export const WorkPage: React.FC = () => {
 
   const getWorkItemLabel = useCallback(
     (entry: DayEntry['entry']) => {
-      const ticket = ticketsById.get(entry.ticketId);
-      return entry.displayTitle || ticket?.title || '(untitled)';
+      // Redmine subjects only ever arrive resolved from the server; the local
+      // ticket cache holds Huddle tickets, so it is a Huddle-only fallback.
+      if (entry.displayTitle) return entry.displayTitle;
+      if (entry.source === 'redmine') return `#${entry.ticketId}`;
+      return ticketsById.get(entry.ticketId)?.title || '(untitled)';
     },
     [ticketsById],
+  );
+
+  /** Open a work item's ticket — in-app for Huddle, the instance for Redmine. */
+  const openWorkItemTicket = useCallback(
+    (entry: DayEntry['entry']) => {
+      const url = entry.displayUrl ?? `/app/tickets/${entry.ticketId}`;
+      if (entry.source === 'redmine') {
+        if (entry.displayUrl) window.open(entry.displayUrl, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      navigate(url);
+    },
+    [navigate],
   );
 
   const selectedDayLabel = useMemo(
@@ -934,7 +951,7 @@ export const WorkPage: React.FC = () => {
         <EmptyState title="No timers for this day" description='Create one with "+".' />
       ) : (
         <Card padding="none">
-          <Table>
+          <Table aria-label={`Work items for ${selectedDayLabel}`}>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10" />
@@ -979,7 +996,7 @@ export const WorkPage: React.FC = () => {
                             type="button"
                             className="block max-w-full text-left hover:text-primary"
                             title={title}
-                            onClick={() => navigate(`/app/tickets/${de.entry.ticketId}`)}
+                            onClick={() => openWorkItemTicket(de.entry)}
                           >
                             <Text size="sm" weight="medium" truncate>
                               {title}
@@ -991,6 +1008,11 @@ export const WorkPage: React.FC = () => {
                             </Text>
                           )}
                         </div>
+                        {de.entry.source === 'redmine' && (
+                          <Badge variant="outline" size="sm">
+                            Redmine
+                          </Badge>
+                        )}
                         {isRunning && (
                           <Badge variant="success" size="sm">
                             <FontAwesomeIcon
@@ -1096,17 +1118,28 @@ export const WorkPage: React.FC = () => {
                 </Text>
               </ModalHeader>
               <ModalBody className="flex flex-col gap-4">
-                <Select
-                  label="Ticket"
-                  searchable
-                  searchPlaceholder="Search tickets…"
-                  options={allTickets
-                    .filter((t) => t.status !== 'deleted')
-                    .map((t) => ({ value: t.id, label: t.title }))}
-                  value={editTicketId}
-                  onValueChange={(v) => setEditTicketId(v)}
-                  placeholder="Select a ticket…"
-                />
+                {/* Retargeting picks from Huddle tickets, so a Redmine-sourced
+                    entry shows its issue instead of an unusable picker. */}
+                {editEntry.entry.source === 'redmine' ? (
+                  <Input
+                    label="Issue"
+                    value={getWorkItemLabel(editEntry.entry)}
+                    readOnly
+                    disabled
+                  />
+                ) : (
+                  <Select
+                    label="Ticket"
+                    searchable
+                    searchPlaceholder="Search tickets…"
+                    options={allTickets
+                      .filter((t) => t.status !== 'deleted')
+                      .map((t) => ({ value: t.id, label: t.title }))}
+                    value={editTicketId}
+                    onValueChange={(v) => setEditTicketId(v)}
+                    placeholder="Select a ticket…"
+                  />
+                )}
                 <Input
                   label="Note (optional)"
                   value={editNote}

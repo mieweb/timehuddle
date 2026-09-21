@@ -11,16 +11,44 @@
  */
 import { Meteor } from 'meteor/meteor';
 
-import { RedmineLinks } from './collections';
+import { ClockEvents, RedmineLinks, Timers } from './collections';
 import { requireIdentity } from './auth-bridge';
-import { getCurrentUser, listIssues, redmineBaseUrl } from './redmine-client';
-import { decryptSecret, encryptSecret, envKey } from './redmine-crypto';
+import {
+  createTimeEntry,
+  getCurrentUser,
+  getTimeEntry,
+  listIssues,
+  listIssuesByIds,
+  optionalRedmineBaseUrl,
+  redmineBaseUrl,
+} from './redmine-client';
+import { encryptSecret, envKey } from './redmine-crypto';
+import { findRedmineApiKey } from './redmine-account';
 import { toStatus } from './redmine-status';
 import { toIssueList } from './redmine-issues';
+import { bustActivityCache, getActivitiesForUser, pickDefaultActivity } from './redmine-activities';
+import { buildPushRows, PUSH_COMMENT, unsentTotals } from './redmine-time-entries';
+import { flagEntry, recordEntry, sentSecondsFor } from './redmine-time-sync';
+import { redmineTicketDaysFor } from './timer-core';
 
 const VALID_SCOPES = new Set(['mine', 'all']);
 
 const DUPLICATE_KEY_ERROR_CODE = 11000;
+
+/**
+ * Map a failed Redmine request onto the Meteor error the client expects.
+ * A rejected key is actionable ("re-link in Settings"); anything else is not
+ * worth distinguishing, so it collapses to "unreachable".
+ */
+function toRedmineMeteorError(err) {
+  if (err?.status === 401 || err?.status === 403) {
+    return new Meteor.Error('invalid-key', 'Your Redmine API key was rejected.');
+  }
+  return new Meteor.Error(
+    'unreachable',
+    'Could not reach Redmine. Check the server URL and that the REST API is enabled.',
+  );
+}
 
 // Enforce the "one link per user" invariant at the storage layer so concurrent
 // first-time `redmine.connect` calls can't both insert (Mongo `_id` uniqueness
@@ -35,15 +63,155 @@ Meteor.startup(async () => {
 });
 
 /**
- * Server-configured Redmine base URL, or null if unset. Used only to shape the
- * status response; connect validates a real URL separately before writing.
+ * Whether the caller is idle enough to push (D2).
+ *
+ * Both halves matter. An open shift means the day is not finished, and a
+ * running ticket session has no final duration — under D1 either would write a
+ * partial total that can never be corrected.
  */
-function configuredBaseUrl() {
+async function isIdleForPush(userId) {
+  const openShift = await ClockEvents.findOneAsync({ userId, endTime: null });
+  if (openShift) return false;
+  const runningTimer = await Timers.findOneAsync({ userId, endTime: null });
+  return !runningTimer;
+}
+
+/** A lock older than this is treated as abandoned (a crashed or timed-out push). */
+const PUSH_LOCK_STALE_MS = 2 * 60 * 1000;
+
+/**
+ * Claim the caller's push lock, or return false if a push is already running.
+ *
+ * Under D5 a ticket-day may take several entries, so the storage layer no longer
+ * rejects a second one. Without this, two tabs pressing Send together would both
+ * compute the same unsent time and both create an entry for it. The claim is a
+ * single atomic update on the caller's `redmine_links` row, so exactly one of
+ * two concurrent pushes wins.
+ */
+async function acquirePushLock(userId) {
+  const now = new Date();
+  const claimed = await RedmineLinks.updateAsync(
+    {
+      userId,
+      $or: [
+        { pushingSince: null },
+        { pushingSince: { $exists: false } },
+        { pushingSince: { $lt: new Date(now.getTime() - PUSH_LOCK_STALE_MS) } },
+      ],
+    },
+    { $set: { pushingSince: now } },
+  );
+  return claimed === 1;
+}
+
+function releasePushLock(userId) {
+  return RedmineLinks.updateAsync({ userId }, { $set: { pushingSince: null } });
+}
+
+/**
+ * The unsynced ticket-days for a user, shaped for the dialog.
+ *
+ * Shared by `preview` and `push` so the two can never disagree about what is
+ * eligible — `push` re-derives this rather than trusting what the client sends.
+ */
+async function buildPreviewRows(userId, apiKey) {
+  const totals = await redmineTicketDaysFor(userId);
+  if (!totals.length) return [];
+
+  // Only the time not already covered by earlier entries (D5).
+  const unsynced = unsentTotals(totals, await sentSecondsFor(userId));
+  if (!unsynced.length) return [];
+
+  const issueIds = [...new Set(unsynced.map((total) => total.ticketId))];
+
+  // A Redmine outage must not blank the dialog: without issue detail every row
+  // is reported as `issue-unavailable`, which is the truth rather than silence.
+  let issuesById = new Map();
+  let activities = [];
   try {
-    return redmineBaseUrl();
+    const [issues, fetchedActivities] = await Promise.all([
+      listIssuesByIds(apiKey, issueIds),
+      getActivitiesForUser(userId, apiKey),
+    ]);
+    issuesById = new Map(
+      issues.map((issue) => [
+        String(issue.id),
+        { subject: issue.subject ?? '', trackerName: issue.tracker?.name ?? null },
+      ]),
+    );
+    activities = fetchedActivities;
   } catch {
-    return null;
+    /* fall through with empty maps */
   }
+
+  const link = await RedmineLinks.findOneAsync({ userId }, { fields: { defaultActivityId: 1 } });
+  const chosenId = link?.defaultActivityId ?? null;
+
+  const resolveActivity = (trackerName) => {
+    const { activity, reason } = pickDefaultActivity(activities, chosenId, trackerName);
+    return {
+      activityId: activity?.id ?? null,
+      activityName: activity?.name ?? null,
+      reason,
+    };
+  };
+
+  return buildPushRows(unsynced, issuesById, resolveActivity);
+}
+
+/**
+ * Create one entry, confirm it by reading it back, and record the outcome.
+ *
+ * The read-back is not ceremony: Redmine can answer `201` while storing
+ * something other than what was sent, and under D1 there is no second chance to
+ * correct it — so a mismatch is surfaced rather than assumed away.
+ */
+async function pushOneEntry(userId, apiKey, row, activityId) {
+  const base = { ticketId: row.ticketId, date: row.date, hours: row.hours };
+
+  let created;
+  try {
+    created = await createTimeEntry(apiKey, {
+      issueId: Number(row.ticketId),
+      hours: row.hours,
+      activityId,
+      spentOn: row.date,
+      comments: PUSH_COMMENT,
+    });
+  } catch (err) {
+    // 403 here is the signature of a role without `log_time`, which is a
+    // different user action from "Redmine was unreachable".
+    const reason =
+      err?.status === 403
+        ? 'no-log-time-permission'
+        : err?.status === 422
+          ? 'rejected-by-redmine'
+          : 'unreachable';
+    // Nothing was created, so nothing is recorded: the time stays unsent and
+    // is offered again on the next push.
+    return { ...base, ok: false, reason };
+  }
+
+  const entryId = created?.id ?? null;
+  if (entryId == null) {
+    return { ...base, ok: false, reason: 'no-entry-id' };
+  }
+
+  // Record before confirming: if the read-back fails, the entry still exists in
+  // Redmine, and forgetting it is what would resend the same time as a duplicate.
+  await recordEntry(userId, row.ticketId, row.date, {
+    redmineTimeEntryId: entryId,
+    seconds: row.seconds,
+    hours: row.hours,
+  });
+
+  const stored = await getTimeEntry(apiKey, entryId);
+  if (stored && Number(stored.hours) !== row.hours) {
+    await flagEntry(entryId, 'hours-mismatch');
+    return { ...base, ok: false, reason: 'hours-mismatch', storedHours: Number(stored.hours), entryId };
+  }
+
+  return { ...base, ok: true, entryId };
 }
 
 Meteor.methods({
@@ -115,13 +283,16 @@ Meteor.methods({
   async 'redmine.disconnect'() {
     const { userId } = await requireIdentity(this);
     await RedmineLinks.removeAsync({ userId });
+    // Re-linking with a key for a different Redmine account must not be served
+    // the previous instance's activity list.
+    bustActivityCache(userId);
     return { connected: false };
   },
 
   /** Report the caller's Redmine connection status (never the key). */
   async 'redmine.status'() {
     const { userId } = await requireIdentity(this);
-    return toStatus(await RedmineLinks.findOneAsync({ userId }), configuredBaseUrl());
+    return toStatus(await RedmineLinks.findOneAsync({ userId }), optionalRedmineBaseUrl());
   },
 
   /**
@@ -136,25 +307,220 @@ Meteor.methods({
       throw new Meteor.Error('bad-request', 'scope must be "mine" or "all".');
     }
 
-    const link = await RedmineLinks.findOneAsync({ userId });
-    if (!link) return { connected: false, baseUrl: configuredBaseUrl(), issues: [] };
+    const apiKey = await findRedmineApiKey(userId);
+    if (!apiKey) return { connected: false, baseUrl: optionalRedmineBaseUrl(), issues: [] };
 
-    const baseUrl = configuredBaseUrl();
-    const apiKey = decryptSecret(link.apiKey, envKey());
+    const baseUrl = optionalRedmineBaseUrl();
 
     let issues;
     try {
       issues = await listIssues(apiKey, { scope });
     } catch (err) {
-      if (err?.status === 401 || err?.status === 403) {
-        throw new Meteor.Error('invalid-key', 'Your Redmine API key was rejected.');
-      }
-      throw new Meteor.Error(
-        'unreachable',
-        'Could not reach Redmine. Check the server URL and that the REST API is enabled.',
-      );
+      throw toRedmineMeteorError(err);
     }
 
     return { connected: true, baseUrl, issues: toIssueList(issues) };
   },
+
+  /**
+   * The instance's time-entry activities, plus which one the caller's time will
+   * be logged under and why.
+   *
+   * Returns `{ connected: false, activities: [] }` for an unlinked user so
+   * Settings can render its state without a second round-trip, matching
+   * `redmine.issues.list`. An empty `activities` on a connected account means
+   * the instance has none configured and cannot receive time at all.
+   */
+  async 'redmine.activities.list'() {
+    const { userId } = await requireIdentity(this);
+
+    const apiKey = await findRedmineApiKey(userId);
+    if (!apiKey) return { connected: false, activities: [], selectedId: null, selectedReason: 'none' };
+
+    let activities;
+    try {
+      activities = await getActivitiesForUser(userId, apiKey);
+    } catch (err) {
+      throw toRedmineMeteorError(err);
+    }
+
+    const link = await RedmineLinks.findOneAsync({ userId }, { fields: { defaultActivityId: 1 } });
+    const { activity, reason } = pickDefaultActivity(activities, link?.defaultActivityId ?? null);
+
+    return {
+      connected: true,
+      activities,
+      selectedId: activity?.id ?? null,
+      selectedReason: reason,
+    };
+  },
+
+  /**
+   * Persist the caller's preferred activity onto their `redmine_links` row —
+   * already the per-user Redmine config surface, so no new collection.
+   *
+   * The id is validated against the live enumeration so a stale client cannot
+   * store one the instance does not have.
+   */
+  async 'redmine.activities.setDefault'({ activityId } = {}) {
+    const { userId } = await requireIdentity(this);
+
+    if (!Number.isInteger(activityId)) {
+      throw new Meteor.Error('bad-request', 'An activity id is required.');
+    }
+
+    const apiKey = await findRedmineApiKey(userId);
+    if (!apiKey) {
+      throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
+    }
+
+    let activities;
+    try {
+      activities = await getActivitiesForUser(userId, apiKey);
+    } catch (err) {
+      throw toRedmineMeteorError(err);
+    }
+
+    if (!activities.some((a) => a.id === activityId)) {
+      throw new Meteor.Error('bad-request', 'That activity does not exist on this Redmine instance.');
+    }
+
+    await RedmineLinks.updateAsync({ userId }, { $set: { defaultActivityId: activityId } });
+
+    const { activity, reason } = pickDefaultActivity(activities, activityId);
+    return {
+      connected: true,
+      activities,
+      selectedId: activity?.id ?? null,
+      selectedReason: reason,
+    };
+  },
+
+  /**
+   * What a push would send, for the confirmation dialog (M5, D2).
+   *
+   * Pure read — it creates nothing in Redmine. Rows that cannot be sent are
+   * still returned, carrying a `blockedReason`, so the dialog can explain the
+   * omission rather than quietly showing a shorter list than the user's day.
+   */
+  async 'redmine.timeEntries.preview'() {
+    const { userId } = await requireIdentity(this);
+
+    const apiKey = await findRedmineApiKey(userId);
+    if (!apiKey) return { connected: false, idle: true, rows: [], baseUrl: optionalRedmineBaseUrl() };
+
+    const idle = await isIdleForPush(userId);
+    const rows = await buildPreviewRows(userId, apiKey);
+    return { connected: true, idle, rows, baseUrl: optionalRedmineBaseUrl() };
+  },
+
+  /**
+   * Create one Redmine time entry per confirmed ticket-day (M5, D1 + D2).
+   *
+   * **The only write this integration performs, and it is irreversible.** The
+   * client says *which* ticket-days to send and may override the activity; it
+   * never supplies the hours. Those are recomputed here from the timer
+   * sessions, because a client-supplied number would let a stale or tampered
+   * dialog write a figure nobody worked.
+   */
+  async 'redmine.timeEntries.push'({ entries = [] } = {}) {
+    const { userId } = await requireIdentity(this);
+
+    if (!Array.isArray(entries) || entries.length === 0) {
+      throw new Meteor.Error('bad-request', 'Nothing to send.');
+    }
+
+    const apiKey = await findRedmineApiKey(userId);
+    if (!apiKey) {
+      throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
+    }
+
+    // The same gate the button enforces, re-checked server-side: a timer that
+    // started after the dialog opened would otherwise have its partial total
+    // written permanently.
+    if (!(await isIdleForPush(userId))) {
+      throw new Meteor.Error(
+        'not-idle',
+        'Clock out and stop every ticket timer before sending time to Redmine.',
+      );
+    }
+
+    // Held across both the unsent-time calculation and the writes: releasing it
+    // between them would let a second push read the same unsent figure before
+    // this one records its entry.
+    if (!(await acquirePushLock(userId))) {
+      throw new Meteor.Error(
+        'push-in-progress',
+        'A push to Redmine is already running. Wait for it to finish, then try again.',
+      );
+    }
+    try {
+      return { results: await pushRequestedEntries(userId, apiKey, entries) };
+    } finally {
+      await releasePushLock(userId);
+    }
+  },
 });
+
+/**
+ * Push each requested ticket-day, holding the caller's push lock.
+ *
+ * Unsent time is recomputed here rather than taken from the client, then
+ * matched against the requested rows.
+ */
+async function pushRequestedEntries(userId, apiKey, entries) {
+  const previewRows = await buildPreviewRows(userId, apiKey);
+  const byKey = new Map(previewRows.map((row) => [`${row.ticketId}|${row.date}`, row]));
+
+  // The same enumeration the rows were resolved from, served from cache. If it
+  // cannot be fetched the set stays empty, so every override is rejected as
+  // unverifiable rather than trusted.
+  let validActivityIds = new Set();
+  try {
+    validActivityIds = new Set((await getActivitiesForUser(userId, apiKey)).map((a) => a.id));
+  } catch {
+    /* unreachable — handled per row below */
+  }
+
+  // A ticket-day listed twice would otherwise have its unsent time sent twice.
+  const handled = new Set();
+
+  const results = [];
+  for (const requested of entries) {
+    const key = `${requested?.ticketId}|${requested?.date}`;
+    const row = handled.has(key) ? undefined : byKey.get(key);
+    handled.add(key);
+
+    if (!row) {
+        results.push({
+          ticketId: requested?.ticketId ?? null,
+          date: requested?.date ?? null,
+          ok: false,
+          reason: 'already-synced-or-gone',
+        });
+        continue;
+      }
+      if (row.blockedReason) {
+        results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: row.blockedReason });
+        continue;
+      }
+
+      // An override is honoured only if this instance really has that activity,
+      // matching the check `redmine.activities.setDefault` makes. An invalid one
+      // rejects the row instead of falling back to the default: under D1 the
+      // entry is permanent, and writing an activity the user did not choose is
+      // worse than writing nothing.
+      let activityId = row.activityId;
+      if (requested.activityId != null) {
+        if (!Number.isInteger(requested.activityId) || !validActivityIds.has(requested.activityId)) {
+          results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'invalid-activity' });
+          continue;
+        }
+        activityId = requested.activityId;
+      }
+
+      results.push(await pushOneEntry(userId, apiKey, row, activityId));
+    }
+
+  return results;
+}

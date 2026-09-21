@@ -1413,6 +1413,23 @@ export const teamApi = {
 
 // ─── Clock API ────────────────────────────────────────────────────────────────
 
+/**
+ * One ticket-timer session that ran inside a shift, as the timesheet renders it.
+ * `title`/`url` are resolved server-side at read time — a Huddle ticket links
+ * in-app, a Redmine issue links out to the instance.
+ */
+export interface ShiftTicketSession {
+  id: string;
+  workItemId: string;
+  source: TicketSourceId;
+  ticketId: string;
+  title: string | null;
+  url: string | null;
+  startTime: number;
+  endTime: number | null;
+  durationSeconds: number | null;
+}
+
 export interface ClockEvent {
   id: string;
   userId: string;
@@ -1435,6 +1452,8 @@ export interface ClockEvent {
   /** @deprecated No longer set by the API — use breaks[].endTime === null to find active break. */
   pausedAt?: number | null;
   endTime: number | null;
+  /** Ticket timers that ran during this shift. Only `clock.timesheet` returns these. */
+  ticketSessions?: ShiftTicketSession[];
 }
 
 // ─── Timesheet change approvals ───────────────────────────────────────────────
@@ -1758,12 +1777,20 @@ export const attachmentApi = {
 
 // ─── Timer API ────────────────────────────────────────────────────────────────
 
-/** A WorkItem is the per-user per-ticket per-day timesheet row. */
+/** Where a ticket comes from. Huddle's own tickets, or a linked Redmine instance. */
+export type TicketSourceId = 'huddle' | 'redmine';
+
+/**
+ * A WorkItem is the per-user per-source per-ticket per-day timesheet row.
+ * `displayTitle`/`displayUrl` are resolved server-side on read, never stored.
+ */
 export interface WorkItem {
   id: string;
   userId: string;
+  source: TicketSourceId;
   ticketId: string;
   displayTitle: string | null;
+  displayUrl: string | null;
   date: string; // UTC "YYYY-MM-DD"
   note?: string;
   createdAt: string;
@@ -1775,6 +1802,8 @@ export interface Timer {
   id: string;
   workItemId: string;
   userId: string;
+  /** The shift this session ran inside. Null for sessions written before M3. */
+  clockEventId: string | null;
   date: string;
   startTime: number; // epoch ms
   endTime: number | null;
@@ -1807,9 +1836,14 @@ function clientTz(): string {
 }
 
 export const timerApi = {
-  /** Create a WorkItem for the given ticket + date. Optionally start a timer immediately. */
+  /**
+   * Create a WorkItem for the given ticket + date. Optionally start a timer.
+   * `source` defaults to `'huddle'` server-side. Starting a timer requires an
+   * active shift and rejects with `no-active-shift` when there is none.
+   */
   createEntry: (data: {
     ticketId: string;
+    source?: TicketSourceId;
     date: string;
     note?: string;
     notifyAdmins?: boolean;
@@ -1890,8 +1924,8 @@ export const timerApi = {
   },
 
   /** Get total seconds for a ticket from all closed Timers. */
-  getTicketTotal: (ticketId: string) =>
-    wormholeCall<{ totalSeconds: number }>('timers.getTicketTotal', { ticketId }).then(
+  getTicketTotal: (ticketId: string, source: TicketSourceId = 'huddle') =>
+    wormholeCall<{ totalSeconds: number }>('timers.getTicketTotal', { ticketId, source }).then(
       (r) => r.totalSeconds,
     ),
 
@@ -2104,10 +2138,67 @@ export interface RedmineStatus {
   redmineName?: string;
   baseUrl?: string;
   linkedAt?: string | null;
+  /** The user's chosen time-entry activity, or null until they pick one. */
+  defaultActivityId?: number | null;
 }
 
 /** Which issues to fetch: assigned to me, or everything the key can see. */
 export type RedmineScope = 'mine' | 'all';
+
+/** Why a previewed ticket-day cannot be sent, or null when it can. */
+export type RedmineBlockedReason = 'too-short' | 'issue-unavailable' | 'no-activity';
+
+/** One ticket-day as the confirmation dialog renders it. */
+export interface RedmineTimeEntryRow {
+  ticketId: string;
+  /** The day being logged, `YYYY-MM-DD`. */
+  date: string;
+  /** Seconds not yet sent to Redmine — what this push would cover. */
+  seconds: number;
+  /** Seconds already sent for this ticket-day by earlier pushes (D5). */
+  alreadySentSeconds: number;
+  /** Decimal hours for `seconds`, rounded once to 2dp — what Redmine will store. */
+  hours: number;
+  subject: string | null;
+  trackerName: string | null;
+  issueMissing: boolean;
+  activityId: number | null;
+  activityName: string | null;
+  /** Which rule chose the activity: `tracker`, `chosen`, `named`, … */
+  activityReason: string;
+  blockedReason: RedmineBlockedReason | null;
+}
+
+export interface RedmineTimeEntryPreview {
+  connected: boolean;
+  /** False while a shift is open or a ticket timer is running. */
+  idle: boolean;
+  rows: RedmineTimeEntryRow[];
+  baseUrl: string | null;
+}
+
+export interface RedmineTimeEntryPushRequest {
+  ticketId: string;
+  date: string;
+  /** Optional override of the resolved activity. */
+  activityId?: number;
+}
+
+/** Per-entry outcome — a partial failure leaves the successful rows synced. */
+export interface RedmineTimeEntryPushOutcome {
+  ticketId: string | null;
+  date: string | null;
+  hours?: number;
+  ok: boolean;
+  /** Present on failure: `no-log-time-permission`, `unreachable`, … */
+  reason?: string;
+  entryId?: number;
+  storedHours?: number;
+}
+
+export interface RedmineTimeEntryPushResult {
+  results: RedmineTimeEntryPushOutcome[];
+}
 
 /** A Redmine `{ id, name }` reference (project, assignee, priority, tracker). */
 export interface RedmineNamed {
@@ -2144,6 +2235,31 @@ export interface RedmineIssueList {
   issues: RedmineIssue[];
 }
 
+/** A Redmine time-entry activity. Redmine rejects a time entry without one. */
+export interface RedmineActivity {
+  id: number;
+  name: string;
+  isDefault: boolean;
+}
+
+/**
+ * Which rule chose the active activity — lets the UI say so rather than pick
+ * silently. `tracker` means it was derived from the issue's Redmine tracker (D4).
+ */
+export type RedmineActivityReason =
+  'chosen' | 'tracker' | 'is_default' | 'named' | 'first' | 'none';
+
+/**
+ * Response for `redmine.activities.*`. An empty `activities` on a connected
+ * account means the instance has none configured and cannot receive time.
+ */
+export interface RedmineActivityList {
+  connected: boolean;
+  activities: RedmineActivity[];
+  selectedId: number | null;
+  selectedReason: RedmineActivityReason;
+}
+
 export const redmineApi = {
   /** Current Redmine connection status for the signed-in user. */
   status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
@@ -2159,6 +2275,32 @@ export const redmineApi = {
     /** List the caller's Redmine issues (read-only) for the given scope. */
     list: (scope: RedmineScope): Promise<RedmineIssueList> =>
       wormholeCall<RedmineIssueList>('redmine.issues.list', { scope }),
+  },
+
+  activities: {
+    /** The instance's time-entry activities and which one is active. */
+    list: (): Promise<RedmineActivityList> =>
+      wormholeCall<RedmineActivityList>('redmine.activities.list', {}),
+
+    /** Set the activity the caller's synced time is logged under. */
+    setDefault: (activityId: number): Promise<RedmineActivityList> =>
+      wormholeCall<RedmineActivityList>('redmine.activities.setDefault', { activityId }),
+  },
+
+  timeEntries: {
+    /** What a push would send. Read-only — creates nothing in Redmine. */
+    preview: (): Promise<RedmineTimeEntryPreview> =>
+      wormholeCall<RedmineTimeEntryPreview>('redmine.timeEntries.preview', {}),
+
+    /**
+     * Send the confirmed ticket-days to Redmine.
+     *
+     * **Irreversible** — entries cannot be edited or deleted afterwards (D1).
+     * Hours are recomputed server-side; only the selection and any activity
+     * override travel from here.
+     */
+    push: (entries: RedmineTimeEntryPushRequest[]): Promise<RedmineTimeEntryPushResult> =>
+      wormholeCall<RedmineTimeEntryPushResult>('redmine.timeEntries.push', { entries }),
   },
 };
 
