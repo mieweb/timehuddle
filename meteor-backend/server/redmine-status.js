@@ -23,5 +23,7 @@ export function toStatus(link, baseUrl) {
     redmineName: fullName || link.redmineLogin,
     baseUrl: baseUrl ?? null,
     linkedAt: link.linkedAt instanceof Date ? link.linkedAt.toISOString() : (link.linkedAt ?? null),
+    // Null until the user picks one; the activity fallback chain handles absence.
+    defaultActivityId: link.defaultActivityId ?? null,
   };
 }

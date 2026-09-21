@@ -2090,10 +2090,64 @@ export interface RedmineStatus {
   redmineName?: string;
   baseUrl?: string;
   linkedAt?: string | null;
+  /** The user's chosen time-entry activity, or null until they pick one. */
+  defaultActivityId?: number | null;
 }
 
 /** Which issues to fetch: assigned to me, or everything the key can see. */
 export type RedmineScope = 'mine' | 'all';
+
+/** Why a previewed ticket-day cannot be sent, or null when it can. */
+export type RedmineBlockedReason = 'too-short' | 'issue-unavailable' | 'no-activity';
+
+/** One ticket-day as the confirmation dialog renders it. */
+export interface RedmineTimeEntryRow {
+  ticketId: string;
+  /** The day being logged, `YYYY-MM-DD`. */
+  date: string;
+  seconds: number;
+  /** Decimal hours, rounded once to 2dp — exactly what Redmine will store. */
+  hours: number;
+  subject: string | null;
+  trackerName: string | null;
+  issueMissing: boolean;
+  activityId: number | null;
+  activityName: string | null;
+  /** Which rule chose the activity: `tracker`, `chosen`, `named`, … */
+  activityReason: string;
+  blockedReason: RedmineBlockedReason | null;
+}
+
+export interface RedmineTimeEntryPreview {
+  connected: boolean;
+  /** False while a shift is open or a ticket timer is running. */
+  idle: boolean;
+  rows: RedmineTimeEntryRow[];
+  baseUrl: string | null;
+}
+
+export interface RedmineTimeEntryPushRequest {
+  ticketId: string;
+  date: string;
+  /** Optional override of the resolved activity. */
+  activityId?: number;
+}
+
+/** Per-entry outcome — a partial failure leaves the successful rows synced. */
+export interface RedmineTimeEntryPushOutcome {
+  ticketId: string | null;
+  date: string | null;
+  hours?: number;
+  ok: boolean;
+  /** Present on failure: `no-log-time-permission`, `unreachable`, … */
+  reason?: string;
+  entryId?: number;
+  storedHours?: number;
+}
+
+export interface RedmineTimeEntryPushResult {
+  results: RedmineTimeEntryPushOutcome[];
+}
 
 /** A Redmine `{ id, name }` reference (project, assignee, priority, tracker). */
 export interface RedmineNamed {
@@ -2130,6 +2184,31 @@ export interface RedmineIssueList {
   issues: RedmineIssue[];
 }
 
+/** A Redmine time-entry activity. Redmine rejects a time entry without one. */
+export interface RedmineActivity {
+  id: number;
+  name: string;
+  isDefault: boolean;
+}
+
+/**
+ * Which rule chose the active activity — lets the UI say so rather than pick
+ * silently. `tracker` means it was derived from the issue's Redmine tracker (D4).
+ */
+export type RedmineActivityReason =
+  'chosen' | 'tracker' | 'is_default' | 'named' | 'first' | 'none';
+
+/**
+ * Response for `redmine.activities.*`. An empty `activities` on a connected
+ * account means the instance has none configured and cannot receive time.
+ */
+export interface RedmineActivityList {
+  connected: boolean;
+  activities: RedmineActivity[];
+  selectedId: number | null;
+  selectedReason: RedmineActivityReason;
+}
+
 export const redmineApi = {
   /** Current Redmine connection status for the signed-in user. */
   status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
@@ -2145,6 +2224,32 @@ export const redmineApi = {
     /** List the caller's Redmine issues (read-only) for the given scope. */
     list: (scope: RedmineScope): Promise<RedmineIssueList> =>
       wormholeCall<RedmineIssueList>('redmine.issues.list', { scope }),
+  },
+
+  activities: {
+    /** The instance's time-entry activities and which one is active. */
+    list: (): Promise<RedmineActivityList> =>
+      wormholeCall<RedmineActivityList>('redmine.activities.list', {}),
+
+    /** Set the activity the caller's synced time is logged under. */
+    setDefault: (activityId: number): Promise<RedmineActivityList> =>
+      wormholeCall<RedmineActivityList>('redmine.activities.setDefault', { activityId }),
+  },
+
+  timeEntries: {
+    /** What a push would send. Read-only — creates nothing in Redmine. */
+    preview: (): Promise<RedmineTimeEntryPreview> =>
+      wormholeCall<RedmineTimeEntryPreview>('redmine.timeEntries.preview', {}),
+
+    /**
+     * Send the confirmed ticket-days to Redmine.
+     *
+     * **Irreversible** — entries cannot be edited or deleted afterwards (D1).
+     * Hours are recomputed server-side; only the selection and any activity
+     * override travel from here.
+     */
+    push: (entries: RedmineTimeEntryPushRequest[]): Promise<RedmineTimeEntryPushResult> =>
+      wormholeCall<RedmineTimeEntryPushResult>('redmine.timeEntries.push', { entries }),
   },
 };
 

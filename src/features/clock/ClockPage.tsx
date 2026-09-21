@@ -54,6 +54,7 @@ import {
 } from '../huddle/ComposerAttachments';
 import { ComposerProgress } from '../huddle/ComposerProgress';
 import type { MediaItem } from '../huddle/types';
+import { RedminePushPanel } from './RedminePushPanel';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
 import { WorkspaceGreeting } from '../../ui/WorkspaceGreeting';
@@ -695,6 +696,9 @@ export const ClockPage: React.FC = () => {
             {clockOutBlockedReason}
           </Text>
         )}
+
+        {/* ── Redmine push (M5) — renders itself away when there is nothing to send ── */}
+        <RedminePushPanel isClockedIn={isClockedIn} />
 
         {/* ── Recent sessions ── */}
         <Card padding="lg" className="clock-recent-sessions mb-4 shrink-0">
