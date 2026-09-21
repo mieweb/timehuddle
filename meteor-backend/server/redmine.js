@@ -419,6 +419,16 @@ Meteor.methods({
     const previewRows = await buildPreviewRows(userId, apiKey);
     const byKey = new Map(previewRows.map((row) => [`${row.ticketId}|${row.date}`, row]));
 
+    // The same enumeration the rows were resolved from, served from cache. If it
+    // cannot be fetched the set stays empty, so every override is rejected as
+    // unverifiable rather than trusted.
+    let validActivityIds = new Set();
+    try {
+      validActivityIds = new Set((await getActivitiesForUser(userId, apiKey)).map((a) => a.id));
+    } catch {
+      /* unreachable — handled per row below */
+    }
+
     const results = [];
     for (const requested of entries) {
       const key = `${requested?.ticketId}|${requested?.date}`;
@@ -438,10 +448,19 @@ Meteor.methods({
         continue;
       }
 
-      // An override is honoured only if the instance really has that activity.
-      const activityId = Number.isInteger(requested.activityId)
-        ? requested.activityId
-        : row.activityId;
+      // An override is honoured only if this instance really has that activity,
+      // matching the check `redmine.activities.setDefault` makes. An invalid one
+      // rejects the row instead of falling back to the default: under D1 the
+      // entry is permanent, and writing an activity the user did not choose is
+      // worse than writing nothing.
+      let activityId = row.activityId;
+      if (requested.activityId != null) {
+        if (!Number.isInteger(requested.activityId) || !validActivityIds.has(requested.activityId)) {
+          results.push({ ticketId: row.ticketId, date: row.date, ok: false, reason: 'invalid-activity' });
+          continue;
+        }
+        activityId = requested.activityId;
+      }
 
       results.push(await pushOneEntry(userId, apiKey, row, activityId));
     }
