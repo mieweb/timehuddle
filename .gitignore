@@ -31,6 +31,11 @@ _build
 # Local runtime secrets (never commit)
 settings.json
 
+# Personal Claude Code setup — local-only, machine-specific, never commit
+.claude/settings.local.json
+.claude/local/
+CLAUDE.local.md
+
 # Local PM2 process config (machine-specific paths, never commit)
 ecosystem.config.cjs
 
