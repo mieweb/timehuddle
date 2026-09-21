@@ -890,11 +890,15 @@ above is fixed._
 
 ## Milestone 6 — Persistence & two-way issue sync (deferred, NOT in v1)
 
-> **Status: ⬜ not started, and gated on a decision rather than on engineering.** M5 has now
-> shipped, so the "do not start before M5" condition is lifted — but **blocker 1 below is an
-> organizational question with days of lead time, and it should be asked before any M6 code is
-> written.** See also the cheaper intermediate step at the foot of this section, which may be what
-> is actually wanted.
+> **Status: 🟡 built, not yet merged (2026-09-21)**: create issues, and edit status, priority,
+> assignee and description, on branch `feat/redmine-m6-issue-crud`. Full sub-plan and checklist:
+> [`docs/redmine-m6-issue-crud-plan.md`](./docs/redmine-m6-issue-crud-plan.md).
+>
+> **The blockers below were resolved by narrowing scope, not by answering them:** personal keys
+> (no admin key, so blocker 1 dissolves), live reads with nothing persisted (blockers 2, 3 and 6 do
+> not arise), no custom fields or tags (blocker 4), and `allowed_statuses` on Redmine 5.0+
+> (blocker 5). Blocker 7 is reversed deliberately: Redmine issues gain writes, but still never
+> enter the core `Ticket` collection. The text below is kept as the reasoning of record.
 
 Captured here so the decision is on the record. The ambition is to store Redmine issues in
 TimeHuddle's own database (not just a browser cache) and perform full CRUD on Redmine
