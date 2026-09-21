@@ -1,10 +1,12 @@
 /**
  * A connected Redmine instance as a unified source.
  *
- * Read-only: Redmine issue data is never written from TimeHuddle, so every
- * mutating capability is false. Timing a Redmine issue is not a Redmine write —
- * the session lives in TimeHuddle — so it is not gated here; it is started from
- * My Board like any other ticket (M3).
+ * Since M6 a Redmine issue can be edited (status, priority, assignee,
+ * description) and created from TimeHuddle, always under the user's own
+ * personal key — so Redmine, not TimeHuddle, decides whether a given user may
+ * make a given change, and a refusal is shown rather than pre-empted here.
+ * Deleting stays out of scope. Timing an issue is not a Redmine write; it is
+ * started from My Board like any other ticket (M3).
  */
 import { redmineApi, type RedmineIssue, type RedmineScope } from '../../../lib/api';
 
@@ -24,10 +26,10 @@ const PRIORITY_RANK: Record<string, number> = {
 };
 
 const CAPABILITIES: SourceCapabilities = {
-  edit: false,
+  edit: true,
   delete: false,
-  assign: false,
-  changeStatus: false,
+  assign: true,
+  changeStatus: true,
   openExternal: true,
 };
 

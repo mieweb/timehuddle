@@ -48,7 +48,9 @@ the new source up from the registry.
   on.** It is the only cross-source status fact we derive, and it drives the
   Open/Closed tabs. Redmine statuses are instance-defined free text, so the name
   alone cannot tell you whether an issue is closed — use the source's own flag.
-- **Mutation methods on `TicketSource` are optional and unimplemented.** They
-  exist so write support can be added without redesigning the interface. Do not
-  implement them without reading Milestone 6 in `huddle_redmine_clock.md` first —
-  persisting third-party tickets has unresolved access-control implications.
+- **Mutation methods on `TicketSource` are optional and still unimplemented.**
+  They exist so write support can be added without redesigning the interface.
+  Redmine gained create/edit in Milestone 6 without them: its dialogs live in
+  `../redmine/` and call `redmineApi` directly, exactly as Huddle's modals call
+  `ticketApi`. Reach for this seam only when a third source needs the same
+  writes. Issues are never persisted — Redmine reads stay live.
