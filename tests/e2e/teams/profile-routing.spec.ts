@@ -12,6 +12,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { MongoClient } from 'mongodb';
+import { gotoTeamsPage } from '../fixtures/team';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 
 const MONGO_URL =
@@ -45,22 +46,6 @@ async function selectTestTeam(page: import('@playwright/test').Page): Promise<bo
     .getByRole('heading', { level: 1, name: 'Teams' })
     .waitFor({ state: 'visible', timeout: 20000 });
   return true;
-}
-
-async function gotoTeamsPage(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/app/teams');
-
-  if (
-    await page
-      .getByRole('heading', { name: 'Sign in to your account' })
-      .isVisible()
-      .catch(() => false)
-  ) {
-    await loginAs(page, TEST_USERS.owner1);
-    await page.goto('/app/teams');
-  }
-
-  await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({ timeout: 30000 });
 }
 
 test.describe('Profile Routing', () => {

@@ -9,6 +9,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { MongoClient } from 'mongodb';
+import { gotoTeamsPage } from '../fixtures/team';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 
 const MONGO_URL =
@@ -20,23 +21,6 @@ async function getTestTeamId(): Promise<string | null> {
   const team = await db.collection('teams').findOne({ code: 'TEST01' });
   await client.close();
   return team ? team._id.toHexString() : null;
-}
-
-async function gotoTeamsPage(page: import('@playwright/test').Page): Promise<void> {
-  await page.goto('/app/teams');
-
-  // Rarely, a stale session bounces this navigation back to login.
-  if (
-    await page
-      .getByRole('heading', { name: 'Sign in to your account' })
-      .isVisible()
-      .catch(() => false)
-  ) {
-    await loginAs(page, TEST_USERS.owner1);
-    await page.goto('/app/teams');
-  }
-
-  await expect(page.getByRole('button', { name: 'Create Team' })).toBeVisible({ timeout: 20000 });
 }
 
 test.describe('Teams', () => {
