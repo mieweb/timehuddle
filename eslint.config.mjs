@@ -82,4 +82,84 @@ export default [
       '@typescript-eslint/ban-ts-comment': 'error',
     },
   },
+  {
+    // @mieweb/ui is the source of these controls — see
+    // .github/instructions/mieweb-ui.instructions.md. This stops NEW raw
+    // controls entering src/; the grandfathered files below are listed
+    // explicitly so the exemption list shrinks rather than drifts.
+    files: ['src/**/*.tsx'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'JSXOpeningElement[name.name="button"]',
+          message: "Use <Button> from '@mieweb/ui' instead of a raw <button>.",
+        },
+        {
+          // `type="file"` is exempt: it is the hidden picker behind a real
+          // Button, never rendered, and Input does not expose `capture`.
+          selector:
+            'JSXOpeningElement[name.name="input"]:not(:has(JSXAttribute[name.name="type"][value.value="file"]))',
+          message: "Use <Input> from '@mieweb/ui' instead of a raw <input>.",
+        },
+        {
+          selector: 'JSXOpeningElement[name.name="select"]',
+          message: "Use <Select> from '@mieweb/ui' instead of a raw <select>.",
+        },
+        {
+          selector: 'JSXOpeningElement[name.name="textarea"]',
+          message: "Use <Textarea> from '@mieweb/ui' instead of a raw <textarea>.",
+        },
+      ],
+    },
+  },
+  {
+    /**
+     * Grandfathered and genuinely-exempt files.
+     *
+     * Most entries are controls @mieweb/ui cannot express today rather than
+     * work left undone: `Button` renders its children inside a single
+     * `truncate` span over a horizontal `inline-flex`, so any control stacking
+     * an icon over a label, or pairing a title with a description, collapses
+     * to one clipped line. That covers the bottom-nav tabs and FAB, the "More"
+     * sheet tiles, and the report-issue option rows.
+     *
+     * Tests render raw controls in mocks and fixtures by design.
+     *
+     * Track the rest in #538; delete entries as they migrate.
+     */
+    files: [
+      'src/**/*.test.tsx',
+      'src/features/clock/ClockPage.tsx',
+      'src/features/dashboard/DashboardPage.tsx',
+      'src/features/feedback/ReportIssueModal.tsx',
+      'src/features/huddle/ComposerAttachments.tsx',
+      'src/features/huddle/HuddleComments/index.tsx',
+      'src/features/huddle/MentionMenu.tsx',
+      'src/features/huddle/PostCard/index.tsx',
+      'src/features/huddle/PulseAttachButton.tsx',
+      'src/features/huddle/TicketPicker.tsx',
+      'src/features/inbox/InboxPage.tsx',
+      'src/features/notifications/NotificationsPage.tsx',
+      'src/features/org/OrganizationChart.tsx',
+      // Hidden file input, but spread as `{...mediaInputProps}` so the
+      // `type="file"` exemption cannot see it statically.
+      'src/features/profile/ProfileFeed.tsx',
+      'src/features/profile/ProfilePage.tsx',
+      'src/features/profile/UsernameBadge.tsx',
+      'src/features/profile/WorkSummaryTags.tsx',
+      'src/features/seeder/SeederPage.tsx',
+      'src/features/teams/TeamsPage.tsx',
+      'src/features/tickets/TicketsPage.tsx',
+      'src/features/timers/TodayStatusCard.tsx',
+      'src/features/timers/WorkPage.tsx',
+      'src/ui/BottomNav.tsx',
+      'src/ui/CommandPalette.tsx',
+      'src/ui/LandingPage.tsx',
+      'src/ui/OrgTeamSwitcher.tsx',
+      'src/ui/Sidebar.tsx',
+      'src/ui/UserDropdown.tsx',
+    ],
+    rules: { 'no-restricted-syntax': 'off' },
+  },
 ];

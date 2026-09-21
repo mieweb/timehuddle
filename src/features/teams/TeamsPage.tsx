@@ -37,7 +37,6 @@ import {
   DropdownItem,
   DropdownSeparator,
   Input,
-  Modal,
   ModalBody,
   ModalClose,
   ModalFooter,
@@ -54,6 +53,7 @@ import {
   Text,
   Textarea,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { teamApi, type TeamMember, type TeamInvitation } from '../../lib/api';
@@ -787,7 +787,7 @@ export const TeamsPage: React.FC = () => {
 
       {/* ── Modals ── */}
 
-      <Modal open={modal === 'create'} onOpenChange={(open) => !open && closeModal()} size="md">
+      <AppModal open={modal === 'create'} onOpenChange={(open) => !open && closeModal()} size="md">
         <ModalHeader>
           <ModalTitle>Create Team</ModalTitle>
           <ModalClose />
@@ -826,9 +826,9 @@ export const TeamsPage: React.FC = () => {
             Create
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
-      <Modal open={modal === 'join'} onOpenChange={(open) => !open && closeModal()} size="md">
+      <AppModal open={modal === 'join'} onOpenChange={(open) => !open && closeModal()} size="md">
         <ModalHeader>
           <ModalTitle>Join Team</ModalTitle>
           <ModalClose />
@@ -857,9 +857,9 @@ export const TeamsPage: React.FC = () => {
             Join
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
-      <Modal open={modal === 'delete'} onOpenChange={(open) => !open && closeModal()} size="md">
+      <AppModal open={modal === 'delete'} onOpenChange={(open) => !open && closeModal()} size="md">
         <ModalHeader>
           <ModalTitle>Delete Team</ModalTitle>
           <ModalClose />
@@ -882,9 +882,9 @@ export const TeamsPage: React.FC = () => {
             Delete
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
-      <Modal open={modal === 'invite'} onOpenChange={(open) => !open && closeModal()} size="md">
+      <AppModal open={modal === 'invite'} onOpenChange={(open) => !open && closeModal()} size="md">
         <ModalHeader>
           <ModalTitle>Invite Member</ModalTitle>
           <ModalClose />
@@ -914,9 +914,9 @@ export const TeamsPage: React.FC = () => {
             Send Invite
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
-      <Modal
+      <AppModal
         open={inviteSentEmail !== null}
         onOpenChange={(open) => !open && closeModal()}
         size="md"
@@ -935,9 +935,13 @@ export const TeamsPage: React.FC = () => {
             Done
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
-      <Modal open={modal === 'settings'} onOpenChange={(open) => !open && closeModal()} size="lg">
+      <AppModal
+        open={modal === 'settings'}
+        onOpenChange={(open) => !open && closeModal()}
+        size="lg"
+      >
         <ModalHeader>
           <ModalTitle>Team Settings</ModalTitle>
           <ModalClose />
@@ -1136,9 +1140,9 @@ export const TeamsPage: React.FC = () => {
             </>
           )}
         </ModalBody>
-      </Modal>
+      </AppModal>
 
-      <Modal
+      <AppModal
         open={typeof modal === 'object' && modal !== null && modal.type === 'password'}
         onOpenChange={(open) => !open && closeModal()}
         size="md"
@@ -1181,9 +1185,9 @@ export const TeamsPage: React.FC = () => {
             Set Password
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
-      <Modal
+      <AppModal
         open={typeof modal === 'object' && modal !== null && modal.type === 'remove'}
         onOpenChange={(open) => !open && closeModal()}
         size="md"
@@ -1219,9 +1223,9 @@ export const TeamsPage: React.FC = () => {
             Remove
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
-      <Modal
+      <AppModal
         open={typeof modal === 'object' && modal !== null && modal.type === 'created'}
         onOpenChange={(open) => !open && closeModal()}
         size="md"
@@ -1260,9 +1264,9 @@ export const TeamsPage: React.FC = () => {
             Done
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
-      <Modal
+      <AppModal
         open={typeof modal === 'object' && modal !== null && modal.type === 'pending-request'}
         onOpenChange={(open) => !open && closeModal()}
         size="md"
@@ -1293,10 +1297,10 @@ export const TeamsPage: React.FC = () => {
             Got it
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
       {/* Share team via QR code */}
-      <Modal open={modal === 'share'} onOpenChange={(open) => !open && closeModal()} size="md">
+      <AppModal open={modal === 'share'} onOpenChange={(open) => !open && closeModal()} size="md">
         <ModalHeader>
           <ModalTitle>Share Team</ModalTitle>
           <ModalClose />
@@ -1346,7 +1350,7 @@ export const TeamsPage: React.FC = () => {
             )}
           </div>
         </ModalFooter>
-      </Modal>
+      </AppModal>
     </AppPage>
   );
 };

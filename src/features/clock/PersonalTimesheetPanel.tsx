@@ -16,6 +16,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Alert,
   AlertDescription,
+  Badge,
   Button,
   Card,
   CardContent,
@@ -23,7 +24,6 @@ import {
   CardTitle,
   cn,
   Input,
-  Modal,
   ModalBody,
   ModalFooter,
   ModalHeader,
@@ -36,6 +36,7 @@ import {
   TableRow,
   Text,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useTeam } from '../../lib/TeamContext';
@@ -828,9 +829,9 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
           >
             <CardHeader className="flex flex-row shrink-0 items-center gap-2 px-5 py-3">
               <CardTitle className="text-sm">Sessions</CardTitle>
-              <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+              <Badge variant="secondary" size="sm">
                 {filteredSessions.length}
-              </span>
+              </Badge>
             </CardHeader>
             <div
               className={cn(
@@ -892,7 +893,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
         )}
       </div>
 
-      <Modal
+      <AppModal
         open={sessionDialogOpen}
         onOpenChange={(open) => {
           setSessionDialogOpen(open);
@@ -1082,10 +1083,10 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
             )}
           </div>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
       {/* Add Entry modal */}
-      <Modal
+      <AppModal
         open={addEntryOpen}
         onOpenChange={(open) => {
           setAddEntryOpen(open);
@@ -1168,7 +1169,7 @@ export const PersonalTimesheetPanel: React.FC<Props> = ({ fill }) => {
             </Button>
           </div>
         </ModalFooter>
-      </Modal>
+      </AppModal>
     </div>
   );
 };

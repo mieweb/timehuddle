@@ -11,6 +11,7 @@
  * editing an existing post must remount the composer with
  * `key={editingPostId ?? 'new'}`.
  */
+import { Button } from '@mieweb/ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTeam } from '@lib/TeamContext';
 import { attachmentApi } from '@lib/api';
@@ -292,18 +293,23 @@ export function HuddleComposer({
   // ─── Collapsed ──────────────────────────────────────────────────────────────
   if (!expanded) {
     return (
-      <div
-        className="flex items-center gap-3 px-3 py-2 bg-white dark:bg-neutral-800 cursor-pointer"
-        onClick={() => setExpanded(true)}
-      >
+      <div className="huddle-composer-collapsed flex items-center gap-3 px-3 py-2">
         <div
+          aria-hidden="true"
           className={`w-9 h-9 rounded-full flex items-center justify-center font-semibold shrink-0 ${avatarColorClasses[userColor]}`}
         >
           {userInitials}
         </div>
-        <div className="flex-1 bg-gray-100 dark:bg-neutral-700 border border-gray-200 dark:border-neutral-600 rounded-full px-4 py-2.5 text-sm text-gray-400 dark:text-neutral-500">
+        {/* A real button, not a clickable div: this is the only way into the
+            composer, so it has to be reachable by keyboard and announced. */}
+        <Button
+          variant="secondary"
+          fullWidth
+          className="justify-start rounded-full font-normal"
+          onClick={() => setExpanded(true)}
+        >
           {collapsedLabel}
-        </div>
+        </Button>
       </div>
     );
   }
@@ -373,26 +379,31 @@ export function HuddleComposer({
           onUploadProgress={reporterFor('picker')}
           onPulsePendingChange={setPulsePending}
         />
-        <button
-          onClick={handleCancel}
-          className="text-xs text-gray-400 dark:text-neutral-500 hover:text-gray-600 dark:hover:text-neutral-400 transition-colors ml-1"
-        >
+        <Button variant="ghost" size="sm" onClick={handleCancel} className="ml-1">
           Cancel
-        </button>
+        </Button>
         <span className="text-xs text-gray-300 dark:text-neutral-600 ml-auto mr-2 hidden sm:block">
           ⌘↵ to post
         </span>
-        <button
+        <Button
+          variant="primary"
+          size="sm"
+          className="rounded-full"
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
             handleSubmit();
           }}
           disabled={!canSubmit}
-          className="text-xs font-semibold px-4 py-1.5 rounded-full bg-indigo-500 dark:bg-indigo-600 text-white hover:bg-indigo-600 dark:hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          isLoading={posting}
+          // `loadingText` keeps the in-flight label ("Posting…") as the
+          // button's accessible name. Without it `isLoading` shows only a
+          // spinner, which drops the status text screen readers announce and
+          // the e2e suite asserts on as the double-submit guard.
+          loadingText="Posting…"
         >
-          {posting ? 'Posting…' : submitLabel}
-        </button>
+          {submitLabel}
+        </Button>
       </div>
 
       {/* ── Progress bar — spans the composer for both phases: attachment

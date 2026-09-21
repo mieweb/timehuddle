@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import Cropper from 'react-easy-crop';
-import { Modal, ModalHeader, ModalBody, ModalFooter, Button, Spinner } from '@mieweb/ui';
+import { ModalHeader, ModalBody, ModalFooter, Button, Spinner } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 
 interface ProfileAvatarCropModalProps {
   open: boolean;
@@ -88,7 +89,7 @@ export const ProfileAvatarCropModal: React.FC<ProfileAvatarCropModalProps> = ({
   };
 
   return (
-    <Modal
+    <AppModal
       open={open}
       onOpenChange={(isOpen) => !isOpen && onClose()}
       aria-label="Crop avatar image"
@@ -122,6 +123,6 @@ export const ProfileAvatarCropModal: React.FC<ProfileAvatarCropModalProps> = ({
           {loading ? <Spinner size="sm" label="Cropping…" /> : 'Crop & Save'}
         </Button>
       </ModalFooter>
-    </Modal>
+    </AppModal>
   );
 };

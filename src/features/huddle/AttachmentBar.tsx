@@ -7,6 +7,7 @@
  * looking like a dead button. The pressed button still shows its own spinner
  * so it's obvious *which* attachment is in flight.
  */
+import { Button, Spinner } from '@mieweb/ui';
 import { useRef, useState } from 'react';
 import { useAttachmentUpload } from './useAttachmentUpload';
 import type { MediaItem } from './types';
@@ -22,21 +23,9 @@ interface AttachmentBarProps {
   onUploadProgress?: (fraction: number | null) => void;
 }
 
-const BUTTON_CLASS =
-  'flex items-center gap-1.5 text-xs text-gray-500 dark:text-neutral-400 border border-gray-200 dark:border-neutral-700 px-3 py-1.5 rounded-full hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
-
-function Spinner() {
-  return (
-    <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-      <path
-        className="opacity-75"
-        fill="currentColor"
-        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-      />
-    </svg>
-  );
-}
+/** Pill shape only — colour, size, hover and disabled all come from Button's
+ *  `outline`/`sm` variant, so the chips follow the brand rather than fixed greys. */
+const BUTTON_CLASS = 'rounded-full font-normal';
 
 export function AttachmentBar({ onAttachmentAdd, onUploadProgress }: AttachmentBarProps) {
   const [uploadingKind, setUploadingKind] = useState<FileKind | null>(null);
@@ -128,31 +117,35 @@ export function AttachmentBar({ onAttachmentAdd, onUploadProgress }: AttachmentB
       {buttons.map(({ kind, label, inputRef, icon }) => {
         const isUploading = uploadingKind === kind;
         return (
-          <button
+          <Button
             key={kind}
-            type="button"
+            variant="outline"
+            size="sm"
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
             // No aria-label: the visible text ("Photo" / "Uploading…") is
             // already the accessible name, and aria-busy carries the state.
             aria-busy={isUploading}
             className={BUTTON_CLASS}
+            leftIcon={
+              isUploading ? (
+                // `text-current` keeps the chip's own colour, as the inline SVG did.
+                <Spinner size="xs" className="text-current" />
+              ) : (
+                <svg
+                  className="w-3.5 h-3.5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={icon} />
+                </svg>
+              )
+            }
           >
-            {isUploading ? (
-              <Spinner />
-            ) : (
-              <svg
-                className="w-3.5 h-3.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                aria-hidden="true"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={icon} />
-              </svg>
-            )}
             {isUploading ? 'Uploading…' : label}
-          </button>
+          </Button>
         );
       })}
     </>

@@ -5,7 +5,7 @@ import {
   faTableList,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Input } from '@mieweb/ui';
+import { Button, Input, Tabs, TabsList, TabsTrigger } from '@mieweb/ui';
 import { SuperChat } from '@mieweb/ui/components/SuperChat';
 import {
   createCodePlugin,
@@ -364,34 +364,16 @@ export default function Huddle() {
       <div className="huddle flex h-full min-h-0 flex-col gap-4 md:mx-auto md:w-full md:max-w-4xl md:px-6 md:pb-6">
         {/* Feed / Drafts tabs + actions */}
         <div className="huddle-actions flex shrink-0 items-center gap-2 px-4 md:px-0">
-          <div className="flex items-center gap-1 rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800">
-            <button
-              type="button"
-              onClick={() => setFeedTab('feed')}
-              className={[
-                'rounded-md px-3 py-1 text-sm font-medium transition-colors',
-                feedTab === 'feed'
-                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300',
-              ].join(' ')}
-              aria-pressed={feedTab === 'feed'}
-            >
-              Feed
-            </button>
-            <button
-              type="button"
-              onClick={() => setFeedTab('drafts')}
-              className={[
-                'rounded-md px-3 py-1 text-sm font-medium transition-colors',
-                feedTab === 'drafts'
-                  ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300',
-              ].join(' ')}
-              aria-pressed={feedTab === 'drafts'}
-            >
-              Drafts
-            </button>
-          </div>
+          <Tabs
+            variant="pills"
+            value={feedTab}
+            onValueChange={(v) => setFeedTab(v as 'feed' | 'drafts')}
+          >
+            <TabsList aria-label="Huddle feed or drafts" className="w-fit">
+              <TabsTrigger value="feed">Feed</TabsTrigger>
+              <TabsTrigger value="drafts">Drafts</TabsTrigger>
+            </TabsList>
+          </Tabs>
           <div className="ml-auto flex items-center gap-2">
             {feedTab === 'feed' && (
               <>

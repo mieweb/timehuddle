@@ -1,63 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
+import { Textarea } from '@mieweb/ui';
 import { huddleApi, type HuddleComment } from '@lib/api';
 import { MarkdownContent } from '../MarkdownContent';
-
-type AvatarColor = 'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green';
-
-const avatarClasses: Record<AvatarColor, string> = {
-  indigo: 'bg-indigo-100 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400',
-  teal: 'bg-teal-100 text-teal-600 dark:bg-teal-950/50 dark:text-teal-400',
-  coral: 'bg-red-100 text-red-500 dark:bg-red-950/50 dark:text-red-400',
-  amber: 'bg-amber-100 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400',
-  pink: 'bg-pink-100 text-pink-500 dark:bg-pink-950/50 dark:text-pink-400',
-  green: 'bg-green-100 text-green-600 dark:bg-green-950/50 dark:text-green-400',
-};
-
-function getUserColor(userId: string): AvatarColor {
-  const colors: AvatarColor[] = ['indigo', 'teal', 'coral', 'amber', 'pink', 'green'];
-  const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return colors[hash % colors.length];
-}
-
-function Avatar({
-  initials,
-  color,
-  avatarUrl,
-  size = 'sm',
-}: {
-  initials: string;
-  color: AvatarColor;
-  avatarUrl?: string;
-  size?: 'sm' | 'md';
-}) {
-  const sz = size === 'sm' ? 'w-7 h-7 text-[10px]' : 'w-9 h-9 text-[13px]';
-
-  if (avatarUrl) {
-    return (
-      <img
-        src={avatarUrl}
-        alt={initials}
-        className={`${sz} rounded-full object-cover shrink-0`}
-        onError={(e) => {
-          // Fallback to initials on error
-          const target = e.target as HTMLImageElement;
-          target.style.display = 'none';
-          if (target.nextSibling) {
-            (target.nextSibling as HTMLElement).style.display = 'flex';
-          }
-        }}
-      />
-    );
-  }
-
-  return (
-    <div
-      className={`${sz} rounded-full flex items-center justify-center font-semibold shrink-0 ${avatarClasses[color]}`}
-    >
-      {initials}
-    </div>
-  );
-}
+import { HuddleAvatar } from '../HuddleAvatar';
+import { getUserColor } from '../avatar';
 
 function formatTimestamp(date: string) {
   const d = new Date(date);
@@ -184,10 +130,11 @@ export function HuddleComments({
 
             return (
               <div key={comment.id} className="px-5 py-3 flex gap-2.5">
-                <Avatar
+                <HuddleAvatar
                   initials={comment.userInitials}
                   color={avatarColor}
-                  avatarUrl={comment.userAvatarUrl}
+                  src={comment.userAvatarUrl}
+                  size="sm"
                 />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
@@ -227,12 +174,18 @@ export function HuddleComments({
       {/* Comment composer */}
       <div className="px-5 py-3 border-t border-gray-100 dark:border-neutral-700">
         <div className="flex gap-2">
-          <textarea
+          <Textarea
             ref={textareaRef}
+            /* The composer had no accessible name; `hideLabel` adds one
+               without changing what is rendered. */
+            label="Comment"
+            hideLabel
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
             placeholder="Write a comment... (markdown supported)"
-            className="flex-1 text-sm border border-gray-200 dark:border-neutral-700 rounded-lg px-3 py-2 bg-white dark:bg-neutral-900 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-neutral-500 outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors resize-none"
+            className="flex-1"
+            size="sm"
+            resize="none"
             rows={2}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {

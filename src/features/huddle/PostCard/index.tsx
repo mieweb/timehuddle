@@ -1,9 +1,13 @@
-import { useState, useRef, useEffect } from 'react';
-import { Badge } from '@mieweb/ui';
+import { faEllipsisVertical } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { useState, useEffect } from 'react';
+import { Badge, Button, Dropdown, DropdownItem } from '@mieweb/ui';
 import type { HuddlePost } from '@lib/api';
 import { huddleApi, resolveMediaUrl } from '@lib/api';
 import { formatTime } from '@lib/timeUtils';
 import { MarkdownContent } from '../MarkdownContent';
+import { HuddleAvatar } from '../HuddleAvatar';
+import { getUserColor, getUserInitials } from '../avatar';
 import { HuddleComments } from '../HuddleComments';
 import { HuddleComposer } from '../HuddleComposer';
 import { toPostAttachment } from '../api';
@@ -17,37 +21,6 @@ import { Capacitor } from '@capacitor/core';
 // whichever backend origin is serving this session (and repairs older posts
 // that stored an absolute URL against a host the backend has since left).
 const resolveAttachmentUrl = resolveMediaUrl;
-
-// ── Avatar ────────────────────────────────────────────────────────────────────
-type AvatarColor = 'indigo' | 'teal' | 'coral' | 'amber' | 'pink' | 'green';
-
-const avatarClasses: Record<AvatarColor, string> = {
-  indigo: 'bg-indigo-100 text-indigo-600',
-  teal: 'bg-teal-100 text-teal-600',
-  coral: 'bg-red-100 text-red-500',
-  amber: 'bg-amber-100 text-amber-600',
-  pink: 'bg-pink-100 text-pink-500',
-  green: 'bg-green-100 text-green-600',
-};
-
-function Avatar({
-  initials,
-  color,
-  size = 'md',
-}: {
-  initials: string;
-  color: AvatarColor;
-  size?: 'sm' | 'md';
-}) {
-  const sz = size === 'sm' ? 'w-7 h-7 text-[10px]' : 'w-9 h-9 text-[13px]';
-  return (
-    <div
-      className={`${sz} rounded-full flex items-center justify-center font-semibold shrink-0 ${avatarClasses[color]}`}
-    >
-      {initials}
-    </div>
-  );
-}
 
 // ── Clock session status ──────────────────────────────────────────────────────
 // `active` comes from the live clock publication rather than `session.endTime`,
@@ -74,18 +47,6 @@ function SessionBadge({
         : `Clocked out · from ${startedAt}`}
     </Badge>
   );
-}
-
-function getUserColor(userId: string): AvatarColor {
-  const colors: AvatarColor[] = ['indigo', 'teal', 'coral', 'amber', 'pink', 'green'];
-  const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return colors[hash % colors.length];
-}
-
-function getUserInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  return name.substring(0, 2).toUpperCase();
 }
 
 // ── PostCard ──────────────────────────────────────────────────────────────────
@@ -118,20 +79,6 @@ export function PostCard({
   const [likeCount, setLikeCount] = useState(post.likes?.length ?? 0);
   const [hasLiked, setHasLiked] = useState(post.likes?.includes(currentUserId) ?? false);
   const [commentCount, setCommentCount] = useState(post.commentCount ?? 0);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setShowMenu(false);
-      }
-    }
-    if (showMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showMenu]);
-
   // Reset edit state and update counts when post changes
   useEffect(() => {
     setLikeCount(post.likes?.length ?? 0);
@@ -223,17 +170,17 @@ export function PostCard({
           aria-label={`View ${authorName}'s profile`}
           className="shrink-0 rounded-full transition-opacity hover:opacity-80"
         >
-          <Avatar initials={authorInitials} color={avatarColor} />
+          <HuddleAvatar initials={authorInitials} color={avatarColor} />
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
+            <Button
+              variant="link"
               onClick={goToAuthorProfile}
-              className="font-medium text-sm text-gray-900 dark:text-white hover:underline"
+              className="h-auto p-0 text-sm font-medium text-gray-900 dark:text-white"
             >
               {authorName}
-            </button>
+            </Button>
             <span className="text-xs text-gray-500 dark:text-neutral-400">
               {formatTimestamp(post.createdAt)}
             </span>
@@ -244,44 +191,28 @@ export function PostCard({
           </div>
         </div>
 
-        {/* Three-dot menu */}
+        {/* The library Dropdown portals to <body> and positions `fixed` as of
+            0.9.0, so it is no longer clipped by the feed's scroll container —
+            the reason this menu was hand-rolled on 0.7.3. */}
         {(canEdit || canDelete) && (
-          <div className="relative" ref={menuRef}>
-            <button
-              className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 dark:hover:bg-neutral-700 transition-colors"
-              onClick={() => setShowMenu(!showMenu)}
-            >
-              <svg
-                className="w-4 h-4 text-gray-400 dark:text-neutral-500"
-                fill="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <circle cx="12" cy="5" r="1.5" />
-                <circle cx="12" cy="12" r="1.5" />
-                <circle cx="12" cy="19" r="1.5" />
-              </svg>
-            </button>
-            {showMenu && (
-              <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-neutral-800 rounded-lg shadow-lg border border-gray-200 dark:border-neutral-700 z-10">
-                {canEdit && (
-                  <button
-                    className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-neutral-200 hover:bg-gray-100 dark:hover:bg-neutral-700 rounded-t-lg"
-                    onClick={handleEdit}
-                  >
-                    Edit post
-                  </button>
-                )}
-                {canDelete && (
-                  <button
-                    className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-neutral-700 rounded-b-lg"
-                    onClick={handleDelete}
-                  >
-                    Delete post
-                  </button>
-                )}
-              </div>
+          <Dropdown
+            open={showMenu}
+            onOpenChange={setShowMenu}
+            placement="bottom-end"
+            width={192}
+            trigger={
+              <Button variant="ghost" size="icon" aria-label="Post actions">
+                <FontAwesomeIcon icon={faEllipsisVertical} />
+              </Button>
+            }
+          >
+            {canEdit && <DropdownItem onClick={handleEdit}>Edit post</DropdownItem>}
+            {canDelete && (
+              <DropdownItem variant="danger" onClick={handleDelete}>
+                Delete post
+              </DropdownItem>
             )}
-          </div>
+          </Dropdown>
         )}
       </div>
 

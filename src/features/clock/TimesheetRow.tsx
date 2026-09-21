@@ -251,7 +251,7 @@ export const TimesheetRow: React.FC<Props> = ({
                 </Badge>
               ) : row.status === 'Active' ? (
                 <Badge variant="success" size="sm">
-                  <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+                  <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current" />
                   Active
                 </Badge>
               ) : row.status === 'On Break' ? (
@@ -259,9 +259,11 @@ export const TimesheetRow: React.FC<Props> = ({
                   On Break
                 </Badge>
               ) : (
-                <Text variant="muted" size="xs">
+                // Completed / Break Period: a state like any other, so it gets a
+                // Badge too rather than falling through to bare text.
+                <Badge variant="default" size="sm">
                   {row.status}
-                </Text>
+                </Badge>
               )}
             </TableCell>
             <TableCell className="text-right">

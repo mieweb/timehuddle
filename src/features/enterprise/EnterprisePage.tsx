@@ -5,7 +5,6 @@ import {
   CardHeader,
   CardTitle,
   Input,
-  Modal,
   ModalBody,
   ModalFooter,
   ModalHeader,
@@ -14,6 +13,7 @@ import {
   Switch,
   Text,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ApiError, enterpriseApi, orgApi } from '../../lib/api';
@@ -544,7 +544,7 @@ export const EnterprisePage: React.FC = () => {
         </div>
       </div>
 
-      <Modal open={createOrgOpen} onOpenChange={setCreateOrgOpen}>
+      <AppModal open={createOrgOpen} onOpenChange={setCreateOrgOpen}>
         <ModalHeader>Create Organization</ModalHeader>
         <ModalBody className="space-y-4">
           {orgError && (
@@ -615,9 +615,9 @@ export const EnterprisePage: React.FC = () => {
             {orgSaving ? 'Creating…' : 'Create'}
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
-      <Modal
+      <AppModal
         open={!!editOrg}
         onOpenChange={(open) => {
           if (!open) {
@@ -706,7 +706,7 @@ export const EnterprisePage: React.FC = () => {
             {editOrgSaving ? 'Saving…' : 'Save'}
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
     </AppPage>
   );
 };

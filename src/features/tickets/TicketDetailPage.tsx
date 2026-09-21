@@ -7,7 +7,19 @@ import {
   faXmark,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Button, Card, CardContent, Select, Spinner, Text, Textarea, Input } from '@mieweb/ui';
+import {
+  Badge,
+  type BadgeProps,
+  Button,
+  Card,
+  CardContent,
+  Checkbox,
+  Select,
+  Spinner,
+  Text,
+  Textarea,
+  Input,
+} from '@mieweb/ui';
 import React, { useEffect, useState } from 'react';
 import {
   activityApi,
@@ -45,35 +57,37 @@ const PRIORITY_OPTIONS = [
   { value: 'critical', label: 'Critical' },
 ];
 
-function priorityColor(priority: string | null): string {
+/** Badge variants carry the brand palette, so priority maps to a variant
+ *  rather than to a hand-picked colour pair per state. */
+function priorityVariant(priority: string | null): BadgeProps['variant'] {
   switch (priority) {
     case 'critical':
-      return 'border-red-500 bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300';
+      return 'danger';
     case 'high':
-      return 'border-orange-400 bg-orange-50 text-orange-700 dark:bg-orange-950 dark:text-orange-300';
+      return 'warning';
     case 'medium':
-      return 'border-yellow-400 bg-yellow-50 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300';
+      return 'secondary';
     case 'low':
-      return 'border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300';
+      return 'outline';
     default:
-      return 'border-neutral-300 bg-neutral-50 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400';
+      return 'default';
   }
 }
 
-function statusColor(status: string): string {
+function statusVariant(status: string): BadgeProps['variant'] {
   switch (status) {
     case 'open':
-      return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+      return 'success';
     case 'in-progress':
-      return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+      return 'secondary';
     case 'blocked':
-      return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+      return 'danger';
     case 'reviewed':
-      return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
+      return 'outline';
     case 'closed':
-      return 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400';
+      return 'default';
     default:
-      return 'bg-neutral-100 text-neutral-600';
+      return 'default';
   }
 }
 
@@ -282,14 +296,16 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
     <AppPage>
       {/* Back navigation */}
       <div className="ticket-detail-back mb-4">
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           aria-label="Back to tickets"
-          className="p-2 rounded-full border border-neutral-200 dark:border-neutral-700 border-0.5 text-xs inline-flex items-center gap-2 text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200 bg-neutral-100 dark:bg-neutral-800 font-medium"
+          className="rounded-full"
           onClick={() => navigate('/app/tickets')}
+          leftIcon={<FontAwesomeIcon icon={faArrowLeft} size="sm" />}
         >
-          <FontAwesomeIcon icon={faArrowLeft} size="sm" />
           TICKETS
-        </button>
+        </Button>
       </div>
 
       {/* Full-width title section */}
@@ -328,30 +344,28 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
               {ticket.title}
             </h1>
             {canEdit && (
-              <button
+              <Button
+                variant="ghost"
+                size="icon"
                 aria-label="Edit title"
-                className="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 transition-opacity"
+                className="opacity-0 transition-opacity group-hover:opacity-100"
                 onClick={() => setEditingTitle(true)}
               >
                 <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" />
-              </button>
+              </Button>
             )}
           </div>
         )}
 
         {/* Status badge under title */}
         <div className="ticket-title-meta mt-1.5 flex items-center gap-2">
-          <span
-            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${statusColor(ticket.status)}`}
-          >
+          <Badge variant={statusVariant(ticket.status)} size="sm">
             {STATUS_OPTIONS.find((s) => s.value === ticket.status)?.label ?? ticket.status}
-          </span>
+          </Badge>
           {ticket.priority && (
-            <span
-              className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium ${priorityColor(ticket.priority)}`}
-            >
+            <Badge variant={priorityVariant(ticket.priority)} size="sm">
               {ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1)}
-            </span>
+            </Badge>
           )}
           <span className="text-xs text-neutral-400">
             Opened {formatDate(ticket.createdAt)} by {creatorName}
@@ -389,16 +403,17 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                   Description
                 </Text>
                 {canEdit && !editingDesc && (
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     aria-label="Edit description"
-                    className="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
                     onClick={() => {
                       setDescDraft(ticket.description ?? '');
                       setEditingDesc(true);
                     }}
                   >
                     <FontAwesomeIcon icon={faPen} size="sm" />
-                  </button>
+                  </Button>
                 )}
               </div>
 
@@ -549,32 +564,26 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                       : currentAssignees.includes(option.value);
 
                     return (
-                      <label
+                      <Checkbox
                         key={option.value}
-                        className="flex items-center gap-2 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 p-1 rounded"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (isUnassigned) {
-                              // When "Unassigned" is checked, clear all assignees
-                              if (e.target.checked) {
-                                void handleAssigneesChange([]);
-                              }
-                              // When "Unassigned" is unchecked, do nothing (can't uncheck it manually)
-                            } else {
-                              // For regular users, add or remove from assignees
-                              const newAssignees = e.target.checked
-                                ? [...currentAssignees, option.value]
-                                : currentAssignees.filter((id) => id !== option.value);
-                              void handleAssigneesChange(newAssignees);
+                        size="sm"
+                        label={option.label}
+                        checked={isChecked}
+                        onChange={(e) => {
+                          if (isUnassigned) {
+                            // When "Unassigned" is checked, clear all assignees.
+                            // Unchecking it manually is a no-op.
+                            if (e.target.checked) {
+                              void handleAssigneesChange([]);
                             }
-                          }}
-                          className="h-4 w-4 rounded border-neutral-300 text-primary focus:ring-primary"
-                        />
-                        <span className="text-sm">{option.label}</span>
-                      </label>
+                          } else {
+                            const newAssignees = e.target.checked
+                              ? [...currentAssignees, option.value]
+                              : currentAssignees.filter((id) => id !== option.value);
+                            void handleAssigneesChange(newAssignees);
+                          }
+                        }}
+                      />
                     );
                   })}
                 </div>
@@ -645,14 +654,15 @@ export const TicketDetailPage: React.FC<TicketDetailPageProps> = ({ ticketId }) 
                 <Text size="sm" className="font-semibold text-red-500 mb-3">
                   Danger Zone
                 </Text>
-                <button
+                <Button
+                  variant="danger"
+                  fullWidth
                   aria-label="Delete ticket"
                   onClick={() => void handleDelete()}
-                  className="inline-flex items-center text-sm w-full justify-center gap-2 bg-destructive-500 dark:bg-destructive-900 text-white dark:text-destructive-100 hover:bg-destructive-600 p-2 font-medium rounded-md"
+                  leftIcon={<FontAwesomeIcon icon={faTrash} size="sm" />}
                 >
-                  <FontAwesomeIcon icon={faTrash} size="sm" />
                   Delete Ticket
-                </button>
+                </Button>
               </CardContent>
             </Card>
           )}

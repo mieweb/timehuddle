@@ -129,13 +129,13 @@ test.describe('Teams', () => {
     }
 
     await page.goto(`/app/dashboard?teamId=${teamId}`);
-    await expect(page.getByRole('button', { name: 'Team', exact: true })).toBeVisible({
+    await expect(page.getByRole('tab', { name: 'Team', exact: true })).toBeVisible({
       timeout: 20000,
     });
 
-    await page.getByRole('button', { name: 'Team', exact: true }).click();
+    await page.getByRole('tab', { name: 'Team', exact: true }).click();
 
-    const timesheetToggle = page.getByRole('button', { name: 'Timesheet', exact: true });
+    const timesheetToggle = page.getByRole('tab', { name: 'Timesheet', exact: true });
     if (!(await timesheetToggle.isVisible({ timeout: 10000 }).catch(() => false))) {
       test.skip(true, 'Timesheet view not available — team may not have loaded');
       return;

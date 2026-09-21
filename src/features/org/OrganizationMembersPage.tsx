@@ -6,7 +6,6 @@ import {
   CardHeader,
   CardTitle,
   Input,
-  Modal,
   ModalBody,
   ModalFooter,
   ModalHeader,
@@ -22,6 +21,7 @@ import {
   Text,
   Textarea,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
@@ -672,7 +672,7 @@ export const OrganizationMembersPage: React.FC = () => {
       </Card>
 
       {/* Block member modal */}
-      <Modal open={blockUserId !== null} onOpenChange={(open) => !open && setBlockUserId(null)}>
+      <AppModal open={blockUserId !== null} onOpenChange={(open) => !open && setBlockUserId(null)}>
         <ModalHeader>Block Member</ModalHeader>
         <ModalBody className="space-y-3">
           <Text variant="muted" size="sm">
@@ -700,9 +700,9 @@ export const OrganizationMembersPage: React.FC = () => {
             {blockingSaving ? 'Blocking…' : 'Block Member'}
           </Button>
         </ModalFooter>
-      </Modal>
+      </AppModal>
 
-      <Modal
+      <AppModal
         open={invitationsModalOpen}
         onOpenChange={(open) => setInvitationsModalOpen(open)}
         size="lg"
@@ -762,7 +762,7 @@ export const OrganizationMembersPage: React.FC = () => {
             </Table>
           )}
         </ModalBody>
-      </Modal>
+      </AppModal>
     </AppPage>
   );
 };

@@ -13,7 +13,8 @@
  */
 import { faChevronDown, faClock } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Badge, Modal, ModalHeader, ModalBody, Select, Text } from '@mieweb/ui';
+import { Badge, ModalHeader, ModalBody, Select, Text } from '@mieweb/ui';
+import { AppModal } from './AppModal';
 import React, { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -116,7 +117,12 @@ export const OrgTeamSwitcher: React.FC = () => {
       </button>
 
       {createPortal(
-        <Modal open={open} onOpenChange={setOpen} size="sm" className="org-switcher-modal">
+        <AppModal
+          open={open}
+          onOpenChange={setOpen}
+          size="sm"
+          className="org-switcher-modal max-sm:mx-0 max-sm:w-full"
+        >
           <ModalHeader>Switch organization / team</ModalHeader>
           <ModalBody className="space-y-1">
             {organizations.length > 0 && (
@@ -232,7 +238,7 @@ export const OrgTeamSwitcher: React.FC = () => {
               v{import.meta.env.VITE_APP_VERSION || '1.0.0'}
             </p>
           </ModalBody>
-        </Modal>,
+        </AppModal>,
         document.body,
       )}
     </div>

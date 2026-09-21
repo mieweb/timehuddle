@@ -35,7 +35,6 @@ import {
   DropdownItem,
   DropdownSeparator,
   Input,
-  Modal,
   ModalBody,
   ModalClose,
   ModalFooter,
@@ -46,6 +45,7 @@ import {
   Textarea,
   type DropdownPlacement,
 } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import { Capacitor } from '@capacitor/core';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -1547,7 +1547,7 @@ export const TicketsPage: React.FC = () => {
         </Card>
 
         {/* Edit ticket modal (creator only) */}
-        <Modal open={!!editTicket} onOpenChange={(open) => !open && setEditTicket(null)}>
+        <AppModal open={!!editTicket} onOpenChange={(open) => !open && setEditTicket(null)}>
           <ModalHeader>
             <ModalTitle>Edit Ticket</ModalTitle>
             <ModalClose />
@@ -1652,10 +1652,10 @@ export const TicketsPage: React.FC = () => {
               Save
             </Button>
           </ModalFooter>
-        </Modal>
+        </AppModal>
 
         {/* Change Status modal */}
-        <Modal
+        <AppModal
           open={!!changeStatusTicket}
           onOpenChange={(open) => !open && setChangeStatusTicket(null)}
           size="sm"
@@ -1685,11 +1685,11 @@ export const TicketsPage: React.FC = () => {
               Save
             </Button>
           </ModalFooter>
-        </Modal>
+        </AppModal>
 
         {/* Ticket Details modal */}
         {detailsTicket && (
-          <Modal open onOpenChange={(open) => !open && setDetailsTicket(null)}>
+          <AppModal open onOpenChange={(open) => !open && setDetailsTicket(null)}>
             <ModalHeader>
               <ModalTitle>Ticket Details</ModalTitle>
               <ModalClose />
@@ -1825,11 +1825,11 @@ export const TicketsPage: React.FC = () => {
                 Close
               </Button>
             </ModalFooter>
-          </Modal>
+          </AppModal>
         )}
 
         {/* Delete confirmation */}
-        <Modal open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)} size="sm">
+        <AppModal open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)} size="sm">
           <ModalHeader>
             <ModalTitle>Delete Ticket?</ModalTitle>
             <ModalClose />
@@ -1847,10 +1847,10 @@ export const TicketsPage: React.FC = () => {
               Delete
             </Button>
           </ModalFooter>
-        </Modal>
+        </AppModal>
 
         {/* Clock-In Prompt Modal */}
-        <Modal
+        <AppModal
           open={showClockInPrompt}
           onOpenChange={(open) => {
             setShowClockInPrompt(open);
@@ -1893,9 +1893,9 @@ export const TicketsPage: React.FC = () => {
               Clock In Now
             </Button>
           </ModalFooter>
-        </Modal>
+        </AppModal>
 
-        <Modal open={showNoTeamDialog} onOpenChange={setShowNoTeamDialog} size="sm">
+        <AppModal open={showNoTeamDialog} onOpenChange={setShowNoTeamDialog} size="sm">
           <ModalHeader>
             <ModalTitle>No team available</ModalTitle>
             <ModalClose />
@@ -1923,7 +1923,7 @@ export const TicketsPage: React.FC = () => {
               Go to Teams
             </Button>
           </ModalFooter>
-        </Modal>
+        </AppModal>
       </div>
     </AppPage>
   );

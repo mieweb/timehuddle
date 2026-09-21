@@ -61,12 +61,9 @@ async function openEditComposer(page: Page, seedText: string): Promise<void> {
   const postCard = page.locator('[data-testid="post-card"]').filter({ hasText: seedText }).first();
   await postCard.waitFor({ state: 'visible', timeout: 15000 });
 
-  const menuButton = postCard
-    .locator('button')
-    .filter({ has: page.locator('circle') })
-    .last();
+  const menuButton = postCard.getByRole('button', { name: 'Post actions' });
   await menuButton.click();
-  await page.getByRole('button', { name: 'Edit post' }).click();
+  await page.getByRole('menuitem', { name: 'Edit post' }).click();
   await page.locator('.ProseMirror').first().waitFor({ state: 'visible', timeout: 10000 });
 }
 
@@ -78,11 +75,8 @@ async function deletePostByText(page: Page, seedText: string): Promise<void> {
   await switchToCardView(page);
   const postCard = page.locator('[data-testid="post-card"]').filter({ hasText: seedText }).first();
   if (!(await postCard.isVisible({ timeout: 2000 }).catch(() => false))) return;
-  const menuButton = postCard
-    .locator('button')
-    .filter({ has: page.locator('circle') })
-    .last();
-  const deleteBtn = page.getByRole('button', { name: 'Delete post' });
+  const menuButton = postCard.getByRole('button', { name: 'Post actions' });
+  const deleteBtn = page.getByRole('menuitem', { name: 'Delete post' });
   await expect(async () => {
     await menuButton.click();
     await expect(deleteBtn).toBeVisible({ timeout: 2000 });

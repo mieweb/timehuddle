@@ -4,6 +4,7 @@
  * Clock page's plan/wrap-up composer) can offer the same Photo/Video/Doc/
  * Pulse/Ticket/@Mention affordances without duplicating the markup.
  */
+import { Badge } from '@mieweb/ui';
 import { AttachmentBar } from './AttachmentBar';
 import { PulseAttachButton } from './PulseAttachButton';
 import { TicketPicker } from './TicketPicker';
@@ -88,7 +89,11 @@ export function ComposerChips({
   return (
     <>
       {selectedTicketId && (
-        <div className="mt-2 inline-flex items-center gap-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-full px-3 py-1.5 text-xs text-amber-700 dark:text-amber-300">
+        /* Badge has no amber/indigo variant, so the tint rides on className. */
+        <Badge
+          size="sm"
+          className="mt-2 gap-2 border border-amber-200 bg-amber-50 px-3 py-1.5 text-amber-700 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300"
+        >
           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path
               strokeLinecap="round"
@@ -113,15 +118,16 @@ export function ComposerChips({
               />
             </svg>
           </button>
-        </div>
+        </Badge>
       )}
 
       {mentions.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
           {mentions.map((m) => (
-            <div
+            <Badge
               key={m.userId}
-              className="inline-flex items-center gap-1.5 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/50 rounded-full px-3 py-1 text-xs text-indigo-700 dark:text-indigo-300"
+              size="sm"
+              className="gap-1.5 border border-indigo-200 bg-indigo-50 px-3 py-1 text-indigo-700 dark:border-indigo-800/50 dark:bg-indigo-950/30 dark:text-indigo-300"
             >
               @{m.name}
               <button
@@ -139,7 +145,7 @@ export function ComposerChips({
                   />
                 </svg>
               </button>
-            </div>
+            </Badge>
           ))}
         </div>
       )}
@@ -147,9 +153,11 @@ export function ComposerChips({
       {attachments.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
           {attachments.map((media) => (
-            <div
+            /* `rounded-lg` overrides Badge's pill shape — file chips are square. */
+            <Badge
               key={media.id}
-              className="relative bg-gray-100 dark:bg-neutral-700 border border-gray-200 dark:border-neutral-600 rounded-lg p-2 text-xs text-gray-600 dark:text-neutral-300 flex items-center gap-2"
+              size="sm"
+              className="relative gap-2 rounded-lg border border-gray-200 bg-gray-100 p-2 text-gray-600 dark:border-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"
             >
               {media.filename}
               <button
@@ -167,7 +175,7 @@ export function ComposerChips({
                   />
                 </svg>
               </button>
-            </div>
+            </Badge>
           ))}
         </div>
       )}

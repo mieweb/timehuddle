@@ -7,7 +7,8 @@
  */
 import { Browser } from '@capacitor/browser';
 import { Capacitor } from '@capacitor/core';
-import { Button, Modal, ModalBody, ModalHeader } from '@mieweb/ui';
+import { Button, ModalBody, ModalHeader } from '@mieweb/ui';
+import { AppModal } from '@ui/AppModal';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons';
 import React, { useEffect } from 'react';
@@ -36,7 +37,7 @@ export const FeedbackModal: React.FC<Props> = ({ open, onClose }) => {
   if (!open || isNative) return null;
 
   return (
-    <Modal open={open} onOpenChange={(isOpen) => !isOpen && onClose()} size="sm">
+    <AppModal open={open} onOpenChange={(isOpen) => !isOpen && onClose()} size="sm">
       <ModalHeader>Share Your Feedback</ModalHeader>
       <ModalBody>
         <div className="flex flex-col items-center gap-4 py-6 text-center">
@@ -55,6 +56,6 @@ export const FeedbackModal: React.FC<Props> = ({ open, onClose }) => {
           </Button>
         </div>
       </ModalBody>
-    </Modal>
+    </AppModal>
   );
 };

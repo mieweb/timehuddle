@@ -139,11 +139,11 @@ export class HuddlePage extends BasePage {
    * Open the edit menu for a post containing specific text
    */
   async openPostMenu(text: string) {
+    // Located by its accessible name, not by the icon's SVG internals. An
+    // earlier version filtered for a <circle>, which silently stopped matching
+    // the moment the hand-drawn kebab became a FontAwesome <path>.
     const post = this.page.locator('[data-testid="post-card"]').filter({ hasText: text }).first();
-    const menuButton = post
-      .locator('button')
-      .filter({ has: this.page.locator('circle') })
-      .last();
+    const menuButton = post.getByRole('button', { name: 'Post actions' });
     await menuButton.click();
   }
 }
