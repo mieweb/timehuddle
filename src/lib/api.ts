@@ -1062,8 +1062,15 @@ export const ticketApi = {
   getTicket: (id: string) =>
     wormholeCall<Record<string, unknown>>('tickets.get', { ticketId: id }).then(toTicket),
 
-  createTicket: (data: { teamId: string; title: string; github?: string }) =>
-    wormholeCall<Record<string, unknown>>('tickets.create', data).then(toTicket),
+  /** Create a ticket. `assignedToUserIds` defaults to the creator when omitted. */
+  createTicket: (data: {
+    teamId: string;
+    title: string;
+    github?: string;
+    description?: string;
+    priority?: string;
+    assignedToUserIds?: string[];
+  }) => wormholeCall<Record<string, unknown>>('tickets.create', data).then(toTicket),
 
   updateTicket: (id: string, updates: { title?: string; github?: string; description?: string }) =>
     wormholeCall<Record<string, unknown>>('tickets.update', { ticketId: id, ...updates }).then(
@@ -1835,6 +1842,15 @@ function clientTz(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
+/** One of the caller's timer sessions on a ticket. `endTime` is null while running. */
+export interface TicketSession {
+  id: string;
+  date: string;
+  startTime: number;
+  endTime: number | null;
+  durationSeconds: number | null;
+}
+
 export const timerApi = {
   /**
    * Create a WorkItem for the given ticket + date. Optionally start a timer.
@@ -1922,6 +1938,13 @@ export const timerApi = {
     const tz = clientTz();
     return wormholeCall<{ days: WeekDay[] }>('timers.getWeek', { date, tz }).then((r) => r.days);
   },
+
+  /** The caller's own timer sessions on one ticket, newest first (running one included). */
+  getTicketSessions: (ticketId: string, source: TicketSourceId) =>
+    wormholeCall<{ sessions: TicketSession[] }>('timers.getTicketSessions', {
+      ticketId,
+      source,
+    }).then((r) => r.sessions),
 
   /** Get total seconds for a ticket from all closed Timers. */
   getTicketTotal: (ticketId: string, source: TicketSourceId = 'huddle') =>
@@ -2246,6 +2269,22 @@ export interface RedmineIssueDetail extends RedmineIssue {
   allowedStatuses: RedmineIssueStatus[];
 }
 
+/** One field change in a Redmine journal; `from`/`to` are null when not shown. */
+export interface RedmineJournalChange {
+  field: string;
+  from: string | null;
+  to: string | null;
+}
+
+/** One entry of an issue's Redmine history: a comment, field changes, or both. */
+export interface RedmineJournal {
+  id: number;
+  user: RedmineNamed | null;
+  createdAt: string | null;
+  notes: string;
+  changes: RedmineJournalChange[];
+}
+
 /** A Redmine issue priority. `isDefault` is the instance's own default. */
 export interface RedminePriority extends RedmineNamed {
   isDefault: boolean;
@@ -2335,9 +2374,14 @@ export const redmineApi = {
     list: (scope: RedmineScope): Promise<RedmineIssueList> =>
       wormholeCall<RedmineIssueList>('redmine.issues.list', { scope }),
 
-    /** One issue with its description and the status changes the caller may make. */
-    get: (issueId: number): Promise<{ baseUrl: string | null; issue: RedmineIssueDetail }> =>
-      wormholeCall('redmine.issues.get', { issueId }),
+    /** One issue with its description, allowed status changes and Redmine history. */
+    get: (
+      issueId: number,
+    ): Promise<{
+      baseUrl: string | null;
+      issue: RedmineIssueDetail;
+      journals: RedmineJournal[];
+    }> => wormholeCall('redmine.issues.get', { issueId }),
 
     /** Create an issue as the caller (authored under their own key). */
     create: (input: RedmineIssueCreateInput): Promise<RedmineIssueCreateResult> =>

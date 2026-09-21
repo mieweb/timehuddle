@@ -41,7 +41,7 @@ import { useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { UserAvatar } from '../../ui/UserAvatar';
 
-import { SOURCE_LABELS, type UnifiedTicket } from './sources';
+import { SOURCE_LABELS, ticketDetailPath, type UnifiedTicket } from './sources';
 
 export interface TicketTableRowProps {
   ticket: UnifiedTicket;
@@ -112,13 +112,11 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
   // workflow), so its rows offer the action and surface any refusal.
   const canEdit = capabilities.edit && (ticket.sourceId !== 'huddle' || isCreator);
 
-  const openTicket = useCallback(() => {
-    if (externalUrl) {
-      window.open(externalUrl, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    navigate(`/app/tickets/${ticket.id}`);
-  }, [externalUrl, navigate, ticket.id]);
+  // Every source has an in-app page; a source's own page is a separate menu item.
+  const openTicket = useCallback(() => navigate(ticketDetailPath(ticket)), [navigate, ticket]);
+  const openExternal = useCallback(() => {
+    if (externalUrl) window.open(externalUrl, '_blank', 'noopener,noreferrer');
+  }, [externalUrl]);
 
   // The options menu is portaled to <body> and positioned with `fixed`
   // coordinates computed from the trigger's own rect, so it escapes the
@@ -337,18 +335,25 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
             >
               <DropdownContent className="bg-white dark:bg-neutral-800">
                 <DropdownItem
-                  icon={
-                    <FontAwesomeIcon icon={capabilities.openExternal ? faExternalLink : faEye} />
-                  }
+                  icon={<FontAwesomeIcon icon={faEye} />}
                   onClick={() => {
                     setMenuOpen(false);
                     openTicket();
                   }}
                 >
-                  {capabilities.openExternal
-                    ? `Open in ${SOURCE_LABELS[ticket.sourceId]}`
-                    : 'Ticket Details'}
+                  Ticket Details
                 </DropdownItem>
+                {capabilities.openExternal && externalUrl && (
+                  <DropdownItem
+                    icon={<FontAwesomeIcon icon={faExternalLink} />}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      openExternal();
+                    }}
+                  >
+                    {`Open in ${SOURCE_LABELS[ticket.sourceId]}`}
+                  </DropdownItem>
+                )}
                 {canEdit && (
                   <DropdownItem
                     icon={<FontAwesomeIcon icon={faPen} />}
