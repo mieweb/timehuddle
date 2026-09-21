@@ -12,13 +12,17 @@
  */
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import {
+  faArrowsRotate,
   faBolt,
   faChevronLeft,
   faChevronRight,
+  faCloudArrowUp,
   faGlobe,
   faKey,
   faLayerGroup,
+  faLink,
   faList,
+  faStopwatch,
   faXmark,
 } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -43,6 +47,7 @@ const TECH_BADGES = [
   'Time Tracking',
   'Teams',
   'Tickets',
+  'Redmine',
   'Clock In / Out',
   'Notifications',
   'Inbox',
@@ -81,6 +86,14 @@ const FEATURES: Feature[] = [
       'Create, assign, and track tickets tied to time entries. Keep work accountable with status tracking from open through to resolved.',
     gradient: 'from-red-500/20 to-rose-500/5',
     glow: 'group-hover:shadow-red-500/20',
+  },
+  {
+    icon: faArrowsRotate,
+    title: 'Redmine Integration',
+    description:
+      'Connect your Redmine account to see the issues assigned to you alongside your Huddle tickets — then push the hours you logged back as Spent time, without opening Redmine.',
+    gradient: 'from-sky-500/20 to-blue-500/5',
+    glow: 'group-hover:shadow-sky-500/20',
   },
   {
     icon: faGlobe,
@@ -219,6 +232,33 @@ const GALLERY: GalleryItem[] = [
     src: '/screenshots/login-light.png',
     alt: 'Login — light mode',
     label: 'Login (Light)',
+  },
+];
+
+interface RedmineStep {
+  icon: typeof faBolt;
+  title: string;
+  description: string;
+}
+
+const REDMINE_STEPS: RedmineStep[] = [
+  {
+    icon: faLink,
+    title: 'Connect your account',
+    description:
+      'Paste your personal Redmine API key once in Settings. Every request is made with your own key, so you see exactly what your Redmine account can see — no admin access needed.',
+  },
+  {
+    icon: faStopwatch,
+    title: 'Work from one table',
+    description:
+      'Your Redmine issues sit beside your Huddle tickets in a single sortable table. Move the ones you are working on to My Board and time them with the same start / stop button.',
+  },
+  {
+    icon: faCloudArrowUp,
+    title: 'Push your hours',
+    description:
+      'When the day is done, approve a summary and TimeHuddle writes one Spent time entry per issue per day. It covers every unsynced day, and pressing it twice never duplicates anything.',
   },
 ];
 
@@ -744,6 +784,98 @@ const GallerySection: React.FC<{ reduced: boolean }> = ({ reduced }) => {
   );
 };
 
+// ─── Redmine section ──────────────────────────────────────────────────────────
+
+const RedmineStepCard: React.FC<{ step: RedmineStep; index: number; reduced: boolean }> = ({
+  step,
+  index,
+  reduced,
+}) => {
+  const ref = useRef<HTMLLIElement>(null);
+  const inView = useInView(ref, { once: true, margin: '-60px' });
+
+  return (
+    <motion.li
+      ref={ref}
+      initial={reduced ? false : { opacity: 0, y: 32 }}
+      animate={inView ? { opacity: 1, y: 0 } : {}}
+      transition={{ duration: 0.5, delay: index * 0.1, ease: [0.22, 1, 0.36, 1] }}
+      className="relative rounded-2xl border border-neutral-200/80 bg-white p-6 shadow-sm dark:border-neutral-800/80 dark:bg-neutral-900/80"
+    >
+      <div className="mb-4 flex items-center gap-3">
+        <span
+          className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/10 text-sky-500 dark:bg-sky-400/10 dark:text-sky-300"
+          aria-hidden="true"
+        >
+          <FontAwesomeIcon icon={step.icon} />
+        </span>
+        <span className="text-xs font-semibold uppercase tracking-widest text-neutral-400 dark:text-neutral-500">
+          Step {index + 1}
+        </span>
+      </div>
+      <h3 className="mb-2 font-semibold text-neutral-900 dark:text-neutral-50">{step.title}</h3>
+      <p className="text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+        {step.description}
+      </p>
+    </motion.li>
+  );
+};
+
+const RedmineSection: React.FC<{ reduced: boolean }> = ({ reduced }) => {
+  const ruleRef = useRef<HTMLDivElement>(null);
+  const ruleInView = useInView(ruleRef, { once: true, margin: '-60px' });
+
+  return (
+    <section aria-labelledby="redmine-heading" className="relative overflow-hidden py-24">
+      <div
+        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-sky-50/50 to-transparent dark:via-sky-950/10"
+        aria-hidden="true"
+      />
+      <div className="relative mx-auto max-w-5xl px-6">
+        <SectionHeading
+          id="redmine-heading"
+          title="Already on Redmine? Keep it."
+          subtitle="See the issues assigned to you, time them here, and send your hours back as Spent time."
+          reduced={reduced}
+        />
+
+        <motion.div
+          ref={ruleRef}
+          initial={reduced ? false : { opacity: 0, y: 24 }}
+          animate={ruleInView ? { opacity: 1, y: 0 } : {}}
+          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+          className="mb-10 rounded-2xl border border-sky-500/20 bg-sky-500/5 p-6 text-center dark:border-sky-400/20 dark:bg-sky-400/5"
+        >
+          <p className="text-base leading-relaxed text-neutral-700 dark:text-neutral-300">
+            TimeHuddle is where you record <strong>how</strong> time was spent. Issues come{' '}
+            <strong>from</strong> Redmine read-only, hours go <strong>to</strong> it — and nothing
+            else is ever written back.
+          </p>
+        </motion.div>
+
+        <ol className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+          {REDMINE_STEPS.map((step, i) => (
+            <RedmineStepCard key={step.title} step={step} index={i} reduced={reduced} />
+          ))}
+        </ol>
+
+        <p className="mt-8 text-center text-sm text-neutral-500 dark:text-neutral-400">
+          Optional — TimeHuddle works on its own. Without a Redmine instance configured you simply
+          see your Huddle tickets.{' '}
+          <a
+            href={`${REPO_URL}#redmine-integration`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-orange-500 underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+          >
+            How the integration works
+          </a>
+        </p>
+      </div>
+    </section>
+  );
+};
+
 // ─── LandingPage (root) ───────────────────────────────────────────────────────
 
 export const LandingPage: React.FC = () => {
@@ -1023,6 +1155,9 @@ export const LandingPage: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {/* ── Redmine integration ── */}
+      <RedmineSection reduced={reduced} />
 
       {/* ── Live examples ── */}
       <section aria-labelledby="demos-heading" className="relative overflow-hidden py-24">
