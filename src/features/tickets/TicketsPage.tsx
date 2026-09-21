@@ -65,6 +65,7 @@ import { TicketBulkActionBar } from './TicketBulkActionBar';
 import { TicketTable } from './TicketTable';
 import { hasActiveFilters } from './ticketFilters';
 import { huddleSource, useUnifiedTickets, type UnifiedTicket } from './sources';
+import { useMeAssigneeKeys } from './useMeAssigneeKeys';
 import { useTicketTableView } from './useTicketTableView';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -302,8 +303,10 @@ export const TicketsPage: React.FC = () => {
 
   // Search/filter/sort/paginate/select — one independent pipeline per tab, so
   // switching tabs never resets or leaks the other tab's state.
-  const ticketsView = useTicketTableView(allTickets);
-  const boardView = useTicketTableView(boardTickets);
+  // Resolves the assignee filter's "Me" option across both id namespaces.
+  const meKeys = useMeAssigneeKeys();
+  const ticketsView = useTicketTableView(allTickets, meKeys);
+  const boardView = useTicketTableView(boardTickets, meKeys);
   const {
     searchQuery,
     setSearchQuery,

@@ -49,7 +49,10 @@ export interface TicketTableView {
   clearSelection: () => void;
 }
 
-export function useTicketTableView(tickets: UnifiedTicket[]): TicketTableView {
+export function useTicketTableView(
+  tickets: UnifiedTicket[],
+  meKeys: readonly string[] = [],
+): TicketTableView {
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState<TicketFilters>(EMPTY_FILTERS);
   const [sort, setSort] = useState<SortSpec>(DEFAULT_SORT);
@@ -63,8 +66,8 @@ export function useTicketTableView(tickets: UnifiedTicket[]): TicketTableView {
   const clearSelection = useCallback(() => setSelectedKeys(new Set()), []);
 
   const searchFilteredTickets = useMemo(
-    () => applyFilters(tickets, filters, searchQuery),
-    [tickets, filters, searchQuery],
+    () => applyFilters(tickets, filters, searchQuery, meKeys),
+    [tickets, filters, searchQuery, meKeys],
   );
 
   const openCount = useMemo(

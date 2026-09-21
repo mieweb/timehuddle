@@ -10,6 +10,16 @@ import type { TicketSourceId, UnifiedTicket } from './sources';
 
 /** Sentinel for the "Unassigned" assignee option. */
 export const UNASSIGNED = '__unassigned__';
+/**
+ * Sentinel for the "Me" assignee option.
+ *
+ * It cannot be a concrete assignee value like the derived options are: "me" is
+ * one person holding a different id in every source's namespace (a Meteor id in
+ * Huddle, a numeric account id in Redmine), while `filters.assignee` holds a
+ * single string. So the sentinel is resolved at filter time against the caller's
+ * `meKeys` instead — see `applyFilters`.
+ */
+export const ME = '__me__';
 /** Sentinel for the "No priority" option. */
 export const NO_PRIORITY = '__none__';
 
@@ -136,11 +146,19 @@ export function matchesSearch(ticket: UnifiedTicket, query: string): boolean {
   );
 }
 
+/**
+ * @param meKeys source-namespaced assignee keys that identify the signed-in
+ *   user — `huddle:<userId>`, plus `redmine:<accountId>` when a Redmine account
+ *   is linked. Only used to resolve the `ME` sentinel; an empty list makes "Me"
+ *   match nothing rather than matching everyone.
+ */
 export function applyFilters(
   tickets: UnifiedTicket[],
   filters: TicketFilters,
   query: string,
+  meKeys: readonly string[] = [],
 ): UnifiedTicket[] {
+  const meKeySet = new Set(meKeys);
   return tickets.filter((ticket) => {
     if (!matchesSearch(ticket, query)) return false;
     // An empty source selection means "every source", not "none".
@@ -155,8 +173,13 @@ export function applyFilters(
 
     if (filters.assignee === UNASSIGNED) {
       if (ticket.assignees.length > 0) return false;
+    } else if (filters.assignee === ME) {
+      // "Me" spans every source at once, so it matches against the whole key
+      // set rather than a single value.
+      const match = ticket.assignees.some((a) => meKeySet.has(`${ticket.sourceId}:${a.id}`));
+      if (!match) return false;
     } else if (filters.assignee) {
-      // Assignee keys are source-namespaced; see TicketFilterBar.
+      // Assignee keys are source-namespaced; see assigneeOptions.
       const match = ticket.assignees.some((a) => `${ticket.sourceId}:${a.id}` === filters.assignee);
       if (!match) return false;
     }
