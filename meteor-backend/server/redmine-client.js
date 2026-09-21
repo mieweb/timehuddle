@@ -251,6 +251,15 @@ export function listProjectMemberships(apiKey, projectId) {
   return listAllPages(apiKey, `/projects/${projectId}/memberships.json`, 'memberships');
 }
 
+/**
+ * The instance's issue statuses (`GET /issue_statuses.json`). Readable with an
+ * ordinary key; used to name the status ids an issue's history records.
+ */
+export async function listIssueStatuses(apiKey) {
+  const data = await redmineRequest('/issue_statuses.json', { apiKey });
+  return data?.issue_statuses ?? [];
+}
+
 /** The instance's issue priorities (`GET /enumerations/issue_priorities.json`). */
 export async function listIssuePriorities(apiKey) {
   const data = await redmineRequest('/enumerations/issue_priorities.json', { apiKey });
@@ -259,12 +268,15 @@ export async function listIssuePriorities(apiKey) {
 
 /**
  * One issue with the status transitions the caller's role and workflow allow
- * (`include=allowed_statuses`, Redmine 5.0+), or null when it does not exist or
- * the key cannot see it — the same contract as `getIssue`.
+ * (`include=allowed_statuses`, Redmine 5.0+) and its history (`journals`), or
+ * null when it does not exist or the key cannot see it — the same contract as
+ * `getIssue`.
  */
 export async function getIssueDetail(apiKey, issueId) {
   try {
-    const data = await redmineRequest(`/issues/${issueId}.json?include=allowed_statuses`, { apiKey });
+    const data = await redmineRequest(`/issues/${issueId}.json?include=allowed_statuses,journals`, {
+      apiKey,
+    });
     return data?.issue ?? null;
   } catch (err) {
     if (err?.status === 404 || err?.status === 403) return null;

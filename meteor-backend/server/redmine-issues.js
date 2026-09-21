@@ -22,7 +22,8 @@
  * M6 adds the shapes its create/edit forms need, kept separate so the list DTO
  * stays lean: `toIssueDetail` (one issue, with `description`, `author` and the
  * status transitions the caller may make), `toNamedList` (projects, trackers)
- * and `toFormOptions` (a project's trackers, assignable members, priorities).
+ * and `toFormOptions` (a project's trackers, assignable members, priorities),
+ * plus `toJournals` for the issue page's history.
  */
 
 /** Shape a Redmine `{ id, name }` sub-object, or null when absent. */
@@ -148,4 +149,88 @@ export function toFormOptions({ trackers, memberships, priorities }) {
     priorities: priorityList,
     defaultPriorityId: priorityList.find((p) => p.isDefault)?.id ?? null,
   };
+}
+
+/**
+ * Journal attributes the issue page names, and the lookup that resolves each
+ * one's id values. Redmine records these as raw ids (`status_id: "3"`), which
+ * mean nothing to a reader until named.
+ */
+const JOURNAL_FIELDS = {
+  status_id: { label: 'status', lookup: 'statuses' },
+  priority_id: { label: 'priority', lookup: 'priorities' },
+  assigned_to_id: { label: 'assignee', lookup: 'users' },
+  tracker_id: { label: 'tracker', lookup: 'trackers' },
+  subject: { label: 'subject' },
+  description: { label: 'description', hideValues: true },
+};
+
+/** Name an id from a lookup map, falling back to `#id` for one we can't resolve. */
+function nameFor(lookup, value) {
+  if (value == null || value === '') return null;
+  return lookup?.get(Number(value)) ?? `#${value}`;
+}
+
+/** One journal detail as `{ field, from, to }`; values are null when not shown. */
+function toJournalChange(detail, lookups) {
+  if (detail?.property !== 'attr') {
+    // Custom fields, attachments and relations are out of M6 scope: name the
+    // kind of change without pretending to render its values.
+    const kind = { cf: 'custom field', attachment: 'attachment', relation: 'relation' }[
+      detail?.property
+    ];
+    return { field: kind ?? 'issue', from: null, to: null };
+  }
+  const known = JOURNAL_FIELDS[detail.name];
+  if (!known) {
+    return {
+      field: String(detail.name ?? 'issue')
+        .replace(/_id$/, '')
+        .replace(/_/g, ' '),
+      from: null,
+      to: null,
+    };
+  }
+  if (known.hideValues) return { field: known.label, from: null, to: null };
+  const resolve = (value) =>
+    known.lookup
+      ? nameFor(lookups[known.lookup], value)
+      : value == null || value === ''
+        ? null
+        : String(value);
+  return { field: known.label, from: resolve(detail.old_value), to: resolve(detail.new_value) };
+}
+
+/**
+ * Shape an issue's `journals` into its history, oldest first as Redmine sends
+ * it. Each entry is `{ id, user, createdAt, notes, changes }`; an entry with
+ * neither notes nor changes is dropped.
+ *
+ * @param {unknown} raw  the `journals` array from `include=journals`
+ * @param {{statuses?: Map, priorities?: Map, users?: Map, trackers?: Map}} lookups
+ *   id → name maps used to name `status_id`, `priority_id`, … values
+ */
+export function toJournals(raw, lookups = {}) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((journal) => journal && journal.id != null)
+    .map((journal) => ({
+      id: journal.id,
+      user: toNamed(journal.user),
+      createdAt: toIsoDate(journal.created_on),
+      notes: normalizeText(journal.notes).trim(),
+      changes: Array.isArray(journal.details)
+        ? journal.details.map((detail) => toJournalChange(detail, lookups))
+        : [],
+    }))
+    .filter((journal) => journal.notes || journal.changes.length > 0);
+}
+
+/** An id → name map from `{ id, name }` items, for `toJournals` lookups. */
+export function toNameMap(items) {
+  return new Map(
+    (Array.isArray(items) ? items : [])
+      .filter((i) => i && i.id != null)
+      .map((i) => [Number(i.id), i.name ?? '']),
+  );
 }

@@ -342,6 +342,63 @@ describe('timers (wormhole)', () => {
     }
   });
 
+  it('lists only the caller’s own sessions on a ticket, newest first', async () => {
+    const db = await getDb();
+    const sharedTicketId = new ObjectId().toHexString();
+    const otherUserId = 'wh-timer-sessions-other';
+    const date = new Date().toISOString().split('T')[0];
+    const now = Date.now();
+
+    const seed = async (ownerId: string, startTime: number, endTime: number | null) => {
+      const workItemId = new ObjectId();
+      await db.collection('workitems').insertOne({
+        _id: workItemId,
+        userId: ownerId,
+        ticketId: sharedTicketId,
+        source: 'redmine',
+        date,
+      });
+      await db.collection('timers').insertOne({
+        userId: ownerId,
+        workItemId: workItemId.toHexString(),
+        date,
+        startTime,
+        endTime,
+        durationSeconds: endTime ? Math.round((endTime - startTime) / 1000) : undefined,
+      });
+    };
+
+    try {
+      await seed(userId, now - 7_200_000, now - 3_600_000);
+      await seed(userId, now - 600_000, null);
+      await seed(otherUserId, now - 300_000, now - 60_000);
+
+      const res = await wormhole<{
+        sessions: Array<{ startTime: number; endTime: number | null; durationSeconds: number | null }>;
+      }>('timers.getTicketSessions', { ticketId: sharedTicketId, source: 'redmine' }, jwt);
+      expect(res.ok).toBe(true);
+      expect(res.result.sessions).toHaveLength(2);
+      expect(res.result.sessions[0]).toMatchObject({ endTime: null, durationSeconds: null });
+      expect(res.result.sessions[1].durationSeconds).toBe(3600);
+
+      // The same id under the Huddle source is a different ticket.
+      const huddle = await wormhole<{ sessions: unknown[] }>(
+        'timers.getTicketSessions',
+        { ticketId: sharedTicketId, source: 'huddle' },
+        jwt,
+      );
+      expect(huddle.result.sessions).toEqual([]);
+    } finally {
+      await db.collection('workitems').deleteMany({ ticketId: sharedTicketId });
+      await db.collection('timers').deleteMany({ userId: otherUserId });
+    }
+  });
+
+  it('requires a ticket id to list sessions', async () => {
+    const res = await wormhole('timers.getTicketSessions', {}, jwt);
+    expect(res.ok).toBe(false);
+  });
+
   it('totals only the caller’s own time on a ticket', async () => {
     const db = await getDb();
     const sharedTicketId = new ObjectId().toHexString();
