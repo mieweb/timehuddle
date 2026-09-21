@@ -522,7 +522,7 @@ const SectionHeading: React.FC<SectionHeadingProps> = ({ id, title, subtitle, re
       transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
       className="mb-14 text-center"
     >
-      <h2 id={id} className="text-3xl font-bold tracking-tight lg:text-4xl">
+      <h2 id={id} className="scroll-mt-24 text-3xl font-bold tracking-tight lg:text-4xl">
         {title}
       </h2>
       <p className="mt-4 text-lg text-neutral-500 dark:text-neutral-400">{subtitle}</p>
@@ -1018,7 +1018,7 @@ export const LandingPage: React.FC = () => {
               aria-hidden="true"
             />
             <span className="text-xs font-semibold text-orange-700 dark:text-orange-300">
-              Time Tracking · Teams · Tickets · Notifications
+              Time Tracking · Teams · Tickets · Redmine
             </span>
           </motion.div>
 
@@ -1065,6 +1065,24 @@ export const LandingPage: React.FC = () => {
             <strong className="font-semibold text-neutral-900 dark:text-neutral-100">
               No spreadsheets required.
             </strong>
+          </motion.p>
+
+          {/* Redmine pitch — the integration, stated before the fold */}
+          <motion.p
+            initial={reduced ? false : { opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.62, ease: [0.22, 1, 0.36, 1] }}
+            className="mx-auto mt-4 max-w-2xl text-base text-neutral-500 dark:text-neutral-400"
+          >
+            Already on{' '}
+            <strong className="font-semibold text-sky-600 dark:text-sky-400">Redmine</strong>? Keep
+            it — your assigned issues come in, and the hours you log here go back as Spent time.{' '}
+            <a
+              href="#redmine-heading"
+              className="font-medium text-orange-500 underline-offset-4 hover:underline focus:outline-none focus:ring-2 focus:ring-orange-500/40"
+            >
+              See how
+            </a>
           </motion.p>
 
           {/* CTAs */}
