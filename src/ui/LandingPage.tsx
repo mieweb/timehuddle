@@ -10,21 +10,9 @@
  *   • CTA button: shimmer sweep animation
  *   • All animations respect prefers-reduced-motion
  */
+// The only icon left that @mieweb/ui cannot supply: its set is Lucide, which
+// carries no brand logos. Everything else on this page comes from the library.
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
-import {
-  faArrowsRotate,
-  faBolt,
-  faChevronLeft,
-  faChevronRight,
-  faCloudArrowUp,
-  faGlobe,
-  faKey,
-  faLayerGroup,
-  faLink,
-  faList,
-  faStopwatch,
-  faXmark,
-} from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   AnimatePresence,
@@ -36,7 +24,27 @@ import {
   useSpring,
   useTransform,
 } from 'motion/react';
-import { Badge, Button, Card, buttonVariants, cardVariants } from '@mieweb/ui';
+import {
+  ArrowUpDownIcon,
+  Badge,
+  Button,
+  Card,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  GlobeIcon,
+  KeyIcon,
+  LinkIcon,
+  ListIcon,
+  type LucideIcon,
+  MaximizeIcon,
+  TimerIcon,
+  UploadIcon,
+  UsersIcon,
+  XIcon,
+  ZapIcon,
+  buttonVariants,
+  cardVariants,
+} from '@mieweb/ui';
 import { cn } from '@mieweb/ui/utils';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -63,7 +71,7 @@ const TECH_BADGES = [
 ] as const;
 
 interface Feature {
-  icon: typeof faBolt;
+  icon: LucideIcon;
   title: string;
   description: string;
   gradient: string;
@@ -72,7 +80,7 @@ interface Feature {
 
 const FEATURES: Feature[] = [
   {
-    icon: faBolt,
+    icon: ZapIcon,
     title: 'Clock In / Out',
     description:
       'Track time with a single tap. Clock in, clock out, and log breaks — all from any device. Real-time status visible to your whole team.',
@@ -80,7 +88,7 @@ const FEATURES: Feature[] = [
     glow: 'group-hover:shadow-yellow-500/20',
   },
   {
-    icon: faLayerGroup,
+    icon: UsersIcon,
     title: 'Team Management',
     description:
       'Organise staff into teams with roles, schedules, and permissions. Managers get a live view of who is in, who is out, and who is late.',
@@ -88,7 +96,7 @@ const FEATURES: Feature[] = [
     glow: 'group-hover:shadow-amber-500/20',
   },
   {
-    icon: faList,
+    icon: ListIcon,
     title: 'Tickets & Tasks',
     description:
       'Create, assign, and track tickets tied to time entries. Keep work accountable with status tracking from open through to resolved.',
@@ -96,7 +104,7 @@ const FEATURES: Feature[] = [
     glow: 'group-hover:shadow-red-500/20',
   },
   {
-    icon: faArrowsRotate,
+    icon: ArrowUpDownIcon,
     title: 'Redmine Integration',
     description:
       'Connect your Redmine account to see the issues assigned to you alongside your Huddle tickets — then push the hours you logged back as Spent time, without opening Redmine.',
@@ -104,7 +112,7 @@ const FEATURES: Feature[] = [
     glow: 'group-hover:shadow-sky-500/20',
   },
   {
-    icon: faGlobe,
+    icon: GlobeIcon,
     title: 'Inbox & Notifications',
     description:
       'Every action that matters lands in your inbox. Mention a teammate, reassign a ticket, or update a shift — they will know instantly.',
@@ -112,7 +120,7 @@ const FEATURES: Feature[] = [
     glow: 'group-hover:shadow-purple-500/20',
   },
   {
-    icon: faKey,
+    icon: KeyIcon,
     title: 'Secure Authentication',
     description:
       'Email and password auth with secure session management. Password reset flows, profile management, and role-based access built in from day one.',
@@ -142,7 +150,7 @@ const STATS = [
 ];
 
 interface Demo {
-  icon: typeof faBolt;
+  icon: LucideIcon;
   title: string;
   description: string;
   path: string;
@@ -153,7 +161,7 @@ interface Demo {
 
 const DEMOS: Demo[] = [
   {
-    icon: faBolt,
+    icon: ZapIcon,
     title: 'Clock Dashboard',
     description:
       "Clock in and out with one tap. Your team's live attendance status is always visible — see who is working, on break, or clocked out right now.",
@@ -163,7 +171,7 @@ const DEMOS: Demo[] = [
     glow: 'group-hover:shadow-yellow-500/20',
   },
   {
-    icon: faLayerGroup,
+    icon: UsersIcon,
     title: 'Teams',
     description:
       'Browse your teams, view member rosters, and manage roles. Managers get full oversight of schedules and attendance across every team they own.',
@@ -173,7 +181,7 @@ const DEMOS: Demo[] = [
     glow: 'group-hover:shadow-amber-500/20',
   },
   {
-    icon: faList,
+    icon: ListIcon,
     title: 'Tickets',
     description:
       'Raise tickets, assign them to teammates, and track progress from open to resolved. Linked to time entries so you always know what work took how long.',
@@ -244,26 +252,26 @@ const GALLERY: GalleryItem[] = [
 ];
 
 interface RedmineStep {
-  icon: typeof faBolt;
+  icon: LucideIcon;
   title: string;
   description: string;
 }
 
 const REDMINE_STEPS: RedmineStep[] = [
   {
-    icon: faLink,
+    icon: LinkIcon,
     title: 'Connect your account',
     description:
       'Paste your personal Redmine API key once in Settings. Every request is made with your own key, so you see exactly what your Redmine account can see — no admin access needed.',
   },
   {
-    icon: faStopwatch,
+    icon: TimerIcon,
     title: 'Work from one table',
     description:
       'Your Redmine issues sit beside your Huddle tickets in a single sortable table. Move the ones you are working on to My Board and time them with the same start / stop button.',
   },
   {
-    icon: faCloudArrowUp,
+    icon: UploadIcon,
     title: 'Push your hours',
     description:
       'When the day is done, approve a summary and TimeHuddle writes one Spent time entry per issue per day. It covers every unsynced day, and pressing it twice never duplicates anything.',
@@ -349,6 +357,7 @@ interface FeatureCardProps {
 }
 
 const FeatureCard: React.FC<FeatureCardProps> = ({ feature, index, reduced }) => {
+  const Icon = feature.icon;
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: '-60px' });
 
@@ -374,7 +383,7 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ feature, index, reduced }) =>
           className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-neutral-100 text-lg dark:bg-neutral-800"
           aria-hidden="true"
         >
-          <FontAwesomeIcon icon={feature.icon} />
+          <Icon className="h-5 w-5" />
         </motion.div>
         <h3 className="mb-2 font-semibold text-neutral-900 dark:text-neutral-50">
           {feature.title}
@@ -396,6 +405,7 @@ interface DemoCardProps {
 }
 
 const DemoCard: React.FC<DemoCardProps> = ({ demo, index, reduced }) => {
+  const Icon = demo.icon;
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: '-60px' });
 
@@ -421,7 +431,7 @@ const DemoCard: React.FC<DemoCardProps> = ({ demo, index, reduced }) => {
           className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-neutral-100 text-lg dark:bg-neutral-800"
           aria-hidden="true"
         >
-          <FontAwesomeIcon icon={demo.icon} />
+          <Icon className="h-5 w-5" />
         </motion.div>
         <h3 className="mb-1 font-semibold text-neutral-900 dark:text-neutral-50">{demo.title}</h3>
         <p className="mb-3 text-xs font-medium text-orange-600 dark:text-orange-400">{demo.tag}</p>
@@ -661,7 +671,7 @@ const Lightbox: React.FC<LightboxProps> = ({ items, index, onClose, onPrev, onNe
         aria-label="Close lightbox"
         className="absolute right-4 top-4 z-10 rounded-full bg-white/10 text-white backdrop-blur-sm hover:bg-white/20 hover:text-white"
       >
-        <FontAwesomeIcon icon={faXmark} className="text-lg" />
+        <XIcon className="h-5 w-5" />
       </Button>
 
       {/* Prev */}
@@ -676,7 +686,7 @@ const Lightbox: React.FC<LightboxProps> = ({ items, index, onClose, onPrev, onNe
           aria-label="Previous screenshot"
           className="absolute left-4 z-10 rounded-full bg-white/10 text-white backdrop-blur-sm hover:bg-white/20 hover:text-white"
         >
-          <FontAwesomeIcon icon={faChevronLeft} />
+          <ChevronLeftIcon className="h-5 w-5" />
         </Button>
       )}
 
@@ -705,7 +715,7 @@ const Lightbox: React.FC<LightboxProps> = ({ items, index, onClose, onPrev, onNe
           aria-label="Next screenshot"
           className="absolute right-4 z-10 rounded-full bg-white/10 text-white backdrop-blur-sm hover:bg-white/20 hover:text-white"
         >
-          <FontAwesomeIcon icon={faChevronRight} />
+          <ChevronRightIcon className="h-5 w-5" />
         </Button>
       )}
 
@@ -773,7 +783,7 @@ const GallerySection: React.FC<{ reduced: boolean }> = ({ reduced }) => {
                   whileHover={{ opacity: 1, scale: 1 }}
                   className="rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-neutral-800 opacity-0 shadow-sm transition-opacity duration-200 group-hover:opacity-100"
                 >
-                  <FontAwesomeIcon icon={faLayerGroup} className="mr-1.5" aria-hidden="true" />
+                  <MaximizeIcon className="mr-1.5 inline h-3.5 w-3.5" aria-hidden="true" />
                   Expand
                 </motion.span>
               </div>
@@ -809,6 +819,7 @@ const RedmineStepCard: React.FC<{ step: RedmineStep; index: number; reduced: boo
   index,
   reduced,
 }) => {
+  const Icon = step.icon;
   const ref = useRef<HTMLLIElement>(null);
   const inView = useInView(ref, { once: true, margin: '-60px' });
 
@@ -826,7 +837,7 @@ const RedmineStepCard: React.FC<{ step: RedmineStep; index: number; reduced: boo
             className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/10 text-sky-500 dark:bg-sky-400/10 dark:text-sky-300"
             aria-hidden="true"
           >
-            <FontAwesomeIcon icon={step.icon} />
+            <Icon className="h-5 w-5" />
           </span>
           <Badge variant="outline" size="sm" className="uppercase tracking-widest">
             Step {index + 1}
@@ -1155,7 +1166,7 @@ export const LandingPage: React.FC = () => {
                 aria-hidden="true"
               />
               Get Started
-              <FontAwesomeIcon icon={faBolt} className="text-xs" aria-hidden="true" />
+              <ZapIcon className="h-4 w-4" aria-hidden="true" />
             </motion.a>
           </motion.div>
 
@@ -1317,7 +1328,7 @@ export const LandingPage: React.FC = () => {
                   'relative z-10 mt-8 bg-white text-orange-700 shadow-lg shadow-black/20 hover:bg-orange-50 hover:text-orange-800',
                 )}
               >
-                <FontAwesomeIcon icon={faBolt} aria-hidden="true" />
+                <ZapIcon className="h-4 w-4" aria-hidden="true" />
                 Get Started
               </motion.a>
             </div>
