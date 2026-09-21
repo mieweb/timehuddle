@@ -11,7 +11,13 @@
  */
 import { describe, it, expect } from 'vitest';
 
-import { toIssue, toIssueList } from '../server/redmine-issues';
+import {
+  toFormOptions,
+  toIssue,
+  toIssueDetail,
+  toIssueList,
+  toNamedList,
+} from '../server/redmine-issues';
 
 const rawIssue = {
   id: 101,
@@ -104,5 +110,102 @@ describe('redmine-issues toIssueList', () => {
     expect(toIssueList(undefined)).toEqual([]);
     expect(toIssueList(null)).toEqual([]);
     expect(toIssueList({})).toEqual([]);
+  });
+});
+
+describe('redmine-issues toIssueDetail (M6)', () => {
+  const rawDetail = {
+    ...rawIssue,
+    description: 'Line one\r\nLine two',
+    author: { id: 8, name: 'Priya Patel' },
+    allowed_statuses: [
+      { id: 2, name: 'In Progress', is_closed: false },
+      { id: 3, name: 'Resolved', is_closed: false },
+      { id: 5, name: 'Closed', is_closed: true },
+    ],
+  };
+
+  it('adds description, author and allowed statuses to the list DTO', () => {
+    const detail = toIssueDetail(rawDetail);
+    expect(detail).toMatchObject(shapedIssue);
+    expect(detail.description).toBe('Line one\nLine two');
+    expect(detail.author).toEqual({ id: 8, name: 'Priya Patel' });
+  });
+
+  it('lists the current status first and only once', () => {
+    const ids = toIssueDetail(rawDetail).allowedStatuses.map((s: { id: number }) => s.id);
+    expect(ids).toEqual([2, 3, 5]);
+  });
+
+  it('keeps the current status when Redmine omits it from the transitions', () => {
+    const detail = toIssueDetail({ ...rawDetail, allowed_statuses: [{ id: 5, name: 'Closed', is_closed: true }] });
+    expect(detail.allowedStatuses).toEqual([
+      { id: 2, name: 'In Progress', isClosed: false },
+      { id: 5, name: 'Closed', isClosed: true },
+    ]);
+  });
+
+  it('tolerates an issue with no description, author or transitions', () => {
+    const detail = toIssueDetail({ id: 5 });
+    expect(detail.description).toBe('');
+    expect(detail.author).toBeNull();
+    expect(detail.allowedStatuses).toEqual([]);
+  });
+
+  it('leaves the list DTO lean', () => {
+    expect('description' in toIssue(rawDetail)).toBe(false);
+  });
+});
+
+describe('redmine-issues toFormOptions (M6)', () => {
+  const options = toFormOptions({
+    trackers: [{ id: 1, name: 'Bug' }, { id: 2, name: 'Feature' }, { name: 'no id' }],
+    memberships: [
+      { id: 1, user: { id: 9, name: 'Zed Young' }, roles: [] },
+      { id: 2, user: { id: 8, name: 'Priya Patel' }, roles: [] },
+      { id: 3, user: { id: 8, name: 'Priya Patel' }, roles: [] },
+      { id: 4, group: { id: 20, name: 'Developers' }, roles: [] },
+    ],
+    priorities: [
+      { id: 1, name: 'Low', is_default: false },
+      { id: 2, name: 'Normal', is_default: true },
+    ],
+  });
+
+  it('keeps well-formed trackers', () => {
+    expect(options.trackers).toEqual([
+      { id: 1, name: 'Bug' },
+      { id: 2, name: 'Feature' },
+    ]);
+  });
+
+  it('offers each user once, sorted, and no groups', () => {
+    expect(options.assignees).toEqual([
+      { id: 8, name: 'Priya Patel' },
+      { id: 9, name: 'Zed Young' },
+    ]);
+  });
+
+  it("picks the instance's default priority", () => {
+    expect(options.defaultPriorityId).toBe(2);
+    expect(options.priorities[1]).toEqual({ id: 2, name: 'Normal', isDefault: true });
+  });
+
+  it('degrades to empty lists on malformed input', () => {
+    expect(toFormOptions({ trackers: null, memberships: undefined, priorities: {} })).toEqual({
+      trackers: [],
+      assignees: [],
+      priorities: [],
+      defaultPriorityId: null,
+    });
+  });
+});
+
+describe('redmine-issues toNamedList (M6)', () => {
+  it('shapes projects and drops malformed entries', () => {
+    expect(toNamedList([{ id: 7, name: 'Platform' }, null, { name: 'x' }])).toEqual([
+      { id: 7, name: 'Platform' },
+    ]);
+    expect(toNamedList('nope')).toEqual([]);
   });
 });

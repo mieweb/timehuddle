@@ -15,19 +15,14 @@
  * redmine-issues.js / redmine-status.js.
  */
 import { listTimeEntryActivities } from './redmine-client';
-
-/** How long a fetched enumeration stays fresh. */
-const CACHE_TTL_MS = 60 * 60 * 1000;
+import { createUserTtlCache } from './redmine-cache';
 
 /**
- * Process-local cache of the activity enumeration, keyed by TimeHuddle user id.
- *
- * The list is instance-wide and changes approximately never, while re-fetching
- * it on every sync would add a round trip to every write. A stale entry costs at
- * most a stale dropdown for one TTL, and a cold cache after a restart costs one
- * cheap GET — so this stays in-process and lossy rather than persisted.
+ * The activity enumeration, per user, for an hour. It is instance-wide and
+ * changes approximately never, while re-fetching it on every sync would add a
+ * round trip to every write.
  */
-const cache = new Map();
+const cache = createUserTtlCache(60 * 60 * 1000);
 
 /**
  * Tracker name → activity name (D4). Matched case-insensitively, by **name**
@@ -129,19 +124,8 @@ export function pickDefaultActivity(activities, chosenId, trackerName) {
  * The activity enumeration visible to `apiKey`, served from cache when fresh.
  * Only successful fetches are cached, so a transient failure is retried.
  */
-export async function getActivitiesForUser(userId, apiKey) {
-  const hit = cache.get(userId);
-  if (hit && hit.expiresAt > Date.now()) return hit.activities;
-
-  const activities = toActivityList(await listTimeEntryActivities(apiKey));
-  cache.set(userId, { activities, expiresAt: Date.now() + CACHE_TTL_MS });
-  return activities;
-}
-
-/**
- * Drop a user's cached enumeration. Called on disconnect so re-linking with a
- * key for a different Redmine account can't be served the old instance's list.
- */
-export function bustActivityCache(userId) {
-  cache.delete(userId);
+export function getActivitiesForUser(userId, apiKey) {
+  return cache.get(userId, 'activities', async () =>
+    toActivityList(await listTimeEntryActivities(apiKey)),
+  );
 }
