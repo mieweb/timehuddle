@@ -222,7 +222,7 @@ export async function loadOrgMembers(orgId) {
     .sort((a, b) => a.name.localeCompare(b.name) || a.email.localeCompare(b.email));
 }
 
-export async function requireDefaultOrgAdmin(userId) {
+async function requireDefaultOrgAdmin(userId) {
   const db = rawDb();
   const defaultOrg = await db.collection('organizations').findOne({ slug: DEFAULT_ORG_KEY });
   if (!defaultOrg) throw new Meteor.Error('not-found', 'Default organization not found');
@@ -233,7 +233,7 @@ export async function requireDefaultOrgAdmin(userId) {
   throw new Meteor.Error('forbidden', 'Requires default organization owner or admin');
 }
 
-export function resolveDefaultOrgRole(owners, admins, userId) {
+function resolveDefaultOrgRole(owners, admins, userId) {
   if (owners.includes(userId)) return 'owner';
   if (admins.includes(userId)) return 'admin';
   return 'member';
