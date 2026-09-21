@@ -341,4 +341,45 @@ describe('timers (wormhole)', () => {
       await wormhole('clock.start', { teamId }, jwt);
     }
   });
+
+  it('totals only the caller’s own time on a ticket', async () => {
+    const db = await getDb();
+    const sharedTicketId = new ObjectId().toHexString();
+    const otherUserId = 'wh-timer-other-user';
+    const date = new Date().toISOString().split('T')[0];
+
+    const insertClosedSession = async (ownerId: string, durationSeconds: number) => {
+      const workItemId = new ObjectId();
+      await db.collection('workitems').insertOne({
+        _id: workItemId,
+        userId: ownerId,
+        ticketId: sharedTicketId,
+        source: 'huddle',
+        date,
+      });
+      await db.collection('timers').insertOne({
+        userId: ownerId,
+        workItemId: workItemId.toHexString(),
+        startTime: new Date(Date.now() - durationSeconds * 1000),
+        endTime: new Date(),
+        durationSeconds,
+      });
+    };
+
+    try {
+      await insertClosedSession(userId, 120);
+      await insertClosedSession(otherUserId, 3600);
+
+      const res = await wormhole<{ totalSeconds: number }>(
+        'timers.getTicketTotal',
+        { ticketId: sharedTicketId },
+        jwt,
+      );
+      expect(res.ok).toBe(true);
+      expect(res.result.totalSeconds).toBe(120);
+    } finally {
+      await db.collection('workitems').deleteMany({ userId: otherUserId });
+      await db.collection('timers').deleteMany({ userId: otherUserId });
+    }
+  });
 });
