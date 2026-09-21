@@ -1517,7 +1517,7 @@ Meteor.startup(async() => {
     inputSchema: { type: 'object', properties: { teamId: { type: 'string' } }, required: ['teamId'] },
   });
   Wormhole.expose('timers.getTicketTotal', {
-    description: 'Get total seconds for a ticket across all closed sessions',
+    description: "Get the caller's own total seconds for a ticket across all closed sessions",
     inputSchema: { type: 'object', properties: { ticketId: { type: 'string' } }, required: ['ticketId'] },
   });
   Wormhole.expose('timers.createEntry', {
