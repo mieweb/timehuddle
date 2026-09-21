@@ -112,7 +112,13 @@ async function editorText(page: Page): Promise<string> {
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
-test.describe('Huddle — Yjs real-time collaborative editing', () => {
+// Skipped while live co-editing is switched off — the edit composer no longer
+// passes `collab`, so there is no room to join and these can only fail. The
+// feature is off because RichEditor renders nothing when its collaborative kit
+// fails to load, taking the whole edit composer with it; see
+// `src/features/huddle/collab.ts` for the reasoning and mieweb/ui#480 for the
+// fix. Un-skip together with the `COLLAB_ENABLED` flag there.
+test.describe.skip('Huddle — Yjs real-time collaborative editing', () => {
   test.setTimeout(180000);
 
   let memberCtx: BrowserContext;
