@@ -28,6 +28,7 @@ import type { UsagePeriodDays } from '../../lib/api';
 interface UsageRow extends Record<string, unknown> {
   name: string;
   email: string;
+  organization: string;
   role: string;
   status: UsageStatus;
   cadence: UsageCadence;
@@ -40,6 +41,7 @@ interface UsageRow extends Record<string, unknown> {
 const BASE_COLUMNS = [
   { field: 'name', header: 'Member', type: 'string', width: 200 },
   { field: 'email', header: 'Email', type: 'string', width: 220 },
+  { field: 'organization', header: 'Organization', type: 'string', width: 180 },
   { field: 'role', header: 'Role', type: 'string', width: 110 },
   { field: 'status', header: 'Status', type: 'string', width: 110 },
   { field: 'cadence', header: 'Cadence', type: 'string', width: 120 },
@@ -72,6 +74,8 @@ function toRow(user: OrgUsageUser): UsageRow {
   return {
     name: user.name,
     email: user.email,
+    // Only the all-organizations view ever puts more than one name here.
+    organization: user.organizations.map((organization) => organization.name).join(', '),
     role: ROLE_LABEL[user.role] ?? user.role,
     status: user.status,
     cadence: user.cadence,
@@ -122,19 +126,32 @@ function formatUsageCell(value: unknown, _row: unknown, column: { field: string 
 interface UsageGridProps {
   users: OrgUsageUser[];
   periodDays: UsagePeriodDays;
+  /** False when the report covers a single organization, where the column
+   *  would repeat one value down every row. It stays in `allColumns`, so it
+   *  is still reachable from the grid's own column menu. */
+  showOrganization: boolean;
 }
 
-const UsageGrid: React.FC<UsageGridProps> = ({ users, periodDays }) => {
+const UsageGrid: React.FC<UsageGridProps> = ({ users, periodDays, showOrganization }) => {
   const url = useRowsUrl(users);
+  const columns = useMemo(
+    () =>
+      showOrganization ? COLUMNS : COLUMNS.filter((column) => column.field !== 'organization'),
+    [showOrganization],
+  );
 
   return (
     <section className="usage-grid" aria-label="Member usage">
-      <DataVisNitroSource type="http" url={url}>
+      {/* NITRO takes ownership of its column state on mount, so changing
+          `columns` alone does not add or drop one. Keying the source on the
+          visible set remounts it when the org scope changes. */}
+      <DataVisNitroSource key={showOrganization ? 'with-org' : 'no-org'} type="http" url={url}>
         <DataVisNitroGrid
           title={`Member usage — ${PERIOD_LABEL[periodDays]}`}
           helpText="Counts cover the selected period. Cadence always reads the last 30 days."
           height="560px"
-          columns={COLUMNS}
+          columns={columns}
+          allColumns={ALL_COLUMNS.map(({ field, header }) => ({ field, header }))}
           controlFields={CONTROL_FIELDS}
           features={{
             stickyHeaders: true,

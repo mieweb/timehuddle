@@ -1,8 +1,9 @@
 /**
  * Org usage report — who is actually using TimeHuddle, and for what.
  *
- * One method, `usage.orgUsage`, behind the same default-org owner/admin gate
- * the Members admin page uses. It answers two different questions at once:
+ * One method, `usage.orgUsage`, scoped to the organizations the caller owns or
+ * administers. Passing an `orgId` narrows it to that one; omitting it reports
+ * across all of them at once. It answers two different questions:
  *
  *   • counts for the period the viewer picked (today / 7 / 14 / 30 days), and
  *   • a cadence label — daily, weekly, biweekly, monthly, dormant — which
@@ -12,25 +13,72 @@
  * Both come out of one pass: every source is aggregated once over the wider of
  * the two windows into per-user/per-day buckets, and usage-core folds those
  * into rows. The arithmetic lives there; this file is the Mongo half.
+ *
+ * Note on scope: the organization selection decides **which members are
+ * listed**, not which of their actions count. A member's totals are their whole
+ * TimeHuddle activity, because three of the six sources (Pulse uploads, work
+ * timers, comments) carry no team and so cannot be attributed to an
+ * organization. Counting the other three per-org and these three globally would
+ * be a column that means two different things, so the report keeps one honest
+ * meaning: how much this person uses TimeHuddle.
  */
 import { Meteor } from 'meteor/meteor';
+import { MongoInternals } from 'meteor/mongo';
 import { rawDb } from './collections';
 import { requireIdentity } from './auth-bridge';
-import { requireDefaultOrgAdmin, resolveDefaultOrgRole } from './organizations';
+import { isValidId } from './collections';
+import { loadOrgMembers } from './organizations';
 import {
   CADENCE_WINDOW_DAYS,
   DEFAULT_PERIOD_DAYS,
   FEATURE_SOURCES,
   USAGE_PERIOD_DAYS,
+  mergeOrgMembers,
   periodStartDay,
   summarizeTotals,
   summarizeUsage,
 } from './usage-core';
 
-/** Matches `orgs.adminListUsers`, so both admin pages show the same roster. */
-const MEMBER_LIMIT = 500;
+const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
+
+const ELEVATED_ROLES = ['owner', 'admin'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Every organization `userId` owns or administers, newest role model first
+ * (org_members) plus the legacy owners/admins arrays the older orgs still use.
+ */
+async function adminOrganizationsFor(userId) {
+  const db = rawDb();
+
+  const memberships = await db
+    .collection('org_members')
+    .find({ userId, role: { $in: ELEVATED_ROLES } }, { projection: { orgId: 1 } })
+    .toArray();
+
+  const legacy = await db
+    .collection('organizations')
+    .find({ $or: [{ owners: userId }, { admins: userId }] }, { projection: { _id: 1 } })
+    .toArray();
+
+  const ids = [
+    ...new Set([
+      ...memberships.map((membership) => membership.orgId).filter(isValidId),
+      ...legacy.map((org) => org._id.toHexString()),
+    ]),
+  ];
+  if (ids.length === 0) return [];
+
+  const orgs = await db
+    .collection('organizations')
+    .find({ _id: { $in: ids.map((id) => new ObjectId(id)) } }, { projection: { name: 1 } })
+    .toArray();
+
+  return orgs
+    .map((org) => ({ id: org._id.toHexString(), name: org.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
 
 function isValidTimezone(timezone) {
   if (typeof timezone !== 'string' || !timezone) return false;
@@ -81,40 +129,36 @@ async function bucketsForSource(source, memberIds, windowStart, timezone) {
 
 Meteor.methods({
   /**
-   * Usage rows for every member of the default organization.
+   * Usage rows for the members of the organizations the caller administers.
+   *
+   * `orgId` narrows to one of them; omitting it reports across all of them.
    * Owner/admin only — this reports on other people's activity.
    */
-  async 'usage.orgUsage'({ periodDays, timezone } = {}) {
+  async 'usage.orgUsage'({ orgId, periodDays, timezone } = {}) {
     const identity = await requireIdentity(this);
-    const organization = await requireDefaultOrgAdmin(identity.userId);
+
+    const available = await adminOrganizationsFor(identity.userId);
+    if (available.length === 0) {
+      throw new Meteor.Error('forbidden', 'Requires organization owner or admin');
+    }
+
+    // An orgId the caller does not administer is a permission failure, not an
+    // empty report — otherwise probing ids would confirm which ones exist.
+    const scoped = orgId ? available.filter((org) => org.id === orgId) : available;
+    if (scoped.length === 0) {
+      throw new Meteor.Error('forbidden', 'Requires organization owner or admin');
+    }
 
     const period = USAGE_PERIOD_DAYS.includes(periodDays) ? periodDays : DEFAULT_PERIOD_DAYS;
     const zone = isValidTimezone(timezone) ? timezone : 'UTC';
 
-    const db = rawDb();
-    const owners = organization.owners ?? [];
-    const admins = organization.admins ?? [];
-    const orgId = organization._id.toHexString();
-
-    const userDocs = await db
-      .collection('users')
-      .find({}, { projection: { profile: 1, emails: 1, username: 1, image: 1, blocked: 1 } })
-      .sort({ 'profile.name': 1 })
-      .limit(MEMBER_LIMIT)
-      .toArray();
-
-    const members = userDocs.map((doc) => {
-      const id = String(doc._id);
-      return {
-        id,
-        name: doc.profile?.name ?? doc.username ?? 'Unknown',
-        email: doc.emails?.[0]?.address ?? '',
-        username: doc.username ?? null,
-        image: doc.image ?? null,
-        role: resolveDefaultOrgRole(owners, admins, id),
-        blocked: (doc.blocked ?? []).some((entry) => entry.orgId === orgId),
-      };
-    });
+    const rosters = await Promise.all(
+      scoped.map(async (organization) => ({
+        organization,
+        members: await loadOrgMembers(organization.id),
+      })),
+    );
+    const members = mergeOrgMembers(rosters);
 
     const memberIds = members.map((member) => member.id);
     // Cadence always reads 30 days; a longer period widens the window to match.
@@ -144,7 +188,11 @@ Meteor.methods({
     });
 
     return {
-      organization: { id: orgId, name: organization.name },
+      // Every organization the caller may report on, so the page can offer the
+      // picker without a second round trip, plus which of them this report is.
+      availableOrganizations: available,
+      organizations: scoped,
+      orgId: orgId ?? null,
       periodDays: period,
       cadenceWindowDays: CADENCE_WINDOW_DAYS,
       timezone: zone,

@@ -11,8 +11,18 @@
  * The grid lives in its own lazily-loaded module (see UsageGrid) because it
  * carries the whole DataVis NITRO dependency.
  */
-import { Alert, Card, CardContent, Spinner, Tabs, TabsList, TabsTrigger, Text } from '@mieweb/ui';
-import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import {
+  Alert,
+  Card,
+  CardContent,
+  Select,
+  Spinner,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  Text,
+} from '@mieweb/ui';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   ApiError,
@@ -38,7 +48,16 @@ const UsageGrid = lazy(() => import('./UsageGrid'));
 
 const DEFAULT_PERIOD: UsagePeriodDays = 7;
 
+/** Picker value for "every organization I administer" — never sent to the server. */
+const ALL_ORGS = 'all';
+
 // ─── Summary ──────────────────────────────────────────────────────────────────
+
+/** What the numbers cover: the one organization, or how many are rolled up. */
+function scopeLabel(report: OrgUsageReport): string {
+  if (report.organizations.length === 1) return report.organizations[0].name;
+  return `${report.organizations.length} organizations`;
+}
 
 const SummaryCard: React.FC<{ label: string; value: string; note?: string }> = ({
   label,
@@ -109,16 +128,35 @@ export const OrgUsagePage: React.FC = () => {
   const canAccess = rolesLoaded && hasOrganizationAdminAccess(organizations) && !denied;
 
   const [periodDays, setPeriodDays] = useState<UsagePeriodDays>(DEFAULT_PERIOD);
+  // Select renders its placeholder for an empty value, so the all-orgs choice
+  // carries a sentinel. The server takes a missing orgId to mean the same
+  // thing, so the sentinel never leaves this file.
+  const [orgId, setOrgId] = useState(ALL_ORGS);
   const [report, setReport] = useState<OrgUsageReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Built from TeamContext rather than the report, so the picker is populated
+  // on first paint instead of after the first round trip.
+  const orgOptions = useMemo(() => {
+    const administered = organizations.filter(
+      (organization) => organization.role === 'owner' || organization.role === 'admin',
+    );
+    return [
+      { value: ALL_ORGS, label: `All organizations (${administered.length})` },
+      ...administered.map((organization) => ({
+        value: organization.id,
+        label: organization.name,
+      })),
+    ];
+  }, [organizations]);
 
   const loadReport = useCallback(async () => {
     if (!canAccess) return;
     setLoading(true);
     setError(null);
     try {
-      setReport(await usageApi.getOrgUsage(periodDays));
+      setReport(await usageApi.getOrgUsage(periodDays, orgId === ALL_ORGS ? undefined : orgId));
     } catch (err) {
       if (err instanceof ApiError && err.code === 'forbidden') {
         setDenied(true);
@@ -128,7 +166,7 @@ export const OrgUsagePage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [canAccess, periodDays]);
+  }, [canAccess, orgId, periodDays]);
 
   useEffect(() => {
     void loadReport();
@@ -166,21 +204,39 @@ export const OrgUsagePage: React.FC = () => {
 
   return (
     <AppPage width="wide" subtitle="Who is using TimeHuddle, how often, and what they use it for.">
-      {/* A row of its own rather than AppPage's titleActions: four pills next
-          to the title crush the subtitle to one word at phone widths. */}
-      <Tabs
-        variant="pills"
-        value={String(periodDays)}
-        onValueChange={(value) => setPeriodDays(Number(value) as UsagePeriodDays)}
-      >
-        <TabsList aria-label="Usage period" className="w-fit max-w-full">
-          {USAGE_PERIOD_DAYS.map((days) => (
-            <TabsTrigger key={days} value={String(days)}>
-              {PERIOD_TAB_LABEL[days]}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      {/* A row of its own rather than AppPage's titleActions: the pills plus a
+          picker crush the subtitle to one word at phone widths up there. */}
+      <section className="usage-controls flex flex-wrap items-center gap-3">
+        <Tabs
+          variant="pills"
+          value={String(periodDays)}
+          onValueChange={(value) => setPeriodDays(Number(value) as UsagePeriodDays)}
+          // Tabs is w-full by default, which would push the picker to its own row.
+          className="w-fit"
+        >
+          <TabsList aria-label="Usage period" className="w-fit max-w-full">
+            {USAGE_PERIOD_DAYS.map((days) => (
+              <TabsTrigger key={days} value={String(days)}>
+                {PERIOD_TAB_LABEL[days]}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
+        {/* One organization needs no picker — the card below already names it. */}
+        {orgOptions.length > 2 && (
+          <div className="w-56">
+            <Select
+              label="Organization"
+              hideLabel
+              value={orgId}
+              onValueChange={setOrgId}
+              options={orgOptions}
+              disabled={loading}
+            />
+          </div>
+        )}
+      </section>
 
       {error && (
         <Alert variant="danger" role="alert">
@@ -201,11 +257,7 @@ export const OrgUsagePage: React.FC = () => {
             className="usage-summary grid grid-cols-2 gap-3 lg:grid-cols-4"
             aria-label="Usage summary"
           >
-            <SummaryCard
-              label="Members"
-              value={String(totals.members)}
-              note={report.organization.name}
-            />
+            <SummaryCard label="Members" value={String(totals.members)} note={scopeLabel(report)} />
             <SummaryCard
               label={`Active — ${PERIOD_LABEL[report.periodDays].toLowerCase()}`}
               value={`${totals.activeMembers}/${totals.members}`}
@@ -237,7 +289,11 @@ export const OrgUsagePage: React.FC = () => {
               </div>
             }
           >
-            <UsageGrid users={report.users} periodDays={report.periodDays} />
+            <UsageGrid
+              users={report.users}
+              periodDays={report.periodDays}
+              showOrganization={report.organizations.length > 1}
+            />
           </Suspense>
 
           <Text variant="muted" size="xs">

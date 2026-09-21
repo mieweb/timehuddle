@@ -572,14 +572,22 @@ export const USAGE_PERIOD_DAYS = [1, 7, 14, 30] as const;
 
 export type UsagePeriodDays = (typeof USAGE_PERIOD_DAYS)[number];
 
+export interface UsageOrganization {
+  id: string;
+  name: string;
+}
+
 export interface OrgUsageUser {
   id: string;
   name: string;
   email: string;
   username: string | null;
   image: string | null;
+  /** Highest role they hold across the organizations in scope. */
   role: DefaultOrganizationRole | 'member';
   blocked: boolean;
+  /** Those in scope they belong to — more than one only in the all-orgs view. */
+  organizations: UsageOrganization[];
   status: UsageStatus;
   /** Actions per feature within the selected period. */
   features: Record<UsageFeature, number>;
@@ -594,7 +602,12 @@ export interface OrgUsageUser {
 }
 
 export interface OrgUsageReport {
-  organization: { id: string; name: string };
+  /** Every organization the caller may report on — drives the picker. */
+  availableOrganizations: UsageOrganization[];
+  /** Those this report actually covers: one, or all of them. */
+  organizations: UsageOrganization[];
+  /** null when the report spans every organization the caller administers. */
+  orgId: string | null;
   periodDays: UsagePeriodDays;
   cadenceWindowDays: number;
   timezone: string;
@@ -611,11 +624,16 @@ export interface OrgUsageReport {
 
 export const usageApi = {
   /**
-   * Per-member usage for the default organization. Day buckets are cut in the
-   * viewer's own timezone, so "today" means their today.
+   * Per-member usage for the organizations the caller owns or administers.
+   * Pass an `orgId` to narrow to one; omit it to span all of them. Day buckets
+   * are cut in the viewer's own timezone, so "today" means their today.
    */
-  getOrgUsage: (periodDays: UsagePeriodDays) =>
-    wormholeCall<OrgUsageReport>('usage.orgUsage', { periodDays, timezone: clientTz() }),
+  getOrgUsage: (periodDays: UsagePeriodDays, orgId?: string) =>
+    wormholeCall<OrgUsageReport>('usage.orgUsage', {
+      periodDays,
+      timezone: clientTz(),
+      ...(orgId ? { orgId } : {}),
+    }),
 };
 
 // ─── Public Organization API (for all authenticated users) ──────────────────

@@ -14,6 +14,8 @@ import {
   CADENCE_WINDOW_DAYS,
   FEATURE_KEYS,
   classifyCadence,
+  higherRole,
+  mergeOrgMembers,
   periodStartDay,
   summarizeTotals,
   summarizeUsage,
@@ -27,6 +29,7 @@ const member = (id: string, overrides: Record<string, unknown> = {}) => ({
   image: null,
   role: 'member',
   blocked: false,
+  organizations: [{ id: 'o1', name: 'Acme' }],
   ...overrides,
 });
 
@@ -193,5 +196,90 @@ describe('summarizeTotals', () => {
 describe('module constants', () => {
   it('pins the cadence window the page labels its badges with', () => {
     expect(CADENCE_WINDOW_DAYS).toBe(30);
+  });
+});
+
+describe('mergeOrgMembers', () => {
+  const org = (id: string, name: string) => ({ id, name });
+  const roster = (
+    id: string,
+    name: string,
+    members: Array<Record<string, unknown>>,
+  ) => ({ organization: org(id, name), members });
+
+  it('lists a member once per organization they belong to', () => {
+    const merged = mergeOrgMembers([
+      roster('o1', 'Acme', [{ id: 'u1', name: 'Ada', email: 'a@x', role: 'member' }]),
+      roster('o2', 'Beta', [{ id: 'u2', name: 'Bob', email: 'b@x', role: 'member' }]),
+    ]);
+
+    expect(merged.map((m) => m.id)).toEqual(['u1', 'u2']);
+    expect(merged[0].organizations).toEqual([org('o1', 'Acme')]);
+  });
+
+  it('folds someone in two organizations into one row carrying both', () => {
+    const merged = mergeOrgMembers([
+      roster('o1', 'Acme', [{ id: 'u1', name: 'Ada', email: 'a@x', role: 'member' }]),
+      roster('o2', 'Beta', [{ id: 'u1', name: 'Ada', email: 'a@x', role: 'owner' }]),
+    ]);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].organizations).toEqual([org('o1', 'Acme'), org('o2', 'Beta')]);
+    // The higher of the two roles wins, whichever order the rosters arrive in.
+    expect(merged[0].role).toBe('owner');
+  });
+
+  it('keeps the higher role when the stronger one comes first', () => {
+    const merged = mergeOrgMembers([
+      roster('o1', 'Acme', [{ id: 'u1', name: 'Ada', email: 'a@x', role: 'owner' }]),
+      roster('o2', 'Beta', [{ id: 'u1', name: 'Ada', email: 'a@x', role: 'member' }]),
+    ]);
+
+    expect(merged[0].role).toBe('owner');
+  });
+
+  it('counts a block in any organization in scope', () => {
+    const merged = mergeOrgMembers([
+      roster('o1', 'Acme', [
+        { id: 'u1', name: 'Ada', email: 'a@x', role: 'member', blocked: [{ orgId: 'o2' }] },
+      ]),
+      roster('o2', 'Beta', [
+        { id: 'u1', name: 'Ada', email: 'a@x', role: 'member', blocked: [{ orgId: 'o2' }] },
+      ]),
+    ]);
+
+    expect(merged[0].blocked).toBe(true);
+  });
+
+  it('ignores a block recorded against an organization outside the scope', () => {
+    const merged = mergeOrgMembers([
+      roster('o1', 'Acme', [
+        { id: 'u1', name: 'Ada', email: 'a@x', role: 'member', blocked: [{ orgId: 'elsewhere' }] },
+      ]),
+    ]);
+
+    expect(merged[0].blocked).toBe(false);
+  });
+
+  it('survives a member document with no blocked array at all', () => {
+    const merged = mergeOrgMembers([
+      roster('o1', 'Acme', [{ id: 'u1', name: 'Ada', email: 'a@x', role: 'member' }]),
+    ]);
+
+    expect(merged[0].blocked).toBe(false);
+    expect(merged[0].username).toBeNull();
+  });
+});
+
+describe('higherRole', () => {
+  it('ranks owner over admin over member', () => {
+    expect(higherRole('member', 'admin')).toBe('admin');
+    expect(higherRole('admin', 'owner')).toBe('owner');
+    expect(higherRole('owner', 'member')).toBe('owner');
+  });
+
+  it('takes whichever side is present when the other is missing', () => {
+    expect(higherRole(null, 'admin')).toBe('admin');
+    expect(higherRole('admin', null)).toBe('admin');
   });
 });

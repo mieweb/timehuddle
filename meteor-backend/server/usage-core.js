@@ -110,6 +110,59 @@ export function periodStartDay(periodDays, timezone, now = new Date()) {
   return toDayKey(start, timezone);
 }
 
+const ROLE_RANK = { member: 1, admin: 2, owner: 3 };
+
+/** The more powerful of two organization roles. */
+export function higherRole(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return ROLE_RANK[a] >= ROLE_RANK[b] ? a : b;
+}
+
+/**
+ * Union per-organization rosters into one member list.
+ *
+ * Someone who belongs to two of the organizations in scope appears once,
+ * carrying both names and the higher of their two roles. They count as blocked
+ * when they are blocked in any organization in scope — the report is about
+ * whether this person is using TimeHuddle, and a block anywhere in the reader's
+ * remit is the part worth surfacing.
+ *
+ * @param {{organization: UsageOrganization, members: object[]}[]} rosters
+ * @returns {UsageMember[]}
+ */
+export function mergeOrgMembers(rosters) {
+  const scopedOrgIds = new Set(rosters.map((roster) => roster.organization.id));
+  const byId = new Map();
+
+  for (const { organization, members } of rosters) {
+    for (const member of members) {
+      const blocked = (member.blocked ?? []).some((entry) => scopedOrgIds.has(entry.orgId));
+      const existing = byId.get(member.id);
+
+      if (existing) {
+        existing.organizations.push(organization);
+        existing.role = higherRole(existing.role, member.role);
+        existing.blocked = existing.blocked || blocked;
+        continue;
+      }
+
+      byId.set(member.id, {
+        id: member.id,
+        name: member.name,
+        email: member.email,
+        username: member.username ?? null,
+        image: member.image ?? null,
+        role: member.role,
+        blocked,
+        organizations: [organization],
+      });
+    }
+  }
+
+  return [...byId.values()];
+}
+
 function emptyFeatureCounts() {
   return Object.fromEntries(FEATURE_KEYS.map((key) => [key, 0]));
 }
@@ -126,14 +179,21 @@ function pickTopFeature(featureCounts) {
 }
 
 /**
+ * @typedef {object} UsageOrganization
+ * @property {string} id
+ * @property {string} name
+ */
+
+/**
  * @typedef {object} UsageMember
  * @property {string} id
  * @property {string} name
  * @property {string} email
  * @property {string|null} username
  * @property {string|null} image
- * @property {string} role
- * @property {boolean} blocked - blocked in this organization
+ * @property {string} role - the highest role they hold across `organizations`
+ * @property {boolean} blocked - blocked in any organization in scope
+ * @property {UsageOrganization[]} organizations - those in scope they belong to
  */
 
 /**

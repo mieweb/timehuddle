@@ -1826,10 +1826,15 @@ Meteor.startup(async() => {
   // ── Usage analytics ───────────────────────────────────────────────────────
 
   Wormhole.expose('usage.orgUsage', {
-    description: 'Per-member TimeHuddle usage and cadence for the default org (owner/admin)',
+    description:
+      'Per-member TimeHuddle usage and cadence for the organizations the caller owns or administers (owner/admin)',
     inputSchema: {
       type: 'object',
       properties: {
+        orgId: {
+          type: 'string',
+          description: 'Limit to one organization; omit to report across all the caller administers',
+        },
         periodDays: { type: 'number', enum: [1, 7, 14, 30], description: 'Days the counts cover' },
         timezone: { type: 'string', description: 'IANA timezone the day buckets are cut on' },
       },
