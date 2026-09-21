@@ -292,11 +292,14 @@ Meteor.methods({
     };
   },
 
-  /** Get total seconds for a ticket across all closed sessions. */
+  /**
+   * Get the caller's own total seconds for a ticket across all closed sessions.
+   * Scoped to the caller: unscoped, any user could read everyone's time on any ticket.
+   */
   async 'timers.getTicketTotal'({ ticketId, source } = {}) {
-    await requireIdentity(this);
+    const { userId } = await requireIdentity(this);
     const entryIds = (await WorkItems.find(
-      { ticketId, ...sourceSelector(normalizeSource(source)) },
+      { userId, ticketId, ...sourceSelector(normalizeSource(source)) },
       { fields: { _id: 1 } }
     ).fetchAsync()).map((e) => e._id.toHexString());
     if (!entryIds.length) return { totalSeconds: 0 };
