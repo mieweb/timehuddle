@@ -11,7 +11,8 @@
  */
 import { MongoInternals } from 'meteor/mongo';
 import { rawDb, isValidId } from './collections';
-import { normalizeSource, refKey, resolveTicketRefs } from './ticket-refs';
+import { normalizeSource, refKey, resolveTicketRefs, sourceSelector } from './ticket-refs';
+import { sumClosedSessions } from './redmine-net-hours';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
 
@@ -56,6 +57,90 @@ export async function closeAllForUser(userId, now) {
 /** Find the timer session that closed exactly at `endTime` for the user. */
 export function findClosedAtTime(userId, endTime) {
   return timers().findOne({ userId, endTime });
+}
+
+/**
+ * Net worked seconds for one user, one ticket, one day — the number M5 projects
+ * to Redmine as a single "Spent time" entry.
+ *
+ * Deliberately *not* `timers.getTicketTotal`, which answers a different question
+ * (a ticket's lifetime total across every user and every day) and would push
+ * other people's hours under the caller's name.
+ *
+ * Sums across **all** matching WorkItems, not one: `timers.copyPrevious` dedupes
+ * on a signature including `note` and `sortOrder`, so sibling rows for the same
+ * user + source + ticket + date legitimately exist and all of them count.
+ */
+export async function netSecondsFor(userId, source, ticketId, date) {
+  const rows = await workItems()
+    .find(
+      { userId, ticketId, date, ...sourceSelector(normalizeSource(source)) },
+      { projection: { _id: 1 } },
+    )
+    .toArray();
+  if (!rows.length) return 0;
+
+  // `timers.workItemId` is stored as a hex string, not an ObjectId.
+  const workItemIds = rows.map((row) => row._id.toHexString());
+  const sessions = await timers()
+    .find(
+      { workItemId: { $in: workItemIds }, endTime: { $ne: null } },
+      { projection: { endTime: 1, durationSeconds: 1 } },
+    )
+    .toArray();
+
+  return sumClosedSessions(sessions);
+}
+
+/**
+ * Every Redmine ticket-day this user has tracked time against, with its net
+ * seconds — the full candidate set the manual push (M5, D2) draws from.
+ *
+ * The same grouping `netSecondsFor` performs, but for all of a user's Redmine
+ * work at once, so the confirmation dialog needs one round trip rather than one
+ * per ticket-day. Sibling WorkItems for the same tuple collapse into a single
+ * total for exactly the reason given above.
+ *
+ * Days with no closed session are dropped: a still-running timer has no final
+ * duration, and under D1 a pushed entry can never be corrected, so partial time
+ * must not reach Redmine.
+ *
+ * @returns {Promise<Array<{ticketId: string, date: string, seconds: number}>>}
+ */
+export async function redmineTicketDaysFor(userId) {
+  const rows = await workItems()
+    .find(
+      { userId, ...sourceSelector('redmine') },
+      { projection: { _id: 1, ticketId: 1, date: 1 } },
+    )
+    .toArray();
+  if (!rows.length) return [];
+
+  // `timers.workItemId` is stored as a hex string, not an ObjectId.
+  const keyByWorkItem = new Map(
+    rows.map((row) => [row._id.toHexString(), `${row.ticketId}|${row.date}`]),
+  );
+
+  const sessions = await timers()
+    .find(
+      { workItemId: { $in: [...keyByWorkItem.keys()] }, endTime: { $ne: null } },
+      { projection: { workItemId: 1, endTime: 1, durationSeconds: 1 } },
+    )
+    .toArray();
+
+  const byKey = new Map();
+  for (const session of sessions) {
+    const key = keyByWorkItem.get(session.workItemId);
+    if (!key) continue;
+    const bucket = byKey.get(key) ?? [];
+    bucket.push(session);
+    byKey.set(key, bucket);
+  }
+
+  return [...byKey.entries()].map(([key, bucket]) => {
+    const [ticketId, date] = key.split('|');
+    return { ticketId, date, seconds: sumClosedSessions(bucket) };
+  });
 }
 
 /**

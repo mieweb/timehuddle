@@ -53,6 +53,7 @@ import {
   redmineApi,
   type PersonalAccessToken,
   type RedmineStatus,
+  type RedmineActivityList,
 } from '../lib/api';
 import { getDdpClient } from '../lib/ddp';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
@@ -707,16 +708,31 @@ const RedmineConnection: React.FC = () => {
   const [apiKey, setApiKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activities, setActivities] = useState<RedmineActivityList | null>(null);
+  const [activityBusy, setActivityBusy] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const loadActivities = useCallback(async () => {
     try {
-      setStatus(await redmineApi.status());
+      setActivities(await redmineApi.activities.list());
+      setActivityError(null);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to load Redmine status');
-    } finally {
-      setLoading(false);
+      setActivityError(err instanceof Error ? err.message : 'Failed to load Redmine activities');
     }
   }, []);
+
+  const load = useCallback(async () => {
+    // Settled separately: a failing activities fetch must not blank the
+    // connection card, which is the more important of the two.
+    const [statusResult] = await Promise.allSettled([redmineApi.status(), loadActivities()]);
+    if (statusResult.status === 'fulfilled') {
+      setStatus(statusResult.value);
+    } else {
+      const err: unknown = statusResult.reason;
+      setError(err instanceof Error ? err.message : 'Failed to load Redmine status');
+    }
+    setLoading(false);
+  }, [loadActivities]);
 
   useEffect(() => {
     void load();
@@ -731,6 +747,7 @@ const RedmineConnection: React.FC = () => {
       const next = await redmineApi.connect(key);
       setStatus(next);
       setApiKey('');
+      await loadActivities();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to connect to Redmine');
     } finally {
@@ -743,10 +760,24 @@ const RedmineConnection: React.FC = () => {
     setError(null);
     try {
       setStatus(await redmineApi.disconnect());
+      setActivities(null);
+      setActivityError(null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to disconnect');
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleActivityChange = async (value: string) => {
+    setActivityBusy(true);
+    setActivityError(null);
+    try {
+      setActivities(await redmineApi.activities.setDefault(Number(value)));
+    } catch (err: unknown) {
+      setActivityError(err instanceof Error ? err.message : 'Failed to set the default activity');
+    } finally {
+      setActivityBusy(false);
     }
   };
 
@@ -789,6 +820,43 @@ const RedmineConnection: React.FC = () => {
             Disconnect
           </Button>
         </div>
+
+        <div className="redmine-activity flex flex-col gap-1 border-t border-border pt-3">
+          {activities && activities.activities.length === 0 ? (
+            <Text size="xs" variant="destructive" role="alert">
+              This Redmine instance has no time-entry activities configured. Time cannot be logged
+              until an administrator adds one.
+            </Text>
+          ) : (
+            activities && (
+              <>
+                <Select
+                  label="Default activity"
+                  size="sm"
+                  value={activities.selectedId == null ? '' : String(activities.selectedId)}
+                  options={activities.activities.map((activity) => ({
+                    value: String(activity.id),
+                    label: activity.name,
+                  }))}
+                  onValueChange={(value) => void handleActivityChange(value)}
+                  disabled={activityBusy}
+                  aria-label="Default Redmine activity"
+                />
+                <Text variant="muted" size="xs">
+                  Redmine requires an activity on every time entry, and this instance has no
+                  default.
+                  {activities.selectedReason !== 'chosen' && ' Until you choose, we use this one.'}
+                </Text>
+              </>
+            )
+          )}
+          {activityError && (
+            <Text size="xs" variant="destructive" role="alert">
+              {activityError}
+            </Text>
+          )}
+        </div>
+
         {error && (
           <Text size="xs" variant="destructive" role="alert">
             {error}
