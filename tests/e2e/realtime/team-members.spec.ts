@@ -1,10 +1,46 @@
 /**
- * Real-time team member synchronization tests.
+ * Real-time team member synchronization.
  *
- * Verifies that team member changes sync across sessions.
+ * `TeamsPage` subscribes to the `teams` collection, so a membership change made
+ * by one team admin must reach another admin's open page without a reload.
+ * That is the assertion worth making here — the old version of this file only
+ * compared two sessions' unchanged headings and list lengths, which would pass
+ * with real-time sync entirely broken.
+ *
+ * Promoting a member to team admin is the mutation under test: `teams.admins`
+ * is part of the published document, and "Remove Admin" undoes it through the
+ * same UI, so the seeded team is left as it was found.
+ *
+ * Both sessions are seeded team admins of TEST01 — the ⋮ menu only renders for
+ * admins, and only a second admin can observe the change.
  */
 import { test, expect, type Page } from '@playwright/test';
-import { LoginPage } from '../pages/LoginPage';
+
+import { TEST_USERS, loginAs } from '../fixtures/users';
+import { selectSharedTestTeam } from '../fixtures/team';
+
+/** A seeded plain member of TEST01, so the promotion has somewhere to go. */
+const TARGET = TEST_USERS.member4;
+
+const memberItem = (page: Page, name: string) =>
+  page.locator('li').filter({ hasText: name }).first();
+
+/** The crown badge a team admin carries in the member list. */
+const adminBadge = (page: Page, name: string) => memberItem(page, name).getByText('Admin');
+
+async function openTeamsPage(page: Page): Promise<void> {
+  await selectSharedTestTeam(page);
+  await page.goto('/app/teams');
+  await expect(page.getByRole('heading', { level: 1, name: 'Teams' })).toBeVisible({
+    timeout: 20000,
+  });
+  await expect(memberItem(page, TARGET.name)).toBeVisible({ timeout: 20000 });
+}
+
+async function chooseMemberAction(page: Page, name: string, action: string): Promise<void> {
+  await memberItem(page, name).getByRole('button', { name: 'Member actions' }).click();
+  await page.getByText(action, { exact: true }).click();
+}
 
 test.describe('Real-time Team Members', () => {
   let session1: Page;
@@ -17,55 +53,50 @@ test.describe('Real-time Team Members', () => {
     session1 = await context1.newPage();
     session2 = await context2.newPage();
 
-    const loginPage1 = new LoginPage(session1);
-    const loginPage2 = new LoginPage(session2);
+    await loginAs(session1, TEST_USERS.admin1);
+    await loginAs(session2, TEST_USERS.admin2);
 
-    await loginPage1.goto();
-    await loginPage1.login('admin1@test.local', 'TestPass1!');
-    // 15s tolerates a warming backend; the default 5s occasionally times out.
-    await expect(session1).toHaveURL(/\/app\//, { timeout: 15000 });
+    await openTeamsPage(session1);
+    await openTeamsPage(session2);
 
-    await loginPage2.goto();
-    await loginPage2.login('admin2@test.local', 'TestPass1!');
-    await expect(session2).toHaveURL(/\/app\//, { timeout: 15000 });
-
-    // Navigate to Teams page
-    await session1.goto('http://localhost:3002/app/teams');
-    await session2.goto('http://localhost:3002/app/teams');
-
-    await session1.waitForLoadState('networkidle');
-    await session2.waitForLoadState('networkidle');
+    await expect(adminBadge(session1, TARGET.name)).toHaveCount(0);
+    await expect(adminBadge(session2, TARGET.name)).toHaveCount(0);
   });
 
   test.afterEach(async () => {
+    // Demote again so the next spec inherits the seeded admin list.
+    if ((await adminBadge(session1, TARGET.name).count()) > 0) {
+      await chooseMemberAction(session1, TARGET.name, 'Remove Admin').catch(() => {});
+      await expect(adminBadge(session1, TARGET.name)).toHaveCount(0, { timeout: 10000 });
+    }
     await session1.close();
     await session2.close();
   });
 
-  test('should sync team member list updates', async () => {
-    // Both sessions should see the same content on the teams page
-    // Check for "Personal Workspace" heading which is always present
-    await expect(
-      session1.getByRole('heading', { name: /Personal Workspace|Teams/i }).first(),
-    ).toBeVisible({ timeout: 5000 });
-    await expect(
-      session2.getByRole('heading', { name: /Personal Workspace|Teams/i }).first(),
-    ).toBeVisible({ timeout: 5000 });
+  test('promoting a member to admin reaches the other admin without a reload', async () => {
+    await chooseMemberAction(session1, TARGET.name, 'Make Admin');
 
-    // Both sessions should show the same member list in Personal Workspace
-    const memberCount1 = await session1.locator('[role="listitem"]').count();
-    const memberCount2 = await session2.locator('[role="listitem"]').count();
-
-    // Both sessions should see consistent member data
-    expect(memberCount1).toBe(memberCount2);
+    await expect(adminBadge(session1, TARGET.name)).toBeVisible({ timeout: 10000 });
+    await expect(adminBadge(session2, TARGET.name)).toBeVisible({ timeout: 10000 });
   });
 
-  test('should sync when team admin changes member role', async () => {
-    // Both sessions should see the same Teams page heading
-    const heading1 = await session1.getByRole('heading', { level: 1 }).textContent();
-    const heading2 = await session2.getByRole('heading', { level: 1 }).textContent();
+  test('demoting them again clears the badge in the other session', async () => {
+    await chooseMemberAction(session1, TARGET.name, 'Make Admin');
+    await expect(adminBadge(session2, TARGET.name)).toBeVisible({ timeout: 10000 });
 
-    expect(heading1).toBe(heading2);
-    expect(heading1).toBe('Teams');
+    await chooseMemberAction(session1, TARGET.name, 'Remove Admin');
+
+    await expect(adminBadge(session1, TARGET.name)).toHaveCount(0, { timeout: 10000 });
+    await expect(adminBadge(session2, TARGET.name)).toHaveCount(0, { timeout: 10000 });
+  });
+
+  test('only the promoted member changes in the observing session', async () => {
+    const bystander = TEST_USERS.member3;
+    await expect(adminBadge(session2, bystander.name)).toHaveCount(0);
+
+    await chooseMemberAction(session1, TARGET.name, 'Make Admin');
+    await expect(adminBadge(session2, TARGET.name)).toBeVisible({ timeout: 10000 });
+
+    await expect(adminBadge(session2, bystander.name)).toHaveCount(0);
   });
 });

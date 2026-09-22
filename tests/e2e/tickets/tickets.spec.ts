@@ -12,6 +12,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
+import { createTicket, ticketRow as rowFor } from './helpers';
 
 const TICKET_TITLE = `E2E Test Ticket ${Date.now()}`;
 const TICKET_TITLE_2 = `E2E Searchable Ticket ${Date.now()}`;
@@ -22,6 +23,12 @@ test.describe('Tickets', () => {
   });
 
   test('should navigate to tickets page with correct URL', async ({ page }) => {
+    // The table — and therefore its column headers — only renders when at least
+    // one ticket exists; an empty list shows "No open tickets" instead. Seed one
+    // so the header assertions below are deterministic rather than depending on
+    // data another test happened to leave behind.
+    await createTicket(page, `E2E Columns ${Date.now()}`);
+
     await page.goto('/app/tickets');
     await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
 
@@ -102,30 +109,33 @@ test.describe('Tickets', () => {
     await expect(page.getByText(editTitle)).toBeVisible({ timeout: 10000 });
 
     // Open the ticket options menu
-    const ticketRow = page.locator('li').filter({ hasText: editTitle }).first();
+    const ticketRow = rowFor(page, editTitle).first();
     const menuBtn = ticketRow.getByRole('button', { name: 'Ticket options' });
     await menuBtn.click();
 
     // Click Edit Ticket from dropdown
     await page.getByText('Edit Ticket', { exact: true }).click();
 
-    // Verify edit modal components
-    await expect(page.getByRole('heading', { name: 'Edit Ticket' })).toBeVisible();
-    await expect(page.getByLabel(/Title/i)).toBeVisible();
-    await expect(page.getByLabel(/Description/i)).toBeVisible();
-    await expect(page.getByLabel(/GitHub URL/i)).toBeVisible();
-    await expect(page.getByText('Assignees')).toBeVisible();
-    await expect(page.getByLabel(/Priority/i)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Save' })).toBeVisible();
+    // Verify edit modal components. Scoped to the dialog: the table behind it
+    // has sortable column headers, so an unscoped /Title/i also matches the
+    // "Sort by Title ascending" button and trips strict mode.
+    const editModal = page.getByRole('dialog');
+    await expect(editModal.getByRole('heading', { name: 'Edit Ticket' })).toBeVisible();
+    await expect(editModal.getByRole('textbox', { name: 'Title' })).toBeVisible();
+    await expect(editModal.getByRole('textbox', { name: /Description/i })).toBeVisible();
+    await expect(editModal.getByRole('textbox', { name: /GitHub URL/i })).toBeVisible();
+    await expect(editModal.getByText('Assignees')).toBeVisible();
+    await expect(editModal.getByLabel(/Priority/i)).toBeVisible();
+    await expect(editModal.getByRole('button', { name: 'Cancel' })).toBeVisible();
+    await expect(editModal.getByRole('button', { name: 'Save' })).toBeVisible();
 
     // Edit the title
-    const titleInput = page.getByLabel(/Title/i);
+    const titleInput = editModal.getByRole('textbox', { name: 'Title' });
     await titleInput.clear();
     await titleInput.fill(`${editTitle} - Updated`);
 
     // Save the edit
-    await page.getByRole('button', { name: 'Save' }).click();
+    await editModal.getByRole('button', { name: 'Save' }).click();
     await page.waitForTimeout(2000);
 
     // Verify updated title appears
@@ -145,7 +155,7 @@ test.describe('Tickets', () => {
     await expect(page.getByText(detailTitle)).toBeVisible({ timeout: 10000 });
 
     // Open ticket options menu
-    const ticketRow = page.locator('li').filter({ hasText: detailTitle }).first();
+    const ticketRow = rowFor(page, detailTitle).first();
     const menuBtn = ticketRow.getByRole('button', { name: 'Ticket options' });
     await menuBtn.click();
     await page.waitForTimeout(500);
@@ -195,7 +205,7 @@ test.describe('Tickets', () => {
     await expect(page.getByText(deleteTitle)).toBeVisible({ timeout: 10000 });
 
     // Open ticket options menu
-    const ticketRow = page.locator('li').filter({ hasText: deleteTitle }).first();
+    const ticketRow = rowFor(page, deleteTitle).first();
     const menuBtn = ticketRow.getByRole('button', { name: 'Ticket options' });
     await menuBtn.click();
 
@@ -229,7 +239,7 @@ test.describe('Tickets', () => {
     await expect(page.getByText(assignTitle)).toBeVisible({ timeout: 10000 });
 
     // Open edit modal to assign via checkboxes
-    const ticketRow = page.locator('li').filter({ hasText: assignTitle }).first();
+    const ticketRow = rowFor(page, assignTitle).first();
     const menuBtn = ticketRow.getByRole('button', { name: 'Ticket options' });
     await menuBtn.click();
     await page.waitForTimeout(500);
@@ -262,7 +272,7 @@ test.describe('Tickets', () => {
     await page.waitForTimeout(1000);
 
     // Open edit modal again to unassign
-    const ticketRow2 = page.locator('li').filter({ hasText: assignTitle }).first();
+    const ticketRow2 = rowFor(page, assignTitle).first();
     await ticketRow2.getByRole('button', { name: 'Ticket options' }).click();
     await page.waitForTimeout(500);
     await page.getByText('Edit Ticket', { exact: true }).click();
@@ -302,7 +312,7 @@ test.describe('Tickets', () => {
     await expect(page.getByText(mobileTitle)).toBeVisible({ timeout: 10000 });
 
     // Find the ticket and click the options menu
-    const ticketRow = page.locator('li').filter({ hasText: mobileTitle }).first();
+    const ticketRow = rowFor(page, mobileTitle).first();
     const menuBtn = ticketRow.getByRole('button', { name: 'Ticket options' });
 
     // Verify the button is visible on mobile
@@ -373,7 +383,7 @@ test.describe('Tickets', () => {
     await expect(page.getByText(tabletTitle)).toBeVisible({ timeout: 10000 });
 
     // Find the ticket and click the options menu
-    const ticketRow = page.locator('li').filter({ hasText: tabletTitle }).first();
+    const ticketRow = rowFor(page, tabletTitle).first();
     const menuBtn = ticketRow.getByRole('button', { name: 'Ticket options' });
 
     // Click to open dropdown
