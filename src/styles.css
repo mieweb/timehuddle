@@ -202,6 +202,9 @@ html[data-theme='dark'] {
   }
 }
 @source "../node_modules/@mieweb/ui/dist";
+/* DataVis NITRO ships its own Tailwind classes and is not re-exported through
+ * @mieweb/ui/dist, so the usage grid renders unstyled without this. */
+@source "../node_modules/@mieweb/datavis/dist";
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
 /* Markdown in the repo is documentation, not app source. Tailwind 4 auto-detects

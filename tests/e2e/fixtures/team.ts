@@ -11,8 +11,10 @@
  * `app:selectedTeamId` (plus per-org keyed variants). We set both and reload
  * so the app boots into the shared team.
  */
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { MongoClient } from 'mongodb';
+
+import { TEST_USERS, loginAs, type TestUser } from './users';
 
 const MONGO_URL =
   process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
@@ -77,4 +79,36 @@ export async function selectSharedTestTeam(page: Page): Promise<string> {
   throw new Error(
     `Could not switch to shared team ${teamId} — TeamContext keeps reverting to the personal team.`,
   );
+}
+
+/**
+ * Navigate to the Teams page, re-authenticating if the app bounces to login.
+ *
+ * A slow DDP cold start can redirect this navigation to the sign-in screen,
+ * and the bounce can land a beat *after* navigation settles — the app renders
+ * optimistically, then redirects once the auth check resolves. A one-shot
+ * `isVisible()` straight after `goto()` therefore misses it, skips the
+ * recovery, and leaves the caller to wait out its whole timeout on the login
+ * page. Race the two possible outcomes instead, and retry: the DDP client's
+ * reconnect backoff runs to ~46s, so one retry is not always enough.
+ *
+ * TeamsPage.goto() carries the same recovery for the page-object specs.
+ */
+export async function gotoTeamsPage(page: Page, user: TestUser = TEST_USERS.owner1): Promise<void> {
+  const createTeam = page.getByRole('button', { name: 'Create Team' });
+  const loginHeading = page.getByRole('heading', { name: 'Sign in to your account' });
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await page.goto('/app/teams');
+
+    const landedOnLogin = await Promise.race([
+      createTeam.waitFor({ state: 'visible', timeout: 20000 }).then(() => false),
+      loginHeading.waitFor({ state: 'visible', timeout: 20000 }).then(() => true),
+    ]).catch(() => false);
+
+    if (!landedOnLogin) break;
+    await loginAs(page, user);
+  }
+
+  await expect(createTeam).toBeVisible({ timeout: 20000 });
 }

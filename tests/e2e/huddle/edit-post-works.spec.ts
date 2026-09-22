@@ -48,12 +48,13 @@ test.describe('Huddle — editing a post', () => {
     const card = postContainer(page, seed).first();
     await expect(card).toBeVisible({ timeout: 15000 });
 
-    await card
-      .locator('button')
-      .filter({ has: page.locator('circle') })
-      .last()
-      .click();
-    await page.getByRole('button', { name: 'Edit post' }).click();
+    // Both of these broke in dbaa9b09, which swapped the hand-rolled menu for
+    // @mieweb/ui's Dropdown: the kebab became a FontAwesome <path> (this used
+    // to filter for a <circle>) and the entries became menuitems rather than
+    // buttons. Select by accessible name and role, not by markup internals —
+    // HuddlePage.openPostMenu already locates the trigger this way.
+    await card.getByRole('button', { name: 'Post actions' }).click();
+    await page.getByRole('menuitem', { name: 'Edit post' }).click();
 
     // Pre-fix this never arrived — the composer rendered an empty box.
     const editor = composerEditor(page);

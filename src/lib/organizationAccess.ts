@@ -42,3 +42,22 @@ export function hasEnterpriseAdminAccess(
   const role = getEnterpriseRole(enterprises, selectedEnterpriseId);
   return !!role && ENTERPRISE_ADMIN_ROLES.includes(role);
 }
+
+/**
+ * Owner or admin of at least one organization.
+ *
+ * Reads the per-org roles TeamContext loads, rather than
+ * `user.organizationMembership` — which `useSession` never populates, so
+ * `hasDefaultOrganizationAdminAccess` is false for everyone today. Server-side
+ * gates stay the authority; this only decides what is worth showing.
+ */
+export function hasOrganizationAdminAccess(
+  organizations: ReadonlyArray<{ role: OrganizationRole | 'member' | null }>,
+): boolean {
+  return organizations.some(
+    (organization) =>
+      organization.role !== null &&
+      organization.role !== 'member' &&
+      DEFAULT_ORG_ADMIN_ROLES.includes(organization.role),
+  );
+}

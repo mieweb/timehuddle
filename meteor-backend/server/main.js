@@ -28,6 +28,7 @@ import './timesheet-approvals';
 import './notifications';
 import './presence';
 import './activity';
+import './usage';
 // M2 — Collaboration
 import './teams';
 import './team-join-requests';
@@ -1821,6 +1822,24 @@ Meteor.startup(async() => {
   Wormhole.expose('orgs.publicListUsers', { description: 'List users with default org roles (all users)', inputSchema: { type: 'object', properties: {} } });
   Wormhole.expose('orgs.blockMember', { description: 'Block org member (manage permission)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, targetUserId: { type: 'string' }, reason: { type: 'string' } }, required: ['orgId', 'targetUserId'] } });
   Wormhole.expose('orgs.unblockMember', { description: 'Unblock org member (manage permission)', inputSchema: { type: 'object', properties: { orgId: { type: 'string' }, targetUserId: { type: 'string' } }, required: ['orgId', 'targetUserId'] } });
+
+  // ── Usage analytics ───────────────────────────────────────────────────────
+
+  Wormhole.expose('usage.orgUsage', {
+    description:
+      'Per-member TimeHuddle usage and cadence for the organizations the caller owns or administers (owner/admin)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        orgId: {
+          type: 'string',
+          description: 'Limit to one organization; omit to report across all the caller administers',
+        },
+        periodDays: { type: 'number', enum: [1, 7, 14, 30], description: 'Days the counts cover' },
+        timezone: { type: 'string', description: 'IANA timezone the day buckets are cut on' },
+      },
+    },
+  });
 
   // ── Enterprises ───────────────────────────────────────────────────────────
 

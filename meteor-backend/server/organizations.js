@@ -141,7 +141,7 @@ function toPublicOrgInvitation(doc, invitedByName) {
   };
 }
 
-async function loadOrgMembers(orgId) {
+export async function loadOrgMembers(orgId) {
   const db = rawDb();
   const org = await db.collection('organizations').findOne({ _id: new ObjectId(orgId) });
   if (!org) return [];

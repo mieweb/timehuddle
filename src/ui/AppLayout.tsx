@@ -29,6 +29,7 @@ import { TicketDetailPage } from '../features/tickets/TicketDetailPage';
 import { WorkPage } from '../features/timers/WorkPage';
 import { ActivityLogPage } from '../features/activity/ActivityLogPage';
 import { OrganizationMembersPage } from '../features/org/OrganizationMembersPage';
+import { OrgUsagePage } from '../features/usage/OrgUsagePage';
 import Huddle from '../pages/Huddle';
 import { HiPage } from '../pages/HiPage';
 import { OrganizationOverviewPage } from '../features/org/OrganizationOverviewPage';
@@ -84,6 +85,7 @@ const ROUTES: Record<string, RouteConfig> = {
   '/app/work': { title: 'Work', component: WorkPage },
 
   '/app/org/members': { title: 'Members', component: OrganizationMembersPage },
+  '/app/org/usage': { title: 'Usage', component: OrgUsagePage },
 };
 
 function match(pathname: string): RouteConfig | null {
