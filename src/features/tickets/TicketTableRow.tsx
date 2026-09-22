@@ -196,13 +196,14 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
       <TableCell className="overflow-hidden">
         <div className="flex min-w-0 items-center gap-2">
           <FontAwesomeIcon icon={icon} className={`shrink-0 text-sm ${iconClass}`} />
-          <button
-            className="min-w-0 flex-1 truncate text-left text-sm font-medium text-neutral-900 hover:text-primary hover:underline dark:text-neutral-100 dark:hover:text-primary"
+          <Button
+            variant="ghost"
+            className="h-auto min-w-0 flex-1 justify-start truncate p-0 text-left text-sm font-medium text-neutral-900 hover:text-primary hover:underline dark:text-neutral-100 dark:hover:text-primary"
             onClick={openTicket}
             title={ticket.title}
           >
             {ticket.title}
-          </button>
+          </Button>
           {ticket.sharedWithTimeharbor && (
             <Badge variant="default" size="sm" title="Shared with TimeHarbor">
               TH
@@ -261,15 +262,17 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
               // Only Huddle assignee ids resolve to an in-app profile route.
               const avatar = <UserAvatar name={assignee.name} size="xs" />;
               return ticket.sourceId === 'huddle' ? (
-                <button
+                <Button
                   key={assignee.id}
-                  className="rounded-full ring-2 ring-white transition-opacity hover:z-10 hover:opacity-80 focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none dark:ring-neutral-900"
+                  variant="ghost"
+                  size="icon"
+                  className="h-auto w-auto rounded-full p-0 ring-2 ring-white transition-opacity hover:z-10 hover:opacity-80 dark:ring-neutral-900"
                   onClick={() => navigate(`/app/profile/${assignee.id}`)}
                   aria-label={`View ${assignee.name}'s profile`}
                   title={assignee.name}
                 >
                   {avatar}
-                </button>
+                </Button>
               ) : (
                 <div
                   key={assignee.id}

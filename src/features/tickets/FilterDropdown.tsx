@@ -11,7 +11,7 @@
 import { faChevronDown } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Capacitor } from '@capacitor/core';
-import { DropdownContent, type DropdownPlacement } from '@mieweb/ui';
+import { Button, DropdownContent, type DropdownPlacement } from '@mieweb/ui';
 import React from 'react';
 import { createPortal } from 'react-dom';
 
@@ -179,8 +179,9 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
 
   return (
     <>
-      <button
+      <Button
         ref={triggerRef}
+        variant="ghost"
         type="button"
         onClick={() => handleOpenChange(!open)}
         aria-haspopup="menu"
@@ -202,7 +203,7 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
             <FontAwesomeIcon icon={faChevronDown} className="text-[10px]" />
           </>
         )}
-      </button>
+      </Button>
       {open &&
         createPortal(
           <div

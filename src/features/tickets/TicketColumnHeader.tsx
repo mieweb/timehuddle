@@ -9,7 +9,7 @@
  */
 import { faFilter, faSort, faSortDown, faSortUp } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { DropdownItem, DropdownLabel, DropdownSeparator, TableHead } from '@mieweb/ui';
+import { Button, DropdownItem, DropdownLabel, DropdownSeparator, TableHead } from '@mieweb/ui';
 import React from 'react';
 
 import { FilterDropdown } from './FilterDropdown';
@@ -82,10 +82,11 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
     >
       <div className="flex items-center gap-1">
         {sortField ? (
-          <button
+          <Button
+            variant="ghost"
             type="button"
             onClick={() => onSortChange(sortField)}
-            className="hover:text-foreground flex items-center gap-1 rounded transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none"
+            className="hover:text-foreground flex h-auto items-center gap-1 p-0 text-inherit transition-colors"
             aria-label={`Sort by ${label} ${isSorted && sort.direction === 'asc' ? 'descending' : 'ascending'}`}
           >
             {label}
@@ -93,7 +94,7 @@ export const TicketColumnHeader: React.FC<TicketColumnHeaderProps> = ({
               icon={sortIcon(isSorted, sort.direction)}
               className={`text-[10px] ${isSorted ? 'text-neutral-700 dark:text-neutral-200' : 'text-neutral-400'}`}
             />
-          </button>
+          </Button>
         ) : (
           <span>{label}</span>
         )}
