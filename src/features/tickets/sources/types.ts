@@ -28,8 +28,18 @@ export interface SourceCapabilities {
   delete: boolean;
   assign: boolean;
   changeStatus: boolean;
-  /** Row opens `externalUrl` in a new tab instead of an in-app detail route. */
+  /**
+   * The ticket also has a page in its own system (`externalUrl`), offered as
+   * "Open in …" beside the in-app detail page.
+   */
   openExternal: boolean;
+}
+
+/** The in-app detail page for a ticket: Huddle tickets and Redmine issues each have one. */
+export function ticketDetailPath(ticket: { sourceId: TicketSourceId; id: string }): string {
+  return ticket.sourceId === 'redmine'
+    ? `/app/tickets/redmine/${ticket.id}`
+    : `/app/tickets/${ticket.id}`;
 }
 
 /** A person a ticket is assigned to. Ids are namespaced per source. */

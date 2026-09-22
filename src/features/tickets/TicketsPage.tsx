@@ -9,12 +9,15 @@
  * status, assignment) and the ticket timer; rows gate those controls on each
  * source's capabilities.
  */
-import { faPlus, faSearch, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faPlus, faSearch } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   Button,
+  Alert,
+  AlertDescription,
   Card,
-  CardContent,
+  Dropdown,
+  DropdownItem,
   Input,
   Modal,
   ModalBody,
@@ -57,14 +60,20 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
-import { UserAvatar } from '../../ui/UserAvatar';
-import { AttachmentsPanel } from '../clock/AttachmentsPanel';
-import { PulseUploadButton } from '../media/PulseUploadButton';
-import { fetchGithubIssue, isGithubIssueUrl } from './githubIssue';
+import { fetchGithubIssueTitle, isGithubIssueUrl } from './githubIssue';
+import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketBulkActionBar } from './TicketBulkActionBar';
+import { TicketCreateModal } from './TicketCreateModal';
 import { TicketTable } from './TicketTable';
 import { hasActiveFilters } from './ticketFilters';
-import { huddleSource, useUnifiedTickets, type UnifiedTicket } from './sources';
+import { RedmineIssueCreateModal } from './redmine/RedmineIssueCreateModal';
+import { RedmineIssueEditModal } from './redmine/RedmineIssueEditModal';
+import {
+  huddleSource,
+  invalidateRedmineCache,
+  useUnifiedTickets,
+  type UnifiedTicket,
+} from './sources';
 import { useMeAssigneeKeys } from './useMeAssigneeKeys';
 import { useTicketTableView } from './useTicketTableView';
 
@@ -77,29 +86,6 @@ const STATUS_OPTIONS = [
   { value: 'closed', label: 'Completed' },
   { value: 'reviewed', label: 'Reviewed' },
 ];
-
-const PRIORITY_OPTIONS = [
-  { value: 'none', label: 'None' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'critical', label: 'Critical' },
-];
-
-function priorityLabelClass(priority: string): string {
-  if (priority === 'critical')
-    return 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400';
-  if (priority === 'high')
-    return 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400';
-  if (priority === 'medium')
-    return 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-400';
-  return 'border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400';
-}
-
-async function fetchIssueTitle(url: string): Promise<string | null> {
-  const issue = await fetchGithubIssue(url);
-  return issue?.title ?? null;
-}
 
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
@@ -190,6 +176,23 @@ export const TicketsPage: React.FC = () => {
   // would hijack the visible page's refresh handler.
   useRefresh(refetch, pathname === '/app/tickets');
 
+  // The Redmine list is cached per session, so a refetch after a Redmine write
+  // must drop that cache or it would re-serve the pre-write rows.
+  const refetchAfterRedmineWrite = useCallback(() => {
+    invalidateRedmineCache();
+    void refetch();
+  }, [refetch]);
+
+  // M6: Redmine issues are edited and created in their own dialogs, under the
+  // user's personal Redmine key.
+  const [redmineEditIssueId, setRedmineEditIssueId] = useState<number | null>(null);
+  const [showRedmineCreate, setShowRedmineCreate] = useState(false);
+  const [redmineNotice, setRedmineNotice] = useState<{
+    issueId: number;
+    message: string;
+    isWarning: boolean;
+  } | null>(null);
+
   // Stable key derived from sorted team IDs — the subscription only reconnects
   // when the actual set of teams changes, not on every new array reference.
   const teamIdsKey = useMemo(
@@ -243,17 +246,14 @@ export const TicketsPage: React.FC = () => {
   }, [refetch]);
 
   // Mutation loading states
-  const [createLoading, setCreateLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
 
   // Create state
   const [showCreate, setShowCreate] = useState(false);
   const [showNoTeamDialog, setShowNoTeamDialog] = useState(false);
-  const [createTitle, setCreateTitle] = useState('');
-  const [createGithub, setCreateGithub] = useState('');
-  const [createTitleFetching, setCreateTitleFetching] = useState(false);
-  const createFetchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Controlled so picking an item closes the menu before its dialog opens.
+  const [newTicketMenuOpen, setNewTicketMenuOpen] = useState(false);
 
   // Tickets tab vs My Board tab — same URL, local state only (M2.1 retired the
   // heading-dropdown pattern; this is real tabs instead).
@@ -276,10 +276,14 @@ export const TicketsPage: React.FC = () => {
   // Whether the user has linked a Redmine account, so the board can say *why*
   // its Redmine rows are missing instead of silently showing a short list.
   const [redmineConnected, setRedmineConnected] = useState<boolean | null>(null);
+  const [redmineBaseUrl, setRedmineBaseUrl] = useState<string | null>(null);
   useEffect(() => {
     void redmineApi
       .status()
-      .then((status) => setRedmineConnected(status.connected))
+      .then((status) => {
+        setRedmineConnected(status.connected);
+        setRedmineBaseUrl(status.connected ? (status.baseUrl ?? null) : null);
+      })
       .catch(() => setRedmineConnected(null));
   }, []);
 
@@ -351,10 +355,6 @@ export const TicketsPage: React.FC = () => {
   const [changeStatusTicket, setChangeStatusTicket] = useState<UnifiedTicket | null>(null);
   const [changeStatusValue, setChangeStatusValue] = useState('');
   const [changeStatusSaving, setChangeStatusSaving] = useState(false);
-
-  // Ticket details modal (read-only)
-  const [detailsTicket, setDetailsTicket] = useState<Ticket | null>(null);
-  const [detailsAttachmentRefresh, setDetailsAttachmentRefresh] = useState(0);
 
   // Member options for assignee select in the edit modal
   const memberOptions = useMemo(() => {
@@ -463,33 +463,35 @@ export const TicketsPage: React.FC = () => {
     await startTimerForTicket(ticket);
   }, [pendingStartTicket, selectedTeamId, clockIn, startTimerForTicket]);
 
-  const handleCreate = useCallback(async () => {
-    if (!createTitle.trim()) return;
+  const startHuddleCreate = useCallback(() => {
+    setNewTicketMenuOpen(false);
     if (!selectedTeam) {
-      setShowCreate(false);
       setShowNoTeamDialog(true);
       return;
     }
-    setCreateLoading(true);
-    try {
-      await ticketApi.createTicket({
-        teamId: selectedTeam.id,
-        title: createTitle.trim(),
-        github: createGithub.trim() || undefined,
+    setShowCreate(true);
+  }, [selectedTeam]);
+
+  const handleRedmineCreated = useCallback(
+    (issueId: number, warning: string | null) => {
+      setRedmineNotice({
+        issueId,
+        message: warning ?? `Created Redmine issue #${issueId}.`,
+        isWarning: Boolean(warning),
       });
-      setCreateTitle('');
-      setCreateGithub('');
-      setShowCreate(false);
-      void refetch();
-    } finally {
-      setCreateLoading(false);
-    }
-  }, [createTitle, createGithub, refetch, selectedTeam]);
+      refetchAfterRedmineWrite();
+    },
+    [refetchAfterRedmineWrite],
+  );
 
   // The list only carries the normalized shape, so fetch the full ticket the
   // edit form needs (description, assignees) when the modal actually opens.
   const openEditModal = useCallback(async (unified: UnifiedTicket) => {
     if (!unified.capabilities.edit) return;
+    if (unified.sourceId === 'redmine') {
+      setRedmineEditIssueId(Number(unified.id));
+      return;
+    }
     const ticket = await ticketApi.getTicket(unified.id);
     setEditTicket(ticket);
     setEditTitle(ticket.title);
@@ -526,6 +528,17 @@ export const TicketsPage: React.FC = () => {
       setEditSaving(false);
     }
   }, [editTicket, editTitle, editDescription, editGithub, editAssignees, editPriority, refetch]);
+
+  // A Redmine status change goes through the edit dialog: its choices are the
+  // transitions Redmine's workflow allows, not Huddle's fixed status list.
+  const handleChangeStatusRequest = useCallback((t: UnifiedTicket) => {
+    if (t.sourceId === 'redmine') {
+      setRedmineEditIssueId(Number(t.id));
+      return;
+    }
+    setChangeStatusTicket(t);
+    setChangeStatusValue(t.status.native || 'open');
+  }, []);
 
   const handleSaveStatus = useCallback(async () => {
     if (!changeStatusTicket || !changeStatusValue) return;
@@ -612,6 +625,22 @@ export const TicketsPage: React.FC = () => {
   const noFocusRingClass =
     'ring-0 focus:ring-0 focus-visible:ring-0 focus:outline-none focus-visible:outline-none focus:border-blue-300 focus-visible:border-blue-300';
 
+  const newTicketButton = (
+    <Button
+      variant="primary"
+      size="sm"
+      leftIcon={<FontAwesomeIcon icon={faPlus} />}
+      // Teams arrive asynchronously, so selectedTeam is null on first
+      // paint even for users who have one. Without this guard an early
+      // click reports "No team available" to a user who has a team.
+      disabled={!teamsReady}
+      onClick={startHuddleCreate}
+      className="shrink-0 rounded-lg"
+    >
+      New Ticket
+    </Button>
+  );
+
   return (
     <AppPage fill width="full">
       <h1 className="sr-only">Tickets</h1>
@@ -636,25 +665,29 @@ export const TicketsPage: React.FC = () => {
             {/* ── Header: New Ticket + Search ── */}
             <div className="sticky top-0 z-20 -mx-4 border-b border-neutral-200 bg-neutral-50/95 px-4 py-2 backdrop-blur supports-backdrop-filter:bg-neutral-50/80 dark:border-neutral-800 dark:bg-neutral-950/95 dark:supports-backdrop-filter:bg-neutral-950/80 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:px-0 md:py-0">
               <div className="flex items-center gap-2">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  leftIcon={<FontAwesomeIcon icon={faPlus} />}
-                  // Teams arrive asynchronously, so selectedTeam is null on first
-                  // paint even for users who have one. Without this guard an early
-                  // click reports "No team available" to a user who has a team.
-                  disabled={!teamsReady}
-                  onClick={() => {
-                    if (!selectedTeam) {
-                      setShowNoTeamDialog(true);
-                      return;
-                    }
-                    setShowCreate(true);
-                  }}
-                  className="shrink-0 rounded-lg"
-                >
-                  New Ticket
-                </Button>
+                {redmineConnected ? (
+                  // With Redmine linked, "New Ticket" asks which system the new
+                  // item belongs to. Dropdown replaces the trigger's onClick.
+                  <Dropdown
+                    trigger={newTicketButton}
+                    placement="bottom-start"
+                    open={newTicketMenuOpen}
+                    onOpenChange={setNewTicketMenuOpen}
+                  >
+                    <DropdownItem onClick={startHuddleCreate}>TimeHuddle ticket</DropdownItem>
+                    <DropdownItem
+                      onClick={() => {
+                        setNewTicketMenuOpen(false);
+                        setRedmineNotice(null);
+                        setShowRedmineCreate(true);
+                      }}
+                    >
+                      Redmine issue
+                    </DropdownItem>
+                  </Dropdown>
+                ) : (
+                  newTicketButton
+                )}
 
                 <div className="relative min-w-0 flex-1">
                   <FontAwesomeIcon
@@ -698,102 +731,29 @@ export const TicketsPage: React.FC = () => {
             </div>
 
             {/* Create ticket form */}
-            {showCreate && (
-              <Card
-                padding="sm"
-                className="border-blue-200 bg-blue-50/50 dark:border-blue-900 dark:bg-blue-950/20"
-              >
-                <CardContent>
-                  <div className="flex items-center justify-between pl-2">
-                    <Text size="sm" weight="semibold">
-                      New Ticket
-                    </Text>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setShowCreate(false)}
-                      aria-label="Close"
-                      className="h-8 w-8 rounded-full hover:bg-blue-100 dark:hover:bg-blue-800"
-                    >
-                      <FontAwesomeIcon icon={faXmark} className="text-xs" />
-                    </Button>
-                  </div>
-                  <form
-                    className="mt-2 space-y-2"
-                    onSubmit={(e: React.FormEvent<HTMLFormElement>) => {
-                      e.preventDefault();
-                      if (!createTitle.trim()) return;
-                      void handleCreate();
-                    }}
-                    onKeyDown={(e: React.KeyboardEvent<HTMLFormElement>) => {
-                      if (e.key !== 'Escape') return;
-                      e.preventDefault();
-                      setShowCreate(false);
-                    }}
-                  >
-                    <Input
-                      label="Title"
-                      hideLabel
-                      size="sm"
-                      placeholder={createTitleFetching ? 'Fetching title…' : 'Ticket title'}
-                      value={createTitle}
-                      onChange={(e) => setCreateTitle(e.target.value)}
-                      className={noFocusRingClass}
-                      autoFocus
-                      disabled={createTitleFetching}
-                      onPaste={(e) => {
-                        const text = (
-                          e.clipboardData ?? (e.nativeEvent as ClipboardEvent).clipboardData
-                        )
-                          ?.getData('text')
-                          ?.trim();
-                        if (!text || !isGithubIssueUrl(text)) return;
-                        e.preventDefault();
-                        setCreateGithub(text);
-                        setCreateTitleFetching(true);
-                        void fetchIssueTitle(text).then((title) => {
-                          if (title) setCreateTitle(title);
-                          setCreateTitleFetching(false);
-                        });
-                      }}
-                    />
-                    <Input
-                      label="GitHub URL"
-                      hideLabel
-                      size="sm"
-                      type="url"
-                      placeholder="GitHub URL (optional)"
-                      value={createGithub}
-                      className={noFocusRingClass}
-                      onChange={(e) => {
-                        const url = e.target.value;
-                        setCreateGithub(url);
-                        if (createFetchTimer.current) clearTimeout(createFetchTimer.current);
-                        if (isGithubIssueUrl(url)) {
-                          createFetchTimer.current = setTimeout(() => {
-                            setCreateTitleFetching(true);
-                            void fetchIssueTitle(url).then((title) => {
-                              if (title) setCreateTitle(title);
-                              setCreateTitleFetching(false);
-                            });
-                          }, 300);
-                        }
-                      }}
-                    />
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      type="submit"
-                      isLoading={createLoading}
-                      loadingText="Creating…"
-                      disabled={!createTitle.trim() || !selectedTeam}
-                    >
-                      Create Ticket
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            )}
+            <div className="redmine-create-notice" aria-live="polite">
+              {redmineNotice && (
+                <Alert
+                  variant={redmineNotice.isWarning ? 'warning' : 'success'}
+                  dismissible
+                  onDismiss={() => setRedmineNotice(null)}
+                >
+                  <AlertDescription>
+                    {redmineNotice.message}{' '}
+                    {redmineBaseUrl && (
+                      <a
+                        href={`${redmineBaseUrl}/issues/${redmineNotice.issueId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium underline"
+                      >
+                        Open in Redmine
+                      </a>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
 
             {selectedKeys.size > 0 && (
               <TicketBulkActionBar
@@ -833,10 +793,7 @@ export const TicketsPage: React.FC = () => {
                   onToggleTimer={handleToggleTimer}
                   onEditRequest={(t) => void openEditModal(t)}
                   onDeleteRequest={(t) => setDeleteIds([t.id])}
-                  onChangeStatusRequest={(t) => {
-                    setChangeStatusTicket(t);
-                    setChangeStatusValue(t.status.native || 'open');
-                  }}
+                  onChangeStatusRequest={handleChangeStatusRequest}
                   onShareWithTimeharbor={async (t, shared) => {
                     try {
                       await shareTicketWithTimeharbor(t.id, shared);
@@ -986,10 +943,7 @@ export const TicketsPage: React.FC = () => {
                   showTimerColumn
                   onEditRequest={(t) => void openEditModal(t)}
                   onDeleteRequest={(t) => setDeleteIds([t.id])}
-                  onChangeStatusRequest={(t) => {
-                    setChangeStatusTicket(t);
-                    setChangeStatusValue(t.status.native || 'open');
-                  }}
+                  onChangeStatusRequest={handleChangeStatusRequest}
                   onShareWithTimeharbor={async (t, shared) => {
                     try {
                       await shareTicketWithTimeharbor(t.id, shared);
@@ -1063,7 +1017,7 @@ export const TicketsPage: React.FC = () => {
                   e.preventDefault();
                   setEditGithub(text);
                   setTitleFetching(true);
-                  void fetchIssueTitle(text).then((title) => {
+                  void fetchGithubIssueTitle(text).then((title) => {
                     if (title) setEditTitle(title);
                     setTitleFetching(false);
                   });
@@ -1091,7 +1045,7 @@ export const TicketsPage: React.FC = () => {
                   if (isGithubIssueUrl(url)) {
                     editFetchTimer.current = setTimeout(() => {
                       setTitleFetching(true);
-                      void fetchIssueTitle(url).then((title) => {
+                      void fetchGithubIssueTitle(url).then((title) => {
                         if (title) setEditTitle(title);
                         setTitleFetching(false);
                       });
@@ -1180,147 +1134,6 @@ export const TicketsPage: React.FC = () => {
             </Button>
           </ModalFooter>
         </Modal>
-
-        {/* Ticket Details modal */}
-        {detailsTicket && (
-          <Modal open onOpenChange={(open) => !open && setDetailsTicket(null)}>
-            <ModalHeader>
-              <ModalTitle>Ticket Details</ModalTitle>
-              <ModalClose />
-            </ModalHeader>
-            <ModalBody>
-              <div className="space-y-3">
-                <div>
-                  <Text size="xs" variant="muted" weight="medium">
-                    Title
-                  </Text>
-                  <Text size="sm">{detailsTicket.title}</Text>
-                </div>
-                {detailsTicket.description && (
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Description
-                    </Text>
-                    <Text size="sm">{detailsTicket.description}</Text>
-                  </div>
-                )}
-                <div className="flex gap-6">
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Status
-                    </Text>
-                    <Text size="sm">
-                      {STATUS_OPTIONS.find((s) => s.value === detailsTicket.status)?.label ??
-                        detailsTicket.status ??
-                        'Open'}
-                    </Text>
-                  </div>
-                  {detailsTicket.priority && (
-                    <div>
-                      <Text size="xs" variant="muted" weight="medium">
-                        Priority
-                      </Text>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span
-                          className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium ${priorityLabelClass(detailsTicket.priority)}`}
-                        />
-                        <Text size="sm">
-                          {detailsTicket.priority.charAt(0).toUpperCase() +
-                            detailsTicket.priority.slice(1)}
-                        </Text>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {detailsTicket.github && (
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      GitHub
-                    </Text>
-                    <a
-                      href={detailsTicket.github}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:underline"
-                    >
-                      {detailsTicket.github}
-                    </a>
-                  </div>
-                )}
-                <div className="flex gap-6">
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Created By
-                    </Text>
-                    <Text size="sm">
-                      {getAssigneeName(detailsTicket.createdBy) ?? detailsTicket.createdBy}
-                    </Text>
-                  </div>
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Created At
-                    </Text>
-                    <Text size="sm">
-                      {new Date(detailsTicket.createdAt).toLocaleDateString(undefined, {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </Text>
-                  </div>
-                </div>
-                {detailsTicket.assignedTo && detailsTicket.assignedTo.length > 0 && (
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Assigned To
-                    </Text>
-                    <div className="flex flex-wrap gap-2">
-                      {detailsTicket.assignedTo.map((id) => {
-                        const name = getAssigneeName(id);
-                        return (
-                          <div key={id} className="flex items-center gap-2">
-                            <UserAvatar name={name ?? id} size="xs" />
-                            <Text size="sm">{name ?? id}</Text>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                <div className="space-y-1 pt-1">
-                  <AttachmentsPanel
-                    key={detailsAttachmentRefresh}
-                    kind="ticket"
-                    entityId={detailsTicket.id}
-                    currentUserId={userId ?? undefined}
-                  />
-                  <PulseUploadButton
-                    ticketId={detailsTicket.id}
-                    onUploadComplete={() => setDetailsAttachmentRefresh((n) => n + 1)}
-                  />
-                </div>
-              </div>
-            </ModalBody>
-            <ModalFooter>
-              {userId && !detailsTicket.assignedTo?.includes(userId) && (
-                <Button
-                  variant="secondary"
-                  onClick={async () => {
-                    const updatedAssignees = [...(detailsTicket.assignedTo ?? []), userId];
-                    await ticketApi.assignTicket(detailsTicket.id, updatedAssignees);
-                    setDetailsTicket((t) => (t ? { ...t, assignedTo: updatedAssignees } : t));
-                    void refetch();
-                  }}
-                >
-                  Assign to me
-                </Button>
-              )}
-              <Button variant="outline" onClick={() => setDetailsTicket(null)}>
-                Close
-              </Button>
-            </ModalFooter>
-          </Modal>
-        )}
 
         {/* Delete confirmation — covers both single-row (⋮ menu) and bulk delete */}
         <Modal
@@ -1426,6 +1239,25 @@ export const TicketsPage: React.FC = () => {
             </Button>
           </ModalFooter>
         </Modal>
+
+        <TicketCreateModal
+          open={showCreate}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => void refetch()}
+          teams={teams}
+          defaultTeamId={selectedTeam?.id ?? null}
+          userId={userId}
+        />
+        <RedmineIssueEditModal
+          issueId={redmineEditIssueId}
+          onClose={() => setRedmineEditIssueId(null)}
+          onSaved={refetchAfterRedmineWrite}
+        />
+        <RedmineIssueCreateModal
+          open={showRedmineCreate}
+          onClose={() => setShowRedmineCreate(false)}
+          onCreated={handleRedmineCreated}
+        />
       </div>
     </AppPage>
   );

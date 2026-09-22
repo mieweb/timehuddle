@@ -20,6 +20,14 @@ const PRIORITY_RANK: Record<string, number> = {
   critical: 4,
 };
 
+/**
+ * A Huddle ticket's short reference, e.g. `#3fa2c`. Huddle tickets have no
+ * human number, so the table and the ticket page both show the tail of the id.
+ */
+export function huddleTicketRef(id: string): string {
+  return `#${id.slice(-5)}`;
+}
+
 const CAPABILITIES: SourceCapabilities = {
   edit: true,
   delete: true,
@@ -57,7 +65,7 @@ export const huddleSource: TicketSource<Ticket> = {
       key: ticketKey('huddle', ticket.id),
       sourceId: 'huddle',
       id: ticket.id,
-      ref: `#${ticket.id.slice(-5)}`,
+      ref: huddleTicketRef(ticket.id),
       title: ticket.title,
       container: team ? { id: team.id, name: team.name } : null,
       status: { native: status, isClosed: CLOSED_STATUSES.has(status) },

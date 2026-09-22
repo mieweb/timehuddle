@@ -1008,8 +1008,15 @@ export const ticketApi = {
   getTicket: (id: string) =>
     wormholeCall<Record<string, unknown>>('tickets.get', { ticketId: id }).then(toTicket),
 
-  createTicket: (data: { teamId: string; title: string; github?: string }) =>
-    wormholeCall<Record<string, unknown>>('tickets.create', data).then(toTicket),
+  /** Create a ticket. `assignedToUserIds` defaults to the creator when omitted. */
+  createTicket: (data: {
+    teamId: string;
+    title: string;
+    github?: string;
+    description?: string;
+    priority?: string;
+    assignedToUserIds?: string[];
+  }) => wormholeCall<Record<string, unknown>>('tickets.create', data).then(toTicket),
 
   updateTicket: (id: string, updates: { title?: string; github?: string; description?: string }) =>
     wormholeCall<Record<string, unknown>>('tickets.update', { ticketId: id, ...updates }).then(
@@ -1720,6 +1727,15 @@ function clientTz(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
+/** One of the caller's timer sessions on a ticket. `endTime` is null while running. */
+export interface TicketSession {
+  id: string;
+  date: string;
+  startTime: number;
+  endTime: number | null;
+  durationSeconds: number | null;
+}
+
 export const timerApi = {
   /**
    * Create a WorkItem for the given ticket + date. Optionally start a timer.
@@ -1796,6 +1812,13 @@ export const timerApi = {
     const tz = clientTz();
     return wormholeCall<{ days: WeekDay[] }>('timers.getWeek', { date, tz }).then((r) => r.days);
   },
+
+  /** The caller's own timer sessions on one ticket, newest first (running one included). */
+  getTicketSessions: (ticketId: string, source: TicketSourceId) =>
+    wormholeCall<{ sessions: TicketSession[] }>('timers.getTicketSessions', {
+      ticketId,
+      source,
+    }).then((r) => r.sessions),
 
   /** Get total seconds for a ticket from all closed Timers. */
   getTicketTotal: (ticketId: string, source: TicketSourceId = 'huddle') =>
@@ -2187,6 +2210,81 @@ export interface RedmineIssueList {
   issues: RedmineIssue[];
 }
 
+/**
+ * One Redmine issue as the M6 edit form sees it: the list shape plus its
+ * description, author, and the statuses the caller may move it to (the current
+ * status first — Redmine's workflow for this user decides the rest).
+ */
+export interface RedmineIssueDetail extends RedmineIssue {
+  description: string;
+  author: RedmineNamed | null;
+  allowedStatuses: RedmineIssueStatus[];
+}
+
+/** One field change in a Redmine journal; `from`/`to` are null when not shown. */
+export interface RedmineJournalChange {
+  field: string;
+  from: string | null;
+  to: string | null;
+}
+
+/** One entry of an issue's Redmine history: a comment, field changes, or both. */
+export interface RedmineJournal {
+  id: number;
+  user: RedmineNamed | null;
+  createdAt: string | null;
+  notes: string;
+  changes: RedmineJournalChange[];
+}
+
+/** A Redmine issue priority. `isDefault` is the instance's own default. */
+export interface RedminePriority extends RedmineNamed {
+  isDefault: boolean;
+}
+
+/** What the create/edit form offers for one project. `me` is the caller's Redmine user id. */
+export interface RedmineFormOptions {
+  trackers: RedmineNamed[];
+  assignees: RedmineNamed[];
+  priorities: RedminePriority[];
+  defaultPriorityId: number | null;
+  me: number | null;
+}
+
+/** Fields for creating an issue. Omitted/null optional fields take Redmine's defaults. */
+export interface RedmineIssueCreateInput {
+  projectId: number;
+  subject: string;
+  trackerId?: number | null;
+  description?: string;
+  assigneeId?: number | null;
+  priorityId?: number | null;
+}
+
+/** Fields an edit may change. Absent keys are left alone; `assigneeId: null` unassigns. */
+export interface RedmineIssueEdits {
+  statusId?: number;
+  priorityId?: number;
+  assigneeId?: number | null;
+  description?: string;
+}
+
+/**
+ * Result of a create or update. `mismatches` lists Redmine field names it
+ * stored differently from what was sent (confirmed by read-back).
+ */
+export interface RedmineIssueWriteResult {
+  baseUrl: string | null;
+  issue: RedmineIssueDetail | null;
+  mismatches: string[];
+}
+
+/** Create additionally reports the new id, and `confirmed: false` if the read-back failed. */
+export interface RedmineIssueCreateResult extends RedmineIssueWriteResult {
+  issueId: number;
+  confirmed: boolean;
+}
+
 /** A Redmine time-entry activity. Redmine rejects a time entry without one. */
 export interface RedmineActivity {
   id: number;
@@ -2227,6 +2325,43 @@ export const redmineApi = {
     /** List the caller's Redmine issues (read-only) for the given scope. */
     list: (scope: RedmineScope): Promise<RedmineIssueList> =>
       wormholeCall<RedmineIssueList>('redmine.issues.list', { scope }),
+
+    /** One issue with its description, allowed status changes and Redmine history. */
+    get: (
+      issueId: number,
+    ): Promise<{
+      baseUrl: string | null;
+      issue: RedmineIssueDetail;
+      journals: RedmineJournal[];
+    }> => wormholeCall('redmine.issues.get', { issueId }),
+
+    /** Create an issue as the caller (authored under their own key). */
+    create: (input: RedmineIssueCreateInput): Promise<RedmineIssueCreateResult> =>
+      wormholeCall<RedmineIssueCreateResult>('redmine.issues.create', { ...input }),
+
+    /**
+     * Edit an issue as the caller. Refused with code `stale` if it changed in
+     * Redmine after `expectedUpdatedAt` (the `updatedAt` the form opened with).
+     */
+    update: (
+      issueId: number,
+      expectedUpdatedAt: string,
+      edits: RedmineIssueEdits,
+    ): Promise<RedmineIssueWriteResult> =>
+      wormholeCall<RedmineIssueWriteResult>('redmine.issues.update', {
+        issueId,
+        expectedUpdatedAt,
+        edits: { ...edits },
+      }),
+  },
+
+  projects: {
+    /** Projects the caller's key can see. */
+    list: (): Promise<{ projects: RedmineNamed[] }> => wormholeCall('redmine.projects.list', {}),
+
+    /** A project's trackers, assignable users and the instance's priorities. */
+    formOptions: (projectId: number): Promise<RedmineFormOptions> =>
+      wormholeCall<RedmineFormOptions>('redmine.projects.formOptions', { projectId }),
   },
 
   activities: {
