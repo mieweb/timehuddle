@@ -12,15 +12,19 @@
  * `key={editingPostId ?? 'new'}`.
  */
 import { Button } from '@mieweb/ui';
+import type { RichEditorHandle } from '@mieweb/ui/kerebron';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTeam } from '@lib/TeamContext';
 import { attachmentApi } from '@lib/api';
 import { MarkdownEditor } from './MarkdownEditor';
 import { ComposerAttachButtons, ComposerChips, type MentionRef } from './ComposerAttachments';
 import { ComposerProgress } from './ComposerProgress';
+import { ComposerError } from './ComposerError';
 import { useAttachmentUpload, useUploadProgress } from './useAttachmentUpload';
 import { clearComposerPulseUpload } from './pulseComposerUpload';
 import { huddlePostCollab } from './collab';
+import { appendImageMarkdown, isInlineImage, restoreImageAltText } from './api';
+import { composerErrorMessage } from './composerErrors';
 import type { ComposerContent, MediaItem } from './types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -99,8 +103,16 @@ export function HuddleComposer({
   // A Pulse recording reserved but not yet attached — in-flight work too, even
   // though no bytes are moving through this client.
   const [pulsePending, setPulsePending] = useState(false);
+  // One failure notice for the whole composer, whichever step produced it —
+  // an upload, or the post itself. Rendered in a `role="alert"` region rather
+  // than an `alert()`; see {@link ComposerError}.
+  const [error, setError] = useState<string | null>(null);
+  const clearError = useCallback(() => setError(null), []);
   const { selectedTeamId } = useTeam();
   const composerRef = useRef<HTMLDivElement>(null);
+  // Read on submit instead of trusting `text`: RichEditor mirrors its content
+  // out through an async serialization, so `text` can lag the last keystroke.
+  const editorRef = useRef<RichEditorHandle>(null);
 
   // Stable localStorage scope for the Pulse upload button — also the key this
   // composer clears once a post is submitted/cancelled so a finished video
@@ -189,7 +201,13 @@ export function HuddleComposer({
     if (!canSubmit) return;
 
     const allAttachments = [...attachments, ...ticketVideos];
-    const base = text.trim();
+    // The editor is the source of truth for what was typed; `text` is a mirror
+    // that can be a keystroke behind. Fall back to it only if the handle isn't
+    // available (the editor hasn't finished mounting).
+    const latest = (await editorRef.current?.getContent().catch(() => undefined)) ?? text;
+    // The editor strips alt text off image nodes as it serializes — put the
+    // filenames back before this is persisted.
+    const base = restoreImageAltText(latest.trim(), allAttachments);
     const mentionSuffix = mentions
       .filter((m) => !base.includes(`@${m.name}`))
       .map((m) => `@${m.name}`)
@@ -198,6 +216,7 @@ export function HuddleComposer({
 
     setPosting(true);
     setPostDone(false);
+    setError(null);
     try {
       await onPost({
         text: finalText,
@@ -222,9 +241,9 @@ export function HuddleComposer({
         setTicketVideos([]);
         setMentions([]);
       }
-    } catch (error) {
-      console.error('[HuddleComposer] Error in handleSubmit:', error);
-      alert('Failed to post. Please try again.');
+    } catch (err) {
+      console.error('[HuddleComposer] Error in handleSubmit:', err);
+      setError(composerErrorMessage(err, 'Failed to post. Please try again.'));
     } finally {
       setPosting(false);
       setPostDone(false);
@@ -232,6 +251,7 @@ export function HuddleComposer({
   };
 
   const handleCancel = () => {
+    setError(null);
     // Clear before the editing early return — a recording that finishes after
     // cancellation must not be restored the next time this post is edited.
     clearComposerPulseUpload(pulseScope);
@@ -263,12 +283,29 @@ export function HuddleComposer({
     setAttachments((prev) => prev.filter((m) => m.id !== mediaId));
   };
 
-  // Pasted screenshots go through the same upload as the Photo button, so they
-  // land in the media store and post as real attachments instead of being
-  // embedded in the post text as base64.
-  const { upload: uploadPastedImages } = useAttachmentUpload({
-    onAttachmentAdd: handleAttachmentAdd,
+  // Screenshots pasted or dropped into the editor go through the same upload as
+  // the Photo button, so they land in the media store rather than being
+  // embedded in the post text as base64 — then the uploaded image is written
+  // back into the document so the writer sees the preview where they put it.
+  //
+  // It stays an attachment as well, so the post still records what it carries;
+  // PostCard skips any attachment already inline, so it renders once.
+  const handlePastedMediaAdd = useCallback(
+    (media: MediaItem) => {
+      handleAttachmentAdd(media);
+      if (!isInlineImage(media)) return;
+      // Appended, not inserted at the caret: RichEditor exposes no way to reach
+      // the ProseMirror view, so the only seam is reloading the document from
+      // `value`. See MarkdownEditor.
+      setText((prev) => appendImageMarkdown(prev, media));
+    },
+    [handleAttachmentAdd],
+  );
+
+  const { upload: uploadDroppedMedia } = useAttachmentUpload({
+    onAttachmentAdd: handlePastedMediaAdd,
     onUploadProgress: reporterFor('paste'),
+    onError: setError,
   });
 
   // RichEditor has no insert-at-cursor API, so mentions are tracked as chips
@@ -326,10 +363,11 @@ export function HuddleComposer({
         // Key it on the editing target so switching into an edit composer always
         // mounts a fresh editor that seeds from the post's existing text.
         key={editing ? `edit-${collabRoom ?? 'new'}` : 'compose'}
+        ref={editorRef}
         value={text}
         onChange={setText}
         onSubmit={handleSubmit}
-        onImagePaste={uploadPastedImages}
+        onFiles={uploadDroppedMedia}
         collab={huddlePostCollab(collabRoom)}
         placeholder="What's on your mind?"
       />
@@ -377,6 +415,7 @@ export function HuddleComposer({
           onTicketSelect={setSelectedTicketId}
           onMentionSelect={handleMentionSelect}
           onUploadProgress={reporterFor('picker')}
+          onError={setError}
           onPulsePendingChange={setPulsePending}
         />
         <Button variant="ghost" size="sm" onClick={handleCancel} className="ml-1">
@@ -409,6 +448,8 @@ export function HuddleComposer({
       {/* ── Progress bar — spans the composer for both phases: attachment
            uploads (determinate, real bytes) and the post itself. ── */}
       <ComposerProgress uploadFraction={uploadFraction} posting={posting} postDone={postDone} />
+
+      <ComposerError message={error} onDismiss={clearError} />
     </div>
   );
 }

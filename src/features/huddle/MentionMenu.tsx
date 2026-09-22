@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { AnchoredMenu } from '@ui/AnchoredMenu';
+import { ComposerChipButton } from './ComposerChipButton';
 import { HuddleAvatar } from './HuddleAvatar';
 import { fetchTeamMembers } from './api';
 import type { TeamMember } from './types';
@@ -17,7 +18,11 @@ export function MentionMenu({ teamId, onSelect }: MentionMenuProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    if (isOpen && members.length === 0 && teamId) {
+    // Re-fetches on every open (and if teamId changes while open). The old
+    // "already have members" guard meant switching teams kept the previous
+    // team's people in the picker, since `members` was no longer empty — the
+    // same bug TicketPicker fixed for tickets.
+    if (isOpen && teamId) {
       loadMembers();
     }
   }, [isOpen, teamId]);
@@ -50,25 +55,31 @@ export function MentionMenu({ teamId, onSelect }: MentionMenuProps) {
 
   return (
     <>
-      <button
+      <ComposerChipButton
         ref={triggerRef}
-        type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         disabled={!teamId}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-neutral-400 border border-gray-200 dark:border-neutral-700 px-3 py-1.5 rounded-full hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        leftIcon={
+          <svg
+            className="w-3.5 h-3.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"
+            />
+          </svg>
+        }
       >
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"
-          />
-        </svg>
         @Mention
-      </button>
+      </ComposerChipButton>
 
       <AnchoredMenu
         open={isOpen}

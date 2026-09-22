@@ -26,6 +26,8 @@ interface ComposerAttachButtonsProps {
   pulseScope?: string;
   /** Fraction (0–1) of an in-flight attachment upload, or null when idle. */
   onUploadProgress?: (fraction: number | null) => void;
+  /** Called with the reason a pick didn't attach — see {@link useAttachmentUpload}. */
+  onError?: (message: string | null) => void;
   /**
    * Whether a Pulse recording is reserved but not yet attached. Hosts treat
    * this as in-flight work and keep submit closed until it lands or is
@@ -43,11 +45,16 @@ export function ComposerAttachButtons({
   onMentionSelect,
   pulseScope,
   onUploadProgress,
+  onError,
   onPulsePendingChange,
 }: ComposerAttachButtonsProps) {
   return (
     <>
-      <AttachmentBar onAttachmentAdd={onAttachmentAdd} onUploadProgress={onUploadProgress} />
+      <AttachmentBar
+        onAttachmentAdd={onAttachmentAdd}
+        onUploadProgress={onUploadProgress}
+        onError={onError}
+      />
       {/* Keyed by scope: PulseAttachButton reads its pending reservation from
           the scope only on mount, so a scope change (e.g. clock plan → wrap-up)
           must remount it rather than carry over the old reservation. */}

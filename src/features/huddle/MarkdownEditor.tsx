@@ -1,7 +1,7 @@
 /**
  * MarkdownEditor — shared Kerebron RichEditor wrapper.
  *
- * Adds two things the raw RichEditor lacks:
+ * Adds four things the raw RichEditor lacks:
  *  1. A capturing `mousedown` handler that preventDefaults clicks on the
  *     editor's toolbar/menu controls (but never on the editable content).
  *     ProseMirror otherwise blurs and collapses the selection before a toolbar
@@ -11,7 +11,8 @@
  *     excluded — otherwise clicking the text would fail to place the caret and
  *     the editor would appear frozen (no typing).
  *  2. ⌘/Ctrl+↵ submit.
- *  3. A placeholder. RichEditorProps has no `placeholder`, and swapping the old
+ *  3. File interception on paste *and* drop — see {@link MarkdownEditorProps.onFiles}.
+ *  4. A placeholder. RichEditorProps has no `placeholder`, and swapping the old
  *     `<textarea placeholder="What's on your mind?…">` for RichEditor left the
  *     empty composer with no prompt at all. Rendered as a real (non-interactive)
  *     overlay rather than a CSS `::before`, so it stays readable by assistive
@@ -21,10 +22,15 @@
  * remount via `key` when switching documents. `value` still tracks the live
  * content on re-render (the host updates it from `onChange`), which is what
  * drives the placeholder's visibility.
+ *
+ * The RichEditor handle is forwarded through, so a host can call `getContent()`
+ * on submit. That matters: `onChange` fires from an async serialization of the
+ * whole document, so the mirrored `value` can lag the last keystroke. Read the
+ * editor, not the mirror, when the text is about to be persisted.
  */
 import { RichEditor } from '@mieweb/ui/kerebron';
-import type { CollabConfig } from '@mieweb/ui/kerebron';
-import React, { useEffect, useRef } from 'react';
+import type { CollabConfig, RichEditorHandle } from '@mieweb/ui/kerebron';
+import React, { forwardRef, useEffect, useRef } from 'react';
 
 interface MarkdownEditorProps {
   value?: string;
@@ -37,91 +43,114 @@ interface MarkdownEditorProps {
   /** Prompt shown while the editor is empty. */
   placeholder?: string;
   /**
-   * Called with image files pasted into the editor (e.g. a screenshot).
-   * When set, the paste is intercepted before the editor sees it — see the
+   * Called with files pasted **or dropped** into the editor (e.g. a screenshot).
+   * When set, the event is intercepted before the editor sees it — see the
    * listener below for why.
    */
-  onImagePaste?: (files: File[]) => void;
+  onFiles?: (files: File[]) => void;
 }
 
-export function MarkdownEditor({
-  value = '',
-  onChange,
-  onSubmit,
-  className,
-  collab,
-  placeholder,
-  onImagePaste,
-}: MarkdownEditorProps) {
-  const isEmpty = value.trim().length === 0;
-  const containerRef = useRef<HTMLDivElement>(null);
+export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
+  function MarkdownEditor(
+    { value = '', onChange, onSubmit, className, collab, placeholder, onFiles },
+    ref,
+  ) {
+    const isEmpty = value.trim().length === 0;
+    const containerRef = useRef<HTMLDivElement>(null);
 
-  // Kerebron's paste handler embeds a pasted screenshot inline as a base64
-  // `data:` URL, so a single screenshot adds hundreds of KB to the post
-  // document and never reaches the media store. Intercept it first and hand
-  // the file to the host, which uploads it like any other attachment.
-  //
-  // A native capture-phase listener on this wrapper (rather than React's
-  // onPasteCapture) is what guarantees ordering: it runs while the event is
-  // still descending, before ProseMirror's own listener on the contenteditable
-  // below can see it.
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container || !onImagePaste) return;
+    // Kerebron's media plugin inlines whatever lands in the editor: an image
+    // becomes a base64 `data:` URL, a video an object URL. Neither reaches the
+    // media store, and the image case is the worse one — a 4 MB screenshot turns
+    // into ~5.8 MB of markdown, which blows past the API's 1 MB body limit and
+    // fails the whole post. So intercept and hand the files to the host, which
+    // uploads them like any other attachment.
+    //
+    // *Every* file is taken, not just the ones Kerebron would have handled: a
+    // dropped PDF matched neither our filter nor the plugin's, so it landed on a
+    // contenteditable whose dragover we had already cancelled and vanished — no
+    // attachment, no error, nothing. The host decides what it can accept and
+    // reports what it cannot.
+    //
+    // Kerebron's plugin accepts an `uploadHandler` that would do all of this,
+    // but @mieweb/ui's RichEditor neither forwards it nor exposes the editor view
+    // to set it at runtime, so interception is the only seam available.
+    //
+    // Native capture-phase listeners on this wrapper (rather than React's
+    // onPasteCapture/onDropCapture) are what guarantee ordering: they run while
+    // the event is still descending, before ProseMirror's own handlers on the
+    // contenteditable below can see it.
+    useEffect(() => {
+      const container = containerRef.current;
+      if (!container || !onFiles) return;
 
-    const handlePaste = (event: ClipboardEvent) => {
-      const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
-        file.type.startsWith('image/'),
-      );
-      if (files.length === 0) return; // plain text, links, …— let the editor handle it
-      event.preventDefault();
-      event.stopPropagation();
-      onImagePaste(files);
-    };
+      const intercept = (event: ClipboardEvent | DragEvent) => {
+        const transfer =
+          'clipboardData' in event ? event.clipboardData : (event as DragEvent).dataTransfer;
+        const files = Array.from(transfer?.files ?? []);
+        if (files.length === 0) return; // plain text, links, …— let the editor handle it
+        event.preventDefault();
+        event.stopPropagation();
+        onFiles(files);
+      };
 
-    container.addEventListener('paste', handlePaste, true);
-    return () => container.removeEventListener('paste', handlePaste, true);
-  }, [onImagePaste]);
+      // A drop only fires if the preceding dragover was cancelled. `files` is not
+      // readable during a drag (the browser withholds it until drop), so the
+      // decision has to be made from `items` — which does expose `kind`.
+      const allowDrop = (event: DragEvent) => {
+        const items = Array.from(event.dataTransfer?.items ?? []);
+        if (items.some((item) => item.kind === 'file')) event.preventDefault();
+      };
 
-  return (
-    <div
-      ref={containerRef}
-      className={[
-        'markdown-editor rounded-lg border border-gray-200 dark:border-neutral-700',
-        className ?? '',
-      ].join(' ')}
-      // Drives the `.ProseMirror::before` placeholder in styles.css. Floated
-      // into the first line rather than absolutely positioned, so it needs no
-      // hard-coded offset for the toolbar above it.
-      data-empty={placeholder && isEmpty ? 'true' : undefined}
-      style={
-        placeholder
-          ? ({
-              '--markdown-editor-placeholder': JSON.stringify(placeholder),
-            } as React.CSSProperties)
-          : undefined
-      }
-      onMouseDownCapture={(e) => {
-        const target = e.target as HTMLElement;
-        // The editable content area lives inside `.kb-custom-menu__wrapper`
-        // alongside the toolbar. Clicking the text must place the caret, so
-        // never preventDefault there — otherwise the editor never focuses and
-        // you can't type.
-        if (target.closest('.kb-custom-menu__editor')) return;
-        // For the toolbar/menu controls, preventDefault keeps the editor's
-        // selection alive so the command (bold, italic, …) applies.
-        if (target.closest('.kb-custom-menu__wrapper, [role="menu"]')) {
-          e.preventDefault();
+      container.addEventListener('paste', intercept, true);
+      container.addEventListener('dragover', allowDrop, true);
+      container.addEventListener('drop', intercept, true);
+      return () => {
+        container.removeEventListener('paste', intercept, true);
+        container.removeEventListener('dragover', allowDrop, true);
+        container.removeEventListener('drop', intercept, true);
+      };
+    }, [onFiles]);
+
+    return (
+      <div
+        ref={containerRef}
+        className={[
+          'markdown-editor rounded-lg border border-gray-200 dark:border-neutral-700',
+          className ?? '',
+        ].join(' ')}
+        // Drives the `.ProseMirror::before` placeholder in styles.css. Floated
+        // into the first line rather than absolutely positioned, so it needs no
+        // hard-coded offset for the toolbar above it.
+        data-empty={placeholder && isEmpty ? 'true' : undefined}
+        style={
+          placeholder
+            ? ({
+                '--markdown-editor-placeholder': JSON.stringify(placeholder),
+              } as React.CSSProperties)
+            : undefined
         }
-      }}
-      onKeyDown={(e) => {
-        if (onSubmit && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-          e.preventDefault();
-          onSubmit();
-        }
-      }}
-    >
-      <RichEditor value={value} onChange={onChange} collab={collab} />
-    </div>
-  );
-}
+        onMouseDownCapture={(e) => {
+          const target = e.target as HTMLElement;
+          // The editable content area lives inside `.kb-custom-menu__wrapper`
+          // alongside the toolbar. Clicking the text must place the caret, so
+          // never preventDefault there — otherwise the editor never focuses and
+          // you can't type.
+          if (target.closest('.kb-custom-menu__editor')) return;
+          // For the toolbar/menu controls, preventDefault keeps the editor's
+          // selection alive so the command (bold, italic, …) applies.
+          if (target.closest('.kb-custom-menu__wrapper, [role="menu"]')) {
+            e.preventDefault();
+          }
+        }}
+        onKeyDown={(e) => {
+          if (onSubmit && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            onSubmit();
+          }
+        }}
+      >
+        <RichEditor ref={ref} value={value} onChange={onChange} collab={collab} />
+      </div>
+    );
+  },
+);

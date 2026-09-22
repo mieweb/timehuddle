@@ -11,6 +11,7 @@ import {
   openPulseAppOrStore,
 } from '../../lib/device';
 import type { MediaItem } from './types';
+import { ComposerChipButton } from './ComposerChipButton';
 import { buildScanLink, buildUploadDeepLink } from '../pulse-upload/PulseUploadButton';
 import { PulseUploadModal } from '../pulse-upload/PulseUploadModal';
 import {
@@ -277,19 +278,24 @@ export const PulseAttachButton: React.FC<PulseAttachButtonProps> = ({
         disabled={isUploading}
       />
 
-      <button
-        type="button"
+      <ComposerChipButton
         onClick={handleClick}
         // A second reservation would overwrite the first in state and in
         // localStorage, orphaning the recording already in progress. The
         // explicit Cancel beside the waiting status is the way out.
         disabled={isUploading || reserving || isWaiting}
         aria-label="Record or upload a video with Pulse"
-        className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-neutral-400 border border-gray-200 dark:border-neutral-700 px-3 py-1.5 rounded-full hover:bg-gray-50 dark:hover:bg-neutral-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        aria-busy={isUploading}
+        leftIcon={
+          <FontAwesomeIcon
+            icon={isNative ? faVideo : faQrcode}
+            className="w-3.5 h-3.5"
+            aria-hidden="true"
+          />
+        }
       >
-        <FontAwesomeIcon icon={isNative ? faVideo : faQrcode} className="w-3.5 h-3.5" />
         {reserving ? 'Preparing…' : isUploading ? `${progress}%` : 'Pulse'}
-      </button>
+      </ComposerChipButton>
 
       {isWaiting && (
         <span

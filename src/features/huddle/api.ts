@@ -19,7 +19,7 @@ export type PostAttachment = HuddlePost['attachments'][number];
  * user-entered links (e.g. a Loom URL copied from a ticket attachment) are
  * left absolute so they still resolve once the origin is stripped away.
  */
-function toMediaPath(url: string): string {
+export function toMediaPath(url: string): string {
   try {
     const parsed = new URL(url, 'http://placeholder.invalid');
     if (!MEDIA_PATH_PREFIXES.some((p) => parsed.pathname.startsWith(p))) return url;
@@ -54,6 +54,64 @@ export function toPostAttachment(media: MediaItem): PostAttachment {
 }
 
 /**
+ * Whether this attachment can be previewed inline in the editor.
+ *
+ * Images only. Markdown has no video syntax, and Kerebron's video node does not
+ * survive a markdown round-trip — a dropped clip stays a chip and renders from
+ * the post's attachment list instead.
+ */
+export function isInlineImage(media: MediaItem): boolean {
+  return media.type === 'image' || !!media.mimeType?.startsWith('image/');
+}
+
+/**
+ * A filename as markdown alt text. `[` and `]` would close the alt early and
+ * leave the rest of the name as stray document content.
+ */
+function toAltText(filename: string): string {
+  return (filename || 'image').replace(/[[\]]/g, '');
+}
+
+/**
+ * Append an uploaded image to a markdown document as its own paragraph.
+ *
+ * The **path** goes in, not the absolute URL the upload handed back: post text
+ * outlives the host it was written on, and readers re-base it the same way they
+ * re-base attachment URLs (see {@link toMediaPath}).
+ */
+export function appendImageMarkdown(markdown: string, media: MediaItem): string {
+  const snippet = `![${toAltText(media.filename)}](${toMediaPath(media.url)})`;
+  const base = markdown.replace(/\s+$/, '');
+  return base ? `${base}\n\n${snippet}\n` : `${snippet}\n`;
+}
+
+/** A markdown image with empty alt text: `![](/uploads/media/x.png)`. */
+const EMPTY_ALT_IMAGE = /!\[\]\(([^()\s]+)\)/g;
+
+/**
+ * Put back the alt text Kerebron drops.
+ *
+ * {@link appendImageMarkdown} writes `![board.png](…)`, but the editor's image
+ * node does not carry `alt` through a markdown round-trip — what comes back out
+ * of the document is `![](…)`. Persisting that would publish every pasted
+ * screenshot with no accessible name at all, so the name is restored from the
+ * attachment list on the way out.
+ *
+ * Only empty alts are filled; alt text the writer typed is never overwritten.
+ */
+export function restoreImageAltText(markdown: string, attachments: MediaItem[]): string {
+  if (!markdown.includes('![](')) return markdown;
+  const names = new Map(
+    attachments.filter(isInlineImage).map((media) => [toMediaPath(media.url), media.filename]),
+  );
+  if (names.size === 0) return markdown;
+  return markdown.replace(EMPTY_ALT_IMAGE, (whole, url: string) => {
+    const name = names.get(toMediaPath(url));
+    return name ? `![${toAltText(name)}](${url})` : whole;
+  });
+}
+
+/**
  * Fetch team members for mention autocomplete
  */
 export async function fetchTeamMembers(teamId: string): Promise<TeamMember[]> {
@@ -65,22 +123,10 @@ export async function fetchTeamMembers(teamId: string): Promise<TeamMember[]> {
  * Fetch tickets for ticket picker
  */
 export async function fetchTeamTickets(teamId: string) {
-  console.log('[fetchTeamTickets] Called with teamId:', teamId, 'type:', typeof teamId);
-
   if (!teamId) {
-    console.error('[fetchTeamTickets] No teamId provided');
     throw new Error('Team ID is required to fetch tickets');
   }
-
-  try {
-    console.log('[fetchTeamTickets] Calling ticketApi.getTickets...');
-    const tickets = await ticketApi.getTickets(teamId);
-    console.log('[fetchTeamTickets] Success, received tickets:', tickets);
-    return tickets;
-  } catch (error) {
-    console.error('[fetchTeamTickets] API call failed:', error);
-    throw error;
-  }
+  return ticketApi.getTickets(teamId);
 }
 
 /** Fraction (0–1) of an in-flight upload, reported as bytes go out. */
@@ -99,7 +145,11 @@ export async function uploadMedia(file: File, onProgress?: UploadProgress): Prom
   if (!file.type.startsWith('video/')) {
     const item = await mediaApi.uploadImage(file, onProgress);
     onProgress?.(1);
-    return item;
+    // `filename` off the wire is the storage name the backend generated
+    // (`<userId>-<hex>.png`), which is what the composer chip and the post
+    // attachment ended up showing. `title` is the name the user picked, so
+    // prefer it — rebased here, at the one boundary every caller goes through.
+    return { ...item, filename: item.title ?? item.filename };
   }
 
   // Videos go through PulseVault TUS

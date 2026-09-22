@@ -117,6 +117,51 @@ export async function pasteFiles(
   }, payload);
 }
 
+/**
+ * Drag-and-drop files onto the editor.
+ *
+ * The drop path is the one Kerebron's media plugin used to win outright: paste
+ * was intercepted but drop was not, so a dropped screenshot became a base64
+ * `data:` URL inline in the post — several MB of markdown that the API rejects.
+ * `dragover` is dispatched first because a drop the browser hasn't been told to
+ * accept never fires.
+ */
+export async function dropFiles(
+  page: Page,
+  files: Array<{ fixture?: string; text?: string; name: string; type: string }>,
+): Promise<void> {
+  const payload = files.map((f) => ({
+    // `text` builds a file with no fixture on disk — enough to exercise the
+    // type and size checks, which never look at the bytes.
+    base64: f.fixture
+      ? fs.readFileSync(f.fixture).toString('base64')
+      : Buffer.from(f.text ?? '').toString('base64'),
+    name: f.name,
+    type: f.type,
+  }));
+
+  await page.evaluate(async (items) => {
+    const transfer = new DataTransfer();
+    for (const item of items) {
+      const blob = await (await fetch(`data:${item.type};base64,${item.base64}`)).blob();
+      transfer.items.add(new File([blob], item.name, { type: item.type }));
+    }
+    const target = document.querySelector('.markdown-editor .ProseMirror');
+    if (!target) throw new Error('composer editor not found');
+    const box = target.getBoundingClientRect();
+    const init = {
+      dataTransfer: transfer,
+      bubbles: true,
+      cancelable: true,
+      clientX: box.left + 20,
+      clientY: box.top + 10,
+    };
+    target.dispatchEvent(new DragEvent('dragenter', init));
+    target.dispatchEvent(new DragEvent('dragover', init));
+    target.dispatchEvent(new DragEvent('drop', init));
+  }, payload);
+}
+
 /** Paste plain text, to prove the image interception leaves normal pastes alone. */
 export async function pasteText(page: Page, text: string): Promise<void> {
   await page.evaluate((value) => {

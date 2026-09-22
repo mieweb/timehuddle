@@ -1,16 +1,21 @@
 /**
- * Huddle Composer — pasting a screenshot.
+ * Huddle Composer — pasting or dropping a screenshot.
  *
- * Kerebron's own paste handler embeds a pasted image inline as a base64 `data:`
- * URL, which bloats the post document by hundreds of KB and never puts the file
- * in the media store. The composer intercepts the paste first and uploads it
- * like any other attachment (MarkdownEditor's capture-phase listener ->
- * useAttachmentUpload).
+ * Kerebron's own media handlers embed an image inline as a base64 `data:` URL,
+ * which bloats the post document by hundreds of KB (a 4 MB screenshot becomes
+ * ~5.8 MB of markdown, past the API's 1 MB body limit) and never puts the file
+ * in the media store. The composer intercepts both paste and drop first, uploads
+ * the file like any other attachment, and writes the *uploaded* image back into
+ * the document so the writer still sees it inline.
  *
- * The load-bearing assertion in every test here is the *negative* one: no
- * `data:` URL survives anywhere. A paste that silently fell back to Kerebron's
- * handler would still produce a visible image in the feed, so asserting only
- * "an image is shown" would pass against the exact bug this replaced.
+ * So "an image appears in the editor" is not the assertion — that was true of
+ * the bug too. The load-bearing pair is that the image is there **and** its src
+ * is a `/uploads/media/` path rather than a `data:` URL, in the editor and in
+ * the feed alike.
+ *
+ * `img[src]` throughout, never a bare `img`: ProseMirror keeps a src-less
+ * `<img class="ProseMirror-separator">` in the document at all times, so an
+ * unqualified count is always one higher than the number of real images.
  */
 import { expect, test } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
@@ -19,6 +24,7 @@ import {
   FIXTURE,
   attachmentChipCount,
   composerEditor,
+  dropFiles,
   openComposer,
   pasteFiles,
   pasteText,
@@ -29,7 +35,7 @@ import {
 
 const SCREENSHOT = { fixture: FIXTURE.image, name: 'screenshot.png', type: 'image/png' };
 
-test.describe('Huddle composer — screenshot paste', () => {
+test.describe('Huddle composer — screenshot paste and drop', () => {
   test.setTimeout(120000);
 
   test.beforeEach(async ({ page }) => {
@@ -48,11 +54,11 @@ test.describe('Huddle composer — screenshot paste', () => {
 
     // It became a real attachment chip…
     await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
-    // …and no image node was inserted into the document. Checking for an <img>
-    // rather than for "data:" in the text: an embedded image is a ProseMirror
-    // node, so its base64 src lives in an attribute that textContent never
-    // exposes — a text assertion would pass even when the paste was inlined.
-    await expect(composerEditor(page).locator('img')).toHaveCount(0);
+    // …and it previews inline, from the media store rather than from base64.
+    const preview = composerEditor(page).locator('img[src]');
+    await expect(preview).toHaveCount(1);
+    await expect(preview).toHaveAttribute('src', /^\/uploads\/media\//);
+    await expect(composerEditor(page).locator('img[src^="data:"]')).toHaveCount(0);
     await expect(composerEditor(page)).toContainText(postText);
 
     await submitPost(page);
@@ -61,8 +67,10 @@ test.describe('Huddle composer — screenshot paste', () => {
     const post = postContainer(page, postText);
     await expect(post).toBeVisible({ timeout: 20000 });
 
-    // Served from the media store, not embedded in the document.
+    // Served from the media store, not embedded in the document — and shown
+    // once, though the post carries it both inline and as an attachment.
     const img = post.locator('img[src*="/uploads/media/"]');
+    await expect(img).toHaveCount(1);
     await expect(img).toBeVisible({ timeout: 15000 });
     await expect(post.locator('img[src^="data:"]')).toHaveCount(0);
 
@@ -104,7 +112,8 @@ test.describe('Huddle composer — screenshot paste', () => {
     // Uploads run sequentially through one shared hook — the second must not
     // clobber the first's chip.
     await expect.poll(() => attachmentChipCount(page), { timeout: 45000 }).toBe(2);
-    await expect(composerEditor(page).locator('img')).toHaveCount(0);
+    await expect(composerEditor(page).locator('img[src]')).toHaveCount(2);
+    await expect(composerEditor(page).locator('img[src^="data:"]')).toHaveCount(0);
   });
 
   test('shows upload progress and blocks posting while a pasted image is in flight', async ({
@@ -135,6 +144,69 @@ test.describe('Huddle composer — screenshot paste', () => {
 
     await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
     await expect(page.getByRole('button', { name: 'Post', exact: true })).toBeEnabled();
+  });
+
+  test('dropping a screenshot uploads it as an attachment instead of inlining base64', async ({
+    page,
+  }) => {
+    // The regression this guards: drop had no interception at all, so Kerebron
+    // inlined the image and the resulting post body blew past the API's 1 MB
+    // limit — surfacing to the user as an unexplained "Failed to post".
+    const postText = `Dropped screenshot ${Date.now()}`;
+    await composerEditor(page).fill(postText);
+
+    await dropFiles(page, [{ ...SCREENSHOT, name: 'dropped.png' }]);
+
+    await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
+    await expect(composerEditor(page).locator('img[src^="data:"]')).toHaveCount(0);
+    await expect(composerEditor(page).locator('img[src]')).toHaveCount(1);
+    await expect(composerEditor(page)).toContainText(postText);
+
+    await submitPost(page);
+    await switchToCardView(page);
+
+    const post = postContainer(page, postText);
+    await expect(post).toBeVisible({ timeout: 20000 });
+    await expect(post.locator('img[src^="data:"]')).toHaveCount(0);
+
+    const img = post.locator('img[src*="/uploads/media/"]');
+    await expect(img).toHaveCount(1);
+    await expect(img).toBeVisible({ timeout: 15000 });
+    await expect
+      .poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth), { timeout: 15000 })
+      .toBeGreaterThan(0);
+  });
+
+  test('attachment chips are labelled with the name the user picked', async ({ page }) => {
+    // Not the storage name the backend generates (`<userId>-<hex>.webp`), which
+    // is what the chip and the stored attachment used to show.
+    await pasteFiles(page, [{ ...SCREENSHOT, name: 'quarterly-chart.png' }]);
+    await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
+
+    // The extension can change — images are re-encoded to WebP on the way up —
+    // so the assertion is on the stem the user would recognise.
+    await expect(
+      page.locator('button[aria-label^="Remove attachment"]').locator('..'),
+    ).toContainText('quarterly-chart');
+  });
+
+  test('the inlined image keeps an accessible name once posted', async ({ page }) => {
+    // Kerebron drops `alt` when it serializes an image node, so the filename is
+    // restored on the way out — otherwise every pasted screenshot publishes
+    // with no accessible name at all.
+    const postText = `Alt text ${Date.now()}`;
+    await composerEditor(page).fill(postText);
+    await pasteFiles(page, [{ ...SCREENSHOT, name: 'sprint-board.png' }]);
+    await expect.poll(() => attachmentChipCount(page), { timeout: 30000 }).toBe(1);
+
+    await submitPost(page);
+    await switchToCardView(page);
+
+    const post = postContainer(page, postText);
+    await expect(post.locator('img[src*="/uploads/media/"]')).toHaveAttribute(
+      'alt',
+      /sprint-board/,
+    );
   });
 
   test('pasting plain text still goes into the editor', async ({ page }) => {

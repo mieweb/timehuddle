@@ -17,6 +17,8 @@ import { HuddleComposer } from '../features/huddle/HuddleComposer';
 import { DraftsPanel } from '../features/huddle/DraftsPanel';
 import { PostCard } from '../features/huddle/PostCard';
 import { toPostAttachment } from '../features/huddle/api';
+import { ComposerError } from '../features/huddle/ComposerError';
+import { composerErrorMessage } from '../features/huddle/composerErrors';
 import { getUserColor, getUserInitials } from '../features/huddle/avatar';
 import { postsToConversation } from '../features/huddle/superChatFeed';
 import type { ComposerContent } from '../features/huddle/types';
@@ -34,6 +36,9 @@ export default function Huddle() {
   const [posts, setPosts] = useState<HuddlePost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // A failed inline edit from the feed. Separate from `error` above, which is
+  // a feed-load failure and takes the feed's place on screen.
+  const [editError, setEditError] = useState<string | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -271,9 +276,10 @@ export default function Huddle() {
   }, [selectedTeamId, syncPosts, refreshFeed]);
 
   async function addPost(content: ComposerContent) {
+    // Thrown, not alerted: HuddleComposer catches it and shows the reason in
+    // its own `role="alert"` region, keeping the draft and the caret intact.
     if (!user || !selectedTeamId) {
-      alert('Please select a team first');
-      return;
+      throw new Error('Select a team before posting.');
     }
 
     const mentionUserIds = (content.mentions || []).map((m) => m.userId);
@@ -355,7 +361,9 @@ export default function Huddle() {
       await huddleApi.updatePost(messageId, { text, mentions: post.content.mentions });
     } catch (err) {
       console.error('[Huddle] Failed to save edit:', err);
-      alert('Failed to save the edit. Please try again.');
+      // Not the page-level `error`, which replaces the feed entirely — a failed
+      // edit should leave the posts on screen.
+      setEditError(composerErrorMessage(err, 'Failed to save the edit. Please try again.'));
     }
   }
 
@@ -476,6 +484,8 @@ export default function Huddle() {
                     <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
                   </div>
                 )}
+
+                <ComposerError message={editError} onDismiss={() => setEditError(null)} />
 
                 {!loading && !error && posts.length === 0 && (
                   <div className="flex items-center justify-center py-16 px-4">
