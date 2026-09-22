@@ -7,7 +7,8 @@
  * looking like a dead button. The pressed button still shows its own spinner
  * so it's obvious *which* attachment is in flight.
  */
-import { Button, Spinner } from '@mieweb/ui';
+import { Spinner } from '@mieweb/ui';
+import { ComposerChipButton } from './ComposerChipButton';
 import { useRef, useState } from 'react';
 import { useAttachmentUpload } from './useAttachmentUpload';
 import type { MediaItem } from './types';
@@ -21,19 +22,17 @@ interface AttachmentBarProps {
    * once it settles (success or failure).
    */
   onUploadProgress?: (fraction: number | null) => void;
+  /** Called with the reason a pick didn't attach — see {@link useAttachmentUpload}. */
+  onError?: (message: string | null) => void;
 }
 
-/** Pill shape only — colour, size, hover and disabled all come from Button's
- *  `outline`/`sm` variant, so the chips follow the brand rather than fixed greys. */
-const BUTTON_CLASS = 'rounded-full font-normal';
-
-export function AttachmentBar({ onAttachmentAdd, onUploadProgress }: AttachmentBarProps) {
+export function AttachmentBar({ onAttachmentAdd, onUploadProgress, onError }: AttachmentBarProps) {
   const [uploadingKind, setUploadingKind] = useState<FileKind | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
 
-  const { upload } = useAttachmentUpload({ onAttachmentAdd, onUploadProgress });
+  const { upload } = useAttachmentUpload({ onAttachmentAdd, onUploadProgress, onError });
 
   // `uploadingKind` is tracked here rather than in the hook so the pressed
   // button — and only that button — shows its own spinner.
@@ -117,16 +116,13 @@ export function AttachmentBar({ onAttachmentAdd, onUploadProgress }: AttachmentB
       {buttons.map(({ kind, label, inputRef, icon }) => {
         const isUploading = uploadingKind === kind;
         return (
-          <Button
+          <ComposerChipButton
             key={kind}
-            variant="outline"
-            size="sm"
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
             // No aria-label: the visible text ("Photo" / "Uploading…") is
             // already the accessible name, and aria-busy carries the state.
             aria-busy={isUploading}
-            className={BUTTON_CLASS}
             leftIcon={
               isUploading ? (
                 // `text-current` keeps the chip's own colour, as the inline SVG did.
@@ -145,7 +141,7 @@ export function AttachmentBar({ onAttachmentAdd, onUploadProgress }: AttachmentB
             }
           >
             {isUploading ? 'Uploading…' : label}
-          </Button>
+          </ComposerChipButton>
         );
       })}
     </>

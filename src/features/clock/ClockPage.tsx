@@ -45,7 +45,12 @@ import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket } from '../../lib/useRunningTicket';
 import { MarkdownEditor } from '../huddle/MarkdownEditor';
 import { useAttachmentUpload, useUploadProgress } from '../huddle/useAttachmentUpload';
-import { toPostAttachment } from '../huddle/api';
+import {
+  appendImageMarkdown,
+  isInlineImage,
+  restoreImageAltText,
+  toPostAttachment,
+} from '../huddle/api';
 import { clearComposerPulseUpload } from '../huddle/pulseComposerUpload';
 import {
   ComposerAttachButtons,
@@ -53,6 +58,7 @@ import {
   type MentionRef,
 } from '../huddle/ComposerAttachments';
 import { ComposerProgress } from '../huddle/ComposerProgress';
+import { ComposerError } from '../huddle/ComposerError';
 import type { MediaItem } from '../huddle/types';
 import { AppPage } from '../../ui/AppPage';
 import { useRouter } from '../../ui/router';
@@ -121,8 +127,11 @@ export const ClockPage: React.FC = () => {
   // composer mode — unmounting the watcher before the clip lands. Every submit
   // path stays closed until both have settled.
   const uploadInFlight = uploadFraction !== null || pulsePending;
-  // useCallback: identity flows into the paste listener MarkdownEditor binds
-  // natively, which would otherwise re-register on every keystroke.
+  // One failure notice for the composer, whichever step produced it — see
+  // {@link ComposerError}. Reported here rather than via `alert()`.
+  const [composerError, setComposerError] = useState<string | null>(null);
+  // useCallback: identity flows into the paste/drop listeners MarkdownEditor
+  // binds natively, which would otherwise re-register on every keystroke.
   const handleAttachmentAdd = useCallback(
     (media: MediaItem) => setAttachments((prev) => [...prev, media]),
     [],
@@ -136,12 +145,29 @@ export const ClockPage: React.FC = () => {
     }
     setAttachments((prev) => prev.filter((m) => m.id !== mediaId));
   };
-  // Same paste-a-screenshot handling as the Huddle composer — both share the
-  // editor, so both must keep base64 images out of the post text.
-  const { upload: uploadPastedImages } = useAttachmentUpload({
-    onAttachmentAdd: handleAttachmentAdd,
+  // Same paste/drop-a-screenshot handling as the Huddle composer — both share
+  // the editor, so both must keep base64 images out of the post text.
+  // Pasted/dropped images are written back into the document so the writer sees
+  // the preview inline, and stay attachments too — same handling as the Huddle
+  // composer, which shares this editor.
+  const handlePastedMediaAdd = useCallback(
+    (media: MediaItem) => {
+      handleAttachmentAdd(media);
+      if (!isInlineImage(media)) return;
+      setText((prev) => appendImageMarkdown(prev, media));
+    },
+    [handleAttachmentAdd],
+  );
+
+  const { upload: uploadDroppedMedia } = useAttachmentUpload({
+    onAttachmentAdd: handlePastedMediaAdd,
     onUploadProgress: reporterFor('paste'),
+    onError: setComposerError,
   });
+  // The editor strips alt text off image nodes as it serializes, so every path
+  // that persists this composer's text restores the filenames first.
+  const composerText = () => restoreImageAltText(text.trim(), attachments);
+
   const handleMentionSelect = (userId: string, name: string) =>
     setMentions((prev) =>
       prev.some((m) => m.userId === userId) ? prev : [...prev, { userId, name }],
@@ -293,7 +319,7 @@ export const ClockPage: React.FC = () => {
   }, [composerMode]);
 
   async function saveDraft() {
-    const trimmed = text.trim();
+    const trimmed = composerText();
     if (!gateTeamId || !trimmed || savingDraft || posting || uploadInFlight) return;
     setSavingDraft(true);
     setPostError(null);
@@ -330,7 +356,7 @@ export const ClockPage: React.FC = () => {
   }
 
   async function postPlanAndClockIn() {
-    const trimmed = text.trim();
+    const trimmed = composerText();
     if (!gateTeamId || !trimmed || posting || uploadInFlight) return;
     setPosting(true);
     setPostError(null);
@@ -382,7 +408,7 @@ export const ClockPage: React.FC = () => {
   }
 
   async function postWrapUpAndClockOut() {
-    const trimmed = text.trim();
+    const trimmed = composerText();
     if (!activeClockEvent || !trimmed || posting || uploadInFlight) return;
     setPosting(true);
     setPostError(null);
@@ -617,7 +643,7 @@ export const ClockPage: React.FC = () => {
                 onSubmit={() =>
                   void (composerMode === 'plan' ? postPlanAndClockIn() : postWrapUpAndClockOut())
                 }
-                onImagePaste={uploadPastedImages}
+                onFiles={uploadDroppedMedia}
               />
             )}
 
@@ -641,11 +667,14 @@ export const ClockPage: React.FC = () => {
                 onTicketSelect={setSelectedTicketId}
                 onMentionSelect={handleMentionSelect}
                 onUploadProgress={reporterFor('picker')}
+                onError={setComposerError}
                 onPulsePendingChange={setPulsePending}
               />
             </div>
 
             <ComposerProgress uploadFraction={uploadFraction} posting={posting} />
+
+            <ComposerError message={composerError} onDismiss={() => setComposerError(null)} />
 
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <Button

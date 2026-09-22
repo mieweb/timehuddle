@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Badge, Button, Input } from '@mieweb/ui';
+import { Badge, Input } from '@mieweb/ui';
+import { ComposerChipButton } from './ComposerChipButton';
 import { AnchoredMenu } from '@ui/AnchoredMenu';
 import { fetchTeamTickets } from './api';
 import type { Ticket } from './types';
@@ -28,8 +29,6 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
   }, [isOpen, teamId]);
 
   const loadTickets = async () => {
-    console.log('[TicketPicker] loadTickets called, teamId:', teamId);
-
     if (!teamId) {
       console.error('[TicketPicker] Cannot load tickets: no teamId');
       return;
@@ -37,9 +36,7 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
 
     setLoading(true);
     try {
-      console.log('[TicketPicker] Fetching tickets for team:', teamId);
       const data = await fetchTeamTickets(teamId);
-      console.log(`[TicketPicker] Loaded ${data.length} tickets for team ${teamId}`);
       setTickets(data);
     } catch (error) {
       console.error('[TicketPicker] Failed to load tickets:', error);
@@ -64,14 +61,8 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
 
   return (
     <>
-      <Button
+      <ComposerChipButton
         ref={triggerRef}
-        type="button"
-        /* `ghost` + explicit border, not `outline`: outline draws from
-           `border-current`, which tinted this chip orange while its siblings
-           (Photo / Video / Doc / Pulse / @Mention) stayed neutral grey. */
-        variant="ghost"
-        size="sm"
         onClick={() => setIsOpen((prev) => !prev)}
         disabled={!teamId}
         aria-haspopup="menu"
@@ -86,10 +77,9 @@ export function TicketPicker({ teamId, onSelect, selectedId }: TicketPickerProps
             />
           </svg>
         }
-        className="gap-1.5 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-normal text-gray-500 hover:bg-gray-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700"
       >
         Ticket
-      </Button>
+      </ComposerChipButton>
 
       <AnchoredMenu
         open={isOpen}

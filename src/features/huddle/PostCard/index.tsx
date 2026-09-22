@@ -1,6 +1,6 @@
 import { faEllipsisVertical } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Badge, Button, Dropdown, DropdownItem } from '@mieweb/ui';
 import type { HuddlePost } from '@lib/api';
 import { huddleApi, resolveMediaUrl } from '@lib/api';
@@ -21,6 +21,33 @@ import { Capacitor } from '@capacitor/core';
 // whichever backend origin is serving this session (and repairs older posts
 // that stored an absolute URL against a host the backend has since left).
 const resolveAttachmentUrl = resolveMediaUrl;
+
+/**
+ * Attachments that aren't already shown by the post's own markdown.
+ *
+ * An image pasted or dropped into the composer is written into the text as
+ * `![alt](/uploads/media/…)` so the writer sees it inline — and is still
+ * recorded as an attachment, so the post knows what media it carries. Rendering
+ * both lists would show that image twice, so anything the text already
+ * references is dropped from the tile grid below it.
+ *
+ * Matched on the stored path rather than the resolved URL: the text and the
+ * attachment record both persist a path, but they were re-based by different
+ * code paths and an older post may hold an absolute URL in either one.
+ */
+function attachmentsNotInlined<T extends { url: string }>(attachments: T[], text: string): T[] {
+  if (!text) return attachments;
+  return attachments.filter((attachment) => !text.includes(mediaPathOf(attachment.url)));
+}
+
+/** The `/uploads/…` path of a media URL, however it was stored. */
+function mediaPathOf(url: string): string {
+  try {
+    return new URL(url, 'http://placeholder.invalid').pathname;
+  } catch {
+    return url;
+  }
+}
 
 // ── Clock session status ──────────────────────────────────────────────────────
 // `active` comes from the live clock publication rather than `session.endTime`,
@@ -79,6 +106,11 @@ export function PostCard({
   const [likeCount, setLikeCount] = useState(post.likes?.length ?? 0);
   const [hasLiked, setHasLiked] = useState(post.likes?.includes(currentUserId) ?? false);
   const [commentCount, setCommentCount] = useState(post.commentCount ?? 0);
+  const visibleAttachments = useMemo(
+    () => attachmentsNotInlined(post.attachments ?? [], post.content.text ?? ''),
+    [post.attachments, post.content.text],
+  );
+
   // Reset edit state and update counts when post changes
   useEffect(() => {
     setLikeCount(post.likes?.length ?? 0);
@@ -105,7 +137,10 @@ export function PostCard({
       onPostUpdated?.();
     } catch (error) {
       console.error('[PostCard] Failed to update post:', error);
-      alert('Failed to update post');
+      // Rethrown, not alerted: the composer below is what's on screen, and it
+      // shows the reason in its own `role="alert"` region without discarding
+      // the edit.
+      throw error instanceof Error ? error : new Error('Failed to update post');
     }
   };
 
@@ -277,10 +312,10 @@ export function PostCard({
         </div>
       ) : null}
 
-      {/* ── Attachments ── */}
-      {!isEditing && post.attachments && post.attachments.length > 0 && (
-        <div className={`mb-3 ${post.attachments.length === 1 ? '' : 'grid grid-cols-2'} gap-2`}>
-          {post.attachments.map((attachment) => (
+      {/* ── Attachments not already rendered inline by the markdown above ── */}
+      {!isEditing && visibleAttachments.length > 0 && (
+        <div className={`mb-3 ${visibleAttachments.length === 1 ? '' : 'grid grid-cols-2'} gap-2`}>
+          {visibleAttachments.map((attachment) => (
             <div key={attachment.mediaId} className="relative rounded-xl overflow-hidden">
               {attachment.type === 'image' && (
                 <div className="relative w-full bg-gray-100 dark:bg-neutral-800 rounded-xl max-h-[500px] flex items-center justify-center">
