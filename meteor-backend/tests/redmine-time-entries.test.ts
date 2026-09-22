@@ -10,11 +10,19 @@ import { describe, it, expect } from 'vitest';
 
 import {
   toHours,
+  hoursAgree,
   isPushable,
   buildPushRows,
   pushableRows,
   unsentTotals,
 } from '../server/redmine-time-entries';
+
+/**
+ * What Redmine does with a submitted figure, probed against redmine0 on
+ * 2026-09-22: it keeps whole minutes and reports them back to two decimals.
+ * `toHours` has to produce a value that survives this unchanged.
+ */
+const asRedmineWouldStore = (hours: number) => Math.round((Math.round(hours * 60) / 60) * 100) / 100;
 
 const resolver = (trackerName: string | null) =>
   trackerName === 'Bug'
@@ -27,14 +35,27 @@ const issues = new Map([
 ]);
 
 describe('toHours', () => {
-  it('rounds to two places, Redmine’s own display granularity', () => {
-    expect(toHours(1820)).toBe(0.51); // 0.5055…
+  it('quantizes to whole minutes, then two places', () => {
+    expect(toHours(1820)).toBe(0.5); // 30.33 min → 30 min
     expect(toHours(3600)).toBe(1);
     expect(toHours(1800)).toBe(0.5);
-    expect(toHours(40)).toBe(0.01);
+    expect(toHours(40)).toBe(0.02); // 0.67 min → 1 min
   });
 
-  it('rounds the summed total once instead of each session', () => {
+  /**
+   * The defect this rule exists for. Every row is a real entry from the first
+   * live push: the old rule sent a plain 2dp figure, Redmine re-quantized it to
+   * minutes, and the read-back disagreed — e.g. 7.39h became 443 min = 7.38h.
+   */
+  it('survives Redmine’s minute quantization, which plain 2dp rounding did not', () => {
+    const firstPush = [392, 1442, 4546, 2195, 2215, 26610, 170, 213, 177, 72];
+    for (const seconds of firstPush) {
+      const sent = toHours(seconds);
+      expect(asRedmineWouldStore(sent)).toBe(sent);
+    }
+  });
+
+  it('quantizes the summed total once instead of each session', () => {
     // Three 20-minute sessions. Rounding each first gives 0.33×3 = 0.99;
     // rounding the sum gives the correct 1.00.
     const perSession = [1200, 1200, 1200].map(toHours).reduce((a, b) => a + b, 0);
@@ -51,10 +72,29 @@ describe('toHours', () => {
 });
 
 describe('isPushable', () => {
-  it('withholds anything that rounds to zero — Redmine rejects it', () => {
-    expect(isPushable(toHours(10))).toBe(false); // 10s → 0.00h
-    expect(isPushable(toHours(17))).toBe(false);
-    expect(isPushable(toHours(18))).toBe(true); // 18s → 0.01h
+  it('withholds anything under a minute — Redmine rejects a zero entry', () => {
+    expect(isPushable(toHours(10))).toBe(false); // 10s → 0 min → 0.00h
+    expect(isPushable(toHours(29))).toBe(false);
+    expect(isPushable(toHours(30))).toBe(true); // 30s → 1 min → 0.02h
+    expect(toHours(30)).toBe(0.02);
+  });
+});
+
+describe('hoursAgree', () => {
+  it('accepts a gap of a minute or less — Redmine’s own granularity', () => {
+    expect(hoursAgree(0.5, 0.5)).toBe(true);
+    expect(hoursAgree(0.11, 0.12)).toBe(true); // the old defect's signature
+    expect(hoursAgree(7.39, 7.38)).toBe(true);
+  });
+
+  it('flags a difference Redmine cannot explain away', () => {
+    expect(hoursAgree(1, 0.5)).toBe(false);
+    expect(hoursAgree(0.5, 0)).toBe(false);
+  });
+
+  it('rejects a non-numeric reading rather than calling it a match', () => {
+    expect(hoursAgree(0.5, NaN)).toBe(false);
+    expect(hoursAgree(undefined as never, 0.5)).toBe(false);
   });
 });
 
@@ -68,7 +108,7 @@ describe('buildPushRows', () => {
     expect(row).toMatchObject({
       ticketId: '19',
       date: '2026-09-19',
-      hours: 0.51,
+      hours: 0.5,
       subject: 'Fix the clock',
       activityId: 9,
       activityReason: 'tracker',

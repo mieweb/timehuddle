@@ -10,36 +10,62 @@
 export const PUSH_COMMENT = 'Logged by TimeHuddle';
 
 /**
- * Seconds → decimal hours, rounded to 2 places.
+ * Seconds → the decimal hours to send Redmine.
  *
- * **The rounding rule, decided here and applied exactly once.** Two decimals is
- * Redmine's own display granularity, so the number a user sees in the
- * confirmation dialog is the number they will see in the Spent time tab — and
- * the read-back check after each write can compare for equality instead of
- * guessing at an epsilon.
+ * **Quantized to whole minutes, then expressed to 2 places, and applied exactly
+ * once.** Redmine does not store what you send verbatim: it converts the
+ * submitted hours to whole minutes (`round(hours * 60)`) and reports them back
+ * to two decimals. Probed against redmine0 (2026-09-22): sending `7.39` stored
+ * `443` minutes and read back as `7.38`, while `0.11` stored `7` minutes and
+ * read back as `0.12`.
  *
- * Rounding happens once, on the already-summed seconds for a whole ticket-day.
- * Rounding each session first and adding afterwards would let the error
- * accumulate (three 20-minute sessions would read 0.99h rather than 1.00h).
+ * Rounding the seconds to minutes first makes the value survive that trip
+ * unchanged — the number in the confirmation dialog, the number stored, and the
+ * number read back are all the same. Sending a plain 2-decimal figure does not:
+ * `0.11h` is 6.6 minutes, which Redmine rounds up to 7.
  *
- * The cost is up to 18 seconds lost per ticket-day, which is immaterial against
- * a daily total and is the same trade Redmine's own UI makes.
+ * The quantization happens once, on the already-summed seconds for a whole
+ * ticket-day. Rounding each session first and adding afterwards would let the
+ * error accumulate (three 20-minute sessions would read 0.99h rather than
+ * 1.00h).
+ *
+ * The cost is up to 30 seconds per ticket-day, which is inherent: Redmine
+ * cannot hold a finer figure than a minute.
  */
 export function toHours(seconds) {
   if (!Number.isFinite(seconds) || seconds <= 0) return 0;
-  return Math.round(seconds / 36) / 100;
+  const minutes = Math.round(seconds / 60);
+  return Math.round((minutes / 60) * 100) / 100;
 }
 
 /**
  * Whether a rounded total is worth sending.
  *
- * Redmine rejects a zero-hour entry, so anything under 18 seconds — which
- * rounds to `0.00` — must be withheld rather than pushed and failed. A stray
- * few-second session is a mis-click, not work, so dropping it is also the
- * honest outcome; it simply stays unsynced in Huddle.
+ * Redmine rejects a zero-hour entry, so anything under 30 seconds — which
+ * quantizes to zero minutes — must be withheld rather than pushed and failed. A
+ * stray few-second session is a mis-click, not work, so dropping it is also the
+ * honest outcome; it simply stays unsynced in Huddle. The smallest figure that
+ * can be sent is one minute, `0.02h`.
  */
 export function isPushable(hours) {
   return Number.isFinite(hours) && hours >= 0.01;
+}
+
+/** One minute in decimal hours, plus a little room for float noise. */
+const ONE_MINUTE_HOURS = 1 / 60 + 1e-9;
+
+/**
+ * Whether the hours Redmine stored match what was sent.
+ *
+ * `toHours` makes the two agree exactly, so this is a safety net rather than
+ * the mechanism: it exists to catch Redmine storing something *materially*
+ * different (a workflow, a plugin, a wrong issue), not its own minute
+ * quantization. A gap of a minute or less is display granularity; anything
+ * larger is a real discrepancy and still flags the row.
+ */
+export function hoursAgree(sent, stored) {
+  if (!Number.isFinite(sent) || !Number.isFinite(stored)) return false;
+  return Math.abs(sent - stored) <= ONE_MINUTE_HOURS;
 }
 
 /**

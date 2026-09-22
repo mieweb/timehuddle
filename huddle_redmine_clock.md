@@ -872,19 +872,20 @@ Push the computed hours to Redmine as a time entry (the only write in v1).
       almost certainly a timer left running, was hidden by the pre-D5 bug and is now offered for
       push. Nothing yet stops it being sent.
 
-> **⚠️ Open defect — hours rounding disagrees with Redmine's.** The read-back check is working and
-> caught it: we send `0.11 / 1.26 / 0.61`, Redmine stores `0.12 / 1.27 / 0.62` — it rounds **up**
-> to the next hundredth where we round to nearest. `0.40` matched. Three of the first four pushed
-> entries are consequently flagged `hours-mismatch` in `redmine_time_syncs` even though the entries
-> exist and are within a minute of correct. Fix is to match Redmine's rounding in
-> `redmine-time-entries.js` and decide what to do with the three already-flagged rows.
+> **✅ Hours rounding — fixed 2026-09-22.** The read-back check caught a real discrepancy on the
+> first push: we sent `0.11 / 1.26 / 0.61` and Redmine stored `0.12 / 1.27 / 0.62`. Probing the
+> instance showed the rule is not "rounds up" but **whole minutes**: Redmine converts the hours it
+> is given to `round(hours × 60)` minutes. `toHours` now quantizes the summed seconds to minutes
+> before expressing them to 2dp, so the figure survives that conversion unchanged, and the
+> read-back allows a minute of slack (`hoursAgree`). The three rows already flagged
+> `hours-mismatch` keep their flag: it is inert, and the entries cannot be corrected (D1). Detail:
+> [`docs/redmine-m4-m5-time-sync-plan.md`](./docs/redmine-m4-m5-time-sync-plan.md).
 
 **Done when:** a day of clock/timer activity reaches Redmine with every tracked second sent
 **exactly once** — the entries for an issue-day sum to the hours Huddle recorded — with no
 duplicates on retry. _(This originally said "exactly one entry per ticket per day"; D5 replaced
 that, because the rule that actually matters is no lost time and no double-sent time.)_
-_Met, except that "correct hours" is off by up to one minute per entry until the rounding defect
-above is fixed._
+_Met._
 
 ---
 
@@ -1026,8 +1027,9 @@ and any Redmine issue detail page (issues are read-only; link out instead).
       leaves the server._
 - [x] Every Redmine write is confirmed by a follow-up read (no blind trust in HTTP 200).
       _`pushOneEntry` re-reads each created entry and compares the stored hours. This earned its
-      keep immediately: it caught Redmine rounding hours **up** where we round to nearest — a real
-      discrepancy that would otherwise have gone unnoticed. The entry id is stored **before** the
+      keep immediately: it caught Redmine storing hours to the whole minute where we sent a plain
+      2dp figure — a real discrepancy that would otherwise have gone unnoticed, and now fixed in
+      `toHours`. The entry id is stored **before** the
       read-back, so a failed confirmation can never orphan an entry into a duplicate._
 - [x] Graceful handling of: not-connected, invalid key, Redmine unreachable, no tickets.
       _`timerErrorMessage()` maps `no-active-shift` / `not-connected` / `unreachable` /
@@ -1043,8 +1045,9 @@ and any Redmine issue detail page (issues are read-only; link out instead).
 - [x] Manual end-to-end test: connect → see assigned tickets → start a ticket timer → work
       with a break → stop → verify a "Spent time" entry appears in Redmine. **Passed 2026-09-21.**
       Four entries created (ids 77–80) against `redmine0`, each with the right issue, date,
-      activity and a `Logged by TimeHuddle` comment. _Caveat: hours are up to one minute high per
-      entry until the rounding defect in M5 is fixed._
+      activity and a `Logged by TimeHuddle` comment. _The hours those first four entries carry are
+      up to a minute high; the rounding rule behind that was fixed on 2026-09-22, and later pushes
+      match exactly._
       **Earlier concern resolved:** this bullet previously warned that `REDMINE_BASE_URL` pointed
       at a shared instance where the first write would land in other people's data.
       `redmine0.os.mieweb.org` is in fact the **project owner's own instance** on the MIE web
