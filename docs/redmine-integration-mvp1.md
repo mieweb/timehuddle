@@ -123,7 +123,7 @@ You can be clocked in without any ticket timer running, so the shift total is us
 
 ## Status
 
-Milestones 1–5 (connect, see issues, time them, send the time) are complete and in the integration branch. Milestone 6 (create and edit issues, issue pages) is built and under review.
+All six milestones are complete and merged into the `redmine-integration` branch: connect an account, see issues, track time against them, send the time to Redmine, and create and update issues. The branch has not been merged to `main` yet, so this is not in production.
 
 Hours are kept to the minute, which is the finest figure Redmine stores. Entries from the very first test push (20–21 September) read up to a minute high; that was traced to how Redmine quantizes submitted hours and fixed on 22 September, so entries pushed since then match exactly.
 
