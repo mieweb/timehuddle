@@ -60,9 +60,6 @@ import { useRefresh } from '../../lib/RefreshContext';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
-import { UserAvatar } from '../../ui/UserAvatar';
-import { AttachmentsPanel } from '../clock/AttachmentsPanel';
-import { PulseUploadButton } from '../media/PulseUploadButton';
 import { fetchGithubIssueTitle, isGithubIssueUrl } from './githubIssue';
 import { PRIORITY_OPTIONS } from './huddleTicketOptions';
 import { TicketBulkActionBar } from './TicketBulkActionBar';
@@ -89,16 +86,6 @@ const STATUS_OPTIONS = [
   { value: 'closed', label: 'Completed' },
   { value: 'reviewed', label: 'Reviewed' },
 ];
-
-function priorityLabelClass(priority: string): string {
-  if (priority === 'critical')
-    return 'border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400';
-  if (priority === 'high')
-    return 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400';
-  if (priority === 'medium')
-    return 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-400';
-  return 'border-neutral-200 bg-neutral-50 text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-400';
-}
 
 export const TicketsPage: React.FC = () => {
   const { user } = useSession();
@@ -368,10 +355,6 @@ export const TicketsPage: React.FC = () => {
   const [changeStatusTicket, setChangeStatusTicket] = useState<UnifiedTicket | null>(null);
   const [changeStatusValue, setChangeStatusValue] = useState('');
   const [changeStatusSaving, setChangeStatusSaving] = useState(false);
-
-  // Ticket details modal (read-only)
-  const [detailsTicket, setDetailsTicket] = useState<Ticket | null>(null);
-  const [detailsAttachmentRefresh, setDetailsAttachmentRefresh] = useState(0);
 
   // Member options for assignee select in the edit modal
   const memberOptions = useMemo(() => {
@@ -1151,147 +1134,6 @@ export const TicketsPage: React.FC = () => {
             </Button>
           </ModalFooter>
         </Modal>
-
-        {/* Ticket Details modal */}
-        {detailsTicket && (
-          <Modal open onOpenChange={(open) => !open && setDetailsTicket(null)}>
-            <ModalHeader>
-              <ModalTitle>Ticket Details</ModalTitle>
-              <ModalClose />
-            </ModalHeader>
-            <ModalBody>
-              <div className="space-y-3">
-                <div>
-                  <Text size="xs" variant="muted" weight="medium">
-                    Title
-                  </Text>
-                  <Text size="sm">{detailsTicket.title}</Text>
-                </div>
-                {detailsTicket.description && (
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Description
-                    </Text>
-                    <Text size="sm">{detailsTicket.description}</Text>
-                  </div>
-                )}
-                <div className="flex gap-6">
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Status
-                    </Text>
-                    <Text size="sm">
-                      {STATUS_OPTIONS.find((s) => s.value === detailsTicket.status)?.label ??
-                        detailsTicket.status ??
-                        'Open'}
-                    </Text>
-                  </div>
-                  {detailsTicket.priority && (
-                    <div>
-                      <Text size="xs" variant="muted" weight="medium">
-                        Priority
-                      </Text>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <span
-                          className={`inline-flex items-center rounded-full border px-1.5 py-px text-[11px] font-medium ${priorityLabelClass(detailsTicket.priority)}`}
-                        />
-                        <Text size="sm">
-                          {detailsTicket.priority.charAt(0).toUpperCase() +
-                            detailsTicket.priority.slice(1)}
-                        </Text>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                {detailsTicket.github && (
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      GitHub
-                    </Text>
-                    <a
-                      href={detailsTicket.github}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-500 hover:underline"
-                    >
-                      {detailsTicket.github}
-                    </a>
-                  </div>
-                )}
-                <div className="flex gap-6">
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Created By
-                    </Text>
-                    <Text size="sm">
-                      {getAssigneeName(detailsTicket.createdBy) ?? detailsTicket.createdBy}
-                    </Text>
-                  </div>
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Created At
-                    </Text>
-                    <Text size="sm">
-                      {new Date(detailsTicket.createdAt).toLocaleDateString(undefined, {
-                        year: 'numeric',
-                        month: 'short',
-                        day: 'numeric',
-                      })}
-                    </Text>
-                  </div>
-                </div>
-                {detailsTicket.assignedTo && detailsTicket.assignedTo.length > 0 && (
-                  <div>
-                    <Text size="xs" variant="muted" weight="medium">
-                      Assigned To
-                    </Text>
-                    <div className="flex flex-wrap gap-2">
-                      {detailsTicket.assignedTo.map((id) => {
-                        const name = getAssigneeName(id);
-                        return (
-                          <div key={id} className="flex items-center gap-2">
-                            <UserAvatar name={name ?? id} size="xs" />
-                            <Text size="sm">{name ?? id}</Text>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                <div className="space-y-1 pt-1">
-                  <AttachmentsPanel
-                    key={detailsAttachmentRefresh}
-                    kind="ticket"
-                    entityId={detailsTicket.id}
-                    currentUserId={userId ?? undefined}
-                  />
-                  <PulseUploadButton
-                    ticketId={detailsTicket.id}
-                    onUploadComplete={() => setDetailsAttachmentRefresh((n) => n + 1)}
-                  />
-                </div>
-              </div>
-            </ModalBody>
-            <ModalFooter>
-              {userId && !detailsTicket.assignedTo?.includes(userId) && (
-                <Button
-                  variant="secondary"
-                  onClick={async () => {
-                    const updatedAssignees = [...(detailsTicket.assignedTo ?? []), userId];
-                    await ticketApi.assignTicket(detailsTicket.id, updatedAssignees);
-                    setDetailsTicket((t) => (t ? { ...t, assignedTo: updatedAssignees } : t));
-                    void refetch();
-                  }}
-                >
-                  Assign to me
-                </Button>
-              )}
-              <Button variant="outline" onClick={() => setDetailsTicket(null)}>
-                Close
-              </Button>
-            </ModalFooter>
-          </Modal>
-        )}
 
         {/* Delete confirmation — covers both single-row (⋮ menu) and bulk delete */}
         <Modal

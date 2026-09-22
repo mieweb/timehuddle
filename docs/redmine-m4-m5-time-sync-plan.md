@@ -536,36 +536,39 @@ up entries per issue in its Spent time view, so its total stays right.
   so the panel now offers it. This is the stale-timer risk the parent plan's **R3** predicted, and
   it has no guard yet. Fix the session in Huddle before pushing that day.
 
-## ⚠️ Open defect — hours rounding disagrees with Redmine's
+## ✅ Resolved — hours rounding (2026-09-22)
 
 Found on the first live push (2026-09-21). **The read-back check caught it, which is exactly what
 that check exists for** — without it this would have shipped unnoticed.
 
-| We sent | Redmine stored | Match |
-| ------- | -------------- | ----- |
-| `0.11`  | `0.12`         | ✗     |
-| `0.40`  | `0.40`         | ✓     |
-| `1.26`  | `1.27`         | ✗     |
-| `0.61`  | `0.62`         | ✗     |
+**The real rule, probed against redmine0 rather than inferred:** Redmine converts the hours you
+submit to **whole minutes** (`round(hours × 60)`) and reports them back to two decimals. It does
+not re-read our seconds — it cannot; it only ever sees the figure we send.
 
-**Redmine rounds up to the next hundredth; `toHours` rounds to nearest.** `0.40` agreed because it
-needed no rounding either way. Every affected entry is therefore up to one minute high in Redmine,
-and three of the four rows in `redmine_time_syncs` carry `failureReason: 'hours-mismatch'` despite
-the entries existing and being nearly correct.
+| Entry | Seconds | We sent | Redmine stored | Why                     |
+| ----- | ------- | ------- | -------------- | ----------------------- |
+| 77    | 392     | `0.11`  | `0.12`         | 6.6 min → 7 min         |
+| 78    | 1442    | `0.40`  | `0.40`         | 24.0 min, no change     |
+| 79    | 4546    | `1.26`  | `1.27`         | 75.6 min → 76 min       |
+| 82    | 26610   | `7.39`  | `7.38`         | 443.4 min → **443** min |
 
-Note what did **not** go wrong: the entry ids were stored before the read-back, so no row lost its
-identity and no duplicate can be created on a retry. The failure is cosmetic in Redmine and
-accurate in Huddle's own records.
+Entry 82 is the decisive one: it rules out "rounds up" (which would have stored `7.40`) and shows
+the quantization is applied to **our submitted figure**, not to the underlying seconds.
 
-To fix:
+**The fix.** `toHours` now rounds the summed seconds to whole minutes _first_, then expresses that
+to two decimals — a figure that survives Redmine's conversion unchanged, so the dialog, the stored
+value and the read-back are all the same number. The read-back also gained `hoursAgree`, which
+allows a gap of one minute: with the new rule the two agree exactly, so the tolerance is a safety
+net for Redmine storing something _materially_ different, not a way to hide its granularity.
 
-- [ ] Match Redmine's rounding in `redmine-time-entries.js` (`toHours`), and extend the unit tests
-      with the four values above as fixtures.
-- [ ] Confirm the direction empirically rather than assuming — three data points imply "round up",
-      but Redmine may be converting to whole minutes internally, which is a different rule that
-      happens to agree on this sample.
-- [ ] Decide what to do with the three already-flagged rows: clear the flag, or leave them as a
-      recorded artifact of the first push. They cannot be corrected in Redmine (D1).
+Two consequences worth naming: a ticket-day now loses up to 30 seconds rather than 18, which is
+inherent because Redmine cannot hold a finer figure than a minute; and the smallest sendable total
+is one minute (`0.02h`), so `isPushable` withholds anything under 30 seconds.
+
+**The three rows flagged `hours-mismatch` keep their flag, deliberately.** They record what the
+first push actually did. The flag is inert: `sentSecondsFor` counts a row as sent whenever it has
+an entry id, so that time is never re-offered and never re-sent, and the entries themselves cannot
+be corrected in Redmine (D1).
 
 ## What shipped (Phases 3–4)
 

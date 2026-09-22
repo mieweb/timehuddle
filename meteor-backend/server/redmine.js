@@ -28,7 +28,7 @@ import { toStatus } from './redmine-status';
 import { toIssueList } from './redmine-issues';
 import { getActivitiesForUser, pickDefaultActivity } from './redmine-activities';
 import { bustUserCaches } from './redmine-cache';
-import { buildPushRows, PUSH_COMMENT, unsentTotals } from './redmine-time-entries';
+import { buildPushRows, hoursAgree, PUSH_COMMENT, unsentTotals } from './redmine-time-entries';
 import { flagEntry, recordEntry, sentSecondsFor } from './redmine-time-sync';
 import { redmineTicketDaysFor } from './timer-core';
 
@@ -165,7 +165,9 @@ async function buildPreviewRows(userId, apiKey) {
  *
  * The read-back is not ceremony: Redmine can answer `201` while storing
  * something other than what was sent, and under D1 there is no second chance to
- * correct it — so a mismatch is surfaced rather than assumed away.
+ * correct it — so a mismatch is surfaced rather than assumed away. The
+ * comparison allows a minute of slack (`hoursAgree`), because Redmine keeps
+ * time to the minute; a larger gap means it stored something else entirely.
  */
 async function pushOneEntry(userId, apiKey, row, activityId) {
   const base = { ticketId: row.ticketId, date: row.date, hours: row.hours };
@@ -207,7 +209,7 @@ async function pushOneEntry(userId, apiKey, row, activityId) {
   });
 
   const stored = await getTimeEntry(apiKey, entryId);
-  if (stored && Number(stored.hours) !== row.hours) {
+  if (stored && !hoursAgree(row.hours, Number(stored.hours))) {
     await flagEntry(entryId, 'hours-mismatch');
     return { ...base, ok: false, reason: 'hours-mismatch', storedHours: Number(stored.hours), entryId };
   }
