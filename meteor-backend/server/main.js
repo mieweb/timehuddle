@@ -23,6 +23,7 @@ import './auth-bridge';
 import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
 import './redmine';
+import './redmine-issue-methods';
 // Imported for its Meteor.startup unique-index creation, not for a method.
 import './redmine-time-sync';
 import './my-board';
@@ -919,7 +920,7 @@ Meteor.startup(async() => {
   });
 
   Wormhole.expose('tickets.create', {
-    description: 'Create a ticket in a team (creator is auto-assigned)',
+    description: 'Create a ticket in a team (assigned to the creator unless assignedToUserIds is given)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -928,6 +929,11 @@ Meteor.startup(async() => {
         description: { type: 'string' },
         github: { type: 'string', description: 'GitHub issue/PR URL' },
         priority: { type: 'string', enum: ['none', 'low', 'medium', 'high', 'critical'] },
+        assignedToUserIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Team members to assign (defaults to the creator)',
+        },
       },
       required: ['teamId', 'title'],
     },
@@ -1032,6 +1038,67 @@ Meteor.startup(async() => {
           description: "'mine' = assigned to me, 'all' = everything the key can see",
         },
       },
+    },
+  });
+
+  Wormhole.expose('redmine.projects.list', {
+    description: "Redmine projects the caller's key can see (for creating an issue)",
+    inputSchema: { type: 'object', properties: {} },
+  });
+
+  Wormhole.expose('redmine.projects.formOptions', {
+    description: "A Redmine project's trackers, assignable users and the instance's priorities",
+    inputSchema: {
+      type: 'object',
+      properties: { projectId: { type: 'integer' } },
+      required: ['projectId'],
+    },
+  });
+
+  Wormhole.expose('redmine.issues.get', {
+    description: 'One Redmine issue with its description, allowed status changes and Redmine history',
+    inputSchema: {
+      type: 'object',
+      properties: { issueId: { type: 'integer' } },
+      required: ['issueId'],
+    },
+  });
+
+  Wormhole.expose('redmine.issues.create', {
+    description: 'Create a Redmine issue as the caller, confirmed by read-back',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectId: { type: 'integer' },
+        trackerId: { type: ['integer', 'null'] },
+        subject: { type: 'string' },
+        description: { type: 'string' },
+        assigneeId: { type: ['integer', 'null'] },
+        priorityId: { type: ['integer', 'null'] },
+      },
+      required: ['projectId', 'subject'],
+    },
+  });
+
+  Wormhole.expose('redmine.issues.update', {
+    description:
+      "Edit a Redmine issue's status, priority, assignee or description as the caller; refused if it changed since expectedUpdatedAt",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issueId: { type: 'integer' },
+        expectedUpdatedAt: { type: 'string' },
+        edits: {
+          type: 'object',
+          properties: {
+            statusId: { type: 'integer' },
+            priorityId: { type: 'integer' },
+            assigneeId: { type: ['integer', 'null'] },
+            description: { type: 'string' },
+          },
+        },
+      },
+      required: ['issueId', 'expectedUpdatedAt', 'edits'],
     },
   });
 
@@ -1515,6 +1582,17 @@ Meteor.startup(async() => {
   Wormhole.expose('timers.getTeamRunning', {
     description: 'Get all running timers for members of a team',
     inputSchema: { type: 'object', properties: { teamId: { type: 'string' } }, required: ['teamId'] },
+  });
+  Wormhole.expose('timers.getTicketSessions', {
+    description: "The caller's own timer sessions on one ticket, newest first",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        source: { type: 'string', enum: ['huddle', 'redmine'] },
+      },
+      required: ['ticketId'],
+    },
   });
   Wormhole.expose('timers.getTicketTotal', {
     description: "Get the caller's own total seconds for a ticket across all closed sessions",

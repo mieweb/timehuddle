@@ -2,8 +2,8 @@
  * TicketTableRow — one row of the unified ticket table.
  *
  * Renders a `UnifiedTicket` without caring which source it came from. Every
- * action is gated on `ticket.capabilities`, so a read-only source (Redmine)
- * cannot render a control it is unable to perform.
+ * action is gated on `ticket.capabilities`, so a source cannot render a control
+ * it is unable to perform (Redmine issues, for instance, are never deleted).
  *
  * Timers are the exception to "actions live in the ⋮ menu": they are started
  * only from My Board's ▶/⏸ column (M3 D1), never from the menu, so there is
@@ -41,7 +41,7 @@ import { useRouter } from '../../ui/router';
 import { TimerToggleButton } from '../../ui/TimerToggleButton';
 import { UserAvatar } from '../../ui/UserAvatar';
 
-import { SOURCE_LABELS, type UnifiedTicket } from './sources';
+import { SOURCE_LABELS, ticketDetailPath, type UnifiedTicket } from './sources';
 
 export interface TicketTableRowProps {
   ticket: UnifiedTicket;
@@ -107,14 +107,16 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
 
   const { capabilities, status, externalUrl, assignees } = ticket;
   const { icon, className: iconClass } = statusIconFor(status);
+  // "Only the creator edits" is Huddle's own rule. An external source enforces
+  // its own permissions server-side (Redmine checks the user's role and
+  // workflow), so its rows offer the action and surface any refusal.
+  const canEdit = capabilities.edit && (ticket.sourceId !== 'huddle' || isCreator);
 
-  const openTicket = useCallback(() => {
-    if (externalUrl) {
-      window.open(externalUrl, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    navigate(`/app/tickets/${ticket.id}`);
-  }, [externalUrl, navigate, ticket.id]);
+  // Every source has an in-app page; a source's own page is a separate menu item.
+  const openTicket = useCallback(() => navigate(ticketDetailPath(ticket)), [navigate, ticket]);
+  const openExternal = useCallback(() => {
+    if (externalUrl) window.open(externalUrl, '_blank', 'noopener,noreferrer');
+  }, [externalUrl]);
 
   // The options menu is portaled to <body> and positioned with `fixed`
   // coordinates computed from the trigger's own rect, so it escapes the
@@ -333,19 +335,26 @@ export const TicketTableRow: React.FC<TicketTableRowProps> = ({
             >
               <DropdownContent className="bg-white dark:bg-neutral-800">
                 <DropdownItem
-                  icon={
-                    <FontAwesomeIcon icon={capabilities.openExternal ? faExternalLink : faEye} />
-                  }
+                  icon={<FontAwesomeIcon icon={faEye} />}
                   onClick={() => {
                     setMenuOpen(false);
                     openTicket();
                   }}
                 >
-                  {capabilities.openExternal
-                    ? `Open in ${SOURCE_LABELS[ticket.sourceId]}`
-                    : 'Ticket Details'}
+                  Ticket Details
                 </DropdownItem>
-                {capabilities.edit && isCreator && (
+                {capabilities.openExternal && externalUrl && (
+                  <DropdownItem
+                    icon={<FontAwesomeIcon icon={faExternalLink} />}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      openExternal();
+                    }}
+                  >
+                    {`Open in ${SOURCE_LABELS[ticket.sourceId]}`}
+                  </DropdownItem>
+                )}
+                {canEdit && (
                   <DropdownItem
                     icon={<FontAwesomeIcon icon={faPen} />}
                     onClick={() => {
