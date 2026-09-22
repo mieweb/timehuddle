@@ -55,6 +55,7 @@ import './email';
 import './push';
 import { initAgenda } from './agenda';
 import { bearerContextMiddleware } from './bearer-context';
+import { apiBodyLimitMiddleware } from './api-body-limit';
 
 // One-click role sign-in for local development. Imported dynamically so the
 // handler is never registered in a production server.
@@ -215,6 +216,11 @@ WebApp.rawConnectHandlers.use((req, res, next) => {
   }
   next();
 });
+
+// Oversized-body guard — must run BEFORE the wormhole REST bridge, which
+// destroys the socket on its own 1 MB check and so never delivers its 413.
+WebApp.connectHandlers.use('/api', apiBodyLimitMiddleware);
+WebApp.connectHandlers.use('/mcp', apiBodyLimitMiddleware);
 
 // Bearer token context — must be registered BEFORE wormhole REST bridge
 WebApp.connectHandlers.use('/api', bearerContextMiddleware);
