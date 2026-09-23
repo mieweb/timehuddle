@@ -6,47 +6,31 @@
  * collide. "Me" is therefore not one value but a set, which is what the `ME`
  * filter sentinel resolves against.
  *
- * The Huddle key is available immediately from the session; the Redmine one
- * needs the linked account, so it arrives a moment later and simply widens the
- * set. Until then "Me" still works for Huddle tickets — it never shows a
- * half-loaded error state for something this incidental.
+ * The Redmine half comes from the caller's `useRedmineStatus()`, rather than a
+ * second `redmine.status()` fetch of its own: one fetch, and one place that
+ * reacts when the account is linked or unlinked. Until that status resolves —
+ * or for a user with no link at all — "Me" is simply Huddle-only, which is the
+ * right answer rather than a half-loaded error state for something this
+ * incidental.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 
-import { redmineApi } from '../../lib/api';
+import type { RedmineStatus } from '../../lib/api';
 import { useSession } from '../../lib/useSession';
 
-export function useMeAssigneeKeys(): string[] {
+export function useMeAssigneeKeys(redmineStatus: RedmineStatus | null): string[] {
   const { user } = useSession();
   const userId = user?.id ?? null;
-  const [redmineUserId, setRedmineUserId] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!userId) {
-      setRedmineUserId(null);
-      return;
-    }
-    let cancelled = false;
-    redmineApi
-      .status()
-      .then((status) => {
-        if (!cancelled) setRedmineUserId(status.connected ? (status.redmineUserId ?? null) : null);
-      })
-      // A missing Redmine link is the normal case, not an error worth surfacing:
-      // "Me" just stays Huddle-only.
-      .catch(() => {
-        if (!cancelled) setRedmineUserId(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
+  const redmineUserId = redmineStatus?.connected ? (redmineStatus.redmineUserId ?? null) : null;
 
   // Stable identity: this feeds a useMemo dependency in useTicketTableView, so
   // a fresh array each render would re-filter the whole list every time.
   return useMemo(() => {
-    const keys: string[] = [];
-    if (userId) keys.push(`huddle:${userId}`);
+    // With nobody signed in there is no "me" to match, in either namespace —
+    // a Redmine status left over from the previous session must not leak a key
+    // into the next one.
+    if (!userId) return [];
+    const keys = [`huddle:${userId}`];
     if (redmineUserId != null) keys.push(`redmine:${redmineUserId}`);
     return keys;
   }, [userId, redmineUserId]);

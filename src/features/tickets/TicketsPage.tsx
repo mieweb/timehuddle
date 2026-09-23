@@ -40,7 +40,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ApiError,
   myBoardApi,
-  redmineApi,
   teamApi,
   ticketApi,
   timerApi,
@@ -57,6 +56,7 @@ import { useSession } from '../../lib/useSession';
 import { useClockToggle } from '../../lib/useClockToggle';
 import { useRunningTicket } from '../../lib/useRunningTicket';
 import { useRefresh } from '../../lib/RefreshContext';
+import { REDMINE_CHANGED, useRedmineStatus } from '../../lib/useRedmineStatus';
 import { useRouter } from '../../ui/router';
 import { AppPage } from '../../ui/AppPage';
 import { EmptyState } from '../../ui/EmptyState';
@@ -171,17 +171,22 @@ export const TicketsPage: React.FC = () => {
     setSourceItems,
   } = useUnifiedTickets(sourceCtx);
 
-  // Pull-to-refresh handler — only while this page is the active route. It
-  // stays mounted (hidden) behind other routes, so registering unconditionally
-  // would hijack the visible page's refresh handler.
-  useRefresh(refetch, pathname === '/app/tickets');
-
   // The Redmine list is cached per session, so a refetch after a Redmine write
-  // must drop that cache or it would re-serve the pre-write rows.
+  // must drop that cache or it would re-serve the pre-write rows. Declared
+  // before the `useRefresh` below, which registers it — `const` is not hoisted.
   const refetchAfterRedmineWrite = useCallback(() => {
     invalidateRedmineCache();
     void refetch();
   }, [refetch]);
+
+  // Pull-to-refresh handler — only while this page is the active route. It
+  // stays mounted (hidden) behind other routes, so registering unconditionally
+  // would hijack the visible page's refresh handler.
+  //
+  // Registers the cache-dropping variant: a pull that re-served the cached
+  // Redmine rows would refresh everything except the source most likely to have
+  // changed behind the user's back.
+  useRefresh(refetchAfterRedmineWrite, pathname === '/app/tickets');
 
   // M6: Redmine issues are edited and created in their own dialogs, under the
   // user's personal Redmine key.
@@ -245,6 +250,17 @@ export const TicketsPage: React.FC = () => {
     return () => window.removeEventListener('tickets:refetch', onRefetch);
   }, [refetch]);
 
+  // Linking or unlinking a Redmine account in Settings. This page stays mounted
+  // behind that route, so the event is the only thing that tells it to look
+  // again — and the cached issue list has to go with it (#562). Bound to the
+  // event rather than to the status value: an effect on the value would also
+  // fire on first load, costing a wasted fetch and a row flicker at boot.
+  useEffect(() => {
+    const onRedmineChanged = () => refetchAfterRedmineWrite();
+    window.addEventListener(REDMINE_CHANGED, onRedmineChanged);
+    return () => window.removeEventListener(REDMINE_CHANGED, onRedmineChanged);
+  }, [refetchAfterRedmineWrite]);
+
   // Mutation loading states
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
@@ -275,17 +291,11 @@ export const TicketsPage: React.FC = () => {
 
   // Whether the user has linked a Redmine account, so the board can say *why*
   // its Redmine rows are missing instead of silently showing a short list.
-  const [redmineConnected, setRedmineConnected] = useState<boolean | null>(null);
-  const [redmineBaseUrl, setRedmineBaseUrl] = useState<string | null>(null);
-  useEffect(() => {
-    void redmineApi
-      .status()
-      .then((status) => {
-        setRedmineConnected(status.connected);
-        setRedmineBaseUrl(status.connected ? (status.baseUrl ?? null) : null);
-      })
-      .catch(() => setRedmineConnected(null));
-  }, []);
+  // `null` is "not known yet", which shows nothing — only `false` is a
+  // confident "not connected".
+  const redmineStatus = useRedmineStatus();
+  const redmineConnected = redmineStatus === null ? null : redmineStatus.connected;
+  const redmineBaseUrl = redmineStatus?.connected ? (redmineStatus.baseUrl ?? null) : null;
 
   /**
    * Board entries with no ticket behind them. A board row is identity-only, so
@@ -308,7 +318,7 @@ export const TicketsPage: React.FC = () => {
   // Search/filter/sort/paginate/select — one independent pipeline per tab, so
   // switching tabs never resets or leaks the other tab's state.
   // Resolves the assignee filter's "Me" option across both id namespaces.
-  const meKeys = useMeAssigneeKeys();
+  const meKeys = useMeAssigneeKeys(redmineStatus);
   const ticketsView = useTicketTableView(allTickets, meKeys);
   const boardView = useTicketTableView(boardTickets, meKeys);
   const {
