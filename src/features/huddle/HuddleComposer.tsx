@@ -370,6 +370,10 @@ export function HuddleComposer({
         onFiles={uploadDroppedMedia}
         collab={huddlePostCollab(collabRoom)}
         placeholder="What's on your mind?"
+        aria-label={editing ? 'Edit post' : 'Write a post'}
+        // The collapsed bar is the only way in, so expanding it is a deliberate
+        // "I want to write now" — put the caret where the user just asked for it.
+        autoFocus
       />
 
       {/* ── Ticket / mention / attachment chips ── */}
