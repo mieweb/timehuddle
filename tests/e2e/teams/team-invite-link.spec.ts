@@ -130,8 +130,13 @@ test.describe('Team Invite Link', () => {
 
     const dialog = page.getByRole('dialog').filter({ hasText: 'Share Team' });
     await expect(dialog.getByTestId('team-share-qr')).toBeVisible();
-    await dialog.getByRole('button', { name: 'Copy invite link' }).click();
+    // Copy sits inside the invite-link section, so it can only mean that URL.
+    await dialog.getByRole('button', { name: 'Copy link', exact: true }).click();
     await expect(dialog.getByRole('button', { name: 'Copied!' })).toBeVisible();
+
+    // While the URL is on screen there is no "generate a replacement" button —
+    // it would only discard the link the admin is reading.
+    await expect(dialog.getByRole('button', { name: /Generate/ })).toHaveCount(0);
 
     // Only the hash is persisted — the token must not be in the database.
     const stored = await db

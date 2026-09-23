@@ -567,34 +567,36 @@ export const TeamsPage: React.FC = () => {
   }, [selectedTeamId, refetchTeams]);
 
   // Joining with a code goes through the team's approval settings — it is not
-  // an invitation, so this URL grants nothing on its own.
+  // an invitation, so this URL grants nothing on its own. It is kept strictly
+  // apart from the invite link: one button must never distribute whichever of
+  // the two happens to exist, since they grant different access.
   const codeJoinUrl = selectedTeam?.code
     ? `${window.location.origin}/app?mode=signup&join=${encodeURIComponent(selectedTeam.code)}`
     : '';
-  const shareUrl = inviteLinkUrl ?? codeJoinUrl;
 
-  const [linkCopied, setLinkCopied] = useState(false);
-  const copyShareUrl = useCallback(() => {
-    if (!shareUrl) return;
+  const [copied, setCopied] = useState<'invite' | 'code' | null>(null);
+  const copyUrl = useCallback((url: string, which: 'invite' | 'code') => {
+    if (!url) return;
     navigator.clipboard
-      .writeText(shareUrl)
+      .writeText(url)
       .then(() => {
-        setLinkCopied(true);
-        window.setTimeout(() => setLinkCopied(false), 2000);
+        setCopied(which);
+        window.setTimeout(() => setCopied(null), 2000);
       })
       .catch((err) => console.error('[TeamsPage] failed to copy the link:', err));
-  }, [shareUrl]);
+  }, []);
 
-  const shareShareUrl = useCallback(() => {
-    if (!shareUrl || !selectedTeam) return;
+  const canNativeShare = typeof navigator !== 'undefined' && 'share' in navigator;
+  const shareInviteLink = useCallback(() => {
+    if (!inviteLinkUrl || !selectedTeam) return;
     void navigator
       .share({
         title: `Join ${selectedTeam.name} on TimeHuddle`,
         text: `Open this link to join the ${selectedTeam.name} team on TimeHuddle.`,
-        url: shareUrl,
+        url: inviteLinkUrl,
       })
       .catch(() => {});
-  }, [shareUrl, selectedTeam]);
+  }, [inviteLinkUrl, selectedTeam]);
 
   if (!teamsReady) {
     return (
@@ -1408,7 +1410,8 @@ export const TeamsPage: React.FC = () => {
         </ModalFooter>
       </AppModal>
 
-      {/* Share team via QR code */}
+      {/* Share team — the invite link and the team code grant different access,
+          so each owns its own QR, URL and buttons rather than sharing a footer. */}
       <AppModal open={modal === 'share'} onOpenChange={(open) => !open && closeModal()} size="md">
         <ModalHeader>
           <ModalTitle>Share Team</ModalTitle>
@@ -1416,34 +1419,10 @@ export const TeamsPage: React.FC = () => {
         </ModalHeader>
         <ModalBody>
           <div className="team-share flex flex-col gap-5">
-            <div className="team-share-qr-panel flex flex-col items-center gap-3">
-              <div
-                className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-neutral-200"
-                role="img"
-                aria-label={
-                  inviteLinkUrl
-                    ? `QR code of the invite link for team ${selectedTeam?.name ?? ''}`
-                    : `QR code of the join code for team ${selectedTeam?.name ?? ''}`
-                }
-                data-testid="team-share-qr"
-              >
-                {shareUrl && <QRCodeSVG value={shareUrl} size={200} marginSize={1} />}
-              </div>
-              <div className="w-full rounded-lg bg-neutral-100 p-3 dark:bg-neutral-800">
-                <Text
-                  size="xs"
-                  className="break-all font-mono text-neutral-600 dark:text-neutral-300"
-                  data-testid="team-share-link"
-                >
-                  {shareUrl}
-                </Text>
-              </div>
-            </div>
-
             {/* An invite link admits whoever opens it, so only admins mint one. */}
             {isAdmin && !selectedTeam?.isPersonal && (
               <section
-                className="team-share-invite-link flex flex-col gap-2"
+                className="team-share-invite-link flex flex-col gap-3"
                 aria-labelledby="team-share-invite-heading"
               >
                 <Text
@@ -1455,10 +1434,33 @@ export const TeamsPage: React.FC = () => {
                 >
                   Invite link
                 </Text>
+
+                {inviteLinkUrl && (
+                  <div className="team-share-invite-qr flex flex-col items-center gap-3">
+                    <div
+                      className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-neutral-200"
+                      role="img"
+                      aria-label={`QR code of the invite link for team ${selectedTeam?.name ?? ''}`}
+                      data-testid="team-share-qr"
+                    >
+                      <QRCodeSVG value={inviteLinkUrl} size={200} marginSize={1} />
+                    </div>
+                    <div className="w-full rounded-lg bg-neutral-100 p-3 dark:bg-neutral-800">
+                      <Text
+                        size="xs"
+                        className="break-all font-mono text-neutral-600 dark:text-neutral-300"
+                        data-testid="team-share-link"
+                      >
+                        {inviteLinkUrl}
+                      </Text>
+                    </div>
+                  </div>
+                )}
+
                 <Text variant="muted" size="sm" role="status" data-testid="team-invite-link-status">
                   {inviteLinkUrl ? (
                     <>
-                      Anyone who opens the link above joins{' '}
+                      Anyone who opens this link joins{' '}
                       <Text as="span" weight="semibold">
                         {selectedTeam?.name}
                       </Text>{' '}
@@ -1480,23 +1482,46 @@ export const TeamsPage: React.FC = () => {
                     </>
                   )}
                 </Text>
+
                 {inviteLinkError && (
                   <Text variant="destructive" size="xs" role="alert">
                     {inviteLinkError}
                   </Text>
                 )}
+
                 <div className="flex gap-2">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    className="flex-1"
-                    onClick={handleGenerateInviteLink}
-                    isLoading={inviteLinkLoading}
-                    loadingText="Working…"
-                    leftIcon={<FontAwesomeIcon icon={faLink} />}
-                  >
-                    {inviteLink ? 'Generate new link' : 'Generate invite link'}
-                  </Button>
+                  {inviteLinkUrl ? (
+                    // The link is on screen: copying it is the whole point, and
+                    // "generate a new one" would only discard what you are reading.
+                    <>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => copyUrl(inviteLinkUrl, 'invite')}
+                        leftIcon={<FontAwesomeIcon icon={faCopy} />}
+                      >
+                        {copied === 'invite' ? 'Copied!' : 'Copy link'}
+                      </Button>
+                      {canNativeShare && (
+                        <Button variant="outline" size="sm" onClick={shareInviteLink}>
+                          Share…
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="flex-1"
+                      onClick={handleGenerateInviteLink}
+                      isLoading={inviteLinkLoading}
+                      loadingText="Working…"
+                      leftIcon={<FontAwesomeIcon icon={faLink} />}
+                    >
+                      {inviteLink ? 'Generate new link' : 'Generate invite link'}
+                    </Button>
+                  )}
                   {inviteLink && (
                     <Button
                       variant="danger"
@@ -1513,7 +1538,7 @@ export const TeamsPage: React.FC = () => {
             )}
 
             <section
-              className="team-share-code flex flex-col gap-2"
+              className="team-share-code flex flex-col gap-3"
               aria-labelledby="team-share-code-heading"
             >
               <Text
@@ -1525,6 +1550,7 @@ export const TeamsPage: React.FC = () => {
               >
                 Team code
               </Text>
+
               <div className="flex items-center gap-2">
                 <Badge variant="secondary" size="sm" className="font-mono tracking-widest">
                   {selectedTeam?.code}
@@ -1539,30 +1565,55 @@ export const TeamsPage: React.FC = () => {
                   <FontAwesomeIcon icon={faCopy} className="text-[11px]" />
                 </Button>
               </div>
+
+              {/* The code's own QR, shown only when it is the thing on offer —
+                  two QR codes in one dialog is how the old modal blurred them. */}
+              {!inviteLinkUrl && codeJoinUrl && (
+                <div className="team-share-code-qr flex flex-col items-center gap-3">
+                  <div
+                    className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-neutral-200"
+                    role="img"
+                    aria-label={`QR code of the join code for team ${selectedTeam?.name ?? ''}`}
+                    data-testid="team-share-qr"
+                  >
+                    <QRCodeSVG value={codeJoinUrl} size={160} marginSize={1} />
+                  </div>
+                  <div className="w-full rounded-lg bg-neutral-100 p-3 dark:bg-neutral-800">
+                    <Text
+                      size="xs"
+                      className="break-all font-mono text-neutral-600 dark:text-neutral-300"
+                      data-testid="team-share-link"
+                    >
+                      {codeJoinUrl}
+                    </Text>
+                  </div>
+                </div>
+              )}
+
               <Text variant="muted" size="sm">
                 {autoAcceptJoins
                   ? 'The code names this team. Anyone who joins with it is added automatically, because this team accepts join requests without review.'
                   : 'The code names this team — it is not an invitation. Anyone who joins with it waits for an admin to approve the request.'}
               </Text>
+
+              {!inviteLinkUrl && codeJoinUrl && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="self-start"
+                  onClick={() => copyUrl(codeJoinUrl, 'code')}
+                  leftIcon={<FontAwesomeIcon icon={faCopy} />}
+                >
+                  {copied === 'code' ? 'Copied!' : 'Copy join link'}
+                </Button>
+              )}
             </section>
           </div>
         </ModalBody>
         <ModalFooter>
-          <div className="flex w-full gap-2">
-            <Button
-              variant="outline"
-              fullWidth
-              onClick={copyShareUrl}
-              leftIcon={<FontAwesomeIcon icon={faCopy} />}
-            >
-              {linkCopied ? 'Copied!' : inviteLinkUrl ? 'Copy invite link' : 'Copy link'}
-            </Button>
-            {typeof navigator !== 'undefined' && 'share' in navigator && (
-              <Button variant="primary" fullWidth onClick={shareShareUrl}>
-                Share…
-              </Button>
-            )}
-          </div>
+          <Button variant="outline" fullWidth onClick={closeModal}>
+            Done
+          </Button>
         </ModalFooter>
       </AppModal>
 
