@@ -51,8 +51,13 @@ html[data-theme='dark'] {
 }
 
 /* Same reset zeroes the editor's height, so `min-h-*` utilities on the wrapper
-   no longer reach it. Owned here rather than in MarkdownEditor's className. */
-.markdown-editor .kb-editor {
+   no longer reach it. Owned here rather than in MarkdownEditor's className.
+   Keyed on `.ProseMirror` as well as `.kb-editor`: the `kb-editor` class comes
+   from ProseMirror's `attributes` prop, which anything calling `setProps` can
+   replace, and a composer that silently collapses to one line is a bad way to
+   find that out. `.ProseMirror` is ProseMirror's own and always present. */
+.markdown-editor .kb-editor,
+.markdown-editor .ProseMirror {
   min-height: 13rem;
 }
 

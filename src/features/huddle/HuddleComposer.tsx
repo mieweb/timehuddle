@@ -15,6 +15,7 @@ import { Button } from '@mieweb/ui';
 import type { RichEditorHandle } from '@mieweb/ui/kerebron';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTeam } from '@lib/TeamContext';
+import { useSession } from '@lib/useSession';
 import { attachmentApi } from '@lib/api';
 import { MarkdownEditor } from './MarkdownEditor';
 import { ComposerAttachButtons, ComposerChips, type MentionRef } from './ComposerAttachments';
@@ -109,6 +110,8 @@ export function HuddleComposer({
   const [error, setError] = useState<string | null>(null);
   const clearError = useCallback(() => setError(null), []);
   const { selectedTeamId } = useTeam();
+  // Names this peer's cursor for everyone else in the room.
+  const { user } = useSession();
   const composerRef = useRef<HTMLDivElement>(null);
   // Read on submit instead of trusting `text`: RichEditor mirrors its content
   // out through an async serialization, so `text` can lag the last keystroke.
@@ -368,7 +371,7 @@ export function HuddleComposer({
         onChange={setText}
         onSubmit={handleSubmit}
         onFiles={uploadDroppedMedia}
-        collab={huddlePostCollab(collabRoom)}
+        collab={huddlePostCollab(collabRoom, user ? { id: user.id, name: user.name } : undefined)}
         placeholder="What's on your mind?"
         aria-label={editing ? 'Edit post' : 'Write a post'}
         // The collapsed bar is the only way in, so expanding it is a deliberate
