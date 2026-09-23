@@ -13,7 +13,9 @@ import {
   closeDb,
   purgeUser,
   ObjectId,
+  DDPConnection,
 } from './helpers';
+import { METEOR_URL } from './setup';
 
 const OWNER = { name: 'Team Owner', email: 'wh-team-owner@test.dev', password: 'Password1!' };
 const MEMBER = { name: 'Team Member', email: 'wh-team-member@test.dev', password: 'Password1!' };
@@ -770,5 +772,486 @@ describe('teams.delete', () => {
   it('outsider is forbidden', async () => {
     const res = await wormhole('teams.delete', { teamId: fixtureTeamId }, outsiderJwt);
     expect(res.ok).toBe(false);
+  });
+});
+
+// ─── Invite links ─────────────────────────────────────────────────────────────
+//
+// An invite link is the only thing that grants membership outright. A team code
+// no longer does: 'teams.joinByLink' routes a bare code through the ordinary
+// approval flow, which is what the QR codes shared before invite links existed
+// now degrade to.
+
+describe('teams invite links', () => {
+  let linkTeamId: string;
+  let linkTeamCode: string;
+
+  /** Detach the outsider so each redemption test starts from "not a member". */
+  async function resetOutsiderMembership() {
+    const db = await getDb();
+    await db
+      .collection('teams')
+      .updateOne({ _id: new ObjectId(linkTeamId) }, { $pull: { members: outsiderId } } as never);
+    await db.collection('teamjoinrequests').deleteMany({ teamId: linkTeamId });
+  }
+
+  beforeAll(async () => {
+    const createRes = await wormhole<{ team: { id: string; code: string } }>(
+      'teams.create',
+      { name: 'Invite Link Team' },
+      ownerJwt,
+    );
+    linkTeamId = createRes.result.team.id;
+    linkTeamCode = createRes.result.team.code;
+    // What a link grants is the team's decision. Most of this block tests the
+    // "admits outright" half, so opt the fixture team into that; the approval
+    // half gets its own test below.
+    await wormhole(
+      'teams.updateSettings',
+      { teamId: linkTeamId, autoAcceptJoins: true },
+      ownerJwt,
+    );
+  }, 30000);
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('team_invitations').deleteMany({ teamId: linkTeamId });
+    await db.collection('teamjoinrequests').deleteMany({ teamId: linkTeamId });
+    await wormhole('teams.delete', { teamId: linkTeamId }, ownerJwt).catch(() => {});
+  });
+
+  /** Mint a link and hand back its token and id. */
+  async function createLink() {
+    const res = await wormhole<{ link: { invitationId: string }; url: string }>(
+      'teams.createInviteLink',
+      { teamId: linkTeamId },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(true);
+    const token = new URL(res.result.url).searchParams.get('join')!;
+    return { token, invitationId: res.result.link.invitationId };
+  }
+
+  it('generates an opaque token, never the team code', async () => {
+    const { token } = await createLink();
+    expect(token).toMatch(/^[a-f0-9]{64}$/);
+    expect(token).not.toContain(linkTeamCode);
+  });
+
+  it('stores only the hash of the token', async () => {
+    const { token, invitationId } = await createLink();
+    const db = await getDb();
+    const doc = await db.collection('team_invitations').findOne({ _id: new ObjectId(invitationId) });
+    expect(doc).toBeTruthy();
+    expect(doc!.tokenHash).toBe(createHash('sha256').update(token).digest('hex'));
+    expect(JSON.stringify(doc)).not.toContain(token);
+  });
+
+  it('is refused to a member who is not an admin', async () => {
+    const res = await wormhole('teams.createInviteLink', { teamId: linkTeamId }, memberJwt);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/admin/i);
+  });
+
+  it('is refused to an outsider', async () => {
+    const res = await wormhole('teams.createInviteLink', { teamId: linkTeamId }, outsiderJwt);
+    expect(res.ok).toBe(false);
+  });
+
+  it('reports the active link without disclosing its URL', async () => {
+    const { token, invitationId } = await createLink();
+    const res = await wormhole<{
+      link: { invitationId: string; expiresAt: string; useCount: number };
+    }>('teams.getInviteLink', { teamId: linkTeamId }, ownerJwt);
+    expect(res.ok).toBe(true);
+    expect(res.result.link.invitationId).toBe(invitationId);
+    expect(JSON.stringify(res.result)).not.toContain(token);
+  });
+
+  it('adds the redeemer to the team with no approval step', async () => {
+    await resetOutsiderMembership();
+    const { token } = await createLink();
+
+    const res = await wormhole<{ status: string }>(
+      'teams.joinByLink',
+      { value: token },
+      outsiderJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.status).toBe('joined');
+
+    const db = await getDb();
+    const team = await db.collection('teams').findOne({ _id: new ObjectId(linkTeamId) });
+    expect(team!.members).toContain(outsiderId);
+    const pending = await db
+      .collection('teamjoinrequests')
+      .findOne({ teamId: linkTeamId, userId: outsiderId, status: 'pending' });
+    expect(pending).toBeNull();
+  });
+
+  it('is idempotent — redeeming twice leaves one membership', async () => {
+    await resetOutsiderMembership();
+    const { token, invitationId } = await createLink();
+
+    await wormhole('teams.joinByLink', { value: token }, outsiderJwt);
+    const second = await wormhole<{ status: string }>(
+      'teams.joinByLink',
+      { value: token },
+      outsiderJwt,
+    );
+    expect(second.ok).toBe(true);
+    expect(second.result.status).toBe('joined');
+
+    const db = await getDb();
+    const team = await db.collection('teams').findOne({ _id: new ObjectId(linkTeamId) });
+    expect(team!.members.filter((id: string) => id === outsiderId)).toHaveLength(1);
+    // The second open was a no-op, so it did not count as a use.
+    const doc = await db.collection('team_invitations').findOne({ _id: new ObjectId(invitationId) });
+    expect(doc!.useCount).toBe(1);
+    // A group link survives being redeemed — it is not consumed.
+    expect(doc!.status).toBe('pending');
+  });
+
+  it('stops working once revoked', async () => {
+    await resetOutsiderMembership();
+    const { token, invitationId } = await createLink();
+
+    const revoke = await wormhole('teams.revokeInvite', { invitationId }, ownerJwt);
+    expect(revoke.ok).toBe(true);
+
+    const res = await wormhole('teams.joinByLink', { value: token }, outsiderJwt);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/revoked/i);
+
+    const db = await getDb();
+    const team = await db.collection('teams').findOne({ _id: new ObjectId(linkTeamId) });
+    expect(team!.members).not.toContain(outsiderId);
+  });
+
+  it('retires the previous link when a replacement is generated', async () => {
+    await resetOutsiderMembership();
+    const first = await createLink();
+    const second = await createLink();
+
+    const stale = await wormhole('teams.joinByLink', { value: first.token }, outsiderJwt);
+    expect(stale.ok).toBe(false);
+
+    const fresh = await wormhole('teams.joinByLink', { value: second.token }, outsiderJwt);
+    expect(fresh.ok).toBe(true);
+  });
+
+  it('stops working once expired', async () => {
+    await resetOutsiderMembership();
+    const { token, invitationId } = await createLink();
+
+    const db = await getDb();
+    await db
+      .collection('team_invitations')
+      .updateOne(
+        { _id: new ObjectId(invitationId) },
+        { $set: { expiresAt: new Date(Date.now() - 1000) } },
+      );
+
+    const res = await wormhole('teams.joinByLink', { value: token }, outsiderJwt);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/expired/i);
+  });
+
+  it('rejects an unknown token', async () => {
+    const res = await wormhole('teams.joinByLink', { value: 'f'.repeat(64) }, outsiderJwt);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/invalid/i);
+  });
+
+  it('keeps link tokens out of the email-invitation flow', async () => {
+    const { token } = await createLink();
+    const res = await wormhole('teams.acceptInvite', { token }, outsiderJwt);
+    expect(res.ok).toBe(false);
+  });
+
+  it('leaves invite links out of the email-invitation list', async () => {
+    const { invitationId } = await createLink();
+    const res = await wormhole<{ invitations: Array<{ id: string }> }>(
+      'teams.getPendingInvitations',
+      { teamId: linkTeamId },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.invitations.map((i) => i.id)).not.toContain(invitationId);
+  });
+
+  it('previews the team a link opens', async () => {
+    const { token } = await createLink();
+    const res = await wormhole<{ teamName: string; kind: string; requiresApproval: boolean }>(
+      'teams.previewJoinLink',
+      { value: token },
+      outsiderJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.teamName).toBe('Invite Link Team');
+    expect(res.result.kind).toBe('link');
+    expect(res.result.requiresApproval).toBe(false);
+  });
+
+  // ── The team's approval setting governs the link too ──────────────────────
+  //
+  // Holding a link is not a way around a setting whose purpose is to see who
+  // is coming in: on a team that reviews its joiners, a link asks rather than
+  // admits.
+  describe('on a team that reviews its joiners', () => {
+    beforeAll(async () => {
+      await wormhole(
+        'teams.updateSettings',
+        { teamId: linkTeamId, autoAcceptJoins: false },
+        ownerJwt,
+      );
+    });
+
+    afterAll(async () => {
+      await wormhole(
+        'teams.updateSettings',
+        { teamId: linkTeamId, autoAcceptJoins: true },
+        ownerJwt,
+      );
+    });
+
+    it('asks for approval instead of admitting', async () => {
+      await resetOutsiderMembership();
+      const { token } = await createLink();
+
+      const res = await wormhole<{ status: string }>(
+        'teams.joinByLink',
+        { value: token },
+        outsiderJwt,
+      );
+      expect(res.ok).toBe(true);
+      expect(res.result.status).toBe('pending');
+
+      const db = await getDb();
+      const team = await db.collection('teams').findOne({ _id: new ObjectId(linkTeamId) });
+      expect(team!.members).not.toContain(outsiderId);
+      const request = await db
+        .collection('teamjoinrequests')
+        .findOne({ teamId: linkTeamId, userId: outsiderId, status: 'pending' });
+      expect(request).toBeTruthy();
+    });
+
+    it('does not stack requests when the link is reopened', async () => {
+      await resetOutsiderMembership();
+      const { token, invitationId } = await createLink();
+
+      await wormhole('teams.joinByLink', { value: token }, outsiderJwt);
+      await wormhole('teams.joinByLink', { value: token }, outsiderJwt);
+
+      const db = await getDb();
+      const count = await db
+        .collection('teamjoinrequests')
+        .countDocuments({ teamId: linkTeamId, userId: outsiderId, status: 'pending' });
+      expect(count).toBe(1);
+      // Reopening while already waiting is not a second use of the link.
+      const doc = await db
+        .collection('team_invitations')
+        .findOne({ _id: new ObjectId(invitationId) });
+      expect(doc!.useCount).toBe(1);
+    });
+
+    it('says so in the preview, so the login page can set expectations', async () => {
+      const { token } = await createLink();
+      const res = await wormhole<{ kind: string; requiresApproval: boolean }>(
+        'teams.previewJoinLink',
+        { value: token },
+        outsiderJwt,
+      );
+      expect(res.ok).toBe(true);
+      expect(res.result.kind).toBe('link');
+      expect(res.result.requiresApproval).toBe(true);
+    });
+  });
+});
+
+// ─── The team code is an identifier, not a credential ─────────────────────────
+
+describe('team codes', () => {
+  let codeTeamId: string;
+  let codeTeamCode: string;
+
+  beforeAll(async () => {
+    const createRes = await wormhole<{ team: { id: string; code: string } }>(
+      'teams.create',
+      { name: 'Code Team' },
+      ownerJwt,
+    );
+    codeTeamId = createRes.result.team.id;
+    codeTeamCode = createRes.result.team.code;
+  }, 30000);
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('teamjoinrequests').deleteMany({ teamId: codeTeamId });
+    await wormhole('teams.delete', { teamId: codeTeamId }, ownerJwt).catch(() => {});
+  });
+
+  it('is generated from a CSPRNG, not Math.random', async () => {
+    // 8 Crockford base32 characters, and distinct across teams.
+    expect(codeTeamCode).toMatch(/^[0-9A-HJKMNP-TV-Z]{8}$/);
+    const other = await wormhole<{ team: { id: string; code: string } }>(
+      'teams.create',
+      { name: 'Code Team Two' },
+      ownerJwt,
+    );
+    expect(other.result.team.code).not.toBe(codeTeamCode);
+    await wormhole('teams.delete', { teamId: other.result.team.id }, ownerJwt);
+  });
+
+  it('opening a code link only requests membership — it does not grant it', async () => {
+    const res = await wormhole<{ status: string }>(
+      'teams.joinByLink',
+      { value: codeTeamCode },
+      outsiderJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.status).toBe('pending');
+
+    const db = await getDb();
+    const team = await db.collection('teams').findOne({ _id: new ObjectId(codeTeamId) });
+    expect(team!.members).not.toContain(outsiderId);
+  });
+
+  it('says so in the preview, so the login page can set expectations', async () => {
+    const res = await wormhole<{ kind: string; requiresApproval: boolean }>(
+      'teams.previewJoinLink',
+      { value: codeTeamCode },
+      outsiderJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.kind).toBe('code');
+    expect(res.result.requiresApproval).toBe(true);
+  });
+
+  it('can be rotated by an admin, retiring the old code', async () => {
+    const res = await wormhole<{ code: string }>(
+      'teams.rotateCode',
+      { teamId: codeTeamId },
+      ownerJwt,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.result.code).not.toBe(codeTeamCode);
+
+    const stale = await wormhole('teams.previewJoinLink', { value: codeTeamCode }, outsiderJwt);
+    expect(stale.ok).toBe(false);
+    codeTeamCode = res.result.code;
+  });
+
+  it('cannot be rotated by a non-admin', async () => {
+    const res = await wormhole('teams.rotateCode', { teamId: codeTeamId }, memberJwt);
+    expect(res.ok).toBe(false);
+    expect(res.error).toMatch(/admin/i);
+  });
+
+  it('is unique across teams, so a code names exactly one', async () => {
+    const made: string[] = [];
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      const res = await wormhole<{ team: { id: string; code: string } }>(
+        'teams.create',
+        { name: `Code Uniqueness ${i}` },
+        ownerJwt,
+      );
+      expect(res.ok).toBe(true);
+      made.push(res.result.team.code);
+      ids.push(res.result.team.id);
+    }
+    expect(new Set(made).size).toBe(made.length);
+    await Promise.all(ids.map((id) => wormhole('teams.delete', { teamId: id }, ownerJwt)));
+  });
+});
+
+// ── Deprecated method names ───────────────────────────────────────────────────
+//
+// Native bundles already on people's phones call these, and their caller
+// swallows errors — dropping them would make a shared link silently fail to
+// join. They must keep working, with the corrected behaviour.
+
+describe('teams.joinByQr / teams.previewByCode (deprecated aliases)', () => {
+  let aliasTeamId: string;
+  let aliasTeamCode: string;
+
+  /**
+   * Call over DDP, as an already-installed bundle does. These two are
+   * deliberately not on the REST surface: they exist for old clients, and
+   * exposing them there would widen the API for a test's convenience.
+   */
+  async function asOldClient<T>(method: string, args: Record<string, unknown>): Promise<T> {
+    const ddp = new DDPConnection(`${METEOR_URL.replace('http://', 'ws://')}/websocket`);
+    try {
+      await ddp.connect();
+      await ddp.login(OUTSIDER.email, OUTSIDER.password);
+      return (await ddp.call(method, [args])) as T;
+    } finally {
+      ddp.close();
+    }
+  }
+
+  beforeAll(async () => {
+    const res = await wormhole<{ team: { id: string; code: string } }>(
+      'teams.create',
+      { name: 'Alias Team' },
+      ownerJwt,
+    );
+    aliasTeamId = res.result.team.id;
+    aliasTeamCode = res.result.team.code;
+  }, 30000);
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('teamjoinrequests').deleteMany({ teamId: aliasTeamId });
+    await db.collection('team_invitations').deleteMany({ teamId: aliasTeamId });
+    await wormhole('teams.delete', { teamId: aliasTeamId }, ownerJwt).catch(() => {});
+  });
+
+  it('still previews a team by its code', async () => {
+    const result = await asOldClient<{ teamName: string; kind: string }>('teams.previewByCode', {
+      teamCode: aliasTeamCode,
+    });
+    expect(result.teamName).toBe('Alias Team');
+    expect(result.kind).toBe('code');
+  });
+
+  it('routes an old client through approval rather than admitting outright', async () => {
+    const db = await getDb();
+    await db
+      .collection('teams')
+      .updateOne({ _id: new ObjectId(aliasTeamId) }, { $pull: { members: outsiderId } } as never);
+    await db.collection('teamjoinrequests').deleteMany({ teamId: aliasTeamId });
+
+    const result = await asOldClient<{ status: string }>('teams.joinByQr', {
+      teamCode: aliasTeamCode,
+    });
+    expect(result.status).toBe('pending');
+
+    const team = await db.collection('teams').findOne({ _id: new ObjectId(aliasTeamId) });
+    expect(team!.members).not.toContain(outsiderId);
+  });
+
+  it('still redeems an invite-link token for an old client', async () => {
+    const db = await getDb();
+    await db.collection('teams').updateOne({ _id: new ObjectId(aliasTeamId) }, {
+      $set: { 'settings.autoAcceptJoins': true },
+      $pull: { members: outsiderId },
+    } as never);
+    await db.collection('teamjoinrequests').deleteMany({ teamId: aliasTeamId });
+
+    const created = await wormhole<{ url: string }>(
+      'teams.createInviteLink',
+      { teamId: aliasTeamId },
+      ownerJwt,
+    );
+    const token = new URL(created.result.url).searchParams.get('join')!;
+
+    const result = await asOldClient<{ status: string }>('teams.joinByQr', { teamCode: token });
+    expect(result.status).toBe('joined');
+
+    const team = await db.collection('teams').findOne({ _id: new ObjectId(aliasTeamId) });
+    expect(team!.members).toContain(outsiderId);
   });
 });

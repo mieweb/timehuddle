@@ -1,3 +1,5 @@
+import { randomBytes } from 'crypto';
+
 import { Meteor } from 'meteor/meteor';
 import { Mongo } from 'meteor/mongo';
 import { MongoInternals } from 'meteor/mongo';
@@ -35,6 +37,26 @@ Meteor.startup(async () => {
   } catch (error) {
     console.error('[teams] failed to create invitation index:', error);
   }
+
+  // A team code identifies a team, so two teams sharing one would send a
+  // joiner to whichever document Mongo returned first.
+  try {
+    await rawDb()
+      .collection('teams')
+      .createIndex(
+        { code: 1 },
+        {
+          name: 'unique_team_code',
+          unique: true,
+          // Scoped to documents that have a code: a legacy team without one
+          // would otherwise collide with the next such team and cost every
+          // other team the index.
+          partialFilterExpression: { code: { $type: 'string' } },
+        },
+      );
+  } catch (error) {
+    console.error('[teams] failed to create team code index:', error);
+  }
 });
 
 // Safe ObjectId conversion — only converts 24-char hex strings
@@ -42,8 +64,51 @@ function toId(id) {
   return /^[a-f0-9]{24}$/i.test(id) ? new ObjectId(id) : id;
 }
 
+// Crockford base32: 32 symbols, so a byte maps onto one with no modulo bias,
+// and the pairs people misread off a screen (0/O, 1/I/L) can't both occur.
+const TEAM_CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+
+/**
+ * A team code names a team — it is not a credential. Joining with one always
+ * goes through the team's approval settings ('teams.join'); only an
+ * admin-minted invite link grants membership outright. It is still generated
+ * with a CSPRNG: a team that auto-accepts join requests would otherwise admit
+ * anyone who could guess or predict a code.
+ */
 function generateTeamCode() {
-  return Math.random().toString(36).substring(2, 10).toUpperCase();
+  let code = '';
+  for (const byte of randomBytes(8)) code += TEAM_CODE_ALPHABET[byte % 32];
+  return code;
+}
+
+/**
+ * A code no other team is already using.
+ *
+ * The unique index is what actually guarantees this; the check here is so a
+ * birthday collision surfaces as another roll of the dice rather than as a
+ * duplicate-key error thrown at whoever was creating a team. Eight base32
+ * characters is 40 bits, so a redraw is vanishingly rare and five are plenty.
+ */
+async function generateUniqueTeamCode() {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const code = generateTeamCode();
+    const taken = await Teams.rawCollection().findOne({ code }, { projection: { _id: 1 } });
+    if (!taken) return code;
+  }
+  throw new Meteor.Error('code-unavailable', 'Could not allocate a team code. Please try again.');
+}
+
+/**
+ * Invite-link tokens are 32 random bytes as 64 hex characters (see
+ * generateInvitationToken); team codes are 8 base32 characters. The shapes
+ * never collide, so a single `?join=` value can carry either one.
+ */
+function isInviteLinkToken(value) {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/i.test(value.trim());
+}
+
+function inviteLinkUrl(token) {
+  return `${APP_URL}/app?mode=signup&join=${encodeURIComponent(token)}`;
 }
 
 /** The single "Personal" team every user gets, created on first need. */
@@ -59,7 +124,7 @@ export async function ensurePersonalTeam(userId) {
     name: 'Personal',
     members: [userId],
     admins: [userId],
-    code: generateTeamCode(),
+    code: await generateUniqueTeamCode(),
     isPersonal: true,
     createdAt: new Date(),
   };
@@ -96,6 +161,31 @@ async function getInvitationByToken(token) {
   return invitation;
 }
 
+/**
+ * An invite link runs the same validation ladder as an email invitation —
+ * unknown, revoked and expired tokens are all rejected there — narrowed to
+ * link invitations, so an email invitation's token cannot be redeemed as a
+ * link and skip the address check that binds it to one recipient.
+ */
+async function getInviteLinkByToken(token) {
+  const invitation = await getInvitationByToken(token);
+  if (invitation.kind !== 'link') {
+    throw new Meteor.Error('invalid-invitation', 'This invite link is invalid.');
+  }
+  return invitation;
+}
+
+/** Loads a team and asserts the caller may administer it. */
+async function requireTeamAdmin(teamId, userId) {
+  if (!isValidId(teamId)) throw new Meteor.Error('not-found', 'Invalid team id');
+  const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+  if (!team) throw new Meteor.Error('not-found', 'Team not found');
+  if (!(await isTeamAdminOrOrgOwner(team, userId))) {
+    throw new Meteor.Error('forbidden', 'Admin access required');
+  }
+  return team;
+}
+
 function toPublicInvitation(doc, invitedByName) {
   const id = doc._id?.toHexString ? doc._id.toHexString() : String(doc._id);
   return {
@@ -128,6 +218,244 @@ function toPublicTeam(team) {
     },
     createdAt: team.createdAt instanceof Date ? team.createdAt.toISOString() : String(team.createdAt),
     updatedAt: team.updatedAt instanceof Date ? team.updatedAt.toISOString() : (team.updatedAt ?? null),
+  };
+}
+
+/**
+ * Name the team a `?join=` value opens, and say what opening it will do —
+ * without requiring a session, so the login page can set expectations before
+ * anyone signs in. Exposes only what that banner needs.
+ */
+async function previewJoinTarget(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Meteor.Error('bad-request', 'value is required');
+  }
+  if (isInviteLinkToken(value)) {
+    const invitation = await getInviteLinkByToken(value.trim());
+    const team = await Teams.findOneAsync(new Mongo.ObjectID(invitation.teamId));
+    if (!team) throw new Meteor.Error('not-found', 'The invited team no longer exists.');
+    return {
+      teamName: team.name,
+      kind: 'link',
+      requiresApproval: !team.settings?.autoAcceptJoins,
+    };
+  }
+  const team = await Teams.rawCollection().findOne({ code: value.trim().toUpperCase() });
+  if (!team || team.isPersonal) {
+    throw new Meteor.Error('not-found', 'This team join link is invalid or no longer available.');
+  }
+  return {
+    teamName: team.name,
+    kind: 'code',
+    requiresApproval: !team.settings?.autoAcceptJoins,
+  };
+}
+
+/**
+ * Redeem an admin-minted invite link.
+ *
+ * A link is meant for inviting a group, so redeeming it never consumes it: it
+ * stays live until it expires or is revoked, and opening it again as a member
+ * is a no-op rather than a second membership.
+ *
+ * What it grants is the team's decision, not the link's. A team that accepts
+ * join requests without review admits the holder outright; a team that reviews
+ * its joiners reviews these too — holding a link is not a way around a setting
+ * whose whole purpose is to see who is coming in.
+ */
+async function redeemInviteLink(identity, token) {
+  const invitation = await getInviteLinkByToken(token);
+  const team = await Teams.findOneAsync(new Mongo.ObjectID(invitation.teamId));
+  if (!team) throw new Meteor.Error('not-found', 'The invited team no longer exists.');
+
+  if (team.members.includes(identity.userId)) {
+    return { status: 'joined', team: toPublicTeam(team) };
+  }
+
+  if (!team.settings?.autoAcceptJoins) {
+    const result = await requestToJoin(identity, team, invitation.teamId);
+    // Only a new arrival counts as a use; reopening the link while already
+    // waiting does not.
+    if (result.created) await countInviteLinkUse(invitation._id);
+    return result;
+  }
+
+  await Teams.updateAsync(team._id, {
+    $addToSet: { members: identity.userId },
+    $set: { updatedAt: new Date() },
+  });
+  const org = team.orgId && isValidId(team.orgId)
+    ? await rawDb().collection('organizations').findOne({ _id: new ObjectId(team.orgId) })
+    : null;
+  if (org?.allowAutoJoin !== false) {
+    await addOrgMember(team.orgId, identity.userId, 'member', true);
+  }
+
+  // Clear any stale pending request for this user/team now that they're a
+  // full member — otherwise it lingers in the admin approval queue.
+  await TeamJoinRequests.rawCollection().deleteMany({
+    teamId: invitation.teamId,
+    userId: identity.userId,
+    status: 'pending',
+  });
+
+  await countInviteLinkUse(invitation._id);
+
+  const updated = await Teams.findOneAsync(team._id);
+  return { status: 'joined', team: toPublicTeam(updated) };
+}
+
+/** Record that someone came through an invite link, for the admin's count. */
+async function countInviteLinkUse(invitationId) {
+  const usedAt = new Date();
+  await rawDb()
+    .collection('team_invitations')
+    .updateOne(
+      { _id: invitationId },
+      { $inc: { useCount: 1 }, $set: { lastUsedAt: usedAt, updatedAt: usedAt } },
+    );
+}
+
+/**
+ * Join a team by its code. The code is an identifier, not a credential, so
+ * this always lands in the team's approval flow — a pending request, or an
+ * immediate join only where the team or its org has opted into one. Shared
+ * by 'teams.join' and by the legacy `?join=<CODE>` links that
+ * 'teams.joinByLink' still accepts.
+ */
+async function joinTeamByCode(identity, teamCode, { idempotent = false } = {}) {
+  if (typeof teamCode !== 'string' || !teamCode.trim()) {
+    throw new Meteor.Error('bad-request', 'teamCode is required');
+  }
+
+  const team = await Teams.rawCollection().findOne({ code: teamCode.toUpperCase() });
+  if (!team) throw new Meteor.Error('not-found', 'Team not found');
+  const teamId = team._id.toHexString ? team._id.toHexString() : String(team._id);
+
+  if (team.members.includes(identity.userId)) {
+    // Typing a code you already used is a mistake worth reporting; reopening a
+    // link you already accepted is not.
+    if (!idempotent) throw new Meteor.Error('already-member', 'Already a member');
+    return { status: 'joined', team: toPublicTeam(team) };
+  }
+
+  // Check if user is an organization owner - owners can join any team directly
+  if (team.orgId && isValidId(team.orgId)) {
+    const membership = await rawDb().collection('org_members').findOne({
+      orgId: team.orgId,
+      userId: identity.userId,
+    });
+    if (membership && membership.role === 'owner') {
+      // Add owner directly to team without approval
+      await Teams.updateAsync(new Mongo.ObjectID(teamId), {
+        $addToSet: { members: identity.userId },
+        $set: { updatedAt: new Date() },
+      });
+
+      const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+      return { status: 'joined', team: toPublicTeam(updatedTeam) };
+    }
+  }
+
+  // Team setting: auto-accept join requests — add the member immediately
+  // instead of creating a pending request awaiting admin approval.
+  if (team.settings?.autoAcceptJoins) {
+    await Teams.updateAsync(new Mongo.ObjectID(teamId), {
+      $addToSet: { members: identity.userId },
+      $set: { updatedAt: new Date() },
+    });
+    if (team.orgId && isValidId(team.orgId)) {
+      const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(team.orgId) });
+      if (org?.allowAutoJoin !== false) {
+        await addOrgMember(team.orgId, identity.userId, 'member', true);
+      }
+    }
+    // Clear any stale pending request for this user/team now that they're a
+    // full member — otherwise it lingers in the admin approval queue.
+    await TeamJoinRequests.rawCollection().deleteMany({
+      teamId,
+      userId: identity.userId,
+      status: 'pending',
+    });
+    const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+    return { status: 'joined', team: toPublicTeam(updatedTeam) };
+  }
+
+  return requestToJoin(identity, team, teamId);
+}
+
+/**
+ * Put the user in the team's approval queue, or hand back the request they
+ * already have waiting. Shared by every route that reaches a team which
+ * reviews its joiners — typing the code, and opening an invite link.
+ *
+ * Returns `created: false` when a pending request was already there, so
+ * callers can tell a fresh arrival from someone reopening the same link.
+ */
+async function requestToJoin(identity, team, teamId) {
+  const existing = await TeamJoinRequests.rawCollection().findOne({
+    teamId,
+    userId: identity.userId,
+    status: 'pending',
+  });
+  if (existing) {
+    return {
+      status: 'pending',
+      created: false,
+      request: {
+        id: existing._id.toHexString ? existing._id.toHexString() : String(existing._id),
+        teamId: existing.teamId,
+        userId: existing.userId,
+        teamCode: existing.teamCode,
+        status: existing.status,
+        requestedAt: existing.requestedAt instanceof Date ? existing.requestedAt.toISOString() : String(existing.requestedAt),
+      },
+    };
+  }
+
+  const doc = {
+    _id: new ObjectId(),
+    teamId,
+    userId: identity.userId,
+    teamCode: team.code,
+    status: 'pending',
+    requestedAt: new Date(),
+    createdAt: new Date(),
+  };
+  await TeamJoinRequests.rawCollection().insertOne(doc);
+
+  const requestId = doc._id.toHexString();
+
+  // Notify admins
+  const requester = await rawDb().collection('users').findOne({ _id: String(identity.userId) });
+  const requesterName = requester?.profile?.name ?? 'Someone';
+
+  for (const adminId of (team.admins || [])) {
+    createNotification({
+      userId: adminId,
+      title: 'New team join request',
+      body: `${requesterName} wants to join ${team.name}`,
+      data: {
+        type: 'team-join-request',
+        teamId,
+        requesterId: identity.userId,
+        requestId,
+        url: `/app/teams?tab=pending&teamId=${teamId}`,
+      },
+    }).catch((err) => console.error('[teams] notify admin failed:', err));
+  }
+
+  return {
+    status: 'pending',
+    created: true,
+    request: {
+      id: requestId,
+      teamId,
+      userId: identity.userId,
+      teamCode: team.code,
+      status: 'pending',
+      requestedAt: doc.requestedAt.toISOString(),
+    },
   };
 }
 
@@ -231,7 +559,7 @@ Meteor.methods({
       description: description?.trim() || undefined,
       members: [userId],
       admins: [userId],
-      code: generateTeamCode(),
+      code: await generateUniqueTeamCode(),
       isPersonal: false,
       createdAt: new Date(),
     };
@@ -242,185 +570,57 @@ Meteor.methods({
 
   async 'teams.join'({ teamCode }) {
     const identity = await requireIdentity(this);
-    if (typeof teamCode !== 'string' || !teamCode.trim()) {
-      throw new Meteor.Error('bad-request', 'teamCode is required');
-    }
-
-    const team = await Teams.rawCollection().findOne({ code: teamCode.toUpperCase() });
-    if (!team) throw new Meteor.Error('not-found', 'Team not found');
-    const teamId = team._id.toHexString ? team._id.toHexString() : String(team._id);
-
-    if (team.members.includes(identity.userId)) {
-      throw new Meteor.Error('already-member', 'Already a member');
-    }
-
-    // Check if user is an organization owner - owners can join any team directly
-    if (team.orgId && isValidId(team.orgId)) {
-      const membership = await rawDb().collection('org_members').findOne({
-        orgId: team.orgId,
-        userId: identity.userId,
-      });
-      if (membership && membership.role === 'owner') {
-        // Add owner directly to team without approval
-        await Teams.updateAsync(new Mongo.ObjectID(teamId), {
-          $addToSet: { members: identity.userId },
-          $set: { updatedAt: new Date() },
-        });
-
-        const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
-        return { status: 'joined', team: toPublicTeam(updatedTeam) };
-      }
-    }
-
-    // Team setting: auto-accept join requests — add the member immediately
-    // instead of creating a pending request awaiting admin approval.
-    if (team.settings?.autoAcceptJoins) {
-      await Teams.updateAsync(new Mongo.ObjectID(teamId), {
-        $addToSet: { members: identity.userId },
-        $set: { updatedAt: new Date() },
-      });
-      if (team.orgId && isValidId(team.orgId)) {
-        const org = await rawDb().collection('organizations').findOne({ _id: new ObjectId(team.orgId) });
-        if (org?.allowAutoJoin !== false) {
-          await addOrgMember(team.orgId, identity.userId, 'member', true);
-        }
-      }
-      // Clear any stale pending request for this user/team now that they're a
-      // full member — otherwise it lingers in the admin approval queue.
-      await TeamJoinRequests.rawCollection().deleteMany({
-        teamId,
-        userId: identity.userId,
-        status: 'pending',
-      });
-      const updatedTeam = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
-      return { status: 'joined', team: toPublicTeam(updatedTeam) };
-    }
-
-    const existing = await TeamJoinRequests.rawCollection().findOne({
-      teamId,
-      userId: identity.userId,
-      status: 'pending',
-    });
-    if (existing) {
-      return {
-        status: 'pending',
-        request: {
-          id: existing._id.toHexString ? existing._id.toHexString() : String(existing._id),
-          teamId: existing.teamId,
-          userId: existing.userId,
-          teamCode: existing.teamCode,
-          status: existing.status,
-          requestedAt: existing.requestedAt instanceof Date ? existing.requestedAt.toISOString() : String(existing.requestedAt),
-        },
-      };
-    }
-
-    const doc = {
-      _id: new ObjectId(),
-      teamId,
-      userId: identity.userId,
-      teamCode: teamCode.toUpperCase(),
-      status: 'pending',
-      requestedAt: new Date(),
-      createdAt: new Date(),
-    };
-    await TeamJoinRequests.rawCollection().insertOne(doc);
-
-    const requestId = doc._id.toHexString();
-
-    // Notify admins
-    const requester = await rawDb().collection('users').findOne({ _id: String(identity.userId) });
-    const requesterName = requester?.profile?.name ?? 'Someone';
-
-    for (const adminId of (team.admins || [])) {
-      createNotification({
-        userId: adminId,
-        title: 'New team join request',
-        body: `${requesterName} wants to join ${team.name}`,
-        data: {
-          type: 'team-join-request',
-          teamId,
-          requesterId: identity.userId,
-          requestId,
-          url: `/app/teams?tab=pending&teamId=${teamId}`,
-        },
-      }).catch((err) => console.error('[teams] notify admin failed:', err));
-    }
-
-    return {
-      status: 'pending',
-      request: {
-        id: requestId,
-        teamId,
-        userId: identity.userId,
-        teamCode: teamCode.toUpperCase(),
-        status: 'pending',
-        requestedAt: doc.requestedAt.toISOString(),
-      },
-    };
+    return joinTeamByCode(identity, teamCode);
   },
 
   /**
-   * Public (unauthenticated) preview of a team by its join code.
-   * Used by the QR-share signup flow so the login page can show which
-   * team the visitor is about to join. Exposes only the team name and code.
+   * Public (unauthenticated) preview of what a `?join=` value opens, so the
+   * login page can name the team before asking anyone to sign in or sign up.
+   * Accepts an invite-link token or a team code, and exposes only what that
+   * banner needs.
+   */
+  async 'teams.previewJoinLink'({ value }) {
+    return previewJoinTarget(value);
+  },
+
+  /**
+   * Redeem a `?join=` value. An invite-link token grants membership outright;
+   * a bare team code never does — it goes through the team's approval settings
+   * like any other code, which is what the QR codes and links shared before
+   * invite links existed now degrade to.
+   */
+  async 'teams.joinByLink'({ value }) {
+    const identity = await requireIdentity(this);
+    if (typeof value !== 'string' || !value.trim()) {
+      throw new Meteor.Error('bad-request', 'value is required');
+    }
+    if (isInviteLinkToken(value)) return redeemInviteLink(identity, value.trim());
+    return joinTeamByCode(identity, value.trim(), { idempotent: true });
+  },
+
+  /**
+   * Deprecated, kept for app bundles already installed on people's phones.
+   *
+   * TimeHuddle ships native builds over OTA, so a device can be running a
+   * bundle older than the server for some time. Those bundles call these two
+   * names, and their caller swallows the error — removing them outright would
+   * make a shared link silently fail to join, with nothing shown to anyone.
+   *
+   * They delegate to the current methods, so an old client gets the corrected
+   * behaviour: a bare code asks for approval rather than admitting outright.
+   * Remove once the OTA minimum version is past this release.
    */
   async 'teams.previewByCode'({ teamCode }) {
-    if (typeof teamCode !== 'string' || !teamCode.trim()) {
-      throw new Meteor.Error('bad-request', 'teamCode is required');
-    }
-    const team = await Teams.rawCollection().findOne({ code: teamCode.trim().toUpperCase() });
-    if (!team || team.isPersonal) {
-      throw new Meteor.Error('not-found', 'This team join link is invalid or no longer available.');
-    }
-    return { teamName: team.name, teamCode: team.code };
+    return previewJoinTarget(teamCode);
   },
 
-  /**
-   * Direct join via a shared QR/link team code. Unlike 'teams.join' (which
-   * creates a pending request needing admin approval), scanning a QR code
-   * shared by the team acts as an invitation — the user is added immediately,
-   * mirroring the email-invitation acceptance flow.
-   */
   async 'teams.joinByQr'({ teamCode }) {
     const identity = await requireIdentity(this);
     if (typeof teamCode !== 'string' || !teamCode.trim()) {
       throw new Meteor.Error('bad-request', 'teamCode is required');
     }
-
-    const raw = await Teams.rawCollection().findOne({ code: teamCode.trim().toUpperCase() });
-    if (!raw || raw.isPersonal) {
-      throw new Meteor.Error('not-found', 'This team join link is invalid or no longer available.');
-    }
-    const team = await Teams.findOneAsync(new Mongo.ObjectID(String(raw._id)));
-    if (!team) throw new Meteor.Error('not-found', 'Team not found');
-
-    if (team.members.includes(identity.userId)) {
-      return { ok: true, team: toPublicTeam(team) };
-    }
-
-    await Teams.updateAsync(team._id, {
-      $addToSet: { members: identity.userId },
-      $set: { updatedAt: new Date() },
-    });
-    const org = team.orgId && isValidId(team.orgId)
-      ? await rawDb().collection('organizations').findOne({ _id: new ObjectId(team.orgId) })
-      : null;
-    if (org?.allowAutoJoin !== false) {
-      await addOrgMember(team.orgId, identity.userId, 'member', true);
-    }
-
-    // Clear any stale pending request for this user/team now that they're a
-    // full member — otherwise it lingers in the admin approval queue.
-    const teamIdStr = team._id.toHexString ? team._id.toHexString() : String(team._id);
-    await TeamJoinRequests.rawCollection().deleteMany({
-      teamId: teamIdStr,
-      userId: identity.userId,
-      status: 'pending',
-    });
-
-    const updated = await Teams.findOneAsync(team._id);
-    return { ok: true, team: toPublicTeam(updated) };
+    if (isInviteLinkToken(teamCode)) return redeemInviteLink(identity, teamCode.trim());
+    return joinTeamByCode(identity, teamCode.trim(), { idempotent: true });
   },
 
   async 'teams.subteams'({ teamId }) {
@@ -686,6 +886,11 @@ Meteor.methods({
   async 'teams.acceptInvite'({ token }) {
     const identity = await requireIdentity(this);
     const invitation = await getInvitationByToken(token);
+    if (invitation.kind === 'link') {
+      // Link tokens are redeemed through 'teams.joinByLink'; accepting one
+      // here would bypass nothing, but it would mark a group link consumed.
+      throw new Meteor.Error('invalid-invitation', 'This invitation is invalid.');
+    }
     const user = await rawDb().collection('users').findOne({ _id: String(identity.userId) });
     const userEmail = normalizeEmail(user?.emails?.[0]?.address);
     if (userEmail !== invitation.email) {
@@ -746,7 +951,7 @@ Meteor.methods({
 
     const invitations = await rawDb()
       .collection('team_invitations')
-      .find({ teamId })
+      .find({ teamId, kind: { $ne: 'link' } })
       .sort({ createdAt: -1 })
       .toArray();
 
@@ -784,6 +989,109 @@ Meteor.methods({
       { $set: { status: 'revoked', revokedAt: new Date(), updatedAt: new Date() } },
     );
     return { ok: true };
+  },
+
+  /**
+   * Mint a shareable invite link for a team, replacing any active one.
+   *
+   * Only the token's hash is stored, so this call is the one and only chance
+   * to read the URL — which is also what makes generating a replacement the
+   * same act as revoking what came before it.
+   */
+  async 'teams.createInviteLink'({ teamId }) {
+    const identity = await requireIdentity(this);
+    const team = await requireTeamAdmin(teamId, identity.userId);
+    if (team.isPersonal) {
+      throw new Meteor.Error('forbidden', 'A personal workspace cannot be shared.');
+    }
+
+    const invitations = rawDb().collection('team_invitations');
+    const now = new Date();
+    await invitations.updateMany(
+      { teamId, kind: 'link', status: 'pending' },
+      { $set: { status: 'revoked', revokedAt: now, updatedAt: now } },
+    );
+
+    const token = generateInvitationToken();
+    const expiresAt = new Date(now.getTime() + INVITATION_LIFETIME_MS);
+    const doc = {
+      _id: new ObjectId(),
+      teamId,
+      email: null,
+      kind: 'link',
+      tokenHash: hashInvitationToken(token),
+      invitedBy: identity.userId,
+      status: 'pending',
+      useCount: 0,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt,
+    };
+    try {
+      await invitations.insertOne(doc);
+    } catch (error) {
+      // Two admins generating at once: both retired the old link, then both
+      // inserted against the one-pending-invitation-per-team index.
+      if (error?.code === 11000) {
+        throw new Meteor.Error(
+          'invitation-exists',
+          'Another admin just generated a link for this team. Reopen Share to see it.',
+        );
+      }
+      throw error;
+    }
+
+    return {
+      link: {
+        invitationId: doc._id.toHexString(),
+        createdAt: now.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+        useCount: 0,
+      },
+      url: inviteLinkUrl(token),
+    };
+  },
+
+  /**
+   * The active invite link's status, without its URL: only the token's hash is
+   * stored, so the link itself is unrecoverable once the admin who minted it
+   * navigates away.
+   */
+  async 'teams.getInviteLink'({ teamId }) {
+    const identity = await requireIdentity(this);
+    await requireTeamAdmin(teamId, identity.userId);
+    const link = await rawDb().collection('team_invitations').findOne({
+      teamId,
+      kind: 'link',
+      status: 'pending',
+      expiresAt: { $gt: new Date() },
+    });
+    if (!link) return { link: null };
+    return {
+      link: {
+        invitationId: link._id.toHexString(),
+        createdAt: link.createdAt.toISOString(),
+        expiresAt: link.expiresAt.toISOString(),
+        useCount: link.useCount ?? 0,
+      },
+    };
+  },
+
+  /**
+   * Issue the team a new code. Everything shared with the old one stops
+   * naming this team, which is the point: the codes minted before this release
+   * came from a predictable generator, and a team that auto-accepts join
+   * requests admits anyone holding one.
+   */
+  async 'teams.rotateCode'({ teamId }) {
+    const identity = await requireIdentity(this);
+    const team = await requireTeamAdmin(teamId, identity.userId);
+    if (team.isPersonal) {
+      throw new Meteor.Error('forbidden', 'A personal workspace has no join code.');
+    }
+    const code = await generateUniqueTeamCode();
+    await Teams.updateAsync(team._id, { $set: { code, updatedAt: new Date() } });
+    return { code };
   },
 
   async 'teams.removeMember'({ teamId, userId: targetUserId }) {

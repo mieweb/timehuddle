@@ -12,7 +12,8 @@ import React, { useEffect, useState } from 'react';
 import { Browser } from '@capacitor/browser';
 import { Capacitor } from '@capacitor/core';
 import { authApi, METEOR_BASE_URL } from '../lib/api';
-import { getDdpClient, type DevRole } from '../lib/ddp';
+import { getDdpClient, type DevRole, type JoinLinkPreview } from '../lib/ddp';
+import { peekInviteParams } from '../lib/inviteParams';
 import { getEnabledSocialProviders, type SocialProvider } from '../lib/socialProviders';
 import { useSession } from '../lib/useSession';
 import { Button, Input, Text } from '@mieweb/ui';
@@ -76,18 +77,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     typeof window !== 'undefined'
       ? (new URLSearchParams(window.location.search).get('token') ?? undefined)
       : undefined;
-  const invitationToken =
-    typeof window !== 'undefined'
-      ? (new URLSearchParams(window.location.search).get('invite') ?? undefined)
-      : undefined;
-  const orgInvitationToken =
-    typeof window !== 'undefined'
-      ? (new URLSearchParams(window.location.search).get('org_invite') ?? undefined)
-      : undefined;
-  const joinTeamCode =
-    typeof window !== 'undefined'
-      ? (new URLSearchParams(window.location.search).get('join') ?? undefined)
-      : undefined;
+  // Peeked, not claimed: signing in is what redeems these, and a visitor who
+  // never finishes must still see whose invitation they are holding.
+  const pendingInvite = peekInviteParams();
+  const invitationToken = pendingInvite?.invite ?? undefined;
+  const orgInvitationToken = pendingInvite?.orgInvite ?? undefined;
+  // Either an invite-link token or a bare team code — the two grant different
+  // things, and the preview below says which this one is.
+  const joinValue = pendingInvite?.join ?? undefined;
 
   const [mode, setMode] = useState<AuthMode>(initialMode ?? getMode(!!resetToken));
   const [email, setEmail] = useState('');
@@ -102,7 +99,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   const [devRoleLoading, setDevRoleLoading] = useState<DevRole | null>(null);
   const [invitedTeamName, setInvitedTeamName] = useState<string | null>(null);
   const [invitedOrgName, setInvitedOrgName] = useState<string | null>(null);
-  const [joinTeamName, setJoinTeamName] = useState<string | null>(null);
+  const [joinPreview, setJoinPreview] = useState<JoinLinkPreview | null>(null);
 
   const isSignup = mode === 'signup';
   const isForgot = mode === 'forgot';
@@ -129,14 +126,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
   }, [invitationToken]);
 
   useEffect(() => {
-    if (!joinTeamCode) return;
+    if (!joinValue) return;
     let active = true;
     const ddp = getDdpClient();
     void ddp
-      .getTeamByCode(joinTeamCode)
-      .then((team) => {
+      .previewJoinLink(joinValue)
+      .then((preview) => {
         if (!active) return;
-        setJoinTeamName(team.teamName);
+        setJoinPreview(preview);
       })
       .catch((err: unknown) => {
         if (!active) return;
@@ -145,7 +142,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     return () => {
       active = false;
     };
-  }, [joinTeamCode]);
+  }, [joinValue]);
 
   useEffect(() => {
     if (!orgInvitationToken) return;
@@ -167,31 +164,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     };
   }, [orgInvitationToken]);
 
-  const acceptInvitation = async (ddp: ReturnType<typeof getDdpClient>) => {
-    if (invitationToken) {
-      await ddp.acceptTeamInvitation(invitationToken);
-    }
-    if (orgInvitationToken) {
-      await ddp.acceptOrgInvitation(orgInvitationToken);
-    }
-    if (joinTeamCode) {
-      // Join via shared QR/link code. Never block a successful login/signup
-      // on this — if the code is stale the user still gets their account.
-      try {
-        await ddp.joinTeamByQrCode(joinTeamCode);
-      } catch (err) {
-        console.error('[login] QR team join failed:', err);
-      }
-    }
-    if (!invitationToken && !orgInvitationToken && !joinTeamCode) return;
-    const url = new URL(window.location.href);
-    url.searchParams.delete('invite');
-    url.searchParams.delete('org_invite');
-    url.searchParams.delete('join');
-    url.searchParams.delete('mode');
-    window.history.replaceState(null, '', url.toString());
-  };
-
   const switchMode = (next: AuthMode) => {
     setMode(next);
     setModeParam(next);
@@ -208,7 +180,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     try {
       const ddp = getDdpClient();
       await ddp.loginWithPassword(email.trim().toLowerCase(), password);
-      await acceptInvitation(ddp);
       await session.refetch();
       // Check for blocking after refetch
       if (session.blockMessage) {
@@ -282,7 +253,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
       const name = `${firstName.trim()} ${lastName.trim()}`.trim();
       const ddp = getDdpClient();
       await ddp.signUpWithPassword(email.trim().toLowerCase(), password, name);
-      await acceptInvitation(ddp);
       await session.refetch();
     } catch (err: unknown) {
       setLoading(false);
@@ -385,11 +355,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
     setSocialError(null);
     try {
       // Pending team/org join context (from ?join=/?invite=/?org_invite= links)
-      // must survive the full redirect-away-and-back OAuth round trip, since
-      // sign-in via social providers never runs the password-flow
-      // `acceptInvitation()` logic below.
+      // must survive the full redirect-away-and-back OAuth round trip: the
+      // page is torn down, so the snapshot App redeems from goes with it.
       const pendingJoinParams: Record<string, string> = {};
-      if (joinTeamCode) pendingJoinParams.join = joinTeamCode;
+      if (joinValue) pendingJoinParams.join = joinValue;
       if (invitationToken) pendingJoinParams.invite = invitationToken;
       if (orgInvitationToken) pendingJoinParams.org_invite = orgInvitationToken;
 
@@ -560,10 +529,19 @@ export const LoginForm: React.FC<LoginFormProps> = ({ initialMode }) => {
                     an account with the invited email address to join.
                   </Text>
                 )}
-                {joinTeamName && (
+                {joinPreview && (
                   <Text variant="muted" size="sm" as="div" role="status">
-                    You&apos;re joining the team {joinTeamName}. Sign in or create an account and
-                    you&apos;ll be added automatically.
+                    {joinPreview.requiresApproval ? (
+                      <>
+                        You&apos;re asking to join the team {joinPreview.teamName}. Sign in or
+                        create an account and a team admin will review your request.
+                      </>
+                    ) : (
+                      <>
+                        You&apos;re joining the team {joinPreview.teamName}. Sign in or create an
+                        account and you&apos;ll be added automatically.
+                      </>
+                    )}
                   </Text>
                 )}
 

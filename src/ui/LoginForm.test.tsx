@@ -58,19 +58,30 @@ vi.mock('@mieweb/ui', () => ({
   ),
 }));
 
+import { captureInviteParams } from '../lib/inviteParams';
 import { LoginForm } from './LoginForm';
+
+/**
+ * Put the app at `url` as a fresh page load would: the entry point snapshots
+ * the invite params while the query string is intact (see lib/inviteParams),
+ * so a test that only rewrites the URL is not yet at the state it is testing.
+ */
+function loadAt(url: string) {
+  window.history.replaceState(null, '', url);
+  captureInviteParams();
+}
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.unstubAllEnvs();
-  window.history.replaceState(null, '', '/');
+  loadAt('/');
 });
 
 describe('LoginForm team invitations', () => {
   it('shows the invited team and accepts after account creation', async () => {
     const token = 'a'.repeat(64);
-    window.history.replaceState(null, '', `/app?mode=signup&invite=${token}`);
+    loadAt(`/app?mode=signup&invite=${token}`);
     ddpMocks.getTeamInvitation.mockResolvedValue({
       teamName: 'Support',
       email: 'invitee@example.com',
@@ -98,12 +109,15 @@ describe('LoginForm team invitations', () => {
         'Password1!',
         'New Member',
       );
-      expect(ddpMocks.acceptTeamInvitation).toHaveBeenCalledWith(token);
     });
+    // Redeeming belongs to App (see main.tsx), which runs for every way of
+    // arriving signed in — password, signup, social OAuth, or an existing
+    // session. Doing it here too raced with that and failed the second call.
+    expect(ddpMocks.acceptTeamInvitation).not.toHaveBeenCalled();
   });
 
   it('shows an actionable error for an unavailable invitation', async () => {
-    window.history.replaceState(null, '', `/app?mode=signup&invite=${'b'.repeat(64)}`);
+    loadAt(`/app?mode=signup&invite=${'b'.repeat(64)}`);
     ddpMocks.getTeamInvitation.mockRejectedValue(new Error('This invitation has expired.'));
 
     render(<LoginForm />);

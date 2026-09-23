@@ -90,6 +90,8 @@ import { InboxPage } from './features/inbox/InboxPage';
 import { PublicReleaseNotesPage } from './features/release-notes/PublicReleaseNotesPage';
 import { enterpriseApi } from './lib/api';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
+import { captureInviteParams } from './lib/inviteParams';
+import { redeemPendingInvite } from './lib/redeemInvite';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
 import { AppLayout } from './ui/AppLayout';
@@ -193,6 +195,11 @@ if (Capacitor.isNativePlatform()) {
   }
 })();
 
+// Snapshot `?join=`/`?invite=`/`?org_invite=` while the query string is still
+// there: AppLayout drops it as it resolves `/app` to `/app/dashboard`, during
+// render, before any effect could read it.
+captureInviteParams();
+
 // ─── App (client-side rendered, /app and all non-root routes) ─────────────────
 _log('App component defined — modules loaded');
 
@@ -213,28 +220,32 @@ const App: React.FC = () => {
   // `timehuddle://auth` deep link (native).
   React.useEffect(() => {
     if (!user) return;
-    const params = new URLSearchParams(window.location.search);
-    const join = params.get('join') ?? _pendingOAuthJoin?.join ?? null;
-    const invite = params.get('invite') ?? _pendingOAuthJoin?.invite ?? null;
-    const orgInvite = params.get('org_invite') ?? _pendingOAuthJoin?.orgInvite ?? null;
-    if (!join && !invite && !orgInvite) return;
+    // Taken synchronously: the effect can run again before the work below
+    // finishes, and the same invite must not be spent twice.
+    const oauth = _pendingOAuthJoin;
     _pendingOAuthJoin = null;
 
     void (async () => {
-      const ddp = getDdpClient();
-      try {
-        if (invite) await ddp.acceptTeamInvitation(invite);
-        if (orgInvite) await ddp.acceptOrgInvitation(orgInvite);
-        if (join) await ddp.joinTeamByQrCode(join);
-      } catch (err) {
-        console.error('[oauth] pending team/org join failed:', err);
-      }
-      const url = new URL(window.location.href);
-      url.searchParams.delete('join');
-      url.searchParams.delete('invite');
-      url.searchParams.delete('org_invite');
-      window.history.replaceState(null, '', url.toString());
+      const outcome = await redeemPendingInvite(getDdpClient(), oauth);
+      if (outcome.kind === 'idle') return;
       await refetch();
+      if (outcome.kind === 'handled') return;
+
+      // Where to land, and what the Teams page should say about it.
+      const params = new URLSearchParams();
+      if (outcome.kind === 'joined') {
+        params.set('joinResult', 'joined');
+        params.set('teamId', outcome.teamId);
+      } else if (outcome.kind === 'pending') {
+        params.set('joinResult', 'pending');
+      } else {
+        params.set('joinResult', 'error');
+        params.set('joinMessage', outcome.message);
+      }
+      // replaceState + popstate is how AppLayout's router hears about a
+      // navigation that didn't come from its own navigate().
+      window.history.replaceState(null, '', `/app/teams?${params.toString()}`);
+      window.dispatchEvent(new PopStateEvent('popstate'));
     })();
   }, [user, refetch]);
 
