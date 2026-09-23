@@ -79,6 +79,16 @@ test.describe('Team Invite Link', () => {
     await db.collection('teamjoinrequests').deleteMany({ teamId: teamId.toHexString(), userId });
   }
 
+  /**
+   * What any route into the team grants is the team's decision, so each test
+   * states which mode it is exercising rather than inheriting one.
+   */
+  async function setReviewsJoiners(reviews: boolean) {
+    await db
+      .collection('teams')
+      .updateOne({ _id: teamId as never }, { $set: { 'settings.autoAcceptJoins': !reviews } });
+  }
+
   async function isMember(email: string): Promise<boolean> {
     const user = await db.collection('users').findOne({ 'emails.address': email });
     if (!user) return false;
@@ -150,6 +160,7 @@ test.describe('Team Invite Link', () => {
     test.setTimeout(90000);
     const joiner = TEST_USERS.member2;
     await detach(joiner.email);
+    await setReviewsJoiners(false);
 
     const adminContext = await browser.newContext();
     const adminPage = await adminContext.newPage();
@@ -184,6 +195,7 @@ test.describe('Team Invite Link', () => {
     test.setTimeout(90000);
     const joiner = TEST_USERS.member3;
     await detach(joiner.email);
+    await setReviewsJoiners(false);
 
     const adminContext = await browser.newContext();
     const adminPage = await adminContext.newPage();
@@ -226,6 +238,7 @@ test.describe('Team Invite Link', () => {
     test.setTimeout(90000);
     const joiner = TEST_USERS.member4;
     await detach(joiner.email);
+    await setReviewsJoiners(true);
 
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -264,10 +277,51 @@ test.describe('Team Invite Link', () => {
     }
   });
 
+  test('a link on a team that reviews its joiners asks rather than admits', async ({ browser }) => {
+    test.setTimeout(90000);
+    const joiner = TEST_USERS.member1;
+    await detach(joiner.email);
+    await setReviewsJoiners(true);
+
+    const adminContext = await browser.newContext();
+    const adminPage = await adminContext.newPage();
+    let url: string;
+    try {
+      await loginAs(adminPage, admin);
+      url = await generateInviteLink(adminPage);
+    } finally {
+      await adminContext.close();
+    }
+
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await loginAs(page, joiner);
+      await page.goto(url);
+
+      // Holding a link is not a way around the team's own setting.
+      await expect(page.getByRole('dialog').filter({ hasText: 'Request sent' })).toBeVisible({
+        timeout: 30000,
+      });
+      expect(await isMember(joiner.email)).toBe(false);
+
+      const user = await db.collection('users').findOne({ 'emails.address': joiner.email });
+      const pending = await db.collection('teamjoinrequests').findOne({
+        teamId: teamId.toHexString(),
+        userId: String(user!._id),
+        status: 'pending',
+      });
+      expect(pending).toBeTruthy();
+    } finally {
+      await context.close();
+    }
+  });
+
   test('a revoked link grants nothing and says so', async ({ browser }) => {
     test.setTimeout(90000);
     const joiner = TEST_USERS.member5;
     await detach(joiner.email);
+    await setReviewsJoiners(false);
 
     const adminContext = await browser.newContext();
     const adminPage = await adminContext.newPage();

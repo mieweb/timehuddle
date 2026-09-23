@@ -205,10 +205,16 @@ function toPublicTeam(team) {
 }
 
 /**
- * Redeem an admin-minted invite link — the one path that grants membership
- * outright. A link is meant for inviting a group, so redeeming it never
- * consumes it: it stays live until it expires or is revoked, and opening it
- * again as a member is a no-op rather than a second membership.
+ * Redeem an admin-minted invite link.
+ *
+ * A link is meant for inviting a group, so redeeming it never consumes it: it
+ * stays live until it expires or is revoked, and opening it again as a member
+ * is a no-op rather than a second membership.
+ *
+ * What it grants is the team's decision, not the link's. A team that accepts
+ * join requests without review admits the holder outright; a team that reviews
+ * its joiners reviews these too — holding a link is not a way around a setting
+ * whose whole purpose is to see who is coming in.
  */
 async function redeemInviteLink(identity, token) {
   const invitation = await getInviteLinkByToken(token);
@@ -217,6 +223,14 @@ async function redeemInviteLink(identity, token) {
 
   if (team.members.includes(identity.userId)) {
     return { status: 'joined', team: toPublicTeam(team) };
+  }
+
+  if (!team.settings?.autoAcceptJoins) {
+    const result = await requestToJoin(identity, team, invitation.teamId);
+    // Only a new arrival counts as a use; reopening the link while already
+    // waiting does not.
+    if (result.created) await countInviteLinkUse(invitation._id);
+    return result;
   }
 
   await Teams.updateAsync(team._id, {
@@ -238,16 +252,21 @@ async function redeemInviteLink(identity, token) {
     status: 'pending',
   });
 
+  await countInviteLinkUse(invitation._id);
+
+  const updated = await Teams.findOneAsync(team._id);
+  return { status: 'joined', team: toPublicTeam(updated) };
+}
+
+/** Record that someone came through an invite link, for the admin's count. */
+async function countInviteLinkUse(invitationId) {
   const usedAt = new Date();
   await rawDb()
     .collection('team_invitations')
     .updateOne(
-      { _id: invitation._id },
+      { _id: invitationId },
       { $inc: { useCount: 1 }, $set: { lastUsedAt: usedAt, updatedAt: usedAt } },
     );
-
-  const updated = await Teams.findOneAsync(team._id);
-  return { status: 'joined', team: toPublicTeam(updated) };
 }
 
 /**
@@ -315,6 +334,18 @@ async function joinTeamByCode(identity, teamCode, { idempotent = false } = {}) {
     return { status: 'joined', team: toPublicTeam(updatedTeam) };
   }
 
+  return requestToJoin(identity, team, teamId);
+}
+
+/**
+ * Put the user in the team's approval queue, or hand back the request they
+ * already have waiting. Shared by every route that reaches a team which
+ * reviews its joiners — typing the code, and opening an invite link.
+ *
+ * Returns `created: false` when a pending request was already there, so
+ * callers can tell a fresh arrival from someone reopening the same link.
+ */
+async function requestToJoin(identity, team, teamId) {
   const existing = await TeamJoinRequests.rawCollection().findOne({
     teamId,
     userId: identity.userId,
@@ -323,6 +354,7 @@ async function joinTeamByCode(identity, teamCode, { idempotent = false } = {}) {
   if (existing) {
     return {
       status: 'pending',
+      created: false,
       request: {
         id: existing._id.toHexString ? existing._id.toHexString() : String(existing._id),
         teamId: existing.teamId,
@@ -338,7 +370,7 @@ async function joinTeamByCode(identity, teamCode, { idempotent = false } = {}) {
     _id: new ObjectId(),
     teamId,
     userId: identity.userId,
-    teamCode: teamCode.toUpperCase(),
+    teamCode: team.code,
     status: 'pending',
     requestedAt: new Date(),
     createdAt: new Date(),
@@ -368,11 +400,12 @@ async function joinTeamByCode(identity, teamCode, { idempotent = false } = {}) {
 
   return {
     status: 'pending',
+    created: true,
     request: {
       id: requestId,
       teamId,
       userId: identity.userId,
-      teamCode: teamCode.toUpperCase(),
+      teamCode: team.code,
       status: 'pending',
       requestedAt: doc.requestedAt.toISOString(),
     },
@@ -507,7 +540,11 @@ Meteor.methods({
       const invitation = await getInviteLinkByToken(value.trim());
       const team = await Teams.findOneAsync(new Mongo.ObjectID(invitation.teamId));
       if (!team) throw new Meteor.Error('not-found', 'The invited team no longer exists.');
-      return { teamName: team.name, kind: 'link', requiresApproval: false };
+      return {
+        teamName: team.name,
+        kind: 'link',
+        requiresApproval: !team.settings?.autoAcceptJoins,
+      };
     }
     const team = await Teams.rawCollection().findOne({ code: value.trim().toUpperCase() });
     if (!team || team.isPersonal) {

@@ -801,6 +801,14 @@ describe('teams invite links', () => {
     );
     linkTeamId = createRes.result.team.id;
     linkTeamCode = createRes.result.team.code;
+    // What a link grants is the team's decision. Most of this block tests the
+    // "admits outright" half, so opt the fixture team into that; the approval
+    // half gets its own test below.
+    await wormhole(
+      'teams.updateSettings',
+      { teamId: linkTeamId, autoAcceptJoins: true },
+      ownerJwt,
+    );
   }, 30000);
 
   afterAll(async () => {
@@ -981,6 +989,81 @@ describe('teams invite links', () => {
     expect(res.result.teamName).toBe('Invite Link Team');
     expect(res.result.kind).toBe('link');
     expect(res.result.requiresApproval).toBe(false);
+  });
+
+  // ── The team's approval setting governs the link too ──────────────────────
+  //
+  // Holding a link is not a way around a setting whose purpose is to see who
+  // is coming in: on a team that reviews its joiners, a link asks rather than
+  // admits.
+  describe('on a team that reviews its joiners', () => {
+    beforeAll(async () => {
+      await wormhole(
+        'teams.updateSettings',
+        { teamId: linkTeamId, autoAcceptJoins: false },
+        ownerJwt,
+      );
+    });
+
+    afterAll(async () => {
+      await wormhole(
+        'teams.updateSettings',
+        { teamId: linkTeamId, autoAcceptJoins: true },
+        ownerJwt,
+      );
+    });
+
+    it('asks for approval instead of admitting', async () => {
+      await resetOutsiderMembership();
+      const { token } = await createLink();
+
+      const res = await wormhole<{ status: string }>(
+        'teams.joinByLink',
+        { value: token },
+        outsiderJwt,
+      );
+      expect(res.ok).toBe(true);
+      expect(res.result.status).toBe('pending');
+
+      const db = await getDb();
+      const team = await db.collection('teams').findOne({ _id: new ObjectId(linkTeamId) });
+      expect(team!.members).not.toContain(outsiderId);
+      const request = await db
+        .collection('teamjoinrequests')
+        .findOne({ teamId: linkTeamId, userId: outsiderId, status: 'pending' });
+      expect(request).toBeTruthy();
+    });
+
+    it('does not stack requests when the link is reopened', async () => {
+      await resetOutsiderMembership();
+      const { token, invitationId } = await createLink();
+
+      await wormhole('teams.joinByLink', { value: token }, outsiderJwt);
+      await wormhole('teams.joinByLink', { value: token }, outsiderJwt);
+
+      const db = await getDb();
+      const count = await db
+        .collection('teamjoinrequests')
+        .countDocuments({ teamId: linkTeamId, userId: outsiderId, status: 'pending' });
+      expect(count).toBe(1);
+      // Reopening while already waiting is not a second use of the link.
+      const doc = await db
+        .collection('team_invitations')
+        .findOne({ _id: new ObjectId(invitationId) });
+      expect(doc!.useCount).toBe(1);
+    });
+
+    it('says so in the preview, so the login page can set expectations', async () => {
+      const { token } = await createLink();
+      const res = await wormhole<{ kind: string; requiresApproval: boolean }>(
+        'teams.previewJoinLink',
+        { value: token },
+        outsiderJwt,
+      );
+      expect(res.ok).toBe(true);
+      expect(res.result.kind).toBe('link');
+      expect(res.result.requiresApproval).toBe(true);
+    });
   });
 });
 

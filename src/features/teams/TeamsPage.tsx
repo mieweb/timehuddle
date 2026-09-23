@@ -1460,12 +1460,14 @@ export const TeamsPage: React.FC = () => {
                 <Text variant="muted" size="sm" role="status" data-testid="team-invite-link-status">
                   {inviteLinkUrl ? (
                     <>
-                      Anyone who opens this link joins{' '}
+                      Anyone who opens this link {autoAcceptJoins ? 'joins' : 'asks to join'}{' '}
                       <Text as="span" weight="semibold">
                         {selectedTeam?.name}
-                      </Text>{' '}
-                      straight away. Copy it now — it is shown this once and cannot be displayed
-                      again.
+                      </Text>
+                      {autoAcceptJoins
+                        ? ' straight away.'
+                        : ' — you approve each one, because this team reviews its joiners.'}{' '}
+                      Copy it now — it is shown this once and cannot be displayed again.
                     </>
                   ) : inviteLink ? (
                     <>
@@ -1477,8 +1479,10 @@ export const TeamsPage: React.FC = () => {
                     </>
                   ) : (
                     <>
-                      No invite link is active. A link admits whoever opens it without approval, and
-                      expires after 7 days.
+                      No invite link is active.{' '}
+                      {autoAcceptJoins
+                        ? 'A link admits whoever opens it without approval, and expires after 7 days.'
+                        : 'A link is a private, revocable way in that expires after 7 days. Joiners still come to you for approval, because this team reviews its joiners.'}
                     </>
                   )}
                 </Text>
