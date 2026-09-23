@@ -90,7 +90,8 @@ import { InboxPage } from './features/inbox/InboxPage';
 import { PublicReleaseNotesPage } from './features/release-notes/PublicReleaseNotesPage';
 import { enterpriseApi } from './lib/api';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
-import { captureInviteParams, takeInviteParams } from './lib/inviteParams';
+import { captureInviteParams } from './lib/inviteParams';
+import { redeemPendingInvite } from './lib/redeemInvite';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
 import { AppLayout } from './ui/AppLayout';
@@ -219,44 +220,31 @@ const App: React.FC = () => {
   // `timehuddle://auth` deep link (native).
   React.useEffect(() => {
     if (!user) return;
-    // Claims the params, so LoginForm's own redemption and this one can never
-    // both fire for the same link.
-    const claimed = takeInviteParams();
-    const join = claimed?.join ?? _pendingOAuthJoin?.join ?? null;
-    const invite = claimed?.invite ?? _pendingOAuthJoin?.invite ?? null;
-    const orgInvite = claimed?.orgInvite ?? _pendingOAuthJoin?.orgInvite ?? null;
-    if (!join && !invite && !orgInvite) return;
+    // Taken synchronously: the effect can run again before the work below
+    // finishes, and the same invite must not be spent twice.
+    const oauth = _pendingOAuthJoin;
     _pendingOAuthJoin = null;
 
     void (async () => {
-      const ddp = getDdpClient();
-      // What the Teams page should say about the link the visitor opened.
-      // Only the `?join=` flow reports back: an email or org invitation lands
-      // the person wherever they already were, as it always has.
-      const outcome = new URLSearchParams();
-      try {
-        if (invite) await ddp.acceptTeamInvitation(invite);
-        if (orgInvite) await ddp.acceptOrgInvitation(orgInvite);
-        if (join) {
-          const result = await ddp.joinByLink(join);
-          outcome.set('joinResult', result.status === 'pending' ? 'pending' : 'joined');
-          if (result.status === 'joined') outcome.set('teamId', result.team.id);
-        }
-      } catch (err) {
-        console.error('[invite] redeeming the invite link failed:', err);
-        if (join) {
-          outcome.set('joinResult', 'error');
-          outcome.set(
-            'joinMessage',
-            (err as Error).message || 'This invite link is no longer valid.',
-          );
-        }
-      }
+      const outcome = await redeemPendingInvite(getDdpClient(), oauth);
+      if (outcome.kind === 'idle') return;
       await refetch();
-      if (!outcome.has('joinResult')) return;
+      if (outcome.kind === 'handled') return;
+
+      // Where to land, and what the Teams page should say about it.
+      const params = new URLSearchParams();
+      if (outcome.kind === 'joined') {
+        params.set('joinResult', 'joined');
+        params.set('teamId', outcome.teamId);
+      } else if (outcome.kind === 'pending') {
+        params.set('joinResult', 'pending');
+      } else {
+        params.set('joinResult', 'error');
+        params.set('joinMessage', outcome.message);
+      }
       // replaceState + popstate is how AppLayout's router hears about a
       // navigation that didn't come from its own navigate().
-      window.history.replaceState(null, '', `/app/teams?${outcome.toString()}`);
+      window.history.replaceState(null, '', `/app/teams?${params.toString()}`);
       window.dispatchEvent(new PopStateEvent('popstate'));
     })();
   }, [user, refetch]);
