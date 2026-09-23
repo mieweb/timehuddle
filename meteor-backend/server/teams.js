@@ -82,6 +82,23 @@ function generateTeamCode() {
 }
 
 /**
+ * A code no other team is already using.
+ *
+ * The unique index is what actually guarantees this; the check here is so a
+ * birthday collision surfaces as another roll of the dice rather than as a
+ * duplicate-key error thrown at whoever was creating a team. Eight base32
+ * characters is 40 bits, so a redraw is vanishingly rare and five are plenty.
+ */
+async function generateUniqueTeamCode() {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const code = generateTeamCode();
+    const taken = await Teams.rawCollection().findOne({ code }, { projection: { _id: 1 } });
+    if (!taken) return code;
+  }
+  throw new Meteor.Error('code-unavailable', 'Could not allocate a team code. Please try again.');
+}
+
+/**
  * Invite-link tokens are 32 random bytes as 64 hex characters (see
  * generateInvitationToken); team codes are 8 base32 characters. The shapes
  * never collide, so a single `?join=` value can carry either one.
@@ -107,7 +124,7 @@ export async function ensurePersonalTeam(userId) {
     name: 'Personal',
     members: [userId],
     admins: [userId],
-    code: generateTeamCode(),
+    code: await generateUniqueTeamCode(),
     isPersonal: true,
     createdAt: new Date(),
   };
@@ -201,6 +218,36 @@ function toPublicTeam(team) {
     },
     createdAt: team.createdAt instanceof Date ? team.createdAt.toISOString() : String(team.createdAt),
     updatedAt: team.updatedAt instanceof Date ? team.updatedAt.toISOString() : (team.updatedAt ?? null),
+  };
+}
+
+/**
+ * Name the team a `?join=` value opens, and say what opening it will do —
+ * without requiring a session, so the login page can set expectations before
+ * anyone signs in. Exposes only what that banner needs.
+ */
+async function previewJoinTarget(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Meteor.Error('bad-request', 'value is required');
+  }
+  if (isInviteLinkToken(value)) {
+    const invitation = await getInviteLinkByToken(value.trim());
+    const team = await Teams.findOneAsync(new Mongo.ObjectID(invitation.teamId));
+    if (!team) throw new Meteor.Error('not-found', 'The invited team no longer exists.');
+    return {
+      teamName: team.name,
+      kind: 'link',
+      requiresApproval: !team.settings?.autoAcceptJoins,
+    };
+  }
+  const team = await Teams.rawCollection().findOne({ code: value.trim().toUpperCase() });
+  if (!team || team.isPersonal) {
+    throw new Meteor.Error('not-found', 'This team join link is invalid or no longer available.');
+  }
+  return {
+    teamName: team.name,
+    kind: 'code',
+    requiresApproval: !team.settings?.autoAcceptJoins,
   };
 }
 
@@ -512,7 +559,7 @@ Meteor.methods({
       description: description?.trim() || undefined,
       members: [userId],
       admins: [userId],
-      code: generateTeamCode(),
+      code: await generateUniqueTeamCode(),
       isPersonal: false,
       createdAt: new Date(),
     };
@@ -533,28 +580,7 @@ Meteor.methods({
    * banner needs.
    */
   async 'teams.previewJoinLink'({ value }) {
-    if (typeof value !== 'string' || !value.trim()) {
-      throw new Meteor.Error('bad-request', 'value is required');
-    }
-    if (isInviteLinkToken(value)) {
-      const invitation = await getInviteLinkByToken(value.trim());
-      const team = await Teams.findOneAsync(new Mongo.ObjectID(invitation.teamId));
-      if (!team) throw new Meteor.Error('not-found', 'The invited team no longer exists.');
-      return {
-        teamName: team.name,
-        kind: 'link',
-        requiresApproval: !team.settings?.autoAcceptJoins,
-      };
-    }
-    const team = await Teams.rawCollection().findOne({ code: value.trim().toUpperCase() });
-    if (!team || team.isPersonal) {
-      throw new Meteor.Error('not-found', 'This team join link is invalid or no longer available.');
-    }
-    return {
-      teamName: team.name,
-      kind: 'code',
-      requiresApproval: !team.settings?.autoAcceptJoins,
-    };
+    return previewJoinTarget(value);
   },
 
   /**
@@ -570,6 +596,31 @@ Meteor.methods({
     }
     if (isInviteLinkToken(value)) return redeemInviteLink(identity, value.trim());
     return joinTeamByCode(identity, value.trim(), { idempotent: true });
+  },
+
+  /**
+   * Deprecated, kept for app bundles already installed on people's phones.
+   *
+   * TimeHuddle ships native builds over OTA, so a device can be running a
+   * bundle older than the server for some time. Those bundles call these two
+   * names, and their caller swallows the error — removing them outright would
+   * make a shared link silently fail to join, with nothing shown to anyone.
+   *
+   * They delegate to the current methods, so an old client gets the corrected
+   * behaviour: a bare code asks for approval rather than admitting outright.
+   * Remove once the OTA minimum version is past this release.
+   */
+  async 'teams.previewByCode'({ teamCode }) {
+    return previewJoinTarget(teamCode);
+  },
+
+  async 'teams.joinByQr'({ teamCode }) {
+    const identity = await requireIdentity(this);
+    if (typeof teamCode !== 'string' || !teamCode.trim()) {
+      throw new Meteor.Error('bad-request', 'teamCode is required');
+    }
+    if (isInviteLinkToken(teamCode)) return redeemInviteLink(identity, teamCode.trim());
+    return joinTeamByCode(identity, teamCode.trim(), { idempotent: true });
   },
 
   async 'teams.subteams'({ teamId }) {
@@ -1038,7 +1089,7 @@ Meteor.methods({
     if (team.isPersonal) {
       throw new Meteor.Error('forbidden', 'A personal workspace has no join code.');
     }
-    const code = generateTeamCode();
+    const code = await generateUniqueTeamCode();
     await Teams.updateAsync(team._id, { $set: { code, updatedAt: new Date() } });
     return { code };
   },

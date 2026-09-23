@@ -13,7 +13,9 @@ import {
   closeDb,
   purgeUser,
   ObjectId,
+  DDPConnection,
 } from './helpers';
+import { METEOR_URL } from './setup';
 
 const OWNER = { name: 'Team Owner', email: 'wh-team-owner@test.dev', password: 'Password1!' };
 const MEMBER = { name: 'Team Member', email: 'wh-team-member@test.dev', password: 'Password1!' };
@@ -1144,5 +1146,112 @@ describe('team codes', () => {
     const res = await wormhole('teams.rotateCode', { teamId: codeTeamId }, memberJwt);
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/admin/i);
+  });
+
+  it('is unique across teams, so a code names exactly one', async () => {
+    const made: string[] = [];
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      const res = await wormhole<{ team: { id: string; code: string } }>(
+        'teams.create',
+        { name: `Code Uniqueness ${i}` },
+        ownerJwt,
+      );
+      expect(res.ok).toBe(true);
+      made.push(res.result.team.code);
+      ids.push(res.result.team.id);
+    }
+    expect(new Set(made).size).toBe(made.length);
+    await Promise.all(ids.map((id) => wormhole('teams.delete', { teamId: id }, ownerJwt)));
+  });
+});
+
+// ── Deprecated method names ───────────────────────────────────────────────────
+//
+// Native bundles already on people's phones call these, and their caller
+// swallows errors — dropping them would make a shared link silently fail to
+// join. They must keep working, with the corrected behaviour.
+
+describe('teams.joinByQr / teams.previewByCode (deprecated aliases)', () => {
+  let aliasTeamId: string;
+  let aliasTeamCode: string;
+
+  /**
+   * Call over DDP, as an already-installed bundle does. These two are
+   * deliberately not on the REST surface: they exist for old clients, and
+   * exposing them there would widen the API for a test's convenience.
+   */
+  async function asOldClient<T>(method: string, args: Record<string, unknown>): Promise<T> {
+    const ddp = new DDPConnection(`${METEOR_URL.replace('http://', 'ws://')}/websocket`);
+    try {
+      await ddp.connect();
+      await ddp.login(OUTSIDER.email, OUTSIDER.password);
+      return (await ddp.call(method, [args])) as T;
+    } finally {
+      ddp.close();
+    }
+  }
+
+  beforeAll(async () => {
+    const res = await wormhole<{ team: { id: string; code: string } }>(
+      'teams.create',
+      { name: 'Alias Team' },
+      ownerJwt,
+    );
+    aliasTeamId = res.result.team.id;
+    aliasTeamCode = res.result.team.code;
+  }, 30000);
+
+  afterAll(async () => {
+    const db = await getDb();
+    await db.collection('teamjoinrequests').deleteMany({ teamId: aliasTeamId });
+    await db.collection('team_invitations').deleteMany({ teamId: aliasTeamId });
+    await wormhole('teams.delete', { teamId: aliasTeamId }, ownerJwt).catch(() => {});
+  });
+
+  it('still previews a team by its code', async () => {
+    const result = await asOldClient<{ teamName: string; kind: string }>('teams.previewByCode', {
+      teamCode: aliasTeamCode,
+    });
+    expect(result.teamName).toBe('Alias Team');
+    expect(result.kind).toBe('code');
+  });
+
+  it('routes an old client through approval rather than admitting outright', async () => {
+    const db = await getDb();
+    await db
+      .collection('teams')
+      .updateOne({ _id: new ObjectId(aliasTeamId) }, { $pull: { members: outsiderId } } as never);
+    await db.collection('teamjoinrequests').deleteMany({ teamId: aliasTeamId });
+
+    const result = await asOldClient<{ status: string }>('teams.joinByQr', {
+      teamCode: aliasTeamCode,
+    });
+    expect(result.status).toBe('pending');
+
+    const team = await db.collection('teams').findOne({ _id: new ObjectId(aliasTeamId) });
+    expect(team!.members).not.toContain(outsiderId);
+  });
+
+  it('still redeems an invite-link token for an old client', async () => {
+    const db = await getDb();
+    await db.collection('teams').updateOne({ _id: new ObjectId(aliasTeamId) }, {
+      $set: { 'settings.autoAcceptJoins': true },
+      $pull: { members: outsiderId },
+    } as never);
+    await db.collection('teamjoinrequests').deleteMany({ teamId: aliasTeamId });
+
+    const created = await wormhole<{ url: string }>(
+      'teams.createInviteLink',
+      { teamId: aliasTeamId },
+      ownerJwt,
+    );
+    const token = new URL(created.result.url).searchParams.get('join')!;
+
+    const result = await asOldClient<{ status: string }>('teams.joinByQr', { teamCode: token });
+    expect(result.status).toBe('joined');
+
+    const team = await db.collection('teams').findOne({ _id: new ObjectId(aliasTeamId) });
+    expect(team!.members).toContain(outsiderId);
   });
 });
