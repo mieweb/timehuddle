@@ -18,9 +18,11 @@ import {
   faEllipsisV,
   faGear,
   faKey,
+  faLink,
   faPlus,
   faQrcode,
   faRightToBracket,
+  faRotate,
   faShareNodes,
   faShield,
   faTrash,
@@ -56,7 +58,7 @@ import {
 import { AppModal } from '@ui/AppModal';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { teamApi, type TeamMember, type TeamInvitation } from '../../lib/api';
+import { teamApi, type TeamMember, type TeamInvitation, type TeamInviteLink } from '../../lib/api';
 import { useTeam } from '../../lib/TeamContext';
 import { useSession } from '../../lib/useSession';
 import { useRefresh } from '../../lib/RefreshContext';
@@ -135,6 +137,17 @@ export const TeamsPage: React.FC = () => {
     }
 
     if (teamId && teams.some((t) => t.id === teamId)) setSelectedTeamId(teamId);
+
+    // Set by main.tsx after it redeems a `?join=` value — the join itself has
+    // already happened (or failed) by the time we get here.
+    const joinResult = params.get('joinResult');
+    if (joinResult === 'joined' || joinResult === 'pending' || joinResult === 'error') {
+      setModal({
+        type: 'join-result',
+        variant: joinResult,
+        message: params.get('joinMessage') ?? undefined,
+      });
+    }
 
     // Clean up query params from URL without triggering a navigation
     if (hasQuery) {
@@ -265,11 +278,13 @@ export const TeamsPage: React.FC = () => {
     | 'invite'
     | 'settings'
     | 'share'
+    | 'rotate-code'
     | { type: 'invite-sent'; email: string }
     | { type: 'password'; memberId: string }
     | { type: 'remove'; memberId: string }
     | { type: 'created'; code: string }
     | { type: 'pending-request'; teamCode: string }
+    | { type: 'join-result'; variant: 'joined' | 'pending' | 'error'; message?: string }
   >(null);
 
   // Inline team-name draft used by the "Team Settings" modal's rename field
@@ -280,6 +295,10 @@ export const TeamsPage: React.FC = () => {
   }, [modal, selectedTeam]);
   const inviteSentEmail =
     typeof modal === 'object' && modal?.type === 'invite-sent' ? modal.email : null;
+  const joinResultVariant =
+    typeof modal === 'object' && modal?.type === 'join-result' ? modal.variant : null;
+  const joinResultMessage =
+    typeof modal === 'object' && modal?.type === 'join-result' ? modal.message : undefined;
 
   const [formValue, setFormValue] = useState('');
   const [createDescription, setCreateDescription] = useState('');
@@ -469,34 +488,113 @@ export const TeamsPage: React.FC = () => {
     }
   }, [selectedTeam]);
 
-  // Shareable signup link encoded in the QR code — scanning it lands on the
-  // signup page and auto-joins this team after account creation.
-  const joinUrl = selectedTeam?.code
+  // ── Invite link ───────────────────────────────────────────────────────────
+  // The team code names the team; only an admin-minted invite link grants
+  // membership. The server stores just the token's hash, so `inviteLinkUrl`
+  // holds the one copy of the URL that will ever exist — losing it means
+  // generating a replacement, which revokes this one.
+  const [inviteLink, setInviteLink] = useState<TeamInviteLink | null>(null);
+  const [inviteLinkUrl, setInviteLinkUrl] = useState<string | null>(null);
+  const [inviteLinkLoading, setInviteLinkLoading] = useState(false);
+  const [inviteLinkError, setInviteLinkError] = useState<string | null>(null);
+
+  // A link belongs to one team; switching teams must not carry its URL over.
+  useEffect(() => {
+    setInviteLink(null);
+    setInviteLinkUrl(null);
+    setInviteLinkError(null);
+  }, [selectedTeamId]);
+
+  useEffect(() => {
+    if (modal !== 'share' || !selectedTeamId || !isAdmin || selectedTeam?.isPersonal) return;
+    let active = true;
+    setInviteLinkLoading(true);
+    void teamApi
+      .getInviteLink(selectedTeamId)
+      .then((link) => {
+        if (active) setInviteLink(link);
+      })
+      .catch(() => {
+        if (active) setInviteLink(null);
+      })
+      .finally(() => {
+        if (active) setInviteLinkLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [modal, selectedTeamId, isAdmin, selectedTeam?.isPersonal]);
+
+  const handleGenerateInviteLink = useCallback(async () => {
+    if (!selectedTeamId || inviteLinkLoading) return;
+    setInviteLinkLoading(true);
+    setInviteLinkError(null);
+    try {
+      const result = await teamApi.createInviteLink(selectedTeamId);
+      setInviteLink(result.link);
+      setInviteLinkUrl(result.url);
+    } catch (e: any) {
+      setInviteLinkError(e.message || 'Failed to generate an invite link');
+    } finally {
+      setInviteLinkLoading(false);
+    }
+  }, [selectedTeamId, inviteLinkLoading]);
+
+  const handleRevokeInviteLink = useCallback(async () => {
+    if (!inviteLink || inviteLinkLoading) return;
+    setInviteLinkLoading(true);
+    setInviteLinkError(null);
+    try {
+      await teamApi.revokeInvitation(inviteLink.invitationId);
+      setInviteLink(null);
+      setInviteLinkUrl(null);
+    } catch (e: any) {
+      setInviteLinkError(e.message || 'Failed to revoke the invite link');
+    } finally {
+      setInviteLinkLoading(false);
+    }
+  }, [inviteLink, inviteLinkLoading]);
+
+  const handleRotateCode = useCallback(async () => {
+    if (!selectedTeamId) return;
+    setFormError(null);
+    try {
+      await teamApi.rotateCode(selectedTeamId);
+      refetchTeams();
+    } catch (e: any) {
+      setFormError(e.message || 'Failed to issue a new code');
+    }
+  }, [selectedTeamId, refetchTeams]);
+
+  // Joining with a code goes through the team's approval settings — it is not
+  // an invitation, so this URL grants nothing on its own.
+  const codeJoinUrl = selectedTeam?.code
     ? `${window.location.origin}/app?mode=signup&join=${encodeURIComponent(selectedTeam.code)}`
     : '';
+  const shareUrl = inviteLinkUrl ?? codeJoinUrl;
 
   const [linkCopied, setLinkCopied] = useState(false);
-  const copyJoinLink = useCallback(() => {
-    if (!joinUrl) return;
+  const copyShareUrl = useCallback(() => {
+    if (!shareUrl) return;
     navigator.clipboard
-      .writeText(joinUrl)
+      .writeText(shareUrl)
       .then(() => {
         setLinkCopied(true);
         window.setTimeout(() => setLinkCopied(false), 2000);
       })
-      .catch((err) => console.error('[TeamsPage] failed to copy join link:', err));
-  }, [joinUrl]);
+      .catch((err) => console.error('[TeamsPage] failed to copy the link:', err));
+  }, [shareUrl]);
 
-  const shareJoinLink = useCallback(() => {
-    if (!joinUrl || !selectedTeam) return;
+  const shareShareUrl = useCallback(() => {
+    if (!shareUrl || !selectedTeam) return;
     void navigator
       .share({
         title: `Join ${selectedTeam.name} on TimeHuddle`,
-        text: `Scan or open this link to join the ${selectedTeam.name} team on TimeHuddle.`,
-        url: joinUrl,
+        text: `Open this link to join the ${selectedTeam.name} team on TimeHuddle.`,
+        url: shareUrl,
       })
       .catch(() => {});
-  }, [joinUrl, selectedTeam]);
+  }, [shareUrl, selectedTeam]);
 
   if (!teamsReady) {
     return (
@@ -965,6 +1063,17 @@ export const TeamsPage: React.FC = () => {
               <FontAwesomeIcon icon={faQrcode} className="mr-1" />
               Share
             </Button>
+            {canManageTeamSettings && (
+              <Button
+                variant="link"
+                size="sm"
+                onClick={() => setModal('rotate-code')}
+                aria-label="Issue a new team code"
+              >
+                <FontAwesomeIcon icon={faRotate} className="mr-1" />
+                New code
+              </Button>
+            )}
           </div>
           {canManageTeamSettings && (
             <div className="mb-6 flex items-end gap-2">
@@ -1306,31 +1415,136 @@ export const TeamsPage: React.FC = () => {
           <ModalClose />
         </ModalHeader>
         <ModalBody>
-          <div className="flex flex-col items-center gap-4">
-            <Text variant="muted" size="sm" className="text-center">
-              Scan this QR code to create an account and join{' '}
-              <Text as="span" weight="semibold">
-                {selectedTeam?.name}
-              </Text>{' '}
-              automatically.
-            </Text>
-            <div
-              className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-neutral-200"
-              role="img"
-              aria-label={`QR code to join team ${selectedTeam?.name ?? ''}`}
-              data-testid="team-share-qr"
-            >
-              {joinUrl && <QRCodeSVG value={joinUrl} size={220} marginSize={1} />}
-            </div>
-            <div className="w-full rounded-lg bg-neutral-100 p-3 dark:bg-neutral-800">
-              <Text
-                size="xs"
-                className="break-all font-mono text-neutral-600 dark:text-neutral-300"
-                data-testid="team-share-link"
+          <div className="team-share flex flex-col gap-5">
+            <div className="team-share-qr-panel flex flex-col items-center gap-3">
+              <div
+                className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-neutral-200"
+                role="img"
+                aria-label={
+                  inviteLinkUrl
+                    ? `QR code of the invite link for team ${selectedTeam?.name ?? ''}`
+                    : `QR code of the join code for team ${selectedTeam?.name ?? ''}`
+                }
+                data-testid="team-share-qr"
               >
-                {joinUrl}
-              </Text>
+                {shareUrl && <QRCodeSVG value={shareUrl} size={200} marginSize={1} />}
+              </div>
+              <div className="w-full rounded-lg bg-neutral-100 p-3 dark:bg-neutral-800">
+                <Text
+                  size="xs"
+                  className="break-all font-mono text-neutral-600 dark:text-neutral-300"
+                  data-testid="team-share-link"
+                >
+                  {shareUrl}
+                </Text>
+              </div>
             </div>
+
+            {/* An invite link admits whoever opens it, so only admins mint one. */}
+            {isAdmin && !selectedTeam?.isPersonal && (
+              <section
+                className="team-share-invite-link flex flex-col gap-2"
+                aria-labelledby="team-share-invite-heading"
+              >
+                <Text
+                  id="team-share-invite-heading"
+                  variant="muted"
+                  size="xs"
+                  weight="semibold"
+                  className="uppercase tracking-widest"
+                >
+                  Invite link
+                </Text>
+                <Text variant="muted" size="sm" role="status" data-testid="team-invite-link-status">
+                  {inviteLinkUrl ? (
+                    <>
+                      Anyone who opens the link above joins{' '}
+                      <Text as="span" weight="semibold">
+                        {selectedTeam?.name}
+                      </Text>{' '}
+                      straight away. Copy it now — it is shown this once and cannot be displayed
+                      again.
+                    </>
+                  ) : inviteLink ? (
+                    <>
+                      An invite link is active, expiring{' '}
+                      {new Date(inviteLink.expiresAt).toLocaleDateString()}. It has been used{' '}
+                      {inviteLink.useCount} {inviteLink.useCount === 1 ? 'time' : 'times'}. Only its
+                      fingerprint is stored, so it cannot be shown again — generating a new link
+                      stops this one working.
+                    </>
+                  ) : (
+                    <>
+                      No invite link is active. A link admits whoever opens it without approval, and
+                      expires after 7 days.
+                    </>
+                  )}
+                </Text>
+                {inviteLinkError && (
+                  <Text variant="destructive" size="xs" role="alert">
+                    {inviteLinkError}
+                  </Text>
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="flex-1"
+                    onClick={handleGenerateInviteLink}
+                    isLoading={inviteLinkLoading}
+                    loadingText="Working…"
+                    leftIcon={<FontAwesomeIcon icon={faLink} />}
+                  >
+                    {inviteLink ? 'Generate new link' : 'Generate invite link'}
+                  </Button>
+                  {inviteLink && (
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={handleRevokeInviteLink}
+                      disabled={inviteLinkLoading}
+                      aria-label="Revoke the active invite link"
+                    >
+                      Revoke
+                    </Button>
+                  )}
+                </div>
+              </section>
+            )}
+
+            <section
+              className="team-share-code flex flex-col gap-2"
+              aria-labelledby="team-share-code-heading"
+            >
+              <Text
+                id="team-share-code-heading"
+                variant="muted"
+                size="xs"
+                weight="semibold"
+                className="uppercase tracking-widest"
+              >
+                Team code
+              </Text>
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary" size="sm" className="font-mono tracking-widest">
+                  {selectedTeam?.code}
+                </Badge>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={copyCode}
+                  aria-label="Copy team code"
+                  className="h-6 w-6 text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+                >
+                  <FontAwesomeIcon icon={faCopy} className="text-[11px]" />
+                </Button>
+              </div>
+              <Text variant="muted" size="sm">
+                {autoAcceptJoins
+                  ? 'The code names this team. Anyone who joins with it is added automatically, because this team accepts join requests without review.'
+                  : 'The code names this team — it is not an invitation. Anyone who joins with it waits for an admin to approve the request.'}
+              </Text>
+            </section>
           </div>
         </ModalBody>
         <ModalFooter>
@@ -1338,17 +1552,94 @@ export const TeamsPage: React.FC = () => {
             <Button
               variant="outline"
               fullWidth
-              onClick={copyJoinLink}
+              onClick={copyShareUrl}
               leftIcon={<FontAwesomeIcon icon={faCopy} />}
             >
-              {linkCopied ? 'Copied!' : 'Copy Link'}
+              {linkCopied ? 'Copied!' : inviteLinkUrl ? 'Copy invite link' : 'Copy link'}
             </Button>
             {typeof navigator !== 'undefined' && 'share' in navigator && (
-              <Button variant="primary" fullWidth onClick={shareJoinLink}>
+              <Button variant="primary" fullWidth onClick={shareShareUrl}>
                 Share…
               </Button>
             )}
           </div>
+        </ModalFooter>
+      </AppModal>
+
+      <AppModal
+        open={modal === 'rotate-code'}
+        onOpenChange={(open) => !open && closeModal()}
+        size="md"
+      >
+        <ModalHeader>
+          <ModalTitle>Issue a new team code?</ModalTitle>
+          <ModalClose />
+        </ModalHeader>
+        <ModalBody>
+          <Text variant="muted" size="sm">
+            {selectedTeam?.name} gets a new code, and{' '}
+            <Text as="span" weight="semibold">
+              {selectedTeam?.code}
+            </Text>{' '}
+            stops naming this team — anywhere you have shared or printed it. Existing members are
+            not affected.
+          </Text>
+          {formError && (
+            <Text variant="destructive" size="xs" className="mt-3" role="alert">
+              {formError}
+            </Text>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="outline" onClick={closeModal}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={async () => {
+              await handleRotateCode();
+              setModal('settings');
+            }}
+          >
+            Issue new code
+          </Button>
+        </ModalFooter>
+      </AppModal>
+
+      {/* Outcome of redeeming a `?join=` link, handed over by main.tsx. */}
+      <AppModal
+        open={typeof modal === 'object' && modal?.type === 'join-result'}
+        onOpenChange={(open) => !open && closeModal()}
+        size="md"
+      >
+        <ModalHeader>
+          <ModalTitle>
+            {joinResultVariant === 'joined'
+              ? 'Team joined'
+              : joinResultVariant === 'pending'
+                ? 'Request sent'
+                : 'This link did not work'}
+          </ModalTitle>
+          <ModalClose />
+        </ModalHeader>
+        <ModalBody>
+          <Text
+            variant={joinResultVariant === 'error' ? 'destructive' : 'muted'}
+            size="sm"
+            role="status"
+            aria-live="polite"
+          >
+            {joinResultVariant === 'joined'
+              ? "You've been added to the team."
+              : joinResultVariant === 'pending'
+                ? 'Your request to join was sent to the team admins for approval.'
+                : (joinResultMessage ?? 'This invite link is no longer valid.')}
+          </Text>
+        </ModalBody>
+        <ModalFooter>
+          <Button variant="primary" fullWidth onClick={closeModal}>
+            Done
+          </Button>
         </ModalFooter>
       </AppModal>
     </AppPage>

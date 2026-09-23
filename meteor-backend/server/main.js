@@ -1660,6 +1660,54 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('teams.createInviteLink', {
+    description:
+      'Mint a shareable invite link for a team, replacing any active one (team admin or org owner only). The URL is returned once and never again.',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('teams.getInviteLink', {
+    description:
+      "The active invite link's status, without its URL (team admin or org owner only)",
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('teams.rotateCode', {
+    description: 'Issue the team a new join code, retiring the old one (team admin or org owner only)',
+    inputSchema: {
+      type: 'object',
+      properties: { teamId: { type: 'string' } },
+      required: ['teamId'],
+    },
+  });
+
+  Wormhole.expose('teams.previewJoinLink', {
+    description: 'Name the team a ?join= value opens — an invite-link token or a team code',
+    inputSchema: {
+      type: 'object',
+      properties: { value: { type: 'string' } },
+      required: ['value'],
+    },
+  });
+
+  Wormhole.expose('teams.joinByLink', {
+    description:
+      'Redeem a ?join= value: an invite-link token joins outright, a team code goes through the team\'s approval settings',
+    inputSchema: {
+      type: 'object',
+      properties: { value: { type: 'string' } },
+      required: ['value'],
+    },
+  });
+
   Wormhole.expose('teams.getPendingInvitations', {
     description: 'List email invitations sent for a team (team admin or org owner only)',
     inputSchema: {

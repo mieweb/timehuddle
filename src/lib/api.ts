@@ -1330,6 +1330,14 @@ export interface TeamInvitation {
   revokedAt?: string;
 }
 
+/** An active shareable invite link. The URL is never part of this — see teamApi.createInviteLink. */
+export interface TeamInviteLink {
+  invitationId: string;
+  createdAt: string;
+  expiresAt: string;
+  useCount: number;
+}
+
 export const teamApi = {
   getTeams: () =>
     wormholeCall<{ teams: Team[]; pendingRequests: TeamJoinRequest[] }>('teams.list', {}),
@@ -1409,6 +1417,22 @@ export const teamApi = {
 
   revokeInvitation: (invitationId: string) =>
     wormholeCall<{ ok: boolean }>('teams.revokeInvite', { invitationId }),
+
+  /**
+   * Mint a shareable invite link, replacing any active one. `url` comes back
+   * once and only once — the server stores nothing but the token's hash.
+   */
+  createInviteLink: (teamId: string) =>
+    wormholeCall<{ link: TeamInviteLink; url: string }>('teams.createInviteLink', { teamId }),
+
+  /** The active link's status, with no URL. See createInviteLink. */
+  getInviteLink: (teamId: string) =>
+    wormholeCall<{ link: TeamInviteLink | null }>('teams.getInviteLink', { teamId }).then(
+      (r) => r.link,
+    ),
+
+  rotateCode: (teamId: string) =>
+    wormholeCall<{ code: string }>('teams.rotateCode', { teamId }).then((r) => r.code),
 };
 
 // ─── Clock API ────────────────────────────────────────────────────────────────

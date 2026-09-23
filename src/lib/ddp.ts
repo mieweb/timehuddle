@@ -29,6 +29,21 @@ export type DevRole =
   'member' | 'org-admin' | 'org-owner' | 'enterprise-admin' | 'enterprise-owner';
 
 /**
+ * What a `?join=` value turns out to be. `link` is an admin-minted invite
+ * link and always grants membership; `code` is a team code, which only ever
+ * requests it unless the team auto-accepts.
+ */
+export interface JoinLinkPreview {
+  teamName: string;
+  kind: 'link' | 'code';
+  requiresApproval: boolean;
+}
+
+export type JoinLinkResult =
+  | { status: 'joined'; team: { id: string; name: string } }
+  | { status: 'pending'; request: { teamId: string } };
+
+/**
  * Meteor's MongoID.idStringify prefixes ObjectId-backed ids with '-'.
  * Strip it so ids match the 24-char hex strings the REST API uses.
  */
@@ -348,17 +363,20 @@ class DdpClient {
     await this.call('teams.acceptInvite', { token });
   }
 
-  /** Unauthenticated preview of a team by its shareable join code (QR flow). */
-  async getTeamByCode(teamCode: string): Promise<{ teamName: string; teamCode: string }> {
-    return this.call('teams.previewByCode', { teamCode }) as Promise<{
-      teamName: string;
-      teamCode: string;
-    }>;
+  /**
+   * Unauthenticated preview of what a `?join=` value opens — an invite-link
+   * token or a team code — so the login page can name the team first.
+   */
+  async previewJoinLink(value: string): Promise<JoinLinkPreview> {
+    return this.call('teams.previewJoinLink', { value }) as Promise<JoinLinkPreview>;
   }
 
-  /** Join a team directly via a shared QR/link code (no admin approval). */
-  async joinTeamByQrCode(teamCode: string): Promise<void> {
-    await this.call('teams.joinByQr', { teamCode });
+  /**
+   * Redeem a `?join=` value. An invite-link token joins outright; a team code
+   * goes through the team's approval settings and may come back `pending`.
+   */
+  async joinByLink(value: string): Promise<JoinLinkResult> {
+    return this.call('teams.joinByLink', { value }) as Promise<JoinLinkResult>;
   }
 
   async getOrgInvitation(token: string): Promise<{

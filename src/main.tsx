@@ -90,6 +90,7 @@ import { InboxPage } from './features/inbox/InboxPage';
 import { PublicReleaseNotesPage } from './features/release-notes/PublicReleaseNotesPage';
 import { enterpriseApi } from './lib/api';
 import { getDdpClient, subscribeNewNotifications } from './lib/ddp';
+import { captureInviteParams, takeInviteParams } from './lib/inviteParams';
 import { autoRegisterPush, checkPushNotificationStatus } from './lib/nativePush';
 import { SessionProvider, useSession } from './lib/useSession';
 import { AppLayout } from './ui/AppLayout';
@@ -193,6 +194,11 @@ if (Capacitor.isNativePlatform()) {
   }
 })();
 
+// Snapshot `?join=`/`?invite=`/`?org_invite=` while the query string is still
+// there: AppLayout drops it as it resolves `/app` to `/app/dashboard`, during
+// render, before any effect could read it.
+captureInviteParams();
+
 // ─── App (client-side rendered, /app and all non-root routes) ─────────────────
 _log('App component defined — modules loaded');
 
@@ -213,28 +219,45 @@ const App: React.FC = () => {
   // `timehuddle://auth` deep link (native).
   React.useEffect(() => {
     if (!user) return;
-    const params = new URLSearchParams(window.location.search);
-    const join = params.get('join') ?? _pendingOAuthJoin?.join ?? null;
-    const invite = params.get('invite') ?? _pendingOAuthJoin?.invite ?? null;
-    const orgInvite = params.get('org_invite') ?? _pendingOAuthJoin?.orgInvite ?? null;
+    // Claims the params, so LoginForm's own redemption and this one can never
+    // both fire for the same link.
+    const claimed = takeInviteParams();
+    const join = claimed?.join ?? _pendingOAuthJoin?.join ?? null;
+    const invite = claimed?.invite ?? _pendingOAuthJoin?.invite ?? null;
+    const orgInvite = claimed?.orgInvite ?? _pendingOAuthJoin?.orgInvite ?? null;
     if (!join && !invite && !orgInvite) return;
     _pendingOAuthJoin = null;
 
     void (async () => {
       const ddp = getDdpClient();
+      // What the Teams page should say about the link the visitor opened.
+      // Only the `?join=` flow reports back: an email or org invitation lands
+      // the person wherever they already were, as it always has.
+      const outcome = new URLSearchParams();
       try {
         if (invite) await ddp.acceptTeamInvitation(invite);
         if (orgInvite) await ddp.acceptOrgInvitation(orgInvite);
-        if (join) await ddp.joinTeamByQrCode(join);
+        if (join) {
+          const result = await ddp.joinByLink(join);
+          outcome.set('joinResult', result.status === 'pending' ? 'pending' : 'joined');
+          if (result.status === 'joined') outcome.set('teamId', result.team.id);
+        }
       } catch (err) {
-        console.error('[oauth] pending team/org join failed:', err);
+        console.error('[invite] redeeming the invite link failed:', err);
+        if (join) {
+          outcome.set('joinResult', 'error');
+          outcome.set(
+            'joinMessage',
+            (err as Error).message || 'This invite link is no longer valid.',
+          );
+        }
       }
-      const url = new URL(window.location.href);
-      url.searchParams.delete('join');
-      url.searchParams.delete('invite');
-      url.searchParams.delete('org_invite');
-      window.history.replaceState(null, '', url.toString());
       await refetch();
+      if (!outcome.has('joinResult')) return;
+      // replaceState + popstate is how AppLayout's router hears about a
+      // navigation that didn't come from its own navigate().
+      window.history.replaceState(null, '', `/app/teams?${outcome.toString()}`);
+      window.dispatchEvent(new PopStateEvent('popstate'));
     })();
   }, [user, refetch]);
 
