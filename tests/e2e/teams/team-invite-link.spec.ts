@@ -25,6 +25,7 @@ import { TEST_USERS, loginAs } from '../fixtures/users';
 const MONGO_URL =
   process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
 
+const PASSWORD = 'InviteLinkPass123!';
 const STAMP = Date.now();
 const TEAM_NAME = `Invite Link Team ${STAMP}`;
 // Team codes are 8 Crockford base32 characters; keep the same shape.
@@ -67,6 +68,8 @@ test.describe('Team Invite Link', () => {
   let teamId: ObjectId;
   let orgId: string;
   let adminId: string;
+  /** Accounts registered through a link, torn down with the fixture. */
+  const createdUserEmails: string[] = [];
 
   /** Detach a user so each redemption test starts from "not a member". */
   async function detach(email: string) {
@@ -124,6 +127,16 @@ test.describe('Team Invite Link', () => {
   });
 
   test.afterAll(async () => {
+    if (createdUserEmails.length > 0) {
+      const users = await db
+        .collection('users')
+        .find({ 'emails.address': { $in: createdUserEmails } })
+        .toArray();
+      const userIds = users.map((u) => String(u._id));
+      await db.collection('users').deleteMany({ 'emails.address': { $in: createdUserEmails } });
+      await db.collection('org_members').deleteMany({ userId: { $in: userIds } });
+      await db.collection('teams').deleteMany({ isPersonal: true, members: { $in: userIds } });
+    }
     await db.collection('teams').deleteOne({ _id: teamId as never });
     await db.collection('team_invitations').deleteMany({ teamId: teamId.toHexString() });
     await db.collection('teamjoinrequests').deleteMany({ teamId: teamId.toHexString() });
@@ -312,6 +325,68 @@ test.describe('Team Invite Link', () => {
         status: 'pending',
       });
       expect(pending).toBeTruthy();
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('a brand-new visitor registers through the link and is added', async ({ browser }) => {
+    test.setTimeout(120000);
+    await setReviewsJoiners(false);
+    const email = `invite-signup-${Date.now()}@test.dev`;
+    createdUserEmails.push(email);
+
+    const adminContext = await browser.newContext();
+    const adminPage = await adminContext.newPage();
+    let url: string;
+    try {
+      await loginAs(adminPage, admin);
+      url = await generateInviteLink(adminPage);
+    } finally {
+      await adminContext.close();
+    }
+
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    try {
+      await page.goto(url);
+      await expect(page.getByText(`You're joining the team ${TEAM_NAME}`)).toBeVisible({
+        timeout: 20000,
+      });
+
+      // The link opens in signup mode precisely for this case — someone with
+      // no account at all.
+      await page.getByRole('textbox', { name: 'First name' }).fill('Invite');
+      await page.getByRole('textbox', { name: 'Last name' }).fill(`Signup${STAMP}`);
+      await page.getByRole('textbox', { name: 'Email address' }).fill(email);
+      await page.getByRole('textbox', { name: 'Password', exact: true }).fill(PASSWORD);
+      await page.getByRole('textbox', { name: 'Confirm password' }).fill(PASSWORD);
+      await page.getByRole('button', { name: 'Create account', exact: true }).click();
+
+      // A fresh account may be asked to claim a username before anything else.
+      const usernameDialog = page.getByRole('dialog', { name: 'Username Required' });
+      const joined = page.getByRole('dialog').filter({ hasText: 'Team joined' });
+      await Promise.race([
+        usernameDialog.waitFor({ state: 'visible', timeout: 30000 }).catch(() => {}),
+        joined.waitFor({ state: 'visible', timeout: 30000 }).catch(() => {}),
+      ]);
+      if (await usernameDialog.isVisible().catch(() => false)) {
+        await usernameDialog
+          .getByRole('textbox', { name: 'Username' })
+          .fill(`inv_${Date.now().toString(36)}`);
+        await usernameDialog.getByRole('button', { name: 'Claim username' }).click();
+        await usernameDialog.waitFor({ state: 'hidden', timeout: 15000 });
+      }
+
+      await expect(joined).toBeVisible({ timeout: 45000 });
+      await expect.poll(() => isMember(email), { timeout: 15000 }).toBe(true);
+
+      // Registering through a link also puts them in the team's organization.
+      const user = await db.collection('users').findOne({ 'emails.address': email });
+      const orgMember = await db
+        .collection('org_members')
+        .findOne({ orgId, userId: String(user!._id) });
+      expect(orgMember?.role).toBe('member');
     } finally {
       await context.close();
     }
