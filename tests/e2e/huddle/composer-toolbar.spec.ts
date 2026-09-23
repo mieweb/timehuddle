@@ -141,9 +141,10 @@ test.describe('Huddle composer — toolbar', () => {
       'Align right',
       'Justify',
     ]) {
-      expect(labels, `${unsupported} cannot survive markdown and must not be offered`).not.toContain(
-        unsupported,
-      );
+      expect(
+        labels,
+        `${unsupported} cannot survive markdown and must not be offered`,
+      ).not.toContain(unsupported);
     }
 
     // The tools that do round-trip are still there — this is a narrowing, not a
