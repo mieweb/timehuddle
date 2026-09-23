@@ -54,3 +54,9 @@ the new source up from the registry.
   `../redmine/` and call `redmineApi` directly, exactly as Huddle's modals call
   `ticketApi`. Reach for this seam only when a third source needs the same
   writes. Issues are never persisted — Redmine reads stay live.
+- **The Redmine list is cached for the session**, keyed by user and scope, so
+  remounts do not refetch. Anything that changes what Redmine would return has to
+  call `invalidateRedmineCache()`. Linking or unlinking an account in Settings is
+  one such thing, and it reaches this page through the `redmine:changed` event
+  (`lib/useRedmineStatus.ts`) — `TicketsPage` stays mounted behind every route, so
+  without that signal it would serve the cached list until the window reloaded.

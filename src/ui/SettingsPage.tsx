@@ -60,6 +60,7 @@ import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
 import { useBrand, BRANDS } from '../lib/useBrand';
+import { notifyRedmineChanged } from '../lib/useRedmineStatus';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
 import { AppPage } from './AppPage';
@@ -747,6 +748,9 @@ const RedmineConnection: React.FC = () => {
       const next = await redmineApi.connect(key);
       setStatus(next);
       setApiKey('');
+      // The tickets page stays mounted behind this route and will not refetch
+      // on its own, so tell it the link changed (#562).
+      notifyRedmineChanged(next);
       await loadActivities();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to connect to Redmine');
@@ -759,9 +763,11 @@ const RedmineConnection: React.FC = () => {
     setBusy(true);
     setError(null);
     try {
-      setStatus(await redmineApi.disconnect());
+      const next = await redmineApi.disconnect();
+      setStatus(next);
       setActivities(null);
       setActivityError(null);
+      notifyRedmineChanged(next);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to disconnect');
     } finally {
