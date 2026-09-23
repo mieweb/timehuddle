@@ -21,8 +21,35 @@ If `nvm` is not available, check `.nvmrc` for the required version and install i
 
 ```bash
 nvm use
+git submodule update --init --recursive   # vendor/ui — see below
 npm install
 ```
+
+### The @mieweb/ui Fork (`vendor/ui`)
+
+`@mieweb/ui` is **not** installed from npm. `vendor/ui` is our fork
+([Dharp02/ui](https://github.com/Dharp02/ui), branch `timehuddle/editor-fixes`)
+checked out as a git submodule and declared in the root `workspaces` array, so
+`node_modules/@mieweb/ui` is a symlink to it. We carry editor fixes there that
+the app needs before upstream can merge them — see
+[#564](https://github.com/mieweb/timehuddle/issues/564).
+
+- **Changing the library**: edit under `vendor/ui/src`, then
+  `npm run build -w @mieweb/ui`. `postinstall` rebuilds automatically when the
+  sources are newer than `dist/` (`scripts/build-vendor-ui.mjs`), so a plain
+  `npm install` is enough after a submodule bump. `dist/` is build output and is
+  not committed.
+- **Committing**: push the submodule commit to the fork **first**. A pointer at
+  an unpushed commit breaks every CI job on checkout — the exact failure that
+  forced the old vendored tarball, see
+  [#517](https://github.com/mieweb/timehuddle/issues/517).
+- **Why a workspace and not `file:vendor/ui`**: without workspaces npm gives the
+  submodule its own `node_modules` with its own `@types/react`, and every
+  component's props collapse to `IntrinsicAttributes` because TypeScript sees two
+  React identities. Workspaces hoist one copy and the problem disappears.
+- **Patches**: `@kerebron/*` fixes the library applies through pnpm never reach a
+  consumer's `node_modules`, so the app re-applies them with `patch-package`
+  (`patches/`, run from `postinstall`).
 
 ### Build and Development
 

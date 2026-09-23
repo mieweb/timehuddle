@@ -31,7 +31,7 @@
     "test:e2e:ui": "playwright test -c tests/playwright.config.ts --ui",
     "test:all": "npm run test:unit && npm run test",
     "test:watch": "vitest",
-    "postinstall": "patch-package",
+    "postinstall": "patch-package && node scripts/build-vendor-ui.mjs",
     "prepare": "node scripts/prepare-husky.cjs",
     "dev:mobile": "vite --host",
     "dev:ios": "bash scripts/dev-ios.sh",

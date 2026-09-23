@@ -41,6 +41,10 @@ jobs:
     environment: ${{ github.event_name == 'push' && 'production' || github.event.inputs.channel }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # vendor/ui is the @mieweb/ui fork, linked as an npm workspace;
+          # recursive because it depends on file:./packages/ychart.
+          submodules: recursive
 
       - uses: actions/setup-node@v4
         with:
