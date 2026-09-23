@@ -17,6 +17,9 @@ async function openNewTicket(page: Page, title: string): Promise<TicketsPage> {
   const tickets = new TicketsPage(page);
   await tickets.goto();
   await tickets.createTicket(title);
+  // Narrowed by search: the table paginates at roughly a screenful of rows, and
+  // earlier specs leave plenty behind on this team.
+  await tickets.search(title);
   await tickets.rowByTitle(title).getByRole('button', { name: 'Ticket options' }).click();
   await page.getByRole('menuitem', { name: 'Ticket Details' }).click();
   await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible({

@@ -68,6 +68,9 @@ async function setAssignees(
   title: string,
   names: string[],
 ): Promise<void> {
+  // Narrowed by search: the shared seed team paginates once the suite has run
+  // a while, and the row would otherwise be on a page this lookup cannot see.
+  await tickets.search(title);
   await tickets.rowByTitle(title).getByRole('button', { name: 'Ticket options' }).click();
   await page.getByRole('menuitem', { name: 'Edit Ticket' }).click();
   const modal = page.getByRole('dialog');
@@ -84,6 +87,26 @@ async function setAssignees(
 
   await modal.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(modal).toBeHidden({ timeout: 15000 });
+  await tickets.clearSearch();
+}
+
+/**
+ * Asserts how many rows a title matches, narrowing the table with search first.
+ *
+ * Search, not a bare row lookup: this spec runs on the shared seed team, which
+ * accumulates tickets from every earlier spec in the suite, so the table
+ * paginates and the row under test can sit on page 2. That made the
+ * assertions pass alone and fail in a full run.
+ */
+async function expectRows(
+  page: Page,
+  tickets: TicketsPage,
+  title: string,
+  count: number,
+): Promise<void> {
+  await tickets.search(title);
+  await expect(tickets.rowByTitle(title)).toHaveCount(count);
+  await tickets.clearSearch();
 }
 
 test.describe('Tickets — the "Me" assignee filter', () => {
@@ -114,8 +137,8 @@ test.describe('Tickets — the "Me" assignee filter', () => {
 
     await tickets.filterBy('Assignees', 'Me');
 
-    await expect(tickets.rowByTitle(mine)).toHaveCount(1);
-    await expect(tickets.rowByTitle(theirs)).toHaveCount(0);
+    await expectRows(page, tickets, mine, 1);
+    await expectRows(page, tickets, theirs, 0);
   });
 
   test('excludes a ticket I was removed from', async ({ page }) => {
@@ -125,13 +148,13 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     const title = `Handed over ${Date.now()}`;
     await createHuddleTicket(page, title);
     await tickets.filterBy('Assignees', 'Me');
-    await expect(tickets.rowByTitle(title)).toHaveCount(1);
+    await expectRows(page, tickets, title, 1);
 
     await tickets.clearFiltersButton.click();
     await setAssignees(page, tickets, title, [OTHER.name]);
     await tickets.filterBy('Assignees', 'Me');
 
-    await expect(tickets.rowByTitle(title)).toHaveCount(0);
+    await expectRows(page, tickets, title, 0);
   });
 
   test('matches Redmine issues assigned to the linked account too', async ({ page }) => {
@@ -164,9 +187,9 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     await tickets.filterBy('Assignees', 'Me');
 
     // Both namespaces at once — the whole point of the sentinel.
-    await expect(tickets.rowByTitle('Mine in Redmine')).toHaveCount(1);
-    await expect(tickets.rowByTitle(mine)).toHaveCount(1);
-    await expect(tickets.rowByTitle('Someone else in Redmine')).toHaveCount(0);
+    await expectRows(page, tickets, 'Mine in Redmine', 1);
+    await expectRows(page, tickets, mine, 1);
+    await expectRows(page, tickets, 'Someone else in Redmine', 0);
   });
 
   test('a Huddle id never matches a Redmine account with the same number', async ({ page }) => {
@@ -192,7 +215,7 @@ test.describe('Tickets — the "Me" assignee filter', () => {
 
     await tickets.filterBy('Assignees', 'Me');
 
-    await expect(tickets.rowByTitle('Assigned to a colliding id')).toHaveCount(0);
+    await expectRows(page, tickets, 'Assigned to a colliding id', 0);
   });
 
   test('still filters Huddle rows when no Redmine account is linked', async ({ page }) => {
@@ -207,8 +230,8 @@ test.describe('Tickets — the "Me" assignee filter', () => {
 
     await tickets.filterBy('Assignees', 'Me');
 
-    await expect(tickets.rowByTitle(mine)).toHaveCount(1);
-    await expect(tickets.rowByTitle(theirs)).toHaveCount(0);
+    await expectRows(page, tickets, mine, 1);
+    await expectRows(page, tickets, theirs, 0);
   });
 
   test('clearing the filter brings everyone back', async ({ page }) => {
@@ -222,10 +245,10 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     await setAssignees(page, tickets, theirs, [OTHER.name]);
 
     await tickets.filterBy('Assignees', 'Me');
-    await expect(tickets.rowByTitle(theirs)).toHaveCount(0);
+    await expectRows(page, tickets, theirs, 0);
 
     await tickets.clearFiltersButton.click();
 
-    await expect(tickets.rowByTitle(theirs)).toHaveCount(1);
+    await expectRows(page, tickets, theirs, 1);
   });
 });

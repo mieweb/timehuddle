@@ -43,6 +43,10 @@ test.describe('Unified table with Redmine rows', () => {
   test('renders Redmine issues as rows, keyed by source and id', async ({ page }) => {
     const { tickets } = await openTable(page, { 'issues.list': connectedList() });
 
+    // Isolated to Redmine first: the table paginates at roughly a screenful,
+    // and Huddle rows left behind by earlier specs would push these off it.
+    await tickets.filterBySource('Redmine');
+
     await expect(tickets.rowsFromSource('redmine')).toHaveCount(2);
     await expect(tickets.activePanel.locator('tr[data-ticket-key="redmine:15"]')).toHaveCount(1);
     await expect(tickets.rowByTitle('Alpha intake validation')).toHaveCount(1);
@@ -60,6 +64,7 @@ test.describe('Unified table with Redmine rows', () => {
   test('offers "Open in Redmine" on a Redmine row', async ({ page }) => {
     const { tickets } = await openTable(page, { 'issues.list': connectedList() });
 
+    await tickets.search('Alpha intake validation');
     await tickets
       .rowByTitle('Alpha intake validation')
       .getByRole('button', { name: 'Ticket options' })
@@ -71,6 +76,7 @@ test.describe('Unified table with Redmine rows', () => {
   test('offers no timer on a Redmine row — timers live on My Board (M3 D1)', async ({ page }) => {
     const { tickets } = await openTable(page, { 'issues.list': connectedList() });
 
+    await tickets.search('Alpha intake validation');
     await tickets
       .rowByTitle('Alpha intake validation')
       .getByRole('button', { name: 'Ticket options' })
