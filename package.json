@@ -3,7 +3,8 @@
   "version": "1.0.3",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "vendor/ui"
   ],
   "engines": {
     "node": ">=24"
@@ -30,6 +31,7 @@
     "test:e2e:ui": "playwright test -c tests/playwright.config.ts --ui",
     "test:all": "npm run test:unit && npm run test",
     "test:watch": "vitest",
+    "postinstall": "patch-package",
     "prepare": "node scripts/prepare-husky.cjs",
     "dev:mobile": "vite --host",
     "dev:ios": "bash scripts/dev-ios.sh",
@@ -70,7 +72,7 @@
     "@kerebron/extension-yjs": "^0.8.9",
     "@kerebron/wasm": "^0.8.6",
     "@mieweb/datavis": "^1.5.0",
-    "@mieweb/ui": "^0.9.0",
+    "@mieweb/ui": "*",
     "@mieweb/ychart": "^1.1.0",
     "@swc/helpers": "^0.5.17",
     "cmdk": "^1.1.1",
@@ -130,6 +132,7 @@
     "jsdom": "^29.1.0",
     "lint-staged": "^15.2.10",
     "mongodb": "^7.5.0",
+    "patch-package": "^8.0.1",
     "postcss": "^8.5.26",
     "postcss-cli": "^11.0.1",
     "postcss-loader": "^8.2.1",
