@@ -119,7 +119,11 @@ services:
       #   fall back to, and a bogus default would only fail later with a DNS error.
       # REDMINE_ENCRYPTION_KEY: secret used to encrypt personal API keys at rest.
       #   Set a strong value in meteor-backend/.env.local; do not commit real keys.
+      # REDMINE_ALLOW_CUSTOM_URL: dev/test only. When `true`, Settings lets each user
+      #   link a Redmine URL of their own (REDMINE_BASE_URL becomes the default). The
+      #   server fetches whatever URL is linked, so never enable it in production.
       - REDMINE_BASE_URL=${REDMINE_BASE_URL:?set REDMINE_BASE_URL to your external Redmine URL (no trailing slash)}
+      - REDMINE_ALLOW_CUSTOM_URL=${REDMINE_ALLOW_CUSTOM_URL:-false}
     env_file:
       - path: ./meteor-backend/.env.local
         required: false

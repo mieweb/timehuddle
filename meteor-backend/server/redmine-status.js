@@ -4,14 +4,14 @@
  * Kept free of Meteor imports so it can be unit-tested directly (see
  * tests/redmine-status.test.ts). Two invariants live here:
  *   1. The encrypted `apiKey` is NEVER included in the result.
- *   2. `baseUrl` is derived from server config at read time (passed in by the
- *      caller) rather than read from the row — the configured instance is the
- *      single source of truth, so it can't go stale per-user.
+ *   2. `baseUrl` is resolved by the caller (`linkedRedmineBaseUrl`) rather than
+ *      read from the row here — whether a stored URL counts depends on server
+ *      config (`REDMINE_ALLOW_CUSTOM_URL`), which this pure module doesn't read.
  */
 
 /**
  * @param {object|null} link  the stored redmine_links document (or null)
- * @param {string} [baseUrl]  the server-configured Redmine base URL
+ * @param {string} [baseUrl]  the Redmine instance this link talks to
  */
 export function toStatus(link, baseUrl) {
   if (!link) return { connected: false };

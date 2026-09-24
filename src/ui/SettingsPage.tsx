@@ -59,6 +59,7 @@ import { getDdpClient } from '../lib/ddp';
 import { GitHubConnectionRow } from './GitHubConnectionRow';
 import { PROFILE_BIO_MAX, PROFILE_DISPLAY_NAME_MAX, PROFILE_WEBSITE_MAX } from '../lib/constants';
 import { hasDefaultOrganizationAdminAccess } from '../lib/organizationAccess';
+import { useTeam } from '../lib/TeamContext';
 import { useBrand, BRANDS } from '../lib/useBrand';
 import { useSession } from '../lib/useSession';
 import { useTheme } from '../lib/useTheme';
@@ -706,6 +707,7 @@ const RedmineConnection: React.FC = () => {
   const [status, setStatus] = useState<RedmineStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiKey, setApiKey] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activities, setActivities] = useState<RedmineActivityList | null>(null);
@@ -727,6 +729,7 @@ const RedmineConnection: React.FC = () => {
     const [statusResult] = await Promise.allSettled([redmineApi.status(), loadActivities()]);
     if (statusResult.status === 'fulfilled') {
       setStatus(statusResult.value);
+      setBaseUrl(statusResult.value.defaultBaseUrl ?? '');
     } else {
       const err: unknown = statusResult.reason;
       setError(err instanceof Error ? err.message : 'Failed to load Redmine status');
@@ -738,13 +741,20 @@ const RedmineConnection: React.FC = () => {
     void load();
   }, [load]);
 
+  // Issue ids mean nothing across Redmine instances, so the URL can only change
+  // between shifts. The server enforces this too; locking the field says so up front.
+  const isClockedIn = Boolean(useTeam().activeClockEvent);
+  const showUrlField = Boolean(status?.customUrlAllowed);
+
   const handleConnect = async () => {
     const key = apiKey.trim();
     if (!key) return;
     setBusy(true);
     setError(null);
     try {
-      const next = await redmineApi.connect(key);
+      // Locked while clocked in: send nothing, so the server keeps its default.
+      const url = showUrlField && !isClockedIn ? baseUrl.trim() : undefined;
+      const next = await redmineApi.connect(key, url);
       setStatus(next);
       setApiKey('');
       await loadActivities();
@@ -759,7 +769,9 @@ const RedmineConnection: React.FC = () => {
     setBusy(true);
     setError(null);
     try {
-      setStatus(await redmineApi.disconnect());
+      const next = await redmineApi.disconnect();
+      setStatus(next);
+      setBaseUrl(next.defaultBaseUrl ?? '');
       setActivities(null);
       setActivityError(null);
     } catch (err: unknown) {
@@ -899,6 +911,26 @@ const RedmineConnection: React.FC = () => {
           Connect
         </Button>
       </div>
+      {showUrlField && (
+        <Input
+          type="url"
+          label="Redmine URL"
+          placeholder="https://redmine.example.com"
+          value={isClockedIn ? (status?.defaultBaseUrl ?? '') : baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !busy) void handleConnect();
+          }}
+          disabled={busy || isClockedIn}
+          helperText={
+            isClockedIn
+              ? 'Clock out to connect to a different Redmine instance.'
+              : 'The Redmine instance your API key belongs to. Test deployments only.'
+          }
+          className="redmine-base-url h-8 text-sm"
+          size="sm"
+        />
+      )}
       {error && (
         <Text size="xs" variant="destructive" role="alert">
           {error}

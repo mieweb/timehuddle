@@ -176,4 +176,77 @@ test.describe('Settings — Redmine connection', () => {
     await expect(page.getByText('Connected', { exact: true })).toHaveCount(0);
     expect(rm.callCount('disconnect')).toBe(1);
   });
+
+  test.describe('custom Redmine URL (REDMINE_ALLOW_CUSTOM_URL)', () => {
+    const baseUrlInput = (page: Page) => page.getByLabel('Redmine URL');
+    const unlinkedWithCustomUrl = {
+      connected: false,
+      customUrlAllowed: true,
+      defaultBaseUrl: BASE_URL,
+    };
+
+    test('stays hidden unless the server allows it', async ({ page }) => {
+      await openSettings(page, { status: { connected: false, customUrlAllowed: false } });
+
+      await expect(apiKeyInput(page)).toBeVisible();
+      await expect(baseUrlInput(page)).toHaveCount(0);
+    });
+
+    test('starts from the server default and sends the URL typed', async ({ page }) => {
+      const rm = await openSettings(page, {
+        status: unlinkedWithCustomUrl,
+        connect: connectedStatus(),
+        'activities.list': activityList(),
+      });
+
+      await expect(baseUrlInput(page)).toHaveValue(BASE_URL);
+      await apiKeyInput(page).fill('a-test-instance-key');
+      await baseUrlInput(page).fill('http://redmine-test.local:8080');
+      await connectButton(page).click();
+
+      await expect(page.getByText('Connected', { exact: true })).toBeVisible({ timeout: 15000 });
+      expect(rm.calls('connect')[0]).toEqual({
+        apiKey: 'a-test-instance-key',
+        baseUrl: 'http://redmine-test.local:8080',
+      });
+    });
+
+    test('is locked to the default while clocked in', async ({ page }) => {
+      // An open shift on a team other than the selected one, so the live DDP
+      // feed (which only clears the selected team's event) leaves it standing.
+      await page.route('**/api/clock_activeForUser', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            result: {
+              id: 'e2e-open-shift',
+              userId: 'e2e',
+              teamId: 'e2e-other-team',
+              startTime: Date.now(),
+              accumulatedTime: 0,
+            },
+          }),
+        }),
+      );
+      const rm = await openSettings(page, {
+        status: unlinkedWithCustomUrl,
+        connect: connectedStatus(),
+        'activities.list': activityList(),
+      });
+
+      await expect(baseUrlInput(page)).toBeDisabled();
+      await expect(baseUrlInput(page)).toHaveValue(BASE_URL);
+      await expect(
+        page.getByText('Clock out to connect to a different Redmine instance.'),
+      ).toBeVisible();
+
+      await apiKeyInput(page).fill('a-personal-api-key');
+      await connectButton(page).click();
+
+      await expect(page.getByText('Connected', { exact: true })).toBeVisible({ timeout: 15000 });
+      // No URL sent: the server keeps its default rather than being asked to switch.
+      expect(rm.calls('connect')[0]).toEqual({ apiKey: 'a-personal-api-key' });
+    });
+  });
 });

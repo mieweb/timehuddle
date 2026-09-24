@@ -16,7 +16,7 @@ import { Meteor } from 'meteor/meteor';
 
 import { RedmineLinks } from './collections';
 import { requireIdentity } from './auth-bridge';
-import { findRedmineApiKey } from './redmine-account';
+import { findRedmineAccount } from './redmine-account';
 import { createUserTtlCache } from './redmine-cache';
 import {
   createIssue,
@@ -26,7 +26,6 @@ import {
   listProjectMemberships,
   listProjects,
   listProjectTrackers,
-  optionalRedmineBaseUrl,
   updateIssue,
 } from './redmine-client';
 import { toFormOptions, toIssueDetail, toJournals, toNameMap, toNamedList } from './redmine-issues';
@@ -65,11 +64,11 @@ function toWriteMeteorError(err) {
   return new Meteor.Error(code, `${WRITE_FAILURE_MESSAGES[code]}${details}`);
 }
 
-/** The caller's API key, or a `not-connected` error. */
-async function requireApiKey(userId) {
-  const apiKey = await findRedmineApiKey(userId);
-  if (!apiKey) throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
-  return apiKey;
+/** The caller's Redmine account, or a `not-connected` error. */
+async function requireAccount(userId) {
+  const account = await findRedmineAccount(userId);
+  if (!account) throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
+  return account;
 }
 
 function requireIssueId(issueId) {
@@ -79,10 +78,10 @@ function requireIssueId(issueId) {
 }
 
 /** Read one raw issue (with transitions and history), mapping "missing" to `gone`. */
-async function loadRawIssue(apiKey, issueId) {
+async function loadRawIssue(account, issueId) {
   let raw;
   try {
-    raw = await getIssueDetail(apiKey, issueId);
+    raw = await getIssueDetail(account, issueId);
   } catch (err) {
     throw toRedmineMeteorError(err);
   }
@@ -91,17 +90,17 @@ async function loadRawIssue(apiKey, issueId) {
 }
 
 /** Read one issue's detail DTO, mapping "missing" to a `gone` error. */
-async function loadIssueDetail(apiKey, issueId) {
-  return toIssueDetail(await loadRawIssue(apiKey, issueId));
+async function loadIssueDetail(account, issueId) {
+  return toIssueDetail(await loadRawIssue(account, issueId));
 }
 
 /** A project's trackers, assignable users and priorities, from the per-user cache. */
-function loadFormOptions(userId, apiKey, projectId) {
+function loadFormOptions(userId, account, projectId) {
   return formOptionsCache.get(userId, `project:${projectId}`, async () => {
     const [trackers, memberships, priorities] = await Promise.all([
-      listProjectTrackers(apiKey, projectId),
-      listProjectMemberships(apiKey, projectId),
-      prioritiesCache.get(userId, 'priorities', () => listIssuePriorities(apiKey)),
+      listProjectTrackers(account, projectId),
+      listProjectMemberships(account, projectId),
+      prioritiesCache.get(userId, 'priorities', () => listIssuePriorities(account)),
     ]);
     return toFormOptions({ trackers, memberships, priorities });
   });
@@ -112,12 +111,12 @@ function loadFormOptions(userId, apiKey, projectId) {
  * Best-effort: if the lookups cannot be fetched, the history still renders with
  * `#id` placeholders rather than failing the whole page.
  */
-async function loadJournals(userId, apiKey, raw) {
+async function loadJournals(userId, account, raw) {
   let lookups = {};
   try {
     const [statuses, options] = await Promise.all([
-      statusesCache.get(userId, 'statuses', () => listIssueStatuses(apiKey)),
-      raw.project?.id ? loadFormOptions(userId, apiKey, raw.project.id) : null,
+      statusesCache.get(userId, 'statuses', () => listIssueStatuses(account)),
+      raw.project?.id ? loadFormOptions(userId, account, raw.project.id) : null,
     ]);
     lookups = {
       statuses: toNameMap(statuses),
@@ -135,11 +134,11 @@ Meteor.methods({
   /** Projects the caller's key can see, for the create form. */
   async 'redmine.projects.list'() {
     const { userId } = await requireIdentity(this);
-    const apiKey = await requireApiKey(userId);
+    const account = await requireAccount(userId);
 
     try {
       const projects = await projectsCache.get(userId, 'projects', async () =>
-        toNamedList(await listProjects(apiKey)),
+        toNamedList(await listProjects(account)),
       );
       return { projects };
     } catch (err) {
@@ -157,11 +156,11 @@ Meteor.methods({
     if (!Number.isInteger(projectId) || projectId <= 0) {
       throw new Meteor.Error('bad-request', 'A Redmine project id is required.');
     }
-    const apiKey = await requireApiKey(userId);
+    const account = await requireAccount(userId);
 
     let options;
     try {
-      options = await loadFormOptions(userId, apiKey, projectId);
+      options = await loadFormOptions(userId, account, projectId);
     } catch (err) {
       throw toRedmineMeteorError(err);
     }
@@ -177,13 +176,13 @@ Meteor.methods({
   async 'redmine.issues.get'({ issueId } = {}) {
     const { userId } = await requireIdentity(this);
     requireIssueId(issueId);
-    const apiKey = await requireApiKey(userId);
+    const account = await requireAccount(userId);
 
-    const raw = await loadRawIssue(apiKey, issueId);
+    const raw = await loadRawIssue(account, issueId);
     return {
-      baseUrl: optionalRedmineBaseUrl(),
+      baseUrl: account.baseUrl,
       issue: toIssueDetail(raw),
-      journals: await loadJournals(userId, apiKey, raw),
+      journals: await loadJournals(userId, account, raw),
     };
   },
 
@@ -196,11 +195,11 @@ Meteor.methods({
     const { userId } = await requireIdentity(this);
     const validated = validateCreateInput(input);
     if (validated.error) throw new Meteor.Error('bad-request', validated.error);
-    const apiKey = await requireApiKey(userId);
+    const account = await requireAccount(userId);
 
     let created;
     try {
-      created = await createIssue(apiKey, validated.fields);
+      created = await createIssue(account, validated.fields);
     } catch (err) {
       throw toWriteMeteorError(err);
     }
@@ -209,10 +208,10 @@ Meteor.methods({
       throw new Meteor.Error('unreachable', 'Redmine did not return the new issue.');
     }
 
-    const baseUrl = optionalRedmineBaseUrl();
+    const baseUrl = account.baseUrl;
     let issue;
     try {
-      issue = await loadIssueDetail(apiKey, issueId);
+      issue = await loadIssueDetail(account, issueId);
     } catch {
       return { baseUrl, issueId, confirmed: false, issue: null, mismatches: [] };
     }
@@ -240,9 +239,9 @@ Meteor.methods({
     if (!edits || typeof edits !== 'object') {
       throw new Meteor.Error('bad-request', 'Nothing to change.');
     }
-    const apiKey = await requireApiKey(userId);
+    const account = await requireAccount(userId);
 
-    const current = await loadIssueDetail(apiKey, issueId);
+    const current = await loadIssueDetail(account, issueId);
     if (current.updatedAt !== expectedUpdatedAt) {
       throw new Meteor.Error(
         'stale',
@@ -253,18 +252,18 @@ Meteor.methods({
     const payload = buildUpdatePayload(current, edits);
     if (payload.error) throw new Meteor.Error('bad-request', payload.error);
     if (Object.keys(payload.fields).length === 0) {
-      return { baseUrl: optionalRedmineBaseUrl(), issue: current, mismatches: [] };
+      return { baseUrl: account.baseUrl, issue: current, mismatches: [] };
     }
 
     try {
-      await updateIssue(apiKey, issueId, payload.fields);
+      await updateIssue(account, issueId, payload.fields);
     } catch (err) {
       throw toWriteMeteorError(err);
     }
 
-    const issue = await loadIssueDetail(apiKey, issueId);
+    const issue = await loadIssueDetail(account, issueId);
     return {
-      baseUrl: optionalRedmineBaseUrl(),
+      baseUrl: account.baseUrl,
       issue,
       mismatches: readBackMismatches(payload.fields, issue),
     };

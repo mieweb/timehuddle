@@ -1012,7 +1012,13 @@ Meteor.startup(async() => {
     description: "Link the caller's personal Redmine account by validating an API key",
     inputSchema: {
       type: 'object',
-      properties: { apiKey: { type: 'string', description: 'Personal Redmine API key' } },
+      properties: {
+        apiKey: { type: 'string', description: 'Personal Redmine API key' },
+        baseUrl: {
+          type: 'string',
+          description: 'Redmine instance URL; honoured only when REDMINE_ALLOW_CUSTOM_URL=true',
+        },
+      },
       required: ['apiKey'],
     },
   });

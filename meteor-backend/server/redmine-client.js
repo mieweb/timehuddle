@@ -1,9 +1,12 @@
 /**
  * Thin fetch wrapper around the Redmine REST API.
  *
- * Redmine is a single shared instance configured via `REDMINE_BASE_URL`; the
- * per-user personal API key is injected as the `X-Redmine-API-Key` header so
- * every request is attributed to that user (no admin switch-user needed).
+ * Every helper takes the caller's Redmine `account` — `{ apiKey, baseUrl }`,
+ * resolved by `findRedmineAccount` — so each request goes to the instance that
+ * issued the key. That is the shared `REDMINE_BASE_URL`, unless the deployment
+ * sets `REDMINE_ALLOW_CUSTOM_URL=true` and the user linked their own URL. The
+ * personal API key is injected as the `X-Redmine-API-Key` header so every
+ * request is attributed to that user (no admin switch-user needed).
  *
  * Helpers are added milestone by milestone to avoid dead code: `getCurrentUser`
  * (M1 key validation + identity), `listIssues` (M2 read-only issue list),
@@ -39,6 +42,45 @@ export function optionalRedmineBaseUrl() {
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether users may link a Redmine URL of their own (dev/test deployments).
+ *
+ * Off unless explicitly enabled: the server fetches whatever URL is linked, so
+ * a user-supplied one lets any signed-in user aim server-side requests at an
+ * arbitrary host. Never enable it in production.
+ */
+export function customRedmineUrlAllowed() {
+  return process.env.REDMINE_ALLOW_CUSTOM_URL === 'true';
+}
+
+/**
+ * A user-supplied Redmine URL in canonical form (`origin` + path, trailing
+ * slash trimmed — Redmine may live under a sub-path), or null when it is not a
+ * plain http(s) URL. Credentials, query strings and fragments are rejected
+ * rather than silently dropped.
+ */
+export function normalizeRedmineUrl(raw) {
+  if (typeof raw !== 'string') return null;
+  let url;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  if (url.username || url.password || url.search || url.hash) return null;
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+/**
+ * The instance a link talks to: the URL stored on it while custom URLs are
+ * allowed, otherwise the server's. Turning the flag off therefore sends every
+ * user back to `REDMINE_BASE_URL` without touching their rows.
+ */
+export function linkedRedmineBaseUrl(storedUrl) {
+  return (customRedmineUrlAllowed() && storedUrl) || optionalRedmineBaseUrl();
 }
 
 /**
@@ -79,12 +121,13 @@ export function isRedmineTimeout(err) {
  */
 async function redmineRequest(
   path,
-  { apiKey, method = 'GET', body, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
+  { account, method = 'GET', body, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
 ) {
-  const res = await fetch(`${redmineBaseUrl()}${path}`, {
+  if (!account?.baseUrl) throw new Error('No Redmine base URL is configured');
+  const res = await fetch(`${account.baseUrl}${path}`, {
     method,
     headers: {
-      'X-Redmine-API-Key': apiKey,
+      'X-Redmine-API-Key': account.apiKey,
       Accept: 'application/json',
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
@@ -106,28 +149,28 @@ async function redmineRequest(
 }
 
 /**
- * Fetch the account that owns `apiKey` via `GET /users/current.json`.
+ * Fetch the Redmine user that owns `account`'s key via `GET /users/current.json`.
  * Works for any regular (non-admin) user and returns the caller's own record
  * (`id`, `login`, `firstname`, `lastname`, `mail`). Returns null if absent.
  */
-export async function getCurrentUser(apiKey) {
-  const data = await redmineRequest('/users/current.json', { apiKey });
+export async function getCurrentUser(account) {
+  const data = await redmineRequest('/users/current.json', { account });
   return data?.user ?? null;
 }
 
 /**
- * List issues visible to `apiKey` via `GET /issues.json`.
+ * List issues visible to `account`'s key via `GET /issues.json`.
  *
  * `scope: 'mine'` restricts to issues assigned to the caller (`assigned_to_id=me`);
  * `scope: 'all'` lists everything the key can see. Pagination is bounded by
  * `limit`/`offset` (Redmine caps `limit` at 100). Returns the raw `issues` array
  * (shaping into our minimal DTO is done in redmine-issues.js).
  */
-export async function listIssues(apiKey, { scope = 'mine', limit = 100, offset = 0 } = {}) {
+export async function listIssues(account, { scope = 'mine', limit = 100, offset = 0 } = {}) {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (scope === 'mine') params.set('assigned_to_id', 'me');
   const data = await redmineRequest(`/issues.json?${params.toString()}`, {
-    apiKey,
+    account,
     timeoutMs: LIST_TIMEOUT_MS,
   });
   return data?.issues ?? [];
@@ -138,9 +181,9 @@ export async function listIssues(apiKey, { scope = 'mine', limit = 100, offset =
  * (or the key cannot see it — Redmine reports both as 404, and the distinction
  * does not matter to a caller that only needs "can this user time this issue").
  */
-export async function getIssue(apiKey, issueId) {
+export async function getIssue(account, issueId) {
   try {
-    const data = await redmineRequest(`/issues/${issueId}.json`, { apiKey });
+    const data = await redmineRequest(`/issues/${issueId}.json`, { account });
     return data?.issue ?? null;
   } catch (err) {
     if (err?.status === 404 || err?.status === 403) return null;
@@ -158,8 +201,8 @@ export async function getIssue(apiKey, issueId) {
  * rather than hardcoded (enumeration ids are instance-specific and an admin can
  * renumber them).
  */
-export async function listTimeEntryActivities(apiKey) {
-  const data = await redmineRequest('/enumerations/time_entry_activities.json', { apiKey });
+export async function listTimeEntryActivities(account) {
+  const data = await redmineRequest('/enumerations/time_entry_activities.json', { account });
   return data?.time_entry_activities ?? [];
 }
 
@@ -171,27 +214,27 @@ export async function listTimeEntryActivities(apiKey) {
  * Redmine caps `limit` at 100, which also bounds how many ids are worth asking
  * for in a single call.
  */
-export async function listIssuesByIds(apiKey, issueIds) {
+export async function listIssuesByIds(account, issueIds) {
   if (!issueIds.length) return [];
   const params = new URLSearchParams({
     issue_id: issueIds.join(','),
     status_id: '*',
     limit: String(Math.min(issueIds.length, 100)),
   });
-  const data = await redmineRequest(`/issues.json?${params.toString()}`, { apiKey });
+  const data = await redmineRequest(`/issues.json?${params.toString()}`, { account });
   return data?.issues ?? [];
 }
 
 /**
  * Create one time entry via `POST /time_entries.json`, attributed to the owner
- * of `apiKey`.
+ * of `account`'s key.
  *
  * **Create-only and permanent (D1).** Requires the caller's Redmine
  * role to hold `log_time`; without it every call returns `403`. `activity_id` is
  * mandatory on this instance (it has no `is_default` activity), so omitting it
  * fails with `422 Activity cannot be blank`.
  *
- * @param {string} apiKey        the caller's personal Redmine API key
+ * @param {object} account      the caller's `{ apiKey, baseUrl }`
  * @param {object} entry
  * @param {number} entry.issueId    Redmine issue id
  * @param {number} entry.hours      decimal hours, already rounded by the caller
@@ -200,9 +243,9 @@ export async function listIssuesByIds(apiKey, issueIds) {
  * @param {string} [entry.comments] free text shown in Redmine's Spent time tab
  * @returns {Promise<object|null>} the created entry as Redmine echoes it back
  */
-export async function createTimeEntry(apiKey, { issueId, hours, activityId, spentOn, comments }) {
+export async function createTimeEntry(account, { issueId, hours, activityId, spentOn, comments }) {
   const data = await redmineRequest('/time_entries.json', {
-    apiKey,
+    account,
     method: 'POST',
     body: {
       time_entry: {
@@ -223,9 +266,9 @@ export async function createTimeEntry(apiKey, { issueId, hours, activityId, spen
  * answer `201` while persisting something else, and the cross-cutting
  * definition of done requires confirmation-by-read for every write.
  */
-export async function getTimeEntry(apiKey, entryId) {
+export async function getTimeEntry(account, entryId) {
   try {
-    const data = await redmineRequest(`/time_entries/${entryId}.json`, { apiKey });
+    const data = await redmineRequest(`/time_entries/${entryId}.json`, { account });
     return data?.time_entry ?? null;
   } catch (err) {
     if (err?.status === 404 || err?.status === 403) return null;
@@ -242,11 +285,11 @@ const MAX_PAGED_ITEMS = 1000;
  * Fetch every page of a Redmine list endpoint, following `total_count`.
  * `field` names the array in each response (`projects`, `memberships`, …).
  */
-async function listAllPages(apiKey, path, field) {
+async function listAllPages(account, path, field) {
   const items = [];
   for (let offset = 0; offset < MAX_PAGED_ITEMS; offset += 100) {
     const joiner = path.includes('?') ? '&' : '?';
-    const data = await redmineRequest(`${path}${joiner}limit=100&offset=${offset}`, { apiKey });
+    const data = await redmineRequest(`${path}${joiner}limit=100&offset=${offset}`, { account });
     const page = data?.[field] ?? [];
     items.push(...page);
     if (page.length < 100 || items.length >= (data?.total_count ?? 0)) break;
@@ -255,13 +298,13 @@ async function listAllPages(apiKey, path, field) {
 }
 
 /** Projects the key can see (`GET /projects.json`), all pages. */
-export function listProjects(apiKey) {
-  return listAllPages(apiKey, '/projects.json', 'projects');
+export function listProjects(account) {
+  return listAllPages(account, '/projects.json', 'projects');
 }
 
 /** The trackers enabled on one project (`GET /projects/{id}.json?include=trackers`). */
-export async function listProjectTrackers(apiKey, projectId) {
-  const data = await redmineRequest(`/projects/${projectId}.json?include=trackers`, { apiKey });
+export async function listProjectTrackers(account, projectId) {
+  const data = await redmineRequest(`/projects/${projectId}.json?include=trackers`, { account });
   return data?.project?.trackers ?? [];
 }
 
@@ -269,22 +312,22 @@ export async function listProjectTrackers(apiKey, projectId) {
  * A project's memberships (`GET /projects/{id}/memberships.json`), all pages.
  * Each entry carries either a `user` or a `group`; shaping decides which count.
  */
-export function listProjectMemberships(apiKey, projectId) {
-  return listAllPages(apiKey, `/projects/${projectId}/memberships.json`, 'memberships');
+export function listProjectMemberships(account, projectId) {
+  return listAllPages(account, `/projects/${projectId}/memberships.json`, 'memberships');
 }
 
 /**
  * The instance's issue statuses (`GET /issue_statuses.json`). Readable with an
  * ordinary key; used to name the status ids an issue's history records.
  */
-export async function listIssueStatuses(apiKey) {
-  const data = await redmineRequest('/issue_statuses.json', { apiKey });
+export async function listIssueStatuses(account) {
+  const data = await redmineRequest('/issue_statuses.json', { account });
   return data?.issue_statuses ?? [];
 }
 
 /** The instance's issue priorities (`GET /enumerations/issue_priorities.json`). */
-export async function listIssuePriorities(apiKey) {
-  const data = await redmineRequest('/enumerations/issue_priorities.json', { apiKey });
+export async function listIssuePriorities(account) {
+  const data = await redmineRequest('/enumerations/issue_priorities.json', { account });
   return data?.issue_priorities ?? [];
 }
 
@@ -294,10 +337,10 @@ export async function listIssuePriorities(apiKey) {
  * null when it does not exist or the key cannot see it — the same contract as
  * `getIssue`.
  */
-export async function getIssueDetail(apiKey, issueId) {
+export async function getIssueDetail(account, issueId) {
   try {
     const data = await redmineRequest(`/issues/${issueId}.json?include=allowed_statuses,journals`, {
-      apiKey,
+      account,
     });
     return data?.issue ?? null;
   } catch (err) {
@@ -307,13 +350,13 @@ export async function getIssueDetail(apiKey, issueId) {
 }
 
 /**
- * Create an issue via `POST /issues.json`, authored by the owner of `apiKey`.
+ * Create an issue via `POST /issues.json`, authored by the owner of `account`'s key.
  * `fields` are already in Redmine's names (`project_id`, `subject`, …).
  * @returns {Promise<object|null>} the created issue as Redmine echoes it back
  */
-export async function createIssue(apiKey, fields) {
+export async function createIssue(account, fields) {
   const data = await redmineRequest('/issues.json', {
-    apiKey,
+    account,
     method: 'POST',
     body: { issue: fields },
   });
@@ -326,9 +369,9 @@ export async function createIssue(apiKey, fields) {
  * Send only the fields that changed: Redmine has no optimistic locking, and an
  * untouched field in the payload would overwrite a concurrent edit.
  */
-export async function updateIssue(apiKey, issueId, fields) {
+export async function updateIssue(account, issueId, fields) {
   await redmineRequest(`/issues/${issueId}.json`, {
-    apiKey,
+    account,
     method: 'PUT',
     body: { issue: fields },
   });

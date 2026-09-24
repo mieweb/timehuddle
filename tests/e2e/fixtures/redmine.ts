@@ -55,6 +55,8 @@ export interface RedmineStatusShape {
   baseUrl?: string;
   linkedAt?: string | null;
   defaultActivityId?: number | null;
+  customUrlAllowed?: boolean;
+  defaultBaseUrl?: string | null;
 }
 
 export interface RedmineRowShape {

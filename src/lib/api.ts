@@ -2163,6 +2163,10 @@ export interface RedmineStatus {
   linkedAt?: string | null;
   /** The user's chosen time-entry activity, or null until they pick one. */
   defaultActivityId?: number | null;
+  /** Whether this deployment lets users link their own Redmine URL (dev/test only). */
+  customUrlAllowed?: boolean;
+  /** The server's Redmine URL — what a custom URL field starts from. */
+  defaultBaseUrl?: string | null;
 }
 
 /** Which issues to fetch: assigned to me, or everything the key can see. */
@@ -2362,9 +2366,12 @@ export const redmineApi = {
   /** Current Redmine connection status for the signed-in user. */
   status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
 
-  /** Validate and link a personal Redmine API key. */
-  connect: (apiKey: string): Promise<RedmineStatus> =>
-    wormholeCall<RedmineStatus>('redmine.connect', { apiKey }),
+  /**
+   * Validate and link a personal Redmine API key. `baseUrl` picks the instance,
+   * and is honoured only when the status reports `customUrlAllowed`.
+   */
+  connect: (apiKey: string, baseUrl?: string): Promise<RedmineStatus> =>
+    wormholeCall<RedmineStatus>('redmine.connect', { apiKey, ...(baseUrl ? { baseUrl } : {}) }),
 
   /** Remove the Redmine link. */
   disconnect: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.disconnect', {}),

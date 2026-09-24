@@ -204,6 +204,9 @@ VAPID_PRIVATE_KEY=your_vapid_private_key
 # Redmine integration (optional — see below)
 REDMINE_BASE_URL=https://redmine.example.org
 REDMINE_ENCRYPTION_KEY=a_long_random_secret
+# Dev/test only: let each user link their own Redmine URL in Settings. The server
+# fetches whatever URL is linked, so never enable this in production.
+# REDMINE_ALLOW_CUSTOM_URL=true
 ```
 
 ---

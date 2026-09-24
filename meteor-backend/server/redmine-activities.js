@@ -121,11 +121,11 @@ export function pickDefaultActivity(activities, chosenId, trackerName) {
 }
 
 /**
- * The activity enumeration visible to `apiKey`, served from cache when fresh.
+ * The activity enumeration visible to `account`'s key, served from cache when fresh.
  * Only successful fetches are cached, so a transient failure is retried.
  */
-export function getActivitiesForUser(userId, apiKey) {
+export function getActivitiesForUser(userId, account) {
   return cache.get(userId, 'activities', async () =>
-    toActivityList(await listTimeEntryActivities(apiKey)),
+    toActivityList(await listTimeEntryActivities(account)),
   );
 }
