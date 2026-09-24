@@ -33,6 +33,27 @@ import {
   switchToCardView,
 } from './helpers';
 
+/** Selects a single word inside the editor, the way a double-click would. */
+async function selectWord(page: Page, word: string): Promise<void> {
+  await page.evaluate((needle) => {
+    const root = document.querySelector('.markdown-editor .ProseMirror');
+    if (!root) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      const at = node.textContent?.indexOf(needle) ?? -1;
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + needle.length);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      return;
+    }
+  }, word);
+}
+
 /** Selects the paragraph holding `text`, the way a user drags across a line. */
 async function selectLine(page: Page, text: string): Promise<void> {
   await page.evaluate((needle) => {
@@ -133,7 +154,6 @@ test.describe('Huddle composer — toolbar', () => {
     );
 
     for (const unsupported of [
-      'Toggle underline',
       'Toggle highlight',
       'Toggle superscript',
       'Toggle subscript',
@@ -161,6 +181,28 @@ test.describe('Huddle composer — toolbar', () => {
     const describedBy = await editor.getAttribute('aria-describedby');
     expect(describedBy).toBeTruthy();
     await expect(page.locator(`#${describedBy}`)).toHaveText("What's on your mind?");
+  });
+
+  test('underline survives posting, and italic stays italic', async ({ page }) => {
+    // Kerebron writes underline as `_text_` and reads `_text_` back as
+    // underline, so it round-trips through storage — but CommonMark calls that
+    // emphasis, so the feed used to render every underlined word *italic*,
+    // changing what the author wrote. MarkdownContent now reads the delimiter.
+    const stamp = `toolbar-underline-${Date.now()}`;
+    await composerEditor(page).click();
+    await page.keyboard.type(`${stamp} underlined and italic`);
+
+    await selectWord(page, 'underlined');
+    await page.locator('.kb-custom-menu button[aria-label="Toggle underline"]').click();
+    await selectWord(page, 'italic');
+    await page.locator('.kb-custom-menu button[aria-label="Toggle italic"]').click();
+
+    await submitPost(page);
+    await switchToCardView(page);
+    const post = postContainer(page, stamp);
+    await expect(post.locator('u')).toHaveText('underlined');
+    // `*text*` must not have been swept up by the same rule.
+    await expect(post.locator('em')).toHaveText('italic');
   });
 
   test('the link tool is disabled until something is selected', async ({ page }) => {

@@ -128,6 +128,24 @@ export const MarkdownContent = memo(function MarkdownContent({ content }: { cont
           rehypeKatex,
         ]}
         components={{
+          /**
+           * `_text_` is underline here, not emphasis.
+           *
+           * The composer is Kerebron's editor, whose markdown dialect writes
+           * underline as `_text_` and parses `_text_` straight back to the
+           * underline mark — so it round-trips through storage exactly. Only
+           * this renderer disagreed: CommonMark reads `_text_` as emphasis, so
+           * every underlined word came out of the feed *italic*, changing what
+           * the author wrote rather than merely losing their formatting.
+           *
+           * The delimiter is not on the mdast node, so it is read from the
+           * source at the node's own offset. `*text*` stays emphasis.
+           */
+          em({ node, children }) {
+            const offset = node?.position?.start?.offset;
+            const underlined = typeof offset === 'number' && content[offset] === '_';
+            return underlined ? <u>{children}</u> : <em>{children}</em>;
+          },
           // Screenshots are full-resolution (1290px+ wide), so bound them to the
           // card instead of letting them widen the feed into a sideways scroll.
           img({ src, alt }) {
