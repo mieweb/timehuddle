@@ -54,6 +54,22 @@ async function readErrorMessages(res) {
   }
 }
 
+/** How long an ordinary Redmine request may take before we give up. */
+const DEFAULT_TIMEOUT_MS = 8000;
+
+/**
+ * How long the issue list may take. Listing every issue a key can see is the
+ * one query that grows with the instance: on a large Redmine, visibility is
+ * checked across every project the user belongs to, which can outlast the
+ * default and surface as a false "unreachable".
+ */
+const LIST_TIMEOUT_MS = 30_000;
+
+/** Whether `err` is our own request timeout (what `AbortSignal.timeout` throws). */
+export function isRedmineTimeout(err) {
+  return err?.name === 'TimeoutError';
+}
+
 /**
  * Perform an authenticated Redmine request. On a non-2xx response, throws an
  * Error with `.status` set so callers can distinguish auth failures (401/403)
@@ -61,7 +77,10 @@ async function readErrorMessages(res) {
  * (the reason a 422 was rejected). Returns parsed JSON, or null for empty
  * bodies (e.g. the 204 an issue update answers with).
  */
-async function redmineRequest(path, { apiKey, method = 'GET', body } = {}) {
+async function redmineRequest(
+  path,
+  { apiKey, method = 'GET', body, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
+) {
   const res = await fetch(`${redmineBaseUrl()}${path}`, {
     method,
     headers: {
@@ -72,7 +91,7 @@ async function redmineRequest(path, { apiKey, method = 'GET', body } = {}) {
     ...(body ? { body: JSON.stringify(body) } : {}),
     // Bound the request so an unreachable/slow Redmine can't hang `redmine.connect`
     // (and the Settings UI) for the full default socket timeout.
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!res.ok) {
@@ -107,7 +126,10 @@ export async function getCurrentUser(apiKey) {
 export async function listIssues(apiKey, { scope = 'mine', limit = 100, offset = 0 } = {}) {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (scope === 'mine') params.set('assigned_to_id', 'me');
-  const data = await redmineRequest(`/issues.json?${params.toString()}`, { apiKey });
+  const data = await redmineRequest(`/issues.json?${params.toString()}`, {
+    apiKey,
+    timeoutMs: LIST_TIMEOUT_MS,
+  });
   return data?.issues ?? [];
 }
 

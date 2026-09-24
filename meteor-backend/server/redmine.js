@@ -17,6 +17,7 @@ import {
   createTimeEntry,
   getCurrentUser,
   getTimeEntry,
+  isRedmineTimeout,
   listIssues,
   listIssuesByIds,
   optionalRedmineBaseUrl,
@@ -38,12 +39,27 @@ const DUPLICATE_KEY_ERROR_CODE = 11000;
 
 /**
  * Map a failed Redmine request onto the Meteor error the client expects.
- * A rejected key is actionable ("re-link in Settings"); anything else is not
- * worth distinguishing, so it collapses to "unreachable".
+ * A rejected key is actionable ("re-link in Settings"); a timeout is told as
+ * one, so a slow Redmine is not mistaken for a misconfigured one; anything else
+ * collapses to "unreachable". Timeouts keep the `unreachable` code, so callers
+ * that branch on it need no change.
+ *
+ * The real cause is logged first, because the user-facing message hides it.
+ * Only the error's name, HTTP status and network code are logged — never the
+ * key, which travels in a request header none of these fields carry.
  */
 export function toRedmineMeteorError(err) {
+  console.warn('[redmine] request failed', {
+    name: err?.name ?? null,
+    status: err?.status ?? null,
+    code: err?.cause?.code ?? null,
+  });
+
   if (err?.status === 401 || err?.status === 403) {
     return new Meteor.Error('invalid-key', 'Your Redmine API key was rejected.');
+  }
+  if (isRedmineTimeout(err)) {
+    return new Meteor.Error('unreachable', 'Redmine took too long to respond. Try again in a moment.');
   }
   return new Meteor.Error(
     'unreachable',
