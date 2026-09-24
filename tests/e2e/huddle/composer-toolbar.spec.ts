@@ -123,7 +123,7 @@ test.describe('Huddle composer — toolbar', () => {
     await expect(post.locator('em')).toHaveText(stamp);
   });
 
-  test('offers no formatting the markdown round trip would discard', async ({ page }) => {
+  test('offers no tool whose result the app cannot save', async ({ page }) => {
     const toolbar = page.locator('.kb-custom-menu button');
     await expect(toolbar.first()).toBeVisible();
 
@@ -140,10 +140,15 @@ test.describe('Huddle composer — toolbar', () => {
       'Align center',
       'Align right',
       'Justify',
+      // Not a formatting problem: its file picker embeds the image as a base64
+      // data URL, so it never reaches the media store and a screenshot-sized
+      // file pushes the post past the API's body limit. Photo, paste and drop
+      // all upload properly instead.
+      'Insert image',
     ]) {
       expect(
         labels,
-        `${unsupported} cannot survive markdown and must not be offered`,
+        `${unsupported} produces content the app cannot save and must not be offered`,
       ).not.toContain(unsupported);
     }
 
@@ -160,6 +165,22 @@ test.describe('Huddle composer — toolbar', () => {
     const describedBy = await editor.getAttribute('aria-describedby');
     expect(describedBy).toBeTruthy();
     await expect(page.locator(`#${describedBy}`)).toHaveText("What's on your mind?");
+  });
+
+  test('the link dialog does not collapse the composer', async ({ page }) => {
+    // Kerebron's prompt portals to document.body and sets no `role="dialog"`,
+    // so the composer's click-outside handler read a click on the dialog as a
+    // click *away* and collapsed — closing the editor out from under the dialog
+    // that was still open, before a link could be entered.
+    await composerEditor(page).click();
+    await page.locator('.kb-custom-menu button[aria-label="Add or remove link"]').click();
+
+    const prompt = page.locator('.kb-prompt');
+    await expect(prompt).toBeVisible();
+
+    await prompt.locator('input[type="text"]').first().click();
+    await expect(composerEditor(page)).toBeVisible();
+    await expect(page.getByText('Share an update...')).toHaveCount(0);
   });
 
   test('Ctrl+` does not open the ProseMirror dev toolkit', async ({ page }) => {

@@ -134,12 +134,15 @@ export function HuddleComposer({
     if (!expanded || editing) return;
     const onDocMouseDown = (e: MouseEvent) => {
       if (composerRef.current?.contains(e.target as Node)) return;
-      // Kerebron popovers (toolbar dropdowns) and the Pulse upload modal
-      // (portaled outside composerRef) must not trigger a collapse — closing
-      // either one is not "clicking away" from the composer.
+      // Kerebron's popovers and prompts, and the Pulse upload modal, all portal
+      // outside composerRef — working in one of them is not "clicking away"
+      // from the composer. `.kb-prompt` is listed explicitly because Kerebron's
+      // prompt (the link dialog) sets no `role="dialog"`, so the role match
+      // below never catches it: picking a link target collapsed the composer
+      // out from under the dialog that was still open.
       if (
         (e.target as HTMLElement).closest?.(
-          '.kb-custom-menu__wrapper, [role="menu"], [role="dialog"]',
+          '.kb-custom-menu__wrapper, .kb-prompt, .kb-prompt-backdrop, [role="menu"], [role="dialog"]',
         )
       )
         return;
