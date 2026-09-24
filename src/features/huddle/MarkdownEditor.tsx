@@ -128,13 +128,32 @@ export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
         if (items.some((item) => item.kind === 'file')) event.preventDefault();
       };
 
+      // The toolbar's image button asks before falling back to its own dialog,
+      // which would embed the file as a base64 data URL — the same bloat this
+      // component intercepts paste and drop to avoid. Answering it puts that
+      // button on the host's upload path instead, so it behaves like Photo.
+      const pickImage = (event: Event) => {
+        event.preventDefault();
+        const picker = document.createElement('input');
+        picker.type = 'file';
+        picker.accept = 'image/*';
+        picker.multiple = true;
+        picker.addEventListener('change', () => {
+          const files = Array.from(picker.files ?? []);
+          if (files.length > 0) onFiles(files);
+        });
+        picker.click();
+      };
+
       container.addEventListener('paste', intercept, true);
       container.addEventListener('dragover', allowDrop, true);
       container.addEventListener('drop', intercept, true);
+      container.addEventListener('kb:insert-image', pickImage);
       return () => {
         container.removeEventListener('paste', intercept, true);
         container.removeEventListener('dragover', allowDrop, true);
         container.removeEventListener('drop', intercept, true);
+        container.removeEventListener('kb:insert-image', pickImage);
       };
     }, [onFiles]);
 

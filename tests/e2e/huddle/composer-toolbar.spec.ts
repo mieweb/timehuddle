@@ -25,6 +25,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
 import {
+  FIXTURE,
   composerEditor,
   openComposer,
   postContainer,
@@ -140,11 +141,6 @@ test.describe('Huddle composer — toolbar', () => {
       'Align center',
       'Align right',
       'Justify',
-      // Not a formatting problem: its file picker embeds the image as a base64
-      // data URL, so it never reaches the media store and a screenshot-sized
-      // file pushes the post past the API's body limit. Photo, paste and drop
-      // all upload properly instead.
-      'Insert image',
     ]) {
       expect(
         labels,
@@ -167,12 +163,62 @@ test.describe('Huddle composer — toolbar', () => {
     await expect(page.locator(`#${describedBy}`)).toHaveText("What's on your mind?");
   });
 
+  test('the link tool is disabled until something is selected', async ({ page }) => {
+    // Reported as "the link dialog does nothing": the toolbar never re-evaluated
+    // its items, so the button stayed enabled with an empty selection. Clicking
+    // it opened a dialog whose OK could not apply a mark to nothing — and worse,
+    // armed a stored link mark, so the next text typed silently became a link.
+    const link = page.locator('.kb-custom-menu button[aria-label="Add or remove link"]');
+    await composerEditor(page).click();
+    await page.keyboard.type('linkable text');
+    await expect(link).toHaveAttribute('aria-disabled', 'true');
+
+    await selectLine(page, 'linkable text');
+    await expect(link).toHaveAttribute('aria-disabled', 'false');
+  });
+
+  test('bold reports whether the caret sits in bold text', async ({ page }) => {
+    const bold = page.locator('.kb-custom-menu button[aria-label="Toggle bold"]');
+    await composerEditor(page).click();
+    await page.keyboard.type('bold me');
+    await selectLine(page, 'bold me');
+    await bold.click();
+    await expect(bold).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('the image tool uploads through the composer instead of embedding base64', async ({
+    page,
+  }) => {
+    // Kerebron's own image dialog runs FileReader.readAsDataURL and embeds the
+    // result, which never reaches the media store and pushes a screenshot-sized
+    // post past the API's body limit. The toolbar button now asks the composer
+    // first, so it goes through the same upload as Photo, paste and drop.
+    await composerEditor(page).click();
+    await page.keyboard.type('image via the toolbar');
+
+    const chooser = page.waitForEvent('filechooser');
+    await page.locator('.kb-custom-menu button[aria-label="Insert image"]').click();
+    await (await chooser).setFiles(FIXTURE.image);
+
+    // The base64 dialog must not be what answered the click.
+    await expect(page.locator('.kb-prompt')).toHaveCount(0);
+
+    const image = composerEditor(page).locator('img[src]').first();
+    await expect(image).toBeVisible({ timeout: 30000 });
+    await expect(image).toHaveAttribute('src', /^\/uploads\/media\//);
+  });
+
   test('the link dialog does not collapse the composer', async ({ page }) => {
     // Kerebron's prompt portals to document.body and sets no `role="dialog"`,
     // so the composer's click-outside handler read a click on the dialog as a
     // click *away* and collapsed — closing the editor out from under the dialog
     // that was still open, before a link could be entered.
+    const stamp = `toolbar-link-${Date.now()}`;
     await composerEditor(page).click();
+    await page.keyboard.type(stamp);
+    // The link tool acts on a selection, and is correctly disabled without one.
+    await selectLine(page, stamp);
+
     await page.locator('.kb-custom-menu button[aria-label="Add or remove link"]').click();
 
     const prompt = page.locator('.kb-prompt');
