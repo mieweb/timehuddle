@@ -12,7 +12,12 @@ import { Button } from '@mieweb/ui';
 interface ComposerErrorProps {
   /** The message to show, or null when there's nothing wrong. */
   message: string | null;
-  onDismiss: () => void;
+  /**
+   * Omit for a notice that must not be dismissed — dismissing implies the
+   * problem is over, and some of these describe a state the composer is still
+   * in (e.g. a post that failed to load and must not be saved over).
+   */
+  onDismiss?: () => void;
 }
 
 export function ComposerError({ message, onDismiss }: ComposerErrorProps) {
@@ -28,29 +33,31 @@ export function ComposerError({ message, onDismiss }: ComposerErrorProps) {
       {/* `h-auto p-0` and `text-current` strip Button's own sizing and colour
           so the dismiss sits inline with the message rather than beside it as
           a full-height control. */}
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onDismiss}
-        aria-label="Dismiss error"
-        className="h-auto shrink-0 bg-transparent p-0 text-current hover:bg-transparent hover:text-red-900 dark:hover:bg-transparent dark:hover:text-red-200"
-      >
-        <svg
-          className="h-3 w-3"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          aria-hidden="true"
+      {onDismiss && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onDismiss}
+          aria-label="Dismiss error"
+          className="h-auto shrink-0 bg-transparent p-0 text-current hover:bg-transparent hover:text-red-900 dark:hover:bg-transparent dark:hover:text-red-200"
         >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M6 18L18 6M6 6l12 12"
-          />
-        </svg>
-      </Button>
+          <svg
+            className="h-3 w-3"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M6 18L18 6M6 6l12 12"
+            />
+          </svg>
+        </Button>
+      )}
     </div>
   );
 }

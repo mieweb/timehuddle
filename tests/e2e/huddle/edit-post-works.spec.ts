@@ -15,6 +15,7 @@
  * whether or not the chunk arrives. The second test proves the fallback by
  * blocking it outright.
  */
+import { MongoClient } from 'mongodb';
 import { expect, test } from '@playwright/test';
 import { TEST_USERS, loginAs } from '../fixtures/users';
 import { selectSharedTestTeam } from '../fixtures/team';
@@ -25,6 +26,28 @@ import {
   submitPost,
   switchToCardView,
 } from './helpers';
+
+/**
+ * Rewrites a post's stored markdown, to set up content the composer cannot
+ * produce itself — the editor escapes HTML typed into it, so raw inline HTML
+ * can only arrive from somewhere else (an import, the REST bridge, a paste).
+ * Mirrors global-setup's own access to the test database.
+ */
+async function rewriteStoredMarkdown(match: string, markdown: string): Promise<void> {
+  const url = process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
+  if (!/_test(\?|$)/.test(new URL(url).pathname + (new URL(url).search || ''))) {
+    throw new Error('refusing to write to a database that is not the test one');
+  }
+  const client = await MongoClient.connect(url);
+  try {
+    await client
+      .db()
+      .collection('huddlePosts')
+      .updateOne({ 'content.text': { $regex: match } }, { $set: { 'content.text': markdown } });
+  } finally {
+    await client.close();
+  }
+}
 
 test.describe('Huddle — editing a post', () => {
   test.slow();
@@ -62,6 +85,40 @@ test.describe('Huddle — editing a post', () => {
     await page.getByRole('button', { name: 'Update post' }).click();
 
     await expect(postContainer(page, seed + appended).first()).toBeVisible({ timeout: 15000 });
+  });
+
+  test('refuses to overwrite a post it could not load', async ({ page }) => {
+    // A post whose markdown carries inline HTML comes up EMPTY in the editor —
+    // the whole line is discarded, not just the tags (a defect in Kerebron's
+    // markdown reader). Saving replaces a post's body with the editor's
+    // contents, so one keystroke and Update used to destroy everything that was
+    // there, silently. The composer now refuses rather than overwrite.
+    const seed = `edit-guard-${Date.now()}`;
+    await loginAs(page, TEST_USERS.owner1);
+    await selectSharedTestTeam(page);
+    await openComposer(page);
+    await composerEditor(page).fill(seed);
+    await submitPost(page);
+
+    const original = `${seed} an important update with <b>emphasis</b> that must not vanish`;
+    await rewriteStoredMarkdown(seed, original);
+    await page.reload();
+    await switchToCardView(page);
+
+    const card = postContainer(page, seed).first();
+    await expect(card).toBeVisible({ timeout: 15000 });
+    await card.getByRole('button', { name: 'Post actions' }).click();
+    await page.getByRole('menuitem', { name: 'Edit post' }).click();
+
+    const editor = composerEditor(page);
+    await editor.waitFor({ state: 'visible', timeout: 20000 });
+    await expect(page.getByTestId('composer-error')).toContainText('could not be loaded');
+
+    // Even after typing — which is what re-enables the button normally — the
+    // save stays shut, because what would be written is not the post.
+    await editor.click();
+    await page.keyboard.type('typo fix');
+    await expect(page.getByRole('button', { name: 'Update post' })).toBeDisabled();
   });
 
   test('still edits a post when the collaborative kit cannot be loaded', async ({ page }) => {
