@@ -71,7 +71,7 @@
     "@kerebron/wasm": "^0.8.6",
     "@mieweb/datavis": "^1.5.0",
     "@mieweb/ui": "^0.9.0",
-    "@mieweb/ychart": "^1.1.0",
+    "@mieweb/ychart": "^1.2.14",
     "@swc/helpers": "^0.5.17",
     "cmdk": "^1.1.1",
     "datavis-ace": "^4.1.0",
