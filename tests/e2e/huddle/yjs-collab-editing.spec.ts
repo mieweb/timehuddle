@@ -100,22 +100,38 @@ async function openEditComposer(page: Page, seedText: string): Promise<void> {
 }
 
 /**
- * Read the text content of the ProseMirror editor in a post card's edit
- * composer. Returns the raw innerText of the `.ProseMirror` node.
+ * Read the *document* text of the ProseMirror editor in a post card's edit
+ * composer, with every peer's cursor decoration removed.
+ *
+ * Raw `innerText` is not the document. A remote peer's caret renders as a
+ * `.kb-yjs__cursor` widget carrying their display name, positioned wherever
+ * that peer is typing — which is in the middle of the text they are currently
+ * inserting. So `innerText` comes back as `" admin-c"` + `"Test Admin One"` +
+ * the rest, and an assertion for the typed word fails even though the document
+ * is perfectly in sync. The widget is a decoration, never part of the document
+ * (the saved markdown has no trace of it), so it is stripped here.
  */
 async function editorText(page: Page): Promise<string> {
-  return page.locator('.ProseMirror').first().innerText();
+  return page
+    .locator('.ProseMirror')
+    .first()
+    .evaluate((editor) => {
+      const copy = editor.cloneNode(true) as HTMLElement;
+      copy.querySelectorAll('.kb-yjs__cursor').forEach((cursor) => cursor.remove());
+      // Zero-width joiners sit either side of each widget; they would otherwise
+      // survive the removal and break a contiguous match.
+      return (copy.textContent ?? '').replace(/[\u200b-\u200d\u2060\ufeff]/g, '');
+    });
 }
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
-// Skipped while live co-editing is switched off — the edit composer no longer
-// passes `collab`, so there is no room to join and these can only fail. The
-// feature is off because RichEditor renders nothing when its collaborative kit
-// fails to load, taking the whole edit composer with it; see
-// `src/features/huddle/collab.ts` for the reasoning and mieweb/ui#480 for the
-// fix. Un-skip together with the `COLLAB_ENABLED` flag there.
-test.describe.skip('Huddle — Yjs real-time collaborative editing', () => {
+// Live again. These were skipped while co-editing was switched off, because
+// RichEditor rendered nothing when its collaborative kit failed to load and took
+// the whole edit composer with it. Our @mieweb/ui fork now falls back to a plain
+// local editor and reports it through `collab.onUnavailable`, so the worst case
+// is an editor without live cursors — see `src/features/huddle/collab.ts`.
+test.describe('Huddle — Yjs real-time collaborative editing', () => {
   test.setTimeout(180000);
 
   let memberCtx: BrowserContext;

@@ -27,6 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # vendor/ui is the @mieweb/ui fork, linked as an npm workspace;
+          # recursive because it depends on file:./packages/ychart.
+          submodules: recursive
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -51,6 +55,10 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          # vendor/ui is the @mieweb/ui fork, linked as an npm workspace;
+          # recursive because it depends on file:./packages/ychart.
+          submodules: recursive
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -80,6 +88,10 @@ jobs:
     needs: [checks_frontend, checks_backend]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # vendor/ui is the @mieweb/ui fork, linked as an npm workspace;
+          # recursive because it depends on file:./packages/ychart.
+          submodules: recursive
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -120,6 +132,13 @@ jobs:
             git fetch origin
             git checkout development
             git reset --hard origin/development
+
+            # vendor/ui (the @mieweb/ui fork) is an npm workspace, and
+            # `git reset` does not touch submodules — without this the
+            # checkout has an empty vendor/ui and `npm install` fails.
+            echo "=== git submodule update ==="
+            git submodule sync --recursive
+            git submodule update --init --recursive --force
 
             echo "=== git stash pop ==="
             echo "$STASH_OUT" | grep -q "No local changes to save" || git stash pop
@@ -174,6 +193,13 @@ jobs:
             git clean -fd
             git checkout development
             git reset --hard origin/development
+
+            # vendor/ui (the @mieweb/ui fork) is an npm workspace, and
+            # `git reset` does not touch submodules — without this the
+            # checkout has an empty vendor/ui and `npm install` fails.
+            echo "=== git submodule update ==="
+            git submodule sync --recursive
+            git submodule update --init --recursive --force
 
             echo "=== sudo npm install (root) ==="
             sudo npm install --no-audit --no-fund

@@ -14,9 +14,13 @@
  *  3. File interception on paste *and* drop — see {@link MarkdownEditorProps.onFiles}.
  *  4. A placeholder. RichEditorProps has no `placeholder`, and swapping the old
  *     `<textarea placeholder="What's on your mind?…">` for RichEditor left the
- *     empty composer with no prompt at all. Rendered as a real (non-interactive)
- *     overlay rather than a CSS `::before`, so it stays readable by assistive
- *     tech and doesn't depend on ProseMirror's internal empty-node markup.
+ *     empty composer with no prompt at all. Drawn as a CSS `::before` (see
+ *     styles.css) because ProseMirror owns the editable subtree, and mirrored
+ *     into the editor's `aria-describedby` so it is announced rather than being
+ *     visual-only — pseudo-element text is not in the accessibility tree.
+ *  5. An accessible name. RichEditor only marks its surface up as
+ *     `role="textbox"` when it is given one, so without `label` the composer is
+ *     an anonymous `contenteditable` div to a screen reader.
  *
  * RichEditor is uncontrolled — `value` seeds the document on mount only, so
  * remount via `key` when switching documents. `value` still tracks the live
@@ -30,7 +34,7 @@
  */
 import { RichEditor } from '@mieweb/ui/kerebron';
 import type { CollabConfig, RichEditorHandle } from '@mieweb/ui/kerebron';
-import React, { forwardRef, useEffect, useRef } from 'react';
+import React, { forwardRef, useEffect, useId, useImperativeHandle, useRef } from 'react';
 
 interface MarkdownEditorProps {
   value?: string;
@@ -40,8 +44,15 @@ interface MarkdownEditorProps {
   className?: string;
   /** When set, enables live collaborative editing (Yjs) for the given room. */
   collab?: CollabConfig;
-  /** Prompt shown while the editor is empty. */
+  /** Prompt shown while the editor is empty, and announced as its description. */
   placeholder?: string;
+  /**
+   * Accessible name for the editing surface. Without it the surface is an
+   * unlabelled `contenteditable` with no role — see the note above.
+   */
+  'aria-label'?: string;
+  /** Focus the editor as soon as it is ready (e.g. a composer just expanded). */
+  autoFocus?: boolean;
   /**
    * Called with files pasted **or dropped** into the editor (e.g. a screenshot).
    * When set, the event is intercepted before the editor sees it — see the
@@ -52,11 +63,27 @@ interface MarkdownEditorProps {
 
 export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
   function MarkdownEditor(
-    { value = '', onChange, onSubmit, className, collab, placeholder, onFiles },
+    {
+      value = '',
+      onChange,
+      onSubmit,
+      className,
+      collab,
+      placeholder,
+      onFiles,
+      'aria-label': ariaLabel,
+      autoFocus,
+    },
     ref,
   ) {
     const isEmpty = value.trim().length === 0;
     const containerRef = useRef<HTMLDivElement>(null);
+    // The handle is forwarded to the host, so focusing needs an instance of our
+    // own rather than reaching through whatever the host passed (or didn't).
+    const editorRef = useRef<RichEditorHandle>(null);
+    // Ties the visible placeholder to the editor's `aria-describedby`. Unique
+    // per instance so two composers on one page don't collide.
+    const describedById = useId();
 
     // Kerebron's media plugin inlines whatever lands in the editor: an image
     // becomes a base64 `data:` URL, a video an object URL. Neither reaches the
@@ -101,15 +128,44 @@ export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
         if (items.some((item) => item.kind === 'file')) event.preventDefault();
       };
 
+      // The toolbar's image button asks before falling back to its own dialog,
+      // which would embed the file as a base64 data URL — the same bloat this
+      // component intercepts paste and drop to avoid. Answering it puts that
+      // button on the host's upload path instead, so it behaves like Photo.
+      const pickImage = (event: Event) => {
+        event.preventDefault();
+        const picker = document.createElement('input');
+        picker.type = 'file';
+        picker.accept = 'image/*';
+        picker.multiple = true;
+        picker.addEventListener('change', () => {
+          const files = Array.from(picker.files ?? []);
+          if (files.length > 0) onFiles(files);
+        });
+        picker.click();
+      };
+
       container.addEventListener('paste', intercept, true);
       container.addEventListener('dragover', allowDrop, true);
       container.addEventListener('drop', intercept, true);
+      container.addEventListener('kb:insert-image', pickImage);
       return () => {
         container.removeEventListener('paste', intercept, true);
         container.removeEventListener('dragover', allowDrop, true);
         container.removeEventListener('drop', intercept, true);
+        container.removeEventListener('kb:insert-image', pickImage);
       };
     }, [onFiles]);
+
+    // The host gets the same handle we hold, so `getContent()`/`focus()` work
+    // for callers while this component can still focus the editor itself.
+    useImperativeHandle(ref, () => editorRef.current as RichEditorHandle, []);
+
+    // A composer that just expanded should be ready to type in. `focus()` waits
+    // for the editor's own setup, so this is safe on the first render.
+    useEffect(() => {
+      if (autoFocus) editorRef.current?.focus();
+    }, [autoFocus]);
 
     return (
       <div
@@ -149,7 +205,21 @@ export const MarkdownEditor = forwardRef<RichEditorHandle, MarkdownEditorProps>(
           }
         }}
       >
-        <RichEditor ref={ref} value={value} onChange={onChange} collab={collab} />
+        <RichEditor
+          ref={editorRef}
+          value={value}
+          onChange={onChange}
+          collab={collab}
+          aria-label={ariaLabel}
+          aria-describedby={placeholder ? describedById : undefined}
+        />
+        {/* The visible prompt is a CSS ::before, which no screen reader sees.
+            This carries the same words into the accessibility tree. */}
+        {placeholder && (
+          <span id={describedById} className="sr-only">
+            {placeholder}
+          </span>
+        )}
       </div>
     );
   },
