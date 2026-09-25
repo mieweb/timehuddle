@@ -53,7 +53,9 @@ git(['fetch', '--quiet', 'upstream', '--tags']);
 /** The newest upstream release tag, by version order. */
 const latestTag = git(['tag', '--list', 'v*', '--sort=-v:refname']).split('\n')[0];
 const base = git(['merge-base', 'HEAD', 'upstream/main']);
-const ours = git(['log', '--oneline', `${base}..HEAD`]).split('\n').filter(Boolean);
+const ours = git(['log', '--oneline', `${base}..HEAD`])
+  .split('\n')
+  .filter(Boolean);
 const behind = git(['rev-list', '--count', `${base}..upstream/main`]);
 const current = JSON.parse(fs.readFileSync(path.join(UI, 'package.json'), 'utf8')).version;
 

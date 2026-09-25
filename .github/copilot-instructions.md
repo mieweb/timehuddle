@@ -55,7 +55,7 @@ the app needs before upstream can merge them — see
   fixed it.
 - **Staying current**: `npm run ui:sync` reports where upstream has got to and
   exactly what we carry on top; `npm run ui:sync -- --to v0.11.0` rebases our
-  commits onto that tag. Our changes are a *patch stack* on upstream's history,
+  commits onto that tag. Our changes are a _patch stack_ on upstream's history,
   not a merge, so `git log upstream/main..HEAD` inside `vendor/ui` is always the
   precise list of what this fork costs. Send those changes upstream: every one
   they accept is one fewer to carry through the next upgrade, and the goal is a
