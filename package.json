@@ -32,6 +32,7 @@
     "test:all": "npm run test:unit && npm run test",
     "test:watch": "vitest",
     "postinstall": "patch-package && node scripts/build-vendor-ui.mjs",
+    "ui:sync": "node scripts/sync-vendor-ui.mjs",
     "prepare": "node scripts/prepare-husky.cjs",
     "dev:mobile": "vite --host",
     "dev:ios": "bash scripts/dev-ios.sh",

@@ -49,7 +49,17 @@ the app needs before upstream can merge them — see
   React identities. Workspaces hoist one copy and the problem disappears.
 - **Patches**: `@kerebron/*` fixes the library applies through pnpm never reach a
   consumer's `node_modules`, so the app re-applies them with `patch-package`
-  (`patches/`, run from `postinstall`).
+  (`patches/`, run from `postinstall`). They are pinned to an exact version, so
+  a `@kerebron/*` bump makes the install fail loudly rather than silently drop
+  the fix — redo them against the new version, or delete ours if upstream has
+  fixed it.
+- **Staying current**: `npm run ui:sync` reports where upstream has got to and
+  exactly what we carry on top; `npm run ui:sync -- --to v0.11.0` rebases our
+  commits onto that tag. Our changes are a *patch stack* on upstream's history,
+  not a merge, so `git log upstream/main..HEAD` inside `vendor/ui` is always the
+  precise list of what this fork costs. Send those changes upstream: every one
+  they accept is one fewer to carry through the next upgrade, and the goal is a
+  fork with nothing in it, at which point `@mieweb/ui` goes back to plain npm.
 
 ### Build and Development
 
