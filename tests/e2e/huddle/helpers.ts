@@ -6,6 +6,7 @@
  * inline, and find a post by its unique body text — so they live here rather
  * than being re-derived (slightly differently) in each file.
  */
+import { MongoClient } from 'mongodb';
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, type Page } from '@playwright/test';
@@ -45,6 +46,28 @@ export async function switchToCardView(page: Page): Promise<void> {
   if (await toCardButton.isVisible({ timeout: 3000 }).catch(() => false)) {
     await toCardButton.click();
     await page.getByRole('button', { name: 'Switch to chat view' }).waitFor({ timeout: 5000 });
+  }
+}
+
+/**
+ * Rewrites a post's stored markdown, to set up content the composer cannot
+ * produce itself — the editor escapes HTML typed into it, so raw inline HTML
+ * only arrives from somewhere else (an import, the REST bridge, a paste).
+ * Mirrors global-setup's own access to the test database.
+ */
+export async function rewriteStoredMarkdown(match: string, markdown: string): Promise<void> {
+  const url = process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/timehuddle_test?replicaSet=rs0';
+  if (!/_test/.test(url)) {
+    throw new Error('refusing to write to a database that is not the test one');
+  }
+  const client = await MongoClient.connect(url);
+  try {
+    await client
+      .db()
+      .collection('huddlePosts')
+      .updateOne({ 'content.text': { $regex: match } }, { $set: { 'content.text': markdown } });
+  } finally {
+    await client.close();
   }
 }
 

@@ -153,15 +153,7 @@ test.describe('Huddle composer — toolbar', () => {
       buttons.map((button) => button.getAttribute('aria-label')),
     );
 
-    for (const unsupported of [
-      'Toggle highlight',
-      'Toggle superscript',
-      'Toggle subscript',
-      'Align left',
-      'Align center',
-      'Align right',
-      'Justify',
-    ]) {
+    for (const unsupported of ['Align left', 'Align center', 'Align right', 'Justify']) {
       expect(
         labels,
         `${unsupported} produces content the app cannot save and must not be offered`,

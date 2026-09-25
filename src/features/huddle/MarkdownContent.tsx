@@ -5,6 +5,8 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeKatex from 'rehype-katex';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import mermaid from 'mermaid';
 import 'katex/dist/katex.min.css';
 import 'highlight.js/styles/github-dark.css';
@@ -88,6 +90,36 @@ function transformUrl(url: string, key: string): string {
   return resolveMediaUrl(safe);
 }
 
+// ─── Inline HTML ──────────────────────────────────────────────────────────────
+/**
+ * What post markdown is allowed to carry as raw HTML.
+ *
+ * The editor has no markdown syntax for highlight, superscript or subscript, so
+ * it writes them as `<mark>`, `<sup>` and `<sub>` — inline HTML is legal
+ * markdown, and the editor reads the same tags back. Rendering them means
+ * parsing raw HTML out of post text, which is author-controlled, so everything
+ * that comes through is sanitized down to this list first.
+ *
+ * Deliberately narrow: presentational inline tags and nothing else. No
+ * attributes are carried over either — not even `style`, which the editor emits
+ * on `<mark>` — because a post has no business styling itself, and an attribute
+ * allowlist is the part of a sanitizer that is easiest to get subtly wrong.
+ */
+const inlineHtmlSchema = {
+  ...defaultSchema,
+  // Extended, never replaced: this schema is applied to the *whole* tree, not
+  // only the parts that came from raw HTML, so a bare list of our four tags
+  // would strip every heading, list, link and image markdown itself produces.
+  tagNames: [...(defaultSchema.tagNames ?? []), 'mark', 'sup', 'sub', 'u'],
+  // The four carry no attributes of their own — not even the `style` the editor
+  // writes onto `<mark>`, since a post has no business styling itself.
+  attributes: { ...defaultSchema.attributes },
+  // Removing `<style>` leaves its CSS behind as visible text otherwise, since a
+  // sanitizer keeps the text children of an element it strips. `script` is in
+  // the default list for the same reason.
+  strip: ['script', 'style'],
+};
+
 // ─── MarkdownContent ──────────────────────────────────────────────────────────
 // memo() — only re-renders if the markdown string actually changes.
 // This is the key fix: parent components (feed, composer) re-render all the
@@ -121,6 +153,13 @@ export const MarkdownContent = memo(function MarkdownContent({ content }: { cont
         urlTransform={transformUrl}
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[
+          // Order matters. `rehypeRaw` parses the author's inline HTML into real
+          // nodes; `rehypeSanitize` immediately strips everything outside the
+          // allowlist above. Both run *before* highlight and katex so those two
+          // decorate already-sanitized content — sanitizing after them would
+          // tear out their own class names and MathML instead.
+          rehypeRaw,
+          [rehypeSanitize, inlineHtmlSchema],
           // ignoreMissing: skip unknown langs (including mermaid) without erroring
           // detect: false: don't auto-detect language (prevents mangling mermaid)
           // We don't restrict languages: {} — that was killing all highlighting

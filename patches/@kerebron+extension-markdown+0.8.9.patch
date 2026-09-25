@@ -1,0 +1,150 @@
+diff --git a/node_modules/@kerebron/extension-markdown/esm/mdToPmConverter.js b/node_modules/@kerebron/extension-markdown/esm/mdToPmConverter.js
+index 22d68f6..6530bad 100644
+--- a/node_modules/@kerebron/extension-markdown/esm/mdToPmConverter.js
++++ b/node_modules/@kerebron/extension-markdown/esm/mdToPmConverter.js
+@@ -100,6 +100,10 @@ export async function mdToPmConverterText(content, config, schema) {
+         underline: { mark: 'underline' },
+         strong: { mark: 'strong' },
+         strike: { mark: 'strike' },
++        // PATCH: the marks the inline-HTML tokenizer can now produce.
++        highlight: { mark: 'highlight' },
++        superscript: { mark: 'superscript' },
++        subscript: { mark: 'subscript' },
+         link: {
+             mark: 'link',
+             getAttrs: (tok) => ({
+diff --git a/node_modules/@kerebron/extension-markdown/esm/pmToMdConverter.js b/node_modules/@kerebron/extension-markdown/esm/pmToMdConverter.js
+index 59fd86c..abe4c17 100644
+--- a/node_modules/@kerebron/extension-markdown/esm/pmToMdConverter.js
++++ b/node_modules/@kerebron/extension-markdown/esm/pmToMdConverter.js
+@@ -369,6 +369,27 @@ export async function extPmToMdConverter(origDocument, config, schema, eventTarg
+             mixable: true,
+             expelEnclosingWhitespace: true,
+         },
++        // PATCH: without these three entries the serializer had nowhere to put
++        // the marks and dropped them silently — the toolbar offered formatting
++        // that never reached the saved document.
++        highlight: {
++            open: 'highlight_open',
++            close: 'highlight_close',
++            mixable: true,
++            expelEnclosingWhitespace: true,
++        },
++        superscript: {
++            open: 'superscript_open',
++            close: 'superscript_close',
++            mixable: true,
++            expelEnclosingWhitespace: true,
++        },
++        subscript: {
++            open: 'subscript_open',
++            close: 'subscript_close',
++            mixable: true,
++            expelEnclosingWhitespace: true,
++        },
+         math: {
+             open: 'math_inline_open',
+             close: 'math_inline_close',
+diff --git a/node_modules/@kerebron/extension-markdown/esm/token_handlers/inline_token_handlers.js b/node_modules/@kerebron/extension-markdown/esm/token_handlers/inline_token_handlers.js
+index 7982eba..64d7873 100644
+--- a/node_modules/@kerebron/extension-markdown/esm/token_handlers/inline_token_handlers.js
++++ b/node_modules/@kerebron/extension-markdown/esm/token_handlers/inline_token_handlers.js
+@@ -176,6 +176,41 @@ export function getInlineTokensHandlers() {
+                 ctx.current.log(token.markup || '_', token);
+             },
+         ],
++        // PATCH: markdown has no delimiter for these three, so they are written
++        // as the inline HTML markdown permits — which the tokenizer now reads
++        // back into the same marks, closing the round trip. Without this they
++        // were simply dropped on the way out: applied in the editor, gone from
++        // the stored document.
++        'highlight_open': [
++            (token, ctx) => {
++                ctx.current.log('<mark>', token);
++            },
++        ],
++        'highlight_close': [
++            (token, ctx) => {
++                ctx.current.log('</mark>', token);
++            },
++        ],
++        'superscript_open': [
++            (token, ctx) => {
++                ctx.current.log('<sup>', token);
++            },
++        ],
++        'superscript_close': [
++            (token, ctx) => {
++                ctx.current.log('</sup>', token);
++            },
++        ],
++        'subscript_open': [
++            (token, ctx) => {
++                ctx.current.log('<sub>', token);
++            },
++        ],
++        'subscript_close': [
++            (token, ctx) => {
++                ctx.current.log('</sub>', token);
++            },
++        ],
+         'strike_open': [
+             (token, ctx) => {
+                 ctx.current.log(token.markup || '~', token);
+diff --git a/node_modules/@kerebron/extension-markdown/esm/treeSitterTokenizer.js b/node_modules/@kerebron/extension-markdown/esm/treeSitterTokenizer.js
+index 1082a95..3685dc6 100644
+--- a/node_modules/@kerebron/extension-markdown/esm/treeSitterTokenizer.js
++++ b/node_modules/@kerebron/extension-markdown/esm/treeSitterTokenizer.js
+@@ -304,11 +304,47 @@ function treeToTokens(rootNode, inlineParser, source) {
+                     break;
+                 case 'html_tag':
+                     {
+-                        const tokenName = 'html_block';
+-                        const tagName = '';
+-                        const token = new Token(tokenName, tagName, NESTING_SELF_CLOSING);
+-                        token.content = nodeText(node) || '';
+-                        pushInlineNode(token, 'html_block');
++                        // PATCH: an inline HTML tag used to become a *block*
++                        // token holding just the tag text (`<b>`), which the
++                        // converter then fed to DOMParser as an unclosed
++                        // fragment and imported as a block — discarding the
++                        // whole line it appeared in. A post reading
++                        // "an update with <b>emphasis</b> that must not vanish"
++                        // opened for editing as an empty document, and saving
++                        // then replaced the post with whatever was typed next.
++                        //
++                        // Tags that correspond to a mark now open and close that
++                        // mark, so the formatting survives the round trip;
++                        // anything else is kept as literal text, because
++                        // preserving the author's words matters more than
++                        // honouring markup we do not model.
++                        const raw = nodeText(node) || '';
++                        const parsed = /^<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9]*)/.exec(raw);
++                        const markForTag = {
++                            b: 'strong',
++                            strong: 'strong',
++                            i: 'em',
++                            em: 'em',
++                            u: 'underline',
++                            s: 'strike',
++                            del: 'strike',
++                            strike: 'strike',
++                            mark: 'highlight',
++                            sup: 'superscript',
++                            sub: 'subscript',
++                        };
++                        const tag = parsed ? parsed[2].toLowerCase() : '';
++                        const markName = markForTag[tag];
++                        if (markName) {
++                            const closing = parsed[1] === '/';
++                            const token = new Token(markName + (closing ? '_close' : '_open'), tag, closing ? NESTING_CLOSING : NESTING_OPENING);
++                            pushInlineNode(token, (closing ? '/' : '') + markName);
++                        }
++                        else {
++                            const token = new Token('text', '', NESTING_SELF_CLOSING);
++                            token.content = raw;
++                            pushInlineNode(token, 'text');
++                        }
+                     }
+                     break;
+                 case 'hard_line_break':
