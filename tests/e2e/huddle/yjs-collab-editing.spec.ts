@@ -112,13 +112,16 @@ async function openEditComposer(page: Page, seedText: string): Promise<void> {
  * (the saved markdown has no trace of it), so it is stripped here.
  */
 async function editorText(page: Page): Promise<string> {
-  return page.locator('.ProseMirror').first().evaluate((editor) => {
-    const copy = editor.cloneNode(true) as HTMLElement;
-    copy.querySelectorAll('.kb-yjs__cursor').forEach((cursor) => cursor.remove());
-    // Zero-width joiners sit either side of each widget; they would otherwise
-    // survive the removal and break a contiguous match.
-    return (copy.textContent ?? '').replace(/[\u200b-\u200d\u2060\ufeff]/g, '');
-  });
+  return page
+    .locator('.ProseMirror')
+    .first()
+    .evaluate((editor) => {
+      const copy = editor.cloneNode(true) as HTMLElement;
+      copy.querySelectorAll('.kb-yjs__cursor').forEach((cursor) => cursor.remove());
+      // Zero-width joiners sit either side of each widget; they would otherwise
+      // survive the removal and break a contiguous match.
+      return (copy.textContent ?? '').replace(/[\u200b-\u200d\u2060\ufeff]/g, '');
+    });
 }
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
