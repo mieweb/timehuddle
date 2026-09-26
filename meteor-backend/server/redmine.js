@@ -523,7 +523,11 @@ Meteor.methods({
       );
     }
     try {
-      return { results: await pushRequestedEntries(userId, account, entries) };
+      const results = await pushRequestedEntries(userId, account, entries);
+      // Logged time is one of the relevant list's signals, so the cached list is
+      // now out of date about the issues this push covered.
+      bustUserCaches(userId);
+      return { results };
     } finally {
       await releasePushLock(userId);
     }

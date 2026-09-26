@@ -30,7 +30,8 @@ Four new Meteor methods. All of them use the caller's own Redmine key, and all r
 
 **Shapes**
 
-- `SlimIssue`: `id`, `subject`, `project { id, name }`, `status { name, isClosed }`, `priority { name }`, `assignedTo { id, name } | null`, `updatedAt`. **No description, notes or custom fields.**
+- `SlimIssue`: `id`, `subject`, `project { id, name }`, `status { id, name, isClosed }`, `priority { id, name }`, `assignedTo { id, name } | null`, `tracker { id, name }`, `createdAt`, `updatedAt`. **No description, notes or custom fields.**
+  - **Settled in code:** this is exactly the DTO `toIssue` in `redmine-issues.js` already returns, so the backend has one issue shape rather than two. It is slightly wider than this doc first sketched — ids on `status` and `priority`, plus `tracker` and `createdAt` — and that width is what makes Task A5 possible: the Tickets table reads all four through `redmineSource`, so a narrower shape would have broken it the moment `redmine.issues.list` went away.
 - `RelevantIssue`: `SlimIssue` plus `reasons: ('running' | 'assigned' | 'logged' | 'activity' | 'watching' | 'pinned')[]`, `score: number` and `lastTimeLoggedAt?: string`. The list arrives already sorted. Dismissed issues are excluded unless includeDismissed is true: the search dropdown leaves it off, and the Tickets page table turns it on, because dismissals only affect the dropdown.
 - `partial: true` means at least one signal timed out. Part B shows the list anyway.
 - `kind` on search echoes how the query was read: `'id' | 'url' | 'assignee' | 'text'`. Part B can use it for the empty-state message.
@@ -54,15 +55,26 @@ The method runs one small, filtered Redmine query per signal, all in parallel. I
 
 An issue's score is the sum of its signals. Closed issues score −50 unless a timer is running on them. Ties are broken by `updatedAt`, newest first.
 
-- [ ] Add `listTimeEntryIssueIds`, `listWatchedIssues` and `listActivityIssueIds` to `redmine-client.js`, next to `listIssues`
-- [ ] Activity feed: parse the Atom XML on the server and keep **only the issue ids** from each entry's link. Discard titles, summaries and content without storing or logging them
-- [ ] Activity feed: send the key in the `X-Redmine-API-Key` header. If the instance only accepts `?key=` for Atom, **skip this signal** and ship without it (see open questions)
-- [ ] Get the user's own Redmine id once from `/users/current.json` and keep it in the existing per-user TTL cache
-- [ ] Fetch the slim fields for every id the signals found with one batched `listIssuesByIds` call, capped at 100
-- [ ] Give each signal its own 6-second timeout. A signal that fails or times out is dropped and the response sets `partial: true`. The method only errors if every signal fails
-- [ ] Remove dismissed ids (Task A3) **before** the cap, so dismissing never leaves the list short. Skip this step when `includeDismissed` is true
-- [ ] Cache the merged result per user for 90 seconds in `redmine-cache.js`. Clear it when the user pins, dismisses, logs time, links or unlinks their account
-- [ ] Put the scoring in a pure function, `scoreRelevantIssues(signals)`, so it can be unit-tested without Redmine
+- [x] Add `listTimeEntryIssueIds`, `listWatchedIssues` and `listActivityIssueIds` to `redmine-client.js`, next to `listIssues` — plus `listAssignedIssues`, so every signal has a named helper instead of a query string at the call site
+- [x] Activity feed: parse the Atom XML on the server and keep **only the issue ids** from each entry's link. Discard titles, summaries and content without storing or logging them
+- [x] Activity feed: send the key in the `X-Redmine-API-Key` header. If the instance only accepts `?key=` for Atom, **skip this signal** and ship without it (see open questions)
+- [x] Get the user's own Redmine id once from `/users/current.json` and keep it in the existing per-user TTL cache
+- [x] Fetch the slim fields for every id the signals found with one batched `listIssuesByIds` call, capped at 100
+- [x] Give each signal its own 6-second timeout. A signal that fails or times out is dropped and the response sets `partial: true`. The method only errors if every signal fails
+- [x] Remove dismissed ids (Task A3) **before** the cap, so dismissing never leaves the list short. Skip this step when `includeDismissed` is true
+- [x] Cache the merged result per user for 90 seconds in `redmine-cache.js`. Clear it when the user pins, dismisses, logs time, links or unlinks their account
+- [x] Put the scoring in a pure function, `scoreRelevantIssues(signals)`, so it can be unit-tested without Redmine
+
+**What changed on the way in**
+
+- **The whole list lives in `redmine-relevance.js`, and none of it touches Meteor.** The first shape of this had the signal gathering inside the Meteor method, where nothing about it could be tested — and the behaviour most worth testing is precisely the awkward one: a signal times out, and the list has to arrive anyway. The three things the list needs from Mongo (the caller's pins, whether a timer is running, which issues they have hidden) are now arguments, the last of them a callback, because the hidden set cannot be computed until Redmine has said what is assigned to the user. `redmine-suggestions.js` is left holding the plumbing: identity, the cache, and mapping an error to a client code.
+- **`issueQuery` is the one door to `/issues.json`**, and it throws unless the query carries a narrowing parameter (`issue_id`, `assigned_to_id`, `watcher_id`, `author_id` or `project_id`). `status_id` deliberately does not count: "open issues only" is not a filter, it is most of the database. This is what makes the first acceptance criterion a property of the code rather than a promise about it.
+- **The Atom parse keeps each entry's `<updated>` as well as its id.** The plan said "ids only", but the activity signal *decays* — 40 points minus 2 a day — and there is nothing to measure that against without the entry's own date. A timestamp is not entry text: titles, summaries, content and author names are dropped inside `redmine-atom.js` before anything can score, cache, log or return them, and a test asserts the returned objects have no keys but `issueId` and `at`.
+- **No XML parser was added.** Ids are read only out of `<link>` hrefs, and nothing but an integer and a parsed date leaves the module, so a mis-parse can drop or duplicate an id but cannot leak a word of an entry. Escaped markup in `content` cannot pose as a link element, and there is a test for that.
+- **The user's own Redmine id usually costs no request.** `redmine.connect` already stores `redmineUserId` on the `redmine_links` row, so the activity signal reads it from there; `/users/current.json` is the cached fallback for rows written before it did. When the id cannot be found at all the activity signal is skipped rather than guessed at.
+- **The batched resolve only fetches what the signals did not already return.** `assigned`, `watching` and `pinned` answer with whole issues, so the 100-id budget goes entirely to the ids that arrive bare from `logged` and the activity feed. If that one call fails the list is still served from the signals that did answer, marked `partial`.
+- **A hidden issue is filtered twice** — out of the ids we bother to resolve, and again out of whatever Redmine answers with. "It is gone from my suggestions" is a promise to the user, and it should not rest on Redmine having replied with exactly the ids it was asked for. A test caught this.
+- **A running timer does not automatically top the list**, because the score is a sum: an issue that is assigned *and* logged today scores 110 against a running timer's 100. In practice the issue being timed carries those signals too, so it wins on the sum. Left as the doc specified.
 
 ## Task A2: `redmine.issues.search`
 

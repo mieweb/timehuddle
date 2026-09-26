@@ -1048,6 +1048,20 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('redmine.issues.relevant', {
+    description:
+      "The Redmine issues most relevant to the caller, merged from filtered signals (assigned, time logged, activity, watched, pinned, timer running)",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        includeDismissed: {
+          type: 'boolean',
+          description: 'Keep issues the caller hid from their suggestions (the Tickets table does)',
+        },
+      },
+    },
+  });
+
   Wormhole.expose('redmine.prefs.set', {
     description:
       "Pin, hide or clear one Redmine issue in the caller's own suggestions (never touches Redmine)",

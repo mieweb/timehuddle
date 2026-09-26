@@ -19,21 +19,36 @@
  * `RedmineIssuePrefs`.
  */
 import { Meteor } from 'meteor/meteor';
+import { Mongo } from 'meteor/mongo';
 
 import { requireIdentity } from './auth-bridge';
 import { findRedmineAccount, requireRedmineAccount } from './redmine-account';
-import { getIssue, listIssuesByIds, optionalRedmineBaseUrl } from './redmine-client';
+import { createUserTtlCache } from './redmine-cache';
+import { getCurrentUser, getIssue, listIssuesByIds, optionalRedmineBaseUrl } from './redmine-client';
 import { toIssue } from './redmine-issues';
 import {
   DISMISSED,
   PINNED,
   dismissedIssueIds,
   ensureRedmineIssuePrefIndexes,
+  readIssuePrefs,
   setIssuePref,
 } from './redmine-prefs';
-import { RedmineLinks } from './collections';
+import { buildRelevantIssues } from './redmine-relevance';
+import { RedmineLinks, Timers, WorkItems, isValidId } from './collections';
 import { toRedmineMeteorError } from './redmine';
-import { isRedmineIssueId } from './ticket-refs';
+import { REDMINE, isRedmineIssueId } from './ticket-refs';
+
+/**
+ * The merged list, per user, for 90 seconds. Short enough that a pin or a
+ * dismissal would be visible even without the explicit bust in `setIssuePref`,
+ * long enough that opening and closing the dropdown a few times costs Redmine
+ * five queries rather than twenty-five.
+ */
+const relevantCache = createUserTtlCache(90 * 1000);
+
+/** The caller's own Redmine user id, for the activity feed. See below. */
+const redmineUserIdCache = createUserTtlCache(60 * 60 * 1000);
 
 Meteor.startup(async () => {
   try {
@@ -42,6 +57,42 @@ Meteor.startup(async () => {
     console.error('[redmine] failed to create issue-preference indexes:', error);
   }
 });
+
+/**
+ * The Redmine issue the caller is timing right now, if any — the only signal that
+ * costs no Redmine call, and the strongest one there is.
+ *
+ * At most one timer runs per user (`closeRunningSession` closes the rest), so this
+ * is a list of nought or one.
+ */
+async function runningRedmineIssueIds(userId) {
+  const running = await Timers.findOneAsync({ userId, endTime: null }, { fields: { workItemId: 1 } });
+  if (!isValidId(running?.workItemId)) return [];
+
+  const item = await WorkItems.findOneAsync(new Mongo.ObjectID(running.workItemId), {
+    fields: { source: 1, ticketId: 1 },
+  });
+  // Compared literally rather than through `normalizeSource`: a Redmine WorkItem
+  // always carries its source, and a read path should not throw over a stray row.
+  if (item?.source !== REDMINE || !isRedmineIssueId(item.ticketId)) return [];
+  return [Number(item.ticketId)];
+}
+
+/**
+ * The caller's own Redmine user id, which `/activity.atom` needs (it has no `me`).
+ *
+ * Almost always free: `redmine.connect` already stored it on the link row. The
+ * `/users/current.json` fallback is for rows written before it did, and is cached
+ * for an hour because a Redmine user id never changes.
+ */
+async function redmineUserIdFor(userId, account) {
+  const link = await RedmineLinks.findOneAsync({ userId }, { fields: { redmineUserId: 1 } });
+  if (link?.redmineUserId != null) return link.redmineUserId;
+  return redmineUserIdCache.get(userId, 'redmineUserId', async () => {
+    const user = await getCurrentUser(account);
+    return user?.id ?? null;
+  });
+}
 
 /**
  * `issueId` as a number, or a `bad-request`. Coerced rather than merely checked:
@@ -78,6 +129,55 @@ async function isAssignedToCaller(userId, account, issueId) {
 }
 
 Meteor.methods({
+  /**
+   * The issues most likely to be what the caller is looking for (A1).
+   *
+   * Replaces MVP1's "every issue this key can see": one small filtered query per
+   * signal, merged and scored here, capped at 100. `partial: true` means a signal
+   * dropped out and the list is short rather than wrong.
+   *
+   * `includeDismissed` is for the Tickets page table, which is not the dropdown
+   * and must not be reshaped by what the user hid from their suggestions.
+   */
+  async 'redmine.issues.relevant'({ includeDismissed = false } = {}) {
+    const { userId } = await requireIdentity(this);
+
+    const account = await findRedmineAccount(userId);
+    if (!account) {
+      return { connected: false, baseUrl: optionalRedmineBaseUrl(), issues: [], partial: false };
+    }
+
+    const withDismissed = includeDismissed === true;
+    // Only successful builds are cached, so a Redmine outage is retried rather
+    // than remembered for 90 seconds.
+    return relevantCache.get(userId, `relevant:${withDismissed}`, async () => {
+      const now = Date.now();
+      const [{ pinnedIds }, redmineUserId, runningIds] = await Promise.all([
+        readIssuePrefs(userId, { now }),
+        redmineUserIdFor(userId, account),
+        runningRedmineIssueIds(userId),
+      ]);
+
+      try {
+        const built = await buildRelevantIssues(account, {
+          pinnedIds,
+          runningIds,
+          redmineUserId,
+          now,
+          // Deferred, because rule 5 needs Redmine's answer about what is assigned
+          // to the caller before it can say which dismissals still stand.
+          hiddenIssueIds: withDismissed
+            ? undefined
+            : async (assignedIssueIds) =>
+                (await readIssuePrefs(userId, { assignedIssueIds, now })).dismissedIds,
+        });
+        return { connected: true, baseUrl: account.baseUrl, ...built };
+      } catch (err) {
+        throw toRedmineMeteorError(err);
+      }
+    });
+  },
+
   /**
    * Pin, dismiss or clear one Redmine issue for the caller (A3).
    *

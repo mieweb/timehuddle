@@ -16,12 +16,20 @@
  * M6 issue helpers (projects, trackers, members, priorities, issue detail,
  * `createIssue`/`updateIssue`).
  *
+ * **Every issue read is filtered (MVP2).** `issueQuery` is the single door to
+ * `/issues.json` and refuses a query that narrows nothing, so "list the whole
+ * instance" is not expressible here. Its callers are the relevant-list signals
+ * (`listAssignedIssues`, `listWatchedIssues`, `listTimeEntryIssueIds`,
+ * `listActivityIssueIds`), search (`listIssuesAssignedTo`, `searchIssues`) and
+ * `listIssuesByIds`.
+ *
  * **Writes, and only these three:** `createTimeEntry`, `createIssue` and
  * `updateIssue`. Time entries stay create-only (D1): once time is logged it is
  * permanent, and changing it is an administrative act performed in Redmine
  * itself, so no update or delete helper exists for them. Issues are never
  * deleted from TimeHuddle either (M6 scope).
  */
+import { activityIssueRefs } from './redmine-atom';
 
 /** Server-wide Redmine base URL, trailing slash trimmed. Throws if unset. */
 export function redmineBaseUrl() {
@@ -121,14 +129,14 @@ export function isRedmineTimeout(err) {
  */
 async function redmineRequest(
   path,
-  { account, method = 'GET', body, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
+  { account, method = 'GET', body, timeoutMs = DEFAULT_TIMEOUT_MS, accept = 'application/json' } = {},
 ) {
   if (!account?.baseUrl) throw new Error('No Redmine base URL is configured');
   const res = await fetch(`${account.baseUrl}${path}`, {
     method,
     headers: {
       'X-Redmine-API-Key': account.apiKey,
-      Accept: 'application/json',
+      Accept: accept,
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
@@ -145,8 +153,33 @@ async function redmineRequest(
   }
 
   const text = await res.text();
+  if (accept !== 'application/json') return text;
   return text ? JSON.parse(text) : null;
 }
+
+/**
+ * `GET /issues.json` with an explicit, already-filtered query.
+ *
+ * Every issue read funnels through here, and the guard is the point: MVP2's
+ * first acceptance criterion is that no code path can ask Redmine for issues
+ * without narrowing them, and a helper added later that forgot to would fail
+ * here rather than quietly listing the instance.
+ */
+async function issueQuery(account, params, { timeoutMs = LIST_TIMEOUT_MS } = {}) {
+  const query = new URLSearchParams({ limit: '100', ...params });
+  if (!ISSUE_FILTERS.some((name) => query.has(name))) {
+    throw new Error('Refusing to list Redmine issues without a filter');
+  }
+  const data = await redmineRequest(`/issues.json?${query.toString()}`, { account, timeoutMs });
+  return data?.issues ?? [];
+}
+
+/**
+ * Query parameters that narrow `/issues.json` to a subset of the instance.
+ * `status_id` is deliberately absent: "open issues only" is not a filter, it is
+ * most of the database.
+ */
+const ISSUE_FILTERS = ['issue_id', 'assigned_to_id', 'watcher_id', 'author_id', 'project_id'];
 
 /**
  * Fetch the Redmine user that owns `account`'s key via `GET /users/current.json`.
@@ -174,6 +207,82 @@ export async function listIssues(account, { scope = 'mine', limit = 100, offset 
     timeoutMs: LIST_TIMEOUT_MS,
   });
   return data?.issues ?? [];
+}
+
+/**
+ * Open issues assigned to the caller, most recently updated first (MVP2 A1).
+ *
+ * The strongest standing signal of what someone is meant to be working on, and
+ * the one query that is both cheap and bounded on a large instance: Redmine
+ * filters by assignee before it checks visibility.
+ */
+export function listAssignedIssues(account, { timeoutMs } = {}) {
+  return issueQuery(
+    account,
+    { assigned_to_id: 'me', status_id: 'open', sort: 'updated_on:desc', limit: '100' },
+    { timeoutMs },
+  );
+}
+
+/** Open issues the caller watches (MVP2 A1). A standing interest, so a smaller page. */
+export function listWatchedIssues(account, { timeoutMs } = {}) {
+  return issueQuery(account, { watcher_id: 'me', status_id: 'open', limit: '50' }, { timeoutMs });
+}
+
+/**
+ * Open issues assigned to one Redmine user id (MVP2 A2, the `@name` search).
+ *
+ * Separate from `listAssignedIssues` because the id is not `me`: the caller is
+ * asking what someone else is carrying, which their own key still gates.
+ */
+export function listIssuesAssignedTo(account, redmineUserId, { limit = 25, timeoutMs } = {}) {
+  return issueQuery(
+    account,
+    { assigned_to_id: String(redmineUserId), status_id: 'open', limit: String(limit) },
+    { timeoutMs },
+  );
+}
+
+/**
+ * The issues the caller logged time against since `from`, as `{ issueId, at }`
+ * per entry (MVP2 A1).
+ *
+ * `at` is the entry's `spent_on` — the day the work happened, which is what the
+ * signal decays on, not when the row was typed in. Comments are dropped here:
+ * a time-entry comment is free text on an enterprise instance, and nothing
+ * downstream has a use for it.
+ */
+export async function listTimeEntryIssueIds(account, { from, timeoutMs } = {}) {
+  const params = new URLSearchParams({ user_id: 'me', limit: '100' });
+  if (from) params.set('from', from);
+  const data = await redmineRequest(`/time_entries.json?${params.toString()}`, { account, timeoutMs });
+  return (data?.time_entries ?? [])
+    .filter((entry) => entry?.issue?.id != null)
+    .map((entry) => ({ issueId: Number(entry.issue.id), at: entry.spent_on ?? null }));
+}
+
+/**
+ * The issues the caller's own activity feed mentions since `from`, as
+ * `{ issueId, at }` (MVP2 A1).
+ *
+ * Atom, not JSON: Redmine has no REST endpoint for a user's activity. The feed
+ * is the one response in this integration that carries issue subjects and note
+ * bodies, so it is reduced to ids and dates the moment it arrives — see
+ * redmine-atom.js for why, and for what is thrown away.
+ *
+ * The key travels in the `X-Redmine-API-Key` header here as everywhere else. An
+ * instance that only accepts `?key=` for Atom will answer 401, and the caller
+ * drops the signal rather than putting the key in a URL.
+ */
+export async function listActivityIssueIds(account, { redmineUserId, from, timeoutMs } = {}) {
+  const params = new URLSearchParams({ user_id: String(redmineUserId) });
+  if (from) params.set('from', from);
+  const xml = await redmineRequest(`/activity.atom?${params.toString()}`, {
+    account,
+    timeoutMs,
+    accept: 'application/atom+xml',
+  });
+  return activityIssueRefs(xml);
 }
 
 /**
@@ -214,15 +323,17 @@ export async function listTimeEntryActivities(account) {
  * Redmine caps `limit` at 100, which also bounds how many ids are worth asking
  * for in a single call.
  */
-export async function listIssuesByIds(account, issueIds) {
-  if (!issueIds.length) return [];
-  const params = new URLSearchParams({
-    issue_id: issueIds.join(','),
-    status_id: '*',
-    limit: String(Math.min(issueIds.length, 100)),
-  });
-  const data = await redmineRequest(`/issues.json?${params.toString()}`, { account });
-  return data?.issues ?? [];
+export function listIssuesByIds(account, issueIds, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  if (!issueIds.length) return Promise.resolve([]);
+  return issueQuery(
+    account,
+    {
+      issue_id: issueIds.join(','),
+      status_id: '*',
+      limit: String(Math.min(issueIds.length, 100)),
+    },
+    { timeoutMs },
+  );
 }
 
 /**
