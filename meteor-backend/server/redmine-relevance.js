@@ -85,6 +85,26 @@ const CLOSED_PENALTY = -50;
 /** How many issues the relevant list may return. */
 export const MAX_RELEVANT_ISSUES = 100;
 
+/**
+ * A `SlimIssue` (as `toIssue` shapes one) plus why it is in the list — the
+ * `RelevantIssue` of the Part A/Part B API contract, written down where the code
+ * that produces it lives.
+ *
+ * @typedef {object} RelevantIssue
+ * @property {number} id
+ * @property {string} subject
+ * @property {{id: number, name: string}|null} project
+ * @property {{id: number, name: string, isClosed: boolean}|null} status
+ * @property {{id: number, name: string}|null} assignedTo
+ * @property {{id: number, name: string}|null} priority
+ * @property {{id: number, name: string}|null} tracker
+ * @property {string|null} createdAt
+ * @property {string|null} updatedAt
+ * @property {string[]} reasons  the signals that matched, strongest contribution first
+ * @property {number} score
+ * @property {string} [lastTimeLoggedAt]  present only when the `logged` signal matched
+ */
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
@@ -158,7 +178,7 @@ function idsOf(signal) {
  * @param {(number|{issueId: number})[]} [signals.pinned]   ids the user pinned
  * @param {Map<number, object>} issuesById  slim issue DTOs, keyed by id
  * @param {number} [now]  epoch ms the decay is measured from
- * @returns {object[]} `SlimIssue` + `{ reasons, score, lastTimeLoggedAt? }`, best first
+ * @returns {RelevantIssue[]} best first
  */
 export function scoreRelevantIssues(signals, issuesById, now = Date.now()) {
   /** @type {Map<number, {contributions: Map<string, number>, lastTimeLoggedAt: string|null}>} */
@@ -292,13 +312,14 @@ const idsIn = (raw) => (raw ?? []).map((issue) => issue?.id).filter((id) => id !
  * something a client understands is the Meteor layer's job.
  *
  * @param {{apiKey: string, baseUrl: string}} account
- * @param {object} context
- * @param {number[]} context.pinnedIds    the caller's pins
- * @param {number[]} context.runningIds   the issue a timer is running on, if any
- * @param {number|null} context.redmineUserId  for the activity feed
+ * @param {object} [context]
+ * @param {number[]} [context.pinnedIds]   the caller's pins
+ * @param {number[]} [context.runningIds]  the issue a timer is running on, if any
+ * @param {number|null} [context.redmineUserId]  for the activity feed
  * @param {(assignedIssueIds: number[]) => Promise<number[]>} [context.hiddenIssueIds]
  *   the ids to leave out, given what Redmine says is assigned to the caller
  * @param {number} [context.now]
+ * @returns {Promise<{issues: RelevantIssue[], partial: boolean}>}
  */
 export async function buildRelevantIssues(
   account,

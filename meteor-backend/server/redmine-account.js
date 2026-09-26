@@ -3,7 +3,7 @@
  *
  * One place that turns a TimeHuddle userId into a usable Redmine account, so
  * the decrypt-at-read step isn't repeated by every caller that needs to talk to
- * Redmine on a user's behalf (`redmine.issues.list`, the source-aware timer
+ * Redmine on a user's behalf (`redmine.issues.relevant`, the source-aware timer
  * paths in `ticket-refs.js`, …). The plaintext key never leaves the server.
  */
 import { Meteor } from 'meteor/meteor';

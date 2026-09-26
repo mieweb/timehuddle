@@ -18,7 +18,6 @@ import {
   getCurrentUser,
   getTimeEntry,
   isRedmineTimeout,
-  listIssues,
   listIssuesByIds,
   customRedmineUrlAllowed,
   linkedRedmineBaseUrl,
@@ -29,15 +28,12 @@ import {
 import { encryptSecret, envKey } from './redmine-crypto';
 import { findRedmineAccount } from './redmine-account';
 import { toStatus } from './redmine-status';
-import { toIssueList } from './redmine-issues';
 import { getActivitiesForUser, pickDefaultActivity } from './redmine-activities';
 import { bustUserCaches } from './redmine-cache';
 import { removeUserIssuePrefs } from './redmine-prefs';
 import { buildPushRows, hoursAgree, PUSH_COMMENT, unsentTotals } from './redmine-time-entries';
 import { flagEntry, recordEntry, sentSecondsFor } from './redmine-time-sync';
 import { redmineTicketDaysFor } from './timer-core';
-
-const VALID_SCOPES = new Set(['mine', 'all']);
 
 const DUPLICATE_KEY_ERROR_CODE = 11000;
 
@@ -368,38 +364,13 @@ Meteor.methods({
   },
 
   /**
-   * List the caller's Redmine issues (read-only) using their stored API key.
-   * `scope: 'mine'` → assigned to me; `scope: 'all'` → everything the key can see.
-   * Returns `{ connected: false, issues: [] }` when the user has no link, so the
-   * view can render its "not connected" state without a separate round-trip.
-   */
-  async 'redmine.issues.list'({ scope = 'mine' } = {}) {
-    const { userId } = await requireIdentity(this);
-    if (!VALID_SCOPES.has(scope)) {
-      throw new Meteor.Error('bad-request', 'scope must be "mine" or "all".');
-    }
-
-    const account = await findRedmineAccount(userId);
-    if (!account) return { connected: false, baseUrl: optionalRedmineBaseUrl(), issues: [] };
-
-    let issues;
-    try {
-      issues = await listIssues(account, { scope });
-    } catch (err) {
-      throw toRedmineMeteorError(err);
-    }
-
-    return { connected: true, baseUrl: account.baseUrl, issues: toIssueList(issues) };
-  },
-
-  /**
    * The instance's time-entry activities, plus which one the caller's time will
    * be logged under and why.
    *
    * Returns `{ connected: false, activities: [] }` for an unlinked user so
    * Settings can render its state without a second round-trip, matching
-   * `redmine.issues.list`. An empty `activities` on a connected account means
-   * the instance has none configured and cannot receive time at all.
+   * `redmine.status`. An empty `activities` on a connected account means the
+   * instance has none configured and cannot receive time at all.
    */
   async 'redmine.activities.list'() {
     const { userId } = await requireIdentity(this);

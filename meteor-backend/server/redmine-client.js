@@ -9,7 +9,7 @@
  * request is attributed to that user (no admin switch-user needed).
  *
  * Helpers are added milestone by milestone to avoid dead code: `getCurrentUser`
- * (M1 key validation + identity), `listIssues` (M2 read-only issue list),
+ * (M1 key validation + identity),
  * `getIssue`/`listIssuesByIds` (M3 existence check + title resolution for
  * source-aware ticket timers), `listTimeEntryActivities` (M4 activity
  * resolution), `createTimeEntry`/`getTimeEntry` (M5 push + read-back), and the
@@ -18,7 +18,8 @@
  *
  * **Every issue read is filtered (MVP2).** `issueQuery` is the single door to
  * `/issues.json` and refuses a query that narrows nothing, so "list the whole
- * instance" is not expressible here. Its callers are the relevant-list signals
+ * instance" is not expressible here — M2's unfiltered `listIssues` is gone, and
+ * cannot be reintroduced by accident. Its callers are the relevant-list signals
  * (`listAssignedIssues`, `listWatchedIssues`, `listTimeEntryIssueIds`,
  * `listActivityIssueIds`), search (`listIssuesAssignedTo`, `searchIssues`) and
  * `listIssuesByIds`.
@@ -169,10 +170,13 @@ async function readErrorMessages(res) {
 const DEFAULT_TIMEOUT_MS = 8000;
 
 /**
- * How long the issue list may take. Listing every issue a key can see is the
- * one query that grows with the instance: on a large Redmine, visibility is
- * checked across every project the user belongs to, which can outlast the
- * default and surface as a false "unreachable".
+ * How long an issue list may take. Listing issues is the query that grows with
+ * the instance: on a large Redmine, visibility is checked across every project
+ * the user belongs to, which can outlast the default and surface as a false
+ * "unreachable".
+ *
+ * Only the default. Every MVP2 signal passes its own, much shorter bound, because
+ * a slow signal there is dropped rather than waited for.
  */
 const LIST_TIMEOUT_MS = 30_000;
 
@@ -295,24 +299,6 @@ const ISSUE_FILTERS = ['issue_id', 'assigned_to_id', 'watcher_id', 'author_id', 
 export async function getCurrentUser(account) {
   const data = await redmineRequest('/users/current.json', { account });
   return data?.user ?? null;
-}
-
-/**
- * List issues visible to `account`'s key via `GET /issues.json`.
- *
- * `scope: 'mine'` restricts to issues assigned to the caller (`assigned_to_id=me`);
- * `scope: 'all'` lists everything the key can see. Pagination is bounded by
- * `limit`/`offset` (Redmine caps `limit` at 100). Returns the raw `issues` array
- * (shaping into our minimal DTO is done in redmine-issues.js).
- */
-export async function listIssues(account, { scope = 'mine', limit = 100, offset = 0 } = {}) {
-  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
-  if (scope === 'mine') params.set('assigned_to_id', 'me');
-  const data = await redmineRequest(`/issues.json?${params.toString()}`, {
-    account,
-    timeoutMs: LIST_TIMEOUT_MS,
-  });
-  return data?.issues ?? [];
 }
 
 /**

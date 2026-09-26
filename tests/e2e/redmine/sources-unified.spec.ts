@@ -26,7 +26,12 @@ const ISSUES = [
   }),
 ];
 
-const connectedList = (issues = ISSUES) => ({ connected: true, baseUrl: BASE_URL, issues });
+const connectedList = (issues = ISSUES) => ({
+  connected: true,
+  baseUrl: BASE_URL,
+  issues,
+  partial: false,
+});
 
 async function openTable(page: Page, overrides: Record<string, StubValue>) {
   const rm = await stubRedmine(page, overrides);
@@ -41,7 +46,7 @@ test.describe('Unified table with Redmine rows', () => {
   });
 
   test('renders Redmine issues as rows, keyed by source and id', async ({ page }) => {
-    const { tickets } = await openTable(page, { 'issues.list': connectedList() });
+    const { tickets } = await openTable(page, { 'issues.relevant': connectedList() });
 
     // Isolated to Redmine first: the table paginates at roughly a screenful,
     // and Huddle rows left behind by earlier specs would push these off it.
@@ -52,17 +57,21 @@ test.describe('Unified table with Redmine rows', () => {
     await expect(tickets.rowByTitle('Alpha intake validation')).toHaveCount(1);
   });
 
-  test('asks Redmine for every issue the key can see, not just assigned ones', async ({ page }) => {
-    // TicketsPage pins the scope to 'all' (TicketsPage.tsx:102); a regression to
-    // 'mine' would quietly hide other people's issues from the table.
-    const { rm } = await openTable(page, { 'issues.list': connectedList() });
+  test('asks for the relevant list, keeping the issues the user hid from suggestions', async ({
+    page,
+  }) => {
+    // MVP2 replaced the unfiltered `issues.list` with `issues.relevant`. The table
+    // must pass `includeDismissed: true`: dismissing a search suggestion means
+    // "stop offering me this", and a row vanishing from a table would be a
+    // different promise than the one the x makes.
+    const { rm } = await openTable(page, { 'issues.relevant': connectedList() });
 
-    await expect.poll(() => rm.callCount('issues.list')).toBeGreaterThan(0);
-    expect(rm.calls('issues.list')[0]).toEqual({ scope: 'all' });
+    await expect.poll(() => rm.callCount('issues.relevant')).toBeGreaterThan(0);
+    expect(rm.calls('issues.relevant')[0]).toEqual({ includeDismissed: true });
   });
 
   test('offers "Open in Redmine" on a Redmine row', async ({ page }) => {
-    const { tickets } = await openTable(page, { 'issues.list': connectedList() });
+    const { tickets } = await openTable(page, { 'issues.relevant': connectedList() });
 
     await tickets.search('Alpha intake validation');
     await tickets
@@ -74,7 +83,7 @@ test.describe('Unified table with Redmine rows', () => {
   });
 
   test('offers no timer on a Redmine row — timers live on My Board (M3 D1)', async ({ page }) => {
-    const { tickets } = await openTable(page, { 'issues.list': connectedList() });
+    const { tickets } = await openTable(page, { 'issues.relevant': connectedList() });
 
     await tickets.search('Alpha intake validation');
     await tickets
@@ -86,7 +95,7 @@ test.describe('Unified table with Redmine rows', () => {
   });
 
   test('the Source filter isolates each source', async ({ page }) => {
-    const { tickets } = await openTable(page, { 'issues.list': connectedList() });
+    const { tickets } = await openTable(page, { 'issues.relevant': connectedList() });
     await tickets.createTicket(`Huddle row ${Date.now()}`);
 
     await tickets.filterBySource('Redmine');
@@ -100,7 +109,7 @@ test.describe('Unified table with Redmine rows', () => {
   });
 
   test('sorting orders both sources together, not source by source', async ({ page }) => {
-    const { tickets } = await openTable(page, { 'issues.list': connectedList() });
+    const { tickets } = await openTable(page, { 'issues.relevant': connectedList() });
     // Sorts between the two Redmine subjects, so a per-source sort is visible.
     await tickets.createTicket('Mike huddle ticket');
 
@@ -116,7 +125,7 @@ test.describe('Unified table with Redmine rows', () => {
     // The whole point of the partitioned `useUnifiedTickets`: Redmine being
     // down must not take the Huddle tickets with it.
     const { tickets } = await openTable(page, {
-      'issues.list': { status: 500, reason: 'Redmine is unreachable' },
+      'issues.relevant': { status: 500, reason: 'Redmine is unreachable' },
     });
     await tickets.createTicket(`Survivor ${Date.now()}`);
 
@@ -131,7 +140,7 @@ test.describe('Unified table with Redmine rows', () => {
   test('a disconnected account contributes no rows and no error', async ({ page }) => {
     // Not being linked is a silent omission by design, not a failure state.
     const { tickets } = await openTable(page, {
-      'issues.list': { connected: false, baseUrl: null, issues: [] },
+      'issues.relevant': { connected: false, baseUrl: null, issues: [] },
     });
     await tickets.createTicket(`Huddle only ${Date.now()}`);
 

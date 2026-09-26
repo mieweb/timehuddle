@@ -201,6 +201,9 @@ describe('buildRelevantIssues', () => {
     ...over,
   });
 
+  /** A path fragment → responder table. An absent entry means "this signal is down". */
+  type Routes = Record<string, (() => Response | Promise<Response>) | undefined>;
+
   const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
   const atom = (body: string) =>
     new Response(body, { status: 200, headers: { 'Content-Type': 'application/atom+xml' } });
@@ -209,15 +212,18 @@ describe('buildRelevantIssues', () => {
    * Route each stubbed request by path, so a test names only the answers it cares
    * about. An unlisted path throws, which is how "this signal is down" is spelled.
    */
-  const stubRedmine = (routes: Record<string, () => Response | Promise<Response>>) => {
+  const stubRedmine = (routes: Routes) => {
     const seen: string[] = [];
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => {
         seen.push(url);
-        const key = Object.keys(routes).find((path) => url.includes(path));
-        if (!key) throw new TypeError('fetch failed');
-        return routes[key]();
+        const responder = Object.keys(routes)
+          .filter((path) => url.includes(path))
+          .map((path) => routes[path])
+          .find(Boolean);
+        if (!responder) throw new TypeError('fetch failed');
+        return responder();
       }),
     );
     return seen;
@@ -225,7 +231,7 @@ describe('buildRelevantIssues', () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
-  const allSignalsUp = () => ({
+  const allSignalsUp = (): Routes => ({
     'assigned_to_id=me': () => json({ issues: [rawIssue(1)] }),
     'watcher_id=me': () => json({ issues: [rawIssue(2)] }),
     '/time_entries.json': () =>
@@ -257,7 +263,7 @@ describe('buildRelevantIssues', () => {
 
   it('serves the rest of the list when one signal fails, marked partial', async () => {
     const routes = allSignalsUp();
-    delete routes['watcher_id=me']; // an unrouted path throws
+    routes['watcher_id=me'] = undefined; // an unrouted path throws
     stubRedmine(routes);
 
     const built = await buildRelevantIssues(account, { redmineUserId: 7, now: NOW });
@@ -329,7 +335,7 @@ describe('buildRelevantIssues', () => {
 
   it('keeps what the signals returned when the batched resolve fails', async () => {
     const routes = allSignalsUp();
-    delete routes['issue_id='];
+    routes['issue_id='] = undefined;
     stubRedmine(routes);
 
     const built = await buildRelevantIssues(account, { redmineUserId: 7, now: NOW });

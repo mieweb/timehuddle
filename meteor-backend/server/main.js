@@ -1034,20 +1034,6 @@ Meteor.startup(async() => {
     inputSchema: { type: 'object', properties: {} },
   });
 
-  Wormhole.expose('redmine.issues.list', {
-    description: "List the caller's Redmine issues (read-only) using their stored API key",
-    inputSchema: {
-      type: 'object',
-      properties: {
-        scope: {
-          type: 'string',
-          enum: ['mine', 'all'],
-          description: "'mine' = assigned to me, 'all' = everything the key can see",
-        },
-      },
-    },
-  });
-
   Wormhole.expose('redmine.issues.relevant', {
     description:
       "The Redmine issues most relevant to the caller, merged from filtered signals (assigned, time logged, activity, watched, pinned, timer running)",

@@ -20,7 +20,6 @@ const ctx: TicketSourceContext = {
     { id: 'team-2', name: 'Mobile' },
   ],
   resolveMemberName: (id) => (id === 'u1' ? 'Ada Lovelace' : null),
-  redmineScope: 'mine',
 };
 
 const huddleTicket: Ticket = {

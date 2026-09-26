@@ -193,18 +193,39 @@ The API key is already encrypted at rest with AES-256-GCM and never sent to the 
 
 The `all` scope is what pulled the whole database, so it goes completely rather than being hidden.
 
-- [ ] Delete `redmine.issues.list` and `VALID_SCOPES` in `redmine.js`, and the `scope` option of `listIssues` in `redmine-client.js`
-- [ ] Coordinate with Part B: `redmineSource` and the `RedmineScope` type in `src/lib/api.ts` switch to `redmine.issues.relevant` with `includeDismissed: true` in the same PR, so nothing breaks in between
+- [x] Delete `redmine.issues.list` and `VALID_SCOPES` in `redmine.js`, and the `scope` option of `listIssues` in `redmine-client.js` — `listIssues` went with it, since `issueQuery` refuses an unfiltered query and there was nothing left for it to express
+- [x] Coordinate with Part B: `redmineSource` and the `RedmineScope` type in `src/lib/api.ts` switch to `redmine.issues.relevant` with `includeDismissed: true` in the same PR, so nothing breaks in between
 
 **Tests** (Vitest, in `meteor-backend/tests/`, next to the existing `redmine-*.test.ts` files)
 
-- [ ] `scoreRelevantIssues`: ordering, closed-issue penalty, recency decay, merging several reasons onto one issue
-- [ ] `parseRedmineQuery`: `#1234`, bare `1234`, URLs on the linked host, URLs on other hosts (rejected), `@name`, plain text, short input
-- [ ] Atom parsing keeps ids only and drops all entry text
-- [ ] A signal timing out returns the rest with `partial: true`
-- [ ] Dismissals: the 15-day expiry, dismissing again restarts it, the reassignment rule, pin replaces dismissal, `includeDismissed` bypass
-- [ ] Security: 3xx responses are not followed, disallowed hosts are refused, versioned and unversioned ciphertexts both decrypt, responses contain only `SlimIssue` fields
-- [ ] `npm run test:all`, `npm run lint` and `npm run typecheck` all pass
+- [x] `scoreRelevantIssues`: ordering, closed-issue penalty, recency decay, merging several reasons onto one issue — `tests/redmine-relevance.test.ts`
+- [x] `parseRedmineQuery`: `#1234`, bare `1234`, URLs on the linked host, URLs on other hosts (rejected), `@name`, plain text, short input — `tests/redmine-query.test.ts`, plus `matchAssignees`
+- [x] Atom parsing keeps ids only and drops all entry text — `tests/redmine-atom.test.ts`
+- [x] A signal timing out returns the rest with `partial: true` — `tests/redmine-relevance.test.ts`
+- [x] Dismissals: the 15-day expiry, dismissing again restarts it, the reassignment rule, pin replaces dismissal, `includeDismissed` bypass — `tests/redmine-prefs-core.test.ts`
+- [x] Security: 3xx responses are not followed, disallowed hosts are refused, versioned and unversioned ciphertexts both decrypt, responses contain only `SlimIssue` fields — `tests/redmine-hardening.test.ts`, `tests/redmine-crypto.test.ts`, `tests/redmine-issues.test.ts`
+- [x] `npm run test:all`, `npm run lint` and `npm run typecheck` all pass
+
+**What changed on the way in**
+
+- **`listIssues` is gone, not just its `scope`.** Once `issueQuery` refuses a query that narrows nothing, "list issues" has nothing left to mean, and every caller wants one of the named signal helpers instead. Removing it is what turns the first acceptance criterion into something the code enforces rather than something the reviewer has to check.
+- **Part B's two files were switched here, as agreed.** `src/lib/api.ts` loses `RedmineScope` and `redmineApi.issues.list` and gains all four methods with their types; `redmineSource.ts` reads `redmine.issues.relevant(true)`; `redmineScope` is gone from the source context, the Tickets page and `useUnifiedTickets`. No UI was built — the dropdown is Part B's. The four typed wrappers are there so Part B can build against the real contract instead of a stub.
+- **The e2e mocks had to move with it.** `tests/e2e/fixtures/redmine.ts` and three specs stubbed `issues.list`; they now stub `issues.relevant` (and the fixture's disconnected defaults cover `issues.search` and both prefs methods, so a Part B spec that forgets to stub one gets a coherent disconnected app rather than a live call). The `sources-unified` test that asserted `{ scope: 'all' }` now asserts `{ includeDismissed: true }`, which is the same promise in MVP2's terms: the table shows the user's work and a hidden *suggestion* does not remove a *row*.
+- **`tests/redmine.test.ts` gained a test that `redmine.issues.list` is really gone**, so a future reviewer does not have to take the deletion on trust, plus REST-level coverage of the new methods' auth, validation and not-connected paths.
+- **The two-signal caveat on a fresh instance.** Nothing here exercises a *live* Redmine — the integration tests cover the deterministic paths, and the signals are covered against a stubbed `fetch`. The open questions below are what a run against the enterprise instance is for.
+
+## Verification
+
+| Gate | Result |
+| --- | --- |
+| `meteor-backend` unit + integration (`vitest run`) | 437 passed, 30 files |
+| `npm run test:unit` (frontend) | 217 passed, 22 files |
+| `npm run typecheck`, `meteor-backend` `tsc --noEmit` | clean |
+| `npm run lint`, `eslint server/` | clean (37 pre-existing warnings in `server/`, none in new files) |
+| `e2e/redmine/sources-unified.spec.ts`, `e2e/tickets/me-assignee-filter.spec.ts` | 15 passed |
+| REST reachability | test Meteor backend restarted, all four methods answer through the wormhole bridge |
+
+The test Meteor backend was restarted before the integration run, so those 24 Redmine tests exercised the new code rather than the build that was already loaded.
 
 ## Acceptance criteria
 

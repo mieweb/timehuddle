@@ -1,7 +1,7 @@
 /**
  * Unit tests for redmine-issues (server/redmine-issues.js).
  *
- * These guard the read-only shape returned by `redmine.issues.list`:
+ * These guard the read-only issue shape the Redmine methods return:
  *   - `{ id, name }` sub-objects are shaped, or null when absent,
  *   - a missing assignee becomes null (issue not assigned to anyone),
  *   - `status.isClosed` is preserved (it drives the Open/Closed tabs),
