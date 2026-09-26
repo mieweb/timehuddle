@@ -29,8 +29,21 @@
 /** One `<entry>…</entry>` block. Non-greedy, so entries do not run together. */
 const ENTRY_PATTERN = /<entry\b[\s\S]*?<\/entry>/g;
 
-/** The issue id in an entry's `<link href="…/issues/1234#note-5">`. */
-const ISSUE_LINK_PATTERN = /<link\b[^>]*\bhref="[^"]*\/issues\/(\d+)/i;
+/**
+ * The issue id in an entry's `<link href="…">`, in either shape Redmine writes.
+ *
+ * Issue edits and notes link to the issue itself (`…/issues/1234#note-5`), but a
+ * **time-entry** event links to the project's time-entry list with the issue as a
+ * query parameter (`…/projects/x/time_entries?issue_id=1234`). Both are activity
+ * on issue 1234, so both must be read.
+ *
+ * Matching only the path form made the whole signal near-inert on real data, and
+ * did so silently: the feed is fetched and parsed without error, so `partial`
+ * stays false and a short list looks like a quiet week. Measured against a live
+ * feed, 11 of 13 entries were time-entry events and were all discarded — and time
+ * logging is the activity this app exists to record.
+ */
+const ISSUE_LINK_PATTERN = /<link\b[^>]*\bhref="[^"]*?(?:\/issues\/(\d+)|[?&]issue_id=(\d+))/i;
 
 /** When the entry happened. Atom requires `<updated>` on every entry. */
 const UPDATED_PATTERN = /<updated>\s*([^<]+?)\s*<\/updated>/i;
@@ -41,7 +54,8 @@ const UPDATED_PATTERN = /<updated>\s*([^<]+?)\s*<\/updated>/i;
  * `at` is the entry's `<updated>` as an ISO string, or null when it is missing
  * or unparseable — a caller that cannot date an entry treats it as fully
  * decayed rather than as fresh. Entries that are not about an issue (wiki edits,
- * forum posts, project changes) have no `/issues/{id}` link and are dropped.
+ * forum posts, project changes) link to neither an issue path nor an `issue_id`,
+ * and are dropped.
  * Non-string input yields an empty list.
  *
  * @param {unknown} xml  the body of `GET /activity.atom`
@@ -52,7 +66,8 @@ export function activityIssueRefs(xml) {
 
   const refs = [];
   for (const entry of xml.match(ENTRY_PATTERN) ?? []) {
-    const id = entry.match(ISSUE_LINK_PATTERN)?.[1];
+    const link = entry.match(ISSUE_LINK_PATTERN);
+    const id = link?.[1] ?? link?.[2];
     if (!id) continue;
     const issueId = Number(id);
     if (!Number.isSafeInteger(issueId) || issueId <= 0) continue;

@@ -54,6 +54,72 @@ describe('activityIssueRefs', () => {
     ]);
   });
 
+  // Regression: a time-entry event links to the project's time-entry list with
+  // the issue as a query parameter, not to the issue path. Reading only the path
+  // form discarded 11 of 13 entries against a live feed, silently — the fetch
+  // succeeds, so nothing reports a degraded signal. The fixture below is the link
+  // shape Redmine actually emitted.
+  it('reads the issue id from a time-entry event, not just an issue path', () => {
+    const loggedTime = `
+      <entry>
+        <title>Project Button - 1:00 hour (Bug #2 (Resolved): Jane Patient blood results)</title>
+        <link rel="alternate" type="text/html" href="https://redmine.test/projects/project-button/time_entries?issue_id=2"/>
+        <updated>2026-09-20T10:00:00Z</updated>
+        <content type="html">&lt;p&gt;Jane Patient blood results&lt;/p&gt;</content>
+      </entry>`;
+    expect(activityIssueRefs(feed(loggedTime))).toEqual([
+      { issueId: 2, at: '2026-09-20T10:00:00.000Z' },
+    ]);
+  });
+
+  it('keeps no entry text from a time-entry event either', () => {
+    const loggedTime = `
+      <entry>
+        <title>Project Button - 1:00 hour (Bug #2 (Resolved): SECRET)</title>
+        <link rel="alternate" type="text/html" href="https://redmine.test/projects/p/time_entries?issue_id=2"/>
+        <updated>2026-09-20T10:00:00Z</updated>
+        <author><name>Dr SECRET</name></author>
+        <summary type="html">SECRET</summary>
+      </entry>`;
+    const parsed = activityIssueRefs(feed(loggedTime));
+    expect(JSON.stringify(parsed)).not.toContain('SECRET');
+    expect(Object.keys(parsed[0]).sort()).toEqual(['at', 'issueId']);
+  });
+
+  it('reads both link shapes in one feed', () => {
+    const loggedTime = `
+      <entry>
+        <link rel="alternate" type="text/html" href="https://redmine.test/projects/p/time_entries?issue_id=17"/>
+        <updated>2026-09-21T10:00:00Z</updated>
+      </entry>`;
+    expect(activityIssueRefs(feed(entry(1234, '2026-09-20T10:00:00Z'), loggedTime))).toEqual([
+      { issueId: 1234, at: '2026-09-20T10:00:00.000Z' },
+      { issueId: 17, at: '2026-09-21T10:00:00.000Z' },
+    ]);
+  });
+
+  it('is not fooled by an issue_id parameter inside escaped entry content', () => {
+    const sneaky = `
+      <entry>
+        <title>Wiki edit</title>
+        <link rel="alternate" type="text/html" href="https://redmine.test/projects/x/wiki/Home"/>
+        <updated>2026-09-20T10:00:00Z</updated>
+        <content type="html">&lt;a href=&quot;https://redmine.test/x?issue_id=777&quot;&gt;see&lt;/a&gt;</content>
+      </entry>`;
+    expect(activityIssueRefs(feed(sneaky))).toEqual([]);
+  });
+
+  it('ignores a feed-level self link that carries no issue', () => {
+    const withSelfLink = `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <link rel="self" href="https://redmine.test/activity.atom?from=2026-09-11&amp;user_id=5"/>
+  ${entry(5, '2026-09-20T10:00:00Z')}
+</feed>`;
+    expect(activityIssueRefs(withSelfLink)).toEqual([
+      { issueId: 5, at: '2026-09-20T10:00:00.000Z' },
+    ]);
+  });
+
   it('drops entries that are not about an issue', () => {
     const wiki = `
       <entry>
