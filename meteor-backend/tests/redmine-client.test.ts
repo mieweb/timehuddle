@@ -4,7 +4,8 @@
  * These pin the two rules that keep a slow Redmine from being reported as a
  * broken one:
  *   - our own request timeout is recognised as a timeout, and nothing else is,
- *   - the issue list gets a longer limit than ordinary requests.
+ *   - an issue list gets a longer limit than ordinary requests, unless the caller
+ *     asks for a shorter one (every MVP2 signal does).
  *
  * And the per-user instance rules behind `REDMINE_ALLOW_CUSTOM_URL`:
  *   - a user-supplied URL is accepted only as a plain http(s) URL,
@@ -17,7 +18,7 @@ import {
   getCurrentUser,
   isRedmineTimeout,
   linkedRedmineBaseUrl,
-  listIssues,
+  listAssignedIssues,
   normalizeRedmineUrl,
 } from '../server/redmine-client';
 
@@ -66,9 +67,14 @@ describe('request timeouts', () => {
     timeoutSpy.mockRestore();
   });
 
-  it('gives the issue list 30 seconds', async () => {
-    await listIssues(account, { scope: 'all' });
+  it('gives an issue list 30 seconds by default', async () => {
+    await listAssignedIssues(account);
     expect(timeoutSpy).toHaveBeenCalledWith(30_000);
+  });
+
+  it('lets a caller ask for a shorter bound, as the MVP2 signals do', async () => {
+    await listAssignedIssues(account, { timeoutMs: 6000 });
+    expect(timeoutSpy).toHaveBeenCalledWith(6000);
   });
 
   it('keeps ordinary requests at 8 seconds', async () => {

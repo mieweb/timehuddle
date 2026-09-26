@@ -160,7 +160,7 @@ test.describe('Tickets — the "Me" assignee filter', () => {
   test('matches Redmine issues assigned to the linked account too', async ({ page }) => {
     await stubRedmine(page, {
       status: connectedStatus({ redmineUserId: 8 }),
-      'issues.list': {
+      'issues.relevant': {
         connected: true,
         baseUrl: BASE_URL,
         issues: [
@@ -198,7 +198,7 @@ test.describe('Tickets — the "Me" assignee filter', () => {
     // that merely shares its number.
     await stubRedmine(page, {
       status: connectedStatus({ redmineUserId: 999999 }),
-      'issues.list': {
+      'issues.relevant': {
         connected: true,
         baseUrl: BASE_URL,
         issues: [

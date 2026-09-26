@@ -8,49 +8,51 @@ Part B turns the Tickets page search bar into the main way to find Redmine work.
 
 **What the user sees**
 
-1. They focus the search bar. The top 8 relevant issues appear, each with a reason chip such as *Assigned* or *Logged 2d ago*.
+1. They focus the search bar. The top 8 relevant issues appear, each with a reason chip such as _Assigned_ or _Logged 2d ago_.
 2. They type. The list filters instantly in the browser, with no network call.
 3. After a short pause, a **More from Redmine** section adds server search results. Typing `#1234`, a pasted Redmine link or `@name` works too.
 4. Enter opens the issue. A timer icon starts a timer, which also pins the issue.
-5. The x hides a suggestion, and an *Undo* toast appears.
+5. The x hides a suggestion, and an _Undo_ toast appears.
 
-**Dependency on Part A.** All data comes from the four methods in the API contract section of Redmine MVP2 — Part A: Backend & Security. Until Part A lands, build against a stub of `redmineApi` that returns the documented shapes. The e2e fixtures in `tests/e2e/fixtures/redmine.ts` should follow the same shapes.
+**Dependency on Part A.** All data comes from the four methods in the API contract section of Redmine MVP2 — Part A: Backend & Security. **Part A has landed**, so no stub is needed: `redmineApi.issues.relevant`, `redmineApi.issues.search`, `redmineApi.prefs.set` and `redmineApi.prefs.listDismissed` are typed and callable in `src/lib/api.ts`, and the e2e fixtures in `tests/e2e/fixtures/redmine.ts` already answer all four.
+
+**Part A's cleanup came with it.** Removing `redmine.issues.list` meant the Tickets table could not be left pointing at it, so the four checkboxes below about `src/lib/api.ts`, `redmineSource` and the scope control are already ticked — see Task A5. What remains for Part B is the dropdown itself, dismiss/undo/restore, the states, the text and the e2e tests. **Until it lands, MVP2 must not reach users**: the table now shows only the user's own work, and the search bar that was meant to replace the rest does not exist yet.
 
 ## Task B1: Dropdown states
 
 The dropdown has two modes: suggestions when the input is empty, and filtered results with server search while typing.
 
-| Input | What shows | Data source |
-| --- | --- | --- |
-| Empty, on focus | Top 8 relevant issues, and a "Show more" link to the rest | `redmine.issues.relevant`, loaded once and cached |
-| 1–2 characters | The relevant list filtered by title, `#id`, project or assignee | Browser only |
-| 3+ characters, or `#`, a link or `@name` | The filtered list on top, then a **More from Redmine** section | `redmine.issues.search`, after a 300 ms pause |
+| Input                                    | What shows                                                      | Data source                                       |
+| ---------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------- |
+| Empty, on focus                          | Top 8 relevant issues, and a "Show more" link to the rest       | `redmine.issues.relevant`, loaded once and cached |
+| 1–2 characters                           | The relevant list filtered by title, `#id`, project or assignee | Browser only                                      |
+| 3+ characters, or `#`, a link or `@name` | The filtered list on top, then a **More from Redmine** section  | `redmine.issues.search`, after a 300 ms pause     |
 
 - [ ] Check the `@mieweb/ui` catalog for a combobox or autocomplete before building one. Load the `mieweb-ui-design` skill first, as the repo requires
 - [ ] Remove duplicates: an issue already in the top section does not appear again under More from Redmine
 - [ ] Show Huddle tickets and Redmine issues in separate, labelled groups. Do not mix them in one ranked list
-- [ ] Placeholder hint: *Search, #number, @person, or paste a link*
+- [ ] Placeholder hint: _Search, #number, @person, or paste a link_
 - [ ] Empty results: word the message by the `kind` the server returned, e.g. "No issue #1234, or you can't see it" or "More than one person matches @al. Type more of the name"
 
 ## Task B2: Result rows
 
 Each row shows, left to right: `#id`, the title, the project, a reason chip, a timer icon, and the x.
 
-| Reason from the server | Chip text |
-| --- | --- |
-| `running` | Timer running |
-| `assigned` | Assigned |
-| `logged` | Logged 2d ago (from `lastTimeLoggedAt`, formatted in the user's locale) |
-| `activity` | Recent activity |
-| `watching` | Watching |
-| `pinned` | Pinned |
+| Reason from the server | Chip text                                                               |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `running`              | Timer running                                                           |
+| `assigned`             | Assigned                                                                |
+| `logged`               | Logged 2d ago (from `lastTimeLoggedAt`, formatted in the user's locale) |
+| `activity`             | Recent activity                                                         |
+| `watching`             | Watching                                                                |
+| `pinned`               | Pinned                                                                  |
 
 - [ ] Show only the strongest reason as a chip. The server sends reasons in score order, so take the first
 - [ ] **Enter** or a click on the row opens the issue's detail page in TimeHuddle
 - [ ] The timer icon starts a timer through the existing timer flow. Part A pins the issue on the server, so the client only refreshes the list
 - [ ] Rows from search results (More from Redmine) have no reason chip, and they get a **Pin** action in place of the x
 - [ ] Render titles as plain text, never as HTML
-- [ ] Switch `redmineSource` in `src/features/tickets/sources/redmineSource.ts` to `redmine.issues.relevant` with `includeDismissed: true`, so the Tickets table shows the relevant set and is not affected by dismissals
+- [x] Switch `redmineSource` in `src/features/tickets/sources/redmineSource.ts` to `redmine.issues.relevant` with `includeDismissed: true`, so the Tickets table shows the relevant set and is not affected by dismissals — **done in Part A's Task A5**, which had to remove `redmine.issues.list` and could not leave the table pointing at it
 
 ## Task B3: Dismiss, undo and restore
 
@@ -59,7 +61,7 @@ The x hides an issue from **that user's search suggestions only**. It changes no
 **Behaviour**
 
 - [ ] Clicking the x removes the row at once and calls `redmine.prefs.set({ issueId, state: 'dismissed' })`. Do not ask for confirmation
-- [ ] Show a toast: *Hidden #1234 · Undo*, for 6 seconds. Undo calls `redmine.prefs.set({ issueId, state: null })` and puts the row back where it was
+- [ ] Show a toast: _Hidden #1234 · Undo_, for 6 seconds. Undo calls `redmine.prefs.set({ issueId, state: null })` and puts the row back where it was
 - [ ] If the call fails, put the row back and show an error toast
 - [ ] After dismissing, fill the empty slot from the rest of the cached relevant list, so the dropdown stays at 8 rows
 - [ ] Add **Hidden suggestions** to the Redmine card in Settings. It lists `redmine.prefs.listDismissed` with a Restore button on each row, and says that hidden issues come back on their own after 15 days
@@ -97,9 +99,9 @@ The dropdown should never show results for an older query, and should never go b
 
 **Remove the scope toggle**
 
-- [ ] Delete the `RedmineScope` type and `redmineApi.issues.list` in `src/lib/api.ts`, and add the four new methods
-- [ ] Remove the "mine / all" scope control from the Tickets page and `redmineScope` from the source context
-- [ ] Ship this in the same PR as Part A's removal of `redmine.issues.list`
+- [x] Delete the `RedmineScope` type and `redmineApi.issues.list` in `src/lib/api.ts`, and add the four new methods — **done in Part A's Task A5.** All four are typed and callable; `RedmineRelevantIssue`, `RedmineSearchKind` and `RedmineIssuePrefState` are there to build the dropdown against
+- [x] Remove the "mine / all" scope control from the Tickets page and `redmineScope` from the source context — **done in Part A's Task A5**, including the reload trigger in `useUnifiedTickets`
+- [x] Ship this in the same PR as Part A's removal of `redmine.issues.list` — it did
 
 **Text and translation**
 
@@ -109,7 +111,7 @@ The dropdown should never show results for an older query, and should never go b
 
 **Release note**
 
-- [ ] Add a note in `release-notes/` following its README. Explain that the Redmine list now shows *your* issues, not everything, and how to find anything else with search, `#number` or `@person`
+- [ ] Add a note in `release-notes/` following its README. Explain that the Redmine list now shows _your_ issues, not everything, and how to find anything else with search, `#number` or `@person`
 
 **E2E tests** (`tests/e2e/redmine/`)
 
@@ -120,7 +122,7 @@ The dropdown should never show results for an older query, and should never go b
 - [ ] Delete on a highlighted row dismisses it. Keyboard-only navigation works end to end
 - [ ] Restore in Settings brings a hidden issue back
 - [ ] Not connected, partial and error states render
-- [ ] Update `me-assignee-filter.spec.ts` and `sources-unified.spec.ts`, which use the removed scope
+- [x] Update `me-assignee-filter.spec.ts` and `sources-unified.spec.ts`, which use the removed scope — **done in Part A's Task A5**; the fixture's disconnected defaults now cover `issues.search` and both prefs methods too, so a new spec that forgets to stub one gets a coherent disconnected app rather than a live call
 - [ ] `npm run test:all`, `npm run lint`, `npm run typecheck` and `npm run format` all pass, plus a smoke test at `http://localhost:3000`
 
 ## Acceptance criteria

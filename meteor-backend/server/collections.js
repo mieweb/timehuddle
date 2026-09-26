@@ -44,6 +44,20 @@ export const MyBoard = new Mongo.Collection('my_board', { idGeneration: 'MONGO' 
 // which is the single invariant the sync is judged on. A unique index here
 // enforces the grain that WorkItems cannot (see redmine-time-sync.js).
 export const RedmineTimeSyncs = new Mongo.Collection('redmine_time_syncs', { idGeneration: 'MONGO' });
+// One row per (user, Redmine issue) the user has pinned or dismissed — TimeHuddle's
+// own opinion about a Redmine issue, which Redmine has no field for.
+//
+// Ids, a state, a boolean and a date. No subject, no project, no description:
+// the whole point of MVP2 is that issue content never lands in TimeHuddle, and a
+// cached title here would be both a PHI store and a stale one (Core Model Data
+// Discipline — titles are resolved at read time through `listIssuesByIds`).
+//
+// A dismissal expires on its own after 15 days, enforced twice: a TTL index so
+// the rows really go, and a read-time filter because Mongo's TTL sweeper runs
+// only about once a minute and "15 days" should not mean "15 days and a bit".
+export const RedmineIssuePrefs = new Mongo.Collection('redmine_issue_prefs', {
+  idGeneration: 'MONGO',
+});
 
 /** Raw native-driver handle for collections we only read ad hoc (sessions, users). */
 export function rawDb() {

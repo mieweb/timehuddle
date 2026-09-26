@@ -18,24 +18,22 @@ import {
   getCurrentUser,
   getTimeEntry,
   isRedmineTimeout,
-  listIssues,
   listIssuesByIds,
   customRedmineUrlAllowed,
   linkedRedmineBaseUrl,
   normalizeRedmineUrl,
   optionalRedmineBaseUrl,
+  redmineUrlRefusal,
 } from './redmine-client';
 import { encryptSecret, envKey } from './redmine-crypto';
 import { findRedmineAccount } from './redmine-account';
 import { toStatus } from './redmine-status';
-import { toIssueList } from './redmine-issues';
 import { getActivitiesForUser, pickDefaultActivity } from './redmine-activities';
 import { bustUserCaches } from './redmine-cache';
+import { removeUserIssuePrefs } from './redmine-prefs';
 import { buildPushRows, hoursAgree, PUSH_COMMENT, unsentTotals } from './redmine-time-entries';
 import { flagEntry, recordEntry, sentSecondsFor } from './redmine-time-sync';
 import { redmineTicketDaysFor } from './timer-core';
-
-const VALID_SCOPES = new Set(['mine', 'all']);
 
 const DUPLICATE_KEY_ERROR_CODE = 11000;
 
@@ -46,17 +44,13 @@ const DUPLICATE_KEY_ERROR_CODE = 11000;
  * collapses to "unreachable". Timeouts keep the `unreachable` code, so callers
  * that branch on it need no change.
  *
- * The real cause is logged first, because the user-facing message hides it.
- * Only the error's name, HTTP status and network code are logged — never the
- * key, which travels in a request header none of these fields carry.
+ * Nothing is logged here. The failure is logged where it happens, in
+ * `redmineRequest`, which knows the method, the path, the status and the
+ * duration — and knows to log the path without its query string, because a query
+ * string can carry a search term and a user may type a patient's name into the
+ * search box.
  */
 export function toRedmineMeteorError(err) {
-  console.warn('[redmine] request failed', {
-    name: err?.name ?? null,
-    status: err?.status ?? null,
-    code: err?.cause?.code ?? null,
-  });
-
   if (err?.status === 401 || err?.status === 403) {
     return new Meteor.Error('invalid-key', 'Your Redmine API key was rejected.');
   }
@@ -108,6 +102,11 @@ function requestedBaseUrl(rawBaseUrl) {
   if (!baseUrl) {
     throw new Meteor.Error('bad-request', 'Enter the Redmine URL as http(s)://host[/path].');
   }
+  // Refused at link time as well as per request, so a user who cannot be served
+  // is told why while they are looking at the field, rather than meeting
+  // "Redmine is unreachable" on the Tickets page later.
+  const refusal = redmineUrlRefusal(baseUrl);
+  if (refusal) throw new Meteor.Error('bad-request', `${refusal}.`);
   return baseUrl;
 }
 
@@ -348,6 +347,10 @@ Meteor.methods({
   async 'redmine.disconnect'() {
     const { userId } = await requireIdentity(this);
     await RedmineLinks.removeAsync({ userId });
+    // Pins and dismissals are issue ids from one instance, and mean nothing on
+    // another — a stale pin would resolve to whatever issue happens to hold that
+    // number next. Unlinking is also how a user says "forget my Redmine data".
+    await removeUserIssuePrefs(userId);
     // Re-linking with a key for a different Redmine account must not be served
     // the previous account's activities, projects or members.
     bustUserCaches(userId);
@@ -361,38 +364,13 @@ Meteor.methods({
   },
 
   /**
-   * List the caller's Redmine issues (read-only) using their stored API key.
-   * `scope: 'mine'` → assigned to me; `scope: 'all'` → everything the key can see.
-   * Returns `{ connected: false, issues: [] }` when the user has no link, so the
-   * view can render its "not connected" state without a separate round-trip.
-   */
-  async 'redmine.issues.list'({ scope = 'mine' } = {}) {
-    const { userId } = await requireIdentity(this);
-    if (!VALID_SCOPES.has(scope)) {
-      throw new Meteor.Error('bad-request', 'scope must be "mine" or "all".');
-    }
-
-    const account = await findRedmineAccount(userId);
-    if (!account) return { connected: false, baseUrl: optionalRedmineBaseUrl(), issues: [] };
-
-    let issues;
-    try {
-      issues = await listIssues(account, { scope });
-    } catch (err) {
-      throw toRedmineMeteorError(err);
-    }
-
-    return { connected: true, baseUrl: account.baseUrl, issues: toIssueList(issues) };
-  },
-
-  /**
    * The instance's time-entry activities, plus which one the caller's time will
    * be logged under and why.
    *
    * Returns `{ connected: false, activities: [] }` for an unlinked user so
    * Settings can render its state without a second round-trip, matching
-   * `redmine.issues.list`. An empty `activities` on a connected account means
-   * the instance has none configured and cannot receive time at all.
+   * `redmine.status`. An empty `activities` on a connected account means the
+   * instance has none configured and cannot receive time at all.
    */
   async 'redmine.activities.list'() {
     const { userId } = await requireIdentity(this);
@@ -518,7 +496,11 @@ Meteor.methods({
       );
     }
     try {
-      return { results: await pushRequestedEntries(userId, account, entries) };
+      const results = await pushRequestedEntries(userId, account, entries);
+      // Logged time is one of the relevant list's signals, so the cached list is
+      // now out of date about the issues this push covered.
+      bustUserCaches(userId);
+      return { results };
     } finally {
       await releasePushLock(userId);
     }

@@ -1,13 +1,18 @@
 /**
  * Unit tests for redmine-issues (server/redmine-issues.js).
  *
- * These guard the read-only shape returned by `redmine.issues.list`:
+ * These guard the read-only issue shape the Redmine methods return:
  *   - `{ id, name }` sub-objects are shaped, or null when absent,
  *   - a missing assignee becomes null (issue not assigned to anyone),
  *   - `status.isClosed` is preserved (it drives the Open/Closed tabs),
  *   - timestamps are normalized to ISO (they drive cross-source sorting),
  *   - fields we still drop (due_date, description, custom fields) stay dropped,
  *   - non-array input yields an empty list.
+ *
+ * MVP2 A4 turns the "fields we drop" line into a data-minimisation guard. `toIssue`
+ * is the one shape every list and search response is built from, so an exhaustive
+ * key assertion here is what stops a future field addition quietly putting an
+ * issue description — which on the enterprise instance may hold PHI — on the wire.
  */
 import { describe, it, expect } from 'vitest';
 
@@ -281,5 +286,49 @@ describe('redmine-issues toJournals (M6 issue page)', () => {
   it('drops empty journals and tolerates malformed input', () => {
     expect(toJournals([{ id: 1, notes: '', details: [] }, null, { notes: 'no id' }])).toEqual([]);
     expect(toJournals(undefined)).toEqual([]);
+  });
+});
+
+describe('data minimisation (MVP2 A4)', () => {
+  /** Every key a `SlimIssue` may have. Adding one here is a deliberate decision. */
+  const SLIM_KEYS = [
+    'assignedTo',
+    'createdAt',
+    'id',
+    'priority',
+    'project',
+    'status',
+    'subject',
+    'tracker',
+    'updatedAt',
+  ];
+
+  it('emits exactly the slim keys and no others', () => {
+    expect(Object.keys(toIssue(rawIssue)).sort()).toEqual(SLIM_KEYS);
+  });
+
+  it('drops description, journals and custom fields however they arrive', () => {
+    const loaded = toIssue({
+      ...rawIssue,
+      description: 'Patient Jane Doe reports…',
+      journals: [{ id: 1, notes: 'Patient Jane Doe reports…' }],
+      custom_fields: [{ id: 9, name: 'Diagnosis', value: 'confidential' }],
+      attachments: [{ id: 3, filename: 'scan.pdf' }],
+      watchers: [{ id: 4, name: 'Someone' }],
+    });
+
+    expect(Object.keys(loaded).sort()).toEqual(SLIM_KEYS);
+    for (const banned of ['description', 'journals', 'custom_fields', 'attachments', 'watchers']) {
+      expect(loaded).not.toHaveProperty(banned);
+    }
+    expect(JSON.stringify(loaded)).not.toContain('Patient');
+    expect(JSON.stringify(loaded)).not.toContain('confidential');
+  });
+
+  it('holds for every issue in a list, not just a shaped example', () => {
+    const list = toIssueList([rawIssue, { ...rawIssue, id: 102, description: 'more text' }]);
+    for (const issue of list) {
+      expect(Object.keys(issue).sort()).toEqual(SLIM_KEYS);
+    }
   });
 });

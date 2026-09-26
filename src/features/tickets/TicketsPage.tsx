@@ -45,7 +45,6 @@ import {
   ticketApi,
   timerApi,
   shareTicketWithTimeharbor,
-  type RedmineScope,
   type Team,
   type TeamMember,
   type Ticket,
@@ -96,10 +95,6 @@ export const TicketsPage: React.FC = () => {
 
   // Map from teamId → members for cross-team member lookups
   const [membersByTeam, setMembersByTeam] = useState<Map<string, TeamMember[]>>(new Map());
-
-  // Which Redmine issues to pull in. "All" by default — narrowing to your own
-  // issues is now the Assignee column filter, not a separate fetch scope.
-  const [redmineScope] = useState<RedmineScope>('all');
 
   // Timer state — which ticket has the open timer (shared overnight-safe hook).
   // Keyed by `${sourceId}:${id}`, not id: a Redmine issue #42 and a Huddle
@@ -158,9 +153,8 @@ export const TicketsPage: React.FC = () => {
       userId,
       teams: teams.map((t: Team) => ({ id: t.id, name: t.name })),
       resolveMemberName: getAssigneeName,
-      redmineScope,
     }),
-    [userId, teams, getAssigneeName, redmineScope],
+    [userId, teams, getAssigneeName],
   );
 
   const {

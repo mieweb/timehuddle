@@ -3,7 +3,9 @@
  *
  * Exercises the full REST → Meteor method → MongoDB path for the paths that are
  * deterministic without a live Redmine server: authentication, input
- * validation, per-user status isolation, and disconnect idempotency.
+ * validation, per-user status isolation, and disconnect idempotency. MVP2 adds
+ * the same coverage for the suggestion methods, plus a check that the unfiltered
+ * `redmine.issues.list` really is gone rather than merely unused.
  *
  * The valid-key happy path (validate → encrypted upsert → reconnect) requires a
  * reachable Redmine instance and is covered by the manual end-to-end test in
@@ -96,28 +98,71 @@ describe('redmine (wormhole)', () => {
     expect(statusB.result.connected).toBe(false);
   });
 
-  it('rejects unauthenticated issues.list calls', async () => {
-    const res = await wormhole('redmine.issues.list', { scope: 'mine' }, 'invalid-jwt');
+  it('rejects unauthenticated issue calls', async () => {
+    for (const method of ['redmine.issues.relevant', 'redmine.issues.search']) {
+      const res = await wormhole(method, { query: 'anything' }, 'invalid-jwt');
+      expect(res.ok).toBe(false);
+    }
+  });
+
+  it('no longer exposes the unfiltered issue list', async () => {
+    // MVP2 A5: `redmine.issues.list` with `scope: 'all'` is what pulled every
+    // issue the key could see. It is gone rather than hidden, so a stale client
+    // gets a hard failure instead of quietly working.
+    const res = await wormhole('redmine.issues.list', { scope: 'all' }, jwtB);
     expect(res.ok).toBe(false);
   });
 
   it('reports not connected (empty issues) for a user with no link', async () => {
-    // USER_B never links; the method should short-circuit to a not-connected
+    // USER_B never links; the methods should short-circuit to a not-connected
     // response instead of erroring, so the view can render its empty state.
+    const relevant = await wormhole<{ connected: boolean; issues: unknown[]; partial: boolean }>(
+      'redmine.issues.relevant',
+      {},
+      jwtB,
+    );
+    expect(relevant.ok).toBe(true);
+    expect(relevant.result.connected).toBe(false);
+    expect(relevant.result.issues).toEqual([]);
+    expect(relevant.result.partial).toBe(false);
+
+    const search = await wormhole<{ connected: boolean; kind: string; issues: unknown[] }>(
+      'redmine.issues.search',
+      { query: 'login timeout' },
+      jwtB,
+    );
+    expect(search.ok).toBe(true);
+    expect(search.result.connected).toBe(false);
+    expect(search.result.issues).toEqual([]);
+  });
+
+  it('rejects a search with no query', async () => {
+    const res = await wormhole('redmine.issues.search', {}, jwtB);
+    expect(res.ok).toBe(false);
+  });
+
+  it('rejects a preference with a bad issue id or state', async () => {
+    for (const params of [
+      { issueId: 0, state: 'pinned' },
+      { issueId: -1, state: 'dismissed' },
+      { issueId: 12, state: 'snoozed' },
+    ]) {
+      const res = await wormhole('redmine.prefs.set', params, jwtB);
+      expect(res.ok).toBe(false);
+    }
+  });
+
+  it('reports an unlinked user as not connected when listing hidden suggestions', async () => {
+    // The same flag every other method returns, so Settings does not render a
+    // "Hidden suggestions" panel for someone with no Redmine account.
     const res = await wormhole<{ connected: boolean; issues: unknown[] }>(
-      'redmine.issues.list',
-      { scope: 'mine' },
+      'redmine.prefs.listDismissed',
+      {},
       jwtB,
     );
     expect(res.ok).toBe(true);
     expect(res.result.connected).toBe(false);
     expect(res.result.issues).toEqual([]);
-  });
-
-  it('rejects an invalid scope', async () => {
-    const res = await wormhole('redmine.issues.list', { scope: 'bogus' }, jwtB);
-    expect(res.ok).toBe(false);
-    expect(res.error).toMatch(/scope/i);
   });
 
   it('disconnect clears the link and is idempotent', async () => {

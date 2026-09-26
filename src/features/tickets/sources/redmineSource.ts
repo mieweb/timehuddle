@@ -7,8 +7,15 @@
  * make a given change, and a refusal is shown rather than pre-empted here.
  * Deleting stays out of scope. Timing an issue is not a Redmine write; it is
  * started from My Board like any other ticket (M3).
+ *
+ * Since MVP2 the rows come from `redmine.issues.relevant` rather than "every
+ * issue the key can see": on a large instance that response was enormous and
+ * every subject in it may carry PHI. The table therefore shows the user's own
+ * work — assigned, recently logged against, recently touched, watched, pinned —
+ * and anything else is reached through the search bar. `includeDismissed` is on,
+ * because hiding a search suggestion must not quietly remove a row from a table.
  */
-import { redmineApi, type RedmineIssue, type RedmineScope } from '../../../lib/api';
+import { redmineApi, type RedmineIssue } from '../../../lib/api';
 
 import { ticketKey, type SourceCapabilities, type TicketSource, type UnifiedTicket } from './types';
 
@@ -40,7 +47,7 @@ export interface RedmineRaw {
 }
 
 /**
- * Session-lived cache of the last fetched list, keyed by user *and* scope.
+ * Session-lived cache of the last fetched list, keyed by user.
  * Module-level so it survives remounts without a refetch. Sign-out does not
  * reload the page, so the user id must be part of the key or a second user
  * could be served the first user's issues. Only connected responses are cached,
@@ -48,8 +55,6 @@ export interface RedmineRaw {
  * replaying a stale "not connected" state.
  */
 const listCache = new Map<string, RedmineRaw[]>();
-
-const cacheKey = (userId: string, scope: RedmineScope) => `${userId}:${scope}`;
 
 /** Drop cached issues so the next fetch goes to Redmine. */
 export function invalidateRedmineCache(): void {
@@ -70,15 +75,15 @@ export const redmineSource: TicketSource<RedmineRaw> = {
     const userId = ctx.userId;
     if (!userId) return [];
 
-    const key = cacheKey(userId, ctx.redmineScope);
-    const cached = listCache.get(key);
+    const cached = listCache.get(userId);
     if (cached) return cached;
 
-    const result = await redmineApi.issues.list(ctx.redmineScope);
+    // `includeDismissed: true` — a dismissal is about the search dropdown only.
+    const result = await redmineApi.issues.relevant(true);
     if (!result.connected) return [];
 
     const raws = result.issues.map((issue) => ({ issue, baseUrl: result.baseUrl }));
-    listCache.set(key, raws);
+    listCache.set(userId, raws);
     return raws;
   },
 

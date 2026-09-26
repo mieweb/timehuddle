@@ -9,12 +9,20 @@
  * request is attributed to that user (no admin switch-user needed).
  *
  * Helpers are added milestone by milestone to avoid dead code: `getCurrentUser`
- * (M1 key validation + identity), `listIssues` (M2 read-only issue list),
+ * (M1 key validation + identity),
  * `getIssue`/`listIssuesByIds` (M3 existence check + title resolution for
  * source-aware ticket timers), `listTimeEntryActivities` (M4 activity
  * resolution), `createTimeEntry`/`getTimeEntry` (M5 push + read-back), and the
  * M6 issue helpers (projects, trackers, members, priorities, issue detail,
  * `createIssue`/`updateIssue`).
+ *
+ * **Every issue read is filtered (MVP2).** `issueQuery` is the single door to
+ * `/issues.json` and refuses a query that narrows nothing, so "list the whole
+ * instance" is not expressible here — M2's unfiltered `listIssues` is gone, and
+ * cannot be reintroduced by accident. Its callers are the relevant-list signals
+ * (`listAssignedIssues`, `listWatchedIssues`, `listTimeEntryIssueIds`,
+ * `listActivityIssueIds`), search (`listIssuesAssignedTo`, `searchIssues`) and
+ * `listIssuesByIds`.
  *
  * **Writes, and only these three:** `createTimeEntry`, `createIssue` and
  * `updateIssue`. Time entries stay create-only (D1): once time is logged it is
@@ -22,6 +30,7 @@
  * itself, so no update or delete helper exists for them. Issues are never
  * deleted from TimeHuddle either (M6 scope).
  */
+import { activityIssueRefs } from './redmine-atom';
 
 /** Server-wide Redmine base URL, trailing slash trimmed. Throws if unset. */
 export function redmineBaseUrl() {
@@ -83,6 +92,67 @@ export function linkedRedmineBaseUrl(storedUrl) {
   return (customRedmineUrlAllowed() && storedUrl) || optionalRedmineBaseUrl();
 }
 
+/** Whether this process is a production deployment (what `Meteor.isProduction` reads). */
+function inProduction() {
+  return process.env.NODE_ENV === 'production';
+}
+
+/**
+ * Hosts a production deployment may send Redmine requests to, from
+ * `REDMINE_ALLOWED_HOSTS` (comma-separated `host[:port]`).
+ *
+ * The server's own `REDMINE_BASE_URL` is always allowed without being listed: it
+ * is the deployment's own configuration, not user input, and requiring it to be
+ * repeated here would break every existing install on upgrade.
+ */
+export function redmineAllowedHosts() {
+  const configured = (process.env.REDMINE_ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+
+  const own = optionalRedmineBaseUrl();
+  if (own) {
+    try {
+      configured.push(new URL(own).host.toLowerCase());
+    } catch {
+      /* an unparseable REDMINE_BASE_URL allows nothing extra */
+    }
+  }
+  return configured;
+}
+
+/**
+ * Why `baseUrl` may not be used, or null when it may.
+ *
+ * `REDMINE_ALLOW_CUSTOM_URL` lets a user store a Redmine URL of their own, and
+ * the server then fetches it — which is a signed-in user choosing an address the
+ * server will connect to, including internal hosts and cloud metadata endpoints.
+ * The flag is meant for dev only, so this is the belt to its braces: in
+ * production the host must be one the deployment named, and the scheme must be
+ * `https`, whatever any stored row says.
+ *
+ * Development is left alone deliberately. The point of the flag there is pointing
+ * at a Redmine on localhost over plain HTTP, and an allowlist would only be
+ * something to switch off.
+ */
+export function redmineUrlRefusal(baseUrl) {
+  if (!inProduction()) return null;
+  if (typeof baseUrl !== 'string' || !baseUrl) return 'No Redmine base URL is configured';
+
+  let url;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return 'That is not a usable Redmine URL';
+  }
+  if (url.protocol !== 'https:') return 'Redmine must be reached over https';
+  if (!redmineAllowedHosts().includes(url.host.toLowerCase())) {
+    return 'That Redmine host is not allowed by this deployment';
+  }
+  return null;
+}
+
 /**
  * Redmine's validation messages from a failed response body
  * (`{ errors: ["Subject cannot be blank"] }` on a 422), or an empty list.
@@ -100,10 +170,13 @@ async function readErrorMessages(res) {
 const DEFAULT_TIMEOUT_MS = 8000;
 
 /**
- * How long the issue list may take. Listing every issue a key can see is the
- * one query that grows with the instance: on a large Redmine, visibility is
- * checked across every project the user belongs to, which can outlast the
- * default and surface as a false "unreachable".
+ * How long an issue list may take. Listing issues is the query that grows with
+ * the instance: on a large Redmine, visibility is checked across every project
+ * the user belongs to, which can outlast the default and surface as a false
+ * "unreachable".
+ *
+ * Only the default. Every MVP2 signal passes its own, much shorter bound, because
+ * a slow signal there is dropped rather than waited for.
  */
 const LIST_TIMEOUT_MS = 30_000;
 
@@ -121,32 +194,102 @@ export function isRedmineTimeout(err) {
  */
 async function redmineRequest(
   path,
-  { account, method = 'GET', body, timeoutMs = DEFAULT_TIMEOUT_MS } = {},
+  { account, method = 'GET', body, timeoutMs = DEFAULT_TIMEOUT_MS, accept = 'application/json' } = {},
 ) {
   if (!account?.baseUrl) throw new Error('No Redmine base URL is configured');
-  const res = await fetch(`${account.baseUrl}${path}`, {
-    method,
-    headers: {
-      'X-Redmine-API-Key': account.apiKey,
-      Accept: 'application/json',
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-    // Bound the request so an unreachable/slow Redmine can't hang `redmine.connect`
-    // (and the Settings UI) for the full default socket timeout.
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  const refusal = redmineUrlRefusal(account.baseUrl);
+  if (refusal) throw new Error(refusal);
+
+  const startedAt = Date.now();
+  let res;
+  try {
+    res = await fetch(`${account.baseUrl}${path}`, {
+      method,
+      headers: {
+        'X-Redmine-API-Key': account.apiKey,
+        Accept: accept,
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      // Bound the request so an unreachable/slow Redmine can't hang `redmine.connect`
+      // (and the Settings UI) for the full default socket timeout.
+      signal: AbortSignal.timeout(timeoutMs),
+      // Never follow a redirect. Node's fetch keeps custom headers across a
+      // cross-origin redirect, so a Redmine (or anything answering for its host)
+      // could point us at a server of its choosing and be handed the user's
+      // personal API key in the `X-Redmine-API-Key` header.
+      redirect: 'manual',
+    });
+  } catch (err) {
+    logRequestFailure({ method, path, startedAt, err });
+    throw err;
+  }
+
+  if (res.status >= 300 && res.status < 400) {
+    const err = new Error(`Redmine redirected (${res.status})`);
+    err.status = res.status;
+    err.redirected = true;
+    logRequestFailure({ method, path, startedAt, err, status: res.status });
+    throw err;
+  }
 
   if (!res.ok) {
     const err = new Error(`Redmine request failed (${res.status})`);
     err.status = res.status;
     err.errors = await readErrorMessages(res);
+    logRequestFailure({ method, path, startedAt, err, status: res.status });
     throw err;
   }
 
   const text = await res.text();
+  if (accept !== 'application/json') return text;
   return text ? JSON.parse(text) : null;
 }
+
+/**
+ * Log why a Redmine request failed, in enough detail to debug and no more.
+ *
+ * Deliberately **not** logged: the query string, the response body, and the
+ * request headers. A query string carries search terms, and a user may type a
+ * patient's name into the search box; a response body carries issue subjects and
+ * descriptions; the headers carry the API key. The path without its query is
+ * enough to tell a broken endpoint from a broken instance, and the duration is
+ * what tells our own timeout apart from a refusal.
+ */
+function logRequestFailure({ method, path, startedAt, err, status = null }) {
+  console.warn('[redmine] request failed', {
+    method,
+    path: path.split('?')[0],
+    status,
+    name: err?.name ?? null,
+    code: err?.cause?.code ?? null,
+    durationMs: Date.now() - startedAt,
+  });
+}
+
+/**
+ * `GET /issues.json` with an explicit, already-filtered query.
+ *
+ * Every issue read funnels through here, and the guard is the point: MVP2's
+ * first acceptance criterion is that no code path can ask Redmine for issues
+ * without narrowing them, and a helper added later that forgot to would fail
+ * here rather than quietly listing the instance.
+ */
+async function issueQuery(account, params, { timeoutMs = LIST_TIMEOUT_MS } = {}) {
+  const query = new URLSearchParams({ limit: '100', ...params });
+  if (!ISSUE_FILTERS.some((name) => query.has(name))) {
+    throw new Error('Refusing to list Redmine issues without a filter');
+  }
+  const data = await redmineRequest(`/issues.json?${query.toString()}`, { account, timeoutMs });
+  return data?.issues ?? [];
+}
+
+/**
+ * Query parameters that narrow `/issues.json` to a subset of the instance.
+ * `status_id` is deliberately absent: "open issues only" is not a filter, it is
+ * most of the database.
+ */
+const ISSUE_FILTERS = ['issue_id', 'assigned_to_id', 'watcher_id', 'author_id', 'project_id'];
 
 /**
  * Fetch the Redmine user that owns `account`'s key via `GET /users/current.json`.
@@ -159,21 +302,79 @@ export async function getCurrentUser(account) {
 }
 
 /**
- * List issues visible to `account`'s key via `GET /issues.json`.
+ * Open issues assigned to the caller, most recently updated first (MVP2 A1).
  *
- * `scope: 'mine'` restricts to issues assigned to the caller (`assigned_to_id=me`);
- * `scope: 'all'` lists everything the key can see. Pagination is bounded by
- * `limit`/`offset` (Redmine caps `limit` at 100). Returns the raw `issues` array
- * (shaping into our minimal DTO is done in redmine-issues.js).
+ * The strongest standing signal of what someone is meant to be working on, and
+ * the one query that is both cheap and bounded on a large instance: Redmine
+ * filters by assignee before it checks visibility.
  */
-export async function listIssues(account, { scope = 'mine', limit = 100, offset = 0 } = {}) {
-  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
-  if (scope === 'mine') params.set('assigned_to_id', 'me');
-  const data = await redmineRequest(`/issues.json?${params.toString()}`, {
+export function listAssignedIssues(account, { timeoutMs } = {}) {
+  return issueQuery(
     account,
-    timeoutMs: LIST_TIMEOUT_MS,
+    { assigned_to_id: 'me', status_id: 'open', sort: 'updated_on:desc', limit: '100' },
+    { timeoutMs },
+  );
+}
+
+/** Open issues the caller watches (MVP2 A1). A standing interest, so a smaller page. */
+export function listWatchedIssues(account, { timeoutMs } = {}) {
+  return issueQuery(account, { watcher_id: 'me', status_id: 'open', limit: '50' }, { timeoutMs });
+}
+
+/**
+ * Open issues assigned to one Redmine user id (MVP2 A2, the `@name` search).
+ *
+ * Separate from `listAssignedIssues` because the id is not `me`: the caller is
+ * asking what someone else is carrying, which their own key still gates.
+ */
+export function listIssuesAssignedTo(account, redmineUserId, { limit = 25, timeoutMs } = {}) {
+  return issueQuery(
+    account,
+    { assigned_to_id: String(redmineUserId), status_id: 'open', limit: String(limit) },
+    { timeoutMs },
+  );
+}
+
+/**
+ * The issues the caller logged time against since `from`, as `{ issueId, at }`
+ * per entry (MVP2 A1).
+ *
+ * `at` is the entry's `spent_on` — the day the work happened, which is what the
+ * signal decays on, not when the row was typed in. Comments are dropped here:
+ * a time-entry comment is free text on an enterprise instance, and nothing
+ * downstream has a use for it.
+ */
+export async function listTimeEntryIssueIds(account, { from, timeoutMs } = {}) {
+  const params = new URLSearchParams({ user_id: 'me', limit: '100' });
+  if (from) params.set('from', from);
+  const data = await redmineRequest(`/time_entries.json?${params.toString()}`, { account, timeoutMs });
+  return (data?.time_entries ?? [])
+    .filter((entry) => entry?.issue?.id != null)
+    .map((entry) => ({ issueId: Number(entry.issue.id), at: entry.spent_on ?? null }));
+}
+
+/**
+ * The issues the caller's own activity feed mentions since `from`, as
+ * `{ issueId, at }` (MVP2 A1).
+ *
+ * Atom, not JSON: Redmine has no REST endpoint for a user's activity. The feed
+ * is the one response in this integration that carries issue subjects and note
+ * bodies, so it is reduced to ids and dates the moment it arrives — see
+ * redmine-atom.js for why, and for what is thrown away.
+ *
+ * The key travels in the `X-Redmine-API-Key` header here as everywhere else. An
+ * instance that only accepts `?key=` for Atom will answer 401, and the caller
+ * drops the signal rather than putting the key in a URL.
+ */
+export async function listActivityIssueIds(account, { redmineUserId, from, timeoutMs } = {}) {
+  const params = new URLSearchParams({ user_id: String(redmineUserId) });
+  if (from) params.set('from', from);
+  const xml = await redmineRequest(`/activity.atom?${params.toString()}`, {
+    account,
+    timeoutMs,
+    accept: 'application/atom+xml',
   });
-  return data?.issues ?? [];
+  return activityIssueRefs(xml);
 }
 
 /**
@@ -214,15 +415,47 @@ export async function listTimeEntryActivities(account) {
  * Redmine caps `limit` at 100, which also bounds how many ids are worth asking
  * for in a single call.
  */
-export async function listIssuesByIds(account, issueIds) {
-  if (!issueIds.length) return [];
+export function listIssuesByIds(account, issueIds, { timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
+  if (!issueIds.length) return Promise.resolve([]);
+  return issueQuery(
+    account,
+    {
+      issue_id: issueIds.join(','),
+      status_id: '*',
+      limit: String(Math.min(issueIds.length, 100)),
+    },
+    { timeoutMs },
+  );
+}
+
+/**
+ * Search issue **titles** via `GET /search.json`, and return the matching issue
+ * ids and nothing else (MVP2 A2).
+ *
+ * `titles_only=1` is not a nicety: without it Redmine matches descriptions and
+ * notes, which on the enterprise instance is where clinical detail lives, so a
+ * user typing a common word could be handed issues they were only searching
+ * *near*. `open_issues=1` keeps the result to live work.
+ *
+ * Redmine's search result carries a `title` and a `description` excerpt — both
+ * free text, the excerpt drawn from the issue body. Both are dropped here, and
+ * the ids are resolved through `listIssuesByIds`, so a search answers with the
+ * same slim shape as everything else and there is no second path for issue text
+ * to travel down.
+ */
+export async function searchIssues(account, query, { limit = 25, timeoutMs } = {}) {
   const params = new URLSearchParams({
-    issue_id: issueIds.join(','),
-    status_id: '*',
-    limit: String(Math.min(issueIds.length, 100)),
+    q: query,
+    issues: '1',
+    titles_only: '1',
+    open_issues: '1',
+    limit: String(limit),
   });
-  const data = await redmineRequest(`/issues.json?${params.toString()}`, { account });
-  return data?.issues ?? [];
+  const data = await redmineRequest(`/search.json?${params.toString()}`, { account, timeoutMs });
+  return (data?.results ?? [])
+    .filter((result) => result?.type == null || result.type === 'issue')
+    .map((result) => Number(result?.id))
+    .filter((id) => Number.isSafeInteger(id) && id > 0);
 }
 
 /**

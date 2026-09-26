@@ -3,12 +3,14 @@
  *
  * One place that turns a TimeHuddle userId into a usable Redmine account, so
  * the decrypt-at-read step isn't repeated by every caller that needs to talk to
- * Redmine on a user's behalf (`redmine.issues.list`, the source-aware timer
+ * Redmine on a user's behalf (`redmine.issues.relevant`, the source-aware timer
  * paths in `ticket-refs.js`, …). The plaintext key never leaves the server.
  */
+import { Meteor } from 'meteor/meteor';
+
 import { RedmineLinks } from './collections';
 import { linkedRedmineBaseUrl } from './redmine-client';
-import { decryptSecret, envKey } from './redmine-crypto';
+import { decryptStoredSecret, encryptSecret, envKey } from './redmine-crypto';
 
 /**
  * The caller's Redmine account — `{ apiKey, baseUrl }`, the decrypted personal
@@ -20,8 +22,28 @@ import { decryptSecret, envKey } from './redmine-crypto';
 export async function findRedmineAccount(userId) {
   const link = await RedmineLinks.findOneAsync({ userId });
   if (!link) return null;
-  return {
-    apiKey: decryptSecret(link.apiKey, envKey()),
-    baseUrl: linkedRedmineBaseUrl(link.baseUrl),
-  };
+
+  const { secret, rotated } = decryptStoredSecret(link.apiKey);
+  // A key that only opened under the previous encryption key is rewritten under
+  // the current one, once, here — decrypting it successfully *is* the "next
+  // successful use". Fire-and-forget: a read path must not fail because a
+  // re-encrypt did, and the next read would simply try again.
+  if (rotated) {
+    RedmineLinks.updateAsync({ userId }, { $set: { apiKey: encryptSecret(secret, envKey()) } }).catch(
+      (error) => console.error('[redmine] failed to re-encrypt a rotated API key:', error),
+    );
+  }
+
+  return { apiKey: secret, baseUrl: linkedRedmineBaseUrl(link.baseUrl) };
+}
+
+/**
+ * The caller's account, or a `not-connected` error — for the paths where no link
+ * means "you cannot do this yet" rather than "there is nothing to resolve".
+ * Shared, so the message a user sees does not depend on which method they hit.
+ */
+export async function requireRedmineAccount(userId) {
+  const account = await findRedmineAccount(userId);
+  if (!account) throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
+  return account;
 }

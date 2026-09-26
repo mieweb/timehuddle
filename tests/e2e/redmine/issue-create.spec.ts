@@ -62,7 +62,7 @@ async function openTickets(
 
 const linked = {
   status: connectedStatus(),
-  'issues.list': connectedList(),
+  'issues.relevant': connectedList(),
   'projects.list': PROJECTS,
   'projects.formOptions': FORM_OPTIONS,
 };

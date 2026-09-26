@@ -24,6 +24,7 @@ import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
 import './redmine';
 import './redmine-issue-methods';
+import './redmine-suggestions';
 // Imported for its Meteor.startup unique-index creation, not for a method.
 import './redmine-time-sync';
 import './my-board';
@@ -1033,18 +1034,55 @@ Meteor.startup(async() => {
     inputSchema: { type: 'object', properties: {} },
   });
 
-  Wormhole.expose('redmine.issues.list', {
-    description: "List the caller's Redmine issues (read-only) using their stored API key",
+  Wormhole.expose('redmine.issues.relevant', {
+    description:
+      "The Redmine issues most relevant to the caller, merged from filtered signals (assigned, time logged, activity, watched, pinned, timer running)",
     inputSchema: {
       type: 'object',
       properties: {
-        scope: {
-          type: 'string',
-          enum: ['mine', 'all'],
-          description: "'mine' = assigned to me, 'all' = everything the key can see",
+        includeDismissed: {
+          type: 'boolean',
+          description: 'Keep issues the caller hid from their suggestions (the Tickets table does)',
         },
       },
     },
+  });
+
+  Wormhole.expose('redmine.issues.search', {
+    description:
+      'Find Redmine issues by number, pasted link, @assignee or words matched against issue titles only (max 25)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: "What the user typed: '1234', '#1234', a Redmine issue URL, '@name', or words",
+        },
+      },
+      required: ['query'],
+    },
+  });
+
+  Wormhole.expose('redmine.prefs.set', {
+    description:
+      "Pin, hide or clear one Redmine issue in the caller's own suggestions (never touches Redmine)",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issueId: { type: 'integer' },
+        state: {
+          type: ['string', 'null'],
+          enum: ['pinned', 'dismissed', null],
+          description: 'null clears the preference (Undo / Restore)',
+        },
+      },
+      required: ['issueId', 'state'],
+    },
+  });
+
+  Wormhole.expose('redmine.prefs.listDismissed', {
+    description: 'Redmine issues the caller has hidden from their suggestions, for the Restore list',
+    inputSchema: { type: 'object', properties: {} },
   });
 
   Wormhole.expose('redmine.projects.list', {

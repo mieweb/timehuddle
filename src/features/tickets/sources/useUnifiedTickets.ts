@@ -48,11 +48,11 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
   const [partitions, setPartitions] =
     useState<Record<TicketSourceId, SourcePartition>>(initialPartitions);
 
-  // Guards against a slow response for a superseded context (team switch,
-  // scope change) overwriting a newer one.
+  // Guards against a slow response for a superseded context (a team switch, or a
+  // sign-in as someone else) overwriting a newer one.
   const requestSeq = useRef(0);
 
-  const { userId, teams, redmineScope } = ctx;
+  const { userId, teams } = ctx;
 
   // `teams` and `resolveMemberName` get new identities on every render of the
   // owning component, so the load effect keys off the team ids instead.
@@ -113,7 +113,7 @@ export function useUnifiedTickets(ctx: TicketSourceContext): UnifiedTicketsResul
 
   useEffect(() => {
     load();
-  }, [load, userId, teamsKey, redmineScope]);
+  }, [load, userId, teamsKey]);
 
   const setSourceItems = useCallback((sourceId: TicketSourceId, items: UnifiedTicket[]) => {
     setPartitions((prev) => ({

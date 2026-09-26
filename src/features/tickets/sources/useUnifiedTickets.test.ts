@@ -26,7 +26,6 @@ const ctx: TicketSourceContext = {
   userId: 'u1',
   teams: [{ id: 'team-1', name: 'Platform' }],
   resolveMemberName: () => null,
-  redmineScope: 'mine',
 };
 
 const ticket = (key: string): UnifiedTicket =>

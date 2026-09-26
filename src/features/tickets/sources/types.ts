@@ -9,7 +9,7 @@
  * Normalization happens here, at the read layer, and is never persisted: no
  * source information is written to the core `Ticket` model.
  */
-import type { RedmineScope, TicketSourceId } from '../../../lib/api';
+import type { TicketSourceId } from '../../../lib/api';
 
 /**
  * Registered source identifiers. Defined in `lib/api` because the timer
@@ -110,12 +110,6 @@ export interface TicketSourceContext {
   teams: { id: string; name: string }[];
   /** Resolves a Huddle user id to a display name. */
   resolveMemberName: (userId: string) => string | null;
-  /**
-   * Which Redmine issues to fetch. Source-specific and deliberately so: the
-   * alternative is an untyped options bag, and one named field per source is
-   * easier to follow than that. Revisit if a third source needs its own knob.
-   */
-  redmineScope: RedmineScope;
 }
 
 /**
