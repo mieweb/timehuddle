@@ -271,7 +271,7 @@ function isoDay(ms) {
  * `activity` is skipped when the caller's Redmine id is unknown, and `pinned`
  * when they have no pins — there is nothing to ask in either case.
  */
-export async function gatherRemoteSignals(account, { from, redmineUserId, pinnedIds }) {
+export async function gatherRemoteSignals(account, { from, redmineUserId = null, pinnedIds = [] } = {}) {
   const bound = { timeoutMs: SIGNAL_TIMEOUT_MS };
   const tasks = [
     ['assigned', () => listAssignedIssues(account, bound)],
@@ -296,8 +296,11 @@ export async function gatherRemoteSignals(account, { from, redmineUserId, pinned
   return { answered, failures, attempted: tasks.length };
 }
 
-/** The issue ids in a raw Redmine issues array. */
-const idsIn = (raw) => (raw ?? []).map((issue) => issue?.id).filter((id) => id != null);
+/**
+ * The issue ids in a raw Redmine issues array. Distinct from `idsOf` above, which
+ * reads a *signal* — a signal may carry dates as well as ids.
+ */
+const issueIdsIn = (raw) => (raw ?? []).map((issue) => issue?.id).filter((id) => id != null);
 
 /**
  * Build the relevant list: run the signals, drop what the user has hidden, resolve
@@ -337,7 +340,7 @@ export async function buildRelevantIssues(
   // there is no list to serve, so the caller is told why rather than shown "none".
   if (failures.length === attempted) throw failures[0].reason;
 
-  const assignedIssueIds = idsIn(answered.assigned);
+  const assignedIssueIds = issueIdsIn(answered.assigned);
   const hidden = new Set(hiddenIssueIds ? await hiddenIssueIds(assignedIssueIds) : []);
 
   // `assigned`, `watching` and `pinned` answer with whole issues, so their slim
@@ -381,7 +384,7 @@ export async function buildRelevantIssues(
     {
       running: runningIds,
       assigned: assignedIssueIds,
-      watching: idsIn(answered.watching),
+      watching: issueIdsIn(answered.watching),
       pinned: pinnedIds,
       logged,
       activity,

@@ -152,9 +152,16 @@ describe('redmine (wormhole)', () => {
     }
   });
 
-  it('lists no hidden suggestions for a user with no link', async () => {
-    const res = await wormhole<{ issues: unknown[] }>('redmine.prefs.listDismissed', {}, jwtB);
+  it('reports an unlinked user as not connected when listing hidden suggestions', async () => {
+    // The same flag every other method returns, so Settings does not render a
+    // "Hidden suggestions" panel for someone with no Redmine account.
+    const res = await wormhole<{ connected: boolean; issues: unknown[] }>(
+      'redmine.prefs.listDismissed',
+      {},
+      jwtB,
+    );
     expect(res.ok).toBe(true);
+    expect(res.result.connected).toBe(false);
     expect(res.result.issues).toEqual([]);
   });
 

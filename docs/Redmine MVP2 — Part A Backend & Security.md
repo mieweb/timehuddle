@@ -216,36 +216,51 @@ The `all` scope is what pulled the whole database, so it goes completely rather 
 
 ## Verification
 
-| Gate                                                                            | Result                                                                             |
-| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `meteor-backend` unit + integration (`vitest run`)                              | 437 passed, 30 files                                                               |
-| `npm run test:unit` (frontend)                                                  | 217 passed, 22 files                                                               |
-| `npm run typecheck`, `meteor-backend` `tsc --noEmit`                            | clean                                                                              |
-| `npm run lint`, `eslint server/`                                                | clean (37 pre-existing warnings in `server/`, none in new files)                   |
-| `e2e/redmine/sources-unified.spec.ts`, `e2e/tickets/me-assignee-filter.spec.ts` | 15 passed                                                                          |
-| REST reachability                                                               | test Meteor backend restarted, all four methods answer through the wormhole bridge |
+| Gate                                                                            | Result                                                                                                                   |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `meteor-backend` unit + integration (`vitest run`)                              | 437 passed, 30 files                                                                                                     |
+| `npm run test:unit` (frontend)                                                  | 217 passed, 22 files                                                                                                     |
+| `npm run typecheck`, `meteor-backend` `tsc --noEmit`                            | clean                                                                                                                    |
+| `npm run lint`, `eslint server/`                                                | clean (37 pre-existing warnings in `server/`, none in new files)                                                         |
+| `e2e/redmine/sources-unified.spec.ts`, `e2e/tickets/me-assignee-filter.spec.ts` | 15 passed                                                                                                                |
+| `npm run test:all` (full Playwright suite)                                      | 282 passed, 8 flaky, exit 0 (18.2m)                                                                                      |
+| `npm run format`                                                                | clean — neither MVP2 doc had been run through prettier, and now both are                                                 |
+| REST reachability                                                               | test Meteor backend restarted, all four methods answer through the wormhole bridge                                       |
+| Live REST smoke test (dev backend, signed-in user)                              | all four methods answer; `redmine_issues_list` 404s; the relevant list's 10/min limit fires exactly on the eleventh call |
 
 The test Meteor backend was restarted before the integration run, so those 24 Redmine tests exercised the new code rather than the build that was already loaded.
+
+**About the 8 flaky e2e tests.** All eight failed the same way — the Tickets page's
+`<h1>` not painting inside 10 seconds — and five are in specs this work never
+touched (`issue-detail`, `push-results`, `settings-connection`,
+`composer-responsive`). That is the host contention `playwright.config.ts` sets
+`retries: 2` for, described in its own comment: one worker driving mongod, two
+Meteor instances, Vite and Chromium for eighteen minutes. The two
+`sources-unified` tests among them passed first try when that file was run on its
+own. Nothing in this branch affects whether that heading paints.
+
+**One bug the smoke test found.** `redmine.prefs.listDismissed` answered
+`connected: true` for a user with no Redmine link, as long as they had no hidden
+issues — it read the rows before it read the link. Every other method here reports
+`connected: false`, and Part B's Settings panel keys off that flag to decide
+whether to render at all, so it would have shown a "Hidden suggestions" section
+for an account that does not exist. Fixed, with a test.
+
+**The browser smoke test was not run.** A Chrome instance was holding the MCP
+browser profile and the repo's own instruction is never to close it. The REST
+smoke test above covers what Part A actually is — no UI was added here — and the
+15 e2e tests cover the Tickets table reading the new method through a real
+browser.
 
 ## Acceptance criteria
 
 - [x] No code path can request Redmine issues without a filter (assigned, watcher, time entries, activity ids, pinned ids, or a search) — enforced by `issueQuery`, which throws on an unfiltered query; `listIssues` is deleted
-- [x] `redmine.issues.relevant` returns at most 100 issues, and responds within 8 seconds on the enterprise instance even when one signal is slow — the cap and the 6-second per-signal bound are in code and tested; **the 8-second figure on the enterprise instance is still unmeasured** (see Still to verify)
+- [x] `redmine.issues.relevant` returns at most 100 issues, and responds within 8 seconds on the enterprise instance even when one signal is slow — the cap and the 6-second per-signal bound are in code and tested; **the 8-second figure on the enterprise instance is still unmeasured** (see Open questions)
 - [x] Search returns at most 25 issues and never matches on descriptions or notes — `titles_only=1`, and `searchIssues` returns ids so the excerpt cannot travel
 - [x] No issue content is written to Mongo. `RedmineIssuePrefs` holds ids, states, a boolean and dates only
 - [x] A dismissed issue is gone from that user's suggestions, still findable by search, and back after 15 days or on reassignment
 - [x] Logs contain no query strings, response bodies, search terms or API keys
 - [x] Redirects are not followed, and production refuses Redmine hosts outside the allowlist
-
-## Still to verify against the enterprise instance
-
-Everything above is covered by unit, integration and e2e tests, but nothing in
-Part A has spoken to the real Redmine. These need one session against it:
-
-- [ ] The relevant list responds within 8 seconds with a warm and a cold cache
-- [ ] `/search.json` exists and honours `titles_only=1` (needs Redmine 3.3+)
-- [ ] `/activity.atom` accepts the key as a header. If it does not, the signal drops itself and the list comes back `partial` — no code change either way
-- [ ] `@name` finds colleagues, and the 25-project roster bound is not hit
 
 ## Shipping constraint (read before releasing Part A on its own)
 
@@ -263,10 +278,16 @@ to add to an existing one rather than create a second file.
 
 ## Open questions
 
-- [ ] Which Redmine version is the enterprise instance on? `/search.json` needs 3.3 or later
-- [ ] Does its Atom activity feed accept the API key as a header? If not, the activity signal is dropped for MVP2. **Nothing in the code needs to change either way**: a 401 on the feed drops that one signal and the list is served `partial`, so this is a question about how good the list is, not about whether it works
+Everything above is covered by unit, integration and e2e tests, but **nothing in
+Part A has spoken to the real Redmine**. All four of these are answered by one
+session against the enterprise instance, and none of them is known to need a code
+change:
+
+- [ ] Which Redmine version is the enterprise instance on? `/search.json` needs 3.3 or later, and `titles_only=1` has to be honoured or plain-text search would start matching descriptions
+- [ ] Does its Atom activity feed accept the API key as a header? **Nothing in the code needs to change either way**: a 401 on the feed drops that one signal and the list comes back `partial`. This is a question about how good the list is, not whether it works
+- [ ] Does the relevant list answer within 8 seconds there, cold and warm? The 100-issue cap and the 6-second per-signal bound are in code and tested; the wall-clock figure is not measured
 - [ ] Is 14 days the right window for "recent" time entries and activity?
-- [ ] **New.** Do users on the enterprise instance belong to more than 25 projects? That is the bound on the `@name` roster, and a user past it would find colleagues from their least-numbered projects only. Raising it costs one request per project on a cold five-minute cache
+- [ ] **New.** Do users there belong to more than 25 projects? That is the bound on the `@name` roster, and someone past it would find colleagues from their lowest-numbered projects only. Raising it costs one request per project on a cold five-minute cache
 
 ## Out of scope for MVP2
 

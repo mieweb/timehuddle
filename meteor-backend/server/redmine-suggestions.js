@@ -369,11 +369,14 @@ Meteor.methods({
   async 'redmine.prefs.listDismissed'() {
     const { userId } = await requireIdentity(this);
 
-    const issueIds = await dismissedIssueIds(userId);
-    if (!issueIds.length) return { connected: true, baseUrl: optionalRedmineBaseUrl(), issues: [] };
-
+    // The link is checked before the rows, so an unlinked caller is told
+    // `connected: false` like every other method here rather than `true` with an
+    // empty list — Settings reads that flag to decide what to render at all.
     const account = await findRedmineAccount(userId);
     if (!account) return { connected: false, baseUrl: optionalRedmineBaseUrl(), issues: [] };
+
+    const issueIds = await dismissedIssueIds(userId);
+    if (!issueIds.length) return { connected: true, baseUrl: account.baseUrl, issues: [] };
 
     let raw;
     try {
