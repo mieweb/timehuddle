@@ -108,15 +108,23 @@ RedmineIssuePrefs {
 
 **Tasks**
 
-- [ ] Create the collection with a unique index on `{ userId, issueId }`
-- [ ] Add a TTL index on `updatedAt` with `expireAfterSeconds: 1296000` (15 days) and `partialFilterExpression: { state: 'dismissed' }`, so pins are never deleted
-- [ ] MongoDB's TTL job runs about once a minute, so also filter out dismissals older than 15 days at read time. The expiry is then exact
-- [ ] Rule 5: on dismiss, record whether the issue was assigned to the user at that moment. When building the relevant list, clear any dismissal where that was `false` and the issue is now assigned to them
-- [ ] Implement `redmine.prefs.set` and `redmine.prefs.listDismissed` (see the contract). `listDismissed` resolves titles through `listIssuesByIds` at read time
-- [ ] Validate that `issueId` is a positive integer, reusing `REDMINE_ID` from `ticket-refs.js`
-- [ ] Cap each user at 500 dismissals and remove the oldest first, so the collection cannot grow without limit
-- [ ] Starting a timer on a Redmine issue pins it automatically. Hook this into the existing timer-start path
-- [ ] Unlinking the Redmine account deletes all of that user's prefs
+- [x] Create the collection with a unique index on `{ userId, issueId }`
+- [x] Add a TTL index on `updatedAt` with `expireAfterSeconds: 1296000` (15 days) and `partialFilterExpression: { state: 'dismissed' }`, so pins are never deleted
+- [x] MongoDB's TTL job runs about once a minute, so also filter out dismissals older than 15 days at read time. The expiry is then exact
+- [x] Rule 5: on dismiss, record whether the issue was assigned to the user at that moment. When building the relevant list, clear any dismissal where that was `false` and the issue is now assigned to them
+- [x] Implement `redmine.prefs.set` and `redmine.prefs.listDismissed` (see the contract). `listDismissed` resolves titles through `listIssuesByIds` at read time
+- [x] Validate that `issueId` is a positive integer, reusing `REDMINE_ID` from `ticket-refs.js`
+- [x] Cap each user at 500 dismissals and remove the oldest first, so the collection cannot grow without limit
+- [x] Starting a timer on a Redmine issue pins it automatically. Hook this into the existing timer-start path
+- [x] Unlinking the Redmine account deletes all of that user's prefs
+
+**What changed on the way in**
+
+- **The six rules live in one pure function, `partitionIssuePrefs`** (`redmine-prefs-core.js`), which turns a user's rows into `{ pinnedIds, dismissedIds, reviveIds }`. The first draft of this task implied a Mongo selector per rule — one for live dismissals, one for the reassignment sweep, one for the pins. That would have been three statements of the same knowledge and none of them testable without a database. One query handed to one function is fewer round trips *and* the reason the rules have tests at all (`tests/redmine-prefs-core.test.ts`, one per rule).
+- **Rule 5 is applied on the read that notices it.** `readIssuePrefs` deletes the revived dismissals and leaves them out of `dismissedIds` in the same call, so the relevant list is correct immediately rather than on the call after.
+- **A dismissal asks Redmine whether the issue is already the user's**, and on failure assumes **yes**. Recording "no" when we cannot tell would let the reassignment rule fire on the next list build and undo the dismissal the user just made; assuming "yes" makes it stick for its 15 days, which is what they asked for.
+- **`REDMINE_ID` became `isRedmineIssueId(value)`, exported from `ticket-refs.js`**, and the id guard in `redmine-issue-methods.js` now calls it too. The rule was previously written out three times. `redmine.prefs.set` also *coerces* to a number rather than only checking, so an id arriving as `"42"` over REST cannot become a string row that `$in` will never match again.
+- **`requireRedmineAccount` moved to `redmine-account.js`.** Both method modules had their own copy, which meant the "Connect your Redmine account first." a user sees depended on which method they happened to hit.
 
 ## Task A4: Security hardening
 

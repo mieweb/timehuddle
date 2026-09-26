@@ -24,6 +24,7 @@ import { signProxyJwt, findOrCreateUser, resolveToken } from './auth-bridge';
 import './tickets';
 import './redmine';
 import './redmine-issue-methods';
+import './redmine-suggestions';
 // Imported for its Meteor.startup unique-index creation, not for a method.
 import './redmine-time-sync';
 import './my-board';
@@ -1045,6 +1046,28 @@ Meteor.startup(async() => {
         },
       },
     },
+  });
+
+  Wormhole.expose('redmine.prefs.set', {
+    description:
+      "Pin, hide or clear one Redmine issue in the caller's own suggestions (never touches Redmine)",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        issueId: { type: 'integer' },
+        state: {
+          type: ['string', 'null'],
+          enum: ['pinned', 'dismissed', null],
+          description: 'null clears the preference (Undo / Restore)',
+        },
+      },
+      required: ['issueId', 'state'],
+    },
+  });
+
+  Wormhole.expose('redmine.prefs.listDismissed', {
+    description: 'Redmine issues the caller has hidden from their suggestions, for the Restore list',
+    inputSchema: { type: 'object', properties: {} },
   });
 
   Wormhole.expose('redmine.projects.list', {

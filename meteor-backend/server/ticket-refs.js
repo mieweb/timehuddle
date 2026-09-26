@@ -32,6 +32,15 @@ const KNOWN_SOURCES = new Set([HUDDLE, REDMINE]);
 const REDMINE_ID = /^[1-9]\d*$/;
 
 /**
+ * Whether `value` is a Redmine issue id, whether it arrives as a number (a
+ * Meteor method argument) or as a string (a stored `WorkItem.ticketId`). The one
+ * definition, so a guard added elsewhere cannot drift from this one.
+ */
+export function isRedmineIssueId(value) {
+  return REDMINE_ID.test(String(value));
+}
+
+/**
  * Normalize a source supplied by a caller or read off a stored row.
  * Missing means Huddle: that is what every pre-M3 `WorkItem` is.
  */
@@ -74,7 +83,7 @@ const redmineDisplay = (subject, issueId, baseUrl) => ({
  */
 export async function resolveTicketRef(userId, source, ticketId) {
   if (source === REDMINE) {
-    if (!REDMINE_ID.test(String(ticketId))) {
+    if (!isRedmineIssueId(ticketId)) {
       throw new Meteor.Error('not-found', 'Issue not found');
     }
     const account = await findRedmineAccount(userId);
@@ -121,7 +130,7 @@ async function resolveHuddleDisplays(ticketIds, into) {
 
 /** Resolve Redmine subjects for a batch of issue ids. Best-effort — see below. */
 async function resolveRedmineDisplays(userId, issueIds, into) {
-  const ids = issueIds.filter((id) => REDMINE_ID.test(String(id)));
+  const ids = issueIds.filter(isRedmineIssueId);
   if (!ids.length) return;
   const account = await findRedmineAccount(userId);
   const baseUrl = account?.baseUrl ?? optionalRedmineBaseUrl();

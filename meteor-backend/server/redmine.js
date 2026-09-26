@@ -31,6 +31,7 @@ import { toStatus } from './redmine-status';
 import { toIssueList } from './redmine-issues';
 import { getActivitiesForUser, pickDefaultActivity } from './redmine-activities';
 import { bustUserCaches } from './redmine-cache';
+import { removeUserIssuePrefs } from './redmine-prefs';
 import { buildPushRows, hoursAgree, PUSH_COMMENT, unsentTotals } from './redmine-time-entries';
 import { flagEntry, recordEntry, sentSecondsFor } from './redmine-time-sync';
 import { redmineTicketDaysFor } from './timer-core';
@@ -348,6 +349,10 @@ Meteor.methods({
   async 'redmine.disconnect'() {
     const { userId } = await requireIdentity(this);
     await RedmineLinks.removeAsync({ userId });
+    // Pins and dismissals are issue ids from one instance, and mean nothing on
+    // another — a stale pin would resolve to whatever issue happens to hold that
+    // number next. Unlinking is also how a user says "forget my Redmine data".
+    await removeUserIssuePrefs(userId);
     // Re-linking with a key for a different Redmine account must not be served
     // the previous account's activities, projects or members.
     bustUserCaches(userId);

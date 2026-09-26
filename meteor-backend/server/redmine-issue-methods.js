@@ -16,7 +16,7 @@ import { Meteor } from 'meteor/meteor';
 
 import { RedmineLinks } from './collections';
 import { requireIdentity } from './auth-bridge';
-import { findRedmineAccount } from './redmine-account';
+import { requireRedmineAccount as requireAccount } from './redmine-account';
 import { createUserTtlCache } from './redmine-cache';
 import {
   createIssue,
@@ -36,6 +36,7 @@ import {
   writeFailureReason,
 } from './redmine-issue-writes';
 import { toRedmineMeteorError } from './redmine';
+import { isRedmineIssueId } from './ticket-refs';
 
 const FIVE_MINUTES = 5 * 60 * 1000;
 const projectsCache = createUserTtlCache(FIVE_MINUTES);
@@ -64,15 +65,8 @@ function toWriteMeteorError(err) {
   return new Meteor.Error(code, `${WRITE_FAILURE_MESSAGES[code]}${details}`);
 }
 
-/** The caller's Redmine account, or a `not-connected` error. */
-async function requireAccount(userId) {
-  const account = await findRedmineAccount(userId);
-  if (!account) throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
-  return account;
-}
-
 function requireIssueId(issueId) {
-  if (!Number.isInteger(issueId) || issueId <= 0) {
+  if (!Number.isInteger(issueId) || !isRedmineIssueId(issueId)) {
     throw new Meteor.Error('bad-request', 'A Redmine issue id is required.');
   }
 }

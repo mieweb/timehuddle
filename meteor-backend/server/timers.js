@@ -15,14 +15,33 @@ import { createNotification, userDisplayName } from './notify-core';
 import { requiresApproval, submitChangeRequest } from './timesheet-change-requests';
 import {
   HUDDLE,
+  REDMINE,
   normalizeSource,
   refKey,
   resolveTicketRef,
   resolveTicketRefs,
   sourceSelector,
 } from './ticket-refs';
+import { pinIssueIfUnset } from './redmine-prefs';
 
 const { ObjectId } = MongoInternals.NpmModules.mongodb.module;
+
+/**
+ * Pin a Redmine issue the user has just started timing (MVP2 A3).
+ *
+ * Starting a timer is the strongest statement anyone makes about an issue, and
+ * the pin is what keeps it near the top of their suggestions afterwards — the
+ * `running` signal lasts only as long as the timer does.
+ *
+ * Fire-and-forget: a pin is a convenience, and failing to record one must never
+ * be the reason a timer did not start.
+ */
+function pinTimedRedmineIssue(userId, source, ticketId) {
+  if (normalizeSource(source) !== REDMINE) return;
+  const issueId = Number(ticketId);
+  if (!Number.isSafeInteger(issueId) || issueId <= 0) return;
+  pinIssueIfUnset(userId, issueId).catch(() => {});
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -501,6 +520,7 @@ Meteor.methods({
         createdAt: new Date(),
       });
       session = toPublicSession(await Timers.findOneAsync(sessionId));
+      pinTimedRedmineIssue(userId, ticketSource, ticketId);
     }
 
     // Only notify admins if we actually created a new entry (not when reusing existing)
@@ -533,6 +553,7 @@ Meteor.methods({
       createdAt: new Date(),
     });
     const session = await Timers.findOneAsync(sessionId);
+    pinTimedRedmineIssue(userId, entry.source, entry.ticketId);
     return { session: toPublicSession(session), closedSessionId };
   },
 

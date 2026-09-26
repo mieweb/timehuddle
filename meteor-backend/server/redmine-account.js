@@ -6,6 +6,8 @@
  * Redmine on a user's behalf (`redmine.issues.list`, the source-aware timer
  * paths in `ticket-refs.js`, …). The plaintext key never leaves the server.
  */
+import { Meteor } from 'meteor/meteor';
+
 import { RedmineLinks } from './collections';
 import { linkedRedmineBaseUrl } from './redmine-client';
 import { decryptSecret, envKey } from './redmine-crypto';
@@ -24,4 +26,15 @@ export async function findRedmineAccount(userId) {
     apiKey: decryptSecret(link.apiKey, envKey()),
     baseUrl: linkedRedmineBaseUrl(link.baseUrl),
   };
+}
+
+/**
+ * The caller's account, or a `not-connected` error — for the paths where no link
+ * means "you cannot do this yet" rather than "there is nothing to resolve".
+ * Shared, so the message a user sees does not depend on which method they hit.
+ */
+export async function requireRedmineAccount(userId) {
+  const account = await findRedmineAccount(userId);
+  if (!account) throw new Meteor.Error('not-connected', 'Connect your Redmine account first.');
+  return account;
 }
