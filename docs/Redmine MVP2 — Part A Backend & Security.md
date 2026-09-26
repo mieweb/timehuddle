@@ -10,10 +10,10 @@ Today `listIssues` with `scope: 'all'` returns every issue the user's key can se
 
 **How the work is split**
 
-| Part | Owns | Depends on |
-| --- | --- | --- |
-| A: Backend & Security (this doc) | Meteor methods, Redmine client calls, Mongo collection, security fixes, backend tests | Nothing. Can start now |
-| B: Search Dropdown & UX | Search bar dropdown, dismiss and undo, states, i18n, release note, e2e tests | The API contract below. Can build against a stub until A lands |
+| Part                             | Owns                                                                                  | Depends on                                                     |
+| -------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| A: Backend & Security (this doc) | Meteor methods, Redmine client calls, Mongo collection, security fixes, backend tests | Nothing. Can start now                                         |
+| B: Search Dropdown & UX          | Search bar dropdown, dismiss and undo, states, i18n, release note, e2e tests          | The API contract below. Can build against a stub until A lands |
 
 The API contract in the next section is the handshake between the two parts. Change it only by agreement.
 
@@ -21,12 +21,12 @@ The API contract in the next section is the handshake between the two parts. Cha
 
 Four new Meteor methods. All of them use the caller's own Redmine key, and all return the same slim issue shape.
 
-| Method | Input | Returns |
-| --- | --- | --- |
-| `redmine.issues.relevant` | `{ includeDismissed?: boolean }` | `{ connected, baseUrl, issues: RelevantIssue[], partial }` |
-| `redmine.issues.search` | `{ query: string }` | `{ connected, baseUrl, kind, issues: SlimIssue[] }` |
-| `redmine.prefs.set` | `{ issueId, state: 'pinned' \| 'dismissed' \| null }` | `{ ok: true }`. `null` clears the preference (used by Undo and Restore) |
-| `redmine.prefs.listDismissed` | none | `{ issues: SlimIssue[] }` for the Restore list |
+| Method                        | Input                                                 | Returns                                                                 |
+| ----------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------- |
+| `redmine.issues.relevant`     | `{ includeDismissed?: boolean }`                      | `{ connected, baseUrl, issues: RelevantIssue[], partial }`              |
+| `redmine.issues.search`       | `{ query: string }`                                   | `{ connected, baseUrl, kind, issues: SlimIssue[] }`                     |
+| `redmine.prefs.set`           | `{ issueId, state: 'pinned' \| 'dismissed' \| null }` | `{ ok: true }`. `null` clears the preference (used by Undo and Restore) |
+| `redmine.prefs.listDismissed` | none                                                  | `{ issues: SlimIssue[] }` for the Restore list                          |
 
 **Shapes**
 
@@ -44,14 +44,14 @@ The old `redmine.issues.list` method is removed (see the scope task below).
 
 The method runs one small, filtered Redmine query per signal, all in parallel. It merges the results by issue id, scores them, and returns at most 100.
 
-| Signal | Redmine call | Score |
-| --- | --- | --- |
-| Timer running on it | TimeHuddle's own running `WorkItem` (no Redmine call) | 100 |
-| Assigned to me, open | `/issues.json?assigned_to_id=me&status_id=open&sort=updated_on:desc&limit=100` | 60 |
-| I logged time on it | `/time_entries.json?user_id=me&from=<14 days ago>&limit=100` → issue ids | 50, minus 2 per day since the last entry |
-| My activity feed | `/activity.atom?user_id=<my id>&from=<14 days ago>` → issue ids only | 40, minus 2 per day |
-| Watching, open | `/issues.json?watcher_id=me&status_id=open&limit=50` | 20 |
-| Pinned in TimeHuddle | Pin ids from Task A3 → `/issues.json?issue_id=…&status_id=*` | 30 |
+| Signal               | Redmine call                                                                   | Score                                    |
+| -------------------- | ------------------------------------------------------------------------------ | ---------------------------------------- |
+| Timer running on it  | TimeHuddle's own running `WorkItem` (no Redmine call)                          | 100                                      |
+| Assigned to me, open | `/issues.json?assigned_to_id=me&status_id=open&sort=updated_on:desc&limit=100` | 60                                       |
+| I logged time on it  | `/time_entries.json?user_id=me&from=<14 days ago>&limit=100` → issue ids       | 50, minus 2 per day since the last entry |
+| My activity feed     | `/activity.atom?user_id=<my id>&from=<14 days ago>` → issue ids only           | 40, minus 2 per day                      |
+| Watching, open       | `/issues.json?watcher_id=me&status_id=open&limit=50`                           | 20                                       |
+| Pinned in TimeHuddle | Pin ids from Task A3 → `/issues.json?issue_id=…&status_id=*`                   | 30                                       |
 
 An issue's score is the sum of its signals. Closed issues score −50 unless a timer is running on them. Ties are broken by `updatedAt`, newest first.
 
@@ -69,23 +69,23 @@ An issue's score is the sum of its signals. Closed issues score −50 unless a t
 
 - **The whole list lives in `redmine-relevance.js`, and none of it touches Meteor.** The first shape of this had the signal gathering inside the Meteor method, where nothing about it could be tested — and the behaviour most worth testing is precisely the awkward one: a signal times out, and the list has to arrive anyway. The three things the list needs from Mongo (the caller's pins, whether a timer is running, which issues they have hidden) are now arguments, the last of them a callback, because the hidden set cannot be computed until Redmine has said what is assigned to the user. `redmine-suggestions.js` is left holding the plumbing: identity, the cache, and mapping an error to a client code.
 - **`issueQuery` is the one door to `/issues.json`**, and it throws unless the query carries a narrowing parameter (`issue_id`, `assigned_to_id`, `watcher_id`, `author_id` or `project_id`). `status_id` deliberately does not count: "open issues only" is not a filter, it is most of the database. This is what makes the first acceptance criterion a property of the code rather than a promise about it.
-- **The Atom parse keeps each entry's `<updated>` as well as its id.** The plan said "ids only", but the activity signal *decays* — 40 points minus 2 a day — and there is nothing to measure that against without the entry's own date. A timestamp is not entry text: titles, summaries, content and author names are dropped inside `redmine-atom.js` before anything can score, cache, log or return them, and a test asserts the returned objects have no keys but `issueId` and `at`.
+- **The Atom parse keeps each entry's `<updated>` as well as its id.** The plan said "ids only", but the activity signal _decays_ — 40 points minus 2 a day — and there is nothing to measure that against without the entry's own date. A timestamp is not entry text: titles, summaries, content and author names are dropped inside `redmine-atom.js` before anything can score, cache, log or return them, and a test asserts the returned objects have no keys but `issueId` and `at`.
 - **No XML parser was added.** Ids are read only out of `<link>` hrefs, and nothing but an integer and a parsed date leaves the module, so a mis-parse can drop or duplicate an id but cannot leak a word of an entry. Escaped markup in `content` cannot pose as a link element, and there is a test for that.
 - **The user's own Redmine id usually costs no request.** `redmine.connect` already stores `redmineUserId` on the `redmine_links` row, so the activity signal reads it from there; `/users/current.json` is the cached fallback for rows written before it did. When the id cannot be found at all the activity signal is skipped rather than guessed at.
 - **The batched resolve only fetches what the signals did not already return.** `assigned`, `watching` and `pinned` answer with whole issues, so the 100-id budget goes entirely to the ids that arrive bare from `logged` and the activity feed. If that one call fails the list is still served from the signals that did answer, marked `partial`.
 - **A hidden issue is filtered twice** — out of the ids we bother to resolve, and again out of whatever Redmine answers with. "It is gone from my suggestions" is a promise to the user, and it should not rest on Redmine having replied with exactly the ids it was asked for. A test caught this.
-- **A running timer does not automatically top the list**, because the score is a sum: an issue that is assigned *and* logged today scores 110 against a running timer's 100. In practice the issue being timed carries those signals too, so it wins on the sum. Left as the doc specified.
+- **A running timer does not automatically top the list**, because the score is a sum: an issue that is assigned _and_ logged today scores 110 against a running timer's 100. In practice the issue being timed carries those signals too, so it wins on the sum. Left as the doc specified.
 
 ## Task A2: `redmine.issues.search`
 
 The server decides what kind of query it got, then makes exactly one bounded Redmine call. Searches never return more than 25 issues.
 
-| Query | Example | Redmine call |
-| --- | --- | --- |
-| Issue number | `#1234` or `1234` | `GET /issues/1234.json` |
-| Pasted Redmine URL | `https://redmine.example.org/issues/1234` | Take the id and treat it as `#1234`. Only accept URLs whose host matches the user's linked instance |
-| Assignee | `@alex` | Match the name against members of the user's own projects (the cached project-members lookup), then `/issues.json?assigned_to_id=<id>&status_id=open&limit=25` |
-| Plain text | `login timeout` | `/search.json?q=…&issues=1&titles_only=1&open_issues=1&limit=25`, then `listIssuesByIds` for the slim fields |
+| Query              | Example                                   | Redmine call                                                                                                                                                   |
+| ------------------ | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Issue number       | `#1234` or `1234`                         | `GET /issues/1234.json`                                                                                                                                        |
+| Pasted Redmine URL | `https://redmine.example.org/issues/1234` | Take the id and treat it as `#1234`. Only accept URLs whose host matches the user's linked instance                                                            |
+| Assignee           | `@alex`                                   | Match the name against members of the user's own projects (the cached project-members lookup), then `/issues.json?assigned_to_id=<id>&status_id=open&limit=25` |
+| Plain text         | `login timeout`                           | `/search.json?q=…&issues=1&titles_only=1&open_issues=1&limit=25`, then `listIssuesByIds` for the slim fields                                                   |
 
 - [x] Write a pure `parseRedmineQuery(query, baseUrl)` that returns `{ kind, value }`, and unit-test it
 - [x] Reject queries under 3 characters, except issue numbers
@@ -141,10 +141,10 @@ RedmineIssuePrefs {
 
 **What changed on the way in**
 
-- **The six rules live in one pure function, `partitionIssuePrefs`** (`redmine-prefs-core.js`), which turns a user's rows into `{ pinnedIds, dismissedIds, reviveIds }`. The first draft of this task implied a Mongo selector per rule — one for live dismissals, one for the reassignment sweep, one for the pins. That would have been three statements of the same knowledge and none of them testable without a database. One query handed to one function is fewer round trips *and* the reason the rules have tests at all (`tests/redmine-prefs-core.test.ts`, one per rule).
+- **The six rules live in one pure function, `partitionIssuePrefs`** (`redmine-prefs-core.js`), which turns a user's rows into `{ pinnedIds, dismissedIds, reviveIds }`. The first draft of this task implied a Mongo selector per rule — one for live dismissals, one for the reassignment sweep, one for the pins. That would have been three statements of the same knowledge and none of them testable without a database. One query handed to one function is fewer round trips _and_ the reason the rules have tests at all (`tests/redmine-prefs-core.test.ts`, one per rule).
 - **Rule 5 is applied on the read that notices it.** `readIssuePrefs` deletes the revived dismissals and leaves them out of `dismissedIds` in the same call, so the relevant list is correct immediately rather than on the call after.
 - **A dismissal asks Redmine whether the issue is already the user's**, and on failure assumes **yes**. Recording "no" when we cannot tell would let the reassignment rule fire on the next list build and undo the dismissal the user just made; assuming "yes" makes it stick for its 15 days, which is what they asked for.
-- **`REDMINE_ID` became `isRedmineIssueId(value)`, exported from `ticket-refs.js`**, and the id guard in `redmine-issue-methods.js` now calls it too. The rule was previously written out three times. `redmine.prefs.set` also *coerces* to a number rather than only checking, so an id arriving as `"42"` over REST cannot become a string row that `$in` will never match again.
+- **`REDMINE_ID` became `isRedmineIssueId(value)`, exported from `ticket-refs.js`**, and the id guard in `redmine-issue-methods.js` now calls it too. The rule was previously written out three times. `redmine.prefs.set` also _coerces_ to a number rather than only checking, so an id arriving as `"42"` over REST cannot become a string row that `$in` will never match again.
 - **`requireRedmineAccount` moved to `redmine-account.js`.** Both method modules had their own copy, which meant the "Connect your Redmine account first." a user sees depended on which method they happened to hit.
 
 ## Task A4: Security hardening
@@ -180,12 +180,12 @@ The API key is already encrypted at rest with AES-256-GCM and never sent to the 
 
 **What changed on the way in**
 
-- **`DDPRateLimiter` would have guarded a door this app does not use.** Meteor applies it in `_livedata_method`, the DDP *message* handler. Every call from TimeHuddle arrives through meteor-wormhole's REST bridge, which invokes the method with `Meteor.callAsync` on the server — a path that never reaches `_livedata_method`. A rule would have looked like a limit and enforced nothing. The limit is therefore called from inside the two methods (`rate-limit.js`), at the agreed rates, which covers REST, MCP and DDP with one mechanism and cannot be sidestepped by arriving a different way. The error code is still `too-many-requests`, as the contract promises. The counter is in-process, which is honest for a single Meteor process under PM2 and is the thing to revisit if this is ever scaled horizontally.
-- **The failure log moved from `toRedmineMeteorError` to `redmineRequest`.** The error mapper never knew the method, the path or the duration, so it could not have logged them; the request function knows all four and is also the only place that can log a *network* failure, which never reaches the mapper at all. `toRedmineMeteorError` now only maps. The path is logged with its query string cut off, which is what keeps a search term — possibly a patient's name — out of the log, and there is a test asserting exactly which six keys the log line carries.
+- **`DDPRateLimiter` would have guarded a door this app does not use.** Meteor applies it in `_livedata_method`, the DDP _message_ handler. Every call from TimeHuddle arrives through meteor-wormhole's REST bridge, which invokes the method with `Meteor.callAsync` on the server — a path that never reaches `_livedata_method`. A rule would have looked like a limit and enforced nothing. The limit is therefore called from inside the two methods (`rate-limit.js`), at the agreed rates, which covers REST, MCP and DDP with one mechanism and cannot be sidestepped by arriving a different way. The error code is still `too-many-requests`, as the contract promises. The counter is in-process, which is honest for a single Meteor process under PM2 and is the thing to revisit if this is ever scaled horizontally.
+- **The failure log moved from `toRedmineMeteorError` to `redmineRequest`.** The error mapper never knew the method, the path or the duration, so it could not have logged them; the request function knows all four and is also the only place that can log a _network_ failure, which never reaches the mapper at all. `toRedmineMeteorError` now only maps. The path is logged with its query string cut off, which is what keeps a search term — possibly a patient's name — out of the log, and there is a test asserting exactly which six keys the log line carries.
 - **`REDMINE_BASE_URL`'s own host is always allowed** without appearing in `REDMINE_ALLOWED_HOSTS`. It is the deployment's own configuration rather than user input, and requiring it to be repeated would have broken every existing production install the moment this shipped.
 - **The host check runs at link time as well as per request.** A user whose URL cannot be served is told while they are looking at the field, instead of meeting "Redmine is unreachable" on the Tickets page later.
 - **Redirects are refused before the body is read.** A 3xx is turned into an error carrying `redirected: true` without calling `readErrorMessages`, so a redirect cannot be used to make the server read a body from an unexpected host either.
-- **A rotated key is re-encrypted on decrypt, not on the next Redmine call.** Decrypting successfully *is* a successful use of the previous key, and doing it there means one write per user per rotation in one place (`findRedmineAccount`) rather than a hook on every call site. The write is fire-and-forget: a read path must not fail because a re-encrypt did, and the next read simply tries again.
+- **A rotated key is re-encrypted on decrypt, not on the next Redmine call.** Decrypting successfully _is_ a successful use of the previous key, and doing it there means one write per user per rotation in one place (`findRedmineAccount`) rather than a hook on every call site. The write is fire-and-forget: a read path must not fail because a re-encrypt did, and the next read simply tries again.
 - **The data-minimisation test asserts the exhaustive key list of `toIssue`**, not the absence of three named fields. Every list and search response is built from that one shape, so a future field addition has to change the test deliberately — whereas a test that only banned `description`, `journals` and `custom_fields` would have said nothing about `attachments` or `watchers`.
 - **New env vars are documented where they are set**: `REDMINE_ALLOWED_HOSTS` and `REDMINE_ENCRYPTION_KEY_PREVIOUS` in both `docker-compose.yml` and `ecosystem.config.cjs`.
 
@@ -210,32 +210,56 @@ The `all` scope is what pulled the whole database, so it goes completely rather 
 
 - **`listIssues` is gone, not just its `scope`.** Once `issueQuery` refuses a query that narrows nothing, "list issues" has nothing left to mean, and every caller wants one of the named signal helpers instead. Removing it is what turns the first acceptance criterion into something the code enforces rather than something the reviewer has to check.
 - **Part B's two files were switched here, as agreed.** `src/lib/api.ts` loses `RedmineScope` and `redmineApi.issues.list` and gains all four methods with their types; `redmineSource.ts` reads `redmine.issues.relevant(true)`; `redmineScope` is gone from the source context, the Tickets page and `useUnifiedTickets`. No UI was built — the dropdown is Part B's. The four typed wrappers are there so Part B can build against the real contract instead of a stub.
-- **The e2e mocks had to move with it.** `tests/e2e/fixtures/redmine.ts` and three specs stubbed `issues.list`; they now stub `issues.relevant` (and the fixture's disconnected defaults cover `issues.search` and both prefs methods, so a Part B spec that forgets to stub one gets a coherent disconnected app rather than a live call). The `sources-unified` test that asserted `{ scope: 'all' }` now asserts `{ includeDismissed: true }`, which is the same promise in MVP2's terms: the table shows the user's work and a hidden *suggestion* does not remove a *row*.
+- **The e2e mocks had to move with it.** `tests/e2e/fixtures/redmine.ts` and three specs stubbed `issues.list`; they now stub `issues.relevant` (and the fixture's disconnected defaults cover `issues.search` and both prefs methods, so a Part B spec that forgets to stub one gets a coherent disconnected app rather than a live call). The `sources-unified` test that asserted `{ scope: 'all' }` now asserts `{ includeDismissed: true }`, which is the same promise in MVP2's terms: the table shows the user's work and a hidden _suggestion_ does not remove a _row_.
 - **`tests/redmine.test.ts` gained a test that `redmine.issues.list` is really gone**, so a future reviewer does not have to take the deletion on trust, plus REST-level coverage of the new methods' auth, validation and not-connected paths.
-- **The two-signal caveat on a fresh instance.** Nothing here exercises a *live* Redmine — the integration tests cover the deterministic paths, and the signals are covered against a stubbed `fetch`. The open questions below are what a run against the enterprise instance is for.
+- **The two-signal caveat on a fresh instance.** Nothing here exercises a _live_ Redmine — the integration tests cover the deterministic paths, and the signals are covered against a stubbed `fetch`. The open questions below are what a run against the enterprise instance is for.
 
 ## Verification
 
-| Gate | Result |
-| --- | --- |
-| `meteor-backend` unit + integration (`vitest run`) | 437 passed, 30 files |
-| `npm run test:unit` (frontend) | 217 passed, 22 files |
-| `npm run typecheck`, `meteor-backend` `tsc --noEmit` | clean |
-| `npm run lint`, `eslint server/` | clean (37 pre-existing warnings in `server/`, none in new files) |
-| `e2e/redmine/sources-unified.spec.ts`, `e2e/tickets/me-assignee-filter.spec.ts` | 15 passed |
-| REST reachability | test Meteor backend restarted, all four methods answer through the wormhole bridge |
+| Gate                                                                            | Result                                                                             |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `meteor-backend` unit + integration (`vitest run`)                              | 437 passed, 30 files                                                               |
+| `npm run test:unit` (frontend)                                                  | 217 passed, 22 files                                                               |
+| `npm run typecheck`, `meteor-backend` `tsc --noEmit`                            | clean                                                                              |
+| `npm run lint`, `eslint server/`                                                | clean (37 pre-existing warnings in `server/`, none in new files)                   |
+| `e2e/redmine/sources-unified.spec.ts`, `e2e/tickets/me-assignee-filter.spec.ts` | 15 passed                                                                          |
+| REST reachability                                                               | test Meteor backend restarted, all four methods answer through the wormhole bridge |
 
 The test Meteor backend was restarted before the integration run, so those 24 Redmine tests exercised the new code rather than the build that was already loaded.
 
 ## Acceptance criteria
 
-- [ ] No code path can request Redmine issues without a filter (assigned, watcher, time entries, activity ids, pinned ids, or a search)
-- [ ] `redmine.issues.relevant` returns at most 100 issues, and responds within 8 seconds on the enterprise instance even when one signal is slow
-- [ ] Search returns at most 25 issues and never matches on descriptions or notes
-- [ ] No issue content is written to Mongo. `RedmineIssuePrefs` holds ids, states, a boolean and dates only
-- [ ] A dismissed issue is gone from that user's suggestions, still findable by search, and back after 15 days or on reassignment
-- [ ] Logs contain no query strings, response bodies, search terms or API keys
-- [ ] Redirects are not followed, and production refuses Redmine hosts outside the allowlist
+- [x] No code path can request Redmine issues without a filter (assigned, watcher, time entries, activity ids, pinned ids, or a search) — enforced by `issueQuery`, which throws on an unfiltered query; `listIssues` is deleted
+- [x] `redmine.issues.relevant` returns at most 100 issues, and responds within 8 seconds on the enterprise instance even when one signal is slow — the cap and the 6-second per-signal bound are in code and tested; **the 8-second figure on the enterprise instance is still unmeasured** (see Still to verify)
+- [x] Search returns at most 25 issues and never matches on descriptions or notes — `titles_only=1`, and `searchIssues` returns ids so the excerpt cannot travel
+- [x] No issue content is written to Mongo. `RedmineIssuePrefs` holds ids, states, a boolean and dates only
+- [x] A dismissed issue is gone from that user's suggestions, still findable by search, and back after 15 days or on reassignment
+- [x] Logs contain no query strings, response bodies, search terms or API keys
+- [x] Redirects are not followed, and production refuses Redmine hosts outside the allowlist
+
+## Still to verify against the enterprise instance
+
+Everything above is covered by unit, integration and e2e tests, but nothing in
+Part A has spoken to the real Redmine. These need one session against it:
+
+- [ ] The relevant list responds within 8 seconds with a warm and a cold cache
+- [ ] `/search.json` exists and honours `titles_only=1` (needs Redmine 3.3+)
+- [ ] `/activity.atom` accepts the key as a header. If it does not, the signal drops itself and the list comes back `partial` — no code change either way
+- [ ] `@name` finds colleagues, and the 25-project roster bound is not hit
+
+## Shipping constraint (read before releasing Part A on its own)
+
+**Part A must not reach users without Part B.** It removes the only way to see a
+Redmine issue that is not the user's own — the Tickets table used to list
+everything the key could see — and the replacement is Part B's search bar. On
+this branch alone the table simply shows fewer issues than it did, with nothing
+offered in their place.
+
+For the same reason the **release note is Part B's**, and correctly so: the note
+has to explain the search bar, `#number` and `@person` in the same breath as the
+narrower list, and there is nothing to point at until Part B lands. Add it to
+`release-notes/1.0.3.md` — that version already has a note, and its README says
+to add to an existing one rather than create a second file.
 
 ## Open questions
 
