@@ -1,102 +1,90 @@
 /**
- * Activity Log E2E Tests
+ * Activity Log E2E.
  *
- * 1. All events are recorded and displayed
+ * The log is written by the backend as a side effect of ordinary work, so each
+ * test performs the work first and then asserts the entry it must produce.
+ * Nothing here is conditional: the previous version hid its only real
+ * assertion behind `if (!hasEmpty)`, so an activity log that recorded nothing
+ * at all would still have passed.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
 import { TEST_USERS, loginAs } from '../fixtures/users';
+import { ClockPage } from '../pages/ClockPage';
+import { TicketsPage } from '../pages/TicketsPage';
+
+const activityList = (page: Page) => page.getByRole('list', { name: 'Activity log' });
+const entries = (page: Page) => activityList(page).locator('li');
+
+async function openActivityLog(page: Page): Promise<void> {
+  await page.goto('/app/activity');
+  await expect(page.getByRole('heading', { level: 1, name: 'Activity Log' })).toBeVisible({
+    timeout: 20000,
+  });
+}
 
 test.describe('Activity Log', () => {
-  test('should display activity log page with correct URL', async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
     await loginAs(page, TEST_USERS.owner1);
-    await page.goto('/app/activity');
-    await page
-      .getByRole('heading', { level: 1, name: 'Activity Log' })
-      .waitFor({ state: 'visible' });
+  });
 
-    // Verify correct URL
+  test('renders the activity log page', async ({ page }) => {
+    await openActivityLog(page);
+
     expect(page.url()).toContain('/app/activity');
-
-    // Verify heading
-    await expect(page.getByRole('heading', { level: 1, name: 'Activity Log' })).toBeVisible();
-
-    // Verify description
     await expect(
       page.getByText('A chronological log of your activity in TimeHuddle.'),
     ).toBeVisible();
   });
 
-  test('should show activity events after performing actions', async ({ page }) => {
-    await loginAs(page, TEST_USERS.owner1);
+  test('records a completed shift', async ({ page }) => {
+    const clock = new ClockPage(page);
+    await clock.ensureClockedOut();
+    await clock.ensureClockedIn('Plan for an activity log test');
+    await clock.ensureClockedOut();
 
-    // Perform an action that generates activity: clock in/out
-    await page.goto('/app/clock');
-    await page.getByRole('heading', { level: 1, name: /Clock/i }).waitFor({ state: 'visible' });
+    await openActivityLog(page);
 
-    // If not already clocked in, clock in
-    const clockInBtn = page.getByRole('button', { name: 'Clock in' });
-    if (await clockInBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await clockInBtn.click();
-      await page
-        .getByRole('button', { name: 'Clock out' })
-        .waitFor({ state: 'visible', timeout: 5000 });
-      await page.waitForTimeout(1000);
-      await page.getByRole('button', { name: 'Clock out' }).click();
-      await page
-        .getByRole('button', { name: 'Clock in' })
-        .waitFor({ state: 'visible', timeout: 5000 });
-    }
-
-    // Create a ticket to generate more activity
-    await page.goto('/app/tickets');
-    await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
-    const ticketTitle = `Activity Log Test ${Date.now()}`;
-    await page.getByRole('button', { name: 'New Ticket' }).click();
-    await page.getByPlaceholder('Ticket title').fill(ticketTitle);
-    await page.getByRole('button', { name: 'Create Ticket' }).click();
-    await page.waitForTimeout(2000);
-
-    // Navigate to Activity Log
-    await page.goto('/app/activity');
-    await page
-      .getByRole('heading', { level: 1, name: 'Activity Log' })
-      .waitFor({ state: 'visible' });
-    await page.waitForTimeout(3000);
-
-    // Check if activity items are displayed
-    const noActivity = page.getByText('No activity yet');
-    const hasEmpty = await noActivity.isVisible({ timeout: 3000 }).catch(() => false);
-
-    if (!hasEmpty) {
-      // Activity events should be visible - the page shows a list of events
-      const activityList = page.getByRole('list');
-      if (await activityList.isVisible({ timeout: 3000 }).catch(() => false)) {
-        const items = activityList.locator('li, [role="listitem"]');
-        const count = await items.count();
-        expect(count).toBeGreaterThan(0);
-      }
-    }
-    // Note: Activity log depends on the backend recording events.
-    // If no events are recorded, the empty state is still valid.
+    await expect(entries(page).filter({ hasText: 'Clocked in' }).first()).toBeVisible({
+      timeout: 20000,
+    });
+    await expect(entries(page).filter({ hasText: 'Clocked out' }).first()).toBeVisible({
+      timeout: 20000,
+    });
   });
 
-  test('should show all types of events', async ({ page }) => {
-    await loginAs(page, TEST_USERS.owner1);
-    await page.goto('/app/activity');
-    await page
-      .getByRole('heading', { level: 1, name: 'Activity Log' })
-      .waitFor({ state: 'visible' });
-    await page.waitForTimeout(3000);
+  test('records a created ticket, by title', async ({ page }) => {
+    const title = `Activity Log Test ${Date.now()}`;
+    const tickets = new TicketsPage(page);
+    await tickets.goto();
+    await tickets.createTicket(title);
 
-    // Verify the activity log container is rendered
-    await expect(page.getByRole('heading', { level: 1, name: 'Activity Log' })).toBeVisible();
-    await expect(
-      page.getByText('A chronological log of your activity in TimeHuddle.'),
-    ).toBeVisible();
+    await openActivityLog(page);
 
-    // The log shows events like "clocked in", "created ticket", etc.
-    // We just verify the page renders without errors
-    const mainContent = page.getByRole('main');
-    await expect(mainContent).toBeVisible();
+    await expect(entries(page).filter({ hasText: title })).toHaveCount(1, { timeout: 20000 });
+    await expect(entries(page).filter({ hasText: title })).toContainText('Created ticket');
+  });
+
+  test('keeps both kinds of event in one chronological list', async ({ page }) => {
+    // The log merges sources — clock events come from `clockevents`, ticket
+    // events from the ticket activity feed — so one of them going missing is
+    // only visible when both are expected at once.
+    const clock = new ClockPage(page);
+    await clock.ensureClockedOut();
+    await clock.ensureClockedIn('Plan for a combined activity log test');
+
+    const title = `Combined Activity ${Date.now()}`;
+    const tickets = new TicketsPage(page);
+    await tickets.goto();
+    await tickets.createTicket(title);
+    await clock.ensureClockedOut();
+
+    await openActivityLog(page);
+
+    await expect(entries(page).filter({ hasText: 'Clocked in' }).first()).toBeVisible({
+      timeout: 20000,
+    });
+    await expect(entries(page).filter({ hasText: title })).toHaveCount(1);
+    await expect(entries(page).count()).resolves.toBeGreaterThanOrEqual(3);
   });
 });

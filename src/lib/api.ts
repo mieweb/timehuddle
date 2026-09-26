@@ -1062,8 +1062,15 @@ export const ticketApi = {
   getTicket: (id: string) =>
     wormholeCall<Record<string, unknown>>('tickets.get', { ticketId: id }).then(toTicket),
 
-  createTicket: (data: { teamId: string; title: string; github?: string }) =>
-    wormholeCall<Record<string, unknown>>('tickets.create', data).then(toTicket),
+  /** Create a ticket. `assignedToUserIds` defaults to the creator when omitted. */
+  createTicket: (data: {
+    teamId: string;
+    title: string;
+    github?: string;
+    description?: string;
+    priority?: string;
+    assignedToUserIds?: string[];
+  }) => wormholeCall<Record<string, unknown>>('tickets.create', data).then(toTicket),
 
   updateTicket: (id: string, updates: { title?: string; github?: string; description?: string }) =>
     wormholeCall<Record<string, unknown>>('tickets.update', { ticketId: id, ...updates }).then(
@@ -1413,6 +1420,23 @@ export const teamApi = {
 
 // ─── Clock API ────────────────────────────────────────────────────────────────
 
+/**
+ * One ticket-timer session that ran inside a shift, as the timesheet renders it.
+ * `title`/`url` are resolved server-side at read time — a Huddle ticket links
+ * in-app, a Redmine issue links out to the instance.
+ */
+export interface ShiftTicketSession {
+  id: string;
+  workItemId: string;
+  source: TicketSourceId;
+  ticketId: string;
+  title: string | null;
+  url: string | null;
+  startTime: number;
+  endTime: number | null;
+  durationSeconds: number | null;
+}
+
 export interface ClockEvent {
   id: string;
   userId: string;
@@ -1435,6 +1459,8 @@ export interface ClockEvent {
   /** @deprecated No longer set by the API — use breaks[].endTime === null to find active break. */
   pausedAt?: number | null;
   endTime: number | null;
+  /** Ticket timers that ran during this shift. Only `clock.timesheet` returns these. */
+  ticketSessions?: ShiftTicketSession[];
 }
 
 // ─── Timesheet change approvals ───────────────────────────────────────────────
@@ -1701,6 +1727,30 @@ export const notificationApi = {
   testPush: () => wormholeCall<{ ok: boolean }>('notifications.testPush', {}),
 };
 
+/** Identity-only reference to a ticket, independent of source (Huddle, Redmine, …). */
+export interface MyBoardRef {
+  sourceId: string;
+  ticketId: string;
+}
+
+/** A "My Board" entry as stored server-side — no title/status snapshot. */
+export interface MyBoardEntry extends MyBoardRef {
+  addedAt: string;
+}
+
+export const myBoardApi = {
+  /** List the signed-in user's My Board entries (identity only). */
+  list: () => wormholeCall<{ entries: MyBoardEntry[] }>('myBoard.list', {}).then((r) => r.entries),
+
+  /** Add tickets to the signed-in user's My Board. Idempotent — re-adding is a no-op. */
+  addMany: (refs: MyBoardRef[]) =>
+    wormholeCall<{ addedCount: number }>('myBoard.addMany', { refs }),
+
+  /** Remove tickets from the signed-in user's My Board. */
+  removeMany: (refs: MyBoardRef[]) =>
+    wormholeCall<{ removedCount: number }>('myBoard.removeMany', { refs }),
+};
+
 // ─── Attachments ──────────────────────────────────────────────────────────────
 export type AttachmentKind = 'clock' | 'ticket';
 export type AttachmentType = 'video' | 'image' | 'link';
@@ -1734,12 +1784,20 @@ export const attachmentApi = {
 
 // ─── Timer API ────────────────────────────────────────────────────────────────
 
-/** A WorkItem is the per-user per-ticket per-day timesheet row. */
+/** Where a ticket comes from. Huddle's own tickets, or a linked Redmine instance. */
+export type TicketSourceId = 'huddle' | 'redmine';
+
+/**
+ * A WorkItem is the per-user per-source per-ticket per-day timesheet row.
+ * `displayTitle`/`displayUrl` are resolved server-side on read, never stored.
+ */
 export interface WorkItem {
   id: string;
   userId: string;
+  source: TicketSourceId;
   ticketId: string;
   displayTitle: string | null;
+  displayUrl: string | null;
   date: string; // UTC "YYYY-MM-DD"
   note?: string;
   createdAt: string;
@@ -1751,6 +1809,8 @@ export interface Timer {
   id: string;
   workItemId: string;
   userId: string;
+  /** The shift this session ran inside. Null for sessions written before M3. */
+  clockEventId: string | null;
   date: string;
   startTime: number; // epoch ms
   endTime: number | null;
@@ -1782,10 +1842,24 @@ function clientTz(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
+/** One of the caller's timer sessions on a ticket. `endTime` is null while running. */
+export interface TicketSession {
+  id: string;
+  date: string;
+  startTime: number;
+  endTime: number | null;
+  durationSeconds: number | null;
+}
+
 export const timerApi = {
-  /** Create a WorkItem for the given ticket + date. Optionally start a timer immediately. */
+  /**
+   * Create a WorkItem for the given ticket + date. Optionally start a timer.
+   * `source` defaults to `'huddle'` server-side. Starting a timer requires an
+   * active shift and rejects with `no-active-shift` when there is none.
+   */
   createEntry: (data: {
     ticketId: string;
+    source?: TicketSourceId;
     date: string;
     note?: string;
     notifyAdmins?: boolean;
@@ -1865,9 +1939,16 @@ export const timerApi = {
     return wormholeCall<{ days: WeekDay[] }>('timers.getWeek', { date, tz }).then((r) => r.days);
   },
 
+  /** The caller's own timer sessions on one ticket, newest first (running one included). */
+  getTicketSessions: (ticketId: string, source: TicketSourceId) =>
+    wormholeCall<{ sessions: TicketSession[] }>('timers.getTicketSessions', {
+      ticketId,
+      source,
+    }).then((r) => r.sessions),
+
   /** Get total seconds for a ticket from all closed Timers. */
-  getTicketTotal: (ticketId: string) =>
-    wormholeCall<{ totalSeconds: number }>('timers.getTicketTotal', { ticketId }).then(
+  getTicketTotal: (ticketId: string, source: TicketSourceId = 'huddle') =>
+    wormholeCall<{ totalSeconds: number }>('timers.getTicketTotal', { ticketId, source }).then(
       (r) => r.totalSeconds,
     ),
 
@@ -2068,6 +2149,301 @@ export const tokenApi = {
 
   revoke: (id: string): Promise<void> =>
     wormholeCall<{ success: boolean }>('tokens.revoke', { tokenId: id }).then(() => undefined),
+};
+
+// ─── Redmine account link ───────────────────────────────────────────────────
+
+/** Client-safe Redmine connection status. Never carries the API key. */
+export interface RedmineStatus {
+  connected: boolean;
+  redmineUserId?: number;
+  redmineLogin?: string;
+  redmineName?: string;
+  baseUrl?: string;
+  linkedAt?: string | null;
+  /** The user's chosen time-entry activity, or null until they pick one. */
+  defaultActivityId?: number | null;
+  /** Whether this deployment lets users link their own Redmine URL (dev/test only). */
+  customUrlAllowed?: boolean;
+  /** The server's Redmine URL — what a custom URL field starts from. */
+  defaultBaseUrl?: string | null;
+}
+
+/** Which issues to fetch: assigned to me, or everything the key can see. */
+export type RedmineScope = 'mine' | 'all';
+
+/** Why a previewed ticket-day cannot be sent, or null when it can. */
+export type RedmineBlockedReason = 'too-short' | 'issue-unavailable' | 'no-activity';
+
+/** One ticket-day as the confirmation dialog renders it. */
+export interface RedmineTimeEntryRow {
+  ticketId: string;
+  /** The day being logged, `YYYY-MM-DD`. */
+  date: string;
+  /** Seconds not yet sent to Redmine — what this push would cover. */
+  seconds: number;
+  /** Seconds already sent for this ticket-day by earlier pushes (D5). */
+  alreadySentSeconds: number;
+  /** Decimal hours for `seconds`, rounded once to 2dp — what Redmine will store. */
+  hours: number;
+  subject: string | null;
+  trackerName: string | null;
+  issueMissing: boolean;
+  activityId: number | null;
+  activityName: string | null;
+  /** Which rule chose the activity: `tracker`, `chosen`, `named`, … */
+  activityReason: string;
+  blockedReason: RedmineBlockedReason | null;
+}
+
+export interface RedmineTimeEntryPreview {
+  connected: boolean;
+  /** False while a shift is open or a ticket timer is running. */
+  idle: boolean;
+  rows: RedmineTimeEntryRow[];
+  baseUrl: string | null;
+}
+
+export interface RedmineTimeEntryPushRequest {
+  ticketId: string;
+  date: string;
+  /** Optional override of the resolved activity. */
+  activityId?: number;
+}
+
+/** Per-entry outcome — a partial failure leaves the successful rows synced. */
+export interface RedmineTimeEntryPushOutcome {
+  ticketId: string | null;
+  date: string | null;
+  hours?: number;
+  ok: boolean;
+  /** Present on failure: `no-log-time-permission`, `unreachable`, … */
+  reason?: string;
+  entryId?: number;
+  storedHours?: number;
+}
+
+export interface RedmineTimeEntryPushResult {
+  results: RedmineTimeEntryPushOutcome[];
+}
+
+/** A Redmine `{ id, name }` reference (project, assignee, priority, tracker). */
+export interface RedmineNamed {
+  id: number;
+  name: string;
+}
+
+/**
+ * A Redmine issue status. `isClosed` comes from Redmine's own `is_closed` flag —
+ * statuses are instance-defined free text, so the name alone cannot tell us
+ * whether an issue is closed.
+ */
+export interface RedmineIssueStatus extends RedmineNamed {
+  isClosed: boolean;
+}
+
+/** Read-only Redmine issue shape, as shaped server-side by `redmine-issues.js`. */
+export interface RedmineIssue {
+  id: number;
+  subject: string;
+  project: RedmineNamed | null;
+  status: RedmineIssueStatus | null;
+  assignedTo: RedmineNamed | null;
+  priority: RedmineNamed | null;
+  tracker: RedmineNamed | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+/** Response for `redmine.issues.list`. `connected: false` → user has no link. */
+export interface RedmineIssueList {
+  connected: boolean;
+  baseUrl: string | null;
+  issues: RedmineIssue[];
+}
+
+/**
+ * One Redmine issue as the M6 edit form sees it: the list shape plus its
+ * description, author, and the statuses the caller may move it to (the current
+ * status first — Redmine's workflow for this user decides the rest).
+ */
+export interface RedmineIssueDetail extends RedmineIssue {
+  description: string;
+  author: RedmineNamed | null;
+  allowedStatuses: RedmineIssueStatus[];
+}
+
+/** One field change in a Redmine journal; `from`/`to` are null when not shown. */
+export interface RedmineJournalChange {
+  field: string;
+  from: string | null;
+  to: string | null;
+}
+
+/** One entry of an issue's Redmine history: a comment, field changes, or both. */
+export interface RedmineJournal {
+  id: number;
+  user: RedmineNamed | null;
+  createdAt: string | null;
+  notes: string;
+  changes: RedmineJournalChange[];
+}
+
+/** A Redmine issue priority. `isDefault` is the instance's own default. */
+export interface RedminePriority extends RedmineNamed {
+  isDefault: boolean;
+}
+
+/** What the create/edit form offers for one project. `me` is the caller's Redmine user id. */
+export interface RedmineFormOptions {
+  trackers: RedmineNamed[];
+  assignees: RedmineNamed[];
+  priorities: RedminePriority[];
+  defaultPriorityId: number | null;
+  me: number | null;
+}
+
+/** Fields for creating an issue. Omitted/null optional fields take Redmine's defaults. */
+export interface RedmineIssueCreateInput {
+  projectId: number;
+  subject: string;
+  trackerId?: number | null;
+  description?: string;
+  assigneeId?: number | null;
+  priorityId?: number | null;
+}
+
+/** Fields an edit may change. Absent keys are left alone; `assigneeId: null` unassigns. */
+export interface RedmineIssueEdits {
+  statusId?: number;
+  priorityId?: number;
+  assigneeId?: number | null;
+  description?: string;
+}
+
+/**
+ * Result of a create or update. `mismatches` lists Redmine field names it
+ * stored differently from what was sent (confirmed by read-back).
+ */
+export interface RedmineIssueWriteResult {
+  baseUrl: string | null;
+  issue: RedmineIssueDetail | null;
+  mismatches: string[];
+}
+
+/** Create additionally reports the new id, and `confirmed: false` if the read-back failed. */
+export interface RedmineIssueCreateResult extends RedmineIssueWriteResult {
+  issueId: number;
+  confirmed: boolean;
+}
+
+/** A Redmine time-entry activity. Redmine rejects a time entry without one. */
+export interface RedmineActivity {
+  id: number;
+  name: string;
+  isDefault: boolean;
+}
+
+/**
+ * Which rule chose the active activity — lets the UI say so rather than pick
+ * silently. `tracker` means it was derived from the issue's Redmine tracker (D4).
+ */
+export type RedmineActivityReason =
+  'chosen' | 'tracker' | 'is_default' | 'named' | 'first' | 'none';
+
+/**
+ * Response for `redmine.activities.*`. An empty `activities` on a connected
+ * account means the instance has none configured and cannot receive time.
+ */
+export interface RedmineActivityList {
+  connected: boolean;
+  activities: RedmineActivity[];
+  selectedId: number | null;
+  selectedReason: RedmineActivityReason;
+}
+
+export const redmineApi = {
+  /** Current Redmine connection status for the signed-in user. */
+  status: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.status', {}),
+
+  /**
+   * Validate and link a personal Redmine API key. `baseUrl` picks the instance,
+   * and is honoured only when the status reports `customUrlAllowed`.
+   */
+  connect: (apiKey: string, baseUrl?: string): Promise<RedmineStatus> =>
+    wormholeCall<RedmineStatus>('redmine.connect', { apiKey, ...(baseUrl ? { baseUrl } : {}) }),
+
+  /** Remove the Redmine link. */
+  disconnect: (): Promise<RedmineStatus> => wormholeCall<RedmineStatus>('redmine.disconnect', {}),
+
+  issues: {
+    /** List the caller's Redmine issues (read-only) for the given scope. */
+    list: (scope: RedmineScope): Promise<RedmineIssueList> =>
+      wormholeCall<RedmineIssueList>('redmine.issues.list', { scope }),
+
+    /** One issue with its description, allowed status changes and Redmine history. */
+    get: (
+      issueId: number,
+    ): Promise<{
+      baseUrl: string | null;
+      issue: RedmineIssueDetail;
+      journals: RedmineJournal[];
+    }> => wormholeCall('redmine.issues.get', { issueId }),
+
+    /** Create an issue as the caller (authored under their own key). */
+    create: (input: RedmineIssueCreateInput): Promise<RedmineIssueCreateResult> =>
+      wormholeCall<RedmineIssueCreateResult>('redmine.issues.create', { ...input }),
+
+    /**
+     * Edit an issue as the caller. Refused with code `stale` if it changed in
+     * Redmine after `expectedUpdatedAt` (the `updatedAt` the form opened with).
+     */
+    update: (
+      issueId: number,
+      expectedUpdatedAt: string,
+      edits: RedmineIssueEdits,
+    ): Promise<RedmineIssueWriteResult> =>
+      wormholeCall<RedmineIssueWriteResult>('redmine.issues.update', {
+        issueId,
+        expectedUpdatedAt,
+        edits: { ...edits },
+      }),
+  },
+
+  projects: {
+    /** Projects the caller's key can see. */
+    list: (): Promise<{ projects: RedmineNamed[] }> => wormholeCall('redmine.projects.list', {}),
+
+    /** A project's trackers, assignable users and the instance's priorities. */
+    formOptions: (projectId: number): Promise<RedmineFormOptions> =>
+      wormholeCall<RedmineFormOptions>('redmine.projects.formOptions', { projectId }),
+  },
+
+  activities: {
+    /** The instance's time-entry activities and which one is active. */
+    list: (): Promise<RedmineActivityList> =>
+      wormholeCall<RedmineActivityList>('redmine.activities.list', {}),
+
+    /** Set the activity the caller's synced time is logged under. */
+    setDefault: (activityId: number): Promise<RedmineActivityList> =>
+      wormholeCall<RedmineActivityList>('redmine.activities.setDefault', { activityId }),
+  },
+
+  timeEntries: {
+    /** What a push would send. Read-only — creates nothing in Redmine. */
+    preview: (): Promise<RedmineTimeEntryPreview> =>
+      wormholeCall<RedmineTimeEntryPreview>('redmine.timeEntries.preview', {}),
+
+    /**
+     * Send the confirmed ticket-days to Redmine.
+     *
+     * **Irreversible** — entries cannot be edited or deleted afterwards (D1).
+     * Hours are recomputed server-side; only the selection and any activity
+     * override travel from here.
+     */
+    push: (entries: RedmineTimeEntryPushRequest[]): Promise<RedmineTimeEntryPushResult> =>
+      wormholeCall<RedmineTimeEntryPushResult>('redmine.timeEntries.push', { entries }),
+  },
 };
 
 // ─── TimeHarbor Share ─────────────────────────────────────────────────────────

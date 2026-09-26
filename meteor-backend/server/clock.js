@@ -33,6 +33,7 @@ import {
   closeRunningForUser,
   findClosedAtTime,
   restartTimerForWorkItem,
+  ticketSessionsForClockEvents,
 } from './timer-core';
 import { createNotification, notifyClockAdmins, userDisplayName } from './notify-core';
 import { emitActivity, ActivityType } from './activity-core';
@@ -540,7 +541,7 @@ Meteor.methods({
     // Restart the timer that was stopped when the break began.
     const closedTimer = await findClosedAtTime(userId, openBreak.startTime);
     if (closedTimer) {
-      await restartTimerForWorkItem(userId, closedTimer.workItemId, now);
+      await restartTimerForWorkItem(userId, closedTimer.workItemId, now, eventId);
     }
 
     return toPublicClockEvent(event, updatedBreaks);
@@ -683,9 +684,16 @@ Meteor.methods({
       breaksByEventId.set(b.clockEventId, arr);
     }
 
+    // Ticket timers that ran inside these shifts (M3.1). A shift with none gets
+    // an empty array, which the row renders exactly as it did before.
+    const ticketSessionsByEvent = await ticketSessionsForClockEvents(targetUserId, eventIds);
+
     const now = Date.now();
     const sessions = events
-      .map((e) => toPublicClockEvent(e, breaksByEventId.get(e._id.toHexString()) ?? []))
+      .map((e) => ({
+        ...toPublicClockEvent(e, breaksByEventId.get(e._id.toHexString()) ?? []),
+        ticketSessions: ticketSessionsByEvent.get(e._id.toHexString()) ?? [],
+      }))
       .sort((a, b) => b.startTime - a.startTime);
 
     const completed = sessions.filter((s) => s.endTime !== null);

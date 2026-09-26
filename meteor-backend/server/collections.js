@@ -24,6 +24,27 @@ export const TimesheetChangeRequests = new Mongo.Collection('timesheetchangerequ
   idGeneration: 'MONGO',
 });
 
+// One row per TimeHuddle user who has linked a personal Redmine account.
+// The personal API key is stored encrypted at rest (see redmine-crypto.js) and
+// is never returned to the client.
+export const RedmineLinks = new Mongo.Collection('redmine_links', { idGeneration: 'MONGO' });
+// One row per (user, ticket) a user has added to their personal "My Board".
+// Identity only — { userId, sourceId, ticketId, addedAt } — no title/status
+// snapshot. Display fields are resolved client-side against already-fetched
+// unified tickets (Core Model Data Discipline).
+export const MyBoard = new Mongo.Collection('my_board', { idGeneration: 'MONGO' });
+// One row per (user, Redmine issue, day) — the exact grain of a Redmine "Spent
+// time" entry, holding the remote entry id so a re-sync updates rather than
+// duplicates.
+//
+// Deliberately NOT a field on WorkItems: `timers.copyPrevious` dedupes on a
+// signature that includes `note` and `sortOrder`, so sibling WorkItem rows for
+// the same user + source + ticket + date legitimately exist. Two siblings would
+// each carry their own entry id and produce two Redmine entries for one day,
+// which is the single invariant the sync is judged on. A unique index here
+// enforces the grain that WorkItems cannot (see redmine-time-sync.js).
+export const RedmineTimeSyncs = new Mongo.Collection('redmine_time_syncs', { idGeneration: 'MONGO' });
+
 /** Raw native-driver handle for collections we only read ad hoc (sessions, users). */
 export function rawDb() {
   return Tickets.rawDatabase();

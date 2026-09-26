@@ -99,6 +99,20 @@ graph LR
 - **Dark / light theme** — persisted, flash-free on load
 - **Strict tooling** — ESLint, Prettier, simple-import-sort, TypeScript strict mode
 
+## Redmine integration (v1)
+
+Connect your Redmine account once, and you shouldn't need to open Redmine to do your day's work.
+
+- **Personal API key** — link your own account in Settings; every call runs as you, so Redmine applies your permissions and records you as the author
+- **One ticket list** — your Redmine issues sit beside Huddle tickets, with source as a column and filter rather than a mode
+- **Time tracking** — start a timer on a Redmine issue from My Board; starts, stops and breaks are recorded in TimeHuddle
+- **Confirmed push** — send your hours to Redmine as "Spent time" when your day is done, after reviewing a summary; entries are created, never edited or deleted
+- **Create and update issues** — new issues, plus status, priority, assignee and description, from a Redmine issue page inside TimeHuddle
+
+Requires Redmine 5.0+ with the REST API enabled, and `REDMINE_BASE_URL` set for the deployment.
+
+📖 **[Redmine integration — MVP 1](docs/redmine-integration-mvp1.md)** — what it does, how the flow works, what you need, and what is deliberately out of scope.
+
 ## Screenshots
 
 <div align="center">
@@ -190,6 +204,9 @@ VAPID_PRIVATE_KEY=your_vapid_private_key
 # Redmine integration (optional — see below)
 REDMINE_BASE_URL=https://redmine.example.org
 REDMINE_ENCRYPTION_KEY=a_long_random_secret
+# Dev/test only: let each user link their own Redmine URL in Settings. The server
+# fetches whatever URL is linked, so never enable this in production.
+# REDMINE_ALLOW_CUSTOM_URL=true
 ```
 
 ---

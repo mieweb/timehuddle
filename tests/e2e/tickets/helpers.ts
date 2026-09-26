@@ -17,6 +17,22 @@ export async function goToTickets(page: Page): Promise<void> {
   await page.getByRole('heading', { level: 1, name: 'Tickets' }).waitFor({ state: 'visible' });
 }
 
+/**
+ * The table row for a ticket, by title.
+ *
+ * Rows are `<tr data-ticket-id>` — the unified table replaced the old `<ul>`/`<li>`
+ * list, and the only `<li>` left in it is the per-source error banner. Scoped to
+ * the visible tab panel because both Tickets and My Board stay mounted to keep
+ * their state, so an unscoped match would also hit the hidden panel's copy of
+ * the same row. Mirrors `TicketsPage.rowByTitle`.
+ */
+export function ticketRow(page: Page, title: string) {
+  return page
+    .locator('[role="tabpanel"]:visible')
+    .locator('tr[data-ticket-id]')
+    .filter({ hasText: title });
+}
+
 export async function createTicket(page: Page, title: string): Promise<void> {
   await goToTickets(page);
   await page.getByRole('button', { name: 'New Ticket' }).click();
@@ -28,8 +44,7 @@ export async function createTicket(page: Page, title: string): Promise<void> {
 
 export async function deleteTicket(page: Page, title: string): Promise<void> {
   await goToTickets(page);
-  const ticketRow = page.locator('li').filter({ hasText: title }).first();
-  await ticketRow.getByRole('button', { name: 'Ticket options' }).click();
+  await ticketRow(page, title).first().getByRole('button', { name: 'Ticket options' }).click();
   await page.waitForTimeout(200);
   await page.getByText('Delete Ticket', { exact: true }).click();
   await page.waitForTimeout(300);

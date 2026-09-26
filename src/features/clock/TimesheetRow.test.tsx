@@ -168,6 +168,84 @@ describe('TimesheetRow', () => {
     expect(onEdit).toHaveBeenCalledWith(session);
   });
 
+  it('renders a shift with no ticket sessions exactly as before — no disclosure', () => {
+    render(
+      <table>
+        <tbody>
+          <TimesheetRow
+            session={buildSession()}
+            teams={[{ id: 'team-1', name: 'Mobile test' }]}
+            onEdit={vi.fn()}
+          />
+        </tbody>
+      </table>,
+    );
+
+    expect(screen.queryByRole('button', { name: /ticket timer/i })).toBeNull();
+  });
+
+  it('nests ticket sessions under the shift they ran inside', () => {
+    const session: ClockEvent = {
+      ...buildSession(),
+      ticketSessions: [
+        {
+          id: 'ts1',
+          workItemId: 'wi1',
+          source: 'huddle',
+          ticketId: 'tkt1',
+          title: 'Fix the thing',
+          url: '/app/tickets/tkt1',
+          startTime: new Date('2026-05-19T10:30:00').getTime(),
+          endTime: new Date('2026-05-19T10:45:00').getTime(),
+          durationSeconds: 900,
+        },
+        {
+          id: 'ts2',
+          workItemId: 'wi2',
+          source: 'redmine',
+          ticketId: '4242',
+          title: 'Upstream bug',
+          url: 'https://redmine.example.com/issues/4242',
+          startTime: new Date('2026-05-19T10:45:00').getTime(),
+          endTime: null,
+          durationSeconds: null,
+        },
+      ],
+    };
+
+    render(
+      <table>
+        <tbody>
+          <TimesheetRow
+            session={session}
+            teams={[{ id: 'team-1', name: 'Mobile test' }]}
+            onEdit={vi.fn()}
+          />
+        </tbody>
+      </table>,
+    );
+
+    // Collapsed by default — the shift reads the same until it is expanded.
+    expect(screen.queryByText('Fix the thing')).toBeNull();
+
+    const toggle = screen.getByRole('button', { name: /Show 2 ticket timers for this shift/i });
+    fireEvent.click(toggle);
+
+    const huddleLink = screen.getByText('Fix the thing') as HTMLAnchorElement;
+    expect(huddleLink.getAttribute('href')).toBe('/app/tickets/tkt1');
+    expect(huddleLink.getAttribute('target')).toBeNull();
+
+    const redmineLink = screen.getByText('Upstream bug') as HTMLAnchorElement;
+    expect(redmineLink.getAttribute('href')).toBe('https://redmine.example.com/issues/4242');
+    expect(redmineLink.getAttribute('target')).toBe('_blank');
+
+    expect(screen.getByText('15m')).toBeTruthy();
+    expect(screen.getByText('Redmine')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Hide 2 ticket timers/i }));
+    expect(screen.queryByText('Fix the thing')).toBeNull();
+  });
+
   it('rounds duration display to match minute-level timestamps', () => {
     const session: ClockEvent = {
       id: 'session-rounded',

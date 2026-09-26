@@ -69,6 +69,7 @@ describe('useRunningTicket', () => {
       id: 'sess1',
       workItemId: 'wi1',
       userId: 'u1',
+      clockEventId: 'ce1',
       date: '2026-09-03',
       startTime: Date.now() - 3_600_000,
       endTime: null,
@@ -79,8 +80,10 @@ describe('useRunningTicket', () => {
         entry: {
           id: 'wi1',
           userId: 'u1',
+          source: 'huddle' as const,
           ticketId: 'tkt1',
           displayTitle: 'Overnight ticket',
+          displayUrl: '/app/tickets/tkt1',
           date: '2026-09-03',
           createdAt: '2026-09-03T20:00:00.000Z',
         },
@@ -91,8 +94,11 @@ describe('useRunningTicket', () => {
     const { result } = renderHook(() => useRunningTicket(true));
     await waitFor(() => {
       expect(result.current).toEqual({
+        key: 'huddle:tkt1',
+        source: 'huddle',
         id: 'tkt1',
         title: 'Overnight ticket',
+        url: '/app/tickets/tkt1',
         sessionId: 'sess1',
       });
     });

@@ -57,6 +57,50 @@ function toPublicTicket(doc) {
   return { id: _id.toHexString ? _id.toHexString() : String(_id), ...rest };
 }
 
+/**
+ * Validate a set of assignee ids for a team: every id must be a user id and a
+ * member or admin of the team. Shared by `tickets.create` and `tickets.assign`.
+ */
+async function requireTeamAssignees(teamId, assignedToUserIds) {
+  if (!Array.isArray(assignedToUserIds) || !assignedToUserIds.every((id) => isValidId(id))) {
+    throw new Meteor.Error('validation-error', 'assignedToUserIds must be an array of user ids');
+  }
+  const team = await Teams.findOneAsync(new Mongo.ObjectID(teamId));
+  if (!team) throw new Meteor.Error('forbidden', 'Team not found');
+  const allMembers = new Set([...(team.members ?? []), ...(team.admins ?? [])]);
+  if (!assignedToUserIds.every((uid) => allMembers.has(uid))) {
+    throw new Meteor.Error('validation-error', 'All assignees must be team members');
+  }
+}
+
+/**
+ * Tell newly added assignees they were given a ticket, skipping the requester.
+ * createNotification also fires push, so there's a single delivery per user.
+ */
+async function notifyNewAssignees(requesterId, assigneeIds, { ticketId, ticketTitle, teamId }) {
+  const recipients = assigneeIds.filter((uid) => uid !== requesterId);
+  if (recipients.length === 0) return;
+  const requesterName = await userDisplayName(requesterId);
+  await Promise.all(
+    recipients.map((uid) =>
+      createNotification({
+        userId: uid,
+        title: 'Huddle',
+        body: `${requesterName} assigned you "${ticketTitle}"`,
+        data: {
+          type: 'ticket-assigned',
+          assignedBy: requesterId,
+          assignedByName: requesterName,
+          ticketId,
+          ticketTitle,
+          teamId,
+          url: `/app/tickets`,
+        },
+      }).catch((err) => console.error(`[ticket] notify assignee ${uid} failed:`, err))
+    )
+  );
+}
+
 Meteor.methods({
   /** List non-deleted tickets for a team (newest first). */
   async 'tickets.list'({ teamId } = {}) {
@@ -78,8 +122,11 @@ Meteor.methods({
     return toPublicTicket(ticket);
   },
 
-  /** Create a ticket. Mirrors TicketService.create (creator auto-assigned). */
-  async 'tickets.create'({ teamId, title, description, github, priority } = {}) {
+  /**
+   * Create a ticket. Mirrors TicketService.create: the creator is assigned
+   * unless `assignedToUserIds` names the team members to assign instead.
+   */
+  async 'tickets.create'({ teamId, title, description, github, priority, assignedToUserIds } = {}) {
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     await requireTeamMembership(userId, teamId);
@@ -90,6 +137,8 @@ Meteor.methods({
     if (priority !== undefined && !clearPriority && !ALL_PRIORITIES.includes(priority)) {
       throw new Meteor.Error('validation-error', `priority must be one of ${ALL_PRIORITIES.join(', ')}, or none`);
     }
+    const assignees = assignedToUserIds === undefined ? [identity.userId] : assignedToUserIds;
+    if (assignedToUserIds !== undefined) await requireTeamAssignees(teamId, assignees);
     const _id = await Tickets.insertAsync({
       teamId,
       title: title.trim(),
@@ -98,12 +147,18 @@ Meteor.methods({
       status: 'open',
       ...(priority && !clearPriority ? { priority } : {}),
       createdBy: identity.userId,
-      assignedTo: [identity.userId],
+      assignedTo: assignees,
       createdAt: new Date(),
     });
     const doc = await Tickets.findOneAsync(_id);
+    const createdTicketId = doc._id.toHexString();
     await emitTicketActivity(identity.userId, teamId, 'ticket.created', {
-      ticketId: doc._id.toHexString(),
+      ticketId: createdTicketId,
+      ticketTitle: doc.title,
+      teamId,
+    });
+    await notifyNewAssignees(identity.userId, assignees, {
+      ticketId: createdTicketId,
       ticketTitle: doc.title,
       teamId,
     });
@@ -213,17 +268,7 @@ Meteor.methods({
     const identity = await requireIdentity(this);
     const userId = identity.userId;
     const ticket = await requireTicketPermission(userId, ticketId, 'assign');
-    if (!Array.isArray(assignedToUserIds) || !assignedToUserIds.every((id) => isValidId(id))) {
-      throw new Meteor.Error('validation-error', 'assignedToUserIds must be an array of user ids');
-    }
-    const team = await Teams.findOneAsync(new Mongo.ObjectID(ticket.teamId));
-    if (!team) throw new Meteor.Error('forbidden', 'Team not found');
-    const allMembers = [...new Set([...(team.members ?? []), ...(team.admins ?? [])])];
-    for (const uid of assignedToUserIds) {
-      if (!allMembers.includes(uid)) {
-        throw new Meteor.Error('validation-error', 'All assignees must be team members');
-      }
-    }
+    await requireTeamAssignees(ticket.teamId, assignedToUserIds);
 
     // Newly added assignees (not previously assigned) — notify these only.
     const previousAssignees = ticket.assignedTo ?? [];
@@ -255,31 +300,11 @@ Meteor.methods({
       assigneeName: assigneeNames || undefined,
     });
 
-    // Notify newly added assignees (skip the requester). createNotification
-    // also fires push, so there's a single delivery per user.
-    const requesterName = await userDisplayName(identity.userId);
-    await Promise.all(
-      newAssignees
-        .filter((uid) => uid !== identity.userId)
-        .map((uid) =>
-          createNotification({
-            userId: uid,
-            title: 'Huddle',
-            body: `${requesterName} assigned you "${ticket.title}"`,
-            data: {
-              type: 'ticket-assigned',
-              assignedBy: identity.userId,
-              assignedByName: requesterName,
-              ticketId,
-              ticketTitle: ticket.title,
-              teamId: ticket.teamId,
-              url: `/app/tickets/${ticketId}`,
-            },
-          }).catch((err) =>
-            console.error(`[ticket] notify assignee ${uid} failed:`, err)
-          )
-        )
-    );
+    await notifyNewAssignees(identity.userId, newAssignees, {
+      ticketId,
+      ticketTitle: ticket.title,
+      teamId: ticket.teamId,
+    });
 
     return toPublicTicket(updated);
   },

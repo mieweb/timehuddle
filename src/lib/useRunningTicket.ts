@@ -2,7 +2,9 @@
  * useRunningTicket — which ticket (if any) has an open timer for the current user.
  *
  * Shared by ClockPage and TicketsPage so there is one fetch path, one DDP
- * subscription, and one clear-on-error/token-missing behavior.
+ * subscription, and one clear-on-error/token-missing behavior. Source-aware
+ * since M3: the running ticket may be a Redmine issue, which links out rather
+ * than to an in-app route.
  *
  * Uses timers.getRunning + getDay(session.date) rather than getToday(): an open
  * timer keeps its original work-item date and can still be running after
@@ -10,10 +12,19 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 
-import { timerApi } from './api';
+import { timerApi, type TicketSourceId } from './api';
 import { getDdpClient } from './ddp';
 
-export type RunningTicket = { id: string; title: string; sessionId: string };
+export type RunningTicket = {
+  /** `${source}:${id}` — row identity, matching a unified ticket's `key`. */
+  key: string;
+  source: TicketSourceId;
+  id: string;
+  title: string;
+  /** In-app route for a Huddle ticket, the instance URL for a Redmine issue. */
+  url: string | null;
+  sessionId: string;
+};
 
 export function useRunningTicket(enabled: boolean): RunningTicket | null {
   const [running, setRunning] = useState<RunningTicket | null>(null);
@@ -35,9 +46,13 @@ export function useRunningTicket(enabled: boolean): RunningTicket | null {
         setRunning(null);
         return;
       }
+      const { source, ticketId, displayTitle, displayUrl } = dayEntry.entry;
       setRunning({
-        id: dayEntry.entry.ticketId,
-        title: dayEntry.entry.displayTitle || dayEntry.entry.ticketId,
+        key: `${source}:${ticketId}`,
+        source,
+        id: ticketId,
+        title: displayTitle || ticketId,
+        url: displayUrl,
         sessionId: session.id,
       });
     } catch {
