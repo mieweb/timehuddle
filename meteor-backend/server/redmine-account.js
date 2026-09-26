@@ -10,7 +10,7 @@ import { Meteor } from 'meteor/meteor';
 
 import { RedmineLinks } from './collections';
 import { linkedRedmineBaseUrl } from './redmine-client';
-import { decryptSecret, envKey } from './redmine-crypto';
+import { decryptStoredSecret, encryptSecret, envKey } from './redmine-crypto';
 
 /**
  * The caller's Redmine account — `{ apiKey, baseUrl }`, the decrypted personal
@@ -22,10 +22,19 @@ import { decryptSecret, envKey } from './redmine-crypto';
 export async function findRedmineAccount(userId) {
   const link = await RedmineLinks.findOneAsync({ userId });
   if (!link) return null;
-  return {
-    apiKey: decryptSecret(link.apiKey, envKey()),
-    baseUrl: linkedRedmineBaseUrl(link.baseUrl),
-  };
+
+  const { secret, rotated } = decryptStoredSecret(link.apiKey);
+  // A key that only opened under the previous encryption key is rewritten under
+  // the current one, once, here — decrypting it successfully *is* the "next
+  // successful use". Fire-and-forget: a read path must not fail because a
+  // re-encrypt did, and the next read would simply try again.
+  if (rotated) {
+    RedmineLinks.updateAsync({ userId }, { $set: { apiKey: encryptSecret(secret, envKey()) } }).catch(
+      (error) => console.error('[redmine] failed to re-encrypt a rotated API key:', error),
+    );
+  }
+
+  return { apiKey: secret, baseUrl: linkedRedmineBaseUrl(link.baseUrl) };
 }
 
 /**

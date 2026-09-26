@@ -153,30 +153,41 @@ The API key is already encrypted at rest with AES-256-GCM and never sent to the 
 
 **Keep PHI out of logs**
 
-- [ ] Review the request-failure logging added in `e0bb6b6`. Log the method, the path **without its query string**, the status code and the duration. Never log the full URL, the response body or request headers
-- [ ] Never log search queries. A user may type a patient's name into the search box
-- [ ] Keep the key out of every URL, including the Atom feed. Only send it in the `X-Redmine-API-Key` header
+- [x] Review the request-failure logging added in `e0bb6b6`. Log the method, the path **without its query string**, the status code and the duration. Never log the full URL, the response body or request headers
+- [x] Never log search queries. A user may type a patient's name into the search box
+- [x] Keep the key out of every URL, including the Atom feed. Only send it in the `X-Redmine-API-Key` header
 
 **Where requests can go**
 
-- [ ] Set `redirect: 'manual'` on every Redmine request. Node's fetch keeps custom headers such as `X-Redmine-API-Key` when following a redirect to another host, so a redirect could hand the key to that host. Treat a 3xx as an error
-- [ ] The per-user Redmine URL from `512ef7d` lets a user make the server call any address, including internal hosts and cloud metadata endpoints. In production, only allow hosts listed in a `REDMINE_ALLOWED_HOSTS` env var. Dev keeps today's behaviour
-- [ ] Require `https://` in production and keep TLS certificate checks on
+- [x] Set `redirect: 'manual'` on every Redmine request. Node's fetch keeps custom headers such as `X-Redmine-API-Key` when following a redirect to another host, so a redirect could hand the key to that host. Treat a 3xx as an error
+- [x] The per-user Redmine URL from `512ef7d` lets a user make the server call any address, including internal hosts and cloud metadata endpoints. In production, only allow hosts listed in a `REDMINE_ALLOWED_HOSTS` env var. Dev keeps today's behaviour
+- [x] Require `https://` in production and keep TLS certificate checks on
 
 **Key handling**
 
-- [ ] Prefix new ciphertexts with a version, e.g. `v1:iv:tag:data`. Accept unprefixed values as the old version, so existing links keep working
-- [ ] Support a previous key (`REDMINE_ENCRYPTION_KEY_PREVIOUS`) for decrypting during a rotation, and re-encrypt with the current key on the next successful use
+- [x] Prefix new ciphertexts with a version, e.g. `v1:iv:tag:data`. Accept unprefixed values as the old version, so existing links keep working
+- [x] Support a previous key (`REDMINE_ENCRYPTION_KEY_PREVIOUS`) for decrypting during a rotation, and re-encrypt with the current key on the next successful use
 
 **Abuse limits**
 
-- [ ] Add a `DDPRateLimiter` rule for `redmine.issues.search`: 20 calls per 10 seconds per user
-- [ ] Add a rule for `redmine.issues.relevant`: 10 calls per minute per user (the 90-second cache absorbs normal use)
+- [x] ~~Add a `DDPRateLimiter` rule for~~ Limit `redmine.issues.search`: 20 calls per 10 seconds per user
+- [x] Add a rule for `redmine.issues.relevant`: 10 calls per minute per user (the 90-second cache absorbs normal use)
 
 **Data minimisation**
 
-- [ ] List and search responses only ever contain `SlimIssue` fields. Add a test that fails if `description`, `journals` or `custom_fields` appear
-- [ ] Nothing Redmine returns is written to Mongo, apart from the ids in `RedmineIssuePrefs`
+- [x] List and search responses only ever contain `SlimIssue` fields. Add a test that fails if `description`, `journals` or `custom_fields` appear
+- [x] Nothing Redmine returns is written to Mongo, apart from the ids in `RedmineIssuePrefs`
+
+**What changed on the way in**
+
+- **`DDPRateLimiter` would have guarded a door this app does not use.** Meteor applies it in `_livedata_method`, the DDP *message* handler. Every call from TimeHuddle arrives through meteor-wormhole's REST bridge, which invokes the method with `Meteor.callAsync` on the server — a path that never reaches `_livedata_method`. A rule would have looked like a limit and enforced nothing. The limit is therefore called from inside the two methods (`rate-limit.js`), at the agreed rates, which covers REST, MCP and DDP with one mechanism and cannot be sidestepped by arriving a different way. The error code is still `too-many-requests`, as the contract promises. The counter is in-process, which is honest for a single Meteor process under PM2 and is the thing to revisit if this is ever scaled horizontally.
+- **The failure log moved from `toRedmineMeteorError` to `redmineRequest`.** The error mapper never knew the method, the path or the duration, so it could not have logged them; the request function knows all four and is also the only place that can log a *network* failure, which never reaches the mapper at all. `toRedmineMeteorError` now only maps. The path is logged with its query string cut off, which is what keeps a search term — possibly a patient's name — out of the log, and there is a test asserting exactly which six keys the log line carries.
+- **`REDMINE_BASE_URL`'s own host is always allowed** without appearing in `REDMINE_ALLOWED_HOSTS`. It is the deployment's own configuration rather than user input, and requiring it to be repeated would have broken every existing production install the moment this shipped.
+- **The host check runs at link time as well as per request.** A user whose URL cannot be served is told while they are looking at the field, instead of meeting "Redmine is unreachable" on the Tickets page later.
+- **Redirects are refused before the body is read.** A 3xx is turned into an error carrying `redirected: true` without calling `readErrorMessages`, so a redirect cannot be used to make the server read a body from an unexpected host either.
+- **A rotated key is re-encrypted on decrypt, not on the next Redmine call.** Decrypting successfully *is* a successful use of the previous key, and doing it there means one write per user per rotation in one place (`findRedmineAccount`) rather than a hook on every call site. The write is fire-and-forget: a read path must not fail because a re-encrypt did, and the next read simply tries again.
+- **The data-minimisation test asserts the exhaustive key list of `toIssue`**, not the absence of three named fields. Every list and search response is built from that one shape, so a future field addition has to change the test deliberately — whereas a test that only banned `description`, `journals` and `custom_fields` would have said nothing about `attachments` or `watchers`.
+- **New env vars are documented where they are set**: `REDMINE_ALLOWED_HOSTS` and `REDMINE_ENCRYPTION_KEY_PREVIOUS` in both `docker-compose.yml` and `ecosystem.config.cjs`.
 
 ## Task A5: Remove the `all` scope, and backend tests
 

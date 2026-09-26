@@ -122,8 +122,19 @@ services:
       # REDMINE_ALLOW_CUSTOM_URL: dev/test only. When `true`, Settings lets each user
       #   link a Redmine URL of their own (REDMINE_BASE_URL becomes the default). The
       #   server fetches whatever URL is linked, so never enable it in production.
+      # REDMINE_ALLOWED_HOSTS: comma-separated `host[:port]` list the server may send
+      #   Redmine requests to, enforced only when NODE_ENV=production. REDMINE_BASE_URL's
+      #   own host is always allowed without being listed. This is the belt to
+      #   REDMINE_ALLOW_CUSTOM_URL's braces: if the flag is ever on in production, a
+      #   signed-in user could otherwise aim server-side requests at an internal
+      #   service or a cloud metadata endpoint. https is also required in production.
+      # REDMINE_ENCRYPTION_KEY_PREVIOUS: set during a rotation of REDMINE_ENCRYPTION_KEY.
+      #   Keys that still decrypt under the old secret are re-encrypted under the new one
+      #   on next use, so a rotation does not send every user back to Settings. Remove it
+      #   once no key decrypts with it any more.
       - REDMINE_BASE_URL=${REDMINE_BASE_URL:?set REDMINE_BASE_URL to your external Redmine URL (no trailing slash)}
       - REDMINE_ALLOW_CUSTOM_URL=${REDMINE_ALLOW_CUSTOM_URL:-false}
+      - REDMINE_ALLOWED_HOSTS=${REDMINE_ALLOWED_HOSTS:-}
     env_file:
       - path: ./meteor-backend/.env.local
         required: false

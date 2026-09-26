@@ -24,6 +24,7 @@ import {
   linkedRedmineBaseUrl,
   normalizeRedmineUrl,
   optionalRedmineBaseUrl,
+  redmineUrlRefusal,
 } from './redmine-client';
 import { encryptSecret, envKey } from './redmine-crypto';
 import { findRedmineAccount } from './redmine-account';
@@ -47,17 +48,13 @@ const DUPLICATE_KEY_ERROR_CODE = 11000;
  * collapses to "unreachable". Timeouts keep the `unreachable` code, so callers
  * that branch on it need no change.
  *
- * The real cause is logged first, because the user-facing message hides it.
- * Only the error's name, HTTP status and network code are logged — never the
- * key, which travels in a request header none of these fields carry.
+ * Nothing is logged here. The failure is logged where it happens, in
+ * `redmineRequest`, which knows the method, the path, the status and the
+ * duration — and knows to log the path without its query string, because a query
+ * string can carry a search term and a user may type a patient's name into the
+ * search box.
  */
 export function toRedmineMeteorError(err) {
-  console.warn('[redmine] request failed', {
-    name: err?.name ?? null,
-    status: err?.status ?? null,
-    code: err?.cause?.code ?? null,
-  });
-
   if (err?.status === 401 || err?.status === 403) {
     return new Meteor.Error('invalid-key', 'Your Redmine API key was rejected.');
   }
@@ -109,6 +106,11 @@ function requestedBaseUrl(rawBaseUrl) {
   if (!baseUrl) {
     throw new Meteor.Error('bad-request', 'Enter the Redmine URL as http(s)://host[/path].');
   }
+  // Refused at link time as well as per request, so a user who cannot be served
+  // is told why while they are looking at the field, rather than meeting
+  // "Redmine is unreachable" on the Tickets page later.
+  const refusal = redmineUrlRefusal(baseUrl);
+  if (refusal) throw new Meteor.Error('bad-request', `${refusal}.`);
   return baseUrl;
 }
 

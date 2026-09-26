@@ -24,6 +24,7 @@ import { Mongo } from 'meteor/mongo';
 import { requireIdentity } from './auth-bridge';
 import { findRedmineAccount, requireRedmineAccount } from './redmine-account';
 import { createUserTtlCache } from './redmine-cache';
+import { createRateLimiter } from './rate-limit';
 import {
   getCurrentUser,
   getIssue,
@@ -77,6 +78,30 @@ const projectMembersCache = createUserTtlCache(5 * 60 * 1000);
  */
 const MAX_PROJECTS_FOR_MEMBERS = 25;
 const MEMBERSHIP_CONCURRENCY = 5;
+
+/**
+ * What one user may ask of Redmine through these methods.
+ *
+ * Search is generous because it is keystroke-driven and already waits for a pause
+ * in typing; the relevant list is tight because its own 90-second cache absorbs
+ * ordinary use, so anything past this rate is a client looping, not a person
+ * working. Applied in the method rather than through `DDPRateLimiter` — see
+ * rate-limit.js for why that would guard a door this app does not use.
+ */
+const searchLimiter = createRateLimiter({ limit: 20, windowMs: 10 * 1000 });
+const relevantLimiter = createRateLimiter({ limit: 10, windowMs: 60 * 1000 });
+
+/** Count this call against `limiter`, or refuse it with `too-many-requests`. */
+function enforceLimit(limiter, userId) {
+  const { allowed, retryAfterMs } = limiter.check(userId);
+  if (!allowed) {
+    throw new Meteor.Error(
+      'too-many-requests',
+      'Too many Redmine requests. Try again in a moment.',
+      { timeToReset: retryAfterMs },
+    );
+  }
+}
 
 Meteor.startup(async () => {
   try {
@@ -235,6 +260,7 @@ Meteor.methods({
    */
   async 'redmine.issues.relevant'({ includeDismissed = false } = {}) {
     const { userId } = await requireIdentity(this);
+    enforceLimit(relevantLimiter, userId);
 
     const account = await findRedmineAccount(userId);
     if (!account) {
@@ -287,6 +313,7 @@ Meteor.methods({
    */
   async 'redmine.issues.search'({ query } = {}) {
     const { userId } = await requireIdentity(this);
+    enforceLimit(searchLimiter, userId);
     if (typeof query !== 'string') {
       throw new Meteor.Error('bad-request', 'A search query is required.');
     }

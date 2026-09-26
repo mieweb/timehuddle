@@ -91,6 +91,67 @@ export function linkedRedmineBaseUrl(storedUrl) {
   return (customRedmineUrlAllowed() && storedUrl) || optionalRedmineBaseUrl();
 }
 
+/** Whether this process is a production deployment (what `Meteor.isProduction` reads). */
+function inProduction() {
+  return process.env.NODE_ENV === 'production';
+}
+
+/**
+ * Hosts a production deployment may send Redmine requests to, from
+ * `REDMINE_ALLOWED_HOSTS` (comma-separated `host[:port]`).
+ *
+ * The server's own `REDMINE_BASE_URL` is always allowed without being listed: it
+ * is the deployment's own configuration, not user input, and requiring it to be
+ * repeated here would break every existing install on upgrade.
+ */
+export function redmineAllowedHosts() {
+  const configured = (process.env.REDMINE_ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+
+  const own = optionalRedmineBaseUrl();
+  if (own) {
+    try {
+      configured.push(new URL(own).host.toLowerCase());
+    } catch {
+      /* an unparseable REDMINE_BASE_URL allows nothing extra */
+    }
+  }
+  return configured;
+}
+
+/**
+ * Why `baseUrl` may not be used, or null when it may.
+ *
+ * `REDMINE_ALLOW_CUSTOM_URL` lets a user store a Redmine URL of their own, and
+ * the server then fetches it — which is a signed-in user choosing an address the
+ * server will connect to, including internal hosts and cloud metadata endpoints.
+ * The flag is meant for dev only, so this is the belt to its braces: in
+ * production the host must be one the deployment named, and the scheme must be
+ * `https`, whatever any stored row says.
+ *
+ * Development is left alone deliberately. The point of the flag there is pointing
+ * at a Redmine on localhost over plain HTTP, and an allowlist would only be
+ * something to switch off.
+ */
+export function redmineUrlRefusal(baseUrl) {
+  if (!inProduction()) return null;
+  if (typeof baseUrl !== 'string' || !baseUrl) return 'No Redmine base URL is configured';
+
+  let url;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return 'That is not a usable Redmine URL';
+  }
+  if (url.protocol !== 'https:') return 'Redmine must be reached over https';
+  if (!redmineAllowedHosts().includes(url.host.toLowerCase())) {
+    return 'That Redmine host is not allowed by this deployment';
+  }
+  return null;
+}
+
 /**
  * Redmine's validation messages from a failed response body
  * (`{ errors: ["Subject cannot be blank"] }` on a 422), or an empty list.
@@ -132,29 +193,74 @@ async function redmineRequest(
   { account, method = 'GET', body, timeoutMs = DEFAULT_TIMEOUT_MS, accept = 'application/json' } = {},
 ) {
   if (!account?.baseUrl) throw new Error('No Redmine base URL is configured');
-  const res = await fetch(`${account.baseUrl}${path}`, {
-    method,
-    headers: {
-      'X-Redmine-API-Key': account.apiKey,
-      Accept: accept,
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-    // Bound the request so an unreachable/slow Redmine can't hang `redmine.connect`
-    // (and the Settings UI) for the full default socket timeout.
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  const refusal = redmineUrlRefusal(account.baseUrl);
+  if (refusal) throw new Error(refusal);
+
+  const startedAt = Date.now();
+  let res;
+  try {
+    res = await fetch(`${account.baseUrl}${path}`, {
+      method,
+      headers: {
+        'X-Redmine-API-Key': account.apiKey,
+        Accept: accept,
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      // Bound the request so an unreachable/slow Redmine can't hang `redmine.connect`
+      // (and the Settings UI) for the full default socket timeout.
+      signal: AbortSignal.timeout(timeoutMs),
+      // Never follow a redirect. Node's fetch keeps custom headers across a
+      // cross-origin redirect, so a Redmine (or anything answering for its host)
+      // could point us at a server of its choosing and be handed the user's
+      // personal API key in the `X-Redmine-API-Key` header.
+      redirect: 'manual',
+    });
+  } catch (err) {
+    logRequestFailure({ method, path, startedAt, err });
+    throw err;
+  }
+
+  if (res.status >= 300 && res.status < 400) {
+    const err = new Error(`Redmine redirected (${res.status})`);
+    err.status = res.status;
+    err.redirected = true;
+    logRequestFailure({ method, path, startedAt, err, status: res.status });
+    throw err;
+  }
 
   if (!res.ok) {
     const err = new Error(`Redmine request failed (${res.status})`);
     err.status = res.status;
     err.errors = await readErrorMessages(res);
+    logRequestFailure({ method, path, startedAt, err, status: res.status });
     throw err;
   }
 
   const text = await res.text();
   if (accept !== 'application/json') return text;
   return text ? JSON.parse(text) : null;
+}
+
+/**
+ * Log why a Redmine request failed, in enough detail to debug and no more.
+ *
+ * Deliberately **not** logged: the query string, the response body, and the
+ * request headers. A query string carries search terms, and a user may type a
+ * patient's name into the search box; a response body carries issue subjects and
+ * descriptions; the headers carry the API key. The path without its query is
+ * enough to tell a broken endpoint from a broken instance, and the duration is
+ * what tells our own timeout apart from a refusal.
+ */
+function logRequestFailure({ method, path, startedAt, err, status = null }) {
+  console.warn('[redmine] request failed', {
+    method,
+    path: path.split('?')[0],
+    status,
+    name: err?.name ?? null,
+    code: err?.cause?.code ?? null,
+    durationMs: Date.now() - startedAt,
+  });
 }
 
 /**
