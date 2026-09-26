@@ -1062,6 +1062,21 @@ Meteor.startup(async() => {
     },
   });
 
+  Wormhole.expose('redmine.issues.search', {
+    description:
+      'Find Redmine issues by number, pasted link, @assignee or words matched against issue titles only (max 25)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: "What the user typed: '1234', '#1234', a Redmine issue URL, '@name', or words",
+        },
+      },
+      required: ['query'],
+    },
+  });
+
   Wormhole.expose('redmine.prefs.set', {
     description:
       "Pin, hide or clear one Redmine issue in the caller's own suggestions (never touches Redmine)",

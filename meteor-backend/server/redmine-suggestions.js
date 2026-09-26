@@ -24,8 +24,17 @@ import { Mongo } from 'meteor/mongo';
 import { requireIdentity } from './auth-bridge';
 import { findRedmineAccount, requireRedmineAccount } from './redmine-account';
 import { createUserTtlCache } from './redmine-cache';
-import { getCurrentUser, getIssue, listIssuesByIds, optionalRedmineBaseUrl } from './redmine-client';
-import { toIssue } from './redmine-issues';
+import {
+  getCurrentUser,
+  getIssue,
+  listIssuesAssignedTo,
+  listIssuesByIds,
+  listProjectMemberships,
+  listProjects,
+  optionalRedmineBaseUrl,
+  searchIssues,
+} from './redmine-client';
+import { toAssignableUsers, toIssue } from './redmine-issues';
 import {
   DISMISSED,
   PINNED,
@@ -35,6 +44,7 @@ import {
   setIssuePref,
 } from './redmine-prefs';
 import { buildRelevantIssues } from './redmine-relevance';
+import { MAX_SEARCH_RESULTS, matchAssignees, parseRedmineQuery } from './redmine-query';
 import { RedmineLinks, Timers, WorkItems, isValidId } from './collections';
 import { toRedmineMeteorError } from './redmine';
 import { REDMINE, isRedmineIssueId } from './ticket-refs';
@@ -50,6 +60,24 @@ const relevantCache = createUserTtlCache(90 * 1000);
 /** The caller's own Redmine user id, for the activity feed. See below. */
 const redmineUserIdCache = createUserTtlCache(60 * 60 * 1000);
 
+/**
+ * Everyone the caller shares a project with, for the `@name` search. Held for
+ * five minutes, like the other membership reads: project rosters change on the
+ * scale of weeks, and this is the one lookup here that costs a request per
+ * project.
+ */
+const projectMembersCache = createUserTtlCache(5 * 60 * 1000);
+
+/**
+ * How many of the caller's projects the `@name` lookup will walk, and how many at
+ * a time. Redmine has no "users I can see" endpoint — `/users.json` is admin-only
+ * — so the roster has to be assembled from memberships, one request per project.
+ * Both numbers are there to keep a user who belongs to a hundred projects from
+ * turning one keystroke into a hundred simultaneous requests.
+ */
+const MAX_PROJECTS_FOR_MEMBERS = 25;
+const MEMBERSHIP_CONCURRENCY = 5;
+
 Meteor.startup(async () => {
   try {
     await ensureRedmineIssuePrefIndexes();
@@ -57,6 +85,72 @@ Meteor.startup(async () => {
     console.error('[redmine] failed to create issue-preference indexes:', error);
   }
 });
+
+/** Map `items` through `fn`, at most `size` at a time, keeping the results in order. */
+async function mapInChunks(items, size, fn) {
+  const results = [];
+  for (let start = 0; start < items.length; start += size) {
+    results.push(...(await Promise.all(items.slice(start, start + size).map(fn))));
+  }
+  return results;
+}
+
+/**
+ * The users the caller shares a project with — the only roster a non-admin key
+ * can see, and what an `@name` query is matched against.
+ *
+ * A project whose memberships cannot be read is skipped rather than failing the
+ * search: a roster missing one project still answers most `@name` queries, and a
+ * name that turns out to be missing is reported as "no match", which is the same
+ * thing the user would be told if that colleague had left.
+ */
+function projectMembersFor(userId, account) {
+  return projectMembersCache.get(userId, 'members', async () => {
+    const projects = (await listProjects(account)).slice(0, MAX_PROJECTS_FOR_MEMBERS);
+    const memberships = await mapInChunks(projects, MEMBERSHIP_CONCURRENCY, (project) =>
+      listProjectMemberships(account, project.id).catch(() => []),
+    );
+    return toAssignableUsers(memberships.flat());
+  });
+}
+
+/**
+ * Run exactly one bounded Redmine query for a parsed search, and shape the result.
+ *
+ * `value === null` means the query was not worth asking — too short, or a link to
+ * an instance that is not the caller's — so nothing is sent and the empty list is
+ * returned with the `kind` that was read, for the UI to explain.
+ *
+ * An issue number for an issue the caller cannot see answers the empty list, the
+ * same as a number that does not exist. Telling those two apart would confirm the
+ * existence of an issue to someone Redmine has decided must not see it.
+ */
+async function runSearch(userId, account, kind, value) {
+  if (value === null) return [];
+
+  if (kind === 'id' || kind === 'url') {
+    const issue = await getIssue(account, value);
+    return issue ? [toIssue(issue)] : [];
+  }
+
+  if (kind === 'assignee') {
+    const matches = matchAssignees(await projectMembersFor(userId, account), value);
+    // Nought or several: the caller is asked to type more of the name rather than
+    // shown one colleague's work under another's name.
+    if (matches.length !== 1) return [];
+    const raw = await listIssuesAssignedTo(account, matches[0].id, { limit: MAX_SEARCH_RESULTS });
+    return raw.map(toIssue);
+  }
+
+  const ids = await searchIssues(account, value, { limit: MAX_SEARCH_RESULTS });
+  if (!ids.length) return [];
+
+  // Redmine's own search order is the useful one, and `/issues.json` does not keep
+  // it, so the slim issues are put back into the order the ids arrived in.
+  const raw = await listIssuesByIds(account, ids.slice(0, MAX_SEARCH_RESULTS));
+  const byId = new Map(raw.map((issue) => [issue.id, toIssue(issue)]));
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
 
 /**
  * The Redmine issue the caller is timing right now, if any — the only signal that
@@ -176,6 +270,43 @@ Meteor.methods({
         throw toRedmineMeteorError(err);
       }
     });
+  },
+
+  /**
+   * Find issues the caller named (A2).
+   *
+   * One bounded Redmine call per search, chosen by what they typed — an issue
+   * number, a pasted link, `@someone`, or words matched against issue **titles**
+   * only. At most 25 results, and never a match drawn from a description or a
+   * note.
+   *
+   * Dismissed issues are **not** filtered out: hiding a suggestion means "stop
+   * offering me this", not "hide it from me when I go looking for it".
+   *
+   * The query itself is never logged. A user may type a patient's name here.
+   */
+  async 'redmine.issues.search'({ query } = {}) {
+    const { userId } = await requireIdentity(this);
+    if (typeof query !== 'string') {
+      throw new Meteor.Error('bad-request', 'A search query is required.');
+    }
+
+    const account = await findRedmineAccount(userId);
+    if (!account) {
+      return { connected: false, baseUrl: optionalRedmineBaseUrl(), kind: 'text', issues: [] };
+    }
+
+    const { kind, value } = parseRedmineQuery(query, account.baseUrl);
+    try {
+      return {
+        connected: true,
+        baseUrl: account.baseUrl,
+        kind,
+        issues: await runSearch(userId, account, kind, value),
+      };
+    } catch (err) {
+      throw toRedmineMeteorError(err);
+    }
   },
 
   /**

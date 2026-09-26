@@ -131,12 +131,6 @@ export function toIssueDetail(issue) {
  * @param {{trackers: unknown, memberships: unknown, priorities: unknown}} raw
  */
 export function toFormOptions({ trackers, memberships, priorities }) {
-  const assigneesById = new Map();
-  for (const membership of Array.isArray(memberships) ? memberships : []) {
-    const user = toNamed(membership?.user);
-    if (user && !assigneesById.has(user.id)) assigneesById.set(user.id, user);
-  }
-
   const priorityList = Array.isArray(priorities)
     ? priorities
         .filter((p) => p && p.id != null)
@@ -145,10 +139,28 @@ export function toFormOptions({ trackers, memberships, priorities }) {
 
   return {
     trackers: toNamedList(trackers),
-    assignees: [...assigneesById.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    assignees: toAssignableUsers(memberships),
     priorities: priorityList,
     defaultPriorityId: priorityList.find((p) => p.isDefault)?.id ?? null,
   };
+}
+
+/**
+ * The **users** in a memberships list, deduplicated and sorted by name.
+ *
+ * Group memberships are skipped: group assignment depends on an instance setting
+ * and is out of scope. A user holding several roles appears once.
+ *
+ * Shared by the M6 create/edit form and MVP2's `@name` search, which needs the
+ * same answer across every project the caller belongs to.
+ */
+export function toAssignableUsers(memberships) {
+  const byId = new Map();
+  for (const membership of Array.isArray(memberships) ? memberships : []) {
+    const user = toNamed(membership?.user);
+    if (user && !byId.has(user.id)) byId.set(user.id, user);
+  }
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**

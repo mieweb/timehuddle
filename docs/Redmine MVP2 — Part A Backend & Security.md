@@ -87,13 +87,22 @@ The server decides what kind of query it got, then makes exactly one bounded Red
 | Assignee | `@alex` | Match the name against members of the user's own projects (the cached project-members lookup), then `/issues.json?assigned_to_id=<id>&status_id=open&limit=25` |
 | Plain text | `login timeout` | `/search.json?q=…&issues=1&titles_only=1&open_issues=1&limit=25`, then `listIssuesByIds` for the slim fields |
 
-- [ ] Write a pure `parseRedmineQuery(query, baseUrl)` that returns `{ kind, value }`, and unit-test it
-- [ ] Reject queries under 3 characters, except issue numbers
-- [ ] Plain text: always use `titles_only=1`, so matches never come from descriptions or notes
-- [ ] Plain text: throw away the `description` excerpt that `/search.json` returns. Resolve the result ids through `listIssuesByIds`, so search returns the same `SlimIssue` shape as everything else
-- [ ] Assignee: if the name matches more than one person, return an empty list with `kind: 'assignee'`. Part B then asks the user to type more of the name. Never fall back to a Redmine-wide user lookup, because `/users.json` is admin-only
-- [ ] `#id` for an issue the user cannot see: return an empty list, the same as an issue that does not exist, so the result reveals nothing
-- [ ] Search results **include** dismissed issues. Dismissing only affects suggestions (see Task A3)
+- [x] Write a pure `parseRedmineQuery(query, baseUrl)` that returns `{ kind, value }`, and unit-test it
+- [x] Reject queries under 3 characters, except issue numbers
+- [x] Plain text: always use `titles_only=1`, so matches never come from descriptions or notes
+- [x] Plain text: throw away the `description` excerpt that `/search.json` returns. Resolve the result ids through `listIssuesByIds`, so search returns the same `SlimIssue` shape as everything else
+- [x] Assignee: if the name matches more than one person, return an empty list with `kind: 'assignee'`. Part B then asks the user to type more of the name. Never fall back to a Redmine-wide user lookup, because `/users.json` is admin-only
+- [x] `#id` for an issue the user cannot see: return an empty list, the same as an issue that does not exist, so the result reveals nothing
+- [x] Search results **include** dismissed issues. Dismissing only affects suggestions (see Task A3)
+
+**What changed on the way in**
+
+- **`searchIssues` returns ids, not results.** Throwing the `description` excerpt away is stated as a rule above, but a rule is easy to forget the next time someone adds a field. The client helper reduces `/search.json` to an array of integers before returning, so the excerpt and the title have nowhere to go and there is no second path for issue text to travel down.
+- **A link to another instance is `{ kind: 'url', value: null }`**, not an error. It stays inside the agreed `kind` values and lets Part B say "that link is not for this Redmine" from the same empty-list response it already handles. A bare `@` reads as `{ kind: 'assignee', value: null }` for the same reason — the user has started an assignee query and has not typed the name yet.
+- **`@name` is matched against project rosters, assembled and cached per user.** Redmine has no "users I can see" endpoint (`/users.json` is admin-only), so the roster is built from the memberships of the caller's own projects. That is one request per project, so it is bounded at **25 projects, 5 at a time**, and held for five minutes: without the bound, one keystroke from someone in a hundred projects would become a hundred simultaneous requests. A project whose memberships cannot be read is skipped rather than failing the search. See the open question below about whether 25 is enough on the enterprise instance.
+- **An exact name wins outright.** `@Alex Kim` resolves to Alex Kim even when an Alex Kimura exists; without that rule the longer name would make the shorter one permanently unsearchable.
+- **Redmine's own search order is preserved.** `/issues.json` does not keep it, so the slim issues are put back into the order the ids arrived in — relevance is the useful order for a search, and it is the server's to keep.
+- **`toAssignableUsers` was lifted out of `toFormOptions`** in `redmine-issues.js`. The M6 create form and the `@name` search need the same answer about a memberships list, and it should not be written twice.
 
 ## Task A3: Pins and dismissals
 
@@ -199,8 +208,9 @@ The `all` scope is what pulled the whole database, so it goes completely rather 
 ## Open questions
 
 - [ ] Which Redmine version is the enterprise instance on? `/search.json` needs 3.3 or later
-- [ ] Does its Atom activity feed accept the API key as a header? If not, the activity signal is dropped for MVP2
+- [ ] Does its Atom activity feed accept the API key as a header? If not, the activity signal is dropped for MVP2. **Nothing in the code needs to change either way**: a 401 on the feed drops that one signal and the list is served `partial`, so this is a question about how good the list is, not about whether it works
 - [ ] Is 14 days the right window for "recent" time entries and activity?
+- [ ] **New.** Do users on the enterprise instance belong to more than 25 projects? That is the bound on the `@name` roster, and a user past it would find colleagues from their least-numbered projects only. Raising it costs one request per project on a cold five-minute cache
 
 ## Out of scope for MVP2
 

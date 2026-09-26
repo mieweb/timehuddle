@@ -337,6 +337,36 @@ export function listIssuesByIds(account, issueIds, { timeoutMs = DEFAULT_TIMEOUT
 }
 
 /**
+ * Search issue **titles** via `GET /search.json`, and return the matching issue
+ * ids and nothing else (MVP2 A2).
+ *
+ * `titles_only=1` is not a nicety: without it Redmine matches descriptions and
+ * notes, which on the enterprise instance is where clinical detail lives, so a
+ * user typing a common word could be handed issues they were only searching
+ * *near*. `open_issues=1` keeps the result to live work.
+ *
+ * Redmine's search result carries a `title` and a `description` excerpt — both
+ * free text, the excerpt drawn from the issue body. Both are dropped here, and
+ * the ids are resolved through `listIssuesByIds`, so a search answers with the
+ * same slim shape as everything else and there is no second path for issue text
+ * to travel down.
+ */
+export async function searchIssues(account, query, { limit = 25, timeoutMs } = {}) {
+  const params = new URLSearchParams({
+    q: query,
+    issues: '1',
+    titles_only: '1',
+    open_issues: '1',
+    limit: String(limit),
+  });
+  const data = await redmineRequest(`/search.json?${params.toString()}`, { account, timeoutMs });
+  return (data?.results ?? [])
+    .filter((result) => result?.type == null || result.type === 'issue')
+    .map((result) => Number(result?.id))
+    .filter((id) => Number.isSafeInteger(id) && id > 0);
+}
+
+/**
  * Create one time entry via `POST /time_entries.json`, attributed to the owner
  * of `account`'s key.
  *
