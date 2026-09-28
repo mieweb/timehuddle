@@ -142,9 +142,6 @@ export default [
       'src/features/inbox/InboxPage.tsx',
       'src/features/notifications/NotificationsPage.tsx',
       'src/features/org/OrganizationChart.tsx',
-      // Hidden file input, but spread as `{...mediaInputProps}` so the
-      // `type="file"` exemption cannot see it statically.
-      'src/features/profile/ProfileMedia.tsx',
       'src/features/profile/ProfilePage.tsx',
       'src/features/profile/UsernameBadge.tsx',
       'src/features/profile/WorkSummaryTags.tsx',

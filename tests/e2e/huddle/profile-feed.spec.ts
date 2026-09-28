@@ -4,8 +4,7 @@
  * Clicking a post author on the Huddle page opens their profile, whose Feed tab
  * renders that person's posts in the selected team through the same
  * `HuddleFeed` as the Huddle page — read-only (no composer), with the same
- * edit/delete permissions, comments and likes. The uploaded-media grid lives on
- * its own Media tab.
+ * edit/delete permissions, comments and likes.
  *
  * Two posts are written through the real composer up front — one by owner1,
  * one by member1 — so each test can check that the feed holds one author's
@@ -71,6 +70,9 @@ test.describe('Profile Feed tab — a person’s Huddle posts', () => {
 
     const profile = new ProfilePage(page);
     await expect(profile.tab('Feed')).toHaveAttribute('aria-selected', 'true');
+    await expect(
+      page.getByRole('tablist', { name: 'Profile sections' }).getByRole('tab'),
+    ).toHaveText(['Feed', 'Work', 'Activity']);
     await expect(profile.feedPost(OWNER_POST)).toBeVisible({ timeout: 15000 });
     await expect(profile.feedPost(MEMBER_POST)).toHaveCount(0);
     for (const card of await profile.feedPosts().all()) {
@@ -135,17 +137,5 @@ test.describe('Profile Feed tab — a person’s Huddle posts', () => {
     await profile.gotoUser(await getUserIdByEmail(TEST_USERS.admin3.email));
     await expect(page.getByText('No posts in this team yet.')).toBeVisible({ timeout: 15000 });
     await expect(profile.feedPosts()).toHaveCount(0);
-  });
-
-  test('the Media tab holds the media grid and Upload on your own profile', async ({ page }) => {
-    await loginAs(page, TEST_USERS.owner1);
-    await selectSharedTestTeam(page);
-
-    const profile = new ProfilePage(page);
-    await profile.gotoUser(ownerId, 'Media');
-    await expect(profile.tab('Media')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('button', { name: 'Upload media to library' })).toBeVisible({
-      timeout: 15000,
-    });
   });
 });

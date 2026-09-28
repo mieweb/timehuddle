@@ -1,3 +1,13 @@
+/**
+ * ProfileMedia — ATTIC. The profile's media library grid (uploaded screenshots
+ * and videos, with an Upload button). It was the profile's Feed tab until #576
+ * gave Feed the person's Huddle posts, then briefly its own Media tab, which was
+ * dropped before release: the grid duplicated what posts already show.
+ *
+ * Kept because the upload path (tus → PulseVault `reserveForLibrary`) and the
+ * lightbox are non-trivial. `mediaApi` / `videoApi` are still live — the Huddle
+ * composer uses them — so restoring this only means importing it again.
+ */
 import { faFileVideo, faUpload } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { Button, Card, Spinner, Text } from '@mieweb/ui';

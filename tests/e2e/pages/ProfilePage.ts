@@ -1,7 +1,7 @@
 import { type Page, type Locator } from '@playwright/test';
 import { BasePage } from './BasePage';
 
-type ProfileTab = 'Feed' | 'Media' | 'Work' | 'Activity';
+type ProfileTab = 'Feed' | 'Work' | 'Activity';
 
 /**
  * ProfilePage - Page object for a person's profile (/app/profile/:userId)
@@ -12,7 +12,7 @@ export class ProfilePage extends BasePage {
   }
 
   /**
-   * Open a profile, optionally deep-linked to a tab (`?tab=media`)
+   * Open a profile, optionally deep-linked to a tab (`?tab=work`)
    */
   async gotoUser(userId: string, tab?: ProfileTab) {
     const query = tab ? `?tab=${tab.toLowerCase()}` : '';
@@ -21,7 +21,7 @@ export class ProfilePage extends BasePage {
   }
 
   /**
-   * A tab in the Feed | Media | Work | Activity rail
+   * A tab in the Feed | Work | Activity rail
    */
   tab(name: ProfileTab): Locator {
     return this.page.getByRole('tab', { name });
